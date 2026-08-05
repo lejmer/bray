@@ -5,7 +5,9 @@ const INDENT: &str = "    ";
 #[derive(Clone, Copy)]
 pub(super) enum BreakKind {
     Required(u8),
-    Optional { space_when_flat: bool },
+    Optional {
+        space_when_flat: bool,
+    },
     Fill {
         space_when_flat: bool,
         continuation_indent: u8,
@@ -124,9 +126,7 @@ impl Renderer<'_> {
                 let flat_space = usize::from(space_when_flat);
 
                 if following_width.is_some_and(|width| {
-                    self.column
-                        .saturating_add(flat_space)
-                        .saturating_add(width)
+                    self.column.saturating_add(flat_space).saturating_add(width)
                         <= self.maximum_width
                 }) {
                     if space_when_flat {
@@ -152,6 +152,16 @@ impl Renderer<'_> {
     }
 
     fn write_newlines_with_indent(&mut self, count: u8, additional_indent: usize) {
+        let count = if let Some(line_start) = self.output.rfind(['\r', '\n']).map(|index| index + 1)
+            && self.output[line_start..].bytes().all(|byte| byte == b' ')
+        {
+            self.output.truncate(line_start);
+
+            count.saturating_sub(1)
+        } else {
+            count
+        };
+
         for _ in 0..count {
             self.output.push_str(self.line_ending);
         }
@@ -272,5 +282,20 @@ mod tests {
             render(&elements, "\r\n", 10, true),
             "call(\r\n    first,\r\n    second\r\n)\r\n"
         );
+    }
+
+    #[test]
+    fn consecutive_required_breaks_do_not_create_whitespace_only_lines() {
+        let elements = [
+            LayoutElement::Text("first".into()),
+            LayoutElement::Indent(1),
+            LayoutElement::Break(BreakKind::Required(1)),
+            LayoutElement::GroupStart,
+            LayoutElement::Break(BreakKind::Required(1)),
+            LayoutElement::Text("second".into()),
+            LayoutElement::GroupEnd,
+        ];
+
+        assert_eq!(render(&elements, "\n", 120, true), "first\n    second\n");
     }
 }

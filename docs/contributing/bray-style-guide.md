@@ -239,6 +239,17 @@ func transfer<Source, Destination>(
 Write each `with(...)`, `requires(...)`, and `ensures(...)` clause on its own continuation line when it follows a callable or
 type header.
 
+Keep a match arm body on the same line as its case when the body is empty or contains exactly one expression and the complete
+arm fits within the configured line width. Put one space inside nonempty inline braces and no space inside empty braces. This is
+the only exception to the block-brace placement rule.
+
+```bray
+case 0 { yield 48; }
+case None {}
+```
+
+Use ordinary multiline block layout when an arm contains declarations, multiple expressions, or does not fit on one line.
+
 ## Lists and delimiters
 
 Keep a parenthesized or bracketed list inline when it fits comfortably within the line-width target.

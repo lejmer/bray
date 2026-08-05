@@ -114,14 +114,8 @@ impl BufferedWriter<Sink>
 
         match consume result
         {
-            case Ok(_)
-            {
-                return Ok(unit);
-            }
-            case Error(error)
-            {
-                return Error(prefixed_error(error, prefix = committed));
-            }
+            case Ok(_) { return Ok(unit); }
+            case Error(error) { return Error(prefixed_error(error, prefix = committed)); }
         }
     }
 
@@ -135,13 +129,8 @@ impl BufferedWriter<Sink>
 
             match consume result
             {
-                case Ok(_)
-                {
-                }
-                case Error(error)
-                {
-                    return Error(normalize_write_flush_error(error));
-                }
+                case Ok(_) {}
+                case Error(error) { return Error(normalize_write_flush_error(error)); }
             }
         }
 
@@ -206,14 +195,8 @@ impl BufferedWriter<Sink>
 
         match consume result
         {
-            case Ok(_)
-            {
-                return Ok(unit);
-            }
-            case Error(error)
-            {
-                return Error(prefixed_error(error, prefix = committed));
-            }
+            case Ok(_) { return Ok(unit); }
+            case Error(error) { return Error(prefixed_error(error, prefix = committed)); }
         }
     }
 
@@ -227,13 +210,8 @@ impl BufferedWriter<Sink>
 
             match consume result
             {
-                case Ok(_)
-                {
-                }
-                case Error(error)
-                {
-                    return Error(normalize_write_flush_error(error));
-                }
+                case Ok(_) {}
+                case Error(error) { return Error(normalize_write_flush_error(error)); }
             }
         }
 
@@ -251,14 +229,8 @@ impl BufferedWriter<Sink>
 
         match consume result
         {
-            case Ok(_)
-            {
-                return Ok(self.sink);
-            }
-            case Error(error)
-            {
-                return Error(error);
-            }
+            case Ok(_) { return Ok(self.sink); }
+            case Error(error) { return Error(error); }
         }
     }
 }

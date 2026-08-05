@@ -4,8 +4,8 @@ use bray_source::{
     TextSizeOverflow, leading_utf8_bom_len,
 };
 use bray_syntax::{
-    SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxText, SyntaxToken,
-    SyntaxTrivia, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
+    MatchArmSyntax, SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxText,
+    SyntaxToken, SyntaxTrivia, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
 };
 
 use super::context::{
@@ -125,6 +125,13 @@ struct Formatter<'source, 'configuration> {
     callable_header_group_open: bool,
     callable_header_group_indented: bool,
     callable_clause_indent_open: bool,
+    compact_match_arms: Vec<CompactMatchArm>,
+}
+
+#[derive(Clone, Copy)]
+struct CompactMatchArm {
+    depth: usize,
+    empty: bool,
 }
 
 impl<'source, 'configuration> Formatter<'source, 'configuration> {
@@ -151,6 +158,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             callable_header_group_open: false,
             callable_header_group_indented: false,
             callable_clause_indent_open: false,
+            compact_match_arms: Vec::new(),
         }
     }
 
@@ -169,14 +177,33 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             return SyntaxWalkControl::SkipChildren;
         }
 
-        if leading_separation_rule(
-            node.kind(),
-            self.nodes.last().copied(),
-            self.previous_token,
-        )
-        .is_some_and(|rule| self.configuration.is_enabled(rule))
+        if leading_separation_rule(node.kind(), self.nodes.last().copied(), self.previous_token)
+            .is_some_and(|rule| self.configuration.is_enabled(rule))
         {
             self.writer.request_newlines(2);
+        }
+
+        let compact_match_arm = (node.kind() == SyntaxKind::MatchArm)
+            .then(|| compact_match_arm_body_is_empty(node))
+            .flatten();
+
+        if node.kind() == SyntaxKind::MatchArm
+            && self
+                .configuration
+                .is_enabled(FormatterRule::MatchArmBodyLayout)
+            && self.configuration.is_enabled(FormatterRule::BlockBraces)
+            && let Some(empty) = compact_match_arm
+        {
+            if self.previous_token == Some(SyntaxKind::CloseBraceToken) {
+                self.writer.request_newlines(1);
+            }
+
+            self.writer.begin_group();
+
+            self.compact_match_arms.push(CompactMatchArm {
+                depth: self.nodes.len(),
+                empty,
+            });
         }
 
         self.nodes.push(node.kind());
@@ -213,6 +240,17 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             .is_some_and(|rule| self.configuration.is_enabled(rule))
         {
             self.writer.request_newlines(2);
+        }
+
+        if node.kind() == SyntaxKind::MatchArm
+            && self
+                .compact_match_arms
+                .last()
+                .is_some_and(|arm| arm.depth == self.nodes.len())
+        {
+            self.writer.end_group();
+            self.writer.request_newlines(1);
+            self.compact_match_arms.pop();
         }
 
         SyntaxWalkControl::Continue
@@ -338,6 +376,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             || matches!(self.previous_token, Some(SyntaxKind::CloseBraceToken));
 
         let block_braces_enabled = self.configuration.is_enabled(FormatterRule::BlockBraces);
+        let compact_match_arm_body = self.compact_match_arm_body();
 
         let preserve_block_paragraph = source_line_breaks >= 2
             && self
@@ -391,15 +430,26 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             } else if source_space {
                 self.writer.request_space();
             }
+        } else if kind == SyntaxKind::CloseBraceToken
+            && let Some(arm) = compact_match_arm_body
+        {
+            if self.configuration.is_enabled(FormatterRule::Indentation) {
+                self.writer.decrease_indent();
+            }
+
+            self.writer.request_optional_break(!arm.empty);
         } else if kind == SyntaxKind::CloseBraceToken && block_braces_enabled {
             if self.configuration.is_enabled(FormatterRule::Indentation) {
                 self.writer.decrease_indent();
             }
 
             self.writer.set_newlines(1);
+        } else if kind == SyntaxKind::OpenBraceToken && compact_match_arm_body.is_some() {
+            self.writer.request_optional_break(true);
         } else if block_braces_enabled
             && (kind == SyntaxKind::OpenBraceToken
                 || matches!(self.previous_token, Some(SyntaxKind::CloseBraceToken))
+                    && !(kind == SyntaxKind::CaseKeyword && self.writer.is_line_start())
                     && !matches!(
                         kind,
                         SyntaxKind::SemicolonToken
@@ -410,8 +460,10 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             self.writer.request_newlines(1);
         }
 
-        let mut spacing_enforced =
-            block_brace && block_braces_enabled || list_delimiter && trailing_comma_layout;
+        let mut spacing_enforced = block_brace && block_braces_enabled
+            || list_delimiter && trailing_comma_layout
+            || kind == SyntaxKind::CaseKeyword && self.compact_match_arm_active()
+            || self.inside_compact_match_arm_body();
 
         if preserve_block_paragraph {
             self.writer.request_newlines(2);
@@ -463,6 +515,13 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
 
                 self.writer.request_optional_break(false);
             }
+            SyntaxKind::OpenBraceToken if let Some(arm) = self.compact_match_arm_body() => {
+                if self.configuration.is_enabled(FormatterRule::Indentation) {
+                    self.writer.increase_indent();
+                }
+
+                self.writer.request_optional_break(!arm.empty);
+            }
             SyntaxKind::OpenBraceToken
                 if self.configuration.is_enabled(FormatterRule::BlockBraces) =>
             {
@@ -483,6 +542,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             }
             SyntaxKind::SemicolonToken
                 if !semicolon_stays_inline(parent)
+                    && !self.inside_compact_match_arm_body()
                     && self
                         .configuration
                         .is_enabled(FormatterRule::SemicolonLayout) =>
@@ -495,7 +555,8 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                 && self.configuration.is_enabled(FormatterRule::LineWrapping) =>
             {
                 self.writer.request_fill_break(
-                    self.configuration.is_enabled(FormatterRule::OperatorSpacing),
+                    self.configuration
+                        .is_enabled(FormatterRule::OperatorSpacing),
                     u8::from(self.configuration.is_enabled(FormatterRule::Indentation)),
                 );
             }
@@ -591,6 +652,52 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             self.callable_clause_indent_open = false;
         }
     }
+
+    fn compact_match_arm_body(&self) -> Option<CompactMatchArm> {
+        let arm = self.compact_match_arms.last().copied()?;
+
+        (self.nodes.get(arm.depth) == Some(&SyntaxKind::MatchArm)
+            && self.nodes.last() == Some(&SyntaxKind::BlockExpression)
+            && self.inside_compact_match_arm_body())
+        .then_some(arm)
+    }
+
+    fn compact_match_arm_active(&self) -> bool {
+        self.compact_match_arms
+            .last()
+            .is_some_and(|arm| self.nodes.get(arm.depth) == Some(&SyntaxKind::MatchArm))
+    }
+
+    fn inside_compact_match_arm_body(&self) -> bool {
+        let Some(arm) = self.compact_match_arms.last() else {
+            return false;
+        };
+
+        self.nodes.get(arm.depth) == Some(&SyntaxKind::MatchArm)
+            && self.nodes[arm.depth + 1..]
+                .iter()
+                .filter(|kind| **kind == SyntaxKind::BlockExpression)
+                .count()
+                == 1
+    }
+}
+
+fn compact_match_arm_body_is_empty(node: SyntaxNodeView<'_>) -> Option<bool> {
+    let arm = node.cast::<MatchArmSyntax>()?;
+    let body = arm.block_expression();
+    let mut items = body.block_items();
+
+    let Some(item) = items.next() else {
+        return Some(true);
+    };
+
+    if items.next().is_some()
+        || item.expression().is_none() && item.generator_iteration_expression().is_none()
+    {
+        return None;
+    }
+
+    Some(false)
 }
 
 fn is_callable_clause_keyword(kind: SyntaxKind) -> bool {

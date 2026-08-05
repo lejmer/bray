@@ -73,10 +73,7 @@ fn formats_representative_declarations_and_expressions() {
             "    let values: [i32; 3] = [1, 2, 3];\n",
             "    match point\n",
             "    {\n",
-            "        case _\n",
-            "        {\n",
-            "            return;\n",
-            "        }\n",
+            "        case _ { return; }\n",
             "    }\n",
             "}\n",
         )
@@ -346,6 +343,80 @@ fn nested_conditionals_retain_forms_that_need_semantic_or_comment_reasoning() {
         assert_eq!(output.text().matches("if ").count(), 2, "{source}");
         assert!(!formatted_with_configuration(output.text(), &configuration).changed());
     }
+}
+
+#[test]
+fn keeps_simple_match_arm_bodies_inline_when_they_fit() {
+    let source = concat!(
+        "module app;",
+        "func choose(value:i32){",
+        "match value{",
+        "case 0{return;}",
+        "case 1{}",
+        "case _{observe();return;}",
+        "case 2{if value{return;}return;}",
+        "case 3{return;}",
+        "}",
+        "}",
+    );
+
+    let output = formatted(source);
+
+    assert!(
+        output.text().contains("case 0 { return; }"),
+        "{}",
+        output.text()
+    );
+
+    assert!(output.text().contains("case 1 {}"), "{}", output.text());
+
+    assert!(
+        output.text().contains("case _\n        {"),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output
+            .text()
+            .contains("        }\n        case 3 { return; }"),
+        "{}",
+        output.text()
+    );
+
+    assert!(!formatted(output.text()).changed());
+
+    let narrow = formatted_with_width(
+        concat!(
+            "module app; func choose(value: i32) { match value {",
+            "case 123456789 { return; }",
+            "case ?present { return; }",
+            "} }",
+        ),
+        33,
+    );
+
+    assert!(
+        narrow.text().contains("case 123456789\n        {"),
+        "{}",
+        narrow.text()
+    );
+
+    assert!(narrow.text().contains("case ?present"), "{}", narrow.text());
+
+    assert!(!narrow.text().contains("\n        \n"), "{}", narrow.text());
+
+    assert!(!formatted_with_width(narrow.text(), 33).changed());
+
+    let multiline_configuration = FormatterConfiguration::default()
+        .with_rule(FormatterRule::MatchArmBodyLayout, false);
+
+    let multiline = formatted_with_configuration(
+        "module app; func choose(value: i32) { match value { case 0 { return; } } }",
+        &multiline_configuration,
+    );
+
+    assert!(multiline.text().contains("case 0\n        {"));
 }
 
 #[test]

@@ -85,20 +85,11 @@ internal func allocate_fixed_buffer(capacity: usize) -> Result<std.bytes.Buffer,
 
             match consume resized
             {
-                case Ok(_)
-                {
-                    return Ok(buffer);
-                }
-                case Error(_)
-                {
-                    return Error(buffer_allocation_error());
-                }
+                case Ok(_) { return Ok(buffer); }
+                case Error(_) { return Error(buffer_allocation_error()); }
             }
         }
-        case Error(_)
-        {
-            return Error(buffer_allocation_error());
-        }
+        case Error(_) { return Error(buffer_allocation_error()); }
     }
 }
 
@@ -109,10 +100,7 @@ internal func transferred_error(pos error: IoError, transferred: usize) -> IoErr
 
     let native_code: i64 = match platform_code
     {
-        case?code
-        {
-            yield code;
-        }
+        case ?code { yield code; }
 
         case none
         {

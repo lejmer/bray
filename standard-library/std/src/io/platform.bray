@@ -160,10 +160,7 @@ trusted internal func process_context_stream_handle(offset: usize) -> u64
 
             return read_context_u64(&buffer, offset = offset);
         }
-        case Error(_)
-        {
-            return 0;
-        }
+        case Error(_) { return 0; }
     }
 }
 
@@ -345,10 +342,7 @@ trusted internal func acquire_standard_stream(handle: u64) -> Result<StandardStr
                 }
             );
         }
-        case Error(error)
-        {
-            return Error(error);
-        }
+        case Error(error) { return Error(error); }
     }
 }
 

@@ -61,6 +61,7 @@ Initial rule names include:
 - `directive-line-breaks`,
 - `block-paragraph-spacing`,
 - `match-case-spacing`,
+- `match-arm-body-layout`,
 - `struct-construction-layout`,
 - `overload-arm-layout`,
 - `parenthesized-list-layout`,

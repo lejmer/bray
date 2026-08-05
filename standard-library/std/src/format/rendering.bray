@@ -56,26 +56,11 @@ internal func radix_value(pos options: &Options) -> u8
 {
     match options.radix
     {
-        case Binary
-        {
-            return 2;
-        }
-        case Octal
-        {
-            return 8;
-        }
-        case Decimal
-        {
-            return 10;
-        }
-        case HexadecimalLowercase
-        {
-            return 16;
-        }
-        case HexadecimalUppercase
-        {
-            return 16;
-        }
+        case Binary { return 2; }
+        case Octal { return 8; }
+        case Decimal { return 10; }
+        case HexadecimalLowercase { return 16; }
+        case HexadecimalUppercase { return 16; }
     }
 }
 
@@ -93,18 +78,9 @@ internal func digit_byte(pos value: u128, pos uppercase: bool) -> u8
 {
     return match value
     {
-        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
-        {
-            yield 48 + value as u8;
-        }
-        case 10 | 11 | 12 | 13 | 14
-        {
-            yield digit_offset(uppercase) + (value - 10) as u8;
-        }
-        case _
-        {
-            yield digit_offset(uppercase) + 5;
-        }
+        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 { yield 48 + value as u8; }
+        case 10 | 11 | 12 | 13 | 14 { yield digit_offset(uppercase) + (value - 10) as u8; }
+        case _ { yield digit_offset(uppercase) + 5; }
     };
 }
 
@@ -116,10 +92,7 @@ internal func signed_digit_byte(pos value: i128, pos uppercase: bool) -> u8
         {
             yield digit_byte(value as u128, uppercase);
         }
-        case _
-        {
-            yield digit_byte(15, uppercase);
-        }
+        case _ { yield digit_byte(15, uppercase); }
     };
 }
 
@@ -127,14 +100,8 @@ internal func uppercase_digits(pos options: &Options) -> bool
 {
     match options.radix
     {
-        case HexadecimalUppercase
-        {
-            return true;
-        }
-        case _
-        {
-            return false;
-        }
+        case HexadecimalUppercase { return true; }
+        case _ { return false; }
     }
 }
 
@@ -147,18 +114,9 @@ internal func sign_length(pos negative: bool, pos options: &Options) -> usize
 
     match options.sign
     {
-        case NegativeOnly
-        {
-            return 0;
-        }
-        case Always
-        {
-            return 1;
-        }
-        case Space
-        {
-            return 1;
-        }
+        case NegativeOnly { return 0; }
+        case Always { return 1; }
+        case Space { return 1; }
     }
 }
 
@@ -216,18 +174,9 @@ internal func left_padding(pos padding: usize, pos options: &Options) -> usize
 {
     match options.alignment
     {
-        case Left
-        {
-            return 0;
-        }
-        case Center
-        {
-            return padding / 2;
-        }
-        case Right
-        {
-            return padding;
-        }
+        case Left { return 0; }
+        case Center { return padding / 2; }
+        case Right { return padding; }
     }
 }
 
@@ -282,17 +231,9 @@ internal func write_requested_sign(
 
     match options.sign
     {
-        case NegativeOnly
-        {
-        }
-        case Always
-        {
-            try std.bytes.push(&mut destination.buffer, value = 43);
-        }
-        case Space
-        {
-            try std.bytes.push(&mut destination.buffer, value = 32);
-        }
+        case NegativeOnly {}
+        case Always { try std.bytes.push(&mut destination.buffer, value = 43); }
+        case Space { try std.bytes.push(&mut destination.buffer, value = 32); }
     }
 
     return Ok(unit);
@@ -358,30 +299,12 @@ internal func escape_code(pos value: u8) -> u8
 {
     return match value
     {
-        case 34
-        {
-            yield 34;
-        }
-        case 92
-        {
-            yield 92;
-        }
-        case 10
-        {
-            yield 110;
-        }
-        case 13
-        {
-            yield 114;
-        }
-        case 9
-        {
-            yield 116;
-        }
-        case _
-        {
-            yield 0;
-        }
+        case 34 { yield 34; }
+        case 92 { yield 92; }
+        case 10 { yield 110; }
+        case 13 { yield 114; }
+        case 9 { yield 116; }
+        case _ { yield 0; }
     };
 }
 
@@ -498,14 +421,8 @@ internal func character_is_escaped(pos scalar: u32) -> bool
 {
     return match scalar
     {
-        case 0 | 9 | 10 | 13 | 39 | 92
-        {
-            yield true;
-        }
-        case _
-        {
-            yield false;
-        }
+        case 0 | 9 | 10 | 13 | 39 | 92 { yield true; }
+        case _ { yield false; }
     };
 }
 
@@ -513,30 +430,12 @@ internal func character_escape_byte(pos scalar: u32) -> u8
 {
     return match scalar
     {
-        case 0
-        {
-            yield 48;
-        }
-        case 9
-        {
-            yield 116;
-        }
-        case 10
-        {
-            yield 110;
-        }
-        case 13
-        {
-            yield 114;
-        }
-        case 39
-        {
-            yield 39;
-        }
-        case _
-        {
-            yield 92;
-        }
+        case 0 { yield 48; }
+        case 9 { yield 116; }
+        case 10 { yield 110; }
+        case 13 { yield 114; }
+        case 39 { yield 39; }
+        case _ { yield 92; }
     };
 }
 
@@ -569,13 +468,8 @@ internal func write_character_value(
 
     match options.escaping
     {
-        case Raw
-        {
-        }
-        case Quoted
-        {
-            quoted = true;
-        }
+        case Raw {}
+        case Quoted { quoted = true; }
     }
 
     let escaped: bool = quoted && character_is_escaped(scalar);

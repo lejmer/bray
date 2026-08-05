@@ -3,7 +3,9 @@ use super::layout::{self, BreakKind, LayoutElement};
 enum PendingWhitespace {
     None,
     Space,
-    OptionalBreak { space_when_flat: bool },
+    OptionalBreak {
+        space_when_flat: bool,
+    },
     FillBreak {
         space_when_flat: bool,
         continuation_indent: u8,
@@ -83,11 +85,7 @@ impl FormatWriter {
         }
     }
 
-    pub(super) fn request_fill_break(
-        &mut self,
-        space_when_flat: bool,
-        continuation_indent: u8,
-    ) {
+    pub(super) fn request_fill_break(&mut self, space_when_flat: bool, continuation_indent: u8) {
         if !matches!(self.pending, PendingWhitespace::RequiredBreak(_)) {
             self.pending = PendingWhitespace::FillBreak {
                 space_when_flat,

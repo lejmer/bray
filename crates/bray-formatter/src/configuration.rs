@@ -23,6 +23,8 @@ pub enum FormatterRule {
     BlockParagraphSpacing,
     /// Spacing between adjacent match cases.
     MatchCaseSpacing,
+    /// Inline layout for simple match-arm bodies.
+    MatchArmBodyLayout,
     /// Field layout inside struct construction expressions.
     StructConstructionLayout,
     /// Entry layout inside overload declarations.
@@ -77,6 +79,7 @@ impl FormatterRule {
         Self::DirectiveLineBreaks,
         Self::BlockParagraphSpacing,
         Self::MatchCaseSpacing,
+        Self::MatchArmBodyLayout,
         Self::StructConstructionLayout,
         Self::OverloadArmLayout,
         Self::ParenthesizedListLayout,
@@ -110,6 +113,7 @@ impl FormatterRule {
             Self::DirectiveLineBreaks => "directive-line-breaks",
             Self::BlockParagraphSpacing => "block-paragraph-spacing",
             Self::MatchCaseSpacing => "match-case-spacing",
+            Self::MatchArmBodyLayout => "match-arm-body-layout",
             Self::StructConstructionLayout => "struct-construction-layout",
             Self::OverloadArmLayout => "overload-arm-layout",
             Self::ParenthesizedListLayout => "parenthesized-list-layout",

@@ -55,14 +55,8 @@ internal func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<
 
         match consume advanced
         {
-            case Ok(next)
-            {
-                written = next;
-            }
-            case Error(error)
-            {
-                return Error(error);
-            }
+            case Ok(next) { written = next; }
+            case Error(error) { return Error(error); }
         }
     }
 
@@ -90,14 +84,8 @@ internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8]
 
         match consume advanced
         {
-            case Ok(next)
-            {
-                written = next;
-            }
-            case Error(error)
-            {
-                return Error(error);
-            }
+            case Ok(next) { written = next; }
+            case Error(error) { return Error(error); }
         }
     }
 
@@ -125,14 +113,8 @@ internal func write_standard_output_all(pos output: &mut StandardOutput, pos sou
 
         match consume advanced
         {
-            case Ok(next)
-            {
-                written = next;
-            }
-            case Error(error)
-            {
-                return Error(error);
-            }
+            case Ok(next) { written = next; }
+            case Error(error) { return Error(error); }
         }
     }
 
@@ -143,14 +125,8 @@ internal func checked_flush_result(result: Result<unit, IoError>, written: usize
 {
     match consume result
     {
-        case Ok(_)
-        {
-            return Ok(unit);
-        }
-        case Error(error)
-        {
-            return Error(prefixed_error(error, prefix = written));
-        }
+        case Ok(_) { return Ok(unit); }
+        case Error(error) { return Error(prefixed_error(error, prefix = written)); }
     }
 }
 
@@ -193,10 +169,7 @@ func print(pos text: string) -> Result<unit, IoError>
 
             return checked_flush_result(result = flush_result, written = written);
         }
-        case Error(error)
-        {
-            return Error(error);
-        }
+        case Error(error) { return Error(error); }
     }
 }
 
@@ -230,16 +203,10 @@ func print_line(pos text: string) -> Result<unit, IoError>
 
                     return checked_flush_result(result = flush_result, written = written + count);
                 }
-                case Error(error)
-                {
-                    return Error(prefixed_error(error, prefix = written));
-                }
+                case Error(error) { return Error(prefixed_error(error, prefix = written)); }
             }
         }
-        case Error(error)
-        {
-            return Error(error);
-        }
+        case Error(error) { return Error(error); }
     }
 }
 

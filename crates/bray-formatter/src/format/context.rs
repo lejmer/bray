@@ -229,8 +229,10 @@ pub(super) fn leading_separation_rule(
     parent: Option<SyntaxKind>,
     previous: Option<SyntaxKind>,
 ) -> Option<FormatterRule> {
-    if matches!(parent, Some(SyntaxKind::SourceUnit | SyntaxKind::ModuleBody))
-        && is_ordinary_module_declaration(kind)
+    if matches!(
+        parent,
+        Some(SyntaxKind::SourceUnit | SyntaxKind::ModuleBody)
+    ) && is_ordinary_module_declaration(kind)
         && previous == Some(SyntaxKind::SemicolonToken)
     {
         return Some(FormatterRule::ModuleItemSpacing);
@@ -269,6 +271,9 @@ fn punctuation_spacing(previous: SyntaxKind, current: SyntaxKind) -> Option<Toke
         SyntaxKind::CommaToken => Some(no_space(FormatterRule::CommaSpacing)),
         SyntaxKind::SemicolonToken => Some(no_space(FormatterRule::SemicolonLayout)),
         SyntaxKind::ColonToken => Some(no_space(FormatterRule::ColonSpacing)),
+        SyntaxKind::QuestionToken if previous == SyntaxKind::CaseKeyword => {
+            Some(space(FormatterRule::WordSpacing))
+        }
         SyntaxKind::QuestionToken => Some(no_space(FormatterRule::MemberAccessSpacing)),
         _ => match previous {
             SyntaxKind::OpenParenToken => Some(no_space(FormatterRule::ParenthesizedListLayout)),
