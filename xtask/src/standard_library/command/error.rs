@@ -11,8 +11,12 @@ pub(in crate::standard_library) enum BuildError {
     MissingValue(&'static str),
     MissingOutput,
     Workspace(String),
-    OutputExists(PathBuf),
     PublicationInProgress(PathBuf),
+    PublicationRollback {
+        publication: Box<Self>,
+        rollback: Box<Self>,
+        preserved_staging: PathBuf,
+    },
     Project(String),
     Source(String),
     TemporaryDirectory(std::io::Error),
@@ -96,9 +100,6 @@ impl fmt::Display for BuildError {
             Self::MissingValue(option) => write!(formatter, "missing value for {option}"),
             Self::MissingOutput => formatter.write_str("missing --output"),
             Self::Workspace(error) => formatter.write_str(error),
-            Self::OutputExists(path) => {
-                write!(formatter, "output already exists: {}", path.display())
-            }
             Self::PublicationInProgress(path) => {
                 write!(
                     formatter,
@@ -106,6 +107,15 @@ impl fmt::Display for BuildError {
                     path.display()
                 )
             }
+            Self::PublicationRollback {
+                publication,
+                rollback,
+                preserved_staging,
+            } => write!(
+                formatter,
+                "{publication}; restoring the previous bundle also failed: {rollback}; the previous bundle is preserved under {}",
+                preserved_staging.display()
+            ),
             Self::Project(error) => {
                 write!(formatter, "standard library project is invalid: {error}")
             }

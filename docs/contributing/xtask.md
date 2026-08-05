@@ -132,7 +132,8 @@ cargo xtask standard-library build --output <directory>
 ```
 
 Use `--source <directory>` to select another standard-library workspace. Without `--target`, the bundle contains artifacts for
-every supported native target. Use `--target <triple>` to build one target.
+every supported native target. Use `--target <triple>` to build one target. A successful rebuild transactionally replaces an
+existing bundle at the output path.
 
 To produce the installed layout expected by Bray Tack beside release binaries in `target/release/`, run:
 
