@@ -43,6 +43,14 @@ where
             validate_trait_callable_instance(request, *member)?;
             validate_trait_callable_fulfillment(request, *fulfillment)?;
         }
+        SelectedOperation::Operator {
+            target: OperatorTarget::TraitConstraint { member, .. },
+            ..
+        }
+        | SelectedOperation::Index {
+            target: IndexTarget::TraitConstraint { member, .. },
+            ..
+        } => validate_trait_callable_instance(request, *member)?,
         SelectedOperation::Construction(construction) => {
             if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
                 validate_callable_instance(request, callable)?;
@@ -78,6 +86,9 @@ where
             } => {
                 validate_trait_callable_instance(request, *member)?;
                 validate_trait_callable_fulfillment(request, *fulfillment)?;
+            }
+            ConversionTarget::TraitConstraint { member, .. } => {
+                validate_trait_callable_instance(request, *member)?;
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
@@ -276,6 +287,12 @@ where
                     member,
                     requirement,
                     ..
+                }
+                | OperatorTarget::TraitConstraint {
+                    operator,
+                    member,
+                    requirement,
+                    ..
                 },
             result_type,
         } => {
@@ -305,6 +322,11 @@ where
         SelectedOperation::Index {
             target:
                 IndexTarget::Custom {
+                    member,
+                    requirement,
+                    ..
+                }
+                | IndexTarget::TraitConstraint {
                     member,
                     requirement,
                     ..
@@ -369,6 +391,11 @@ fn collect_conversion_operations(
     while let Some(conversion) = pending.pop() {
         match conversion.target() {
             ConversionTarget::Trait {
+                member,
+                requirement,
+                ..
+            }
+            | ConversionTarget::TraitConstraint {
                 member,
                 requirement,
                 ..

@@ -1,13 +1,24 @@
 use bray_bound_tree::{ConversionTarget, SelectedConversion, SelectedOperation};
-use bray_compiler_known::RepresentationRole;
-use bray_symbols::{GenericArgument, TypeData, TypeId};
+use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
+use bray_symbols::{GenericArgument, ProofOutcome, TraitApplicationId, TypeData, TypeId};
 
-use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 /// Resolves the complete compiler-defined conversion plan when one applies.
 pub fn built_in_conversion_plan<C>(
     request: CheckerUnitView<'_, C>,
+    source: TypeId,
+    target: TypeId,
+) -> Result<Option<SelectedConversion>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    built_in_conversion_plan_for_context(request.context(), source, target)
+}
+
+/// Resolves a compiler-defined conversion without requiring a bound unit.
+pub fn built_in_conversion_plan_for_context<C>(
+    request: &C,
     source: TypeId,
     target: TypeId,
 ) -> Result<Option<SelectedConversion>, CheckerInfrastructureError>
@@ -30,14 +41,14 @@ where
         )));
     }
 
-    let Some(children) = composite_conversion_children(request, source, target)? else {
+    let Some(children) = composite_conversion_children_for_context(request, source, target)? else {
         return Ok(None);
     };
 
     let mut plans = Vec::with_capacity(children.len());
 
     for (source, target) in children {
-        let Some(plan) = built_in_conversion_plan(request, source, target)? else {
+        let Some(plan) = built_in_conversion_plan_for_context(request, source, target)? else {
             return Ok(None);
         };
 
@@ -66,7 +77,9 @@ where
 
         let is_valid = match conversion.target() {
             ConversionTarget::Identity => source == target,
-            ConversionTarget::BuiltInScalar => scalar_conversion_is_valid(request, source, target)?,
+            ConversionTarget::BuiltInScalar => {
+                scalar_conversion_is_valid(request.context(), source, target)?
+            }
             ConversionTarget::Composite(children) => {
                 let is_valid =
                     composite_conversion_shape_is_valid(request, source, target, children)?;
@@ -82,6 +95,7 @@ where
                     && requirement.subject() == source
                     && trait_application_targets(request, requirement.trait_application(), target)?
             }
+            ConversionTarget::TraitConstraint { .. } => source != target,
         };
 
         if !is_valid {
@@ -93,23 +107,24 @@ where
 }
 
 fn scalar_conversion_is_valid<C>(
-    request: CheckerUnitView<'_, C>,
+    request: &C,
     source: TypeId,
     target: TypeId,
 ) -> Result<bool, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(source) = type_representation(request, source)? else {
+    let Some(source) = crate::representation::type_representation_for_context(request, source)?
+    else {
         return Ok(false);
     };
 
-    let Some(target) = type_representation(request, target)? else {
+    let Some(target) = crate::representation::type_representation_for_context(request, target)?
+    else {
         return Ok(false);
     };
 
     let target_width = request
-        .context()
         .selected_target()
         .machine()
         .pointer_width_bits()
@@ -129,7 +144,9 @@ fn composite_conversion_shape_is_valid<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(expected) = composite_conversion_children(request, source, target)? else {
+    let Some(expected) =
+        composite_conversion_children_for_context(request.context(), source, target)?
+    else {
         return Ok(false);
     };
 
@@ -149,6 +166,64 @@ where
 /// Returns the ordered child conversion pairs for a compiler-defined composite conversion.
 pub fn composite_conversion_children<C>(
     request: CheckerUnitView<'_, C>,
+    source: TypeId,
+    target: TypeId,
+) -> Result<Option<Vec<(TypeId, TypeId)>>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    composite_conversion_children_for_context(request.context(), source, target)
+}
+
+/// Returns whether one trait application is satisfied by a compiler-defined operation.
+pub fn built_in_trait_constraint_outcome<C>(
+    request: &C,
+    subject: TypeId,
+    application: TraitApplicationId,
+) -> Result<Option<ProofOutcome>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(contract) = request
+        .available_compiler_known_symbols()
+        .operation_contract(CompilerKnownOperationRole::PlainConversion)
+    else {
+        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+    };
+
+    let application = request
+        .semantic_values()
+        .trait_application_data(application)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    if application.definition() != contract.trait_definition() {
+        return Ok(None);
+    }
+
+    let substitution = request
+        .semantic_values()
+        .generic_substitution_data(application.substitution())
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let [binding] = substitution.bindings() else {
+        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+    };
+
+    let GenericArgument::Type(target) = binding.argument() else {
+        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
+    };
+
+    let conversion = built_in_conversion_plan_for_context(request, subject, target)?;
+
+    Ok(Some(if conversion.is_some() {
+        ProofOutcome::Proven
+    } else {
+        ProofOutcome::Disproven
+    }))
+}
+
+fn composite_conversion_children_for_context<C>(
+    request: &C,
     source: TypeId,
     target: TypeId,
 ) -> Result<Option<Vec<(TypeId, TypeId)>>, CheckerInfrastructureError>
@@ -202,13 +277,15 @@ where
 }
 
 fn complex_component_type<C>(
-    request: CheckerUnitView<'_, C>,
+    request: &C,
     target: TypeId,
 ) -> Result<Option<TypeId>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(target_role) = type_representation(request, target)? else {
+    let Some(target_role) =
+        crate::representation::type_representation_for_context(request, target)?
+    else {
         return Ok(None);
     };
 
@@ -220,7 +297,7 @@ where
         _ => return Ok(None),
     };
 
-    crate::representation::representation_type(request, component).map(Some)
+    crate::representation::representation_type_for_context(request, component).map(Some)
 }
 
 fn trait_application_targets<C>(

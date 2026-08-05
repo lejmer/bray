@@ -124,6 +124,10 @@ pub(super) fn remap_selected_records(
                     *subject = maps.type_id(*subject)?;
                     *application = maps.trait_application_id(*application)?;
                 }
+                crate::InterfaceConstraintKind::TypeEquality { left, right } => {
+                    *left = maps.type_id(*left)?;
+                    *right = maps.type_id(*right)?;
+                }
             }
 
             Ok(constraint)

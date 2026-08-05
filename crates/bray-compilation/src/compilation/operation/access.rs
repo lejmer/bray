@@ -8,10 +8,10 @@ use bray_bound_tree::{
 use bray_checker::{resolve_callable_signature_template, resolve_type_expression_template};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableSignature,
-    CallableSignatureFact, CheckedConstraintKind, ExactSymbolId, GenericConstraintsFact,
-    GenericOwnerId, ImplementationSelection, ImplementationSubjectFact, MemberLookupResult,
-    NamedTypeSymbolId, SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableParameterSignature,
+    CallableSignature, CallableSignatureFact, CheckedConstraintKind, ExactSymbolId,
+    ImplementationSelection, ImplementationSubjectFact, MemberLookupResult, NamedTypeSymbolId,
+    SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
     TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeData,
     TypeExpressionTemplate, TypeId,
 };
@@ -49,6 +49,50 @@ fn member_callable_signature(
         signature.parameters().iter().copied(),
         signature.result(),
     )
+}
+
+fn substitute_callable_self(
+    facts: &CompilationBinderFacts<'_>,
+    signature: CallableSignature,
+    context: SelfTypeContext,
+    replacement: TypeId,
+) -> Result<CallableSignature, FactQueryError> {
+    let values = facts.semantic_values();
+
+    let substitute = |ty| {
+        values
+            .substitute_contextual_self(ty, context, replacement)
+            .map_err(|_| FactQueryError::InfrastructureFailure)
+    };
+
+    let receiver = signature
+        .receiver()
+        .map(|receiver| {
+            substitute(receiver.ty()).map(|ty| {
+                bray_symbols::ReceiverParameterSignature::new(
+                    receiver.parameter(),
+                    ty,
+                    receiver.mode(),
+                )
+            })
+        })
+        .transpose()?;
+
+    let parameters = signature
+        .parameters()
+        .iter()
+        .map(|parameter| {
+            substitute(parameter.ty())
+                .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(CallableSignature::new(
+        substitute(signature.callable_type())?,
+        receiver,
+        parameters,
+        substitute(signature.result())?,
+    ))
 }
 
 impl Compilation {
@@ -243,8 +287,13 @@ impl Compilation {
             return Ok(None);
         };
 
-        let result_type = callable.signature.callable_type();
-        let signature = member_callable_signature(callable.signature, receiver_type);
+        let trait_context = SelfTypeContext::Trait(application.definition());
+
+        let signature =
+            substitute_callable_self(facts, callable.signature, trait_context, receiver_type)?;
+
+        let result_type = signature.callable_type();
+        let signature = member_callable_signature(signature, receiver_type);
 
         let target = MemberTarget::new((*member).into(), result_type, [])
             .with_callable(callable.instance, signature)
@@ -261,44 +310,28 @@ impl Compilation {
     fn trait_constraint_requirements(
         &self,
         facts: &CompilationBinderFacts<'_>,
-        mut owner: AnySymbolId,
+        owner: AnySymbolId,
         receiver_type: TypeId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<BTreeMap<TraitApplicationId, TraitConstraintDispatch>, FactQueryError> {
         let mut requirements = BTreeMap::new();
 
-        loop {
-            if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
-                let constraints = facts
-                    .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
-                        generic_owner,
-                    ))
-                    .map_err(binder_fact_error)?;
-
-                *diagnostics = diagnostics.merged(constraints.diagnostics());
-
-                for constraint in constraints.value().constraints() {
-                    let CheckedConstraintKind::TraitSatisfaction {
-                        subject,
-                        application,
-                    } = constraint.kind()
-                    else {
-                        continue;
-                    };
-
-                    if subject == receiver_type {
-                        requirements.entry(application).or_insert_with(|| {
-                            TraitConstraintDispatch::new(generic_owner, constraint.ordinal())
-                        });
-                    }
-                }
-            }
-
-            let Some(container) = facts.symbols().containing_symbol(owner) else {
-                break;
+        for (generic_owner, constraint) in
+            super::constraint::enclosing_generic_constraints(facts, owner, diagnostics)?
+        {
+            let CheckedConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } = constraint.kind()
+            else {
+                continue;
             };
 
-            owner = container;
+            if subject == receiver_type {
+                requirements.entry(application).or_insert_with(|| {
+                    TraitConstraintDispatch::new(generic_owner, constraint.ordinal())
+                });
+            }
         }
 
         Ok(requirements)
@@ -704,6 +737,10 @@ impl Compilation {
         let candidate = self
             .trait_operation_candidate_data(
                 facts,
+                facts
+                    .symbols()
+                    .symbol_for_key(unit.key().declared_owner())
+                    .ok_or(FactQueryError::InfrastructureFailure)?,
                 role,
                 subject,
                 &trait_arguments,

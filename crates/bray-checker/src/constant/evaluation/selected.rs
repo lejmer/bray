@@ -118,6 +118,12 @@ where
             OperatorTarget::Trait { .. } => {
                 return Err(EvaluationFailure::invalid_input());
             }
+            OperatorTarget::TraitConstraint { operator, .. } if *operator == operation => {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            }
+            OperatorTarget::TraitConstraint { .. } => {
+                return Err(EvaluationFailure::invalid_input());
+            }
         }
 
         match operands {
@@ -284,7 +290,7 @@ where
                     operand,
                     target: conversion.target_type(),
                 }),
-                ConversionTarget::Trait { .. } => {
+                ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. } => {
                     Err(EvaluationFailure::invalid_expression(expression))
                 }
             };
@@ -344,6 +350,9 @@ where
                     [value],
                     conversion.target_type(),
                 );
+            }
+            ConversionTarget::TraitConstraint { .. } => {
+                return Err(EvaluationFailure::invalid_expression(expression));
             }
         };
 

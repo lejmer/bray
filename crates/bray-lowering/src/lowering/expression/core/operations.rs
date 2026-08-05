@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundCallResult, BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator,
-    ConversionTarget, OperatorTarget, SelectedArgument, SelectedConversion, SelectedOperation,
-    SemanticSelection, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
+    OperatorTarget, SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose,
+    StorageIdentity, StorageIdentityId,
 };
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirCall, MirCallArgument,
@@ -221,6 +221,22 @@ impl Lowerer<'_> {
                     )],
                 )),
             )?,
+            OperatorTarget::TraitConstraint {
+                member, dispatch, ..
+            } => self.push_value_operation(
+                id,
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Call(
+                    MirCall::protocol(
+                        MirCallTarget::Direct(MirCallableReference::new(member, CallableAbi::Bray)),
+                        BoundCallResult::Immediate(self.expression_type(id)?),
+                        [operand],
+                        [],
+                    )
+                    .with_trait_dispatch(dispatch),
+                ),
+            )?,
         };
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
@@ -304,6 +320,22 @@ impl Lowerer<'_> {
                         witness,
                     )],
                 )),
+            )?,
+            OperatorTarget::TraitConstraint {
+                member, dispatch, ..
+            } => self.push_value_operation(
+                id,
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Call(
+                    MirCall::protocol(
+                        MirCallTarget::Direct(MirCallableReference::new(member, CallableAbi::Bray)),
+                        BoundCallResult::Immediate(self.expression_type(id)?),
+                        [left, right],
+                        [],
+                    )
+                    .with_trait_dispatch(dispatch),
+                ),
             )?,
         };
 
@@ -421,6 +453,12 @@ impl Lowerer<'_> {
 
         if let Some(lowered) =
             self.lower_testing_call(id, current, Self::retained_source(&source), &selection)?
+        {
+            return Ok(lowered);
+        }
+
+        if let Some(lowered) =
+            self.lower_numeric_call(id, current, Self::retained_source(&source), &selection)?
         {
             return Ok(lowered);
         }
@@ -555,80 +593,6 @@ impl Lowerer<'_> {
         let value = self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
-    }
-
-    pub(in crate::lowering) fn convert_operand(
-        &mut self,
-        expression: BoundExpressionId,
-        current: MirBlockId,
-        source: MirSourceAnchor,
-        operand: MirOperand,
-        conversion: &SelectedConversion,
-    ) -> Result<MirOperand, LoweringError> {
-        match conversion.target() {
-            ConversionTarget::Identity => Ok(operand),
-            ConversionTarget::BuiltInScalar => self.push_converted_value(
-                expression,
-                current,
-                source,
-                MirOperationKind::Convert {
-                    operand,
-                    conversion: conversion.clone(),
-                },
-                conversion.target_type(),
-            ),
-            ConversionTarget::Trait {
-                fulfillment,
-                requirement,
-                witness,
-                ..
-            } => self.push_converted_value(
-                expression,
-                current,
-                source,
-                MirOperationKind::Call(MirCall::protocol(
-                    MirCallTarget::Direct(MirCallableReference::new(
-                        *fulfillment,
-                        CallableAbi::Bray,
-                    )),
-                    BoundCallResult::Immediate(conversion.target_type()),
-                    [operand],
-                    [bray_bound_tree::SelectedImplementationWitness::new(
-                        *requirement,
-                        *witness,
-                    )],
-                )),
-                conversion.target_type(),
-            ),
-            ConversionTarget::Composite(_) => self.push_converted_value(
-                expression,
-                current,
-                source,
-                MirOperationKind::Convert {
-                    operand,
-                    conversion: conversion.clone(),
-                },
-                conversion.target_type(),
-            ),
-        }
-    }
-
-    fn push_converted_value(
-        &mut self,
-        expression: BoundExpressionId,
-        current: MirBlockId,
-        source: MirSourceAnchor,
-        operation: MirOperationKind,
-        result_type: TypeId,
-    ) -> Result<MirOperand, LoweringError> {
-        let commit = self
-            .builder
-            .push_operation(current, source, operation, Some(result_type))?;
-
-        commit
-            .result()
-            .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(expression))
     }
 
     pub(in crate::lowering::expression) fn selected_operation(

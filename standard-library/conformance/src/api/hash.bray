@@ -9,10 +9,10 @@ func stable_hashing_is_deterministic()
     let second: u64 = 43;
     let text: string = "bray";
 
-    let first_hash: u128 = std.hash.stable_u64(first);
-    let repeated_hash: u128 = std.hash.stable_u64(first);
-    let second_hash: u128 = std.hash.stable_u64(second);
-    let text_hash: u128 = std.hash.stable_string(&text);
+    let first_hash: u128 = std.hash.stable_hash(&first);
+    let repeated_hash: u128 = std.hash.stable_hash(&first);
+    let second_hash: u128 = std.hash.stable_hash(&second);
+    let text_hash: u128 = std.hash.stable_hash(&text);
 
     assert(first_hash == repeated_hash);
     assert(first_hash != second_hash);

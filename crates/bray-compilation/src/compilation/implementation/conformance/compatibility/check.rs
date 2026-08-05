@@ -17,6 +17,7 @@ use bray_symbols::{
 use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
 use crate::fact::FactQueryError;
 
+use super::constraint::{constraints_are_compatible, substitute_requirement_trait_application};
 use super::types::{
     dependency_contracts_are_compatible, substitute_requirement_type, type_templates_are_compatible,
 };
@@ -40,6 +41,7 @@ pub(in crate::compilation::implementation::conformance) struct CompatibilityCont
     imported: Option<&'facts bray_symbols::ImportedSymbolSkeleton>,
     values: &'facts bray_symbols::SemanticValueStore,
     facts: &'facts CompilationBinderFacts<'compilation>,
+    subject: bray_symbols::TypeId,
     trait_application: TraitApplicationId,
     type_bindings: &'facts BTreeMap<bray_symbols::TraitTypeMemberSymbolId, TypeExpressionTemplate>,
 }
@@ -50,6 +52,7 @@ impl<'facts, 'compilation> CompatibilityContext<'facts, 'compilation> {
         imported: Option<&'facts bray_symbols::ImportedSymbolSkeleton>,
         values: &'facts bray_symbols::SemanticValueStore,
         facts: &'facts CompilationBinderFacts<'compilation>,
+        subject: bray_symbols::TypeId,
         trait_application: TraitApplicationId,
         type_bindings: &'facts BTreeMap<
             bray_symbols::TraitTypeMemberSymbolId,
@@ -61,6 +64,7 @@ impl<'facts, 'compilation> CompatibilityContext<'facts, 'compilation> {
             imported,
             values,
             facts,
+            subject,
             trait_application,
             type_bindings,
         }
@@ -103,6 +107,7 @@ pub(in crate::compilation::implementation::conformance) fn fulfillment_is_compat
 
             type_templates_are_compatible(
                 values,
+                context.subject,
                 trait_application,
                 None,
                 requirement.value(),
@@ -180,6 +185,7 @@ fn callable_is_compatible(
 
     let (generics_are_compatible, generic_substitution) = generic_surfaces_are_compatible(
         values,
+        context.subject,
         facts,
         trait_application,
         requirement.into_any(),
@@ -226,6 +232,7 @@ fn callable_is_compatible(
             || requirement.mode() != fulfillment.mode()
             || !type_templates_are_compatible(
                 values,
+                context.subject,
                 trait_application,
                 generic_substitution,
                 requirement.ty(),
@@ -239,6 +246,7 @@ fn callable_is_compatible(
 
     if !type_templates_are_compatible(
         values,
+        context.subject,
         trait_application,
         generic_substitution,
         requirement_type.result(),
@@ -259,6 +267,7 @@ fn callable_is_compatible(
 
     let compatible = callable_contracts_are_compatible(
         values,
+        context.subject,
         facts,
         trait_application,
         generic_substitution,
@@ -319,6 +328,7 @@ fn callable_type_template(
 
 fn generic_surfaces_are_compatible(
     values: &bray_symbols::SemanticValueStore,
+    subject: bray_symbols::TypeId,
     facts: &CompilationBinderFacts<'_>,
     trait_application: TraitApplicationId,
     requirement: bray_symbols::AnySymbolId,
@@ -420,6 +430,7 @@ fn generic_surfaces_are_compatible(
 
         if !type_templates_are_compatible(
             values,
+            subject,
             trait_application,
             Some(substitution),
             requirement_type.value(),
@@ -446,6 +457,7 @@ fn generic_surfaces_are_compatible(
 
     if !constraints_are_compatible(
         values,
+        subject,
         trait_application,
         substitution,
         requirement_constraints.value(),
@@ -455,94 +467,6 @@ fn generic_surfaces_are_compatible(
     }
 
     Ok((true, Some(substitution)))
-}
-
-fn constraints_are_compatible(
-    values: &bray_symbols::SemanticValueStore,
-    trait_application: TraitApplicationId,
-    generic_substitution: GenericSubstitutionId,
-    requirement: &bray_symbols::GenericConstraintSet,
-    fulfillment: &bray_symbols::GenericConstraintSet,
-) -> Result<bool, FactQueryError> {
-    if requirement.constraints().len() != fulfillment.constraints().len() {
-        return Ok(false);
-    }
-
-    for (requirement, fulfillment) in requirement
-        .constraints()
-        .iter()
-        .zip(fulfillment.constraints())
-    {
-        if requirement.ordinal() != fulfillment.ordinal() {
-            return Ok(false);
-        }
-
-        let compatible = match (requirement.kind(), fulfillment.kind()) {
-            (
-                bray_symbols::CheckedConstraintKind::Predicate(requirement),
-                bray_symbols::CheckedConstraintKind::Predicate(fulfillment),
-            ) => dependency_contracts_are_compatible(
-                values,
-                trait_application,
-                Some(generic_substitution),
-                requirement.dependency_contract(),
-                fulfillment.dependency_contract(),
-            )?,
-            (
-                bray_symbols::CheckedConstraintKind::TraitSatisfaction {
-                    subject: requirement_subject,
-                    application: requirement_application,
-                },
-                bray_symbols::CheckedConstraintKind::TraitSatisfaction {
-                    subject: fulfillment_subject,
-                    application: fulfillment_application,
-                },
-            ) => {
-                substitute_requirement_type(
-                    values,
-                    trait_application,
-                    Some(generic_substitution),
-                    requirement_subject,
-                )? == fulfillment_subject
-                    && substitute_requirement_trait_application(
-                        values,
-                        trait_application,
-                        Some(generic_substitution),
-                        requirement_application,
-                    )? == fulfillment_application
-            }
-            _ => false,
-        };
-
-        if !compatible {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
-}
-
-fn substitute_requirement_trait_application(
-    values: &bray_symbols::SemanticValueStore,
-    containing_trait: TraitApplicationId,
-    generic_substitution: Option<GenericSubstitutionId>,
-    requirement: TraitApplicationId,
-) -> Result<TraitApplicationId, FactQueryError> {
-    let trait_substitution = values
-        .trait_application_data(containing_trait)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?
-        .substitution();
-
-    let requirement = values
-        .substitute_trait_application(requirement, trait_substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    match generic_substitution {
-        Some(substitution) => values
-            .substitute_trait_application(requirement, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure),
-        None => Ok(requirement),
-    }
 }
 
 fn parameter_defaults_are_compatible(
@@ -582,6 +506,7 @@ fn parameter_defaults_are_compatible(
 
 fn callable_contracts_are_compatible(
     values: &bray_symbols::SemanticValueStore,
+    subject: bray_symbols::TypeId,
     facts: &CompilationBinderFacts<'_>,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
@@ -594,6 +519,7 @@ fn callable_contracts_are_compatible(
 
     contract_sets_are_compatible(
         values,
+        subject,
         trait_application,
         generic_substitution,
         requirement.value(),
@@ -603,6 +529,7 @@ fn callable_contracts_are_compatible(
 
 fn contract_sets_are_compatible(
     values: &bray_symbols::SemanticValueStore,
+    subject: bray_symbols::TypeId,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: &CallableContractSet,
@@ -610,18 +537,21 @@ fn contract_sets_are_compatible(
 ) -> Result<bool, FactQueryError> {
     if !contract_clauses_are_compatible(
         values,
+        subject,
         trait_application,
         generic_substitution,
         requirement.invocation_preconditions(),
         fulfillment.invocation_preconditions(),
     )? || !contract_clauses_are_compatible(
         values,
+        subject,
         trait_application,
         generic_substitution,
         requirement.static_constraints(),
         fulfillment.static_constraints(),
     )? || !contract_clauses_are_compatible(
         values,
+        subject,
         trait_application,
         generic_substitution,
         requirement.normal_completion_postconditions(),
@@ -654,6 +584,7 @@ fn contract_sets_are_compatible(
 
 fn contract_clauses_are_compatible(
     values: &bray_symbols::SemanticValueStore,
+    subject: bray_symbols::TypeId,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: &[CallableContractClause],
@@ -693,6 +624,7 @@ fn contract_clauses_are_compatible(
             ) => {
                 substitute_requirement_type(
                     values,
+                    subject,
                     trait_application,
                     generic_substitution,
                     requirement_subject,
@@ -769,6 +701,7 @@ fn predicate_is_compatible(
 
     let (generics_are_compatible, generic_substitution) = generic_surfaces_are_compatible(
         values,
+        context.subject,
         facts,
         trait_application,
         requirement.into_any(),
@@ -808,6 +741,7 @@ fn predicate_is_compatible(
         if requirement_name != fulfillment_name
             || !type_templates_are_compatible(
                 values,
+                context.subject,
                 trait_application,
                 generic_substitution,
                 requirement.ty(),

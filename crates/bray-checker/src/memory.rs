@@ -391,6 +391,7 @@ where
         | ImplementationHook::CharacterIsAlphabetic
         | ImplementationHook::CharacterIsNumeric
         | ImplementationHook::CharacterIsWhitespace
+        | ImplementationHook::NumericTruncate
         | ImplementationHook::TestingFail => return Ok(None),
     };
 

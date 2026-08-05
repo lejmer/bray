@@ -71,6 +71,7 @@ impl Parser {
         }
 
         let mut expression = self.parse_prefix_expression_until(at_boundary);
+        let mut non_associative_binding_power = None;
 
         loop {
             if at_boundary(self) {
@@ -80,6 +81,10 @@ impl Parser {
             let Some(operator) = infix_operator(self.peek().kind()) else {
                 break;
             };
+
+            if non_associative_binding_power == Some(operator.left_binding_power) {
+                break;
+            }
 
             if operator.left_binding_power < min_binding_power {
                 break;
@@ -99,7 +104,7 @@ impl Parser {
             expression = builder.build();
 
             if operator.associativity == OperatorAssociativity::None {
-                break;
+                non_associative_binding_power = Some(operator.left_binding_power);
             }
         }
 
@@ -280,6 +285,30 @@ mod tests {
 
         assert_eq!(expression.full_text(), "left < middle ");
         assert_eq!(parser.peek().kind(), SyntaxKind::LessToken);
+
+        let diagnostics = parser.finish();
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_continues_from_comparison_into_logical_operator() {
+        let sources = source_store(["left < middle && middle < right;"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+
+        assert_eq!(expression.full_text(), "left < middle && middle < right");
+
+        assert_eq!(
+            expression.operator_token().map(|token| token.kind()),
+            Some(SyntaxKind::AmpersandAmpersandToken)
+        );
+
+        assert_eq!(parser.peek().kind(), SyntaxKind::SemicolonToken);
 
         let diagnostics = parser.finish();
 

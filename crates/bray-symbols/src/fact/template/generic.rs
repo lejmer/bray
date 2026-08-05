@@ -32,6 +32,17 @@ pub enum GenericConstraintTemplate {
         /// The exact required trait application.
         application: TraitApplicationTemplate,
     },
+    /// A source type-equality requirement retained for semantic checking.
+    TypeEquality {
+        /// The constraint's stable declaration-order position.
+        ordinal: SymbolOrdinal,
+        /// The syntax occurrence that owns the constraint.
+        unit: bray_declarations::SyntaxAnchor,
+        /// The left type expression.
+        left: TypeExpressionTemplate,
+        /// The right type expression.
+        right: TypeExpressionTemplate,
+    },
     /// A source-independent imported constraint.
     Resolved(CheckedConstraint),
 }
@@ -65,10 +76,27 @@ impl GenericConstraintTemplate {
         }
     }
 
+    /// Creates one unevaluated type-equality constraint.
+    pub const fn type_equality(
+        ordinal: SymbolOrdinal,
+        unit: bray_declarations::SyntaxAnchor,
+        left: TypeExpressionTemplate,
+        right: TypeExpressionTemplate,
+    ) -> Self {
+        Self::TypeEquality {
+            ordinal,
+            unit,
+            left,
+            right,
+        }
+    }
+
     /// Returns the constraint's stable declaration-order position.
     pub const fn ordinal(&self) -> SymbolOrdinal {
         match self {
-            Self::Source { ordinal, .. } | Self::TraitSatisfaction { ordinal, .. } => *ordinal,
+            Self::Source { ordinal, .. }
+            | Self::TraitSatisfaction { ordinal, .. }
+            | Self::TypeEquality { ordinal, .. } => *ordinal,
             Self::Resolved(constraint) => constraint.ordinal(),
         }
     }
@@ -77,14 +105,16 @@ impl GenericConstraintTemplate {
     pub const fn expression(&self) -> Option<DeclarationExpressionTemplate> {
         match self {
             Self::Source { expression, .. } => Some(*expression),
-            Self::TraitSatisfaction { .. } | Self::Resolved(_) => None,
+            Self::TraitSatisfaction { .. } | Self::TypeEquality { .. } | Self::Resolved(_) => None,
         }
     }
 
     /// Returns the source syntax that owns the independently bound constraint unit.
     pub const fn unit_syntax(&self) -> Option<bray_declarations::SyntaxAnchor> {
         match self {
-            Self::Source { unit, .. } | Self::TraitSatisfaction { unit, .. } => Some(*unit),
+            Self::Source { unit, .. }
+            | Self::TraitSatisfaction { unit, .. }
+            | Self::TypeEquality { unit, .. } => Some(*unit),
             Self::Resolved(_) => None,
         }
     }
@@ -99,14 +129,26 @@ impl GenericConstraintTemplate {
                 application,
                 ..
             } => Some((subject, application)),
-            Self::Source { .. } | Self::Resolved(_) => None,
+            Self::Source { .. } | Self::TypeEquality { .. } | Self::Resolved(_) => None,
+        }
+    }
+
+    /// Returns both retained type templates for a type-equality constraint.
+    pub const fn type_equality_templates(
+        &self,
+    ) -> Option<(&TypeExpressionTemplate, &TypeExpressionTemplate)> {
+        match self {
+            Self::TypeEquality { left, right, .. } => Some((left, right)),
+            Self::Source { .. } | Self::TraitSatisfaction { .. } | Self::Resolved(_) => None,
         }
     }
 
     /// Returns the checked constraint when supplied by a compiled interface.
     pub const fn resolved(&self) -> Option<CheckedConstraint> {
         match self {
-            Self::Source { .. } | Self::TraitSatisfaction { .. } => None,
+            Self::Source { .. } | Self::TraitSatisfaction { .. } | Self::TypeEquality { .. } => {
+                None
+            }
             Self::Resolved(constraint) => Some(*constraint),
         }
     }

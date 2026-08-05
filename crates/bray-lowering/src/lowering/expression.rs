@@ -1,7 +1,10 @@
 mod access;
 mod control;
+mod conversion;
 mod core;
+mod index;
 mod memory;
+mod numeric;
 mod run;
 mod testing;
 mod text;

@@ -150,6 +150,14 @@ fn collect_operation_behavior(
             target: IndexTarget::Custom { fulfillment, .. },
             ..
         } => calls.push(invocation(*fulfillment)),
+        SelectedOperation::Operator {
+            target: OperatorTarget::TraitConstraint { member, .. },
+            ..
+        }
+        | SelectedOperation::Index {
+            target: IndexTarget::TraitConstraint { member, .. },
+            ..
+        } => calls.push(invocation(*member)),
         SelectedOperation::Construction(construction) => {
             if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
                 calls.push(invocation(callable));
@@ -179,6 +187,9 @@ fn collect_conversion_behavior(conversion: &SelectedConversion, calls: &mut Vec<
     match conversion.target() {
         ConversionTarget::Trait { fulfillment, .. } => {
             calls.push(invocation(*fulfillment));
+        }
+        ConversionTarget::TraitConstraint { member, .. } => {
+            calls.push(invocation(*member));
         }
         ConversionTarget::Composite(conversions) => {
             for conversion in conversions.iter() {

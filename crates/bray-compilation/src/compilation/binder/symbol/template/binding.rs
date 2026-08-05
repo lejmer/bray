@@ -182,34 +182,46 @@ fn bind_generic_declaration_template(
             for expression in clause.expressions() {
                 let ordinal = symbol_ordinal(constraints.len())?;
 
-                let constraint =
-                    if let Some(satisfaction) = expression.trait_satisfaction_constraint() {
-                        let subject = type_binder(context, symbol)?
-                            .bind_type_expression(satisfaction.subject())?;
+                let constraint = if let Some(satisfaction) =
+                    expression.trait_satisfaction_constraint()
+                {
+                    let subject = type_binder(context, symbol)?
+                        .bind_type_expression(satisfaction.subject())?;
 
-                        let application = type_binder(context, symbol)?
-                            .bind_trait_application(satisfaction.application())?;
+                    let application = type_binder(context, symbol)?
+                        .bind_trait_application(satisfaction.application())?;
 
-                        diagnostics = diagnostics.merged(subject.diagnostics());
-                        diagnostics = diagnostics.merged(application.diagnostics());
+                    diagnostics = diagnostics.merged(subject.diagnostics());
+                    diagnostics = diagnostics.merged(application.diagnostics());
 
-                        // The declaration template owns the Arc-backed checked type templates.
-                        GenericConstraintTemplate::trait_satisfaction(
-                            ordinal,
-                            unit,
-                            subject.value().clone(),
-                            application.value().clone(),
-                        )
-                    } else {
-                        GenericConstraintTemplate::new(
-                            ordinal,
-                            unit,
-                            DeclarationExpressionTemplate::new(
-                                symbol,
-                                SyntaxAnchor::from_node(&expression),
-                            ),
-                        )
-                    };
+                    // The declaration template owns the Arc-backed checked type templates.
+                    GenericConstraintTemplate::trait_satisfaction(
+                        ordinal,
+                        unit,
+                        subject.value().clone(),
+                        application.value().clone(),
+                    )
+                } else if let Some(equality) = expression.type_equality_constraint() {
+                    match (
+                        type_binder(context, symbol)?.bind_static_type_operand(equality.left())?,
+                        type_binder(context, symbol)?.bind_static_type_operand(equality.right())?,
+                    ) {
+                        (Some(left), Some(right)) => {
+                            diagnostics = diagnostics.merged(left.diagnostics());
+                            diagnostics = diagnostics.merged(right.diagnostics());
+
+                            GenericConstraintTemplate::type_equality(
+                                ordinal,
+                                unit,
+                                left.value().clone(),
+                                right.value().clone(),
+                            )
+                        }
+                        _ => source_constraint(symbol, ordinal, unit, &expression),
+                    }
+                } else {
+                    source_constraint(symbol, ordinal, unit, &expression)
+                };
 
                 constraints.push(constraint);
             }
@@ -220,6 +232,19 @@ fn bind_generic_declaration_template(
             diagnostics,
         ))
     })
+}
+
+fn source_constraint(
+    owner: AnySymbolId,
+    ordinal: bray_symbols::SymbolOrdinal,
+    unit: SyntaxAnchor,
+    expression: &ExpressionSyntax,
+) -> GenericConstraintTemplate {
+    GenericConstraintTemplate::new(
+        ordinal,
+        unit,
+        DeclarationExpressionTemplate::new(owner, SyntaxAnchor::from_node(expression)),
+    )
 }
 
 fn bind_callable_contract_template(

@@ -98,6 +98,7 @@ fn operation_callable_instance(operation: &MirOperationKind) -> Option<DemandedC
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
+        | MirOperationKind::NumericConversion { .. }
         | MirOperationKind::PatternProjection { .. }
         | MirOperationKind::Generator(_)
         | MirOperationKind::Memory(_)

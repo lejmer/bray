@@ -1,1 +1,3 @@
 module std;
+
+extern func truncate_to<Target, Source>(pos source: Source) -> Target;

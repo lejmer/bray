@@ -93,6 +93,13 @@ pub enum CheckedConstraintKind {
         /// The required applied trait.
         application: TraitApplicationId,
     },
+    /// Two type expressions that must resolve to the same semantic type.
+    TypeEquality {
+        /// The left type.
+        left: TypeId,
+        /// The right type.
+        right: TypeId,
+    },
 }
 
 /// One checked generic constraint in declaration order.
@@ -126,6 +133,14 @@ impl CheckedConstraint {
         }
     }
 
+    /// Creates a checked type-equality constraint.
+    pub const fn type_equality(ordinal: SymbolOrdinal, left: TypeId, right: TypeId) -> Self {
+        Self {
+            ordinal,
+            kind: CheckedConstraintKind::TypeEquality { left, right },
+        }
+    }
+
     /// Returns the stable declaration-order position within the owning constraint list.
     pub const fn ordinal(self) -> SymbolOrdinal {
         self.ordinal
@@ -140,7 +155,8 @@ impl CheckedConstraint {
     pub const fn predicate(self) -> Option<PredicateSemanticSummary> {
         match self.kind {
             CheckedConstraintKind::Predicate(predicate) => Some(predicate),
-            CheckedConstraintKind::TraitSatisfaction { .. } => None,
+            CheckedConstraintKind::TraitSatisfaction { .. }
+            | CheckedConstraintKind::TypeEquality { .. } => None,
         }
     }
 
@@ -151,7 +167,18 @@ impl CheckedConstraint {
                 subject,
                 application,
             } => Some((subject, application)),
-            CheckedConstraintKind::Predicate(_) => None,
+            CheckedConstraintKind::Predicate(_) | CheckedConstraintKind::TypeEquality { .. } => {
+                None
+            }
+        }
+    }
+
+    /// Returns both sides when this is a type-equality constraint.
+    pub const fn type_equality_requirement(self) -> Option<(TypeId, TypeId)> {
+        match self.kind {
+            CheckedConstraintKind::TypeEquality { left, right } => Some((left, right)),
+            CheckedConstraintKind::Predicate(_)
+            | CheckedConstraintKind::TraitSatisfaction { .. } => None,
         }
     }
 }

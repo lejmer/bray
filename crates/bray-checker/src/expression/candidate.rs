@@ -20,9 +20,9 @@ use super::built_in_operator::{self, PreparedBuiltInOperator};
 use super::generic_inference::infer_call_generic_arguments;
 use super::template::{
     TemplateResolution, call_result, candidate_state, resolve_declaration_candidate,
-    resolve_declaration_candidate_with_arguments, resolve_open_declaration_candidate,
-    resolve_open_predicate_candidate, resolve_predicate_candidate,
-    resolve_predicate_candidate_with_arguments,
+    resolve_declaration_candidate_with_arguments, resolve_generic_arguments,
+    resolve_open_declaration_candidate, resolve_open_predicate_candidate,
+    resolve_predicate_candidate, resolve_predicate_candidate_with_arguments,
 };
 use crate::type_check::{ExpressionTypeSession, SessionProgress};
 use crate::{
@@ -142,8 +142,8 @@ where
 
                     match candidate {
                         CallableCandidateTemplate::Declaration(candidate)
-                            if candidate.generic_arguments().is_empty()
-                                && !candidate.generic().parameters().is_empty() =>
+                            if candidate.generic_arguments().len()
+                                < candidate.generic().parameters().len() =>
                         {
                             generic_candidates
                                 .push(CallableCandidateTemplate::Declaration(candidate.clone()));
@@ -171,8 +171,8 @@ where
                             }
                         }
                         CallableCandidateTemplate::Predicate(candidate)
-                            if candidate.generic_arguments().is_empty()
-                                && !candidate.generic().parameters().is_empty() =>
+                            if candidate.generic_arguments().len()
+                                < candidate.generic().parameters().len() =>
                         {
                             generic_candidates
                                 .push(CallableCandidateTemplate::Predicate(candidate.clone()));
@@ -386,7 +386,8 @@ where
                                 subject,
                                 application,
                             } => Some((subject, application)),
-                            CheckedConstraintKind::Predicate(_) => None,
+                            CheckedConstraintKind::Predicate(_)
+                            | CheckedConstraintKind::TypeEquality { .. } => None,
                         }),
                 );
             }
@@ -426,7 +427,15 @@ where
                 )
             })?;
 
-        if !active.contains(&(subject, application)) {
+        if active.contains(&(subject, application)) {
+            continue;
+        }
+
+        let built_in =
+            crate::built_in_trait_constraint_outcome(request.context(), subject, application)
+                .map_err(CheckerFactError::Infrastructure)?;
+
+        if built_in != Some(ProofOutcome::Proven) {
             return Ok(false);
         }
     }
@@ -728,32 +737,54 @@ where
     let mut diagnostics = DiagnosticBag::new();
 
     for template in &prepared.generic_candidates {
+        let explicit = match template {
+            CallableCandidateTemplate::Declaration(template) => {
+                resolve_generic_arguments(request, template.generic_arguments(), &mut diagnostics)?
+            }
+            CallableCandidateTemplate::Predicate(template) => {
+                resolve_generic_arguments(request, template.generic_arguments(), &mut diagnostics)?
+            }
+            CallableCandidateTemplate::Value(_) => {
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            }
+        };
+
+        let TemplateResolution::Resolved(mut explicit) = explicit else {
+            continue;
+        };
+
         let (parameters, open) = match template {
             CallableCandidateTemplate::Declaration(template) => (
                 template.generic().parameters(),
-                resolve_open_declaration_candidate(request, template, &mut diagnostics)?,
+                resolve_open_declaration_candidate(request, template, &explicit, &mut diagnostics)?,
             ),
             CallableCandidateTemplate::Predicate(template) => (
                 template.generic().parameters(),
-                resolve_open_predicate_candidate(request, template, &mut diagnostics)?,
+                resolve_open_predicate_candidate(request, template, &explicit, &mut diagnostics)?,
             ),
             CallableCandidateTemplate::Value(_) => {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
             }
         };
 
-        let Some(arguments) =
+        let Some(parameters) = parameters.get(explicit.len()..) else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        };
+
+        let Some(inferred) =
             infer_call_generic_arguments(request, prepared.expression, &open, parameters, types)?
         else {
             continue;
         };
+
+        explicit.extend(inferred);
 
         let resolved = match template {
             CallableCandidateTemplate::Declaration(template) => {
                 resolve_declaration_candidate_with_arguments(
                     request,
                     template,
-                    arguments,
+                    explicit,
                     &mut diagnostics,
                 )?
             }
@@ -761,7 +792,7 @@ where
                 resolve_predicate_candidate_with_arguments(
                     request,
                     template,
-                    arguments,
+                    explicit,
                     &mut diagnostics,
                 )?
             }

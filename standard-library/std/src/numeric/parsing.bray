@@ -8,17 +8,127 @@ union ParseError
     Overflow;
 }
 
-func parse_u128(pos text: &string, radix: u8 = 10) -> Result<u128, ParseError>
+internal func digit_value(pos byte: u8) -> u8?
 {
-    if radix < 2
+    if byte >= 48 && byte <= 57
     {
-        return Error(ParseError.InvalidRadix);
+        return present<u8>(byte - 48);
     }
-    if radix > 36
+
+    if byte >= 65 && byte <= 90
+    {
+        return present<u8>(byte - 65 + 10);
+    }
+
+    if byte >= 97 && byte <= 122
+    {
+        return present<u8>(byte - 97 + 10);
+    }
+
+    return none;
+}
+
+internal func parse_magnitude(pos text: &string, pos start: usize, radix: u8) -> Result<u128, ParseError>
+{
+    if radix < 2 || radix > 36
     {
         return Error(ParseError.InvalidRadix);
     }
 
+    let bytes: &[u8] = std.string.utf8(text);
+    let count: usize = std.bytes.slice_length(bytes);
+
+    if start >= count
+    {
+        return Error(ParseError.Empty);
+    }
+
+    let radix_value: u128 = radix as u128;
+    let mut value: u128 = 0;
+    let mut index: usize = start;
+
+    while index < count
+    {
+        let parsed_digit: u8? = digit_value(bytes[index]);
+
+        match parsed_digit
+        {
+            case ?digit
+            {
+                if digit >= radix
+                {
+                    return Error(ParseError.InvalidDigit);
+                }
+
+                let magnitude: u128 = digit as u128;
+
+                if value > (U128_MAX - magnitude) / radix_value
+                {
+                    return Error(ParseError.Overflow);
+                }
+
+                value = value * radix_value + magnitude;
+            }
+            case none { return Error(ParseError.InvalidDigit); }
+        }
+
+        index = index + 1;
+    }
+
+    return Ok(value);
+}
+
+func parse_u128(pos text: &string, radix: u8 = 10) -> Result<u128, ParseError>
+{
+    return parse_magnitude(text, start = 0, radix = radix);
+}
+
+internal func parse_unsigned<Value>(pos text: &string, pos maximum: u128, radix: u8) -> Result<Value, ParseError>
+{
+    let parsed: Result<u128, ParseError> = parse_u128(text, radix = radix);
+
+    match consume parsed
+    {
+        case Ok(value)
+        {
+            if value > maximum
+            {
+                return Error(ParseError.Overflow);
+            }
+
+            return Ok(std.truncate_to<Value>(value));
+        }
+        case Error(error) { return Error(error); }
+    }
+}
+
+func parse_u8(pos text: &string, radix: u8 = 10) -> Result<u8, ParseError>
+{
+    return parse_unsigned<u8>(text, maximum = U8_MAX as u128, radix = radix);
+}
+
+func parse_u16(pos text: &string, radix: u8 = 10) -> Result<u16, ParseError>
+{
+    return parse_unsigned<u16>(text, maximum = U16_MAX as u128, radix = radix);
+}
+
+func parse_u32(pos text: &string, radix: u8 = 10) -> Result<u32, ParseError>
+{
+    return parse_unsigned<u32>(text, maximum = U32_MAX as u128, radix = radix);
+}
+
+func parse_u64(pos text: &string, radix: u8 = 10) -> Result<u64, ParseError>
+{
+    return parse_unsigned<u64>(text, maximum = U64_MAX as u128, radix = radix);
+}
+
+func parse_usize(pos text: &string, radix: u8 = 10) -> Result<usize, ParseError>
+{
+    return parse_unsigned<usize>(text, maximum = USIZE_MAX as u128, radix = radix);
+}
+
+func parse_i128(pos text: &string, radix: u8 = 10) -> Result<i128, ParseError>
+{
     let bytes: &[u8] = std.string.utf8(text);
     let count: usize = std.bytes.slice_length(bytes);
 
@@ -27,54 +137,101 @@ func parse_u128(pos text: &string, radix: u8 = 10) -> Result<u128, ParseError>
         return Error(ParseError.Empty);
     }
 
-    let radix_value: u128 = radix as u128;
-    let mut value: u128 = 0;
-    let mut index: usize = 0;
+    let mut start: usize = 0;
+    let mut negative: bool = false;
 
-    while index < count
+    if bytes[0] == 43
     {
-        let byte: u8 = bytes[index];
-        let mut digit: u8 = 255;
-
-        if byte >= 48
-        {
-            if byte <= 57
-            {
-                digit = byte - 48;
-            }
-        }
-
-        if byte >= 65
-        {
-            if byte <= 90
-            {
-                digit = byte - 65 + 10;
-            }
-        }
-
-        if byte >= 97
-        {
-            if byte <= 122
-            {
-                digit = byte - 97 + 10;
-            }
-        }
-
-        if digit >= radix
-        {
-            return Error(ParseError.InvalidDigit);
-        }
-
-        let magnitude: u128 = digit as u128;
-
-        if value > (U128_MAX - magnitude) / radix_value
-        {
-            return Error(ParseError.Overflow);
-        }
-
-        value = value * radix_value + magnitude;
-        index = index + 1;
+        start = 1;
     }
 
-    return Ok(value);
+    if bytes[0] == 45
+    {
+        start = 1;
+        negative = true;
+    }
+
+    let parsed: Result<u128, ParseError> = parse_magnitude(text, start = start, radix = radix);
+
+    match consume parsed
+    {
+        case Ok(magnitude)
+        {
+            if negative
+            {
+                let minimum_magnitude: u128 = std.truncate_to<u128>(I128_MAX) + 1;
+
+                if magnitude > minimum_magnitude
+                {
+                    return Error(ParseError.Overflow);
+                }
+
+                if magnitude == minimum_magnitude
+                {
+                    return Ok(I128_MIN);
+                }
+
+                let narrowed: i128 = std.truncate_to<i128>(magnitude);
+
+                return Ok(-narrowed);
+            }
+
+            if magnitude > std.truncate_to<u128>(I128_MAX)
+            {
+                return Error(ParseError.Overflow);
+            }
+
+            return Ok(std.truncate_to<i128>(magnitude));
+        }
+        case Error(error) { return Error(error); }
+    }
+}
+
+internal func parse_signed<Value>(
+    pos text: &string,
+    pos minimum: i128,
+    pos maximum: i128,
+    radix: u8,
+) -> Result<Value, ParseError>
+{
+    let parsed: Result<i128, ParseError> = parse_i128(text, radix = radix);
+
+    match consume parsed
+    {
+        case Ok(value)
+        {
+            if value < minimum || value > maximum
+            {
+                return Error(ParseError.Overflow);
+            }
+
+            return Ok(std.truncate_to<Value>(value));
+        }
+        case Error(error) { return Error(error); }
+    }
+}
+
+func parse_i8(pos text: &string, radix: u8 = 10) -> Result<i8, ParseError>
+{
+    return parse_signed<i8>(text, minimum = I8_MIN as i128, maximum = I8_MAX as i128, radix = radix);
+}
+
+func parse_i16(pos text: &string, radix: u8 = 10) -> Result<i16, ParseError>
+{
+    return parse_signed<i16>(text, minimum = I16_MIN as i128, maximum = I16_MAX as i128, radix = radix);
+}
+
+func parse_i32(pos text: &string, radix: u8 = 10) -> Result<i32, ParseError>
+{
+    return parse_signed<i32>(text, minimum = I32_MIN as i128, maximum = I32_MAX as i128, radix = radix);
+}
+
+func parse_i64(pos text: &string, radix: u8 = 10) -> Result<i64, ParseError>
+{
+    return parse_signed<i64>(text, minimum = I64_MIN as i128, maximum = I64_MAX as i128, radix = radix);
+}
+
+func parse_isize(pos text: &string, radix: u8 = 10) -> Result<isize, ParseError>
+{
+    return parse_signed<isize>(text, minimum = ISIZE_MIN as i128, maximum = ISIZE_MAX as i128, radix = radix);
 }

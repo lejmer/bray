@@ -49,6 +49,11 @@ pub(super) fn encode_contracts(facts: &InterfaceSemanticFacts) -> EncodedSemanti
                 encoder.write_u32(subject.raw());
                 encoder.write_u32(application.raw());
             }
+            InterfaceConstraintKind::TypeEquality { left, right } => {
+                encoder.write_u32(3);
+                encoder.write_u32(left.raw());
+                encoder.write_u32(right.raw());
+            }
         }
     });
 

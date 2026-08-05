@@ -202,6 +202,23 @@ impl Compilation {
                         DiagnosticBag::new(),
                     )
                 }
+                bray_symbols::CheckedConstraintKind::TypeEquality { left, right } => {
+                    let values = self.semantic_value_store()?;
+
+                    let left = values
+                        .substitute_type(left, substitution)
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    let right = values
+                        .substitute_type(right, substitution)
+                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    Ok(DiagnosticResult::without_diagnostics(if left == right {
+                        ProofOutcome::Proven
+                    } else {
+                        ProofOutcome::Disproven
+                    }))
+                }
             },
             GenericConstraintTemplate::TraitSatisfaction {
                 unit,
@@ -215,6 +232,9 @@ impl Compilation {
                 substitution,
                 cancellation,
             ),
+            GenericConstraintTemplate::TypeEquality { left, right, .. } => {
+                self.evaluate_type_equality_constraint(left, right, substitution, cancellation)
+            }
             GenericConstraintTemplate::Source {
                 unit, expression, ..
             } => self.evaluate_source_predicate_constraint(
@@ -224,6 +244,62 @@ impl Compilation {
                 cancellation,
             ),
         }
+    }
+
+    fn evaluate_type_equality_constraint(
+        &self,
+        left: &TypeExpressionTemplate,
+        right: &TypeExpressionTemplate,
+        substitution: GenericSubstitutionId,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
+        let mut terms = BTreeMap::new();
+        let mut diagnostics = DiagnosticBag::new();
+
+        for occurrence in left
+            .constant_expressions()
+            .into_iter()
+            .chain(right.constant_expressions())
+        {
+            let result = self.embedded_constant_term_with_cancellation(occurrence, cancellation)?;
+
+            diagnostics = diagnostics.merged(result.diagnostics());
+            terms.insert(occurrence.key(), *result.value());
+        }
+
+        if diagnostics.has_errors() {
+            return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
+        }
+
+        let constants = CheckedConstantTerms::try_from_terms(terms)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let values = self.semantic_value_store()?;
+
+        let left = resolve_type_expression_template(values, left, &constants)
+            .map_err(FactQueryError::CheckerInfrastructure)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let right = resolve_type_expression_template(values, right, &constants)
+            .map_err(FactQueryError::CheckerInfrastructure)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let left = values
+            .substitute_type(left, substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let right = values
+            .substitute_type(right, substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        Ok(DiagnosticResult::new(
+            if left == right {
+                ProofOutcome::Proven
+            } else {
+                ProofOutcome::Disproven
+            },
+            diagnostics,
+        ))
     }
 
     fn evaluate_source_predicate_constraint(
@@ -456,7 +532,15 @@ impl Compilation {
             .trait_application_data(application)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let outcome = if self.is_copyable_trait(application_data.definition())? {
+        let context = CompilationCheckerContext::new(self.binder_facts(cancellation)?);
+
+        let built_in =
+            bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
+                .map_err(FactQueryError::CheckerInfrastructure)?;
+
+        let outcome = if let Some(outcome) = built_in {
+            outcome
+        } else if self.is_copyable_trait(application_data.definition())? {
             self.evaluate_copyable_constraint(
                 unit,
                 subject,

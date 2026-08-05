@@ -355,6 +355,13 @@ stable hashing API defines that contract.
 Hash-based containers own their hashing policy. Security-randomized and reproducible policies are distinct choices. Compiler and
 build determinism must not depend on unspecified process-randomized hashes or hash-table iteration order.
 
+The reproducible hashing surface uses the named Bray stable hash algorithm. Its state starts at
+`14695981039346656037`. Each contributed `u128` component updates the state to
+`((state + component) mod 170141183460469231731687303715884105727 * 1099511628211) mod
+170141183460469231731687303715884105727`. Compound values contribute their semantic components in their documented order.
+Equal values therefore produce equal stable hashes across processes and supported targets. A different stable algorithm requires
+a separately named API rather than silently changing this contract.
+
 `std.order` builds sorting, searching, minimum, maximum, and ordering adapters over the compiler-known `Comparable<Rhs>` contract
 and `Ordering` result. Stable and unstable algorithms are named or typed distinctly. A comparison callback must define a coherent
 ordering for the values presented to the algorithm; algorithms do not repair inconsistent comparison behavior.

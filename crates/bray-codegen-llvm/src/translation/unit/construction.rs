@@ -364,6 +364,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.invoke_helper(helper, &[value])?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)
             }
+            ConversionTarget::TraitConstraint { .. } => {
+                Err(CodegenFailure::GeneratedModuleInvariant)
+            }
             ConversionTarget::Composite(children) => {
                 let source_fields = self.aggregate_fields(conversion.source_type())?;
                 let target_fields = self.aggregate_fields(conversion.target_type())?;

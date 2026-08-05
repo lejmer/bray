@@ -1,8 +1,33 @@
 module std.hash;
 
+const STABLE_INITIAL_STATE: u128 = 14695981039346656037;
+
 const STABLE_MODULUS: u128 = 170141183460469231731687303715884105727;
 
 const STABLE_MULTIPLIER: u128 = 1099511628211;
+
+trait HashSink
+{
+    mut func write(pos value: u128) -> unit;
+}
+
+trait Hashable<Sink>
+{
+    func contribute(pos sink: &mut Sink) -> unit;
+}
+
+struct StableHasher
+{
+    internal mut state: u128;
+
+    construct() -> Self
+    {
+        return
+        {
+            state = STABLE_INITIAL_STATE,
+        };
+    }
+}
 
 internal func add_modulo(pos left: u128, pos right: u128) -> u128
 {
@@ -38,88 +63,124 @@ internal func multiply_modulo(pos left: u128, pos right: u128) -> u128
     return product;
 }
 
-func start_stable_hash() -> u128
+impl StableHasherSink = StableHasher(HashSink)
 {
-    return 14695981039346656037;
-}
-
-func extend_stable_hash(pos state: u128, pos value: u128) -> u128
-{
-    let mixed: u128 = add_modulo(state, value);
-
-    return multiply_modulo(mixed, STABLE_MULTIPLIER);
-}
-
-func stable_bool(pos value: bool) -> u128
-{
-    let mut state: u128 = start_stable_hash();
-
-    if value
+    mut func write(pos value: u128) -> unit
     {
-        state = extend_stable_hash(state, 1);
+        let mixed: u128 = add_modulo(self.state, value);
+
+        self.state = multiply_modulo(mixed, STABLE_MULTIPLIER);
     }
-    else
+}
+
+func finish(pos hasher: &StableHasher) -> u128
+{
+    return hasher.state;
+}
+
+func stable_hash<Value>(pos value: &Value) -> u128
+    with(Value: Hashable<StableHasher>)
+{
+    let mut hasher: StableHasher = StableHasher();
+
+    value.contribute(&mut hasher);
+
+    return finish(&hasher);
+}
+
+internal func contribute_unsigned<Value, Sink>(pos value: Value, pos sink: &mut Sink) -> unit
+    with(Value: ConvertTo<u128>, Sink: HashSink)
+{
+    sink.write(value as u128);
+}
+
+impl BooleanHashable = bool(Hashable<Sink>) with(Sink: HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
     {
-        state = extend_stable_hash(state, 0);
+        if self
+        {
+            sink.write(1);
+        }
+        else
+        {
+            sink.write(0);
+        }
     }
-
-    return state;
 }
 
-func stable_char(pos value: char) -> u128
+impl CharacterHashable = char(Hashable<Sink>) with(Sink: HashSink)
 {
-    let state: u128 = start_stable_hash();
-    let scalar: u32 = std.character.scalar_value(value = value);
-
-    return extend_stable_hash(state, scalar as u128);
-}
-
-func stable_u8(pos value: u8) -> u128
-{
-    return extend_stable_hash(start_stable_hash(), value as u128);
-}
-
-func stable_u16(pos value: u16) -> u128
-{
-    return extend_stable_hash(start_stable_hash(), value as u128);
-}
-
-func stable_u32(pos value: u32) -> u128
-{
-    return extend_stable_hash(start_stable_hash(), value as u128);
-}
-
-func stable_u64(pos value: u64) -> u128
-{
-    return extend_stable_hash(start_stable_hash(), value as u128);
-}
-
-func stable_u128(pos value: u128) -> u128
-{
-    return extend_stable_hash(start_stable_hash(), value);
-}
-
-func stable_usize(pos value: usize) -> u128
-{
-    return extend_stable_hash(start_stable_hash(), value as u128);
-}
-
-func stable_string(pos value: &string) -> u128
-{
-    let bytes: &[u8] = std.string.utf8(value);
-    let count: usize = std.bytes.slice_length(bytes);
-    let mut state: u128 = start_stable_hash();
-
-    state = extend_stable_hash(state, count as u128);
-
-    let mut index: usize = 0;
-
-    while index < count
+    func contribute(pos sink: &mut Sink) -> unit
     {
-        state = extend_stable_hash(state, bytes[index] as u128);
-
-        index = index + 1;
+        contribute_unsigned<u32, Sink>(std.character.scalar_value(value = self), sink);
     }
+}
 
-    return state;
+impl U8Hashable = u8(Hashable<Sink>) with(Sink: HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        contribute_unsigned<u8, Sink>(self, sink);
+    }
+}
+
+impl U16Hashable = u16(Hashable<Sink>) with(Sink: HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        contribute_unsigned<u16, Sink>(self, sink);
+    }
+}
+
+impl U32Hashable = u32(Hashable<Sink>) with(Sink: HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        contribute_unsigned<u32, Sink>(self, sink);
+    }
+}
+
+impl U64Hashable = u64(Hashable<Sink>) with(Sink: HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        contribute_unsigned<u64, Sink>(self, sink);
+    }
+}
+
+impl U128Hashable = u128(Hashable<Sink>) with(Sink: HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        contribute_unsigned<u128, Sink>(self, sink);
+    }
+}
+
+impl UsizeHashable = usize(Hashable<Sink>) with(Sink: HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        contribute_unsigned<usize, Sink>(self, sink);
+    }
+}
+
+impl StringHashable = string(Hashable<Sink>) with(Sink: HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        let bytes: &[u8] = std.string.utf8(&self);
+        let count: usize = std.bytes.slice_length(bytes);
+
+        sink.write(count as u128);
+
+        let mut index: usize = 0;
+
+        while index < count
+        {
+            sink.write(bytes[index] as u128);
+
+            index = index + 1;
+        }
+    }
 }

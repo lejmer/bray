@@ -116,6 +116,8 @@ define_catalog_enum! {
         CharacterIsNumeric => "CharacterIsNumeric",
         /// Tests whether a character is whitespace in the selected Unicode data.
         CharacterIsWhitespace => "CharacterIsWhitespace",
+        /// Truncates a numeric value to the selected target representation.
+        NumericTruncate => "NumericTruncate",
         /// Fails the current test root with one owned message.
         TestingFail => "TestingFail",
     }
@@ -201,6 +203,7 @@ mod tests {
             ImplementationHook::CharacterIsAlphabetic,
             ImplementationHook::CharacterIsNumeric,
             ImplementationHook::CharacterIsWhitespace,
+            ImplementationHook::NumericTruncate,
             ImplementationHook::TestingFail,
         ];
 

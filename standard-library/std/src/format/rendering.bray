@@ -637,4 +637,4 @@ impl IsizeFormat = isize(Format)
     }
 }
 
-// TODO(BRA-295): Add real and complex formatting after numeric text conversion is available.
+// TODO(BRA-310): Add real and complex formatting with the complete formatting surface.

@@ -65,9 +65,10 @@ scope StandardRoot at std {
 
     declaration StandardTruncateTo {
         identity name truncate_to;
+        implementation NumericTruncate;
 
         surface {
-            func truncate_to<Target, Source>(pos source: Source) -> Target;
+            extern func truncate_to<Target, Source>(pos source: Source) -> Target;
         }
     }
 

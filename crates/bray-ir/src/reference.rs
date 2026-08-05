@@ -178,6 +178,16 @@ impl MirCall {
         }
     }
 
+    /// Returns a protocol call dispatched through one surrounding generic constraint.
+    pub const fn with_trait_dispatch(
+        mut self,
+        dispatch: bray_symbols::TraitConstraintDispatch,
+    ) -> Self {
+        self.trait_dispatch = Some(dispatch);
+
+        self
+    }
+
     /// Creates a source call from its complete checked selection.
     pub fn selected(
         target: MirCallTarget,

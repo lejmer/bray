@@ -5,10 +5,11 @@ use bray_base::Cancellation;
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, BorrowKind, GenericTypeParameterSymbolId, ImportedSymbolSkeleton,
-    MemberLookupResult, ModuleSymbolId, SelfTypeContext, SemanticValueStore, SymbolGraph,
-    SymbolName, TraitApplicationTemplate, TraitTypeMemberSymbolId, TypeData,
-    TypeExpressionTemplate, TypeId,
+    AnySymbolId, BorrowKind, ConstantTermData, GenericArgument, GenericOwnerId,
+    GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, SelfTypeContext,
+    SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData, TraitApplicationTemplate,
+    TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     ImplementationSubjectSyntax, PathSyntax, SyntaxToken, TraitApplicationSyntax,
@@ -329,21 +330,50 @@ impl<'facts> TypeExpressionBinder<'facts> {
 
         let parameters = self.trait_parameters(trait_definition)?;
 
-        if !parameters.is_empty() {
-            return self.error_type_template();
-        }
+        let arguments = parameters
+            .iter()
+            .copied()
+            .map(|parameter| self.contextual_generic_argument(parameter))
+            .collect::<BinderFactResult<Vec<_>>>()?;
 
-        let subject = self
-            .intern_type(TypeData::ContextualSelf(context))
-            .map(TypeExpressionTemplate::Resolved)?;
+        let owner = GenericOwnerId::try_new(trait_definition.into())
+            .ok_or(BinderFactError::DependencyUnavailable)?;
 
-        let application = TraitApplicationTemplate::new(trait_definition, [], []);
+        let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
 
-        Ok(TypeExpressionTemplate::TypeValuedMemberProjection {
-            subject: Arc::new(subject),
+        let substitution = self
+            .semantic_values
+            .intern_generic_substitution(substitution)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+        let application = self
+            .semantic_values
+            .intern_trait_application(TraitApplicationData::new(trait_definition, substitution))
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+        self.intern_type(TypeData::TypeValuedMemberProjection {
+            subject: self.intern_type(TypeData::ContextualSelf(context))?,
             application,
             member,
         })
+        .map(TypeExpressionTemplate::Resolved)
+    }
+
+    fn contextual_generic_argument(
+        &self,
+        parameter: GenericParameterSymbolId,
+    ) -> BinderFactResult<GenericArgument> {
+        match parameter {
+            GenericParameterSymbolId::Type(parameter) => self
+                .intern_type(TypeData::TypeParameter(parameter))
+                .map(GenericArgument::Type),
+            GenericParameterSymbolId::Const(parameter) => self
+                .semantic_values
+                .intern_constant_term(ConstantTermData::Parameter(parameter))
+                .map(GenericArgument::Constant)
+                .map_err(|_| BinderFactError::DependencyUnavailable),
+        }
     }
 
     pub(super) fn intern_type(&self, data: TypeData) -> BinderFactResult<TypeId> {

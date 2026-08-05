@@ -421,7 +421,8 @@ where
                     Some(
                         IndexTarget::ArrayElement
                         | IndexTarget::SliceElement
-                        | IndexTarget::Custom { .. },
+                        | IndexTarget::Custom { .. }
+                        | IndexTarget::TraitConstraint { .. },
                     ) => {}
                     Some(IndexTarget::ArraySlice | IndexTarget::Slice) => {
                         return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
@@ -447,7 +448,10 @@ where
             BoundStructuredExpressionKind::SliceIndex => {
                 match self.selected_index_target(id)? {
                     Some(
-                        IndexTarget::ArraySlice | IndexTarget::Slice | IndexTarget::Custom { .. },
+                        IndexTarget::ArraySlice
+                        | IndexTarget::Slice
+                        | IndexTarget::Custom { .. }
+                        | IndexTarget::TraitConstraint { .. },
                     ) => {}
                     Some(IndexTarget::ArrayElement | IndexTarget::SliceElement) => {
                         return Err(CheckerInfrastructureError::InvalidStoragePlan.into());

@@ -1,109 +1,180 @@
 module std.numeric;
 
-internal func present_u8(pos value: u8) -> u8?
+internal trait IntegerBounds
 {
-    let mut result: u8? = none;
+    func bounds() -> (Self, Self, Self, Self);
+}
+
+internal func present<Value>(pos value: Value) -> Value?
+{
+    let mut result: Value? = none;
 
     result = value;
 
     return result;
 }
 
-internal func present_u16(pos value: u16) -> u16?
+func checked_add<Value>(pos left: Value, pos right: Value) -> Value?
+    with(
+        Value: Add<Value>,
+        Value(Add<Value>).Output == Value,
+        Value: Comparable<Value>,
+        Value: Copyable,
+        Value: IntegerBounds,
+        Value: Subtract<Value>,
+        Value(Subtract<Value>).Output == Value,
+    )
 {
-    let mut result: u16? = none;
+    let bounds: (Value, Value, Value, Value) = right.bounds();
+    let zero: Value = bounds.0;
 
-    result = value;
+    if right > zero
+    {
+        let maximum: Value = bounds.3;
 
-    return result;
+        if left > maximum - right
+        {
+            return none;
+        }
+    }
+
+    if right < zero
+    {
+        let minimum: Value = bounds.2;
+
+        if left < minimum - right
+        {
+            return none;
+        }
+    }
+
+    return present<Value>(left + right);
 }
 
-internal func present_u32(pos value: u32) -> u32?
+func checked_subtract<Value>(pos left: Value, pos right: Value) -> Value?
+    with(
+        Value: Add<Value>,
+        Value(Add<Value>).Output == Value,
+        Value: Comparable<Value>,
+        Value: Copyable,
+        Value: IntegerBounds,
+        Value: Subtract<Value>,
+        Value(Subtract<Value>).Output == Value,
+    )
 {
-    let mut result: u32? = none;
+    let bounds: (Value, Value, Value, Value) = right.bounds();
+    let zero: Value = bounds.0;
 
-    result = value;
+    if right < zero
+    {
+        let maximum: Value = bounds.3;
 
-    return result;
+        if left > maximum + right
+        {
+            return none;
+        }
+    }
+
+    if right > zero
+    {
+        let minimum: Value = bounds.2;
+
+        if left < minimum + right
+        {
+            return none;
+        }
+    }
+
+    return present<Value>(left - right);
 }
 
-internal func present_u64(pos value: u64) -> u64?
+func checked_multiply<Value>(pos left: Value, pos right: Value) -> Value?
+    with(
+        Value: Comparable<Value>,
+        Value: Copyable,
+        Value: Divide<Value>,
+        Value(Divide<Value>).Output == Value,
+        Value: IntegerBounds,
+        Value: Multiply<Value>,
+        Value(Multiply<Value>).Output == Value,
+    )
 {
-    let mut result: u64? = none;
+    let bounds: (Value, Value, Value, Value) = right.bounds();
+    let zero: Value = bounds.0;
 
-    result = value;
+    if left > zero
+    {
+        if right > zero
+        {
+            let maximum: Value = bounds.3;
 
-    return result;
+            if left > maximum / right
+            {
+                return none;
+            }
+        }
+
+        if right < zero
+        {
+            let minimum: Value = bounds.2;
+
+            if right < minimum / left
+            {
+                return none;
+            }
+        }
+    }
+
+    if left < zero
+    {
+        if right > zero
+        {
+            let minimum: Value = bounds.2;
+
+            if left < minimum / right
+            {
+                return none;
+            }
+        }
+
+        if right < zero
+        {
+            let maximum: Value = bounds.3;
+
+            if left < maximum / right
+            {
+                return none;
+            }
+        }
+    }
+
+    return present<Value>(left * right);
 }
 
-internal func present_u128(pos value: u128) -> u128?
+func checked_divide<Value>(pos left: Value, pos right: Value) -> Value?
+    with(
+        Value: Copyable,
+        Value: Divide<Value>,
+        Value(Divide<Value>).Output == Value,
+        Value: Equatable<Value>,
+        Value: IntegerBounds,
+    )
 {
-    let mut result: u128? = none;
+    let bounds: (Value, Value, Value, Value) = right.bounds();
+    let zero: Value = bounds.0;
 
-    result = value;
+    if right == zero
+    {
+        return none;
+    }
 
-    return result;
-}
+    let negative_one: Value = bounds.1;
+    let minimum: Value = bounds.2;
 
-internal func present_usize(pos value: usize) -> usize?
-{
-    let mut result: usize? = none;
+    if left == minimum && right == negative_one
+    {
+        return none;
+    }
 
-    result = value;
-
-    return result;
-}
-
-internal func present_i8(pos value: i8) -> i8?
-{
-    let mut result: i8? = none;
-
-    result = value;
-
-    return result;
-}
-
-internal func present_i16(pos value: i16) -> i16?
-{
-    let mut result: i16? = none;
-
-    result = value;
-
-    return result;
-}
-
-internal func present_i32(pos value: i32) -> i32?
-{
-    let mut result: i32? = none;
-
-    result = value;
-
-    return result;
-}
-
-internal func present_i64(pos value: i64) -> i64?
-{
-    let mut result: i64? = none;
-
-    result = value;
-
-    return result;
-}
-
-internal func present_i128(pos value: i128) -> i128?
-{
-    let mut result: i128? = none;
-
-    result = value;
-
-    return result;
-}
-
-internal func present_isize(pos value: isize) -> isize?
-{
-    let mut result: isize? = none;
-
-    result = value;
-
-    return result;
+    return present<Value>(left / right);
 }
