@@ -23,7 +23,9 @@ use bray_standard_library::{
     encode_standard_library_manifest,
 };
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
-use bray_target::{NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind};
+use bray_target::{
+    NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName,
+};
 use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file_arguments};
 
 use super::error::BuildError;
@@ -299,8 +301,8 @@ fn build_bundle(
 
         let BuiltTarget {
             selected,
+            native,
             interface_bytes,
-            archive_path,
             archive_bytes,
         } = built;
 
@@ -328,10 +330,7 @@ fn build_bundle(
         let abi = selected.runtime_abi();
         let abi_path = format!("{}.{}", abi.major(), abi.minor());
 
-        let file_name = archive_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| BuildError::InvalidArtifactPath(archive_path.clone()))?;
+        let file_name = standard_library_archive_name(native)?;
 
         let portable_path = format!("targets/{}/{abi_path}/{file_name}", target.as_str());
 
@@ -358,9 +357,15 @@ fn build_bundle(
 
 struct BuiltTarget {
     selected: SelectedTarget,
+    native: NativeTarget,
     interface_bytes: Vec<u8>,
-    archive_path: PathBuf,
     archive_bytes: Vec<u8>,
+}
+
+fn standard_library_archive_name(target: NativeTarget) -> Result<String, BuildError> {
+    TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+        .file_name(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
+        .ok_or(BuildError::InvalidIdentity)
 }
 
 fn build_target(
@@ -475,8 +480,8 @@ fn build_target(
 
     Ok(BuiltTarget {
         selected,
+        native,
         interface_bytes,
-        archive_path,
         archive_bytes,
     })
 }
@@ -571,7 +576,10 @@ mod tests {
     use bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME;
     use bray_target::NativeTarget;
 
-    use super::{BuildError, BuildOptions, build, compare_bundles, read_manifest};
+    use super::{
+        BuildError, BuildOptions, build, compare_bundles, read_manifest,
+        standard_library_archive_name,
+    };
 
     #[test]
     fn build_options_require_an_output_and_reject_unknown_arguments() {
@@ -622,6 +630,27 @@ mod tests {
         assert_eq!(
             options.native.target(),
             Some(NativeTarget::X86_64WindowsMsvc)
+        );
+    }
+
+    #[test]
+    fn standard_library_archives_follow_native_library_naming() {
+        assert_eq!(
+            standard_library_archive_name(NativeTarget::X86_64WindowsMsvc)
+                .unwrap_or_else(|error| panic!("Windows archive name must be valid: {error}")),
+            "std.lib"
+        );
+
+        assert_eq!(
+            standard_library_archive_name(NativeTarget::X86_64LinuxGnu)
+                .unwrap_or_else(|error| panic!("Linux archive name must be valid: {error}")),
+            "libstd.a"
+        );
+
+        assert_eq!(
+            standard_library_archive_name(NativeTarget::Aarch64MacOs)
+                .unwrap_or_else(|error| panic!("macOS archive name must be valid: {error}")),
+            "libstd.a"
         );
     }
 
