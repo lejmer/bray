@@ -103,16 +103,7 @@ trusted func reserve(pos buffer: &mut Buffer, additional: usize) -> Result<unit,
         return Ok(unit);
     }
 
-    let maximum: usize = ~0;
-
-    if additional > maximum - current_length
-    {
-        let error: std.memory.MemoryLayoutError = SizeOverflow;
-
-        return Error(error);
-    }
-
-    let required: usize = current_length + additional;
+    let required: usize = try internal std.memory.checked_add_size(current_length, additional);
 
     let mut replacement: std.memory.RawBuffer<u8> = try trusted std.memory.RawBuffer<u8>(capacity = required);
 

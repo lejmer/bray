@@ -1,0 +1,428 @@
+module std.collection;
+
+using std.memory;
+
+struct List<T>
+{
+    internal mut storage: std.memory.RawBuffer<T>;
+    internal mut end: RawPointer<T>;
+
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let storage: std.memory.RawBuffer<T> = try trusted std.memory.RawBuffer<T>(capacity = capacity);
+        let end: RawPointer<T> = storage.pointer;
+
+        let list: List<T> =
+        {
+            storage = storage,
+            end = end,
+        };
+
+        return Ok(list);
+    }
+}
+
+trusted internal func ensure_capacity<T>(
+    pos list: &mut List<T>,
+    additional: usize,
+    exact: bool,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let current_length: usize = list.storage.initialized;
+    let current_capacity: usize = list.storage.capacity;
+
+    if additional <= current_capacity - current_length
+    {
+        return Ok(unit);
+    }
+
+    let required: usize = try internal std.memory.checked_add_size(current_length, additional);
+
+    let mut replacement_capacity: usize = required;
+
+    if !exact
+    {
+        replacement_capacity = grown_capacity(current_capacity, required);
+    }
+
+    try trusted replace_storage<T>(&mut list, replacement_capacity = replacement_capacity);
+
+    return Ok(unit);
+}
+
+trusted internal func replace_storage<T>(
+    pos list: &mut List<T>,
+    replacement_capacity: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let current_length: usize = list.storage.initialized;
+    let mut replacement: List<T> = try trusted List<T>(capacity = replacement_capacity);
+
+    while list.storage.initialized > 0
+    {
+        let value: T = trusted take_last<T>(&mut list);
+
+        trusted push_available<T>(&mut replacement, value);
+    }
+
+    trusted reverse_values<T>(&mut replacement, count = current_length);
+
+    let replacement_end: RawPointer<T> = replacement.end;
+
+    trusted internal std.memory.raw_buffer_replace<T>(
+        destination = &mut list.storage,
+        source = &mut replacement.storage,
+        initialized = current_length,
+    );
+
+    list.end = replacement_end;
+
+    return Ok(unit);
+}
+
+trusted internal func push_available<T>(pos list: &mut List<T>, pos value: T) -> unit
+{
+    let current_length: usize = list.storage.initialized;
+
+    trusted std.memory.write<T>(list.end, value);
+    trusted std.memory.set_initialized_count<T>(buffer = &mut list.storage, count = current_length + 1);
+
+    list.end = std.memory.offset<T>(list.end, elements = 1);
+}
+
+trusted internal func take_last<T>(pos list: &mut List<T>) -> T
+{
+    let current_length: usize = list.storage.initialized;
+    let value: T =
+    {
+        let values: &mut [T] = trusted std.memory.initialized_slice_mut<T>(&mut list.storage);
+        let pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[current_length - 1]);
+        let result: T = trusted std.memory.read<T>(pointer);
+
+        yield result;
+    };
+
+    trusted std.memory.set_initialized_count<T>(buffer = &mut list.storage, count = current_length - 1);
+
+    list.end = std.memory.offset<T>(list.end, elements = -1);
+
+    return value;
+}
+
+trusted internal func swap_at<T>(pos list: &mut List<T>, left: usize, right: usize) -> unit
+{
+    let values: &mut [T] = trusted std.memory.initialized_slice_mut<T>(&mut list.storage);
+    let left_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[left]);
+    let temporary: T = trusted std.memory.read<T>(left_pointer);
+    let right_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[right]);
+    let replacement: T = trusted std.memory.read<T>(right_pointer);
+
+    values[left] = replacement;
+    values[right] = temporary;
+}
+
+trusted internal func reverse_values<T>(pos list: &mut List<T>, count: usize) -> unit
+{
+    let mut left: usize = 0;
+    let mut right: usize = count;
+
+    while left < right
+    {
+        right = right - 1;
+
+        if left < right
+        {
+            trusted swap_at<T>(&mut list, left = left, right = right);
+        }
+
+        left = left + 1;
+    }
+}
+
+trusted internal func reverse_owned<T>(pos mut list: List<T>) -> List<T>
+{
+    let count: usize = list.storage.initialized;
+
+    trusted reverse_values<T>(&mut list, count = count);
+
+    return list;
+}
+
+func length<T>(pos list: &List<T>) -> usize
+{
+    return std.memory.initialized_count<T>(&list.storage);
+}
+
+func capacity<T>(pos list: &List<T>) -> usize
+{
+    return std.memory.capacity<T>(&list.storage);
+}
+
+func is_empty<T>(pos list: &List<T>) -> bool
+{
+    return length<T>(list) == 0;
+}
+
+func as_slice<T>(pos list: &List<T>) -> &[T]
+{
+    return trusted std.memory.initialized_slice<T>(&list.storage);
+}
+
+func as_slice_mut<T>(pos list: &mut List<T>) -> &mut [T]
+{
+    return trusted std.memory.initialized_slice_mut<T>(&mut list.storage);
+}
+
+trusted func reserve<T>(pos list: &mut List<T>, additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    return trusted ensure_capacity<T>(&mut list, additional = additional, exact = false);
+}
+
+trusted func reserve_exact<T>(pos list: &mut List<T>, additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    return trusted ensure_capacity<T>(&mut list, additional = additional, exact = true);
+}
+
+trusted func push<T>(pos list: &mut List<T>, pos value: T) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    try trusted ensure_capacity<T>(&mut list, additional = 1, exact = false);
+
+    trusted push_available<T>(&mut list, value);
+
+    return Ok(unit);
+}
+
+trusted func pop<T>(pos list: &mut List<T>) -> T?
+{
+    if list.storage.initialized == 0
+    {
+        return none;
+    }
+
+    let value: T = trusted take_last<T>(&mut list);
+    let mut result: T? = none;
+
+    result = value;
+
+    return result;
+}
+
+trusted func insert<T>(pos list: &mut List<T>, pos value: T, index: usize) -> Result<bool, std.memory.MemoryLayoutError>
+{
+    let current_length: usize = list.storage.initialized;
+
+    if index > current_length
+    {
+        return Ok(false);
+    }
+
+    try trusted ensure_capacity<T>(&mut list, additional = 1, exact = false);
+
+    trusted push_available<T>(&mut list, value);
+
+    let mut current: usize = current_length;
+
+    while current > index
+    {
+        trusted swap_at<T>(&mut list, left = current - 1, right = current);
+
+        current = current - 1;
+    }
+
+    return Ok(true);
+}
+
+trusted func remove<T>(pos list: &mut List<T>, index: usize) -> T?
+{
+    let current_length: usize = list.storage.initialized;
+
+    if index >= current_length
+    {
+        return none;
+    }
+
+    let mut current: usize = index;
+
+    while current + 1 < current_length
+    {
+        trusted swap_at<T>(&mut list, left = current, right = current + 1);
+
+        current = current + 1;
+    }
+
+    return trusted pop<T>(&mut list);
+}
+
+trusted func truncate<T>(pos list: &mut List<T>, new_length: usize) -> unit
+{
+    while list.storage.initialized > new_length
+    {
+        let _: T = trusted take_last<T>(&mut list);
+    }
+}
+
+trusted func clear<T>(pos list: &mut List<T>) -> unit
+{
+    trusted truncate<T>(list, new_length = 0);
+}
+
+func reverse<T>(pos list: &mut List<T>) -> unit
+{
+    let count: usize = list.storage.initialized;
+
+    trusted reverse_values<T>(&mut list, count = count);
+}
+
+internal func grown_capacity(pos current: usize, pos required: usize) -> usize
+{
+    let maximum: usize = ~0;
+    let mut candidate: usize = current;
+
+    if candidate < 4
+    {
+        candidate = 4;
+    }
+
+    while candidate < required
+    {
+        if candidate > maximum - candidate
+        {
+            return required;
+        }
+
+        candidate = candidate + candidate;
+    }
+
+    return candidate;
+}
+
+struct ReadCursor<T>
+{
+    internal values: &[T];
+    internal mut index: usize = 0;
+    internal count: usize;
+}
+
+impl ReadCursorIterator = ReadCursor<T>(Iterator)
+{
+    type Element = &T;
+
+    mut func next() -> (&T)?
+    {
+        let index: usize = self.index;
+
+        if index >= self.count
+        {
+            return none;
+        }
+
+        self.index = index + 1;
+
+        let value: &T = &self.values[index];
+        let mut result: (&T)? = none;
+
+        result = value;
+
+        return result;
+    }
+}
+
+impl ListReadIterable = &List<T>(Iterable)
+{
+    type Element = &T;
+    type Cursor = ReadCursor<T>;
+
+    consume func iterate() -> ReadCursor<T>
+    {
+        let cursor: ReadCursor<T> =
+        {
+            values = as_slice<T>(self),
+            count = length<T>(self),
+        };
+
+        return cursor;
+    }
+}
+
+struct WriteCursor<T>
+{
+    internal values: &mut [T];
+    internal mut index: usize = 0;
+    internal count: usize;
+}
+
+impl WriteCursorIterator = WriteCursor<T>(Iterator)
+{
+    type Element = &mut T;
+
+    mut func next() -> (&mut T)?
+    {
+        let index: usize = self.index;
+
+        if index >= self.count
+        {
+            return none;
+        }
+
+        self.index = index + 1;
+
+        let value: &mut T = self.values[index];
+        let mut result: (&mut T)? = none;
+
+        result = value;
+
+        return result;
+    }
+}
+
+impl ListWriteIterable = &mut List<T>(Iterable)
+{
+    type Element = &mut T;
+    type Cursor = WriteCursor<T>;
+
+    consume func iterate() -> WriteCursor<T>
+    {
+        let count: usize = self.storage.initialized;
+
+        let cursor: WriteCursor<T> =
+        {
+            values = as_slice_mut<T>(self),
+            count = count,
+        };
+
+        return cursor;
+    }
+}
+
+struct MoveCursor<T>
+{
+    internal mut values: List<T>;
+}
+
+impl MoveCursorIterator = MoveCursor<T>(Iterator)
+{
+    type Element = T;
+
+    mut func next() -> T?
+    {
+        return trusted pop<T>(&mut self.values);
+    }
+}
+
+impl ListMoveIterable = List<T>(Iterable)
+{
+    type Element = T;
+    type Cursor = MoveCursor<T>;
+
+    consume func iterate() -> MoveCursor<T>
+    {
+        let values: List<T> = trusted reverse_owned<T>(self);
+
+        let cursor: MoveCursor<T> =
+        {
+            values = values,
+        };
+
+        return cursor;
+    }
+}
