@@ -4,8 +4,8 @@ use bray_codegen::{CodegenLinkage, CodegenTarget, CodegenUnit, demanded_runtime_
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
-    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact,
-    RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeCapability,
+    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 

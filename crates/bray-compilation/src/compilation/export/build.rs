@@ -1106,7 +1106,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("imported named constructor must lower: {error:?}"));
 
         assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
-        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
 
         assert!(!skeleton.traits().is_empty());
         assert!(!skeleton.structures().is_empty());

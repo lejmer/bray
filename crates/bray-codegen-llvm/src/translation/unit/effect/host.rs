@@ -76,9 +76,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                     let adapter_name = host
                         .entry(*entry)
-                        .and_then(
-                            bray_runtime_interface::ExecutableHostEntry::root_frame_adapter,
-                        )
+                        .and_then(bray_runtime_interface::ExecutableHostEntry::root_frame_adapter)
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     let adapter = self

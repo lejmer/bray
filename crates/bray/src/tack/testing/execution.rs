@@ -14,10 +14,10 @@ use bray_diagnostics::DiagnosticBag;
 use bray_platform::{NativeChildProcess, NativePipeWriter, NativeProcessCommand, NativeStdio};
 use bray_test_protocol::{
     CapturedStream, TestAdmission, TestAdmissionSchedule, TestCapturePolicy, TestCatalogEntryId,
-    TestCommandReport, TestExecutionMode, TestExecutionPlan, TestHostCommand, TestHostCommandId,
-    TestHostControl, TestInfrastructureFailure, TestInfrastructureFailureKind, TestInvocationPlan,
-    TestInvocationResult, TestOutcome, TestSelection, TestSelectionQuery, TestSelectionSummary,
-    TestStopReason, TestDuration, read_host_result, write_host_command, write_host_control,
+    TestCommandReport, TestDuration, TestExecutionMode, TestExecutionPlan, TestHostCommand,
+    TestHostCommandId, TestHostControl, TestInfrastructureFailure, TestInfrastructureFailureKind,
+    TestInvocationPlan, TestInvocationResult, TestOutcome, TestSelection, TestSelectionQuery,
+    TestSelectionSummary, TestStopReason, read_host_result, write_host_command, write_host_control,
 };
 use bray_tooling::OutputFormat;
 
@@ -96,10 +96,8 @@ pub(crate) fn execute(
 
     let products = product_reports(&hosts, results);
 
-    let mut report = TestCommandReport::new(
-        TestSelectionSummary::new(discovered, selected),
-        products,
-    );
+    let mut report =
+        TestCommandReport::new(TestSelectionSummary::new(discovered, selected), products);
 
     if let Some(duration) = TestDuration::try_from_duration(started_at.elapsed()) {
         report = report.with_duration(duration);

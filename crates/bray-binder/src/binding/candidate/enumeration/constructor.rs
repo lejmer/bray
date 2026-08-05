@@ -1,14 +1,13 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundMemberSelector, BoundReferenceTarget, BoundUnit,
 };
-use bray_checker::{
-    CallableCandidateTemplate, CallableCandidateTemplateState, CandidateAbsence,
-};
+use bray_checker::{CallableCandidateTemplate, CallableCandidateTemplateState, CandidateAbsence};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableContractTemplateFact, CallableOverloadTemplateFact,
     CallableParameterDefaultTemplateFact, CallableSignatureFact, GenericDeclarationTemplateFact,
-    MemberLookupResult, NamedTypeSymbolId, PredicateSignatureTemplateFact, TypeAssociatedLifecycleSlot,
+    MemberLookupResult, NamedTypeSymbolId, PredicateSignatureTemplateFact,
+    TypeAssociatedLifecycleSlot,
 };
 
 use crate::lookup::ResolvedName;

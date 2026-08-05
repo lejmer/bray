@@ -13,8 +13,8 @@ use crate::{
 };
 
 use super::support::{
-    Decoder, Encoder, TestProtocolError, decode_optional_error_type,
-    encode_optional_error_type, read_frame, write_frame,
+    Decoder, Encoder, TestProtocolError, decode_optional_error_type, encode_optional_error_type,
+    read_frame, write_frame,
 };
 
 const COMMAND_MAGIC: &[u8; 8] = b"BRAYTSCM";

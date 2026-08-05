@@ -438,10 +438,7 @@ fn call_matches_expression(
                 .map(crate::BoundArgument::expression))
 }
 
-fn source_call_receiver(
-    unit: &BoundUnit,
-    callee: BoundExpressionId,
-) -> Option<BoundExpressionId> {
+fn source_call_receiver(unit: &BoundUnit, callee: BoundExpressionId) -> Option<BoundExpressionId> {
     let receiver = match unit.view().expression(callee) {
         Some(BoundExpression::MemberAccess(member)) => member.receiver(),
         Some(BoundExpression::TraitQualifiedMember(member)) => member.receiver(),

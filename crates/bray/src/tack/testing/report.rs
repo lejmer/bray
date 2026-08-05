@@ -16,9 +16,7 @@ use serde::Serialize;
 
 use super::model::LoadedTestHost;
 use crate::tack::error::operation_diagnostics;
-use crate::tack::progress::{
-    ProgressVisualState, max_column_width, padded, render_plain_line,
-};
+use crate::tack::progress::{ProgressVisualState, max_column_width, padded, render_plain_line};
 
 use super::identity::identity_text;
 
@@ -143,10 +141,9 @@ fn append_result_rows(
             renderer.fields(TestReportLineKind::Result),
             outcome_state(outcome),
             |field| match field {
-                ProgressField::Operation => Some(padded(
-                    renderer.result_operation(outcome),
-                    operation_width,
-                )),
+                ProgressField::Operation => {
+                    Some(padded(renderer.result_operation(outcome), operation_width))
+                }
                 ProgressField::Subject => Some(padded(&identity, subject_width)),
                 ProgressField::Duration => duration.clone(),
                 ProgressField::Path
@@ -188,10 +185,9 @@ fn append_summary(
         renderer.fields(TestReportLineKind::Summary),
         summary_state(status),
         |field| match field {
-            ProgressField::Operation => Some(padded(
-                renderer.summary_operation(status),
-                operation_width,
-            )),
+            ProgressField::Operation => {
+                Some(padded(renderer.summary_operation(status), operation_width))
+            }
             ProgressField::Detail => Some(padded(&detail, subject_width)),
             ProgressField::Duration => duration.clone(),
             ProgressField::Subject
@@ -661,7 +657,11 @@ mod tests {
 
         assert_eq!(report["summary"]["failed"], 1);
         assert_eq!(report["duration_nanoseconds"], 12_000_000);
-        assert_eq!(report["products"][0]["tests"][0]["duration_nanoseconds"], 6_000_000);
+
+        assert_eq!(
+            report["products"][0]["tests"][0]["duration_nanoseconds"],
+            6_000_000
+        );
     }
 
     fn result(

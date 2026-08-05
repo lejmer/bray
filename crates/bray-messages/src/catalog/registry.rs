@@ -5,9 +5,9 @@ use bray_diagnostics::{
 use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
 use crate::{
-    BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind,
-    BuildProgressOperation, LanguageServerMessage, ProgressField, TestReportActivity,
-    TestReportLineKind, TestReportOutcome, TestReportSummaryStatus,
+    BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind, BuildProgressOperation,
+    LanguageServerMessage, ProgressField, TestReportActivity, TestReportLineKind,
+    TestReportOutcome, TestReportSummaryStatus,
 };
 
 use super::english::{
@@ -108,10 +108,7 @@ impl MessageCatalog {
         }
     }
 
-    pub(crate) fn test_report_fields(
-        self,
-        kind: TestReportLineKind,
-    ) -> &'static [ProgressField] {
+    pub(crate) fn test_report_fields(self, kind: TestReportLineKind) -> &'static [ProgressField] {
         match self.locale {
             DiagnosticLocale::English => super::english::test_report_fields(kind),
         }
@@ -122,9 +119,7 @@ impl MessageCatalog {
         activity: TestReportActivity,
     ) -> &'static str {
         match self.locale {
-            DiagnosticLocale::English => {
-                super::english::test_report_activity_operation(activity)
-            }
+            DiagnosticLocale::English => super::english::test_report_activity_operation(activity),
         }
     }
 

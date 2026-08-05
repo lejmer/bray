@@ -3,11 +3,11 @@ use bray_ir::{
     MirUnitKind,
 };
 use bray_runtime_interface::{
-    BinarySymbolName, ExecutableEntryResult, ExecutableHostContract,
-    ExecutableHostContractBuilder, ExecutableHostEntry, PanicAbiIdentity,
-    ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RootExecution, RuntimeAbiRole,
-    RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract, RuntimeIdentity,
-    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
+    ExecutableHostEntry, PanicAbiIdentity, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability,
+    RuntimeContract, RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding,
+    RuntimeRoleImplementation,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueStore, TypeData, TypeId};
 use bray_target::TargetIdentity;

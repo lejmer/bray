@@ -200,10 +200,7 @@ where
         Ok(access)
     }
 
-    fn is_compile_time_qualifier(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Result<bool, PlanError> {
+    fn is_compile_time_qualifier(&self, expression: BoundExpressionId) -> Result<bool, PlanError> {
         let expression = self
             .request
             .view()

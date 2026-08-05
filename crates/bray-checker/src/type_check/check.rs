@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, CheckedExpressionTypes,
-    ExpressionTypeEntry, SelectedIterationSource,
+    BoundExpression, BoundExpressionId, CheckedExpressionTypes, ExpressionTypeEntry,
+    SelectedIterationSource,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,

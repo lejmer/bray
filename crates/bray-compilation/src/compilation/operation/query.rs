@@ -345,9 +345,7 @@ impl Compilation {
                 .iter()
                 .filter_map(|input| match input {
                     bray_bound_tree::SelectedConstructionInput::Explicit {
-                        expression,
-                        ty,
-                        ..
+                        expression, ty, ..
                     } => Some((*expression, *ty)),
                     bray_bound_tree::SelectedConstructionInput::Default { .. } => None,
                 })

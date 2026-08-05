@@ -15,10 +15,7 @@ pub(in crate::tack) fn terminal_progress() -> MultiProgress {
     MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(20))
 }
 
-pub(in crate::tack) fn terminal_heading(
-    progress: &MultiProgress,
-    message: String,
-) -> ProgressBar {
+pub(in crate::tack) fn terminal_heading(progress: &MultiProgress, message: String) -> ProgressBar {
     let heading = progress.add(ProgressBar::new(0));
 
     heading.set_style(progress_style("{msg:.bold}"));
@@ -65,10 +62,7 @@ where
         .with_key(
             "count",
             move |state: &ProgressState, writer: &mut dyn std::fmt::Write| {
-                let _ = writer.write_str(&count(
-                    state.pos(),
-                    state.len().unwrap_or_default(),
-                ));
+                let _ = writer.write_str(&count(state.pos(), state.len().unwrap_or_default()));
             },
         )
         .with_key(
@@ -97,9 +91,7 @@ where
         .progress_chars("━╸ ");
 
     match state {
-        ProgressVisualState::Active => {
-            style.tick_strings(&["◐", "◓", "◑", "◒", "◐"])
-        }
+        ProgressVisualState::Active => style.tick_strings(&["◐", "◓", "◑", "◒", "◐"]),
         ProgressVisualState::Waiting => style.tick_strings(&["○", "○"]),
         ProgressVisualState::Complete => style.tick_strings(&["✓", "✓"]),
         ProgressVisualState::Failed => style.tick_strings(&["×", "×"]),

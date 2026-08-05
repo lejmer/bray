@@ -360,12 +360,12 @@ mod tests {
     use super::{
         TestAdmission, TestAdmissionSchedule, TestExecutionMode, TestExecutionPlan, TestStopReason,
     };
+    use crate::test_support::{product, product_named};
     use crate::{
         CapturedStream, TestCaptureLimits, TestCapturePolicy, TestCatalog, TestDeclarationPath,
         TestDuration, TestEntryMetadata, TestIdentity, TestInvocationPlan, TestInvocationResult,
         TestOutcome, TestSelection, TestSelectionQuery, TestSourceAnchor, TestTimeoutPolicy,
     };
-    use crate::test_support::{product, product_named};
 
     #[test]
     fn sequential_mode_admits_exactly_one_invocation() {

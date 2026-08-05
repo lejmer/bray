@@ -11,12 +11,11 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 use super::identity::identity_text;
 use super::report::{
-    operation_width, outcome_state, render_details, report_outcome, summary_state,
-    summary_status,
+    operation_width, outcome_state, render_details, report_outcome, summary_state, summary_status,
 };
 use crate::tack::progress::{
-    ProgressVisualState, empty_count, empty_percentage, max_column_width, padded,
-    terminal_heading, terminal_line_style, terminal_progress,
+    ProgressVisualState, empty_count, empty_percentage, max_column_width, padded, terminal_heading,
+    terminal_line_style, terminal_progress,
 };
 
 pub(super) struct TestProgress {
@@ -254,8 +253,7 @@ impl TerminalTestProgress {
                 String::new(),
             ));
 
-            test.bar
-                .set_prefix(padded(operation, self.operation_width));
+            test.bar.set_prefix(padded(operation, self.operation_width));
 
             test.bar.finish();
             test.finished = true;

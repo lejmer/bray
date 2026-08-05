@@ -38,16 +38,18 @@ pub(super) fn render_line(
     total: u64,
     duration_milliseconds: u128,
 ) -> String {
-    render_plain_line(messages.fields(kind), visual_state(status), |field| {
-        match field {
+    render_plain_line(
+        messages.fields(kind),
+        visual_state(status),
+        |field| match field {
             ProgressField::Operation => Some(messages.operation(operation).to_owned()),
             ProgressField::Subject => Some(subject.to_owned()),
             ProgressField::Path => Some(path.to_owned()),
             ProgressField::Count => Some(messages.unit_count(completed, total)),
             ProgressField::Duration => Some(messages.duration(duration_milliseconds)),
             ProgressField::Bar | ProgressField::Percentage | ProgressField::Detail => None,
-        }
-    })
+        },
+    )
 }
 
 const fn visual_state(status: BuildProgressStatus) -> ProgressVisualState {

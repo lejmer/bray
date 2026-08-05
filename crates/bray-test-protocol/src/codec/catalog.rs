@@ -7,9 +7,7 @@ use bray_symbols::{
     TestExecutionConstraint, TestResultShape,
 };
 
-use crate::{
-    TestCatalog, TestDeclarationPath, TestEntryMetadata, TestIdentity, TestSourceAnchor,
-};
+use crate::{TestCatalog, TestDeclarationPath, TestEntryMetadata, TestIdentity, TestSourceAnchor};
 
 use super::support::{
     Decoder, Encoder, MAX_COLLECTION_ITEMS, TestProtocolError, decode_optional_error_type,
@@ -253,5 +251,4 @@ mod tests {
             TestErrorTypeIdentity::try_new("example.tests.Error"),
         )
     }
-
 }

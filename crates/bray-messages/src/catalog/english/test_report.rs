@@ -3,10 +3,7 @@ use crate::{
     TestReportSummaryStatus,
 };
 
-const WAITING_RESULT_FIELDS: &[ProgressField] = &[
-    ProgressField::Operation,
-    ProgressField::Subject,
-];
+const WAITING_RESULT_FIELDS: &[ProgressField] = &[ProgressField::Operation, ProgressField::Subject];
 
 const RESULT_FIELDS: &[ProgressField] = &[
     ProgressField::Operation,

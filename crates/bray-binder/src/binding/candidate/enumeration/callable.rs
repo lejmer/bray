@@ -1,7 +1,7 @@
 use bray_base::Cancellation;
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnresolvedReferenceKind,
-    DeclaredValueTypeTerm,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
+    BoundUnresolvedReferenceKind, DeclaredValueTypeTerm,
 };
 use bray_checker::{
     CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
@@ -194,8 +194,8 @@ where
                 candidates,
             )
         }
-        BoundReferenceTarget::Surface(symbol) if symbol.kind().is_callable() => Ok(
-            bind_declaration_candidate(
+        BoundReferenceTarget::Surface(symbol) if symbol.kind().is_callable() => {
+            Ok(bind_declaration_candidate(
                 context,
                 symbol,
                 state,
@@ -204,8 +204,8 @@ where
                 diagnostics,
                 candidates,
             )?
-            .absence(),
-        ),
+            .absence())
+        }
         BoundReferenceTarget::Surface(symbol)
             if PredicateDefinitionSymbolId::try_from_any(symbol).is_some() =>
         {
@@ -319,17 +319,15 @@ where
     let lookup = bind_module_path(context, module.id(), &path, NameAccess::Internal)?;
 
     let outcome = match lookup {
-        MemberLookupResult::Found(name) => {
-            bind_resolved_name_candidate(
-                context,
-                name,
-                state,
-                generic,
-                None,
-                diagnostics,
-                candidates,
-            )?
-        }
+        MemberLookupResult::Found(name) => bind_resolved_name_candidate(
+            context,
+            name,
+            state,
+            generic,
+            None,
+            diagnostics,
+            candidates,
+        )?,
         MemberLookupResult::Inaccessible(names) => {
             let mut outcome = DeclarationCandidateOutcome::Ignored;
 

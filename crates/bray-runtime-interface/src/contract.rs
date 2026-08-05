@@ -539,8 +539,7 @@ mod tests {
 
     use super::{
         ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuildError,
-        ExecutableHostContractBuilder, ExecutableHostEntry, RootExecution,
-        RuntimeCapability,
+        ExecutableHostContractBuilder, ExecutableHostEntry, RootExecution, RuntimeCapability,
     };
     use crate::{
         BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,

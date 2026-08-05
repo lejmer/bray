@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use bray_messages::{
-    BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation,
-};
+use bray_messages::{BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 use super::model::{BuildProgressPackage, BuildProgressPlan, BuildProgressStatus};
@@ -229,12 +227,7 @@ fn finished_progress_style(
     path: String,
     status: BuildProgressStatus,
 ) -> ProgressStyle {
-    line_style(
-        messages,
-        kind,
-        path,
-        visual_state(status),
-    )
+    line_style(messages, kind, path, visual_state(status))
 }
 
 fn line_style(

@@ -7,8 +7,8 @@ use bray_symbols::{
     AnySymbolId, CallableParameterSymbolId, CallableSignatureFact, CallableSignatureTemplate,
     CallableSymbolId, ConstantDeclaredTypeFact, ConstantExpressionExpectedType,
     ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeFact,
-    ImplementationSubjectFact, PredicateDefinitionSymbolId, PredicateSignatureTemplateFact,
-    NamedTypeSymbolId, StructFieldTypeFact, SymbolFactRequest,
+    ImplementationSubjectFact, NamedTypeSymbolId, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateFact, StructFieldTypeFact, SymbolFactRequest,
     TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
     TypeExpressionTemplate, UnionPayloadFieldTypeFact,
 };

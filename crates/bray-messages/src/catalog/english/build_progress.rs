@@ -1,6 +1,6 @@
 use crate::{
-    BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind,
-    BuildProgressOperation, ProgressField,
+    BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind, BuildProgressOperation,
+    ProgressField,
 };
 
 const PACKAGE_FIELDS: &[ProgressField] = &[

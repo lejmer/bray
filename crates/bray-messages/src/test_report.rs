@@ -114,9 +114,7 @@ impl TestReportMessageRenderer {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        TestReportMessageRenderer, TestReportOutcome, TestReportSummaryStatus,
-    };
+    use super::{TestReportMessageRenderer, TestReportOutcome, TestReportSummaryStatus};
 
     #[test]
     fn test_workflow_text_renders_through_the_selected_catalog() {
@@ -124,7 +122,11 @@ mod tests {
 
         assert_eq!(renderer.heading(1), "Running 1 test");
         assert_eq!(renderer.heading(2), "Running 2 tests");
-        assert_eq!(renderer.result_operation(TestReportOutcome::Passed), "Passed");
+
+        assert_eq!(
+            renderer.result_operation(TestReportOutcome::Passed),
+            "Passed"
+        );
 
         assert_eq!(
             renderer.summary_operation(TestReportSummaryStatus::Finished),
