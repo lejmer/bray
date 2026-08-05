@@ -359,6 +359,65 @@ fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
 }
 
 #[test]
+fn wraps_complete_callable_headers_and_binary_chains() {
+    let source = concat!(
+        "module app;",
+        "extern trusted func transform<Target,Source>",
+        "(pos pointer:RawPointer<Source>,count:usize)->RawPointer<Target>",
+        "requires(ready)uses(raw_memory);",
+        "func combine()->u64{return first+second+third+fourth+fifth+sixth;}"
+    );
+
+    let output = formatted_with_width(source, 52);
+
+    assert_eq!(
+        output.text(),
+        concat!(
+            "module app;\n",
+            "\n",
+            "extern trusted func transform<Target, Source>(\n",
+            "    pos pointer: RawPointer<Source>,\n",
+            "    count: usize\n",
+            ") -> RawPointer<Target>\n",
+            "    requires(ready)\n",
+            "    uses(raw_memory);\n",
+            "\n",
+            "func combine() -> u64\n",
+            "{\n",
+            "    return first + second + third + fourth + fifth +\n",
+            "        sixth;\n",
+            "}\n",
+        )
+    );
+
+    assert_eq!(
+        formatted_with_width(output.text(), 52).text(),
+        output.text()
+    );
+}
+
+#[test]
+fn callable_contract_clauses_use_continuation_lines() {
+    let source = concat!(
+        "module app;",
+        "extern trusted func reinterpret<Target, Source>",
+        "(pos pointer: RawPointer<Source>) -> RawPointer<Target> uses(layout_reinterpret);"
+    );
+
+    let output = formatted(source);
+
+    assert!(output.text().lines().all(|line| line.len() <= 120));
+
+    assert!(
+        output
+            .text()
+            .contains(") -> RawPointer<Target>\n    uses(layout_reinterpret);")
+    );
+
+    assert!(!formatted(output.text()).changed());
+}
+
+#[test]
 fn empty_and_comment_only_standard_input_are_stable() {
     let empty = formatted("");
     let whitespace = formatted(" \t\r\n");

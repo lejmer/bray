@@ -6,6 +6,10 @@ const INDENT: &str = "    ";
 pub(super) enum BreakKind {
     Required(u8),
     Optional { space_when_flat: bool },
+    Fill {
+        space_when_flat: bool,
+        continuation_indent: u8,
+    },
 }
 
 pub(super) enum LayoutElement {
@@ -62,7 +66,7 @@ impl Renderer<'_> {
             match element {
                 LayoutElement::Text(text) => self.write_text(text),
                 LayoutElement::Space => self.write_space(),
-                LayoutElement::Break(kind) => self.write_break(*kind),
+                LayoutElement::Break(kind) => self.write_break(index, *kind),
                 LayoutElement::Indent(change) => self.change_indent(*change),
                 LayoutElement::GroupStart => self.begin_group(index),
                 LayoutElement::GroupEnd => {
@@ -102,9 +106,29 @@ impl Renderer<'_> {
         self.column = self.column.saturating_add(1);
     }
 
-    fn write_break(&mut self, kind: BreakKind) {
+    fn write_break(&mut self, index: usize, kind: BreakKind) {
         match kind {
             BreakKind::Required(count) => self.write_newlines(count),
+            BreakKind::Fill {
+                space_when_flat,
+                continuation_indent,
+            } => {
+                let following_width = flat_width_until_break(&self.elements[index + 1..]);
+                let flat_space = usize::from(space_when_flat);
+
+                if following_width.is_some_and(|width| {
+                    self.column
+                        .saturating_add(flat_space)
+                        .saturating_add(width)
+                        <= self.maximum_width
+                }) {
+                    if space_when_flat {
+                        self.write_space();
+                    }
+                } else {
+                    self.write_newlines_with_indent(1, continuation_indent.into());
+                }
+            }
             BreakKind::Optional { space_when_flat }
                 if matches!(self.groups.last(), Some(GroupMode::Flat)) =>
             {
@@ -117,15 +141,21 @@ impl Renderer<'_> {
     }
 
     fn write_newlines(&mut self, count: u8) {
+        self.write_newlines_with_indent(count, 0);
+    }
+
+    fn write_newlines_with_indent(&mut self, count: u8, additional_indent: usize) {
         for _ in 0..count {
             self.output.push_str(self.line_ending);
         }
 
-        for _ in 0..self.indent {
+        let indent = self.indent.saturating_add(additional_indent);
+
+        for _ in 0..indent {
             self.output.push_str(INDENT);
         }
 
-        self.column = self.indent.saturating_mul(INDENT.len());
+        self.column = indent.saturating_mul(INDENT.len());
     }
 
     fn change_indent(&mut self, change: i8) {
@@ -153,6 +183,24 @@ impl Renderer<'_> {
     }
 }
 
+fn flat_width_until_break(elements: &[LayoutElement]) -> Option<usize> {
+    let mut width = 0_usize;
+
+    for element in elements {
+        match element {
+            LayoutElement::Text(text) if text.contains(['\r', '\n']) => return None,
+            LayoutElement::Text(text) => {
+                width = width.saturating_add(UnicodeWidthStr::width(text.as_ref()));
+            }
+            LayoutElement::Space => width = width.saturating_add(1),
+            LayoutElement::Break(_) => return Some(width),
+            LayoutElement::Indent(_) | LayoutElement::GroupStart | LayoutElement::GroupEnd => {}
+        }
+    }
+
+    Some(width)
+}
+
 fn flat_width(elements: &[LayoutElement]) -> Option<usize> {
     let mut width = 0_usize;
     let mut depth = 0_usize;
@@ -168,6 +216,9 @@ fn flat_width(elements: &[LayoutElement]) -> Option<usize> {
             LayoutElement::Break(BreakKind::Optional { space_when_flat }) => {
                 width = width.saturating_add(usize::from(*space_when_flat));
             }
+            LayoutElement::Break(BreakKind::Fill {
+                space_when_flat, ..
+            }) => width = width.saturating_add(usize::from(*space_when_flat)),
             LayoutElement::Indent(_) => {}
             LayoutElement::GroupStart => depth = depth.saturating_add(1),
             LayoutElement::GroupEnd if depth == 0 => return Some(width),

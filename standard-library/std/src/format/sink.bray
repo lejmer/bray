@@ -12,7 +12,10 @@ struct ByteSink
     {
         let buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = capacity);
 
-        let sink: ByteSink = { buffer = buffer, };
+        let sink: ByteSink =
+        {
+            buffer = buffer,
+        };
 
         return Ok(sink);
     }
@@ -36,7 +39,10 @@ struct TextSink
     {
         let sink: ByteSink = try ByteSink(capacity = capacity);
 
-        let result: TextSink = { bytes = sink, };
+        let result: TextSink =
+        {
+            bytes = sink,
+        };
 
         return Ok(result);
     }

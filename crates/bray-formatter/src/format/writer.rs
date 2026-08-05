@@ -4,6 +4,10 @@ enum PendingWhitespace {
     None,
     Space,
     OptionalBreak { space_when_flat: bool },
+    FillBreak {
+        space_when_flat: bool,
+        continuation_indent: u8,
+    },
     RequiredBreak(u8),
 }
 
@@ -79,6 +83,19 @@ impl FormatWriter {
         }
     }
 
+    pub(super) fn request_fill_break(
+        &mut self,
+        space_when_flat: bool,
+        continuation_indent: u8,
+    ) {
+        if !matches!(self.pending, PendingWhitespace::RequiredBreak(_)) {
+            self.pending = PendingWhitespace::FillBreak {
+                space_when_flat,
+                continuation_indent,
+            };
+        }
+    }
+
     pub(super) fn clear_space(&mut self) {
         if matches!(self.pending, PendingWhitespace::Space) {
             self.pending = PendingWhitespace::None;
@@ -118,6 +135,13 @@ impl FormatWriter {
                         space_when_flat,
                     }));
             }
+            PendingWhitespace::FillBreak {
+                space_when_flat,
+                continuation_indent,
+            } => self.elements.push(LayoutElement::Break(BreakKind::Fill {
+                space_when_flat,
+                continuation_indent,
+            })),
             PendingWhitespace::RequiredBreak(count) if !self.elements.is_empty() => {
                 self.elements
                     .push(LayoutElement::Break(BreakKind::Required(count)));

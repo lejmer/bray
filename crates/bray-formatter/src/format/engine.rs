@@ -9,9 +9,9 @@ use bray_syntax::{
 };
 
 use super::context::{
-    comma_layout_rule, is_directive, is_generic_delimiter, is_line_comment, is_list_delimiter,
-    is_operator, is_prefix_operator, list_layout_rule, semicolon_stays_inline, separation_rule,
-    token_spacing,
+    comma_layout_rule, is_callable_declaration, is_directive, is_generic_delimiter,
+    is_line_comment, is_list_delimiter, is_operator, is_prefix_operator, leading_separation_rule,
+    list_layout_rule, semicolon_stays_inline, separation_rule, token_spacing,
 };
 use super::line_ending;
 use super::model::FormattedSource;
@@ -122,6 +122,9 @@ struct Formatter<'source, 'configuration> {
     previous_was_generic_delimiter: bool,
     source_space_pending: bool,
     source_line_breaks_pending: u8,
+    callable_header_group_open: bool,
+    callable_header_group_indented: bool,
+    callable_clause_indent_open: bool,
 }
 
 impl<'source, 'configuration> Formatter<'source, 'configuration> {
@@ -145,6 +148,9 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             previous_was_generic_delimiter: false,
             source_space_pending: false,
             source_line_breaks_pending: 0,
+            callable_header_group_open: false,
+            callable_header_group_indented: false,
+            callable_clause_indent_open: false,
         }
     }
 
@@ -161,6 +167,16 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             self.write_skipped_syntax(node);
 
             return SyntaxWalkControl::SkipChildren;
+        }
+
+        if leading_separation_rule(
+            node.kind(),
+            self.nodes.last().copied(),
+            self.previous_token,
+        )
+        .is_some_and(|rule| self.configuration.is_enabled(rule))
+        {
+            self.writer.request_newlines(2);
         }
 
         self.nodes.push(node.kind());
@@ -180,6 +196,10 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             Some(node.kind()),
             "formatter syntax traversal must remain balanced"
         );
+
+        if is_callable_declaration(node.kind()) {
+            self.close_callable_header();
+        }
 
         if is_directive(node.kind())
             && self
@@ -229,6 +249,9 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         let list_layout = self.enabled_list_layout(parent);
         let list_delimiter = list_layout && is_list_delimiter(kind, parent);
 
+        let callable_parameter_list = parent == Some(SyntaxKind::ParameterList)
+            && is_callable_declaration_header(&self.nodes);
+
         let operator_is_prefix = is_operator(kind)
             && !generic_delimiter
             && self
@@ -239,6 +262,10 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
 
         if is_open_delimiter(kind) && list_delimiter {
             self.writer.begin_group();
+
+            if callable_parameter_list {
+                self.callable_header_group_open = true;
+            }
         }
 
         self.writer
@@ -249,9 +276,24 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         self.previous_was_generic_delimiter = generic_delimiter;
 
         self.write_trivia(token.trailing_trivia());
-        self.finish_token(kind, parent, list_delimiter);
 
-        if is_close_delimiter(kind) && list_delimiter {
+        self.finish_token(
+            kind,
+            parent,
+            list_delimiter,
+            operator_is_prefix,
+            generic_delimiter,
+        );
+
+        if is_close_delimiter(kind)
+            && callable_parameter_list
+            && self.configuration.is_enabled(FormatterRule::Indentation)
+        {
+            self.writer.increase_indent();
+            self.callable_header_group_indented = true;
+        }
+
+        if is_close_delimiter(kind) && list_delimiter && !callable_parameter_list {
             self.writer.end_group();
         }
 
@@ -267,6 +309,29 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
     ) {
         let source_space = std::mem::take(&mut self.source_space_pending);
         let source_line_breaks = std::mem::take(&mut self.source_line_breaks_pending);
+
+        if (self.callable_header_group_open || self.callable_clause_indent_open)
+            && (kind == SyntaxKind::SemicolonToken
+                || kind == SyntaxKind::OpenBraceToken
+                    && !self.nodes.contains(&SyntaxKind::ParameterList))
+        {
+            self.close_callable_header();
+        }
+
+        if (self.callable_header_group_open || self.callable_clause_indent_open)
+            && is_callable_clause_keyword(kind)
+        {
+            if self.callable_header_group_open {
+                self.close_callable_header_group();
+
+                if self.configuration.is_enabled(FormatterRule::Indentation) {
+                    self.writer.increase_indent();
+                    self.callable_clause_indent_open = true;
+                }
+            }
+
+            self.writer.request_newlines(1);
+        }
 
         let block_brace = kind == SyntaxKind::OpenBraceToken
             || kind == SyntaxKind::CloseBraceToken
@@ -371,7 +436,14 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         }
     }
 
-    fn finish_token(&mut self, kind: SyntaxKind, parent: Option<SyntaxKind>, list_delimiter: bool) {
+    fn finish_token(
+        &mut self,
+        kind: SyntaxKind,
+        parent: Option<SyntaxKind>,
+        list_delimiter: bool,
+        operator_is_prefix: bool,
+        generic_delimiter: bool,
+    ) {
         match kind {
             kind if is_open_delimiter(kind) && list_delimiter => {
                 if self.configuration.is_enabled(FormatterRule::Indentation) {
@@ -405,6 +477,16 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                         .is_enabled(FormatterRule::SemicolonLayout) =>
             {
                 self.writer.request_newlines(1);
+            }
+            kind if is_operator(kind)
+                && !operator_is_prefix
+                && !generic_delimiter
+                && self.configuration.is_enabled(FormatterRule::LineWrapping) =>
+            {
+                self.writer.request_fill_break(
+                    self.configuration.is_enabled(FormatterRule::OperatorSpacing),
+                    u8::from(self.configuration.is_enabled(FormatterRule::Indentation)),
+                );
             }
             _ => {}
         }
@@ -477,6 +559,55 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         self.configuration.is_enabled(FormatterRule::LineWrapping)
             && list_layout_rule(parent).is_some_and(|rule| self.configuration.is_enabled(rule))
     }
+
+    fn close_callable_header_group(&mut self) {
+        if self.callable_header_group_indented {
+            self.writer.decrease_indent();
+            self.callable_header_group_indented = false;
+        }
+
+        self.writer.end_group();
+        self.callable_header_group_open = false;
+    }
+
+    fn close_callable_header(&mut self) {
+        if self.callable_header_group_open {
+            self.close_callable_header_group();
+        }
+
+        if self.callable_clause_indent_open {
+            self.writer.decrease_indent();
+            self.callable_clause_indent_open = false;
+        }
+    }
+}
+
+fn is_callable_clause_keyword(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::RequiresKeyword
+            | SyntaxKind::EnsuresKeyword
+            | SyntaxKind::WithKeyword
+            | SyntaxKind::UsesKeyword
+    )
+}
+
+fn is_callable_declaration_header(nodes: &[SyntaxKind]) -> bool {
+    nodes
+        .iter()
+        .rev()
+        .skip(1)
+        .copied()
+        .find(|kind| {
+            is_callable_declaration(*kind)
+                || matches!(
+                    kind,
+                    SyntaxKind::CallableBodyBlockExpression
+                        | SyntaxKind::BlockExpression
+                        | SyntaxKind::LambdaExpression
+                )
+        })
+        .is_some_and(is_callable_declaration)
 }
 
 const fn is_open_delimiter(kind: SyntaxKind) -> bool {

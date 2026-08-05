@@ -28,10 +28,7 @@ struct Argument<Value>
 
 trait Format
 {
-    func format(
-        pos destination: &mut ByteSink,
-        pos options: &Options,
-    ) -> Result<unit, std.memory.MemoryLayoutError>;
+    func format(pos destination: &mut ByteSink, pos options: &Options,) -> Result<unit, std.memory.MemoryLayoutError>;
 }
 
 func write<Value>(

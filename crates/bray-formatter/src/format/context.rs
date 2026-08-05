@@ -28,8 +28,15 @@ pub(super) fn token_spacing(
 ) -> Option<TokenSpacing> {
     let previous = previous?;
 
-    if previous_was_generic_delimiter || current_is_generic_delimiter {
+    if current_is_generic_delimiter {
         return Some(no_space(FormatterRule::GenericDelimiterSpacing));
+    }
+
+    if previous_was_generic_delimiter {
+        return Some(TokenSpacing {
+            rule: FormatterRule::GenericDelimiterSpacing,
+            uses_space: is_word(current) || is_operator(current),
+        });
     }
 
     if matches!(previous, SyntaxKind::DotDotToken) || matches!(current, SyntaxKind::DotDotToken) {
@@ -42,21 +49,6 @@ pub(super) fn token_spacing(
 
     if matches!(previous, SyntaxKind::AtToken) {
         return Some(no_space(FormatterRule::DirectiveMarkerSpacing));
-    }
-
-    if is_operator(current) {
-        let uses_space = !current_operator_is_prefix
-            || is_word(previous)
-            || (is_operator(previous) && !previous_operator_was_prefix);
-
-        return Some(TokenSpacing {
-            rule: if current_operator_is_prefix && !uses_space {
-                FormatterRule::PrefixOperatorSpacing
-            } else {
-                FormatterRule::OperatorSpacing
-            },
-            uses_space,
-        });
     }
 
     if is_operator(previous) {
@@ -72,6 +64,21 @@ pub(super) fn token_spacing(
 
     if let Some(spacing) = punctuation_spacing(previous, current) {
         return Some(spacing);
+    }
+
+    if is_operator(current) {
+        let uses_space = !current_operator_is_prefix
+            || is_word(previous)
+            || (is_operator(previous) && !previous_operator_was_prefix);
+
+        return Some(TokenSpacing {
+            rule: if current_operator_is_prefix && !uses_space {
+                FormatterRule::PrefixOperatorSpacing
+            } else {
+                FormatterRule::OperatorSpacing
+            },
+            uses_space,
+        });
     }
 
     (is_word(previous) || closes_delimiter(previous)).then_some(TokenSpacing {
@@ -115,6 +122,10 @@ pub(super) const fn list_layout_rule(parent: Option<SyntaxKind>) -> Option<Forma
     match parent {
         Some(
             SyntaxKind::DirectiveArgumentList
+            | SyntaxKind::RequiresClause
+            | SyntaxKind::EnsuresClause
+            | SyntaxKind::WithClause
+            | SyntaxKind::UsesClause
             | SyntaxKind::UnionVariantPayload
             | SyntaxKind::PredicateParameterList
             | SyntaxKind::ParameterList
@@ -181,6 +192,24 @@ pub(super) fn is_directive(kind: SyntaxKind) -> bool {
     )
 }
 
+pub(super) fn is_callable_declaration(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::FunctionDeclaration
+            | SyntaxKind::TraitCallableMemberDeclaration
+            | SyntaxKind::TypeCallableMemberDeclaration
+            | SyntaxKind::TypeConstructorMemberDeclaration
+            | SyntaxKind::FinalizerMemberDeclaration
+            | SyntaxKind::DestructorMemberDeclaration
+            | SyntaxKind::ScopeEnterMemberDeclaration
+            | SyntaxKind::ScopeExitMemberDeclaration
+            | SyntaxKind::TraitFinalizerRequirementDeclaration
+            | SyntaxKind::TraitDestructorRequirementDeclaration
+            | SyntaxKind::TraitScopeEnterRequirementDeclaration
+            | SyntaxKind::TraitScopeExitRequirementDeclaration
+    )
+}
+
 pub(super) fn separation_rule(
     kind: SyntaxKind,
     parent: Option<SyntaxKind>,
@@ -192,18 +221,24 @@ pub(super) fn separation_rule(
         return is_module_declaration(kind).then_some(FormatterRule::ModuleItemSpacing);
     }
 
-    matches!(
-        kind,
-        SyntaxKind::FunctionDeclaration
-            | SyntaxKind::TypeCallableMemberDeclaration
-            | SyntaxKind::TypeConstructorMemberDeclaration
-            | SyntaxKind::FinalizerMemberDeclaration
-            | SyntaxKind::DestructorMemberDeclaration
-            | SyntaxKind::ScopeEnterMemberDeclaration
-            | SyntaxKind::ScopeExitMemberDeclaration
-            | SyntaxKind::TraitCallableMemberDeclaration
-    )
-    .then_some(FormatterRule::CallableMemberSpacing)
+    is_callable_member(kind).then_some(FormatterRule::CallableMemberSpacing)
+}
+
+pub(super) fn leading_separation_rule(
+    kind: SyntaxKind,
+    parent: Option<SyntaxKind>,
+    previous: Option<SyntaxKind>,
+) -> Option<FormatterRule> {
+    if matches!(parent, Some(SyntaxKind::SourceUnit | SyntaxKind::ModuleBody))
+        && is_ordinary_module_declaration(kind)
+        && previous == Some(SyntaxKind::SemicolonToken)
+    {
+        return Some(FormatterRule::ModuleItemSpacing);
+    }
+
+    is_callable_member(kind)
+        .then_some(FormatterRule::CallableMemberSpacing)
+        .filter(|_| previous == Some(SyntaxKind::SemicolonToken))
 }
 
 pub(super) fn is_line_comment(kind: SyntaxKind) -> bool {
@@ -305,8 +340,6 @@ fn is_module_declaration(kind: SyntaxKind) -> bool {
         kind,
         SyntaxKind::SourceUnitModuleDeclaration
             | SyntaxKind::BlockModuleDeclaration
-            | SyntaxKind::UsingDeclaration
-            | SyntaxKind::ExportDeclaration
             | SyntaxKind::ConstantDeclaration
             | SyntaxKind::FunctionDeclaration
             | SyntaxKind::PredicateDeclaration
@@ -320,4 +353,16 @@ fn is_module_declaration(kind: SyntaxKind) -> bool {
             | SyntaxKind::UnnamedTraitImplementationDeclaration
             | SyntaxKind::NamedTraitImplementationDeclaration
     )
+}
+
+fn is_ordinary_module_declaration(kind: SyntaxKind) -> bool {
+    is_module_declaration(kind)
+        && !matches!(
+            kind,
+            SyntaxKind::SourceUnitModuleDeclaration | SyntaxKind::BlockModuleDeclaration
+        )
+}
+
+fn is_callable_member(kind: SyntaxKind) -> bool {
+    is_callable_declaration(kind) && kind != SyntaxKind::FunctionDeclaration
 }

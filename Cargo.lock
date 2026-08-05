@@ -1652,6 +1652,7 @@ dependencies = [
  "bray-compiler-known",
  "bray-diagnostics",
  "bray-emitter",
+ "bray-formatter",
  "bray-package-interface",
  "bray-project",
  "bray-runtime-interface",
@@ -1668,6 +1669,7 @@ dependencies = [
  "sha2",
  "syn 2.0.118",
  "tempfile",
+ "unicode-width",
 ]
 
 [[package]]

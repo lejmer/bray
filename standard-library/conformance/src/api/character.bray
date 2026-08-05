@@ -27,7 +27,7 @@ func character_operations()
 
     match decoded
     {
-        case ?character
+        case?character
         {
             assert(character == value);
         }

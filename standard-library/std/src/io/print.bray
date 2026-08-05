@@ -43,7 +43,7 @@ internal func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<
 
     while written < length
     {
-        let remaining: &[u8] = &source[written..length];
+        let remaining: &[u8] = &source[written.. length];
         let result: Result<usize, IoError> = sink.write(remaining);
 
         let advanced: Result<usize, IoError> = advance_write_all(
@@ -68,10 +68,7 @@ internal func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<
     return Ok(written);
 }
 
-internal async func write_all_async<Sink>(
-    pos sink: &mut Sink,
-    pos source: &[u8],
-) -> Result<usize, IoError>
+internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8],) -> Result<usize, IoError>
     with(Sink: AsyncWriter)
     requires(blocking_execution())
 {
@@ -80,7 +77,7 @@ internal async func write_all_async<Sink>(
 
     while written < length
     {
-        let remaining: &[u8] = &source[written..length];
+        let remaining: &[u8] = &source[written.. length];
         let result: Result<usize, IoError> = await sink.write_async(remaining);
 
         let advanced: Result<usize, IoError> = advance_write_all(
@@ -105,10 +102,7 @@ internal async func write_all_async<Sink>(
     return Ok(written);
 }
 
-internal func write_standard_output_all(
-    pos output: &mut StandardOutput,
-    pos source: &[u8],
-) -> Result<usize, IoError>
+internal func write_standard_output_all(pos output: &mut StandardOutput, pos source: &[u8],) -> Result<usize, IoError>
     requires(blocking_execution())
 {
     let length: usize = internal std.memory.byte_slice_length(source);
@@ -116,12 +110,9 @@ internal func write_standard_output_all(
 
     while written < length
     {
-        let remaining: &[u8] = &source[written..length];
+        let remaining: &[u8] = &source[written.. length];
 
-        let result: Result<usize, IoError> = trusted write_standard_stream_unlocked(
-            remaining,
-            handle = output.handle,
-        );
+        let result: Result<usize, IoError> = trusted write_standard_stream_unlocked(remaining, handle = output.handle,);
 
         let advanced: Result<usize, IoError> = advance_write_all(
             result = result,
@@ -166,10 +157,7 @@ internal func flush_after_write<Sink>(pos sink: &mut Sink, written: usize) -> Re
 {
     let result: Result<unit, IoError> = sink.flush();
 
-    return checked_flush_result(
-        result = result,
-        written = written,
-    );
+    return checked_flush_result(result = result, written = written,);
 }
 
 internal async func flush_after_write_async<Sink>(pos sink: &mut Sink, written: usize) -> Result<unit, IoError>
@@ -178,10 +166,7 @@ internal async func flush_after_write_async<Sink>(pos sink: &mut Sink, written: 
 {
     let result: Result<unit, IoError> = await sink.flush_async();
 
-    return checked_flush_result(
-        result = result,
-        written = written,
-    );
+    return checked_flush_result(result = result, written = written,);
 }
 
 func print(pos text: string) -> Result<unit, IoError>
@@ -190,26 +175,20 @@ func print(pos text: string) -> Result<unit, IoError>
     let mut output: StandardOutput = standard_output();
     let handle: u64 = output.handle;
 
-    let lock: StandardStreamLock =
-        try trusted acquire_standard_stream(handle = handle);
+    let lock: StandardStreamLock = try trusted acquire_standard_stream(handle = handle);
 
     let text_ref: &string = &text;
     let bytes: &[u8] = std.string.utf8(text_ref);
 
-    let write_result: Result<usize, IoError> =
-        write_standard_output_all(&mut output, bytes);
+    let write_result: Result<usize, IoError> = write_standard_output_all(&mut output, bytes);
 
     match consume write_result
     {
         case Ok(written)
         {
-            let flush_result: Result<unit, IoError> =
-                trusted flush_standard_stream_unlocked(handle = handle);
+            let flush_result: Result<unit, IoError> = trusted flush_standard_stream_unlocked(handle = handle);
 
-            return checked_flush_result(
-                result = flush_result,
-                written = written,
-            );
+            return checked_flush_result(result = flush_result, written = written,);
         }
         case Error(error)
         {
@@ -224,14 +203,12 @@ func print_line(pos text: string) -> Result<unit, IoError>
     let mut output: StandardOutput = standard_output();
     let handle: u64 = output.handle;
 
-    let lock: StandardStreamLock =
-        try trusted acquire_standard_stream(handle = handle);
+    let lock: StandardStreamLock = try trusted acquire_standard_stream(handle = handle);
 
     let text_ref: &string = &text;
     let bytes: &[u8] = std.string.utf8(text_ref);
 
-    let write_result: Result<usize, IoError> =
-        write_standard_output_all(&mut output, bytes);
+    let write_result: Result<usize, IoError> = write_standard_output_all(&mut output, bytes);
 
     match consume write_result
     {
@@ -240,20 +217,15 @@ func print_line(pos text: string) -> Result<unit, IoError>
             let newline_text: string = "\n";
             let newline: &[u8] = std.string.utf8(&newline_text);
 
-            let newline_written: Result<usize, IoError> =
-                write_standard_output_all(&mut output, newline);
+            let newline_written: Result<usize, IoError> = write_standard_output_all(&mut output, newline);
 
             match consume newline_written
             {
                 case Ok(count)
                 {
-                    let flush_result: Result<unit, IoError> =
-                        trusted flush_standard_stream_unlocked(handle = handle);
+                    let flush_result: Result<unit, IoError> = trusted flush_standard_stream_unlocked(handle = handle);
 
-                    return checked_flush_result(
-                        result = flush_result,
-                        written = written + count,
-                    );
+                    return checked_flush_result(result = flush_result, written = written + count,);
                 }
                 case Error(error)
                 {

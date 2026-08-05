@@ -8,10 +8,7 @@ internal func write_text(
     pos value: &string,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    return std.bytes.append(
-        &mut destination.buffer,
-        bytes = std.string.utf8(value),
-    );
+    return std.bytes.append(&mut destination.buffer, bytes = std.string.utf8(value),);
 }
 
 internal func write_padding(
@@ -19,11 +16,7 @@ internal func write_padding(
     pos count: usize,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    return std.bytes.append_repeated(
-        &mut destination.buffer,
-        value = 32,
-        count = count,
-    );
+    return std.bytes.append_repeated(&mut destination.buffer, value = 32, count = count,);
 }
 
 internal func write_aligned(
@@ -98,45 +91,135 @@ internal func digit_offset(pos uppercase: bool) -> u8
 
 internal func digit_byte(pos value: u128, pos uppercase: bool) -> u8
 {
-    if value == 0 { return 48; }
-    if value == 1 { return 49; }
-    if value == 2 { return 50; }
-    if value == 3 { return 51; }
-    if value == 4 { return 52; }
-    if value == 5 { return 53; }
-    if value == 6 { return 54; }
-    if value == 7 { return 55; }
-    if value == 8 { return 56; }
-    if value == 9 { return 57; }
+    if value == 0
+    {
+        return 48;
+    }
+    if value == 1
+    {
+        return 49;
+    }
+    if value == 2
+    {
+        return 50;
+    }
+    if value == 3
+    {
+        return 51;
+    }
+    if value == 4
+    {
+        return 52;
+    }
+    if value == 5
+    {
+        return 53;
+    }
+    if value == 6
+    {
+        return 54;
+    }
+    if value == 7
+    {
+        return 55;
+    }
+    if value == 8
+    {
+        return 56;
+    }
+    if value == 9
+    {
+        return 57;
+    }
 
     let offset: u8 = digit_offset(uppercase);
 
-    if value == 10 { return offset; }
-    if value == 11 { return offset + 1; }
-    if value == 12 { return offset + 2; }
-    if value == 13 { return offset + 3; }
-    if value == 14 { return offset + 4; }
+    if value == 10
+    {
+        return offset;
+    }
+    if value == 11
+    {
+        return offset + 1;
+    }
+    if value == 12
+    {
+        return offset + 2;
+    }
+    if value == 13
+    {
+        return offset + 3;
+    }
+    if value == 14
+    {
+        return offset + 4;
+    }
 
     return offset + 5;
 }
 
 internal func signed_digit_byte(pos value: i128, pos uppercase: bool) -> u8
 {
-    if value == 0 { return digit_byte(0, uppercase); }
-    if value == 1 { return digit_byte(1, uppercase); }
-    if value == 2 { return digit_byte(2, uppercase); }
-    if value == 3 { return digit_byte(3, uppercase); }
-    if value == 4 { return digit_byte(4, uppercase); }
-    if value == 5 { return digit_byte(5, uppercase); }
-    if value == 6 { return digit_byte(6, uppercase); }
-    if value == 7 { return digit_byte(7, uppercase); }
-    if value == 8 { return digit_byte(8, uppercase); }
-    if value == 9 { return digit_byte(9, uppercase); }
-    if value == 10 { return digit_byte(10, uppercase); }
-    if value == 11 { return digit_byte(11, uppercase); }
-    if value == 12 { return digit_byte(12, uppercase); }
-    if value == 13 { return digit_byte(13, uppercase); }
-    if value == 14 { return digit_byte(14, uppercase); }
+    if value == 0
+    {
+        return digit_byte(0, uppercase);
+    }
+    if value == 1
+    {
+        return digit_byte(1, uppercase);
+    }
+    if value == 2
+    {
+        return digit_byte(2, uppercase);
+    }
+    if value == 3
+    {
+        return digit_byte(3, uppercase);
+    }
+    if value == 4
+    {
+        return digit_byte(4, uppercase);
+    }
+    if value == 5
+    {
+        return digit_byte(5, uppercase);
+    }
+    if value == 6
+    {
+        return digit_byte(6, uppercase);
+    }
+    if value == 7
+    {
+        return digit_byte(7, uppercase);
+    }
+    if value == 8
+    {
+        return digit_byte(8, uppercase);
+    }
+    if value == 9
+    {
+        return digit_byte(9, uppercase);
+    }
+    if value == 10
+    {
+        return digit_byte(10, uppercase);
+    }
+    if value == 11
+    {
+        return digit_byte(11, uppercase);
+    }
+    if value == 12
+    {
+        return digit_byte(12, uppercase);
+    }
+    if value == 13
+    {
+        return digit_byte(13, uppercase);
+    }
+    if value == 14
+    {
+        return digit_byte(14, uppercase);
+    }
 
     return digit_byte(15, uppercase);
 }
@@ -258,25 +341,14 @@ internal func write_unsigned_digits(
 {
     if value < radix
     {
-        return std.bytes.push(
-            &mut destination.buffer,
-            value = digit_byte(value, uppercase),
-        );
+        return std.bytes.push(&mut destination.buffer, value = digit_byte(value, uppercase),);
     }
 
     let digit: u8 = digit_byte(value % radix, uppercase);
 
-    try write_unsigned_digits(
-        &mut destination,
-        value / radix,
-        radix,
-        uppercase,
-    );
+    try write_unsigned_digits(&mut destination, value / radix, radix, uppercase,);
 
-    return std.bytes.push(
-        &mut destination.buffer,
-        value = digit,
-    );
+    return std.bytes.push(&mut destination.buffer, value = digit,);
 }
 
 internal func write_signed_digits(
@@ -288,25 +360,14 @@ internal func write_signed_digits(
 {
     if value > -radix
     {
-        return std.bytes.push(
-            &mut destination.buffer,
-            value = signed_digit_byte(-value, uppercase),
-        );
+        return std.bytes.push(&mut destination.buffer, value = signed_digit_byte(-value, uppercase),);
     }
 
     let digit: u8 = signed_digit_byte(-(value % radix), uppercase);
 
-    try write_signed_digits(
-        &mut destination,
-        value / radix,
-        radix,
-        uppercase,
-    );
+    try write_signed_digits(&mut destination, value / radix, radix, uppercase,);
 
-    return std.bytes.push(
-        &mut destination.buffer,
-        value = digit,
-    );
+    return std.bytes.push(&mut destination.buffer, value = digit,);
 }
 
 internal func write_requested_sign(
@@ -322,7 +383,9 @@ internal func write_requested_sign(
 
     match options.sign
     {
-        case NegativeOnly {}
+        case NegativeOnly
+        {
+        }
         case Always
         {
             try std.bytes.push(&mut destination.buffer, value = 43);
@@ -354,12 +417,7 @@ internal func write_unsigned_integer(
     try write_requested_sign(&mut destination, negative = false, options = options);
     try write_padding(&mut destination, digits - natural_digits);
 
-    try write_unsigned_digits(
-        &mut destination,
-        value,
-        radix,
-        uppercase_digits(options),
-    );
+    try write_unsigned_digits(&mut destination, value, radix, uppercase_digits(options),);
 
     return write_padding(destination, padding - left);
 }
@@ -385,20 +443,12 @@ internal func write_signed_integer(
     try write_requested_sign(&mut destination, negative = negative, options = options);
     try write_padding(&mut destination, digits - natural_digits);
 
-    try write_signed_digits(
-        &mut destination,
-        normalized,
-        radix,
-        uppercase_digits(options),
-    );
+    try write_signed_digits(&mut destination, normalized, radix, uppercase_digits(options),);
 
     return write_padding(destination, padding - left);
 }
 
-internal func write_escape(
-    pos destination: &mut ByteSink,
-    pos value: u8,
-) -> Result<unit, std.memory.MemoryLayoutError>
+internal func write_escape(pos destination: &mut ByteSink, pos value: u8,) -> Result<unit, std.memory.MemoryLayoutError>
 {
     try std.bytes.push(&mut destination.buffer, value = 92);
 
@@ -407,11 +457,26 @@ internal func write_escape(
 
 internal func escape_code(pos value: u8) -> u8
 {
-    if value == 34 { return 34; }
-    if value == 92 { return 92; }
-    if value == 10 { return 110; }
-    if value == 13 { return 114; }
-    if value == 9 { return 116; }
+    if value == 34
+    {
+        return 34;
+    }
+    if value == 92
+    {
+        return 92;
+    }
+    if value == 10
+    {
+        return 110;
+    }
+    if value == 13
+    {
+        return 114;
+    }
+    if value == 9
+    {
+        return 116;
+    }
 
     return 0;
 }
@@ -527,22 +592,52 @@ internal func boolean_text(pos value: bool) -> string
 
 internal func character_is_escaped(pos scalar: u32) -> bool
 {
-    if scalar == 0 { return true; }
-    if scalar == 9 { return true; }
-    if scalar == 10 { return true; }
-    if scalar == 13 { return true; }
-    if scalar == 39 { return true; }
+    if scalar == 0
+    {
+        return true;
+    }
+    if scalar == 9
+    {
+        return true;
+    }
+    if scalar == 10
+    {
+        return true;
+    }
+    if scalar == 13
+    {
+        return true;
+    }
+    if scalar == 39
+    {
+        return true;
+    }
 
     return scalar == 92;
 }
 
 internal func character_escape_byte(pos scalar: u32) -> u8
 {
-    if scalar == 0 { return 48; }
-    if scalar == 9 { return 116; }
-    if scalar == 10 { return 110; }
-    if scalar == 13 { return 114; }
-    if scalar == 39 { return 39; }
+    if scalar == 0
+    {
+        return 48;
+    }
+    if scalar == 9
+    {
+        return 116;
+    }
+    if scalar == 10
+    {
+        return 110;
+    }
+    if scalar == 13
+    {
+        return 114;
+    }
+    if scalar == 39
+    {
+        return 39;
+    }
 
     return 92;
 }
@@ -557,10 +652,7 @@ internal func write_raw_character(
 
     while index < length
     {
-        try std.bytes.push(
-            &mut destination.buffer,
-            value = std.character.utf8_byte(value = value, index = index),
-        );
+        try std.bytes.push(&mut destination.buffer, value = std.character.utf8_byte(value = value, index = index),);
 
         index = index + 1;
     }
@@ -579,7 +671,9 @@ internal func write_character_value(
 
     match options.escaping
     {
-        case Raw {}
+        case Raw
+        {
+        }
         case Quoted
         {
             quoted = true;
@@ -614,10 +708,7 @@ internal func write_character_value(
     if escaped
     {
         try std.bytes.push(&mut destination.buffer, value = 92);
-        try std.bytes.push(
-            &mut destination.buffer,
-            value = character_escape_byte(scalar),
-        );
+        try std.bytes.push(&mut destination.buffer, value = character_escape_byte(scalar),);
     }
     else
     {
