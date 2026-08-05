@@ -48,13 +48,17 @@ where
                 self.plan_assignment(id, assignment.operands())?
             }
             BoundExpression::MemberAccess(member) => {
-                let receiver = self.plan_expression(member.receiver(), None)?;
-                let projection = self.member_projection(id, member.selector())?;
-                let access = self.member_access(id, receiver, projection)?;
+                if self.is_compile_time_qualifier(member.receiver())? {
+                    self.temporary_access(id)?
+                } else {
+                    let receiver = self.plan_expression(member.receiver(), None)?;
+                    let projection = self.member_projection(id, member.selector())?;
+                    let access = self.member_access(id, receiver, projection)?;
 
-                self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
+                    self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
 
-                access
+                    access
+                }
             }
             BoundExpression::TraitQualifiedMember(member) => {
                 let receiver = self.plan_expression(member.receiver(), None)?;
@@ -194,6 +198,22 @@ where
         self.record_purpose(id, purpose, access)?;
 
         Ok(access)
+    }
+
+    fn is_compile_time_qualifier(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<bool, PlanError> {
+        let expression = self
+            .request
+            .view()
+            .expression(expression)
+            .ok_or_else(|| invalid_node(expression))?;
+
+        Ok(matches!(
+            expression,
+            BoundExpression::Name(name) if name.target().is_compile_time_qualifier()
+        ))
     }
 
     fn plan_call(

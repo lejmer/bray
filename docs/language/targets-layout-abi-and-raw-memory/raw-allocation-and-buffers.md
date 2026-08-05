@@ -69,10 +69,10 @@ struct RawBuffer<T>
     pointer: RawPointer<T>;
     capacity: usize;
     initialized: usize;
-}
 
-trusted func create_buffer<T>(capacity: usize) -> Result<RawBuffer<T>, MemoryLayoutError>
-    uses(manual_alloc, layout_reinterpret);
+    trusted construct(capacity: usize) -> Result<Self, MemoryLayoutError>
+        uses(manual_alloc, layout_reinterpret);
+}
 
 func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;
 
@@ -106,15 +106,16 @@ trusted func set_initialized_count<T>(pos buffer: &mut RawBuffer<T>, count: usiz
 
 `RawBuffer<T>` is not copyable.
 
-`create_buffer<T>(capacity = capacity)` computes `layout_of<T>(count = capacity)`.
+`RawBuffer<T>(capacity = capacity)` computes `layout_of<T>(count = capacity)`.
 
-If the layout cannot be represented for the selected target profile, `create_buffer` returns the corresponding `MemoryLayoutError`.
+If the layout cannot be represented for the selected target profile, the constructor returns the corresponding
+`MemoryLayoutError`.
 
-When `create_buffer` returns `Result.Error`, no allocation owner is created.
+When the constructor returns `Result.Error`, no allocation owner is created.
 
-If allocation fails after the layout is valid, `create_buffer` panics according to the allocation rules.
+If allocation fails after the layout is valid, the constructor panics according to the allocation rules.
 
-When `create_buffer` returns `Result.Ok(buffer)`, `buffer.capacity == capacity` and `buffer.initialized == 0`.
+When the constructor returns `Result.Ok(buffer)`, `buffer.capacity == capacity` and `buffer.initialized == 0`.
 
 `RawBuffer<T>` owns its allocation and deallocates it when destroyed.
 

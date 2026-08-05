@@ -1850,6 +1850,7 @@ mod tests {
             [SelectedConstructionInput::Explicit {
                 expression: value,
                 input: ConstructionInputId::StructField(field),
+                ty: field_type,
                 ordinal: 0,
             }],
         );

@@ -1,13 +1,13 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, CheckedExpressionTypes,
+    BoundExpression, BoundExpressionId, CheckedExpressionTypes,
     ExpressionTypeEntry, SelectedIterationSource,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
 };
-use bray_symbols::{AnySymbolId, TypeId};
+use bray_symbols::TypeId;
 
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -198,16 +198,11 @@ where
 }
 
 fn is_compile_time_path_expression(expression: &BoundExpression) -> bool {
-    matches!(
-        expression,
-        BoundExpression::Name(name)
-            if matches!(
-                name.target(),
-                BoundReferenceTarget::Surface(
-                    AnySymbolId::Package(_) | AnySymbolId::Module(_) | AnySymbolId::Union(_)
-                )
-            )
-    )
+    let BoundExpression::Name(name) = expression else {
+        return false;
+    };
+
+    name.target().is_compile_time_qualifier()
 }
 
 pub(crate) fn diagnostic_type<C>(

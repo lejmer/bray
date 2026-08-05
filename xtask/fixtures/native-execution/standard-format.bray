@@ -30,7 +30,7 @@ func matches_text_at(pos bytes: &[u8], pos expected: &string, offset: usize) -> 
 
 func main() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut sink: ByteSink = try byte_sink(capacity = 0);
+    let mut sink: ByteSink = try ByteSink(capacity = 0);
     let separator: string = "|";
     let greeting: string = "Hello, world!";
     let truth: bool = true;
@@ -46,10 +46,10 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     let character: char = '\u{3bb}';
     let escaped_character: char = '\n';
 
-    try write(&mut sink, argument<string>(greeting));
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(greeting));
+    try write(&mut sink, Argument<string>(separator));
 
-    let centered: Options = options(
+    let centered: Options = Options(
         radix = Decimal,
         precision = 0,
         width = 7,
@@ -60,13 +60,13 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<bool>(truth, options = centered),
+        Argument<bool>.with_options(truth, options = centered),
     );
-    try write(&mut sink, argument<string>(separator));
-    try write(&mut sink, argument<i32>(decimal));
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
+    try write(&mut sink, Argument<i32>(decimal));
+    try write(&mut sink, Argument<string>(separator));
 
-    let binary_options: Options = options(
+    let binary_options: Options = Options(
         radix = Binary,
         precision = 0,
         width = 0,
@@ -77,11 +77,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<u8>(binary, options = binary_options),
+        Argument<u8>.with_options(binary, options = binary_options),
     );
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
 
-    let octal_options: Options = options(
+    let octal_options: Options = Options(
         radix = Octal,
         precision = 0,
         width = 0,
@@ -92,11 +92,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<u8>(octal, options = octal_options),
+        Argument<u8>.with_options(octal, options = octal_options),
     );
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
 
-    let lowercase_options: Options = options(
+    let lowercase_options: Options = Options(
         radix = HexadecimalLowercase,
         precision = 0,
         width = 0,
@@ -107,11 +107,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<u8>(hexadecimal_lowercase, options = lowercase_options),
+        Argument<u8>.with_options(hexadecimal_lowercase, options = lowercase_options),
     );
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
 
-    let uppercase_options: Options = options(
+    let uppercase_options: Options = Options(
         radix = HexadecimalUppercase,
         precision = 4,
         width = 7,
@@ -122,11 +122,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<u32>(hexadecimal_uppercase, options = uppercase_options),
+        Argument<u32>.with_options(hexadecimal_uppercase, options = uppercase_options),
     );
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
 
-    let negative_options: Options = options(
+    let negative_options: Options = Options(
         radix = Binary,
         precision = 8,
         width = 12,
@@ -137,11 +137,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<i32>(negative, options = negative_options),
+        Argument<i32>.with_options(negative, options = negative_options),
     );
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
 
-    let spaced_options: Options = options(
+    let spaced_options: Options = Options(
         radix = Decimal,
         precision = 0,
         width = 0,
@@ -152,11 +152,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<u8>(spaced, options = spaced_options),
+        Argument<u8>.with_options(spaced, options = spaced_options),
     );
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
 
-    let aligned_options: Options = options(
+    let aligned_options: Options = Options(
         radix = Decimal,
         precision = 0,
         width = 5,
@@ -167,11 +167,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<string>(aligned, options = aligned_options),
+        Argument<string>.with_options(aligned, options = aligned_options),
     );
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
 
-    let escaped_text_options: Options = options(
+    let escaped_text_options: Options = Options(
         radix = Decimal,
         precision = 0,
         width = 0,
@@ -182,13 +182,13 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<string>(escaped, options = escaped_text_options),
+        Argument<string>.with_options(escaped, options = escaped_text_options),
     );
-    try write(&mut sink, argument<string>(separator));
-    try write(&mut sink, argument<char>(character));
-    try write(&mut sink, argument<string>(separator));
+    try write(&mut sink, Argument<string>(separator));
+    try write(&mut sink, Argument<char>(character));
+    try write(&mut sink, Argument<string>(separator));
 
-    let escaped_character_options: Options = options(
+    let escaped_character_options: Options = Options(
         radix = Decimal,
         precision = 0,
         width = 0,
@@ -199,7 +199,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try write(
         &mut sink,
-        argument_with<char>(escaped_character, options = escaped_character_options),
+        Argument<char>.with_options(escaped_character, options = escaped_character_options),
     );
 
     let formatted: &[u8] = bytes(&sink);

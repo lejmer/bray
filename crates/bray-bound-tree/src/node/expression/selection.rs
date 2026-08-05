@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_declarations::SyntaxAnchor;
-use bray_symbols::{AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, SymbolName, TypeId};
+use bray_symbols::{
+    AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, NamedTypeSymbolId, SymbolName, TypeId,
+};
 
 use crate::{BoundExpressionId, BoundNodeOrigin, BoundPatternId, BoundUnresolvedReferenceKind};
 
@@ -13,6 +15,19 @@ pub enum BoundReferenceTarget {
     Local(AnyLocalSymbolId),
     /// A compilation-wide identity.
     Surface(AnySymbolId),
+}
+
+impl BoundReferenceTarget {
+    /// Returns whether this target qualifies a path or type-associated member without producing a
+    /// runtime value.
+    pub fn is_compile_time_qualifier(self) -> bool {
+        let Self::Surface(symbol) = self else {
+            return false;
+        };
+
+        matches!(symbol, AnySymbolId::Package(_) | AnySymbolId::Module(_))
+            || NamedTypeSymbolId::try_from_any(symbol).is_some()
+    }
 }
 
 /// A value reference whose pattern-introduced local remains subject-dependent.

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bray_binder::{
     BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, NameAccess,
     SymbolFactProvider, bind_surface_path_with_re_exports,
@@ -7,9 +9,9 @@ use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
     FunctionSymbol, FunctionSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton,
-    MemberLookupResult, ModuleSurfaceFact, ModuleSymbolId, SemanticValueStore, StructSymbol,
-    StructSymbolId, SymbolFactRequest, SymbolGraph, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
-    UnionVariantSymbolId,
+    MemberLookupResult, ModuleSurfaceFact, ModuleSymbolId, NamedTypeSymbolId, SemanticValueStore,
+    StructSymbol, StructSymbolId, SymbolFactRequest, SymbolGraph, TypeAssociatedSurface,
+    UnionSymbol, UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_syntax::{PathSyntax, SyntaxTree};
 
@@ -275,6 +277,18 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
             NameAccess::Public => surface.value().lookup_public(name),
             NameAccess::Internal => surface.value().lookup(name),
         })
+    }
+
+    fn type_associated_surface(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> BinderFactResult<Arc<DiagnosticResult<TypeAssociatedSurface>>> {
+        self.compilation
+            .type_associated_surface_result_with_cancellation(subject, self.cancellation)
+            .map_err(|error| match error {
+                FactQueryError::Cancelled => BinderFactError::Cancelled,
+                _ => BinderFactError::DependencyUnavailable,
+            })
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {

@@ -8,8 +8,9 @@ use bray_symbols::{
     CallableSymbolId, ConstantDeclaredTypeFact, ConstantExpressionExpectedType,
     ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterDeclaredTypeFact,
     ImplementationSubjectFact, PredicateDefinitionSymbolId, PredicateSignatureTemplateFact,
-    StructFieldTypeFact, SymbolFactRequest, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantMemberDeclaredTypeFact, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
+    NamedTypeSymbolId, StructFieldTypeFact, SymbolFactRequest,
+    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
+    TypeExpressionTemplate, UnionPayloadFieldTypeFact,
 };
 use bray_syntax::LambdaExpressionSyntax;
 use bray_target::TargetFactKind;
@@ -104,10 +105,68 @@ impl DeclaredValueTypeBinding<'_> {
         }
 
         if supplies_result_expectation {
-            self.callable_result = Some(owned_template(signature.result()));
+            self.callable_result = Some(self.callable_body_result(signature.result())?);
         }
 
         Ok(())
+    }
+
+    fn callable_body_result(
+        &mut self,
+        result: &TypeExpressionTemplate,
+    ) -> BinderFactResult<TypeExpressionTemplate> {
+        let TypeExpressionTemplate::Resolved(ty) = result else {
+            return Ok(owned_template(result));
+        };
+
+        if let Some(definition) = self
+            .context
+            .symbols()
+            .containing_symbol(self.owner)
+            .and_then(NamedTypeSymbolId::try_from_any)
+        {
+            let self_ty = contextual_self_type(
+                self.context,
+                bray_symbols::SelfTypeContext::NamedType(definition),
+            )
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+            let self_data = self
+                .context
+                .semantic_values()
+                .type_data(self_ty)
+                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+            let bray_symbols::TypeData::Named { substitution, .. } = self_data.as_ref() else {
+                return Err(BinderFactError::DependencyUnavailable);
+            };
+
+            let result = self
+                .context
+                .semantic_values()
+                .substitute_type(*ty, *substitution)
+                .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+            return Ok(TypeExpressionTemplate::Resolved(result));
+        }
+
+        let data = self
+            .context
+            .semantic_values()
+            .type_data(*ty)
+            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+        match data.as_ref() {
+            bray_symbols::TypeData::ContextualSelf(
+                context @ bray_symbols::SelfTypeContext::NamedType(_),
+            ) => contextual_self_type(self.context, *context)
+                .map(TypeExpressionTemplate::Resolved)
+                .map_err(|_| BinderFactError::DependencyUnavailable),
+            bray_symbols::TypeData::ContextualSelf(
+                bray_symbols::SelfTypeContext::Implementation(implementation),
+            ) => self.implementation_subject_type(*implementation),
+            _ => Ok(owned_template(result)),
+        }
     }
 
     fn bind_anonymous_callable_surface(&mut self) -> BinderFactResult<()> {

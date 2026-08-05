@@ -6,24 +6,24 @@ struct Argument<Value>
 {
     value: Value;
     options: Options;
-}
 
-func argument<Value>(pos value: Value) -> Argument<Value>
-{
-    return
+    construct(pos value: Value) -> Self
     {
-        value = value,
-        options = default_options(),
-    };
-}
+        return
+        {
+            value = value,
+            options = Options.default(),
+        };
+    }
 
-func argument_with<Value>(pos value: Value, options: Options) -> Argument<Value>
-{
-    return
+    construct with_options(pos value: Value, options: Options) -> Self
     {
-        value = value,
-        options = options,
-    };
+        return
+        {
+            value = value,
+            options = options,
+        };
+    }
 }
 
 trait Format

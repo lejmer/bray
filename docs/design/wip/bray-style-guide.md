@@ -81,3 +81,15 @@ Name declarations for the operation or concept they represent. Do not add prefix
 Internal, external, and compiler-known declarations follow the same naming rules as ordinary declarations. Their syntax and
 catalog metadata already communicate those properties. A prefix is appropriate only when the prefixed word is part of the
 domain concept itself.
+
+## Construction APIs
+
+Use a primary constructor when an operation exists to produce a value of one concrete type. Use a named constructor when the
+type has an alternate construction path that benefits from a descriptive name. Do not wrap a constructor in a global factory
+function solely to avoid constructor syntax.
+
+Express fallibility through the constructor's result type. Do not add a `try_` prefix merely because construction can fail.
+
+Keep an operation as a function when its primary meaning is acquisition, conversion, or another domain action rather than the
+construction of its returned representation. Process-global stream access and text decoding are examples of operations that
+should remain functions.

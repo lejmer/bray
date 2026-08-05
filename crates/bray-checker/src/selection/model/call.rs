@@ -227,6 +227,15 @@ impl CallableCandidate {
         self
     }
 
+    pub(crate) const fn with_generic_substitution(
+        mut self,
+        substitution: GenericSubstitutionId,
+    ) -> Self {
+        self.generic_substitution = Some(substitution);
+
+        self
+    }
+
     /// Supplies source or imported contract clauses for a declaration candidate.
     pub(crate) fn with_contract(mut self, contract: CallableContractTemplate) -> Self {
         self.contract = Some(Arc::new(contract));

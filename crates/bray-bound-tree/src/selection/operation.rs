@@ -289,6 +289,8 @@ pub enum SelectedConstructionInput {
         expression: BoundExpressionId,
         /// The exact initialized field or parameter.
         input: ConstructionInputId,
+        /// The exact expected input type.
+        ty: TypeId,
         /// The initialized input's declaration-order ordinal.
         ordinal: u32,
     },
@@ -298,6 +300,8 @@ pub enum SelectedConstructionInput {
         input: ConstructionInputId,
         /// The declaration-owned provider evaluated by construction.
         provider: ConstructionDefaultProvider,
+        /// The exact expected input type.
+        ty: TypeId,
         /// The initialized input's declaration-order ordinal.
         ordinal: u32,
     },

@@ -166,7 +166,7 @@ The recognized declarations under `std.memory` are:
 - `allocate(layout)`,
 - `deallocate(allocation)`,
 - `RawBuffer<T>` and its `pointer`, `capacity`, and `initialized` fields,
-- `create_buffer<T>(capacity)`,
+- the `RawBuffer<T>(capacity)` primary constructor,
 - `capacity<T>(buffer)`,
 - `initialized_count<T>(buffer)`,
 - `pointer<T>(buffer)`,

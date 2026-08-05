@@ -71,6 +71,7 @@ impl Lowerer<'_> {
                             expression,
                             input,
                             ordinal,
+                            ..
                         } => {
                             let lowered = self.lower_expression(expression, block)?;
 
@@ -94,6 +95,7 @@ impl Lowerer<'_> {
                             input,
                             provider,
                             ordinal,
+                            ..
                         } => inputs.push(MirConstructionInput::Default {
                             input,
                             ordinal,

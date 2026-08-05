@@ -3,14 +3,14 @@ module std.bytes;
 func main() -> Result<unit, std.memory.MemoryLayoutError>
 {
     {
-        let empty: Buffer = try create(capacity = 0);
+        let empty: Buffer = try Buffer(capacity = 0);
 
         assert(length(&empty) == 0);
         assert(capacity(&empty) == 0);
     }
 
     {
-        let allocated: Buffer = try create(capacity = 5);
+        let allocated: Buffer = try Buffer(capacity = 5);
 
         assert(length(&allocated) == 0);
         assert(capacity(&allocated) == 5);

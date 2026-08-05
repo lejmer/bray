@@ -2,7 +2,7 @@ module std.bytes;
 
 func main() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut buffer: Buffer = try create(capacity = 0);
+    let mut buffer: Buffer = try Buffer(capacity = 0);
 
     try reserve(additional = 3, buffer = &mut buffer);
     try push(value = 4, buffer = &mut buffer);

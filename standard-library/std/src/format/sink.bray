@@ -7,13 +7,15 @@ using std.string;
 struct ByteSink
 {
     internal mut buffer: std.bytes.Buffer;
-}
 
-func byte_sink(capacity: usize) -> Result<ByteSink, std.memory.MemoryLayoutError>
-{
-    let buffer: std.bytes.Buffer = try std.bytes.create(capacity = capacity);
+    construct(capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = capacity);
 
-    return Ok(ByteSink { buffer = buffer, });
+        let sink: ByteSink = { buffer = buffer, };
+
+        return Ok(sink);
+    }
 }
 
 func bytes(pos sink: &ByteSink) -> &[u8]
@@ -29,13 +31,15 @@ func into_bytes(pos sink: ByteSink) -> std.bytes.Buffer
 struct TextSink
 {
     internal mut bytes: ByteSink;
-}
 
-func text_sink(capacity: usize) -> Result<TextSink, std.memory.MemoryLayoutError>
-{
-    let sink: ByteSink = try byte_sink(capacity = capacity);
+    construct(capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let sink: ByteSink = try ByteSink(capacity = capacity);
 
-    return Ok(TextSink { bytes = sink, });
+        let result: TextSink = { bytes = sink, };
+
+        return Ok(result);
+    }
 }
 
 func text(pos sink: &TextSink) -> Result<string, std.string.Utf8Error>

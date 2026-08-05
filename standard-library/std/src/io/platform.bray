@@ -120,7 +120,7 @@ trusted internal func process_context_stream_handle(offset: usize) -> u64
     }
 
     let created: Result<std.memory.RawBuffer<u8>, std.memory.MemoryLayoutError> =
-        trusted std.memory.create_buffer<u8>(capacity = capacity);
+        trusted std.memory.RawBuffer<u8>(capacity = capacity);
 
     match consume created
     {

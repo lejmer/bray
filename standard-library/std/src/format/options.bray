@@ -37,36 +37,37 @@ struct Options
     alignment: Alignment;
     sign: Sign;
     escaping: Escaping;
-}
 
-func options(
-    radix: Radix,
-    precision: usize,
-    width: usize,
-    alignment: Alignment,
-    sign: Sign,
-    escaping: Escaping,
-) -> Options
-{
-    return Options
+    construct(
+        radix: Radix,
+        precision: usize,
+        width: usize,
+        alignment: Alignment,
+        sign: Sign,
+        escaping: Escaping,
+    ) -> Self
     {
-        radix = radix,
-        precision = precision,
-        width = width,
-        alignment = alignment,
-        sign = sign,
-        escaping = escaping,
-    };
-}
+        return
+        {
+            radix = radix,
+            precision = precision,
+            width = width,
+            alignment = alignment,
+            sign = sign,
+            escaping = escaping,
+        };
+    }
 
-func default_options() -> Options
-{
-    return options(
-        radix = Decimal,
-        precision = 0,
-        width = 0,
-        alignment = Right,
-        sign = NegativeOnly,
-        escaping = Raw,
-    );
+    construct default() -> Self
+    {
+        return Options
+        {
+            radix = Radix.Decimal,
+            precision = 0,
+            width = 0,
+            alignment = Alignment.Right,
+            sign = Sign.NegativeOnly,
+            escaping = Escaping.Raw,
+        };
+    }
 }

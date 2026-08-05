@@ -11,6 +11,30 @@ use crate::representation::{representation_type, type_representation};
 use super::dependencies::{ExpressionTypeDependencies, numeric_kind};
 use super::inference::{InferenceTypeId, TypeInferenceContext};
 
+pub(crate) fn numeric_literal_accepts_type<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+    ty: TypeId,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(BoundExpression::Literal(literal)) = request.view().expression(expression) else {
+        return Ok(false);
+    };
+
+    let kind = match literal.kind() {
+        BoundLiteralKind::Integer => NumericRepresentationKind::Integer,
+        BoundLiteralKind::Real => NumericRepresentationKind::Real,
+        BoundLiteralKind::Imaginary => NumericRepresentationKind::Complex,
+        BoundLiteralKind::Boolean | BoundLiteralKind::Character | BoundLiteralKind::String => {
+            return Ok(false);
+        }
+    };
+
+    numeric_kind(request, ty).map(|candidate| candidate == Some(kind))
+}
+
 pub(super) fn adapt_contextual_literals<C>(
     request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],

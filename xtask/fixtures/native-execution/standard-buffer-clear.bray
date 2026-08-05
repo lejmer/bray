@@ -6,7 +6,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     let second: u8 = 2;
     let third: u8 = 3;
     let bytes: [u8; 3] = [first, second, third];
-    let mut buffer: Buffer = try from_slice(&bytes[..]);
+    let mut buffer: Buffer = try Buffer.from_slice(&bytes[..]);
 
     clear(&mut buffer);
 
