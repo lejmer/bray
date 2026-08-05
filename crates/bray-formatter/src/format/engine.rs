@@ -15,6 +15,7 @@ use super::context::{
 };
 use super::line_ending;
 use super::model::FormattedSource;
+use super::rewrite::simplify_nested_conditionals;
 use super::writer::FormatWriter;
 use crate::{FormatterConfiguration, FormatterRule};
 
@@ -76,6 +77,22 @@ pub fn format_source_unit(
         return FormattedSource {
             text: source_text.to_owned(),
             changed: false,
+        };
+    }
+
+    if configuration.is_enabled(FormatterRule::SimplifyNestedIf)
+        && let Some(rewritten) = simplify_nested_conditionals(source_unit)
+    {
+        let configuration = (*configuration).with_rule(FormatterRule::SimplifyNestedIf, false);
+
+        let formatted = format_text(&rewritten, &configuration)
+            .unwrap_or_else(|_| unreachable!("a formatter rewrite cannot enlarge valid source"));
+
+        let changed = formatted.text() != source_text;
+
+        return FormattedSource {
+            text: formatted.into_text(),
+            changed,
         };
     }
 

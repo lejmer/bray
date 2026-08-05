@@ -278,6 +278,48 @@ fn disabled_rules_preserve_source_policy_while_other_rules_apply() {
 }
 
 #[test]
+fn opt_in_nested_conditionals_simplify_only_with_syntax_local_proof() {
+    let configuration =
+        FormatterConfiguration::default().with_rule(FormatterRule::SimplifyNestedIf, true);
+
+    let source = concat!(
+        "module app;",
+        "func main(){if ready{if enabled{if available{return;}}}}",
+    );
+
+    let output = formatted_with_configuration(source, &configuration);
+
+    assert!(output.text().contains("if ready && enabled && available"));
+    assert_eq!(output.text().matches("if ").count(), 1);
+    assert!(!formatted_with_configuration(output.text(), &configuration).changed());
+
+    let default_output = formatted(source);
+
+    assert!(!default_output.text().contains("&&"));
+    assert_eq!(default_output.text().matches("if ").count(), 3);
+}
+
+#[test]
+fn nested_conditionals_retain_forms_that_need_semantic_or_comment_reasoning() {
+    let configuration =
+        FormatterConfiguration::default().with_rule(FormatterRule::SimplifyNestedIf, true);
+
+    let sources = [
+        "module app;func main(){if ready(){if enabled{return;}}}",
+        "module app;func main(){if ready{if enabled{return;}else{return;}}}",
+        "module app;func main(){if ready{// retained\nif enabled{return;}}}",
+        "module app;func main(){if ready{observe();if enabled{return;}}}",
+    ];
+
+    for source in sources {
+        let output = formatted_with_configuration(source, &configuration);
+
+        assert_eq!(output.text().matches("if ").count(), 2, "{source}");
+        assert!(!formatted_with_configuration(output.text(), &configuration).changed());
+    }
+}
+
+#[test]
 fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
     let source = concat!(
         "module app;",

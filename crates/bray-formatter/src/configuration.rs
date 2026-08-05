@@ -149,7 +149,7 @@ impl FormatterRule {
 }
 
 /// Immutable resolved formatter policy.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FormatterConfiguration {
     enabled_rules: [bool; FormatterRule::ALL.len()],
     maximum_line_width: NonZeroU16,
