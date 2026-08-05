@@ -157,6 +157,32 @@ const FORMATTER_SOURCE_WRITE_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
+const FORMATTER_CONFIGURATION_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read formatter configuration "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const FORMATTER_CONFIGURATION_MALFORMED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("formatter configuration is malformed: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const FORMATTER_CONFIGURATION_UNKNOWN_RULE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("unknown formatter rule "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const FORMATTER_CONFIGURATION_INVALID_MAXIMUM_WIDTH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("formatter maximum line width must be between 1 and 65535 in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text("; found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+];
+
 const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("no source inputs were provided")];
 
@@ -1220,6 +1246,18 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::FormatterSourceTooLarge => MessageTemplate::new(FORMATTER_SOURCE_TOO_LARGE),
         DiagnosticKind::FormatterSourceWriteFailed => {
             MessageTemplate::new(FORMATTER_SOURCE_WRITE_FAILED)
+        }
+        DiagnosticKind::FormatterConfigurationReadFailed => {
+            MessageTemplate::new(FORMATTER_CONFIGURATION_READ_FAILED)
+        }
+        DiagnosticKind::FormatterConfigurationMalformed => {
+            MessageTemplate::new(FORMATTER_CONFIGURATION_MALFORMED)
+        }
+        DiagnosticKind::FormatterConfigurationUnknownRule => {
+            MessageTemplate::new(FORMATTER_CONFIGURATION_UNKNOWN_RULE)
+        }
+        DiagnosticKind::FormatterConfigurationInvalidMaximumWidth => {
+            MessageTemplate::new(FORMATTER_CONFIGURATION_INVALID_MAXIMUM_WIDTH)
         }
         DiagnosticKind::LexicalInvalidCharacter => MessageTemplate::new(LEXICAL_INVALID_CHARACTER),
         DiagnosticKind::LexicalMisplacedBom => MessageTemplate::new(LEXICAL_MISPLACED_BOM),

@@ -1,6 +1,10 @@
 use std::fs;
 use std::io::{self, Write};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::thread;
 
 use bray_base::{FileReplacementMode, StagedFile};
 use bray_source::{
@@ -8,8 +12,8 @@ use bray_source::{
     TextSizeOverflow, leading_utf8_bom_len,
 };
 
-use crate::FormattedSource;
 use crate::format::format_snapshot;
+use crate::{FormattedSource, FormatterConfiguration};
 
 /// Stable category for a source-byte formatting failure.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -172,7 +176,10 @@ impl FormatFileError {
 ///
 /// Source bytes must be UTF-8. An accepted leading UTF-8 byte order mark is
 /// retained in the formatted output and excluded from reported byte offsets.
-pub fn format_bytes(bytes: &[u8]) -> Result<FormattedSource, FormatBytesError> {
+pub fn format_bytes(
+    bytes: &[u8],
+    configuration: &FormatterConfiguration,
+) -> Result<FormattedSource, FormatBytesError> {
     let byte_order_mark_len = leading_utf8_bom_len(bytes);
     let has_byte_order_mark = byte_order_mark_len > 0;
     let byte_count = bytes.len() - byte_order_mark_len;
@@ -198,7 +205,7 @@ pub fn format_bytes(bytes: &[u8]) -> Result<FormattedSource, FormatBytesError> {
             }
         })?;
 
-    let formatted = format_snapshot(&snapshot);
+    let formatted = format_snapshot(&snapshot, configuration);
 
     Ok(if has_byte_order_mark {
         formatted.with_leading_byte_order_mark()
@@ -214,13 +221,14 @@ pub fn format_bytes(bytes: &[u8]) -> Result<FormattedSource, FormatBytesError> {
 pub fn format_file(
     path: impl AsRef<Path>,
     mode: FormatMode,
+    configuration: &FormatterConfiguration,
 ) -> Result<FormatFileOutcome, FormatFileError> {
     let path = path.as_ref();
 
     let bytes = fs::read(path)
         .map_err(|error| FormatFileError::io(FormatFileErrorKind::Read, path, &error))?;
 
-    let formatted = format_bytes(&bytes).map_err(|error| match error.kind() {
+    let formatted = format_bytes(&bytes, configuration).map_err(|error| match error.kind() {
         FormatBytesErrorKind::InvalidUtf8 => {
             let valid_up_to = error
                 .invalid_utf8_at()
@@ -257,4 +265,72 @@ pub fn format_file(
         .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
 
     Ok(FormatFileOutcome::Written)
+}
+
+/// Formats source files concurrently and returns results in input order.
+pub fn format_files(
+    paths: &[PathBuf],
+    mode: FormatMode,
+    configuration: &FormatterConfiguration,
+    worker_count: NonZeroUsize,
+) -> Vec<Result<FormatFileOutcome, FormatFileError>> {
+    if paths.len() < 2 || worker_count.get() == 1 {
+        return paths
+            .iter()
+            .map(|path| format_file(path, mode, configuration))
+            .collect();
+    }
+
+    let worker_count = worker_count.get().min(paths.len());
+    let next_index = AtomicUsize::new(0);
+
+    let (sender, receiver) = mpsc::channel();
+
+    thread::scope(|scope| {
+        let workers = (0..worker_count)
+            .map(|_| {
+                let sender = sender.clone();
+                let next_index = &next_index;
+
+                scope.spawn(move || {
+                    loop {
+                        let index = next_index.fetch_add(1, Ordering::Relaxed);
+
+                        let Some(path) = paths.get(index) else {
+                            break;
+                        };
+
+                        let result = format_file(path, mode, configuration);
+
+                        if sender.send((index, result)).is_err() {
+                            break;
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        drop(sender);
+
+        let mut results = std::iter::repeat_with(|| None)
+            .take(paths.len())
+            .collect::<Vec<_>>();
+
+        for (index, result) in receiver {
+            results[index] = Some(result);
+        }
+
+        for worker in workers {
+            if let Err(error) = worker.join() {
+                std::panic::resume_unwind(error);
+            }
+        }
+
+        results
+            .into_iter()
+            .map(|result| {
+                result.unwrap_or_else(|| unreachable!("every claimed format operation must finish"))
+            })
+            .collect()
+    })
 }

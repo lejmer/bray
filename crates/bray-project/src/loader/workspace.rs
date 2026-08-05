@@ -42,6 +42,11 @@ fn load_project_graph_with_authority(
 
     require_format(manifest.format, &workspace_manifest_path)?;
 
+    let formatter_configuration = manifest
+        .formatter_configuration
+        .map(|path| project_path(path, false, &workspace_manifest_path))
+        .transpose()?;
+
     let output_root = project_path(manifest.output_root, false, &workspace_manifest_path)?;
 
     let workspace_package_version = manifest
@@ -61,7 +66,12 @@ fn load_project_graph_with_authority(
         source_authority,
     )?;
 
-    Ok(ProjectGraph::new(output_root, targets, packages))
+    Ok(ProjectGraph::new(
+        formatter_configuration,
+        output_root,
+        targets,
+        packages,
+    ))
 }
 
 fn load_targets(

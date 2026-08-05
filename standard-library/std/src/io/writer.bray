@@ -69,7 +69,7 @@ impl BufferedWriter<Sink>
             let result: Result<usize, IoError> =
             {
                 let bytes: &[u8] = std.bytes.as_slice(&self.storage);
-                let pending: &[u8] = &bytes[self.start..self.length];
+                let pending: &[u8] = &bytes[self.start.. self.length];
 
                 yield self.sink.write(pending);
             };
@@ -114,14 +114,8 @@ impl BufferedWriter<Sink>
 
         match consume result
         {
-            case Ok(_)
-            {
-                return Ok(unit);
-            }
-            case Error(error)
-            {
-                return Error(prefixed_error(error, prefix = committed));
-            }
+            case Ok(_) { return Ok(unit); }
+            case Error(error) { return Error(prefixed_error(error, prefix = committed)); }
         }
     }
 
@@ -135,13 +129,8 @@ impl BufferedWriter<Sink>
 
             match consume result
             {
-                case Ok(_)
-                {
-                }
-                case Error(error)
-                {
-                    return Error(normalize_write_flush_error(error));
-                }
+                case Ok(_) {}
+                case Error(error) { return Error(normalize_write_flush_error(error)); }
             }
         }
 
@@ -161,7 +150,7 @@ impl BufferedWriter<Sink>
             let result: Result<usize, IoError> =
             {
                 let bytes: &[u8] = std.bytes.as_slice(&self.storage);
-                let pending: &[u8] = &bytes[self.start..self.length];
+                let pending: &[u8] = &bytes[self.start.. self.length];
 
                 yield await self.sink.write_async(pending);
             };
@@ -206,14 +195,8 @@ impl BufferedWriter<Sink>
 
         match consume result
         {
-            case Ok(_)
-            {
-                return Ok(unit);
-            }
-            case Error(error)
-            {
-                return Error(prefixed_error(error, prefix = committed));
-            }
+            case Ok(_) { return Ok(unit); }
+            case Error(error) { return Error(prefixed_error(error, prefix = committed)); }
         }
     }
 
@@ -227,13 +210,8 @@ impl BufferedWriter<Sink>
 
             match consume result
             {
-                case Ok(_)
-                {
-                }
-                case Error(error)
-                {
-                    return Error(normalize_write_flush_error(error));
-                }
+                case Ok(_) {}
+                case Error(error) { return Error(normalize_write_flush_error(error)); }
             }
         }
 
@@ -251,20 +229,13 @@ impl BufferedWriter<Sink>
 
         match consume result
         {
-            case Ok(_)
-            {
-                return Ok(self.sink);
-            }
-            case Error(error)
-            {
-                return Error(error);
-            }
+            case Ok(_) { return Ok(self.sink); }
+            case Error(error) { return Error(error); }
         }
     }
 }
 
-impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer)
-    with(Sink: Writer)
+impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer) with(Sink: Writer)
 {
     mut func write(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())
@@ -283,8 +254,7 @@ impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer)
     }
 }
 
-impl BufferedWriterSinkAsyncWriter = BufferedWriter<Sink>(AsyncWriter)
-    with(Sink: AsyncWriter)
+impl BufferedWriterSinkAsyncWriter = BufferedWriter<Sink>(AsyncWriter) with(Sink: AsyncWriter)
 {
     mut async func write_async(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())

@@ -263,6 +263,7 @@ impl ProjectPackage {
 /// Immutable project contract ordered for deterministic dependency-first builds.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectGraph {
+    formatter_configuration: Option<ProjectPath>,
     output_root: ProjectPath,
     targets: Arc<[ProjectTarget]>,
     packages: Arc<[ProjectPackage]>,
@@ -270,15 +271,22 @@ pub struct ProjectGraph {
 
 impl ProjectGraph {
     pub(crate) fn new(
+        formatter_configuration: Option<ProjectPath>,
         output_root: ProjectPath,
         targets: Arc<[ProjectTarget]>,
         packages: Arc<[ProjectPackage]>,
     ) -> Self {
         Self {
+            formatter_configuration,
             output_root,
             targets,
             packages,
         }
+    }
+
+    /// Returns the workspace-selected formatter configuration path, when present.
+    pub const fn formatter_configuration(&self) -> Option<&ProjectPath> {
+        self.formatter_configuration.as_ref()
     }
 
     /// Returns the workspace-relative root for all build outputs.

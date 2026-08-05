@@ -188,6 +188,26 @@ impl ProjectWorkspace {
             .unwrap_or_else(|error| panic!("test package manifest should be writable: {error:?}"));
     }
 
+    pub(crate) fn set_formatter_configuration(&self, configuration: &str) {
+        let path = self.path.join("bray-workspace.json");
+
+        let source = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!("test workspace manifest should be readable: {error:?}")
+        });
+
+        let mut manifest: serde_json::Value = serde_json::from_str(&source)
+            .unwrap_or_else(|error| panic!("test workspace manifest should be valid: {error:?}"));
+
+        manifest["formatter_configuration"] = configuration.into();
+
+        let source = serde_json::to_string_pretty(&manifest)
+            .unwrap_or_else(|error| panic!("test workspace manifest should serialize: {error:?}"));
+
+        std::fs::write(path, source).unwrap_or_else(|error| {
+            panic!("test workspace manifest should be writable: {error:?}")
+        });
+    }
+
     pub(crate) fn write(&self, relative_path: &str, contents: &str) {
         let path = relative_path
             .split('/')

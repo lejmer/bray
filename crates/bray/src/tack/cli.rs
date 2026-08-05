@@ -244,6 +244,7 @@ impl CliCommand {
             }
             Self::Format(format) => TackCommand::Format {
                 check: format.check,
+                configuration: format.configuration,
                 files: format.files,
             },
             Self::Inspect(inspect) => TackCommand::Inspect {
@@ -361,6 +362,8 @@ const fn build_configuration(release: bool) -> crate::tack::model::TackBuildConf
 struct CliFormat {
     #[arg(long)]
     check: bool,
+    #[arg(long = "config", value_name = "FILE")]
+    configuration: Option<PathBuf>,
     #[arg(value_name = "FILE")]
     files: Vec<PathBuf>,
 }
@@ -438,7 +441,7 @@ struct CliVendorInstall {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use bray_test_protocol::{
         TestCaptureLimits, TestCapturePolicy, TestDuration, TestTimeoutPolicy,
@@ -591,5 +594,28 @@ mod tests {
 
             assert_eq!(invocation.command_kind(), TackCommandKind::Format);
         }
+    }
+
+    #[test]
+    fn formatter_configuration_override_is_retained() {
+        let invocation = TackInvocation::try_from_arguments([
+            "bray",
+            "fmt",
+            "--config",
+            "configuration/brayfmt.json",
+            "src/main.bray",
+        ])
+        .unwrap_or_else(|error| panic!("formatter configuration should parse: {error:?}"));
+
+        let (_, _, _, _, command) = invocation.into_parts();
+
+        let TackCommand::Format { configuration, .. } = command else {
+            panic!("expected formatter command");
+        };
+
+        assert_eq!(
+            configuration,
+            Some(PathBuf::from("configuration/brayfmt.json"))
+        );
     }
 }

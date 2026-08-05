@@ -8,24 +8,18 @@ struct BufferedReader<Source>
     internal mut start: usize;
     internal mut length: usize;
 
-    construct(
-        pos source: Source,
-        capacity: usize,
-    ) -> Result<Self, IoError>
+    construct(pos source: Source, capacity: usize) -> Result<Self, IoError>
         requires(capacity > 0)
     {
         if capacity == 0
         {
-            return Error(io_error(
-                kind = InvalidInput,
-                native_code = 0,
-                transferred = 0,
-            ));
+            return Error(io_error(kind = InvalidInput, native_code = 0, transferred = 0));
         }
 
         let storage: std.bytes.Buffer = try allocate_fixed_buffer(capacity = capacity);
 
-        let reader: BufferedReader<Source> = {
+        let reader: BufferedReader<Source> =
+        {
             source = source,
             storage = storage,
             capacity = capacity,
@@ -50,16 +44,13 @@ struct BufferedWriter<Sink>
     {
         if capacity == 0
         {
-            return Error(io_error(
-                kind = InvalidInput,
-                native_code = 0,
-                transferred = 0,
-            ));
+            return Error(io_error(kind = InvalidInput, native_code = 0, transferred = 0));
         }
 
         let storage: std.bytes.Buffer = try allocate_fixed_buffer(capacity = capacity);
 
-        let writer: BufferedWriter<Sink> = {
+        let writer: BufferedWriter<Sink> =
+        {
             sink = sink,
             storage = storage,
             capacity = capacity,
@@ -73,17 +64,12 @@ struct BufferedWriter<Sink>
 
 internal func buffer_allocation_error() -> IoError
 {
-    return io_error(
-        kind = Exhausted,
-        native_code = 0,
-        transferred = 0,
-    );
+    return io_error(kind = Exhausted, native_code = 0, transferred = 0);
 }
 
 internal func allocate_fixed_buffer(capacity: usize) -> Result<std.bytes.Buffer, IoError>
 {
-    let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> =
-        std.bytes.Buffer(capacity = capacity);
+    let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> = std.bytes.Buffer(capacity = capacity);
 
     match consume created
     {
@@ -91,28 +77,19 @@ internal func allocate_fixed_buffer(capacity: usize) -> Result<std.bytes.Buffer,
         {
             let mut buffer: std.bytes.Buffer = buffer;
 
-            let resized: Result<unit, std.memory.MemoryLayoutError> =
-                std.bytes.resize(
-                    buffer = &mut buffer,
-                    new_length = capacity,
-                );
+            let resized: Result<unit, std.memory.MemoryLayoutError> = std.bytes.resize(
+                buffer = &mut buffer,
+                new_length = capacity,
+
+            );
 
             match consume resized
             {
-                case Ok(_)
-                {
-                    return Ok(buffer);
-                }
-                case Error(_)
-                {
-                    return Error(buffer_allocation_error());
-                }
+                case Ok(_) { return Ok(buffer); }
+                case Error(_) { return Error(buffer_allocation_error()); }
             }
         }
-        case Error(_)
-        {
-            return Error(buffer_allocation_error());
-        }
+        case Error(_) { return Error(buffer_allocation_error()); }
     }
 }
 
@@ -123,10 +100,7 @@ internal func transferred_error(pos error: IoError, transferred: usize) -> IoErr
 
     let native_code: i64 = match platform_code
     {
-        case ?code
-        {
-            yield code;
-        }
+        case ?code { yield code; }
 
         case none
         {
@@ -134,11 +108,7 @@ internal func transferred_error(pos error: IoError, transferred: usize) -> IoErr
         }
     };
 
-    return io_error(
-        kind = kind,
-        native_code = native_code,
-        transferred = transferred,
-    );
+    return io_error(kind = kind, native_code = native_code, transferred = transferred);
 }
 
 internal func prefixed_error(pos error: IoError, prefix: usize) -> IoError
@@ -152,10 +122,7 @@ internal func prefixed_error(pos error: IoError, prefix: usize) -> IoError
 
     let transferred: usize = prefix + error.transferred;
 
-    return transferred_error(
-        error,
-        transferred = transferred,
-    );
+    return transferred_error(error, transferred = transferred);
 }
 
 internal func smaller(pos left: usize, pos right: usize) -> usize

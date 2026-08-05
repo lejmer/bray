@@ -23,5 +23,5 @@ pub(super) fn contains(text: &str) -> bool {
 pub(super) fn count(text: &str) -> u8 {
     text.bytes()
         .filter(|byte| *byte == b'\n')
-        .fold(0_u8, u8::saturating_add)
+        .fold(0_u8, |count, _| count.saturating_add(1))
 }

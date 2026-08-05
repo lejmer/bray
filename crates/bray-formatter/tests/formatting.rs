@@ -1,4 +1,9 @@
-use bray_formatter::{FormatBytesErrorKind, FormattedSource, format_bytes, format_text};
+use std::num::NonZeroU16;
+
+use bray_formatter::FormatterRule;
+use bray_formatter::{
+    FormatBytesErrorKind, FormattedSource, FormatterConfiguration, format_bytes, format_text,
+};
 use bray_parser::parse_source_unit;
 use bray_testing::test_source_snapshot;
 
@@ -68,10 +73,7 @@ fn formats_representative_declarations_and_expressions() {
             "    let values: [i32; 3] = [1, 2, 3];\n",
             "    match point\n",
             "    {\n",
-            "        case _\n",
-            "        {\n",
-            "            return;\n",
-            "        }\n",
+            "        case _ { return; }\n",
             "    }\n",
             "}\n",
         )
@@ -206,7 +208,7 @@ fn formats_generic_delimiters_prefix_operators_and_inline_collections() {
             "\n",
             "@test\n",
             "@abi(\"C\")\n",
-            "public async func transform<T, const N: i32>(pos value: i32 = 1, mut tail: bool,) -> unit\n",
+            "public async func transform<T, const N: i32>(pos value: i32 = 1, mut tail: bool) -> unit\n",
             "{\n",
             "}\n",
             "\n",
@@ -242,6 +244,35 @@ fn separates_binary_operators_from_prefix_operands() {
 }
 
 #[test]
+fn separates_mutable_slice_types_from_their_element_list() {
+    let source = "module app; func read(pos bytes: &mut[u8]){}";
+    let output = formatted(source);
+
+    assert!(output.text().contains("pos bytes: &mut [u8]"));
+    assert!(!formatted(output.text()).changed());
+}
+
+#[test]
+fn removes_trailing_commas_when_lists_flatten() {
+    let source = concat!(
+        "module app;\n",
+        "extern const func layout_of<T>(\n",
+        "    count: usize,\n",
+        ") -> Result<MemoryLayout, MemoryLayoutError>;\n",
+    );
+
+    let output = formatted(source);
+
+    assert!(
+        output
+            .text()
+            .contains("layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>")
+    );
+
+    assert!(!formatted(output.text()).changed());
+}
+
+#[test]
 fn preserves_lf_and_crlf_line_ending_styles() {
     let lf = formatted("module app;\nfunc main(){return;}\n");
     let crlf = formatted("module app;\r\nfunc main(){return;}\r\n");
@@ -251,6 +282,239 @@ fn preserves_lf_and_crlf_line_ending_styles() {
 
     assert!(crlf.text().contains("\r\n"));
     assert!(!crlf.text().replace("\r\n", "").contains('\n'));
+}
+
+#[test]
+fn disabled_rules_preserve_source_policy_while_other_rules_apply() {
+    let source = "module app;\r\n\r\nfunc main()\r\n{\r\n    return left+right;\r\n}";
+
+    let configuration = FormatterConfiguration::default()
+        .with_rule(FormatterRule::OperatorSpacing, false)
+        .with_rule(FormatterRule::LineEndingStyle, false)
+        .with_rule(FormatterRule::FinalNewline, false);
+
+    let output = formatted_with_configuration(source, &configuration);
+
+    assert_eq!(
+        output.text(),
+        "module app;\n\nfunc main()\n{\n    return left+right;\n}"
+    );
+
+    assert!(!formatted_with_configuration(output.text(), &configuration).changed());
+}
+
+#[test]
+fn opt_in_nested_conditionals_simplify_only_with_syntax_local_proof() {
+    let configuration =
+        FormatterConfiguration::default().with_rule(FormatterRule::SimplifyNestedIf, true);
+
+    let source = concat!(
+        "module app;",
+        "func main(){if ready{if enabled{if available{return;}}}}",
+    );
+
+    let output = formatted_with_configuration(source, &configuration);
+
+    assert!(output.text().contains("if ready && enabled && available"));
+    assert_eq!(output.text().matches("if ").count(), 1);
+    assert!(!formatted_with_configuration(output.text(), &configuration).changed());
+
+    let default_output = formatted(source);
+
+    assert!(!default_output.text().contains("&&"));
+    assert_eq!(default_output.text().matches("if ").count(), 3);
+}
+
+#[test]
+fn nested_conditionals_retain_forms_that_need_semantic_or_comment_reasoning() {
+    let configuration =
+        FormatterConfiguration::default().with_rule(FormatterRule::SimplifyNestedIf, true);
+
+    let sources = [
+        "module app;func main(){if ready(){if enabled{return;}}}",
+        "module app;func main(){if ready{if enabled{return;}else{return;}}}",
+        "module app;func main(){if ready{// retained\nif enabled{return;}}}",
+        "module app;func main(){if ready{observe();if enabled{return;}}}",
+    ];
+
+    for source in sources {
+        let output = formatted_with_configuration(source, &configuration);
+
+        assert_eq!(output.text().matches("if ").count(), 2, "{source}");
+        assert!(!formatted_with_configuration(output.text(), &configuration).changed());
+    }
+}
+
+#[test]
+fn keeps_simple_match_arm_bodies_inline_when_they_fit() {
+    let source = concat!(
+        "module app;",
+        "func choose(value:i32){",
+        "match value{",
+        "case 0{return;}",
+        "case 1{}",
+        "case _{observe();return;}",
+        "case 2{if value{return;}return;}",
+        "case 3{return;}",
+        "}",
+        "}",
+    );
+
+    let output = formatted(source);
+
+    assert!(
+        output.text().contains("case 0 { return; }"),
+        "{}",
+        output.text()
+    );
+
+    assert!(output.text().contains("case 1 {}"), "{}", output.text());
+
+    assert!(
+        output.text().contains("case _\n        {"),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output
+            .text()
+            .contains("        }\n        case 3 { return; }"),
+        "{}",
+        output.text()
+    );
+
+    assert!(!formatted(output.text()).changed());
+
+    let narrow = formatted_with_width(
+        concat!(
+            "module app; func choose(value: i32) { match value {",
+            "case 123456789 { return; }",
+            "case ?present { return; }",
+            "} }",
+        ),
+        33,
+    );
+
+    assert!(
+        narrow.text().contains("case 123456789\n        {"),
+        "{}",
+        narrow.text()
+    );
+
+    assert!(narrow.text().contains("case ?present"), "{}", narrow.text());
+
+    assert!(!narrow.text().contains("\n        \n"), "{}", narrow.text());
+
+    assert!(!formatted_with_width(narrow.text(), 33).changed());
+
+    let multiline_configuration = FormatterConfiguration::default()
+        .with_rule(FormatterRule::MatchArmBodyLayout, false);
+
+    let multiline = formatted_with_configuration(
+        "module app; func choose(value: i32) { match value { case 0 { return; } } }",
+        &multiline_configuration,
+    );
+
+    assert!(multiline.text().contains("case 0\n        {"));
+}
+
+#[test]
+fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
+    let source = concat!(
+        "module app;",
+        "func collect(first:i32,second:i32,third:i32){",
+        "let values=[first,second,third,];",
+        "collect(first,second,third);",
+        "}",
+    );
+
+    let output = formatted_with_width(source, 36);
+
+    assert_eq!(
+        output.text(),
+        concat!(
+            "module app;\n",
+            "\n",
+            "func collect(\n",
+            "    first: i32,\n",
+            "    second: i32,\n",
+            "    third: i32\n",
+            ")\n",
+            "{\n",
+            "    let values = [\n",
+            "        first,\n",
+            "        second,\n",
+            "        third,\n",
+            "    ];\n",
+            "    collect(first, second, third);\n",
+            "}\n",
+        )
+    );
+
+    assert_eq!(
+        formatted_with_width(output.text(), 36).text(),
+        output.text()
+    );
+}
+
+#[test]
+fn wraps_complete_callable_headers_and_binary_chains() {
+    let source = concat!(
+        "module app;",
+        "extern trusted func transform<Target,Source>",
+        "(pos pointer:RawPointer<Source>,count:usize)->RawPointer<Target>",
+        "requires(ready)uses(raw_memory);",
+        "func combine()->u64{return first+second+third+fourth+fifth+sixth;}"
+    );
+
+    let output = formatted_with_width(source, 52);
+
+    assert_eq!(
+        output.text(),
+        concat!(
+            "module app;\n",
+            "\n",
+            "extern trusted func transform<Target, Source>(\n",
+            "    pos pointer: RawPointer<Source>,\n",
+            "    count: usize\n",
+            ") -> RawPointer<Target>\n",
+            "    requires(ready)\n",
+            "    uses(raw_memory);\n",
+            "\n",
+            "func combine() -> u64\n",
+            "{\n",
+            "    return first + second + third + fourth + fifth +\n",
+            "        sixth;\n",
+            "}\n",
+        )
+    );
+
+    assert_eq!(
+        formatted_with_width(output.text(), 52).text(),
+        output.text()
+    );
+}
+
+#[test]
+fn callable_contract_clauses_use_continuation_lines() {
+    let source = concat!(
+        "module app;",
+        "extern trusted func reinterpret<Target, Source>",
+        "(pos pointer: RawPointer<Source>) -> RawPointer<Target> uses(layout_reinterpret);"
+    );
+
+    let output = formatted(source);
+
+    assert!(output.text().lines().all(|line| line.len() <= 120));
+
+    assert!(
+        output
+            .text()
+            .contains(") -> RawPointer<Target>\n    uses(layout_reinterpret);")
+    );
+
+    assert!(!formatted(output.text()).changed());
 }
 
 #[test]
@@ -303,14 +567,16 @@ fn editor_text_preserves_utf8_byte_order_mark() {
 
 #[test]
 fn standard_input_bytes_preserve_bom_and_report_invalid_utf8() {
-    let output = match format_bytes(b"\xef\xbb\xbfmodule editor;func main(){}") {
+    let configuration = FormatterConfiguration::default();
+
+    let output = match format_bytes(b"\xef\xbb\xbfmodule editor;func main(){}", &configuration) {
         Ok(output) => output,
         Err(error) => panic!("BOM input should format: {error:?}"),
     };
 
     assert!(output.text().as_bytes().starts_with(b"\xef\xbb\xbf"));
 
-    let error = match format_bytes(&[b'm', 0xff, b'x']) {
+    let error = match format_bytes(&[b'm', 0xff, b'x'], &configuration) {
         Ok(output) => panic!("invalid UTF-8 should fail, got {output:?}"),
         Err(error) => error,
     };
@@ -321,7 +587,24 @@ fn standard_input_bytes_preserve_bom_and_report_invalid_utf8() {
 }
 
 fn formatted(source: &str) -> FormattedSource {
-    match format_text(source) {
+    formatted_with_configuration(source, &FormatterConfiguration::default())
+}
+
+fn formatted_with_configuration(
+    source: &str,
+    configuration: &FormatterConfiguration,
+) -> FormattedSource {
+    match format_text(source, configuration) {
+        Ok(formatted) => formatted,
+        Err(error) => panic!("test source should fit in formatter ranges: {error:?}"),
+    }
+}
+
+fn formatted_with_width(source: &str, width: u16) -> FormattedSource {
+    let width = NonZeroU16::new(width).unwrap_or_else(|| unreachable!());
+    let configuration = FormatterConfiguration::default().with_maximum_line_width(width);
+
+    match format_text(source, &configuration) {
         Ok(formatted) => formatted,
         Err(error) => panic!("test source should fit in formatter ranges: {error:?}"),
     }

@@ -11,21 +11,15 @@ trusted func main() -> i32
     let pointer: RawPointer<u8> = trusted core.memory.allocate(bytes = 16, align = 4);
     let next: RawPointer<u8> = core.memory.offset<u8>(pointer, elements = 1);
     let destination: RawPointer<u8> = core.memory.offset<u8>(pointer, elements = 4);
-    let overlapping_destination: RawPointer<u8> =
-        core.memory.offset<u8>(destination, elements = 1);
+    let overlapping_destination: RawPointer<u8> = core.memory.offset<u8>(destination, elements = 1);
 
     trusted core.memory.write<u8>(pointer, 7);
     trusted core.memory.write<u8>(next, 9);
     trusted core.memory.copy<u8>(source = pointer, destination = destination, count = 2);
-    trusted core.memory.copy_overlapping<u8>(
-        source = destination,
-        destination = overlapping_destination,
-        count = 2,
-    );
+    trusted core.memory.copy_overlapping<u8>(source = destination, destination = overlapping_destination, count = 2);
 
     let copied: u8 = trusted core.memory.read<u8>(overlapping_destination);
-    let bytes: RawPointer<u8> =
-        trusted core.memory.reinterpret<u8, u8>(overlapping_destination);
+    let bytes: RawPointer<u8> = trusted core.memory.reinterpret<u8, u8>(overlapping_destination);
     let advanced: RawPointer<u8> = core.memory.byte_offset<u8>(bytes, bytes = 0);
     let null: RawPointer<u8> = core.memory.null<u8>();
     let copied_ok = copied == 7;

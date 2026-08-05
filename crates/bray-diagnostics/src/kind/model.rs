@@ -92,6 +92,14 @@ define_diagnostic_kinds! {
     FormatterSourceTooLarge,
     /// Formatted Bray source could not be written to its selected file.
     FormatterSourceWriteFailed,
+    /// An explicitly selected formatter configuration could not be read.
+    FormatterConfigurationReadFailed,
+    /// An explicitly selected formatter configuration is malformed.
+    FormatterConfigurationMalformed,
+    /// A formatter configuration names a rule outside the stable registry.
+    FormatterConfigurationUnknownRule,
+    /// A formatter configuration selects an invalid maximum line width.
+    FormatterConfigurationInvalidMaximumWidth,
     /// Source input contains a character that the lexer cannot accept.
     LexicalInvalidCharacter,
     /// Source input contains a byte order mark after the start of the source.
@@ -462,6 +470,10 @@ impl DiagnosticKind {
             Self::FormatterSourceInvalidUtf8 => 1302,
             Self::FormatterSourceTooLarge => 1303,
             Self::FormatterSourceWriteFailed => 1304,
+            Self::FormatterConfigurationReadFailed => 1305,
+            Self::FormatterConfigurationMalformed => 1306,
+            Self::FormatterConfigurationUnknownRule => 1307,
+            Self::FormatterConfigurationInvalidMaximumWidth => 1308,
             Self::LexicalInvalidCharacter => 2001,
             Self::LexicalMisplacedBom => 2002,
             Self::LexicalLoneCarriageReturn => 2003,
@@ -685,6 +697,12 @@ impl DiagnosticKind {
             Self::FormatterSourceInvalidUtf8 => "formatter_source_invalid_utf8",
             Self::FormatterSourceTooLarge => "formatter_source_too_large",
             Self::FormatterSourceWriteFailed => "formatter_source_write_failed",
+            Self::FormatterConfigurationReadFailed => "formatter_configuration_read_failed",
+            Self::FormatterConfigurationMalformed => "formatter_configuration_malformed",
+            Self::FormatterConfigurationUnknownRule => "formatter_configuration_unknown_rule",
+            Self::FormatterConfigurationInvalidMaximumWidth => {
+                "formatter_configuration_invalid_maximum_width"
+            }
             Self::LexicalInvalidCharacter => "lexical_invalid_character",
             Self::LexicalMisplacedBom => "lexical_misplaced_bom",
             Self::LexicalLoneCarriageReturn => "lexical_lone_carriage_return",

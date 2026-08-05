@@ -20,6 +20,22 @@ cargo xtask style check
 The mutating command is required after changing Rust source. See [Coding conventions](coding-conventions.md) for the enforced
 rules.
 
+## Bray source formatting
+
+Format maintained Bray source in the standard library, conformance suites, examples, readiness fixtures, and recovery corpus:
+
+```text
+cargo xtask format
+```
+
+Check the same source set without modifying it:
+
+```text
+cargo xtask format check
+```
+
+The general `style` commands include the corresponding Bray source formatting operation.
+
 ## Compiler-known catalog
 
 Regenerate the Rust source and digest derived from the checked-in compiler-known catalog definitions:

@@ -61,10 +61,12 @@ Initial rule names include:
 - `directive-line-breaks`,
 - `block-paragraph-spacing`,
 - `match-case-spacing`,
+- `match-arm-body-layout`,
 - `struct-construction-layout`,
 - `overload-arm-layout`,
 - `parenthesized-list-layout`,
 - `bracketed-list-layout`,
+- `generic-list-layout`,
 - `trailing-comma-layout`,
 - `comma-spacing`,
 - `colon-spacing`,
@@ -73,6 +75,8 @@ Initial rule names include:
 - `member-access-spacing`,
 - `range-spacing`,
 - `prefix-operator-spacing`,
+- `directive-marker-spacing`,
+- `word-spacing`,
 - `semicolon-layout`,
 - `comment-placement`,
 - `line-wrapping`,
@@ -82,6 +86,22 @@ Initial rule names include:
 
 This registry grows when another independently configurable behavior is introduced. A broad rule must not hide unrelated style
 decisions merely to avoid assigning them stable names.
+
+An explicitly selected formatter configuration is a JSON object with an optional positive `maximum_line_width` and an optional
+`rules` object whose keys are stable rule names and whose values are Booleans:
+
+```json
+{
+  "maximum_line_width": 100,
+  "rules": {
+    "line-wrapping": true,
+    "simplify-nested-if": false
+  }
+}
+```
+
+Omitted values use formatter defaults. Unknown top-level properties, unknown rule names, non-Boolean rule values, and maximum
+line widths outside the range 1 through 65535 are configuration errors.
 
 Configuration-file discovery and workspace policy do not belong in `bray-formatter`. Its APIs receive resolved configuration.
 `brayfmt` accepts explicit formatter configuration, while Bray Tack can resolve workspace-owned configuration before invoking the

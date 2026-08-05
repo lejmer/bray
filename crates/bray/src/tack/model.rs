@@ -136,6 +136,7 @@ pub(crate) enum TackCommand {
     },
     Format {
         check: bool,
+        configuration: Option<PathBuf>,
         files: Vec<PathBuf>,
     },
     Inspect {
