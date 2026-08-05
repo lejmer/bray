@@ -1,8 +1,9 @@
+use std::num::NonZeroUsize;
 use std::path::Path;
 
 use bray_formatter::{
     FormatFileError, FormatFileErrorKind, FormatFileOutcome, FormatMode, FormatterConfiguration,
-    format_file,
+    format_file, format_files,
 };
 use bray_testing::TemporaryFile;
 
@@ -61,6 +62,43 @@ fn write_mode_preserves_utf8_byte_order_mark_and_crlf() {
     assert!(bytes.starts_with(b"\xef\xbb\xbf"));
     assert!(source.contains("\r\n"));
     assert!(!source.replace("\r\n", "").contains('\n'));
+}
+
+#[test]
+fn concurrent_source_sets_return_mixed_results_in_input_order() {
+    let changed = TemporaryFile::write("changed.bray", b"module changed;");
+    let invalid = TemporaryFile::write("invalid.bray", &[b'm', 0xff, b'x']);
+    let unchanged = TemporaryFile::write("unchanged.bray", b"module unchanged;\n");
+
+    let paths = vec![
+        changed.path().to_path_buf(),
+        invalid.path().to_path_buf(),
+        unchanged.path().to_path_buf(),
+    ];
+
+    let results = format_files(
+        &paths,
+        FormatMode::Check,
+        &FormatterConfiguration::default(),
+        NonZeroUsize::new(3).unwrap_or_else(|| unreachable!()),
+    );
+
+    assert!(matches!(
+        results.first(),
+        Some(Ok(FormatFileOutcome::WouldChange))
+    ));
+
+    let Some(Err(error)) = results.get(1) else {
+        panic!("invalid source must retain the second result position");
+    };
+
+    assert_eq!(error.kind(), FormatFileErrorKind::InvalidUtf8);
+    assert_eq!(error.path(), invalid.path());
+
+    assert!(matches!(
+        results.get(2),
+        Some(Ok(FormatFileOutcome::Unchanged))
+    ));
 }
 
 #[test]

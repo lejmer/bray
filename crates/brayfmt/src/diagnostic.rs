@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 use bray_diagnostics::{
@@ -6,7 +7,8 @@ use bray_diagnostics::{
 };
 use bray_formatter::{
     FormatBytesError, FormatBytesErrorKind, FormatFileError, FormatFileErrorKind,
-    FormatFileOutcome, FormatMode, FormatterConfiguration, format_bytes, format_file,
+    FormatFileOutcome, FormatMode, FormatterConfiguration, format_bytes,
+    format_files as format_source_files,
 };
 
 use crate::configuration::ConfigurationError;
@@ -15,11 +17,17 @@ pub(crate) fn format_files(
     paths: &[PathBuf],
     mode: FormatMode,
     configuration: &FormatterConfiguration,
+    worker_count: NonZeroUsize,
 ) -> DiagnosticBag {
     let mut diagnostics = DiagnosticBag::with_capacity(paths.len());
 
-    for path in paths {
-        match format_file(path, mode, configuration) {
+    for (path, result) in paths.iter().zip(format_source_files(
+        paths,
+        mode,
+        configuration,
+        worker_count,
+    )) {
+        match result {
             Ok(FormatFileOutcome::WouldChange) => diagnostics.add(path_diagnostic(
                 DiagnosticId::from_index(diagnostics.len()),
                 DiagnosticKind::FormatterSourceNotFormatted,

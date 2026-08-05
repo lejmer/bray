@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -52,6 +53,10 @@ fn run_with_io(
         FormatMode::Write
     };
 
+    let worker_count = cli
+        .cpu_count
+        .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
+
     let (diagnostics, formatted) = if cli.files.as_slice() == [PathBuf::from("-")] {
         let mut bytes = Vec::new();
 
@@ -65,7 +70,7 @@ fn run_with_io(
         }
     } else {
         (
-            format_files(&cli.files, mode, &configuration),
+            format_files(&cli.files, mode, &configuration, worker_count),
             String::new(),
         )
     };
@@ -132,6 +137,8 @@ struct Cli {
     format: OutputFormat,
     #[arg(long, value_name = "FILE")]
     config: Option<PathBuf>,
+    #[arg(long, value_name = "N")]
+    cpu_count: Option<NonZeroUsize>,
     #[arg(value_name = "FILE", required = true)]
     files: Vec<PathBuf>,
 }

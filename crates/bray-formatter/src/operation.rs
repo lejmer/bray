@@ -1,6 +1,10 @@
 use std::fs;
 use std::io::{self, Write};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::thread;
 
 use bray_base::{FileReplacementMode, StagedFile};
 use bray_source::{
@@ -261,4 +265,72 @@ pub fn format_file(
         .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
 
     Ok(FormatFileOutcome::Written)
+}
+
+/// Formats source files concurrently and returns results in input order.
+pub fn format_files(
+    paths: &[PathBuf],
+    mode: FormatMode,
+    configuration: &FormatterConfiguration,
+    worker_count: NonZeroUsize,
+) -> Vec<Result<FormatFileOutcome, FormatFileError>> {
+    if paths.len() < 2 || worker_count.get() == 1 {
+        return paths
+            .iter()
+            .map(|path| format_file(path, mode, configuration))
+            .collect();
+    }
+
+    let worker_count = worker_count.get().min(paths.len());
+    let next_index = AtomicUsize::new(0);
+
+    let (sender, receiver) = mpsc::channel();
+
+    thread::scope(|scope| {
+        let workers = (0..worker_count)
+            .map(|_| {
+                let sender = sender.clone();
+                let next_index = &next_index;
+
+                scope.spawn(move || {
+                    loop {
+                        let index = next_index.fetch_add(1, Ordering::Relaxed);
+
+                        let Some(path) = paths.get(index) else {
+                            break;
+                        };
+
+                        let result = format_file(path, mode, configuration);
+
+                        if sender.send((index, result)).is_err() {
+                            break;
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        drop(sender);
+
+        let mut results = std::iter::repeat_with(|| None)
+            .take(paths.len())
+            .collect::<Vec<_>>();
+
+        for (index, result) in receiver {
+            results[index] = Some(result);
+        }
+
+        for worker in workers {
+            if let Err(error) = worker.join() {
+                std::panic::resume_unwind(error);
+            }
+        }
+
+        results
+            .into_iter()
+            .map(|result| {
+                result.unwrap_or_else(|| unreachable!("every claimed format operation must finish"))
+            })
+            .collect()
+    })
 }

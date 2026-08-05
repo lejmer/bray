@@ -185,6 +185,7 @@ fn execute_invocation_with_progress(
         } => {
             return run_format(
                 &workspace_root,
+                worker_count,
                 check,
                 configuration,
                 files,
@@ -682,6 +683,7 @@ fn run_language_server(
 
 fn run_format(
     workspace_root: &Path,
+    worker_count: usize,
     check: bool,
     configuration: Option<PathBuf>,
     files: Vec<PathBuf>,
@@ -759,7 +761,11 @@ fn run_format(
 
     let mut request = ToolRequest::new(Tool::Formatter, workspace_root);
 
-    request.arg("--format").arg(output_format.as_str());
+    request
+        .arg("--format")
+        .arg(output_format.as_str())
+        .arg("--cpu-count")
+        .arg(worker_count.to_string());
 
     if let Some(configuration) = configuration {
         request.arg("--config").arg(configuration.into_os_string());
@@ -1191,6 +1197,8 @@ mod tests {
                 "bray".into(),
                 "--workspace".into(),
                 workspace.path().as_os_str().to_os_string(),
+                "--cpu-count".into(),
+                "3".into(),
                 "fmt".into(),
                 "-".into(),
             ],
@@ -1208,6 +1216,7 @@ mod tests {
 
         assert_eq!(request.tool, Tool::Formatter);
         assert_eq!(request.input.as_deref(), Some(b"module app;".as_slice()));
+        assert!(has_argument_pair(&request.arguments, "--cpu-count", "3"));
     }
 
     #[test]
