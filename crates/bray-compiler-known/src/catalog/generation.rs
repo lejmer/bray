@@ -279,7 +279,7 @@ fn parser_context(context: CatalogSurfaceContext) -> Option<DeclarationFragmentC
     }
 }
 
-fn declaration_kind(declaration: &DeclarationFragmentSyntax) -> CatalogDeclarationKind {
+pub(super) fn declaration_kind(declaration: &DeclarationFragmentSyntax) -> CatalogDeclarationKind {
     match declaration {
         DeclarationFragmentSyntax::Constant(_) => CatalogDeclarationKind::Constant,
         DeclarationFragmentSyntax::Function(_) => CatalogDeclarationKind::Function,

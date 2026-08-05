@@ -436,12 +436,12 @@ fn first_inventory_anchor(inventory: &'static CatalogSourceInventory) -> Catalog
 #[cfg(test)]
 mod tests {
     use bray_parser::{
-        DeclarationFragmentContext, DeclarationFragmentSyntax, parse_declaration_fragment,
-        parse_type_expression_fragment,
+        DeclarationFragmentContext, parse_declaration_fragment, parse_type_expression_fragment,
     };
     use bray_source::{SourceIdentity, SourceOrigin, SourceStore, SourceVersion};
 
     use super::{CatalogFragmentValidator, build_catalog};
+    use crate::catalog::generation::declaration_kind;
     use crate::catalog::{
         CatalogDeclarationKind, CatalogDeclarationSurface, CatalogDiagnostic,
         CatalogDiagnosticKind, CatalogDiagnostics, CatalogField, CatalogKind, CatalogMetadataKind,
@@ -1268,7 +1268,7 @@ mod tests {
                 panic!("catalog surface should contain one declaration");
             };
 
-            Ok(catalog_declaration_kind(declaration))
+            Ok(declaration_kind(declaration))
         }
 
         fn validate_type_surface(
@@ -1350,43 +1350,6 @@ mod tests {
             CatalogSurfaceContext::Declaration(owner) => {
                 panic!("unsupported representative declaration owner: {owner:?}")
             }
-        }
-    }
-
-    fn catalog_declaration_kind(declaration: &DeclarationFragmentSyntax) -> CatalogDeclarationKind {
-        match declaration {
-            DeclarationFragmentSyntax::Constant(_) => CatalogDeclarationKind::Constant,
-            DeclarationFragmentSyntax::Function(_) => CatalogDeclarationKind::Function,
-            DeclarationFragmentSyntax::Predicate(_) => CatalogDeclarationKind::Predicate,
-            DeclarationFragmentSyntax::CallableContract(_) => {
-                CatalogDeclarationKind::CallableContract
-            }
-            DeclarationFragmentSyntax::Struct(_) => CatalogDeclarationKind::Struct,
-            DeclarationFragmentSyntax::Union(_) => CatalogDeclarationKind::Union,
-            DeclarationFragmentSyntax::Trait(_) => CatalogDeclarationKind::Trait,
-            DeclarationFragmentSyntax::NamedTraitImplementation(_) => {
-                CatalogDeclarationKind::NamedTraitImplementation
-            }
-            DeclarationFragmentSyntax::StructField(_) => CatalogDeclarationKind::StructField,
-            DeclarationFragmentSyntax::UnionVariant(_) => CatalogDeclarationKind::UnionVariant,
-            DeclarationFragmentSyntax::UnionPayloadField(_) => {
-                CatalogDeclarationKind::UnionPayloadField
-            }
-            DeclarationFragmentSyntax::TypeCallableMember(_) => {
-                CatalogDeclarationKind::TypeCallableMember
-            }
-            DeclarationFragmentSyntax::TraitTypeMember(_) => {
-                CatalogDeclarationKind::TraitTypeMember
-            }
-            DeclarationFragmentSyntax::TraitCallableMember(_) => {
-                CatalogDeclarationKind::TraitCallableMember
-            }
-            DeclarationFragmentSyntax::ImplementationTypeMemberBinding(_) => {
-                CatalogDeclarationKind::ImplementationTypeMemberBinding
-            }
-            declaration => panic!(
-                "representative catalog contains an unclassified declaration: {declaration:?}"
-            ),
         }
     }
 

@@ -3,8 +3,8 @@
 A constant declaration introduces a named compile-time value.
 
 ```bray
-const max_count: usize = 1024;
-const default_prefix: string = "tmp";
+const MAX_COUNT: usize = 1024;
+const DEFAULT_PREFIX: string = "tmp";
 ```
 
 The ordinary constant declaration syntax is:
@@ -16,7 +16,7 @@ const identifier ':' type-expression '=' constant-expression ';'
 A visibility modifier can appear before `const` in declaration contexts that support visibility.
 
 ```bray
-internal const page_size: usize = 4096;
+internal const PAGE_SIZE: usize = 4096;
 ```
 
 The type annotation is required.

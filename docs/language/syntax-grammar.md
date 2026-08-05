@@ -1297,7 +1297,7 @@ A generic parameter list contains at least one parameter and can include a trail
 
 Bare generic parameter names declare type parameters.
 
-Const parameters use `const Name: Type`.
+Const parameters use `const NAME: Type`.
 
 ---
 

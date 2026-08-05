@@ -32,6 +32,9 @@ The lexical and syntax grammar chapters define how source text is tokenized and 
 
 The semantic chapters define what parsed programs mean and which parsed forms are valid Bray.
 
+The [Bray source style guide](../contributing/bray-style-guide.md) defines the canonical layout and organization of Bray source.
+Style does not change whether a program is valid or what it means.
+
 ---
 
 ## Grammar References

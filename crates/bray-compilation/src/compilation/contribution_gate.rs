@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn target_gates_publish_exact_dependencies_and_selected_results() {
-        let enabled = compilation("@target(target.scalar.u64) module app;");
+        let enabled = compilation("@target(target.scalar.U64) module app;");
         let enabled_gate = module_gate(&enabled);
 
         assert!(
@@ -427,7 +427,7 @@ mod tests {
 
         assert_dependency(&enabled, dependency, TargetFactKind::ScalarU64);
 
-        let disabled = compilation("@target(target.atomic.u64) module app;");
+        let disabled = compilation("@target(target.atomic.U64) module app;");
         let disabled_gate = module_gate(&disabled);
 
         assert!(
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn target_gates_use_ordinary_constant_boolean_operators() {
-        let negated = compilation("@target(!target.atomic.u64) module app;");
+        let negated = compilation("@target(!target.atomic.U64) module app;");
         let gate = module_gate(&negated);
 
         assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
@@ -459,7 +459,7 @@ mod tests {
 
         assert_dependency(&negated, dependency, TargetFactKind::AtomicU64);
 
-        let composed = compilation("@target(target.scalar.u64 && !target.atomic.u64) module app;");
+        let composed = compilation("@target(target.scalar.U64 && !target.atomic.U64) module app;");
         let gate = module_gate(&composed);
 
         assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn target_gates_use_ordinary_constant_comparisons() {
-        let compilation = compilation("@target(target.pointer.bits == 64) module app;");
+        let compilation = compilation("@target(target.pointer.BITS == 64) module app;");
         let gate = module_gate(&compilation);
 
         assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
@@ -485,7 +485,7 @@ mod tests {
     #[test]
     fn target_gate_dependencies_exclude_short_circuited_references() {
         let compilation =
-            compilation("@target(target.scalar.u64 || target.atomic.u64) module app;");
+            compilation("@target(target.scalar.U64 || target.atomic.U64) module app;");
 
         let gate = module_gate(&compilation);
 
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn repeated_and_concurrent_target_gate_demand_is_stable() {
-        let compilation = compilation("@target(target.scalar.u64) module app;");
+        let compilation = compilation("@target(target.scalar.U64) module app;");
 
         let [part] = compilation.declaration_table().module_parts() else {
             panic!("fixture must contain one module contribution");
@@ -525,7 +525,7 @@ mod tests {
 
     #[test]
     fn non_boolean_target_gates_publish_disabled_recovered_results() {
-        let compilation = compilation("@target(target.pointer.bits) module app;");
+        let compilation = compilation("@target(target.pointer.BITS) module app;");
         let gate = module_gate(&compilation);
 
         assert!(!compilation.check_diagnostics().is_empty());

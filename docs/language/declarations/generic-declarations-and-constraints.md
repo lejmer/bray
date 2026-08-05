@@ -23,7 +23,7 @@ Generic parameter lists can contain:
 
 Bare generic parameter names declare type parameters.
 
-Const parameters use `const Name: Type`.
+Const parameters use `const NAME: Type`.
 
 Declaration generics do not include capability parameters.
 

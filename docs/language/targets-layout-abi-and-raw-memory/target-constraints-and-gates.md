@@ -11,7 +11,7 @@ A module contribution can be gated by the selected target profile with `@target(
 `@target(...)` attaches to a source-unit module declaration or a block module declaration.
 
 ```bray
-@target(target.atomic.u64)
+@target(target.atomic.U64)
 module counters;
 
 using std.atomic;
@@ -25,7 +25,7 @@ func add(pos counter: &std.atomic.AtomicU64, amount: u64) -> u64
 A fallback module contribution can use the negated target fact:
 
 ```bray
-@target(!target.atomic.u64)
+@target(!target.atomic.U64)
 module counters;
 
 struct Counter

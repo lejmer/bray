@@ -379,7 +379,7 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
 
     #[test]
     fn source_headers_retain_target_dependencies_for_applicability() {
-        let source = target_gated_implementations("target.scalar.u64");
+        let source = target_gated_implementations("target.scalar.U64");
         let compilation = compilation(&source);
         let fixture = CandidateFixture::new(&compilation);
 
@@ -406,7 +406,7 @@ impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
 
     #[test]
     fn target_disabled_implementations_do_not_enter_active_source_identity() {
-        let source = target_gated_implementations("target.atomic.u64");
+        let source = target_gated_implementations("target.atomic.U64");
         let compilation = compilation(&source);
         let requirement = candidate_requirement(&compilation);
 

@@ -17,7 +17,7 @@ The generic parameter list is written after the type name.
 Bray has two generic parameter kinds:
 
 - **type parameters:** declared by a bare generic parameter name,
-- **const parameters:** declared with `const Name: Type`.
+- **const parameters:** declared with `const NAME: Type`.
 
 All explicit generic parameter lists use this parameter-kind set.
 

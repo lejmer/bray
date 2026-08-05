@@ -74,50 +74,50 @@ The language-defined target fact groups are:
 The target fact surface includes these language-defined facts:
 
 ```bray
-target.identity.name
-target.identity.arch
-target.identity.vendor
-target.identity.system
-target.identity.environment
-target.identity.abi
-target.pointer.bits
-target.pointer.bytes
-target.endian.little
-target.endian.big
-target.scalar.bool
-target.scalar.char
-target.scalar.i8
-target.scalar.i16
-target.scalar.i32
-target.scalar.i64
-target.scalar.i128
-target.scalar.u8
-target.scalar.u16
-target.scalar.u32
-target.scalar.u64
-target.scalar.u128
-target.scalar.usize
-target.scalar.isize
-target.scalar.r16
-target.scalar.r32
-target.scalar.r64
-target.scalar.r128
-target.scalar.c32
-target.scalar.c64
-target.scalar.c128
-target.scalar.c256
-target.atomic.u8
-target.atomic.u16
-target.atomic.u32
-target.atomic.u64
-target.atomic.u128
-target.atomic.pointer
-target.abi.c
-target.abi.system
-target.address_space.host
-target.address_space.device
-target.alignment.max_storage
-target.alignment.max_allocation
+target.identity.NAME
+target.identity.ARCH
+target.identity.VENDOR
+target.identity.SYSTEM
+target.identity.ENVIRONMENT
+target.identity.ABI
+target.pointer.BITS
+target.pointer.BYTES
+target.endian.LITTLE
+target.endian.BIG
+target.scalar.BOOL
+target.scalar.CHAR
+target.scalar.I8
+target.scalar.I16
+target.scalar.I32
+target.scalar.I64
+target.scalar.I128
+target.scalar.U8
+target.scalar.U16
+target.scalar.U32
+target.scalar.U64
+target.scalar.U128
+target.scalar.USIZE
+target.scalar.ISIZE
+target.scalar.R16
+target.scalar.R32
+target.scalar.R64
+target.scalar.R128
+target.scalar.C32
+target.scalar.C64
+target.scalar.C128
+target.scalar.C256
+target.atomic.U8
+target.atomic.U16
+target.atomic.U32
+target.atomic.U64
+target.atomic.U128
+target.atomic.POINTER
+target.abi.C
+target.abi.SYSTEM
+target.address_space.HOST
+target.address_space.DEVICE
+target.alignment.MAX_STORAGE
+target.alignment.MAX_ALLOCATION
 target.platform.process_context
 target.platform.standard_streams
 target.platform.filesystem
@@ -127,15 +127,15 @@ target.platform.wall_clock
 target.platform.entropy
 ```
 
-`target.identity.name`, `target.identity.arch`, `target.identity.vendor`, `target.identity.system`,
-`target.identity.environment`, and `target.identity.abi` have type `string`.
+`target.identity.NAME`, `target.identity.ARCH`, `target.identity.VENDOR`, `target.identity.SYSTEM`,
+`target.identity.ENVIRONMENT`, and `target.identity.ABI` have type `string`.
 
-`target.pointer.bits`, `target.pointer.bytes`, `target.alignment.max_storage`, and `target.alignment.max_allocation` have type
+`target.pointer.BITS`, `target.pointer.BYTES`, `target.alignment.MAX_STORAGE`, and `target.alignment.MAX_ALLOCATION` have type
 `usize`.
 
 The other facts listed above have type `bool`.
 
-Exactly one of `target.endian.little` and `target.endian.big` is true.
+Exactly one of `target.endian.LITTLE` and `target.endian.BIG` is true.
 
 Scalar availability facts for required scalar types must be true for every conforming target profile.
 
