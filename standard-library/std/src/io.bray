@@ -38,17 +38,13 @@ trait Writer
 
 trait AsyncReader
 {
-    mut async func read_async(
-        pos destination: &mut [u8],
-    ) -> Result<usize, IoError>
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution());
 }
 
 trait AsyncWriter
 {
-    mut async func write_async(
-        pos source: &[u8],
-    ) -> Result<usize, IoError>
+    mut async func write_async(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution());
 
     mut async func flush_async() -> Result<unit, IoError>
@@ -103,10 +99,7 @@ func standard_error() -> StandardError
     return support_standard_error();
 }
 
-func buffered_reader<Source>(
-    pos source: Source,
-    capacity: usize,
-) -> Result<BufferedReader<Source>, IoError>
+func buffered_reader<Source>(pos source: Source, capacity: usize) -> Result<BufferedReader<Source>, IoError>
     requires(capacity > 0)
 {
     return support_buffered_reader<Source>(
@@ -115,10 +108,7 @@ func buffered_reader<Source>(
     );
 }
 
-func buffered_writer<Sink>(
-    pos sink: Sink,
-    capacity: usize,
-) -> Result<BufferedWriter<Sink>, IoError>
+func buffered_writer<Sink>(pos sink: Sink, capacity: usize) -> Result<BufferedWriter<Sink>, IoError>
     requires(capacity > 0)
 {
     return support_buffered_writer<Sink>(

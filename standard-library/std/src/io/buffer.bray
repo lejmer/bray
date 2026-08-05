@@ -9,9 +9,7 @@ internal func buffer_allocation_error() -> IoError
     );
 }
 
-internal func create_fixed_buffer(
-    capacity: usize,
-) -> Result<std.bytes.Buffer, IoError>
+internal func create_fixed_buffer(capacity: usize) -> Result<std.bytes.Buffer, IoError>
 {
     let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> =
         std.bytes.create(capacity = capacity);
@@ -34,14 +32,12 @@ internal func create_fixed_buffer(
                 {
                     return Ok(buffer);
                 }
-
                 case Error(_)
                 {
                     return Error(buffer_allocation_error());
                 }
             }
         }
-
         case Error(_)
         {
             return Error(buffer_allocation_error());
@@ -49,13 +45,11 @@ internal func create_fixed_buffer(
     }
 }
 
-internal func transferred_error(
-    pos error: IoError,
-    transferred: usize,
-) -> IoError
+internal func transferred_error(pos error: IoError, transferred: usize) -> IoError
 {
     let kind: IoErrorKind = error.kind;
     let platform_code: i64? = error.platform_code;
+
     let native_code: i64 = match platform_code
     {
         case ?code
@@ -76,10 +70,7 @@ internal func transferred_error(
     );
 }
 
-internal func prefixed_error(
-    pos error: IoError,
-    prefix: usize,
-) -> IoError
+internal func prefixed_error(pos error: IoError, prefix: usize) -> IoError
 {
     let maximum: usize = ~0;
 

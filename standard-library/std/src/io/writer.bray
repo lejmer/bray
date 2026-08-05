@@ -1,9 +1,6 @@
 trusted module std.io;
 
-internal func support_buffered_writer<Sink>(
-    pos sink: Sink,
-    capacity: usize,
-) -> Result<BufferedWriter<Sink>, IoError>
+internal func support_buffered_writer<Sink>(pos sink: Sink, capacity: usize) -> Result<BufferedWriter<Sink>, IoError>
 {
     if capacity == 0
     {
@@ -34,16 +31,14 @@ internal func normalize_write_flush_error(pos error: IoError) -> IoError
     return transferred_error(error, transferred = 0);
 }
 
-internal func buffer_bytes<Sink>(
-    pos writer: &mut BufferedWriter<Sink>,
-    pos source: &[u8],
-) -> usize
+internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos source: &[u8]) -> usize
 {
     let capacity: usize = writer.capacity;
     let available: usize = capacity - writer.length;
     let source_length: usize = internal std.memory.byte_slice_length(source);
     let accepted: usize = smaller(source_length, available);
     let destination: &mut [u8] = std.bytes.as_slice_mut(&mut writer.storage);
+
     let mut index: usize = 0;
 
     while index < accepted
@@ -68,6 +63,7 @@ impl BufferedWriter<Sink>
         while self.start < self.length
         {
             let pending_length: usize = self.length - self.start;
+
             let result: Result<usize, IoError> =
             {
                 let bytes: &[u8] = std.bytes.as_slice(&self.storage);
@@ -93,7 +89,6 @@ impl BufferedWriter<Sink>
                     self.start = self.start + transferred;
                     committed = committed + transferred;
                 }
-
                 case Error(error)
                 {
                     if error.transferred > pending_length
@@ -121,7 +116,6 @@ impl BufferedWriter<Sink>
             {
                 return Ok(unit);
             }
-
             case Error(error)
             {
                 return Error(prefixed_error(error, prefix = committed));
@@ -142,7 +136,6 @@ impl BufferedWriter<Sink>
                 case Ok(_)
                 {
                 }
-
                 case Error(error)
                 {
                     return Error(normalize_write_flush_error(error));
@@ -162,6 +155,7 @@ impl BufferedWriter<Sink>
         while self.start < self.length
         {
             let pending_length: usize = self.length - self.start;
+
             let result: Result<usize, IoError> =
             {
                 let bytes: &[u8] = std.bytes.as_slice(&self.storage);
@@ -187,7 +181,6 @@ impl BufferedWriter<Sink>
                     self.start = self.start + transferred;
                     committed = committed + transferred;
                 }
-
                 case Error(error)
                 {
                     if error.transferred > pending_length
@@ -215,7 +208,6 @@ impl BufferedWriter<Sink>
             {
                 return Ok(unit);
             }
-
             case Error(error)
             {
                 return Error(prefixed_error(error, prefix = committed));
@@ -223,9 +215,7 @@ impl BufferedWriter<Sink>
         }
     }
 
-    mut async func support_write_async(
-        pos source: &[u8],
-    ) -> Result<usize, IoError>
+    mut async func support_write_async(pos source: &[u8]) -> Result<usize, IoError>
         with(Sink: AsyncWriter)
         requires(blocking_execution())
     {
@@ -238,7 +228,6 @@ impl BufferedWriter<Sink>
                 case Ok(_)
                 {
                 }
-
                 case Error(error)
                 {
                     return Error(normalize_write_flush_error(error));
@@ -264,7 +253,6 @@ impl BufferedWriter<Sink>
             {
                 return Ok(self.sink);
             }
-
             case Error(error)
             {
                 return Error(error);
@@ -296,9 +284,7 @@ impl BufferedWriterSinkWriter = BufferedWriter<Sink>(Writer)
 impl BufferedWriterSinkAsyncWriter = BufferedWriter<Sink>(AsyncWriter)
     with(Sink: AsyncWriter)
 {
-    mut async func write_async(
-        pos source: &[u8],
-    ) -> Result<usize, IoError>
+    mut async func write_async(pos source: &[u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
         let result: Result<usize, IoError> = await self.support_write_async(source);

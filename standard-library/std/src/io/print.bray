@@ -22,7 +22,6 @@ internal func advance_write_all(
 
             return Ok(written + transferred);
         }
-
         case Error(error)
         {
             if error.transferred > remaining
@@ -35,10 +34,7 @@ internal func advance_write_all(
     }
 }
 
-internal func write_all<Sink>(
-    pos sink: &mut Sink,
-    pos source: &[u8],
-) -> Result<usize, IoError>
+internal func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<usize, IoError>
     with(Sink: Writer)
     requires(blocking_execution())
 {
@@ -62,7 +58,6 @@ internal func write_all<Sink>(
             {
                 written = next;
             }
-
             case Error(error)
             {
                 return Error(error);
@@ -100,7 +95,6 @@ internal async func write_all_async<Sink>(
             {
                 written = next;
             }
-
             case Error(error)
             {
                 return Error(error);
@@ -123,10 +117,12 @@ internal func write_standard_output_all(
     while written < length
     {
         let remaining: &[u8] = &source[written..length];
+
         let result: Result<usize, IoError> = trusted write_standard_stream_unlocked(
             remaining,
             handle = output.handle,
         );
+
         let advanced: Result<usize, IoError> = advance_write_all(
             result = result,
             written = written,
@@ -139,7 +135,6 @@ internal func write_standard_output_all(
             {
                 written = next;
             }
-
             case Error(error)
             {
                 return Error(error);
@@ -150,10 +145,7 @@ internal func write_standard_output_all(
     return Ok(written);
 }
 
-internal func checked_flush_result(
-    result: Result<unit, IoError>,
-    written: usize,
-) -> Result<unit, IoError>
+internal func checked_flush_result(result: Result<unit, IoError>, written: usize) -> Result<unit, IoError>
 {
     match consume result
     {
@@ -161,7 +153,6 @@ internal func checked_flush_result(
         {
             return Ok(unit);
         }
-
         case Error(error)
         {
             return Error(prefixed_error(error, prefix = written));
@@ -169,10 +160,7 @@ internal func checked_flush_result(
     }
 }
 
-internal func flush_after_write<Sink>(
-    pos sink: &mut Sink,
-    written: usize,
-) -> Result<unit, IoError>
+internal func flush_after_write<Sink>(pos sink: &mut Sink, written: usize) -> Result<unit, IoError>
     with(Sink: Writer)
     requires(blocking_execution())
 {
@@ -184,10 +172,7 @@ internal func flush_after_write<Sink>(
     );
 }
 
-internal async func flush_after_write_async<Sink>(
-    pos sink: &mut Sink,
-    written: usize,
-) -> Result<unit, IoError>
+internal async func flush_after_write_async<Sink>(pos sink: &mut Sink, written: usize) -> Result<unit, IoError>
     with(Sink: AsyncWriter)
     requires(blocking_execution())
 {
@@ -204,11 +189,13 @@ internal func support_print(pos text: string) -> Result<unit, IoError>
 {
     let mut output: StandardOutput = standard_output();
     let handle: u64 = output.handle;
+
     let lock: StandardStreamLock =
         try trusted acquire_standard_stream(handle = handle);
 
     let text_ref: &string = &text;
     let bytes: &[u8] = std.string.utf8(text_ref);
+
     let write_result: Result<usize, IoError> =
         write_standard_output_all(&mut output, bytes);
 
@@ -224,7 +211,6 @@ internal func support_print(pos text: string) -> Result<unit, IoError>
                 written = written,
             );
         }
-
         case Error(error)
         {
             return Error(error);
@@ -237,11 +223,13 @@ internal func support_print_line(pos text: string) -> Result<unit, IoError>
 {
     let mut output: StandardOutput = standard_output();
     let handle: u64 = output.handle;
+
     let lock: StandardStreamLock =
         try trusted acquire_standard_stream(handle = handle);
 
     let text_ref: &string = &text;
     let bytes: &[u8] = std.string.utf8(text_ref);
+
     let write_result: Result<usize, IoError> =
         write_standard_output_all(&mut output, bytes);
 
@@ -251,6 +239,7 @@ internal func support_print_line(pos text: string) -> Result<unit, IoError>
         {
             let newline_text: string = "\n";
             let newline: &[u8] = std.string.utf8(&newline_text);
+
             let newline_written: Result<usize, IoError> =
                 write_standard_output_all(&mut output, newline);
 
@@ -266,14 +255,12 @@ internal func support_print_line(pos text: string) -> Result<unit, IoError>
                         written = written + count,
                     );
                 }
-
                 case Error(error)
                 {
                     return Error(prefixed_error(error, prefix = written));
                 }
             }
         }
-
         case Error(error)
         {
             return Error(error);
@@ -281,17 +268,13 @@ internal func support_print_line(pos text: string) -> Result<unit, IoError>
     }
 }
 
-internal async func support_print_async(
-    pos text: string,
-) -> Result<unit, IoError>
+internal async func support_print_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     return support_print(text);
 }
 
-internal async func support_print_line_async(
-    pos text: string,
-) -> Result<unit, IoError>
+internal async func support_print_line_async(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     return support_print_line(text);

@@ -7,16 +7,12 @@ struct Buffer
     internal mut storage: std.memory.RawBuffer<u8>;
 }
 
-func create(
-    capacity: usize = 0,
-) -> Result<Buffer, std.memory.MemoryLayoutError>
+func create(capacity: usize = 0) -> Result<Buffer, std.memory.MemoryLayoutError>
 {
     return support_create(capacity = capacity);
 }
 
-func from_slice(
-    pos bytes: &[u8],
-) -> Result<Buffer, std.memory.MemoryLayoutError>
+func from_slice(pos bytes: &[u8]) -> Result<Buffer, std.memory.MemoryLayoutError>
 {
     return support_from_slice(bytes);
 }
@@ -73,19 +69,12 @@ func equals(pos left: &[u8], pos right: &[u8]) -> bool
     return true;
 }
 
-func reserve(
-    pos buffer: &mut Buffer,
-    additional: usize,
-) -> Result<unit, std.memory.MemoryLayoutError>
+func reserve(pos buffer: &mut Buffer, additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
 {
     return support_reserve(additional = additional, buffer = buffer);
 }
 
-func resize(
-    pos buffer: &mut Buffer,
-    new_length: usize,
-    fill: u8 = 0,
-) -> Result<unit, std.memory.MemoryLayoutError>
+func resize(pos buffer: &mut Buffer, new_length: usize, fill: u8 = 0) -> Result<unit, std.memory.MemoryLayoutError>
 {
     return support_resize(
         fill = fill,
@@ -104,27 +93,17 @@ func clear(pos buffer: &mut Buffer) -> unit
     support_truncate(new_length = 0, buffer = buffer);
 }
 
-func push(
-    pos buffer: &mut Buffer,
-    value: u8,
-) -> Result<unit, std.memory.MemoryLayoutError>
+func push(pos buffer: &mut Buffer, value: u8) -> Result<unit, std.memory.MemoryLayoutError>
 {
     return support_push(value = value, buffer = buffer);
 }
 
-func append(
-    pos buffer: &mut Buffer,
-    bytes: &[u8],
-) -> Result<unit, std.memory.MemoryLayoutError>
+func append(pos buffer: &mut Buffer, bytes: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
 {
     return support_append(bytes = bytes, buffer = buffer);
 }
 
-func append_repeated(
-    pos buffer: &mut Buffer,
-    value: u8,
-    count: usize,
-) -> Result<unit, std.memory.MemoryLayoutError>
+func append_repeated(pos buffer: &mut Buffer, value: u8, count: usize) -> Result<unit, std.memory.MemoryLayoutError>
 {
     return support_append_repeated(
         value = value,

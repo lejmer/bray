@@ -2,19 +2,14 @@ module std.bytes;
 
 using std.memory;
 
-trusted internal func support_create(
-    capacity: usize,
-) -> Result<Buffer, std.memory.MemoryLayoutError>
+trusted internal func support_create(capacity: usize) -> Result<Buffer, std.memory.MemoryLayoutError>
 {
-    let storage: std.memory.RawBuffer<u8> =
-        try trusted std.memory.create_buffer<u8>(capacity = capacity);
+    let storage: std.memory.RawBuffer<u8> = try trusted std.memory.create_buffer<u8>(capacity = capacity);
 
     return Ok(Buffer { storage = storage, });
 }
 
-trusted internal func support_from_slice(
-    pos bytes: &[u8],
-) -> Result<Buffer, std.memory.MemoryLayoutError>
+trusted internal func support_from_slice(pos bytes: &[u8]) -> Result<Buffer, std.memory.MemoryLayoutError>
 {
     let byte_count: usize = internal std.memory.byte_slice_length(bytes);
 
@@ -25,6 +20,7 @@ trusted internal func support_from_slice(
 
     let mut buffer: Buffer = try support_create(capacity = byte_count);
     let first: &u8 = &bytes[0];
+
     let source: RawPointer<u8> = internal std.memory.byte_address_of(first);
     let destination: RawPointer<u8> = buffer.storage.pointer;
 
@@ -81,8 +77,7 @@ trusted internal func support_reserve(
 
     let required: usize = current_length + additional;
 
-    let mut replacement: std.memory.RawBuffer<u8> =
-        try trusted std.memory.create_buffer<u8>(capacity = required);
+    let mut replacement: std.memory.RawBuffer<u8> = try trusted std.memory.create_buffer<u8>(capacity = required);
 
     let source: RawPointer<u8> = buffer.storage.pointer;
     let destination: RawPointer<u8> = replacement.pointer;
@@ -121,8 +116,7 @@ trusted internal func support_resize(
 
     try support_reserve(additional = additional, buffer = &mut buffer);
 
-    let pointer: RawPointer<u8> =
-        trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
+    let pointer: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
     trusted internal std.memory.byte_buffer_fill(
         destination = pointer,
@@ -138,10 +132,7 @@ trusted internal func support_resize(
     return Ok(unit);
 }
 
-trusted internal func support_truncate(
-    pos buffer: &mut Buffer,
-    new_length: usize,
-) -> unit
+trusted internal func support_truncate(pos buffer: &mut Buffer, new_length: usize) -> unit
 {
     let current_length: usize = buffer.storage.initialized;
 
@@ -154,22 +145,20 @@ trusted internal func support_truncate(
     }
 }
 
-trusted internal func support_push(
-    pos buffer: &mut Buffer,
-    value: u8,
-) -> Result<unit, std.memory.MemoryLayoutError>
+trusted internal func support_push(pos buffer: &mut Buffer, value: u8) -> Result<unit, std.memory.MemoryLayoutError>
 {
     try support_reserve(additional = 1, buffer = &mut buffer);
 
     let current_length: usize = buffer.storage.initialized;
-    let pointer: RawPointer<u8> =
-        trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
+
+    let pointer: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
     trusted internal std.memory.byte_buffer_fill(
         destination = pointer,
         value = value,
         count = 1,
     );
+
     trusted std.memory.set_initialized_count<u8>(
         buffer = &mut buffer.storage,
         count = current_length + 1,
@@ -194,9 +183,9 @@ trusted internal func support_append(
 
     let current_length: usize = buffer.storage.initialized;
     let first: &u8 = &bytes[0];
+
     let source: RawPointer<u8> = internal std.memory.byte_address_of(first);
-    let destination: RawPointer<u8> =
-        trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
+    let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
     trusted internal std.memory.byte_buffer_copy(
         source = source,

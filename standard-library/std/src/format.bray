@@ -90,10 +90,7 @@ func argument<Value>(pos value: Value) -> Argument<Value>
     };
 }
 
-func argument_with<Value>(
-    pos value: Value,
-    options: Options,
-) -> Argument<Value>
+func argument_with<Value>(pos value: Value, options: Options) -> Argument<Value>
 {
     return
     {
@@ -107,9 +104,7 @@ struct ByteSink
     internal mut buffer: std.bytes.Buffer;
 }
 
-func byte_sink(
-    capacity: usize,
-) -> Result<ByteSink, std.memory.MemoryLayoutError>
+func byte_sink(capacity: usize) -> Result<ByteSink, std.memory.MemoryLayoutError>
 {
     let buffer: std.bytes.Buffer = try std.bytes.create(capacity = capacity);
 
@@ -131,9 +126,7 @@ struct TextSink
     internal mut bytes: ByteSink;
 }
 
-func text_sink(
-    capacity: usize,
-) -> Result<TextSink, std.memory.MemoryLayoutError>
+func text_sink(capacity: usize) -> Result<TextSink, std.memory.MemoryLayoutError>
 {
     let sink: ByteSink = try byte_sink(capacity = capacity);
 

@@ -36,6 +36,7 @@ internal func copy_buffered_bytes<Source>(
 {
     let destination_length: usize =
         internal std.memory.byte_slice_length(&destination);
+
     let available: usize = reader.length - reader.start;
     let copied: usize = smaller(destination_length, available);
     let mut index: usize = 0;
@@ -44,6 +45,7 @@ internal func copy_buffered_bytes<Source>(
     {
         destination[index] =
             std.bytes.as_slice(&reader.storage)[reader.start + index];
+
         index = index + 1;
     }
 
@@ -80,7 +82,6 @@ internal func buffered_read_result<Source>(
 
             return Ok(copy_buffered_bytes(reader, destination));
         }
-
         case Error(error)
         {
             if error.transferred > capacity
@@ -154,9 +155,7 @@ internal async func read_buffered_async<Source>(
 
     let result: Result<usize, IoError> =
     {
-        yield await reader.source.read_async(
-            std.bytes.as_slice_mut(&mut reader.storage),
-        );
+        yield await reader.source.read_async(std.bytes.as_slice_mut(&mut reader.storage));
     };
 
     let capacity: usize = reader.capacity;
@@ -175,7 +174,6 @@ internal async func read_buffered_async<Source>(
 
             return Ok(copy_buffered_bytes(reader, destination));
         }
-
         case Error(error)
         {
             if error.transferred > capacity
@@ -204,9 +202,7 @@ impl BufferedReader<Source>
 impl BufferedReaderSourceReader = BufferedReader<Source>(Reader)
     with(Source: Reader)
 {
-    mut func read(
-        pos destination: &mut [u8],
-    ) -> Result<usize, IoError>
+    mut func read(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
         return read_buffered(&mut self, destination);
@@ -216,9 +212,7 @@ impl BufferedReaderSourceReader = BufferedReader<Source>(Reader)
 impl BufferedReaderSourceAsyncReader = BufferedReader<Source>(AsyncReader)
     with(Source: AsyncReader)
 {
-    mut async func read_async(
-        pos destination: &mut [u8],
-    ) -> Result<usize, IoError>
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
         return await read_buffered_async(&mut self, destination);
