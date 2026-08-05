@@ -78,8 +78,8 @@ internal func digit_byte(pos value: u128, pos uppercase: bool) -> u8
 {
     return match value
     {
-        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 { yield 48 + value as u8; }
-        case 10 | 11 | 12 | 13 | 14 { yield digit_offset(uppercase) + (value - 10) as u8; }
+        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 { yield 48 + std.truncate_to<u8>(value); }
+        case 10 | 11 | 12 | 13 | 14 { yield digit_offset(uppercase) + std.truncate_to<u8>(value - 10); }
         case _ { yield digit_offset(uppercase) + 5; }
     };
 }
@@ -90,7 +90,7 @@ internal func signed_digit_byte(pos value: i128, pos uppercase: bool) -> u8
     {
         case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14
         {
-            yield digit_byte(value as u128, uppercase);
+            yield digit_byte(std.truncate_to<u128>(value), uppercase);
         }
         case _ { yield digit_byte(15, uppercase); }
     };
