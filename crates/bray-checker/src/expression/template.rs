@@ -9,8 +9,9 @@ use bray_symbols::{
     CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
     CallableInstanceData, CallableParameterData, CallableParameterMode, CallablePosition,
     CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData,
-    ConstantTermData, GenericArgument, GenericParameterSymbolId, GenericSubstitutionData,
-    GenericSubstitutionId, PredicateInstanceData, TypeData, TypeExpressionTemplate, TypeId,
+    ConstantTermData, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, GenericSubstitutionId, PredicateInstanceData, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
@@ -257,7 +258,18 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    let instance = CallableInstanceData::new(template.definition(), substitution);
+    let callable_owner = GenericOwnerId::try_new(template.definition().symbol())
+        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+    let callable_substitution = if callable_owner == template.generic().owner() {
+        substitution
+    } else {
+        values
+            .inherit_generic_substitution(substitution, callable_owner)
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+    };
+
+    let instance = CallableInstanceData::new(template.definition(), callable_substitution);
 
     let result = call_result(request, callable_type, signature.result())?;
 
@@ -288,6 +300,7 @@ where
             defaults,
             candidate_state(template.state()),
         )
+        .with_generic_substitution(substitution)
         .with_contract(template.contract().clone())
         .with_generic_constraints(template.generic().constraints().iter().cloned()),
     ))

@@ -6,6 +6,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::CallablePosition;
 
+use crate::type_check::numeric_literal_accepts_type;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::ConstructionInputSurface;
@@ -78,7 +79,12 @@ where
 
         recovered |= input.is_recovered || actual.is_recovered();
 
-        if !actual.is_recovered() && actual.ty() != surfaces[surface_index].ty() {
+        let surface = surfaces[surface_index];
+
+        if !actual.is_recovered()
+            && actual.ty() != surface.ty()
+            && !numeric_literal_accepts_type(request, input.expression, surface.ty())?
+        {
             return Ok(None);
         }
 
@@ -86,8 +92,9 @@ where
 
         values.push(SelectedConstructionInput::Explicit {
             expression: input.expression,
-            input: surfaces[surface_index].input(),
-            ordinal: surfaces[surface_index].ordinal(),
+            input: surface.input(),
+            ty: surface.ty(),
+            ordinal: surface.ordinal(),
         });
     }
 
@@ -103,6 +110,7 @@ where
         values.push(SelectedConstructionInput::Default {
             input: surface.input(),
             provider,
+            ty: surface.ty(),
             ordinal: surface.ordinal(),
         });
     }

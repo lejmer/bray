@@ -6,7 +6,7 @@ use super::{
     GenericSubstitutionId, ImplementationInstanceData, SemanticValueStore, SemanticValueStoreError,
     TraitApplicationData, TypeData, TypeId,
 };
-use crate::GenericParameterSymbolId;
+use crate::{GenericOwnerId, GenericParameterSymbolId, SelfTypeContext};
 
 impl SemanticValueStore {
     /// Applies one generic substitution throughout a canonical semantic type.
@@ -82,7 +82,20 @@ impl SemanticValueStore {
         }
 
         let substituted = match data.as_ref() {
-            TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {
+            TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
+                let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
+                    return Ok(ty);
+                };
+
+                TypeData::Named {
+                    definition: *definition,
+                    substitution: self
+                        .intern_generic_substitution(substitution.with_owner(owner))?,
+                }
+            }
+            TypeData::Error
+            | TypeData::TypeParameter(_)
+            | TypeData::ContextualSelf(_) => {
                 return Ok(ty);
             }
             TypeData::Named {

@@ -125,11 +125,23 @@ struct StandardError
 struct BufferedReader<Source>
 {
     internal state: BufferedReaderState<Source>;
+
+    construct(
+        pos source: Source,
+        capacity: usize,
+    ) -> Result<Self, IoError>
+        requires(capacity > 0);
 }
 
 struct BufferedWriter<Sink>
 {
     internal state: BufferedWriterState<Sink>;
+
+    construct(
+        pos sink: Sink,
+        capacity: usize,
+    ) -> Result<Self, IoError>
+        requires(capacity > 0);
 }
 
 impl BufferedReader<Source>
@@ -145,18 +157,6 @@ impl BufferedWriter<Sink>
 func standard_input() -> StandardInput;
 func standard_output() -> StandardOutput;
 func standard_error() -> StandardError;
-
-func buffered_reader<Source>(
-    pos source: Source,
-    capacity: usize,
-) -> Result<BufferedReader<Source>, IoError>
-    requires(capacity > 0);
-
-func buffered_writer<Sink>(
-    pos sink: Sink,
-    capacity: usize,
-) -> Result<BufferedWriter<Sink>, IoError>
-    requires(capacity > 0);
 
 func print(pos text: string) -> Result<unit, IoError>
     requires(blocking_execution());

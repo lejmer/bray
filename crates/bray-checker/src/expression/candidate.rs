@@ -1140,11 +1140,13 @@ where
 
     let member = member_targets.get(&call.callee()).cloned();
 
-    let receiver = match request.view().expression(call.callee()) {
-        Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
-        Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),
-        _ => None,
-    };
+    let receiver = member.as_ref().and_then(|_| {
+        match request.view().expression(call.callee()) {
+            Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
+            Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),
+            _ => None,
+        }
+    });
 
     let receiver = receiver
         .map(|receiver| {

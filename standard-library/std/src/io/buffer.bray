@@ -7,6 +7,34 @@ struct BufferedReader<Source>
     internal capacity: usize;
     internal mut start: usize;
     internal mut length: usize;
+
+    construct(
+        pos source: Source,
+        capacity: usize,
+    ) -> Result<Self, IoError>
+        requires(capacity > 0)
+    {
+        if capacity == 0
+        {
+            return Error(io_error(
+                kind = InvalidInput,
+                native_code = 0,
+                transferred = 0,
+            ));
+        }
+
+        let storage: std.bytes.Buffer = try allocate_fixed_buffer(capacity = capacity);
+
+        let reader: BufferedReader<Source> = {
+            source = source,
+            storage = storage,
+            capacity = capacity,
+            start = 0,
+            length = 0,
+        };
+
+        return Ok(reader);
+    }
 }
 
 struct BufferedWriter<Sink>
@@ -16,6 +44,31 @@ struct BufferedWriter<Sink>
     internal capacity: usize;
     internal mut start: usize;
     internal mut length: usize;
+
+    construct(pos sink: Sink, capacity: usize) -> Result<Self, IoError>
+        requires(capacity > 0)
+    {
+        if capacity == 0
+        {
+            return Error(io_error(
+                kind = InvalidInput,
+                native_code = 0,
+                transferred = 0,
+            ));
+        }
+
+        let storage: std.bytes.Buffer = try allocate_fixed_buffer(capacity = capacity);
+
+        let writer: BufferedWriter<Sink> = {
+            sink = sink,
+            storage = storage,
+            capacity = capacity,
+            start = 0,
+            length = 0,
+        };
+
+        return Ok(writer);
+    }
 }
 
 internal func buffer_allocation_error() -> IoError
@@ -27,10 +80,10 @@ internal func buffer_allocation_error() -> IoError
     );
 }
 
-internal func create_fixed_buffer(capacity: usize) -> Result<std.bytes.Buffer, IoError>
+internal func allocate_fixed_buffer(capacity: usize) -> Result<std.bytes.Buffer, IoError>
 {
     let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> =
-        std.bytes.create(capacity = capacity);
+        std.bytes.Buffer(capacity = capacity);
 
     match consume created
     {

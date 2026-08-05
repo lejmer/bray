@@ -1,7 +1,7 @@
 use bray_base::Cancellation;
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
-    BoundUnresolvedReferenceKind, DeclaredValueTypeTerm,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnresolvedReferenceKind,
+    DeclaredValueTypeTerm,
 };
 use bray_checker::{
     CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
@@ -14,9 +14,9 @@ use bray_symbols::{
     AnySymbolId, CallableContractTemplateFact, CallableDefinitionId, CallableOverloadSymbolId,
     CallableOverloadTemplateFact, CallableParameterDefaultTemplateFact, CallableSignatureFact,
     CallableSymbolId, GenericArgumentTemplate, GenericDeclarationTemplate,
-    GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, OverloadArmTemplate,
-    PredicateDefinitionSymbolId, PredicateSignatureTemplateFact, SymbolFactContract,
-    SymbolFactRequest,
+    GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, NamedTypeSymbolId,
+    OverloadArmTemplate, PredicateDefinitionSymbolId, PredicateSignatureTemplateFact,
+    SymbolFactContract, SymbolFactRequest,
 };
 use bray_syntax::{GenericArgumentSyntax, PathSyntax};
 
@@ -26,10 +26,12 @@ use crate::{
     TypeExpressionScope,
 };
 
+use super::constructor::{bind_primary_constructor_candidates, bind_type_member_candidates};
+
 #[derive(Clone, Copy)]
-struct CallGenericContext<'syntax> {
-    arguments: &'syntax [GenericArgumentSyntax],
-    scope: &'syntax TypeExpressionScope,
+pub(super) struct CallGenericContext<'syntax> {
+    pub(super) arguments: &'syntax [GenericArgumentSyntax],
+    pub(super) scope: &'syntax TypeExpressionScope,
 }
 
 struct CandidateCancellation<'context, C: ?Sized>(&'context C);
@@ -44,21 +46,21 @@ where
 }
 
 #[derive(Clone, Copy)]
-enum DeclarationCandidateOutcome {
+pub(super) enum DeclarationCandidateOutcome {
     Added,
     Ignored,
     UnavailableFacts,
 }
 
 impl DeclarationCandidateOutcome {
-    const fn absence(self) -> CandidateAbsence {
+    pub(super) const fn absence(self) -> CandidateAbsence {
         match self {
             Self::Added | Self::Ignored => CandidateAbsence::UnresolvedReference,
             Self::UnavailableFacts => CandidateAbsence::UnavailableDeclarationFacts,
         }
     }
 
-    const fn merge(self, other: Self) -> Self {
+    pub(super) const fn merge(self, other: Self) -> Self {
         match (self, other) {
             (Self::UnavailableFacts, _) | (_, Self::UnavailableFacts) => Self::UnavailableFacts,
             (Self::Added, _) | (_, Self::Added) => Self::Added,
@@ -125,9 +127,16 @@ where
 
             absence
         }
-        BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
-            CandidateAbsence::UnavailableDeclarationFacts
-        }
+        BoundExpression::MemberAccess(_) => bind_type_member_candidates(
+            context,
+            unit,
+            callee,
+            state_for_recovery(callee_expression.is_recovered()),
+            generic,
+            &mut diagnostics,
+            &mut candidates,
+        )?,
+        BoundExpression::TraitQualifiedMember(_) => CandidateAbsence::UnavailableDeclarationFacts,
         _ => {
             bind_callable_value(
                 DeclaredValueTypeTerm::Expression(callee),
@@ -173,9 +182,29 @@ where
         BoundReferenceTarget::Surface(AnySymbolId::CallableOverload(overload)) => {
             bind_overload_candidates(context, overload, state, generic, diagnostics, candidates)
         }
+        BoundReferenceTarget::Surface(symbol)
+            if let Some(subject) = NamedTypeSymbolId::try_from_any(symbol) =>
+        {
+            bind_primary_constructor_candidates(
+                context,
+                subject,
+                state,
+                generic,
+                diagnostics,
+                candidates,
+            )
+        }
         BoundReferenceTarget::Surface(symbol) if symbol.kind().is_callable() => Ok(
-            bind_declaration_candidate(context, symbol, state, generic, diagnostics, candidates)?
-                .absence(),
+            bind_declaration_candidate(
+                context,
+                symbol,
+                state,
+                generic,
+                None,
+                diagnostics,
+                candidates,
+            )?
+            .absence(),
         ),
         BoundReferenceTarget::Surface(symbol)
             if PredicateDefinitionSymbolId::try_from_any(symbol).is_some() =>
@@ -233,6 +262,7 @@ where
                 *symbol,
                 state,
                 generic,
+                None,
                 diagnostics,
                 candidates,
             )?,
@@ -290,7 +320,15 @@ where
 
     let outcome = match lookup {
         MemberLookupResult::Found(name) => {
-            bind_resolved_name_candidate(context, name, state, generic, diagnostics, candidates)?
+            bind_resolved_name_candidate(
+                context,
+                name,
+                state,
+                generic,
+                None,
+                diagnostics,
+                candidates,
+            )?
         }
         MemberLookupResult::Inaccessible(names) => {
             let mut outcome = DeclarationCandidateOutcome::Ignored;
@@ -301,6 +339,7 @@ where
                     name,
                     CallableCandidateTemplateState::Inaccessible,
                     generic,
+                    None,
                     diagnostics,
                     candidates,
                 )?;
@@ -321,6 +360,7 @@ where
                     name,
                     CallableCandidateTemplateState::Recovered,
                     generic,
+                    None,
                     diagnostics,
                     candidates,
                 )?;
@@ -336,11 +376,12 @@ where
     Ok(outcome)
 }
 
-fn bind_resolved_name_candidate<C>(
+pub(super) fn bind_resolved_name_candidate<C>(
     context: &C,
     name: ResolvedName,
     state: CallableCandidateTemplateState,
     generic: CallGenericContext<'_>,
+    inherited_generic: Option<NamedTypeSymbolId>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
@@ -360,6 +401,7 @@ where
                 symbol,
                 state,
                 generic,
+                inherited_generic,
                 diagnostics,
                 candidates,
             );
@@ -380,11 +422,12 @@ where
     Ok(DeclarationCandidateOutcome::Ignored)
 }
 
-fn bind_declaration_candidate<C>(
+pub(super) fn bind_declaration_candidate<C>(
     context: &C,
     symbol: AnySymbolId,
     state: CallableCandidateTemplateState,
     call_generic: CallGenericContext<'_>,
+    inherited_generic: Option<NamedTypeSymbolId>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BinderFactResult<DeclarationCandidateOutcome>
@@ -418,8 +461,12 @@ where
     let (contract, contract_diagnostics) =
         symbol_fact_value::<_, CallableContractTemplateFact>(context, callable)?;
 
+    let generic_source = inherited_generic
+        .and_then(|subject| GenericOwnerId::try_new(subject.into_any()))
+        .unwrap_or(generic_owner);
+
     let (generic, generic_diagnostics) =
-        symbol_fact_value::<_, GenericDeclarationTemplateFact>(context, generic_owner)?;
+        symbol_fact_value::<_, GenericDeclarationTemplateFact>(context, generic_source)?;
 
     let Some(generic_arguments) =
         bind_generic_arguments(context, call_generic, &generic, diagnostics)?
@@ -615,7 +662,7 @@ const fn state_for_unresolved_reference(
     }
 }
 
-const fn combine_recovery(
+pub(super) const fn combine_recovery(
     state: CallableCandidateTemplateState,
     is_recovered: bool,
 ) -> CallableCandidateTemplateState {

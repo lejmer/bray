@@ -2,7 +2,7 @@ trusted module std.memory;
 
 func main() -> Result<unit, MemoryLayoutError>
 {
-    let buffer: RawBuffer<u8> = try create_buffer<u8>(capacity = 5);
+    let buffer: RawBuffer<u8> = try RawBuffer<u8>(capacity = 5);
 
     assert(initialized_count<u8>(&buffer) == 0);
     assert(capacity<u8>(&buffer) == 5);

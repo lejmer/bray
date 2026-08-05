@@ -14,8 +14,9 @@ use bray_symbols::{
     AnySymbolId, CallableAbi, CallableConstness, CallableDependencyContracts,
     CallableSignatureFact, CallableSignatureTemplate, CallableTrust, CallableTypeData,
     ConstantDeclaredTypeFact, ConstantSymbolId, DependencyContractTemplateData,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, PackageIdentity,
-    SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeData, TypeExpressionTemplate, TypeId,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, PackageIdentity,
+    SemanticValueStore, SymbolFactRequest, SymbolGraph, TypeAssociatedSurface, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -134,6 +135,13 @@ impl BinderFactContext for TestContext<'_> {
         _access: crate::NameAccess,
     ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
         Ok(MemberLookupResult::NotFound)
+    }
+
+    fn type_associated_surface(
+        &self,
+        _subject: NamedTypeSymbolId,
+    ) -> BinderFactResult<Arc<DiagnosticResult<TypeAssociatedSurface>>> {
+        Err(BinderFactError::DependencyUnavailable)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {

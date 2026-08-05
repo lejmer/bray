@@ -47,46 +47,46 @@ struct RawBuffer<T>
     capacity: usize;
     initialized: usize;
 
-    trusted destruct()
+    trusted construct(
+        capacity: usize,
+    ) -> Result<Self, MemoryLayoutError>
+        uses(manual_alloc, layout_reinterpret)
     {
-        trusted raw_buffer_release<T>(&mut self);
-    }
-}
+        if capacity == 0
+        {
+            let empty_pointer: RawPointer<T> = null<T>();
+            let empty_initialized: usize = 0;
+            let buffer: RawBuffer<T> = {
+                pointer = empty_pointer,
+                capacity = capacity,
+                initialized = empty_initialized,
+            };
 
-trusted func create_buffer<T>(
-    capacity: usize,
-) -> Result<RawBuffer<T>, MemoryLayoutError>
-    uses(manual_alloc, layout_reinterpret)
-{
-    if capacity == 0
-    {
-        let empty_pointer: RawPointer<T> = null<T>();
-        let empty_initialized: usize = 0;
+            return Ok(buffer);
+        }
+
+        let layout: MemoryLayout = try layout_of<T>(count = capacity);
+        let allocation_pointer: RawPointer<u8> = trusted core.memory.allocate(
+            bytes = layout.bytes,
+            align = layout.align,
+        );
+        let storage_pointer: RawPointer<T> =
+            trusted core.memory.reinterpret<T, u8>(allocation_pointer);
+        let initialized: usize = 0;
+
         let buffer: RawBuffer<T> = {
-            pointer = empty_pointer,
+            pointer = storage_pointer,
             capacity = capacity,
-            initialized = empty_initialized,
+            initialized = initialized,
         };
 
         return Ok(buffer);
     }
 
-    let layout: MemoryLayout = try layout_of<T>(count = capacity);
-    let allocation_pointer: RawPointer<u8> = trusted core.memory.allocate(
-        bytes = layout.bytes,
-        align = layout.align,
-    );
-    let storage_pointer: RawPointer<T> =
-        trusted core.memory.reinterpret<T, u8>(allocation_pointer);
-    let initialized: usize = 0;
-
-    let buffer: RawBuffer<T> = {
-        pointer = storage_pointer,
-        capacity = capacity,
-        initialized = initialized,
-    };
-
-    return Ok(buffer);
+    trusted destruct()
+    {
+        trusted raw_buffer_release<T>(&mut self);
+    }
 }
 
 extern func capacity<T>(pos buffer: &RawBuffer<T>) -> usize;

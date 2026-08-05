@@ -617,11 +617,13 @@ mod tests {
                 SelectedConstructionInput::Explicit {
                     expression: fixture.value,
                     input: ConstructionInputId::StructField(second),
+                    ty: fixture.value_type,
                     ordinal: 1,
                 },
                 SelectedConstructionInput::Default {
                     input: ConstructionInputId::StructField(first),
                     provider: ConstructionDefaultProvider::StructField(default),
+                    ty: fixture.value_type,
                     ordinal: 0,
                 },
             ]

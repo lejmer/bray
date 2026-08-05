@@ -178,6 +178,13 @@ impl GenericSubstitutionData {
             .find(|binding| binding.parameter == parameter)
             .map(|binding| binding.argument)
     }
+
+    pub(super) fn with_owner(&self, owner: GenericOwnerId) -> Self {
+        Self {
+            owner,
+            bindings: Arc::clone(&self.bindings),
+        }
+    }
 }
 
 const fn parameter_kind(parameter: GenericParameterSymbolId) -> GenericArgumentKind {

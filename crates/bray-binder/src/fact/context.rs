@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use bray_base::Cancellation;
 use bray_declarations::DeclarationTable;
+use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, PackageSymbolId,
-    SemanticValueStore, SymbolGraph, SymbolKey,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId, PackageSymbolId,
+    SemanticValueStore, SymbolGraph, SymbolKey, TypeAssociatedSurface,
 };
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
@@ -132,6 +135,12 @@ pub trait BinderFactContext: Send + Sync {
         name: &str,
         access: NameAccess,
     ) -> BinderFactResult<MemberLookupResult<AnySymbolId>>;
+
+    /// Returns the complete declaration-level member surface associated with a named type.
+    fn type_associated_surface(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> BinderFactResult<Arc<DiagnosticResult<TypeAssociatedSurface>>>;
 
     /// Returns the canonical semantic value store associated with the symbol graph.
     fn semantic_values(&self) -> &SemanticValueStore;

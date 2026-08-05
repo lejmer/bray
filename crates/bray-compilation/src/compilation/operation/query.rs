@@ -339,10 +339,26 @@ impl Compilation {
             .result_type()
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
+        let expectations = match &operation {
+            bray_bound_tree::SelectedOperation::Construction(construction) => construction
+                .inputs()
+                .iter()
+                .filter_map(|input| match input {
+                    bray_bound_tree::SelectedConstructionInput::Explicit {
+                        expression,
+                        ty,
+                        ..
+                    } => Some((*expression, *ty)),
+                    bray_bound_tree::SelectedConstructionInput::Default { .. } => None,
+                })
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+
         Ok(Some(OperationResolution::new(
             key.expression(),
             result_type,
-            [],
+            expectations,
             Some(operation),
         )))
     }

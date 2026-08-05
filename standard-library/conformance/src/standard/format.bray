@@ -5,5 +5,5 @@ using std.format;
 @test
 func formatting_options_are_available()
 {
-    let options: std.format.Options = std.format.default_options();
+    let options: std.format.Options = std.format.Options.default();
 }

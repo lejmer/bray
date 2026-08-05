@@ -370,7 +370,6 @@ fn external_declaration_key(
             | SymbolKind::GenericConstParameter
             | SymbolKind::CallableParameter
             | SymbolKind::PredicateParameter
-            | SymbolKind::Constructor
             | SymbolKind::Finalizer
             | SymbolKind::Destructor
             | SymbolKind::ScopeEnter
@@ -658,7 +657,7 @@ mod tests {
     };
     use bray_testing::test_source_inputs;
 
-    use crate::test_support::package_version;
+    use crate::test_support::{package_version, source_function_body_key};
     use crate::{
         Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
         PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
@@ -927,9 +926,16 @@ mod tests {
             concat!(
                 "module std.bytes;\n",
                 "using std.memory;\n",
-                "struct Buffer {}\n",
-                "extern func create(capacity: usize = 0)\n",
-                "    -> Result<Buffer, std.memory.MemoryLayoutError>;\n",
+                "struct Buffer\n",
+                "{\n",
+                "    internal value: bool;\n",
+                "\n",
+                "    construct(capacity: usize = 0)\n",
+                "        -> Result<Self, std.memory.MemoryLayoutError>\n",
+                "    {\n",
+                "        return Ok({ value = false, });\n",
+                "    }\n",
+                "}\n",
                 "extern func as_slice(pos buffer: &Buffer) -> &[u8];\n",
                 "extern func length(pos buffer: &Buffer) -> usize;\n",
                 "extern func slice_length(pos bytes: &[u8]) -> usize;\n",
@@ -1023,7 +1029,7 @@ mod tests {
                 "{\n",
                 "    return std.format.write(\n",
                 "        destination,\n",
-                "        std.format.argument<string>(value),\n",
+                "        std.format.Argument<string>(value),\n",
                 "    );\n",
                 "}\n",
                 "func render_integer(pos destination: &mut std.format.ByteSink, pos value: i32)\n",
@@ -1031,8 +1037,12 @@ mod tests {
                 "{\n",
                 "    return std.format.write(\n",
                 "        destination,\n",
-                "        std.format.argument<i32>(value),\n",
+                "        std.format.Argument<i32>(value),\n",
                 "    );\n",
+                "}\n",
+                "func resolved_defaults() -> std.format.Options\n",
+                "{\n",
+                "    return std.format.Options.default();\n",
                 "}\n",
             ),
         );
@@ -1081,7 +1091,7 @@ mod tests {
         ));
 
         assert!(matches!(
-            skeleton.lookup(format.id().into(), "argument"),
+            skeleton.lookup(format.id().into(), "Argument"),
             MemberLookupResult::Found(_)
         ));
 
@@ -1090,6 +1100,13 @@ mod tests {
             "{:?}",
             consumer.check_diagnostics()
         );
+
+        let lowered = consumer
+            .lowered_unit(source_function_body_key(&consumer, "resolved_defaults"))
+            .unwrap_or_else(|error| panic!("imported named constructor must lower: {error:?}"));
+
+        assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
+        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
 
         assert!(!skeleton.traits().is_empty());
         assert!(!skeleton.structures().is_empty());

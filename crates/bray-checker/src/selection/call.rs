@@ -849,7 +849,11 @@ fn member_selection_is_overload(
     receiver: bray_bound_tree::BoundExpressionId,
 ) -> Result<bool, CheckerInfrastructureError> {
     let Some(member) = input.callee_member() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return if input.receiver().is_none() {
+            Ok(false)
+        } else {
+            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+        };
     };
 
     if input.receiver().map(super::ReceiverSelection::expression) != Some(receiver) {

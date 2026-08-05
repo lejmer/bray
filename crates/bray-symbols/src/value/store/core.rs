@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use crate::{GenericParameterSymbolId, NamedTypeSymbolId, SymbolGraph};
+use crate::{GenericOwnerId, GenericParameterSymbolId, NamedTypeSymbolId, SymbolGraph};
 
 use super::{
     super::{
@@ -249,6 +249,17 @@ impl SemanticValueStore {
         id: GenericSubstitutionId,
     ) -> Result<Arc<GenericSubstitutionData>, SemanticValueStoreError> {
         self.tables().substitutions.get_shared(self.id, id)
+    }
+
+    /// Interns the same inherited generic bindings for a declaration that consumes them.
+    pub fn inherit_generic_substitution(
+        &self,
+        id: GenericSubstitutionId,
+        owner: GenericOwnerId,
+    ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
+        let substitution = self.generic_substitution_data(id)?;
+
+        self.intern_generic_substitution(substitution.with_owner(owner))
     }
 
     /// Validates that a substitution is fully concrete and returns its exact typed wrapper.

@@ -705,6 +705,7 @@ where
                 expression: value,
                 input,
                 ordinal,
+                ..
             } = *input
             else {
                 return Err(EvaluationFailure::invalid_expression(expression));

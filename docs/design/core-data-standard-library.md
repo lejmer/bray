@@ -217,9 +217,12 @@ module std.bytes;
 
 struct Buffer;
 
-func create(capacity: usize = 0) -> Result<Buffer, std.memory.MemoryLayoutError>;
+impl Buffer
+{
+    construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>;
 
-func from_slice(pos bytes: &[u8]) -> Result<Buffer, std.memory.MemoryLayoutError>;
+    construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>;
+}
 
 func length(pos buffer: &Buffer) -> usize;
 

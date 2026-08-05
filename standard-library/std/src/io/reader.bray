@@ -17,36 +17,6 @@ struct StandardInput
     internal handle: u64;
 }
 
-func buffered_reader<Source>(
-    pos source: Source,
-    capacity: usize,
-) -> Result<BufferedReader<Source>, IoError>
-    requires(capacity > 0)
-{
-    if capacity == 0
-    {
-        return Error(io_error(
-            kind = InvalidInput,
-            native_code = 0,
-            transferred = 0,
-        ));
-    }
-
-    let storage: std.bytes.Buffer = try create_fixed_buffer(capacity = capacity);
-    let start: usize = 0;
-    let length: usize = 0;
-
-    let reader: BufferedReader<Source> = {
-        source = source,
-        storage = storage,
-        capacity = capacity,
-        start = start,
-        length = length,
-    };
-
-    return Ok(reader);
-}
-
 internal func copy_buffered_bytes<Source>(
     pos reader: &mut BufferedReader<Source>,
     pos destination: &mut [u8],

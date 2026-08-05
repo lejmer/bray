@@ -28,33 +28,6 @@ struct StandardError
     internal handle: u64;
 }
 
-func buffered_writer<Sink>(pos sink: Sink, capacity: usize) -> Result<BufferedWriter<Sink>, IoError>
-    requires(capacity > 0)
-{
-    if capacity == 0
-    {
-        return Error(io_error(
-            kind = InvalidInput,
-            native_code = 0,
-            transferred = 0,
-        ));
-    }
-
-    let storage: std.bytes.Buffer = try create_fixed_buffer(capacity = capacity);
-    let start: usize = 0;
-    let length: usize = 0;
-
-    let writer: BufferedWriter<Sink> = {
-        sink = sink,
-        storage = storage,
-        capacity = capacity,
-        start = start,
-        length = length,
-    };
-
-    return Ok(writer);
-}
-
 internal func normalize_write_flush_error(pos error: IoError) -> IoError
 {
     return transferred_error(error, transferred = 0);

@@ -334,15 +334,17 @@ scope StandardMemory at std.memory {
         surface { initialized: usize; }
     }
 
-    declaration StandardMemoryCreateBuffer {
-        identity name create_buffer;
+    declaration StandardRawBufferConstructor {
+        owner StandardRawBuffer;
+        identity ordinal 0;
         availability Allocation;
 
         surface {
-            trusted func create_buffer<T>(
+            trusted construct(
                 capacity: usize,
-            ) -> Result<RawBuffer<T>, MemoryLayoutError>
-                uses(manual_alloc, layout_reinterpret);
+            ) -> Result<Self, MemoryLayoutError>
+                uses(manual_alloc, layout_reinterpret)
+            {}
         }
     }
 
