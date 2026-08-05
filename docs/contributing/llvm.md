@@ -3,6 +3,8 @@
 Bray's first code generation backend targets LLVM 22.1.8. Compiler development, continuous integration, and release builds must use
 the exact host package recorded in `toolchains/llvm.json`.
 
+See [Repository tasks](xtask.md) for the complete development-command reference.
+
 Provision the supported package for the active Rust host:
 
 ```text

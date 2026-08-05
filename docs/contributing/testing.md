@@ -3,6 +3,8 @@
 Keep unit tests near the production code they exercise. Use integration tests for repository contracts that cross module or crate
 boundaries.
 
+See [Repository tasks](xtask.md) for the complete development-command reference.
+
 ## Readiness audits
 
 Repository-wide readiness audits are development checks rather than ordinary behavioral tests. Run every audit explicitly with:
