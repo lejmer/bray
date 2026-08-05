@@ -91,137 +91,36 @@ internal func digit_offset(pos uppercase: bool) -> u8
 
 internal func digit_byte(pos value: u128, pos uppercase: bool) -> u8
 {
-    if value == 0
+    return match value
     {
-        return 48;
-    }
-    if value == 1
-    {
-        return 49;
-    }
-    if value == 2
-    {
-        return 50;
-    }
-    if value == 3
-    {
-        return 51;
-    }
-    if value == 4
-    {
-        return 52;
-    }
-    if value == 5
-    {
-        return 53;
-    }
-    if value == 6
-    {
-        return 54;
-    }
-    if value == 7
-    {
-        return 55;
-    }
-    if value == 8
-    {
-        return 56;
-    }
-    if value == 9
-    {
-        return 57;
-    }
-
-    let offset: u8 = digit_offset(uppercase);
-
-    if value == 10
-    {
-        return offset;
-    }
-    if value == 11
-    {
-        return offset + 1;
-    }
-    if value == 12
-    {
-        return offset + 2;
-    }
-    if value == 13
-    {
-        return offset + 3;
-    }
-    if value == 14
-    {
-        return offset + 4;
-    }
-
-    return offset + 5;
+        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+        {
+            yield 48 + value as u8;
+        }
+        case 10 | 11 | 12 | 13 | 14
+        {
+            yield digit_offset(uppercase) + (value - 10) as u8;
+        }
+        case _
+        {
+            yield digit_offset(uppercase) + 5;
+        }
+    };
 }
 
 internal func signed_digit_byte(pos value: i128, pos uppercase: bool) -> u8
 {
-    if value == 0
+    return match value
     {
-        return digit_byte(0, uppercase);
-    }
-    if value == 1
-    {
-        return digit_byte(1, uppercase);
-    }
-    if value == 2
-    {
-        return digit_byte(2, uppercase);
-    }
-    if value == 3
-    {
-        return digit_byte(3, uppercase);
-    }
-    if value == 4
-    {
-        return digit_byte(4, uppercase);
-    }
-    if value == 5
-    {
-        return digit_byte(5, uppercase);
-    }
-    if value == 6
-    {
-        return digit_byte(6, uppercase);
-    }
-    if value == 7
-    {
-        return digit_byte(7, uppercase);
-    }
-    if value == 8
-    {
-        return digit_byte(8, uppercase);
-    }
-    if value == 9
-    {
-        return digit_byte(9, uppercase);
-    }
-    if value == 10
-    {
-        return digit_byte(10, uppercase);
-    }
-    if value == 11
-    {
-        return digit_byte(11, uppercase);
-    }
-    if value == 12
-    {
-        return digit_byte(12, uppercase);
-    }
-    if value == 13
-    {
-        return digit_byte(13, uppercase);
-    }
-    if value == 14
-    {
-        return digit_byte(14, uppercase);
-    }
-
-    return digit_byte(15, uppercase);
+        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14
+        {
+            yield digit_byte(value as u128, uppercase);
+        }
+        case _
+        {
+            yield digit_byte(15, uppercase);
+        }
+    };
 }
 
 internal func uppercase_digits(pos options: &Options) -> bool
@@ -457,28 +356,33 @@ internal func write_escape(pos destination: &mut ByteSink, pos value: u8) -> Res
 
 internal func escape_code(pos value: u8) -> u8
 {
-    if value == 34
+    return match value
     {
-        return 34;
-    }
-    if value == 92
-    {
-        return 92;
-    }
-    if value == 10
-    {
-        return 110;
-    }
-    if value == 13
-    {
-        return 114;
-    }
-    if value == 9
-    {
-        return 116;
-    }
-
-    return 0;
+        case 34
+        {
+            yield 34;
+        }
+        case 92
+        {
+            yield 92;
+        }
+        case 10
+        {
+            yield 110;
+        }
+        case 13
+        {
+            yield 114;
+        }
+        case 9
+        {
+            yield 116;
+        }
+        case _
+        {
+            yield 0;
+        }
+    };
 }
 
 internal func escaped_string_length(pos value: &string) -> usize
