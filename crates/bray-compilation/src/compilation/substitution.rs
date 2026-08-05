@@ -1,6 +1,6 @@
 use bray_binder::BinderFactContext;
 use bray_symbols::{
-    AnySymbolId, ConstantTermData, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
+    AnySymbolId, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext,
     SemanticValueStore, TypeData, TypeId,
 };
@@ -54,16 +54,9 @@ pub(super) fn generic_parameter_argument(
     values: &SemanticValueStore,
     parameter: GenericParameterSymbolId,
 ) -> Result<GenericArgument, FactQueryError> {
-    match parameter {
-        GenericParameterSymbolId::Type(parameter) => values
-            .intern_type(TypeData::TypeParameter(parameter))
-            .map(GenericArgument::Type)
-            .map_err(|_| FactQueryError::InfrastructureFailure),
-        GenericParameterSymbolId::Const(parameter) => values
-            .intern_constant_term(ConstantTermData::Parameter(parameter))
-            .map(GenericArgument::Constant)
-            .map_err(|_| FactQueryError::InfrastructureFailure),
-    }
+    values
+        .intern_generic_parameter_argument(parameter)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
 }
 
 pub(super) fn contextual_self_type(

@@ -1048,6 +1048,54 @@ mod tests {
     }
 
     #[test]
+    fn trait_arguments_are_substituted_inside_nested_callable_types() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "struct Holder<T>\n",
+            "{\n",
+            "    value: T;\n",
+            "}\n",
+            "\n",
+            "impl Holder<T>(ElementIndex<usize>)\n",
+            "{\n",
+            "    type Output = &T;\n",
+            "\n",
+            "    func index(pos selector: &usize) -> &T\n",
+            "    {\n",
+            "        return &self.value;\n",
+            "    }\n",
+            "}\n",
+            "\n",
+            "func select(pos holder: Holder<usize>) -> usize\n",
+            "{\n",
+            "    let selector: usize = 0;\n",
+            "    let selected: &usize = holder[selector];\n",
+            "\n",
+            "    return 0;\n",
+            "}\n",
+        ));
+
+        let result = compilation
+            .trait_implementation_conformance(source_implementation(&compilation))
+            .unwrap_or_else(|error| panic!("conformance must publish: {error:?}"));
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert!(result.value().is_valid());
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    #[test]
     fn duplicate_fulfillments_are_not_reported_as_unknown_trait_members() {
         let compilation = compilation(concat!(
             "module app;\n",

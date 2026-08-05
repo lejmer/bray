@@ -163,6 +163,12 @@ trusted func borrowed_list_iteration_preserves_access() -> Result<unit, std.memo
     try trusted std.collection.push<i32>(&mut values, 4);
     try trusted std.collection.push<i32>(&mut values, 5);
 
+    let selected: &i32 = values[1];
+    let suffix: &[i32] = values[1..];
+
+    assert(selected == 5);
+    assert(suffix[0] == 5);
+
     {
         let source: &std.collection.List<i32> = &values;
         let cursor: std.collection.ReadCursor<i32> = source(Iterable).iterate();

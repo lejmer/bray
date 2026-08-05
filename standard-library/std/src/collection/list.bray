@@ -296,6 +296,57 @@ internal func grown_capacity(pos current: usize, pos required: usize) -> usize
     return candidate;
 }
 
+internal func copied_index(pos selector: &usize) -> usize
+{
+    let pointer: RawPointer<usize> = std.memory.address_of<usize>(selector);
+
+    return trusted std.memory.read<usize>(pointer);
+}
+
+internal func slice_start(pos start: usize?) -> usize
+{
+    return match start
+    {
+        case ?value { yield value; }
+        case none { yield 0; }
+    };
+}
+
+internal func slice_end(pos end: usize?, pos length: usize) -> usize
+{
+    return match end
+    {
+        case ?value { yield value; }
+        case none { yield length; }
+    };
+}
+
+impl ListElementIndex = List<T>(ElementIndex<usize>)
+{
+    type Output = &T;
+
+    func index(pos selector: &usize) -> &T
+    {
+        let index: usize = copied_index(selector);
+
+        return &as_slice<T>(&self)[index];
+    }
+}
+
+impl ListSliceIndex = List<T>(SliceIndex<usize>)
+{
+    type Output = &[T];
+
+    func slice(pos start: usize?, pos end: usize?) -> &[T]
+    {
+        let values: &[T] = as_slice<T>(&self);
+        let lower: usize = slice_start(start);
+        let upper: usize = slice_end(end, self.storage.initialized);
+
+        return &values[lower.. upper];
+    }
+}
+
 struct ReadCursor<T>
 {
     internal values: &[T];

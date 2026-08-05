@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, CheckedMemoryOperations, CheckedRefinementFacts,
-    LivenessFacts, StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
-    StorageIdentity, StorageIdentityId, StoragePlan,
+    AnyBoundNodeId, BorrowCapabilityId, BoundBlockItem, BoundExpressionId,
+    CheckedMemoryOperations, CheckedRefinementFacts, LivenessFacts, StorageAccessId,
+    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
+    StorageBindingTarget, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::TypeId;
 
@@ -19,18 +20,26 @@ pub(super) struct StorageFlowInput {
     plans: BTreeMap<AnyBoundNodeId, Vec<StorageAccessPlan>>,
     borrows: BTreeMap<StorageAccessPlan, BorrowCapabilityId>,
     definitions: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
+    initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
     copyable_types: BTreeSet<TypeId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
 }
 
 impl StorageFlowInput {
-    pub(super) fn new(
+    pub(super) fn new<C>(
+        request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
         copyable_types: BTreeSet<TypeId>,
         mutable_storage: BTreeSet<StorageIdentityId>,
-    ) -> Self {
+    ) -> Self
+    where
+        C: CheckerRequestContext + ?Sized,
+    {
+        let initialization_destinations = local_initialization_destinations(request, storage);
+
         let mut input = Self {
             copyable_types,
+            initialization_destinations,
             mutable_storage,
             ..Self::default()
         };
@@ -106,6 +115,13 @@ impl StorageFlowInput {
             .unwrap_or_default()
     }
 
+    pub(super) fn initialization_destination(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<StorageIdentityId> {
+        self.initialization_destinations.get(&expression).copied()
+    }
+
     pub(super) fn type_is_copyable(&self, ty: TypeId) -> bool {
         self.copyable_types.contains(&ty)
     }
@@ -113,6 +129,41 @@ impl StorageFlowInput {
     pub(super) fn storage_is_mutable(&self, storage: StorageIdentityId) -> bool {
         self.mutable_storage.contains(&storage)
     }
+}
+
+fn local_initialization_destinations<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+) -> BTreeMap<BoundExpressionId, StorageIdentityId>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut result = BTreeMap::new();
+
+    for (_, block) in request.unit().tree().blocks() {
+        for item in block.items() {
+            let BoundBlockItem::LocalBinding(binding) = item else {
+                continue;
+            };
+
+            let destinations = binding
+                .bindings()
+                .iter()
+                .filter_map(|binding| {
+                    match storage.binding(StorageBindingTarget::Local(*binding)) {
+                        Some(StorageBinding::Identity(destination)) => Some(destination),
+                        Some(StorageBinding::Access(_)) | None => None,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            if let [destination] = destinations.as_slice() {
+                result.insert(binding.initializer(), *destination);
+            }
+        }
+    }
+
+    result
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
