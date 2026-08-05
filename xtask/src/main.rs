@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod bundle;
 mod command;
 mod compiler_known;
 mod digest;

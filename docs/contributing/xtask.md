@@ -111,13 +111,21 @@ contracts.
 
 ## Runtime artifacts
 
-Build the reference runtime archive and its metadata for one native target:
+Build the reference runtime archive and its metadata into the toolchain runtime bundle:
 
 ```text
-cargo xtask runtime-artifact build --target <triple> --output <directory> [--profile <profile>]
+cargo xtask runtime-artifact build --output <directory> [--target <triple>] [--profile <profile>]
 ```
 
-The Cargo profile defaults to `release`. Run the host runtime build and native-link smoke test with:
+The command creates a target-specific directory beneath the output root and transactionally replaces an existing artifact for
+that target. The target defaults to the compiler host and the Cargo profile defaults to `release`. For example, produce the
+installed host runtime layout expected beside release binaries with:
+
+```text
+cargo xtask runtime-artifact build --output target/release/lib/bray/runtime
+```
+
+Run the host runtime build and native-link smoke test with:
 
 ```text
 cargo xtask runtime-artifact smoke-test

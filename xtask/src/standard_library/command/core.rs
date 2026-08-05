@@ -1,6 +1,4 @@
-use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
-use std::io::ErrorKind;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -29,6 +27,7 @@ use bray_target::{NativeTarget, TargetIdentity, TargetOutputDescription, TargetO
 use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file_arguments};
 
 use super::error::BuildError;
+use crate::bundle::{DirectoryPublication, NativeBuildOptions, NativeBuildOptionsBuilder};
 use crate::workspace;
 
 const USAGE: &str = "usage: cargo xtask standard-library \
@@ -67,40 +66,32 @@ fn native_test(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildE
 }
 
 struct BuildOptions {
+    native: NativeBuildOptions,
     source: PathBuf,
-    output: PathBuf,
-    target: Option<NativeTarget>,
 }
 
 impl BuildOptions {
     fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, BuildError> {
         let mut source = None;
-        let mut output = None;
-        let mut target = None;
+        let mut native = NativeBuildOptionsBuilder::default();
 
         while let Some(argument) = arguments.next() {
+            if native
+                .parse_option(&argument, &mut arguments)
+                .map_err(BuildError::BuildOptions)?
+            {
+                continue;
+            }
+
             match argument.as_str() {
                 "--source" if source.is_none() => {
                     source = Some(path_argument(&mut arguments, "--source")?);
-                }
-                "--output" if output.is_none() => {
-                    output = Some(path_argument(&mut arguments, "--output")?);
-                }
-                "--target" if target.is_none() => {
-                    let value = arguments
-                        .next()
-                        .ok_or(BuildError::MissingValue("--target"))?;
-
-                    target = TargetIdentity::try_new(value.as_str())
-                        .and_then(|identity| NativeTarget::for_identity(&identity))
-                        .map(Some)
-                        .ok_or(BuildError::InvalidTarget(value))?;
                 }
                 _ => return Err(BuildError::UnexpectedArgument(argument)),
             }
         }
 
-        let output = output.ok_or(BuildError::MissingOutput)?;
+        let native = native.finish().map_err(BuildError::BuildOptions)?;
 
         let source = match source {
             Some(source) => source,
@@ -109,17 +100,13 @@ impl BuildOptions {
                 .join("standard-library"),
         };
 
-        Ok(Self {
-            source,
-            output,
-            target,
-        })
+        Ok(Self { native, source })
     }
 
     fn build(self) -> Result<PathBuf, BuildError> {
-        match self.target {
-            Some(target) => build_target_bundle_inner(&self.source, &self.output, target),
-            None => build(&self.source, &self.output),
+        match self.native.target() {
+            Some(target) => build_target_bundle_inner(&self.source, self.native.output(), target),
+            None => build(&self.source, self.native.output()),
         }
     }
 }
@@ -264,23 +251,19 @@ fn build_product_bundle(
     output: &Path,
     targets: &[TargetIdentity],
 ) -> Result<PathBuf, BuildError> {
-    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let publication = DirectoryPublication::begin(output, "bray-standard-library-")
+        .map_err(BuildError::Publication)?;
 
-    fs::create_dir_all(parent).map_err(|error| BuildError::write(parent, error))?;
+    let manifest = build_bundle(
+        product,
+        version,
+        source,
+        targets,
+        publication.work(),
+        publication.contents(),
+    )?;
 
-    let _publication = PublicationLock::acquire(output)?;
-
-    let staging = tempfile::Builder::new()
-        .prefix("bray-standard-library-")
-        .tempdir_in(parent)
-        .map_err(BuildError::TemporaryDirectory)?;
-
-    let bundle = staging.path().join("bundle");
-
-    fs::create_dir(&bundle).map_err(|error| BuildError::write(&bundle, error))?;
-
-    let work = staging.path().join("work");
-    let manifest = build_bundle(product, version, source, targets, &work, &bundle)?;
+    let bundle = publication.contents();
     let manifest_path = bundle.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
 
     let manifest_bytes = encode_standard_library_manifest(&manifest)
@@ -289,71 +272,9 @@ fn build_product_bundle(
     fs::write(&manifest_path, manifest_bytes)
         .map_err(|error| BuildError::write(&manifest_path, error))?;
 
-    publish_bundle(staging, output)
-}
+    let published = publication.publish().map_err(BuildError::Publication)?;
 
-fn publish_bundle(staging: tempfile::TempDir, output: &Path) -> Result<PathBuf, BuildError> {
-    let bundle = staging.path().join("bundle");
-    let previous = staging.path().join("previous");
-    let replaces_existing = output.exists();
-
-    if replaces_existing {
-        fs::rename(output, &previous)
-            .map_err(|error| BuildError::publish(output, &previous, error))?;
-    }
-
-    if let Err(error) = fs::rename(&bundle, output) {
-        let publication = BuildError::publish(&bundle, output, error);
-
-        if replaces_existing
-            && let Err(error) = fs::rename(&previous, output)
-        {
-            let rollback = BuildError::publish(&previous, output, error);
-            let preserved_staging = staging.keep();
-
-            return Err(BuildError::PublicationRollback {
-                publication: Box::new(publication),
-                rollback: Box::new(rollback),
-                preserved_staging,
-            });
-        }
-
-        return Err(publication);
-    }
-
-    Ok(output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME))
-}
-
-struct PublicationLock {
-    path: PathBuf,
-}
-
-impl PublicationLock {
-    fn acquire(output: &Path) -> Result<Self, BuildError> {
-        let file_name = output
-            .file_name()
-            .ok_or_else(|| BuildError::InvalidArtifactPath(output.to_path_buf()))?;
-
-        let mut lock_name = OsString::from(file_name);
-
-        lock_name.push(".lock");
-
-        let path = output.with_file_name(lock_name);
-
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(_) => Ok(Self { path }),
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                Err(BuildError::PublicationInProgress(path))
-            }
-            Err(error) => Err(BuildError::write(&path, error)),
-        }
-    }
-}
-
-impl Drop for PublicationLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
+    Ok(published.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME))
 }
 
 fn build_bundle(
@@ -650,15 +571,15 @@ mod tests {
     use bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME;
     use bray_target::NativeTarget;
 
-    use super::{
-        BuildError, BuildOptions, build, compare_bundles, publish_bundle, read_manifest,
-    };
+    use super::{BuildError, BuildOptions, build, compare_bundles, read_manifest};
 
     #[test]
     fn build_options_require_an_output_and_reject_unknown_arguments() {
         assert!(matches!(
             BuildOptions::parse(std::iter::empty()),
-            Err(BuildError::MissingOutput)
+            Err(BuildError::BuildOptions(
+                crate::bundle::NativeBuildOptionsError::MissingOutput
+            ))
         ));
 
         assert!(matches!(
@@ -681,8 +602,8 @@ mod tests {
         .unwrap_or_else(|error| panic!("build options must parse: {error}"));
 
         assert_eq!(options.source, PathBuf::from("source"));
-        assert_eq!(options.output, PathBuf::from("output"));
-        assert_eq!(options.target, None);
+        assert_eq!(options.native.output(), PathBuf::from("output"));
+        assert_eq!(options.native.target(), None);
     }
 
     #[test]
@@ -698,7 +619,10 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("build options must parse: {error}"));
 
-        assert_eq!(options.target, Some(NativeTarget::X86_64WindowsMsvc));
+        assert_eq!(
+            options.native.target(),
+            Some(NativeTarget::X86_64WindowsMsvc)
+        );
     }
 
     #[test]
@@ -725,45 +649,6 @@ mod tests {
             compare_bundles(&first, &second),
             Err(BuildError::NonReproducibleManifest)
         ));
-    }
-
-    #[test]
-    fn bundle_publication_replaces_a_complete_existing_bundle() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
-
-        let output = directory.path().join("bundle");
-
-        fs::create_dir(&output)
-            .unwrap_or_else(|error| panic!("existing bundle must be created: {error}"));
-
-        fs::write(output.join("previous"), b"previous")
-            .unwrap_or_else(|error| panic!("existing artifact must be written: {error}"));
-
-        let staging = tempfile::Builder::new()
-            .prefix("bray-standard-library-test-")
-            .tempdir_in(directory.path())
-            .unwrap_or_else(|error| panic!("staging root must exist: {error}"));
-
-        let bundle = staging.path().join("bundle");
-
-        fs::create_dir(&bundle)
-            .unwrap_or_else(|error| panic!("staged bundle must be created: {error}"));
-
-        fs::write(bundle.join("current"), b"current")
-            .unwrap_or_else(|error| panic!("staged artifact must be written: {error}"));
-
-        let manifest = publish_bundle(staging, &output)
-            .unwrap_or_else(|error| panic!("bundle must replace the existing output: {error}"));
-
-        assert_eq!(manifest, output.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME));
-        assert!(!output.join("previous").exists());
-
-        assert_eq!(
-            fs::read(output.join("current"))
-                .unwrap_or_else(|error| panic!("published artifact must be readable: {error}")),
-            b"current"
-        );
     }
 
     #[test]

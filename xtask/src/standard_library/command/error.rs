@@ -4,19 +4,16 @@ use std::path::{Path, PathBuf};
 use bray_emitter::ArtifactKind;
 use bray_target::TargetIdentity;
 
+use crate::bundle::{DirectoryPublicationError, NativeBuildOptionsError};
+
 #[derive(Debug)]
 pub(in crate::standard_library) enum BuildError {
     Usage,
     UnexpectedArgument(String),
     MissingValue(&'static str),
-    MissingOutput,
+    BuildOptions(NativeBuildOptionsError),
     Workspace(String),
-    PublicationInProgress(PathBuf),
-    PublicationRollback {
-        publication: Box<Self>,
-        rollback: Box<Self>,
-        preserved_staging: PathBuf,
-    },
+    Publication(DirectoryPublicationError),
     Project(String),
     Source(String),
     TemporaryDirectory(std::io::Error),
@@ -32,7 +29,6 @@ pub(in crate::standard_library) enum BuildError {
     MissingEmittedArtifact(ArtifactKind),
     TargetDependentInterface(TargetIdentity),
     InvalidArtifactPath(PathBuf),
-    InvalidTarget(String),
     InvalidIdentity,
     MissingProduct,
     MissingInterface,
@@ -79,15 +75,6 @@ impl BuildError {
             source,
         }
     }
-
-    pub(super) fn publish(path: &Path, destination: &Path, source: std::io::Error) -> Self {
-        Self::Io {
-            action: "publish",
-            path: path.to_path_buf(),
-            destination: Some(destination.to_path_buf()),
-            source,
-        }
-    }
 }
 
 impl fmt::Display for BuildError {
@@ -98,24 +85,9 @@ impl fmt::Display for BuildError {
                 write!(formatter, "unexpected argument: {argument}")
             }
             Self::MissingValue(option) => write!(formatter, "missing value for {option}"),
-            Self::MissingOutput => formatter.write_str("missing --output"),
+            Self::BuildOptions(error) => write!(formatter, "{error}"),
             Self::Workspace(error) => formatter.write_str(error),
-            Self::PublicationInProgress(path) => {
-                write!(
-                    formatter,
-                    "standard library publication is already in progress: {}",
-                    path.display()
-                )
-            }
-            Self::PublicationRollback {
-                publication,
-                rollback,
-                preserved_staging,
-            } => write!(
-                formatter,
-                "{publication}; restoring the previous bundle also failed: {rollback}; the previous bundle is preserved under {}",
-                preserved_staging.display()
-            ),
+            Self::Publication(error) => write!(formatter, "{error}"),
             Self::Project(error) => {
                 write!(formatter, "standard library project is invalid: {error}")
             }
@@ -169,9 +141,6 @@ impl fmt::Display for BuildError {
             }
             Self::InvalidArtifactPath(path) => {
                 write!(formatter, "artifact path is invalid: {}", path.display())
-            }
-            Self::InvalidTarget(target) => {
-                write!(formatter, "unsupported standard library target: {target}")
             }
             Self::InvalidIdentity => {
                 formatter.write_str("standard library identity contract is invalid")

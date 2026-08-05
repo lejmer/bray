@@ -3,6 +3,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output};
 
+use crate::bundle::{
+    DirectoryPublication, DirectoryPublicationError, NativeBuildOptions, NativeBuildOptionsBuilder,
+    NativeBuildOptionsError,
+};
 use crate::{digest, workspace};
 use bray_base::NonEmptySharedStr;
 use bray_runtime_interface::{
@@ -11,20 +15,20 @@ use bray_runtime_interface::{
     CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL, ENTRY_FAILURE_REPORTING_SYMBOL,
     FRAME_COMPLETION_MOVE_SYMBOL, JOIN_REGISTRATION_SYMBOL, MAIN_THREAD_LANE_DRIVE_SYMBOL,
     MAIN_THREAD_LANE_STARTUP_SYMBOL, PANIC_PROPAGATION_SYMBOL, PANIC_REPORT_CONSTRUCTION_SYMBOL,
-    PANIC_REPORTING_SYMBOL, PanicAbiIdentity,
-    ProtectedFrameAbiVersions, ROOT_CANCELLATION_REQUEST_SYMBOL, ROOT_COMPLETION_RESOLUTION_SYMBOL,
-    ROOT_EXECUTION_SYMBOL, ROOT_TERMINAL_OBSERVATION_SYMBOL, RUNTIME_EVENT_SYMBOL, RuntimeAbiRole,
-    RuntimeAbiVersion, RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
-    RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
-    RuntimeRoleImplementation, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
-    SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
-    TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL, WAKE_SYMBOL,
+    PANIC_REPORTING_SYMBOL, PanicAbiIdentity, ProtectedFrameAbiVersions,
+    ROOT_CANCELLATION_REQUEST_SYMBOL, ROOT_COMPLETION_RESOLUTION_SYMBOL, ROOT_EXECUTION_SYMBOL,
+    ROOT_TERMINAL_OBSERVATION_SYMBOL, RUNTIME_EVENT_SYMBOL, RuntimeAbiRole, RuntimeAbiVersion,
+    RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeCapability,
+    RuntimeContract, RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
+    STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL, SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
+    TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL, TASK_START_SYMBOL,
+    TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL, WAKE_SYMBOL,
 };
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-use bray_target::{NativeTarget, ObjectFormat, TargetIdentity};
+use bray_target::{NativeTarget, ObjectFormat};
 
 const USAGE: &str = "usage: cargo xtask runtime-artifact \
-    <build --target <triple> --output <directory> [--profile <profile>] | smoke-test>";
+    <build --output <directory> [--target <triple>] [--profile <profile>] | smoke-test>";
 const METADATA_FILE_NAME: &str = "bray-runtime.brayrt";
 const RUNTIME_IDENTITY: &str = "bray.runtime.reference";
 const PANIC_ABI: &str = "bray.panic.unwind";
@@ -55,7 +59,15 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
 fn build_command(arguments: impl Iterator<Item = String>) -> Result<Package, CommandError> {
     let options = BuildOptions::parse(arguments)?;
 
-    build(&options)
+    let target = options
+        .native
+        .target()
+        .or_else(NativeTarget::current)
+        .ok_or(CommandError::HostTarget)?;
+
+    let output = options.native.target_output(target);
+
+    build(target, &output, &options.profile)
 }
 
 fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(), CommandError> {
@@ -63,22 +75,18 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
         return Err(CommandError::UnexpectedArgument(argument));
     }
 
-    let target = host_target()?;
+    let target = NativeTarget::current().ok_or(CommandError::HostTarget)?;
 
     let directory = tempfile::Builder::new()
         .prefix("bray-runtime-artifact-smoke-")
         .tempdir()
         .map_err(CommandError::TemporaryDirectory)?;
 
-    let options = BuildOptions {
-        target,
-        output: directory.path().to_path_buf(),
-        profile: "release".to_owned(),
-    };
+    let output = directory.path().join(target.as_str());
 
-    let package = build(&options)?;
+    let package = build(target, &output, "release")?;
 
-    smoke_test(&package, options.target, directory.path())?;
+    smoke_test(&package, target, directory.path())?;
 
     Ok(())
 }
@@ -88,18 +96,26 @@ pub(crate) fn smoke_test_host() -> Result<(), String> {
 }
 
 pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result<PathBuf, String> {
-    let options = BuildOptions {
-        target,
-        output: output.to_path_buf(),
-        profile: "release".to_owned(),
-    };
-
-    build(&options)
+    build(target, output, "release")
         .map(|package| package.metadata)
         .map_err(|error| error.to_string())
 }
 
-fn build(options: &BuildOptions) -> Result<Package, CommandError> {
+fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, CommandError> {
+    let publication = DirectoryPublication::begin(output, "bray-runtime-artifact-")
+        .map_err(CommandError::Publication)?;
+
+    build_contents(target, publication.contents(), profile)?;
+
+    let output = publication.publish().map_err(CommandError::Publication)?;
+
+    Ok(Package {
+        archive: output.join(archive_file_name(target)),
+        metadata: output.join(METADATA_FILE_NAME),
+    })
+}
+
+fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<(), CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
     let target_directory = root.join("target");
 
@@ -112,40 +128,37 @@ fn build(options: &BuildOptions) -> Result<Package, CommandError> {
         "--package",
         "bray-runtime",
         "--target",
-        options.target.as_str(),
+        target.as_str(),
         "--profile",
-        &options.profile,
+        profile,
         "--target-dir",
     ]);
 
     command.arg(&target_directory);
     command.args(["--", "--print", "native-static-libs"]);
-    configure_cross_c_toolchain(&mut command, &root, options.target);
+    configure_cross_c_toolchain(&mut command, &root, target);
 
-    let output = command.output().map_err(CommandError::Cargo)?;
+    let process_output = command.output().map_err(CommandError::Cargo)?;
 
-    if !output.status.success() {
+    if !process_output.status.success() {
         return Err(CommandError::BuildFailed);
     }
 
-    let native_links = native_link_requirements(&output)?;
-    let archive_file_name = archive_file_name(options.target);
+    let native_links = native_link_requirements(&process_output)?;
+    let archive_file_name = archive_file_name(target);
 
     let source = target_directory
-        .join(options.target.as_str())
-        .join(profile_directory(&options.profile))
+        .join(target.as_str())
+        .join(profile_directory(profile))
         .join(archive_file_name);
 
-    let archive = options.output.join(archive_file_name);
-    let metadata_path = options.output.join(METADATA_FILE_NAME);
-
-    fs::create_dir_all(&options.output)
-        .map_err(|error| CommandError::write(&options.output, error))?;
+    let archive = output.join(archive_file_name);
+    let metadata_path = output.join(METADATA_FILE_NAME);
 
     fs::copy(&source, &archive).map_err(|error| CommandError::copy(&source, &archive, error))?;
 
     let digest = digest_file(&archive)?;
-    let metadata_value = metadata(options, archive_file_name, digest, &native_links)?;
+    let metadata_value = metadata(target, archive_file_name, digest, &native_links)?;
 
     let bytes = metadata_value
         .encode_json()
@@ -153,10 +166,7 @@ fn build(options: &BuildOptions) -> Result<Package, CommandError> {
 
     fs::write(&metadata_path, bytes).map_err(|error| CommandError::write(&metadata_path, error))?;
 
-    Ok(Package {
-        archive,
-        metadata: metadata_path,
-    })
+    Ok(())
 }
 
 fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: NativeTarget) {
@@ -176,7 +186,7 @@ fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: Nativ
 }
 
 fn metadata(
-    options: &BuildOptions,
+    target: NativeTarget,
     archive_file_name: &str,
     digest: RuntimeArtifactDigest,
     native_links: &[NativeLinkRequirement],
@@ -184,11 +194,10 @@ fn metadata(
     let identity =
         RuntimeIdentity::try_new(RUNTIME_IDENTITY).ok_or(CommandError::MetadataContract)?;
 
-    let artifact =
-        RuntimeArtifactId::try_new(format!("{RUNTIME_IDENTITY}.{}", options.target.as_str()))
-            .ok_or(CommandError::MetadataContract)?;
+    let artifact = RuntimeArtifactId::try_new(format!("{RUNTIME_IDENTITY}.{}", target.as_str()))
+        .ok_or(CommandError::MetadataContract)?;
 
-    let target = options.target.identity();
+    let target = target.identity();
 
     let panic_abi = PanicAbiIdentity::try_new(PANIC_ABI).ok_or(CommandError::MetadataContract)?;
 
@@ -416,27 +425,6 @@ fn smoke_test(
     Ok(())
 }
 
-fn host_target() -> Result<NativeTarget, CommandError> {
-    let output = Command::new("rustc")
-        .arg("-vV")
-        .output()
-        .map_err(CommandError::Rustc)?;
-
-    if !output.status.success() {
-        return Err(CommandError::HostTarget);
-    }
-
-    let output = String::from_utf8(output.stdout).map_err(|_| CommandError::HostTarget)?;
-
-    let identity = output
-        .lines()
-        .find_map(|line| line.strip_prefix("host: "))
-        .and_then(TargetIdentity::try_new)
-        .ok_or(CommandError::HostTarget)?;
-
-    NativeTarget::for_identity(&identity).ok_or(CommandError::HostTarget)
-}
-
 const fn archive_file_name(target: NativeTarget) -> &'static str {
     match target.object_format() {
         ObjectFormat::Coff => "bray_runtime.lib",
@@ -452,23 +440,24 @@ fn profile_directory(profile: &str) -> &str {
 }
 
 struct BuildOptions {
-    target: NativeTarget,
-    output: PathBuf,
+    native: NativeBuildOptions,
     profile: String,
 }
 
 impl BuildOptions {
     fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, CommandError> {
-        let mut target = None;
-        let mut output = None;
+        let mut native = NativeBuildOptionsBuilder::default();
         let mut profile = "release".to_owned();
 
         while let Some(argument) = arguments.next() {
+            if native
+                .parse_option(&argument, &mut arguments)
+                .map_err(CommandError::BuildOptions)?
+            {
+                continue;
+            }
+
             match argument.as_str() {
-                "--target" => target = Some(required_value(&mut arguments, "--target")?),
-                "--output" => {
-                    output = Some(PathBuf::from(required_value(&mut arguments, "--output")?));
-                }
                 "--profile" => {
                     profile = required_value(&mut arguments, "--profile")?;
                 }
@@ -476,22 +465,13 @@ impl BuildOptions {
             }
         }
 
-        let target = target
-            .and_then(TargetIdentity::try_new)
-            .and_then(|identity| NativeTarget::for_identity(&identity))
-            .ok_or(CommandError::Usage)?;
+        let native = native.finish().map_err(CommandError::BuildOptions)?;
 
-        let output = output.ok_or(CommandError::Usage)?;
-
-        if output.as_os_str().is_empty() || profile.is_empty() {
+        if profile.is_empty() {
             return Err(CommandError::Usage);
         }
 
-        Ok(Self {
-            target,
-            output,
-            profile,
-        })
+        Ok(Self { native, profile })
     }
 }
 
@@ -505,6 +485,8 @@ enum CommandError {
     Usage,
     UnexpectedArgument(String),
     MissingValue(&'static str),
+    BuildOptions(NativeBuildOptionsError),
+    Publication(DirectoryPublicationError),
     Workspace(String),
     Cargo(std::io::Error),
     BuildFailed,
@@ -572,6 +554,8 @@ impl fmt::Display for CommandError {
             Self::MissingValue(option) => {
                 write!(formatter, "{option} requires a value")
             }
+            Self::BuildOptions(error) => write!(formatter, "{error}"),
+            Self::Publication(error) => write!(formatter, "{error}"),
             Self::Workspace(error) => formatter.write_str(error),
             Self::Cargo(error) => write!(formatter, "could not run Cargo: {error}"),
             Self::BuildFailed => formatter.write_str("runtime artifact build failed"),
@@ -644,11 +628,22 @@ mod tests {
     };
 
     #[test]
-    fn build_options_require_target_and_output() {
-        let result =
-            BuildOptions::parse(["--target".to_owned(), "x86_64-test".to_owned()].into_iter());
+    fn build_options_require_output_and_accept_an_implicit_host_target() {
+        let missing = BuildOptions::parse(std::iter::empty());
 
-        assert!(matches!(result, Err(CommandError::Usage)));
+        assert!(matches!(
+            missing,
+            Err(CommandError::BuildOptions(
+                crate::bundle::NativeBuildOptionsError::MissingOutput
+            ))
+        ));
+
+        let options =
+            BuildOptions::parse(["--output".to_owned(), "runtime".to_owned()].into_iter())
+                .unwrap_or_else(|error| panic!("host runtime build options must parse: {error}"));
+
+        assert_eq!(options.native.target(), None);
+        assert_eq!(options.native.output(), std::path::Path::new("runtime"));
     }
 
     #[test]
@@ -687,19 +682,13 @@ mod tests {
     #[test]
     fn runtime_metadata_covers_every_native_target_reproducibly() {
         for target in NativeTarget::ALL {
-            let options = BuildOptions {
-                target,
-                output: "out".into(),
-                profile: "release".to_owned(),
-            };
-
             let archive = archive_file_name(target);
             let digest = RuntimeArtifactDigest::new([7; 32]);
 
-            let first = metadata(&options, archive, digest, &[])
+            let first = metadata(target, archive, digest, &[])
                 .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
 
-            let second = metadata(&options, archive, digest, &[])
+            let second = metadata(target, archive, digest, &[])
                 .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
 
             assert_eq!(first, second);
