@@ -1,0 +1,13 @@
+module bray.standard_library_conformance.order;
+
+using std.order;
+
+@test
+func ordering_helpers()
+{
+    assert(std.order.reverse(Ordering.Less) == Ordering.Greater);
+    assert(std.order.then(Ordering.Equal, Ordering.Greater) == Ordering.Greater);
+    assert(std.order.minimum(3, 7) == 3);
+    assert(std.order.maximum(3, 7) == 7);
+    assert(std.order.clamp(8, minimum = 2, maximum = 5) == 5);
+}

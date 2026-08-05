@@ -1,0 +1,109 @@
+module std.numeric;
+
+internal func present_u8(pos value: u8) -> u8?
+{
+    let mut result: u8? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_u16(pos value: u16) -> u16?
+{
+    let mut result: u16? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_u32(pos value: u32) -> u32?
+{
+    let mut result: u32? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_u64(pos value: u64) -> u64?
+{
+    let mut result: u64? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_u128(pos value: u128) -> u128?
+{
+    let mut result: u128? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_usize(pos value: usize) -> usize?
+{
+    let mut result: usize? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_i8(pos value: i8) -> i8?
+{
+    let mut result: i8? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_i16(pos value: i16) -> i16?
+{
+    let mut result: i16? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_i32(pos value: i32) -> i32?
+{
+    let mut result: i32? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_i64(pos value: i64) -> i64?
+{
+    let mut result: i64? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_i128(pos value: i128) -> i128?
+{
+    let mut result: i128? = none;
+
+    result = value;
+
+    return result;
+}
+
+internal func present_isize(pos value: isize) -> isize?
+{
+    let mut result: isize? = none;
+
+    result = value;
+
+    return result;
+}

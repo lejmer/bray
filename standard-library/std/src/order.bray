@@ -1,0 +1,59 @@
+module std.order;
+
+func reverse(pos ordering: Ordering) -> Ordering
+{
+    return match ordering
+    {
+        case Ordering.Less { yield Ordering.Greater; }
+        case Ordering.Equal { yield Ordering.Equal; }
+        case Ordering.Greater { yield Ordering.Less; }
+    };
+}
+
+func then(pos first: Ordering, pos second: Ordering) -> Ordering
+{
+    return match first
+    {
+        case Ordering.Less { yield Ordering.Less; }
+        case Ordering.Equal { yield second; }
+        case Ordering.Greater { yield Ordering.Greater; }
+    };
+}
+
+func minimum<Value>(pos left: Value, pos right: Value) -> Value
+    with(Value: Comparable<Value>)
+{
+    if left <= right
+    {
+        return left;
+    }
+
+    return right;
+}
+
+func maximum<Value>(pos left: Value, pos right: Value) -> Value
+    with(Value: Comparable<Value>)
+{
+    if left >= right
+    {
+        return left;
+    }
+
+    return right;
+}
+
+func clamp<Value>(pos value: Value, pos minimum: Value, pos maximum: Value) -> Value
+    with(Value: Comparable<Value>)
+{
+    if value < minimum
+    {
+        return minimum;
+    }
+
+    if value > maximum
+    {
+        return maximum;
+    }
+
+    return value;
+}

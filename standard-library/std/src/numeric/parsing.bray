@@ -1,0 +1,80 @@
+module std.numeric;
+
+union ParseError
+{
+    Empty;
+    InvalidDigit;
+    InvalidRadix;
+    Overflow;
+}
+
+func parse_u128(pos text: &string, radix: u8 = 10) -> Result<u128, ParseError>
+{
+    if radix < 2
+    {
+        return Error(ParseError.InvalidRadix);
+    }
+    if radix > 36
+    {
+        return Error(ParseError.InvalidRadix);
+    }
+
+    let bytes: &[u8] = std.string.utf8(text);
+    let count: usize = std.bytes.slice_length(bytes);
+
+    if count == 0
+    {
+        return Error(ParseError.Empty);
+    }
+
+    let radix_value: u128 = radix as u128;
+    let mut value: u128 = 0;
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let byte: u8 = bytes[index];
+        let mut digit: u8 = 255;
+
+        if byte >= 48
+        {
+            if byte <= 57
+            {
+                digit = byte - 48;
+            }
+        }
+
+        if byte >= 65
+        {
+            if byte <= 90
+            {
+                digit = byte - 65 + 10;
+            }
+        }
+
+        if byte >= 97
+        {
+            if byte <= 122
+            {
+                digit = byte - 97 + 10;
+            }
+        }
+
+        if digit >= radix
+        {
+            return Error(ParseError.InvalidDigit);
+        }
+
+        let magnitude: u128 = digit as u128;
+
+        if value > (U128_MAX - magnitude) / radix_value
+        {
+            return Error(ParseError.Overflow);
+        }
+
+        value = value * radix_value + magnitude;
+        index = index + 1;
+    }
+
+    return Ok(value);
+}

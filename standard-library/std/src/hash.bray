@@ -1,0 +1,125 @@
+module std.hash;
+
+const STABLE_MODULUS: u128 = 170141183460469231731687303715884105727;
+
+const STABLE_MULTIPLIER: u128 = 1099511628211;
+
+internal func add_modulo(pos left: u128, pos right: u128) -> u128
+{
+    let reduced_left: u128 = left % STABLE_MODULUS;
+    let reduced_right: u128 = right % STABLE_MODULUS;
+    let remaining: u128 = STABLE_MODULUS - reduced_right;
+
+    if reduced_left >= remaining
+    {
+        return reduced_left - remaining;
+    }
+
+    return reduced_left + reduced_right;
+}
+
+internal func multiply_modulo(pos left: u128, pos right: u128) -> u128
+{
+    let mut factor: u128 = left % STABLE_MODULUS;
+    let mut multiplier: u128 = right;
+    let mut product: u128 = 0;
+
+    while multiplier > 0
+    {
+        if multiplier % 2 == 1
+        {
+            product = add_modulo(product, factor);
+        }
+
+        factor = add_modulo(factor, factor);
+        multiplier = multiplier / 2;
+    }
+
+    return product;
+}
+
+func start_stable_hash() -> u128
+{
+    return 14695981039346656037;
+}
+
+func extend_stable_hash(pos state: u128, pos value: u128) -> u128
+{
+    let mixed: u128 = add_modulo(state, value);
+
+    return multiply_modulo(mixed, STABLE_MULTIPLIER);
+}
+
+func stable_bool(pos value: bool) -> u128
+{
+    let mut state: u128 = start_stable_hash();
+
+    if value
+    {
+        state = extend_stable_hash(state, 1);
+    }
+    else
+    {
+        state = extend_stable_hash(state, 0);
+    }
+
+    return state;
+}
+
+func stable_char(pos value: char) -> u128
+{
+    let state: u128 = start_stable_hash();
+    let scalar: u32 = std.character.scalar_value(value = value);
+
+    return extend_stable_hash(state, scalar as u128);
+}
+
+func stable_u8(pos value: u8) -> u128
+{
+    return extend_stable_hash(start_stable_hash(), value as u128);
+}
+
+func stable_u16(pos value: u16) -> u128
+{
+    return extend_stable_hash(start_stable_hash(), value as u128);
+}
+
+func stable_u32(pos value: u32) -> u128
+{
+    return extend_stable_hash(start_stable_hash(), value as u128);
+}
+
+func stable_u64(pos value: u64) -> u128
+{
+    return extend_stable_hash(start_stable_hash(), value as u128);
+}
+
+func stable_u128(pos value: u128) -> u128
+{
+    return extend_stable_hash(start_stable_hash(), value);
+}
+
+func stable_usize(pos value: usize) -> u128
+{
+    return extend_stable_hash(start_stable_hash(), value as u128);
+}
+
+func stable_string(pos value: &string) -> u128
+{
+    let bytes: &[u8] = std.string.utf8(value);
+    let count: usize = std.bytes.slice_length(bytes);
+    let mut state: u128 = start_stable_hash();
+
+    state = extend_stable_hash(state, count as u128);
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        state = extend_stable_hash(state, bytes[index] as u128);
+
+        index = index + 1;
+    }
+
+    return state;
+}
