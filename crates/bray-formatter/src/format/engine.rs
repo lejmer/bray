@@ -9,9 +9,9 @@ use bray_syntax::{
 };
 
 use super::context::{
-    clears_pending_space_before, comma_uses_line_break, is_directive, is_generic_delimiter,
-    is_line_comment, is_operator, is_prefix_operator, list_layout, needs_space_before,
-    semicolon_stays_inline, should_separate_after,
+    comma_layout_rule, is_directive, is_generic_delimiter, is_line_comment, is_list_delimiter,
+    is_operator, is_prefix_operator, list_layout_rule, semicolon_stays_inline, separation_rule,
+    token_spacing,
 };
 use super::line_ending;
 use super::model::FormattedSource;
@@ -79,8 +79,13 @@ pub fn format_source_unit(
         };
     }
 
-    let mut formatter =
-        Formatter::new(source_text, line_ending::detect(source_text), configuration);
+    let line_ending = if configuration.is_enabled(FormatterRule::LineEndingStyle) {
+        line_ending::detect(source_text)
+    } else {
+        "\n"
+    };
+
+    let mut formatter = Formatter::new(source_text, line_ending, configuration);
 
     walk_source_unit(source_unit, |event| formatter.visit(event));
 
@@ -98,6 +103,8 @@ struct Formatter<'source, 'configuration> {
     previous_token: Option<SyntaxKind>,
     previous_operator_was_prefix: bool,
     previous_was_generic_delimiter: bool,
+    source_space_pending: bool,
+    source_line_breaks_pending: u8,
 }
 
 impl<'source, 'configuration> Formatter<'source, 'configuration> {
@@ -109,11 +116,18 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         Self {
             source_text,
             configuration,
-            writer: FormatWriter::new(line_ending, configuration.maximum_line_width().into()),
+            writer: FormatWriter::new(
+                line_ending,
+                configuration.maximum_line_width().into(),
+                configuration.is_enabled(FormatterRule::FinalNewline)
+                    || source_text.ends_with(['\r', '\n']),
+            ),
             nodes: Vec::new(),
             previous_token: None,
             previous_operator_was_prefix: false,
             previous_was_generic_delimiter: false,
+            source_space_pending: false,
+            source_line_breaks_pending: 0,
         }
     }
 
@@ -150,11 +164,17 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             "formatter syntax traversal must remain balanced"
         );
 
-        if is_directive(node.kind()) {
+        if is_directive(node.kind())
+            && self
+                .configuration
+                .is_enabled(FormatterRule::DirectiveLineBreaks)
+        {
             self.writer.request_newlines(1);
         }
 
-        if should_separate_after(node.kind(), self.nodes.last().copied()) {
+        if separation_rule(node.kind(), self.nodes.last().copied())
+            .is_some_and(|rule| self.configuration.is_enabled(rule))
+        {
             self.writer.request_newlines(2);
         }
 
@@ -169,6 +189,8 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         self.previous_token = last_token.map(|token| token.kind());
         self.previous_operator_was_prefix = false;
         self.previous_was_generic_delimiter = false;
+        self.source_space_pending = false;
+        self.source_line_breaks_pending = 0;
     }
 
     fn write_token(&mut self, token: &SyntaxToken) -> SyntaxWalkControl {
@@ -188,6 +210,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         let parent = self.nodes.last().copied();
         let generic_delimiter = is_generic_delimiter(kind, parent);
         let list_layout = self.enabled_list_layout(parent);
+        let list_delimiter = list_layout && is_list_delimiter(kind, parent);
 
         let operator_is_prefix = is_operator(kind)
             && !generic_delimiter
@@ -195,13 +218,9 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                 .previous_token
                 .is_none_or(|previous| is_prefix_operator(kind, previous));
 
-        self.prepare_token(kind, operator_is_prefix, generic_delimiter, list_layout);
+        self.prepare_token(kind, operator_is_prefix, generic_delimiter, list_delimiter);
 
-        if matches!(
-            kind,
-            SyntaxKind::OpenParenToken | SyntaxKind::OpenBracketToken
-        ) && list_layout
-        {
+        if is_open_delimiter(kind) && list_delimiter {
             self.writer.begin_group();
         }
 
@@ -213,13 +232,9 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         self.previous_was_generic_delimiter = generic_delimiter;
 
         self.write_trivia(token.trailing_trivia());
-        self.finish_token(kind, parent, list_layout);
+        self.finish_token(kind, parent, list_delimiter);
 
-        if matches!(
-            kind,
-            SyntaxKind::CloseParenToken | SyntaxKind::CloseBracketToken
-        ) && list_layout
-        {
+        if is_close_delimiter(kind) && list_delimiter {
             self.writer.end_group();
         }
 
@@ -231,78 +246,149 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         kind: SyntaxKind,
         operator_is_prefix: bool,
         generic_delimiter: bool,
-        list_layout: bool,
+        list_delimiter: bool,
     ) {
-        if clears_pending_space_before(kind) {
-            self.writer.clear_space();
-        }
+        let source_space = std::mem::take(&mut self.source_space_pending);
+        let source_line_breaks = std::mem::take(&mut self.source_line_breaks_pending);
 
-        if matches!(
-            kind,
-            SyntaxKind::CloseParenToken | SyntaxKind::CloseBracketToken
-        ) && list_layout
-        {
-            self.writer.decrease_indent();
-            self.writer.request_optional_break(false);
-        } else if kind == SyntaxKind::CloseBraceToken {
-            self.writer.decrease_indent();
-            self.writer.set_newlines(1);
-        } else if kind == SyntaxKind::OpenBraceToken
-            || matches!(self.previous_token, Some(SyntaxKind::CloseBraceToken))
-                && !matches!(
+        let block_brace = kind == SyntaxKind::OpenBraceToken
+            || kind == SyntaxKind::CloseBraceToken
+            || matches!(self.previous_token, Some(SyntaxKind::CloseBraceToken));
+
+        let block_braces_enabled = self.configuration.is_enabled(FormatterRule::BlockBraces);
+
+        let preserve_block_paragraph = source_line_breaks >= 2
+            && self
+                .configuration
+                .is_enabled(FormatterRule::BlockParagraphSpacing)
+            && !matches!(
+                kind,
+                SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken
+            )
+            && !matches!(self.previous_token, Some(SyntaxKind::OpenBraceToken))
+            && self.nodes.iter().any(|kind| {
+                matches!(
                     kind,
-                    SyntaxKind::SemicolonToken
-                        | SyntaxKind::CommaToken
-                        | SyntaxKind::CloseBraceToken
+                    SyntaxKind::BlockExpression | SyntaxKind::CallableBodyBlockExpression
                 )
+            })
+            && !(matches!(self.nodes.last(), Some(SyntaxKind::MatchBody))
+                && self
+                    .configuration
+                    .is_enabled(FormatterRule::MatchCaseSpacing));
+
+        let trailing_comma_layout = !matches!(self.previous_token, Some(SyntaxKind::CommaToken))
+            || self
+                .configuration
+                .is_enabled(FormatterRule::TrailingCommaLayout);
+
+        if is_close_delimiter(kind) && list_delimiter && trailing_comma_layout {
+            if self.configuration.is_enabled(FormatterRule::Indentation) {
+                self.writer.decrease_indent();
+            }
+
+            self.writer.request_optional_break(false);
+        } else if is_close_delimiter(kind) && list_delimiter {
+            if self.configuration.is_enabled(FormatterRule::Indentation) {
+                self.writer.decrease_indent();
+            }
+
+            if source_line_breaks > 0 {
+                self.writer.request_newlines(source_line_breaks.min(2));
+            } else if source_space {
+                self.writer.request_space();
+            }
+        } else if kind == SyntaxKind::CloseBraceToken && block_braces_enabled {
+            if self.configuration.is_enabled(FormatterRule::Indentation) {
+                self.writer.decrease_indent();
+            }
+
+            self.writer.set_newlines(1);
+        } else if block_braces_enabled
+            && (kind == SyntaxKind::OpenBraceToken
+                || matches!(self.previous_token, Some(SyntaxKind::CloseBraceToken))
+                    && !matches!(
+                        kind,
+                        SyntaxKind::SemicolonToken
+                            | SyntaxKind::CommaToken
+                            | SyntaxKind::CloseBraceToken
+                    ))
         {
             self.writer.request_newlines(1);
         }
 
-        if needs_space_before(
-            self.previous_token,
-            self.previous_operator_was_prefix,
-            self.previous_was_generic_delimiter,
-            kind,
-            operator_is_prefix,
-            generic_delimiter,
-        ) {
-            self.writer.request_space();
+        let mut spacing_enforced =
+            block_brace && block_braces_enabled || list_delimiter && trailing_comma_layout;
+
+        if preserve_block_paragraph {
+            self.writer.request_newlines(2);
+            spacing_enforced = true;
+        }
+
+        if !block_brace
+            && let Some(spacing) = token_spacing(
+                self.previous_token,
+                self.previous_operator_was_prefix,
+                self.previous_was_generic_delimiter,
+                kind,
+                operator_is_prefix,
+                generic_delimiter,
+            )
+            && self.configuration.is_enabled(spacing.rule())
+        {
+            spacing_enforced = true;
+
+            if spacing.uses_space() {
+                self.writer.request_space();
+            } else {
+                self.writer.clear_space();
+            }
+        }
+
+        if !spacing_enforced {
+            if source_line_breaks > 0 {
+                self.writer.request_newlines(source_line_breaks.min(2));
+            } else if source_space {
+                self.writer.request_space();
+            }
         }
     }
 
-    fn finish_token(&mut self, kind: SyntaxKind, parent: Option<SyntaxKind>, list_layout: bool) {
+    fn finish_token(&mut self, kind: SyntaxKind, parent: Option<SyntaxKind>, list_delimiter: bool) {
         match kind {
-            SyntaxKind::OpenParenToken | SyntaxKind::OpenBracketToken if list_layout => {
-                self.writer.increase_indent();
+            kind if is_open_delimiter(kind) && list_delimiter => {
+                if self.configuration.is_enabled(FormatterRule::Indentation) {
+                    self.writer.increase_indent();
+                }
+
                 self.writer.request_optional_break(false);
             }
-            SyntaxKind::OpenBraceToken => {
-                self.writer.increase_indent();
+            SyntaxKind::OpenBraceToken
+                if self.configuration.is_enabled(FormatterRule::BlockBraces) =>
+            {
+                if self.configuration.is_enabled(FormatterRule::Indentation) {
+                    self.writer.increase_indent();
+                }
+
                 self.writer.request_newlines(1);
             }
             SyntaxKind::CommaToken if self.enabled_list_layout(parent) => {
                 self.writer.request_optional_break(true);
             }
-            SyntaxKind::CommaToken if comma_uses_line_break(parent) => {
+            SyntaxKind::CommaToken
+                if comma_layout_rule(parent)
+                    .is_some_and(|rule| self.configuration.is_enabled(rule)) =>
+            {
                 self.writer.request_newlines(1);
             }
-            SyntaxKind::CommaToken => self.writer.request_space(),
-            SyntaxKind::SemicolonToken if !semicolon_stays_inline(parent) => {
+            SyntaxKind::SemicolonToken
+                if !semicolon_stays_inline(parent)
+                    && self
+                        .configuration
+                        .is_enabled(FormatterRule::SemicolonLayout) =>
+            {
                 self.writer.request_newlines(1);
             }
-            SyntaxKind::SemicolonToken => self.writer.request_space(),
-            SyntaxKind::ColonToken
-            | SyntaxKind::ArrowToken
-            | SyntaxKind::EqualsToken
-            | SyntaxKind::EqualsEqualsToken
-            | SyntaxKind::BangEqualsToken
-            | SyntaxKind::LessEqualsToken
-            | SyntaxKind::GreaterEqualsToken
-            | SyntaxKind::AmpersandAmpersandToken
-            | SyntaxKind::PipePipeToken
-            | SyntaxKind::LessLessToken
-            | SyntaxKind::GreaterGreaterToken => self.writer.request_space(),
             _ => {}
         }
     }
@@ -315,7 +401,18 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             let text = required_trivia_text(item, self.source_text);
 
             if item.kind() == SyntaxKind::WhitespaceTrivia {
-                line_breaks = line_breaks.saturating_add(line_ending::count(text));
+                let item_line_breaks = line_ending::count(text);
+                line_breaks = line_breaks.saturating_add(item_line_breaks);
+
+                if item_line_breaks == 0 && !text.is_empty() {
+                    self.source_space_pending = true;
+                } else if item_line_breaks > 0 {
+                    self.source_line_breaks_pending = self
+                        .source_line_breaks_pending
+                        .saturating_add(item_line_breaks);
+
+                    self.source_space_pending = false;
+                }
 
                 continue;
             }
@@ -324,7 +421,11 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             line_breaks = 0;
             saw_comment = true;
 
-            if !self.writer.is_line_start() {
+            if !self.writer.is_line_start()
+                && self
+                    .configuration
+                    .is_enabled(FormatterRule::CommentPlacement)
+            {
                 self.writer.request_space();
             }
 
@@ -346,6 +447,9 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             1 => self.writer.request_newlines(1),
             _ => self.writer.request_newlines(2),
         }
+
+        self.source_space_pending = false;
+        self.source_line_breaks_pending = 0;
     }
 
     fn finish(self) -> String {
@@ -354,8 +458,22 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
 
     fn enabled_list_layout(&self, parent: Option<SyntaxKind>) -> bool {
         self.configuration.is_enabled(FormatterRule::LineWrapping)
-            && list_layout(parent).is_some_and(|rule| self.configuration.is_enabled(rule))
+            && list_layout_rule(parent).is_some_and(|rule| self.configuration.is_enabled(rule))
     }
+}
+
+const fn is_open_delimiter(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::OpenParenToken | SyntaxKind::OpenBracketToken | SyntaxKind::LessToken
+    )
+}
+
+const fn is_close_delimiter(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::CloseParenToken | SyntaxKind::CloseBracketToken | SyntaxKind::GreaterToken
+    )
 }
 
 fn required_token_text<'source>(token: &SyntaxToken, source_text: &'source str) -> &'source str {

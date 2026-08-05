@@ -31,6 +31,8 @@ pub enum FormatterRule {
     ParenthesizedListLayout,
     /// Inline and multiline bracketed-list layout.
     BracketedListLayout,
+    /// Inline and multiline generic-list layout.
+    GenericListLayout,
     /// Trailing commas in multiline lists.
     TrailingCommaLayout,
     /// Spacing around commas.
@@ -47,6 +49,10 @@ pub enum FormatterRule {
     RangeSpacing,
     /// Spacing after prefix operators.
     PrefixOperatorSpacing,
+    /// Spacing between directive markers and names.
+    DirectiveMarkerSpacing,
+    /// Spacing between adjacent word-like tokens.
+    WordSpacing,
     /// Placement and spacing of semicolons.
     SemicolonLayout,
     /// Placement and preservation of comments.
@@ -75,6 +81,7 @@ impl FormatterRule {
         Self::OverloadArmLayout,
         Self::ParenthesizedListLayout,
         Self::BracketedListLayout,
+        Self::GenericListLayout,
         Self::TrailingCommaLayout,
         Self::CommaSpacing,
         Self::ColonSpacing,
@@ -83,6 +90,8 @@ impl FormatterRule {
         Self::MemberAccessSpacing,
         Self::RangeSpacing,
         Self::PrefixOperatorSpacing,
+        Self::DirectiveMarkerSpacing,
+        Self::WordSpacing,
         Self::SemicolonLayout,
         Self::CommentPlacement,
         Self::LineWrapping,
@@ -105,6 +114,7 @@ impl FormatterRule {
             Self::OverloadArmLayout => "overload-arm-layout",
             Self::ParenthesizedListLayout => "parenthesized-list-layout",
             Self::BracketedListLayout => "bracketed-list-layout",
+            Self::GenericListLayout => "generic-list-layout",
             Self::TrailingCommaLayout => "trailing-comma-layout",
             Self::CommaSpacing => "comma-spacing",
             Self::ColonSpacing => "colon-spacing",
@@ -113,6 +123,8 @@ impl FormatterRule {
             Self::MemberAccessSpacing => "member-access-spacing",
             Self::RangeSpacing => "range-spacing",
             Self::PrefixOperatorSpacing => "prefix-operator-spacing",
+            Self::DirectiveMarkerSpacing => "directive-marker-spacing",
+            Self::WordSpacing => "word-spacing",
             Self::SemicolonLayout => "semicolon-layout",
             Self::CommentPlacement => "comment-placement",
             Self::LineWrapping => "line-wrapping",

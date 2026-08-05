@@ -11,16 +11,22 @@ pub(super) struct FormatWriter {
     elements: Vec<LayoutElement>,
     line_ending: &'static str,
     maximum_width: usize,
+    final_newline: bool,
     pending: PendingWhitespace,
     line_start: bool,
 }
 
 impl FormatWriter {
-    pub(super) fn new(line_ending: &'static str, maximum_width: usize) -> Self {
+    pub(super) fn new(
+        line_ending: &'static str,
+        maximum_width: usize,
+        final_newline: bool,
+    ) -> Self {
         Self {
             elements: Vec::new(),
             line_ending,
             maximum_width,
+            final_newline,
             pending: PendingWhitespace::None,
             line_start: true,
         }
@@ -92,7 +98,12 @@ impl FormatWriter {
     }
 
     pub(super) fn finish(self) -> String {
-        layout::render(&self.elements, self.line_ending, self.maximum_width)
+        layout::render(
+            &self.elements,
+            self.line_ending,
+            self.maximum_width,
+            self.final_newline,
+        )
     }
 
     fn flush_layout(&mut self) {

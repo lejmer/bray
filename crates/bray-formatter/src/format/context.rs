@@ -2,55 +2,82 @@ use bray_syntax::SyntaxKind;
 
 use crate::FormatterRule;
 
-pub(super) fn needs_space_before(
+#[derive(Clone, Copy)]
+pub(super) struct TokenSpacing {
+    rule: FormatterRule,
+    uses_space: bool,
+}
+
+impl TokenSpacing {
+    pub(super) const fn rule(self) -> FormatterRule {
+        self.rule
+    }
+
+    pub(super) const fn uses_space(self) -> bool {
+        self.uses_space
+    }
+}
+
+pub(super) fn token_spacing(
     previous: Option<SyntaxKind>,
     previous_operator_was_prefix: bool,
     previous_was_generic_delimiter: bool,
     current: SyntaxKind,
     current_operator_is_prefix: bool,
     current_is_generic_delimiter: bool,
-) -> bool {
-    let Some(previous) = previous else {
-        return false;
-    };
-
-    if no_space_before(current) || no_space_after(previous) {
-        return false;
-    }
+) -> Option<TokenSpacing> {
+    let previous = previous?;
 
     if previous_was_generic_delimiter || current_is_generic_delimiter {
-        return false;
+        return Some(no_space(FormatterRule::GenericDelimiterSpacing));
     }
 
     if matches!(previous, SyntaxKind::DotDotToken) || matches!(current, SyntaxKind::DotDotToken) {
-        return false;
+        return Some(no_space(FormatterRule::RangeSpacing));
+    }
+
+    if matches!(previous, SyntaxKind::DotToken) || matches!(current, SyntaxKind::DotToken) {
+        return Some(no_space(FormatterRule::MemberAccessSpacing));
+    }
+
+    if matches!(previous, SyntaxKind::AtToken) {
+        return Some(no_space(FormatterRule::DirectiveMarkerSpacing));
     }
 
     if is_operator(current) {
-        return !current_operator_is_prefix
+        let uses_space = !current_operator_is_prefix
             || is_word(previous)
             || (is_operator(previous) && !previous_operator_was_prefix);
+
+        return Some(TokenSpacing {
+            rule: if current_operator_is_prefix && !uses_space {
+                FormatterRule::PrefixOperatorSpacing
+            } else {
+                FormatterRule::OperatorSpacing
+            },
+            uses_space,
+        });
     }
 
     if is_operator(previous) {
-        return !previous_operator_was_prefix;
+        return Some(TokenSpacing {
+            rule: if previous_operator_was_prefix {
+                FormatterRule::PrefixOperatorSpacing
+            } else {
+                FormatterRule::OperatorSpacing
+            },
+            uses_space: !previous_operator_was_prefix,
+        });
     }
 
-    is_word(previous) || closes_delimiter(previous)
-}
+    if let Some(spacing) = punctuation_spacing(previous, current) {
+        return Some(spacing);
+    }
 
-pub(super) fn clears_pending_space_before(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::CloseParenToken
-            | SyntaxKind::CloseBracketToken
-            | SyntaxKind::CloseBraceToken
-            | SyntaxKind::CommaToken
-            | SyntaxKind::SemicolonToken
-            | SyntaxKind::ColonToken
-            | SyntaxKind::DotToken
-            | SyntaxKind::QuestionToken
-    )
+    (is_word(previous) || closes_delimiter(previous)).then_some(TokenSpacing {
+        rule: FormatterRule::WordSpacing,
+        uses_space: true,
+    })
 }
 
 pub(super) fn is_operator(kind: SyntaxKind) -> bool {
@@ -73,35 +100,62 @@ pub(super) fn is_prefix_operator(operator: SyntaxKind, previous: SyntaxKind) -> 
 }
 
 pub(super) fn is_generic_delimiter(kind: SyntaxKind, parent: Option<SyntaxKind>) -> bool {
-    matches!(kind, SyntaxKind::LessToken | SyntaxKind::GreaterToken)
-        && matches!(
-            parent,
-            Some(
-                SyntaxKind::GenericParameterList
-                    | SyntaxKind::GenericArgumentList
-                    | SyntaxKind::TypeFormArgumentList
-            )
-        )
+    matches!(kind, SyntaxKind::LessToken | SyntaxKind::GreaterToken) && generic_list(parent)
 }
 
-pub(super) fn comma_uses_line_break(parent: Option<SyntaxKind>) -> bool {
-    matches!(
-        parent,
-        Some(SyntaxKind::StructConstructionBody | SyntaxKind::OverloadArmList)
-    )
+pub(super) const fn comma_layout_rule(parent: Option<SyntaxKind>) -> Option<FormatterRule> {
+    match parent {
+        Some(SyntaxKind::StructConstructionBody) => Some(FormatterRule::StructConstructionLayout),
+        Some(SyntaxKind::OverloadArmList) => Some(FormatterRule::OverloadArmLayout),
+        _ => None,
+    }
 }
 
-pub(super) const fn list_layout(parent: Option<SyntaxKind>) -> Option<FormatterRule> {
+pub(super) const fn list_layout_rule(parent: Option<SyntaxKind>) -> Option<FormatterRule> {
     match parent {
         Some(
             SyntaxKind::DirectiveArgumentList
+            | SyntaxKind::UnionVariantPayload
             | SyntaxKind::PredicateParameterList
             | SyntaxKind::ParameterList
             | SyntaxKind::ArgumentList
+            | SyntaxKind::AssertionExpression
+            | SyntaxKind::TypeFormConstructionExpression
+            | SyntaxKind::BooleanFoldExpression
             | SyntaxKind::TupleExpression,
         ) => Some(FormatterRule::ParenthesizedListLayout),
-        Some(SyntaxKind::ArrayExpression) => Some(FormatterRule::BracketedListLayout),
+        Some(
+            SyntaxKind::ArrayExpression
+            | SyntaxKind::ElementIndexOperation
+            | SyntaxKind::SliceIndexOperation,
+        ) => Some(FormatterRule::BracketedListLayout),
+        Some(
+            SyntaxKind::GenericParameterList
+            | SyntaxKind::GenericArgumentList
+            | SyntaxKind::TypeFormArgumentList,
+        ) => Some(FormatterRule::GenericListLayout),
         _ => None,
+    }
+}
+
+pub(super) const fn is_list_delimiter(kind: SyntaxKind, parent: Option<SyntaxKind>) -> bool {
+    match list_layout_rule(parent) {
+        Some(FormatterRule::ParenthesizedListLayout) => {
+            matches!(
+                kind,
+                SyntaxKind::OpenParenToken | SyntaxKind::CloseParenToken
+            )
+        }
+        Some(FormatterRule::BracketedListLayout) => {
+            matches!(
+                kind,
+                SyntaxKind::OpenBracketToken | SyntaxKind::CloseBracketToken
+            )
+        }
+        Some(FormatterRule::GenericListLayout) => {
+            matches!(kind, SyntaxKind::LessToken | SyntaxKind::GreaterToken)
+        }
+        _ => false,
     }
 }
 
@@ -127,12 +181,15 @@ pub(super) fn is_directive(kind: SyntaxKind) -> bool {
     )
 }
 
-pub(super) fn should_separate_after(kind: SyntaxKind, parent: Option<SyntaxKind>) -> bool {
+pub(super) fn separation_rule(
+    kind: SyntaxKind,
+    parent: Option<SyntaxKind>,
+) -> Option<FormatterRule> {
     if matches!(
         parent,
         Some(SyntaxKind::SourceUnit | SyntaxKind::ModuleBody)
     ) {
-        return is_module_declaration(kind);
+        return is_module_declaration(kind).then_some(FormatterRule::ModuleItemSpacing);
     }
 
     matches!(
@@ -146,6 +203,7 @@ pub(super) fn should_separate_after(kind: SyntaxKind, parent: Option<SyntaxKind>
             | SyntaxKind::ScopeExitMemberDeclaration
             | SyntaxKind::TraitCallableMemberDeclaration
     )
+    .then_some(FormatterRule::CallableMemberSpacing)
 }
 
 pub(super) fn is_line_comment(kind: SyntaxKind) -> bool {
@@ -155,30 +213,55 @@ pub(super) fn is_line_comment(kind: SyntaxKind) -> bool {
     )
 }
 
-fn no_space_before(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::OpenParenToken
-            | SyntaxKind::CloseParenToken
-            | SyntaxKind::OpenBracketToken
-            | SyntaxKind::CloseBracketToken
-            | SyntaxKind::CloseBraceToken
-            | SyntaxKind::CommaToken
-            | SyntaxKind::SemicolonToken
-            | SyntaxKind::ColonToken
-            | SyntaxKind::DotToken
-            | SyntaxKind::QuestionToken
-    )
+fn punctuation_spacing(previous: SyntaxKind, current: SyntaxKind) -> Option<TokenSpacing> {
+    match previous {
+        SyntaxKind::CommaToken => return Some(space(FormatterRule::CommaSpacing)),
+        SyntaxKind::SemicolonToken => return Some(space(FormatterRule::SemicolonLayout)),
+        SyntaxKind::ColonToken => return Some(space(FormatterRule::ColonSpacing)),
+        _ => {}
+    }
+
+    match current {
+        SyntaxKind::OpenParenToken | SyntaxKind::CloseParenToken => {
+            Some(no_space(FormatterRule::ParenthesizedListLayout))
+        }
+        SyntaxKind::OpenBracketToken | SyntaxKind::CloseBracketToken => {
+            Some(no_space(FormatterRule::BracketedListLayout))
+        }
+        SyntaxKind::CommaToken => Some(no_space(FormatterRule::CommaSpacing)),
+        SyntaxKind::SemicolonToken => Some(no_space(FormatterRule::SemicolonLayout)),
+        SyntaxKind::ColonToken => Some(no_space(FormatterRule::ColonSpacing)),
+        SyntaxKind::QuestionToken => Some(no_space(FormatterRule::MemberAccessSpacing)),
+        _ => match previous {
+            SyntaxKind::OpenParenToken => Some(no_space(FormatterRule::ParenthesizedListLayout)),
+            SyntaxKind::OpenBracketToken => Some(no_space(FormatterRule::BracketedListLayout)),
+            _ => None,
+        },
+    }
 }
 
-fn no_space_after(kind: SyntaxKind) -> bool {
+const fn no_space(rule: FormatterRule) -> TokenSpacing {
+    TokenSpacing {
+        rule,
+        uses_space: false,
+    }
+}
+
+const fn space(rule: FormatterRule) -> TokenSpacing {
+    TokenSpacing {
+        rule,
+        uses_space: true,
+    }
+}
+
+const fn generic_list(parent: Option<SyntaxKind>) -> bool {
     matches!(
-        kind,
-        SyntaxKind::OpenParenToken
-            | SyntaxKind::OpenBracketToken
-            | SyntaxKind::OpenBraceToken
-            | SyntaxKind::DotToken
-            | SyntaxKind::AtToken
+        parent,
+        Some(
+            SyntaxKind::GenericParameterList
+                | SyntaxKind::GenericArgumentList
+                | SyntaxKind::TypeFormArgumentList
+        )
     )
 }
 

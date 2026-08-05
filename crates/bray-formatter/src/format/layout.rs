@@ -27,6 +27,7 @@ pub(super) fn render(
     elements: &[LayoutElement],
     line_ending: &str,
     maximum_width: usize,
+    final_newline: bool,
 ) -> String {
     let mut renderer = Renderer {
         elements,
@@ -36,6 +37,7 @@ pub(super) fn render(
         column: 0,
         indent: 0,
         groups: Vec::new(),
+        final_newline,
     };
 
     renderer.render();
@@ -51,6 +53,7 @@ struct Renderer<'layout> {
     column: usize,
     indent: usize,
     groups: Vec<GroupMode>,
+    final_newline: bool,
 }
 
 impl Renderer<'_> {
@@ -142,7 +145,7 @@ impl Renderer<'_> {
             }
         }
 
-        if !self.output.is_empty() {
+        if self.final_newline && !self.output.is_empty() {
             self.output.push_str(self.line_ending);
         }
 
@@ -203,10 +206,10 @@ mod tests {
             LayoutElement::GroupEnd,
         ];
 
-        assert_eq!(render(&elements, "\n", 20), "call(first, second)\n");
+        assert_eq!(render(&elements, "\n", 20, true), "call(first, second)\n");
 
         assert_eq!(
-            render(&elements, "\r\n", 10),
+            render(&elements, "\r\n", 10, true),
             "call(\r\n    first,\r\n    second\r\n)\r\n"
         );
     }

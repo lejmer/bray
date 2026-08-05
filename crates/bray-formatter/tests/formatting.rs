@@ -1,3 +1,6 @@
+use std::num::NonZeroU16;
+
+use bray_formatter::FormatterRule;
 use bray_formatter::{
     FormatBytesErrorKind, FormattedSource, FormatterConfiguration, format_bytes, format_text,
 };
@@ -256,6 +259,25 @@ fn preserves_lf_and_crlf_line_ending_styles() {
 }
 
 #[test]
+fn disabled_rules_preserve_source_policy_while_other_rules_apply() {
+    let source = "module app;\r\n\r\nfunc main()\r\n{\r\n    return left+right;\r\n}";
+
+    let configuration = FormatterConfiguration::default()
+        .with_rule(FormatterRule::OperatorSpacing, false)
+        .with_rule(FormatterRule::LineEndingStyle, false)
+        .with_rule(FormatterRule::FinalNewline, false);
+
+    let output = formatted_with_configuration(source, &configuration);
+
+    assert_eq!(
+        output.text(),
+        "module app;\n\nfunc main()\n{\n    return left+right;\n}"
+    );
+
+    assert!(!formatted_with_configuration(output.text(), &configuration).changed());
+}
+
+#[test]
 fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
     let source = concat!(
         "module app;",
@@ -364,7 +386,14 @@ fn standard_input_bytes_preserve_bom_and_report_invalid_utf8() {
 }
 
 fn formatted(source: &str) -> FormattedSource {
-    match format_text(source, &FormatterConfiguration::default()) {
+    formatted_with_configuration(source, &FormatterConfiguration::default())
+}
+
+fn formatted_with_configuration(
+    source: &str,
+    configuration: &FormatterConfiguration,
+) -> FormattedSource {
+    match format_text(source, configuration) {
         Ok(formatted) => formatted,
         Err(error) => panic!("test source should fit in formatter ranges: {error:?}"),
     }
@@ -379,4 +408,3 @@ fn formatted_with_width(source: &str, width: u16) -> FormattedSource {
         Err(error) => panic!("test source should fit in formatter ranges: {error:?}"),
     }
 }
-use std::num::NonZeroU16;
