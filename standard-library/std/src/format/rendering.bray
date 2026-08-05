@@ -592,54 +592,48 @@ internal func boolean_text(pos value: bool) -> string
 
 internal func character_is_escaped(pos scalar: u32) -> bool
 {
-    if scalar == 0
+    return match scalar
     {
-        return true;
-    }
-    if scalar == 9
-    {
-        return true;
-    }
-    if scalar == 10
-    {
-        return true;
-    }
-    if scalar == 13
-    {
-        return true;
-    }
-    if scalar == 39
-    {
-        return true;
-    }
-
-    return scalar == 92;
+        case 0 | 9 | 10 | 13 | 39 | 92
+        {
+            yield true;
+        }
+        case _
+        {
+            yield false;
+        }
+    };
 }
 
 internal func character_escape_byte(pos scalar: u32) -> u8
 {
-    if scalar == 0
+    return match scalar
     {
-        return 48;
-    }
-    if scalar == 9
-    {
-        return 116;
-    }
-    if scalar == 10
-    {
-        return 110;
-    }
-    if scalar == 13
-    {
-        return 114;
-    }
-    if scalar == 39
-    {
-        return 39;
-    }
-
-    return 92;
+        case 0
+        {
+            yield 48;
+        }
+        case 9
+        {
+            yield 116;
+        }
+        case 10
+        {
+            yield 110;
+        }
+        case 13
+        {
+            yield 114;
+        }
+        case 39
+        {
+            yield 39;
+        }
+        case _
+        {
+            yield 92;
+        }
+    };
 }
 
 internal func write_raw_character(
