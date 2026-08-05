@@ -1,93 +1,93 @@
 /// One language-defined fact exposed under the compiler-known `target` path.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TargetFactKind {
-    /// `target.identity.name`.
+    /// `target.identity.NAME`.
     IdentityName,
-    /// `target.identity.arch`.
+    /// `target.identity.ARCH`.
     IdentityArchitecture,
-    /// `target.identity.vendor`.
+    /// `target.identity.VENDOR`.
     IdentityVendor,
-    /// `target.identity.system`.
+    /// `target.identity.SYSTEM`.
     IdentitySystem,
-    /// `target.identity.environment`.
+    /// `target.identity.ENVIRONMENT`.
     IdentityEnvironment,
-    /// `target.identity.abi`.
+    /// `target.identity.ABI`.
     IdentityAbi,
-    /// `target.pointer.bits`.
+    /// `target.pointer.BITS`.
     PointerBits,
-    /// `target.pointer.bytes`.
+    /// `target.pointer.BYTES`.
     PointerBytes,
-    /// `target.endian.little`.
+    /// `target.endian.LITTLE`.
     EndianLittle,
-    /// `target.endian.big`.
+    /// `target.endian.BIG`.
     EndianBig,
-    /// `target.scalar.bool`.
+    /// `target.scalar.BOOL`.
     ScalarBool,
-    /// `target.scalar.char`.
+    /// `target.scalar.CHAR`.
     ScalarChar,
-    /// `target.scalar.i8`.
+    /// `target.scalar.I8`.
     ScalarI8,
-    /// `target.scalar.i16`.
+    /// `target.scalar.I16`.
     ScalarI16,
-    /// `target.scalar.i32`.
+    /// `target.scalar.I32`.
     ScalarI32,
-    /// `target.scalar.i64`.
+    /// `target.scalar.I64`.
     ScalarI64,
-    /// `target.scalar.i128`.
+    /// `target.scalar.I128`.
     ScalarI128,
-    /// `target.scalar.u8`.
+    /// `target.scalar.U8`.
     ScalarU8,
-    /// `target.scalar.u16`.
+    /// `target.scalar.U16`.
     ScalarU16,
-    /// `target.scalar.u32`.
+    /// `target.scalar.U32`.
     ScalarU32,
-    /// `target.scalar.u64`.
+    /// `target.scalar.U64`.
     ScalarU64,
-    /// `target.scalar.u128`.
+    /// `target.scalar.U128`.
     ScalarU128,
-    /// `target.scalar.usize`.
+    /// `target.scalar.USIZE`.
     ScalarUsize,
-    /// `target.scalar.isize`.
+    /// `target.scalar.ISIZE`.
     ScalarIsize,
-    /// `target.scalar.r16`.
+    /// `target.scalar.R16`.
     ScalarR16,
-    /// `target.scalar.r32`.
+    /// `target.scalar.R32`.
     ScalarR32,
-    /// `target.scalar.r64`.
+    /// `target.scalar.R64`.
     ScalarR64,
-    /// `target.scalar.r128`.
+    /// `target.scalar.R128`.
     ScalarR128,
-    /// `target.scalar.c32`.
+    /// `target.scalar.C32`.
     ScalarC32,
-    /// `target.scalar.c64`.
+    /// `target.scalar.C64`.
     ScalarC64,
-    /// `target.scalar.c128`.
+    /// `target.scalar.C128`.
     ScalarC128,
-    /// `target.scalar.c256`.
+    /// `target.scalar.C256`.
     ScalarC256,
-    /// `target.atomic.u8`.
+    /// `target.atomic.U8`.
     AtomicU8,
-    /// `target.atomic.u16`.
+    /// `target.atomic.U16`.
     AtomicU16,
-    /// `target.atomic.u32`.
+    /// `target.atomic.U32`.
     AtomicU32,
-    /// `target.atomic.u64`.
+    /// `target.atomic.U64`.
     AtomicU64,
-    /// `target.atomic.u128`.
+    /// `target.atomic.U128`.
     AtomicU128,
-    /// `target.atomic.pointer`.
+    /// `target.atomic.POINTER`.
     AtomicPointer,
-    /// `target.abi.c`.
+    /// `target.abi.C`.
     AbiC,
-    /// `target.abi.system`.
+    /// `target.abi.SYSTEM`.
     AbiSystem,
-    /// `target.address_space.host`.
+    /// `target.address_space.HOST`.
     AddressSpaceHost,
-    /// `target.address_space.device`.
+    /// `target.address_space.DEVICE`.
     AddressSpaceDevice,
-    /// `target.alignment.max_storage`.
+    /// `target.alignment.MAX_STORAGE`.
     AlignmentMaxStorage,
-    /// `target.alignment.max_allocation`.
+    /// `target.alignment.MAX_ALLOCATION`.
     AlignmentMaxAllocation,
 }
 
@@ -143,50 +143,50 @@ impl TargetFactKind {
     /// Returns the language-defined target-fact path.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::IdentityName => "target.identity.name",
-            Self::IdentityArchitecture => "target.identity.arch",
-            Self::IdentityVendor => "target.identity.vendor",
-            Self::IdentitySystem => "target.identity.system",
-            Self::IdentityEnvironment => "target.identity.environment",
-            Self::IdentityAbi => "target.identity.abi",
-            Self::PointerBits => "target.pointer.bits",
-            Self::PointerBytes => "target.pointer.bytes",
-            Self::EndianLittle => "target.endian.little",
-            Self::EndianBig => "target.endian.big",
-            Self::ScalarBool => "target.scalar.bool",
-            Self::ScalarChar => "target.scalar.char",
-            Self::ScalarI8 => "target.scalar.i8",
-            Self::ScalarI16 => "target.scalar.i16",
-            Self::ScalarI32 => "target.scalar.i32",
-            Self::ScalarI64 => "target.scalar.i64",
-            Self::ScalarI128 => "target.scalar.i128",
-            Self::ScalarU8 => "target.scalar.u8",
-            Self::ScalarU16 => "target.scalar.u16",
-            Self::ScalarU32 => "target.scalar.u32",
-            Self::ScalarU64 => "target.scalar.u64",
-            Self::ScalarU128 => "target.scalar.u128",
-            Self::ScalarUsize => "target.scalar.usize",
-            Self::ScalarIsize => "target.scalar.isize",
-            Self::ScalarR16 => "target.scalar.r16",
-            Self::ScalarR32 => "target.scalar.r32",
-            Self::ScalarR64 => "target.scalar.r64",
-            Self::ScalarR128 => "target.scalar.r128",
-            Self::ScalarC32 => "target.scalar.c32",
-            Self::ScalarC64 => "target.scalar.c64",
-            Self::ScalarC128 => "target.scalar.c128",
-            Self::ScalarC256 => "target.scalar.c256",
-            Self::AtomicU8 => "target.atomic.u8",
-            Self::AtomicU16 => "target.atomic.u16",
-            Self::AtomicU32 => "target.atomic.u32",
-            Self::AtomicU64 => "target.atomic.u64",
-            Self::AtomicU128 => "target.atomic.u128",
-            Self::AtomicPointer => "target.atomic.pointer",
-            Self::AbiC => "target.abi.c",
-            Self::AbiSystem => "target.abi.system",
-            Self::AddressSpaceHost => "target.address_space.host",
-            Self::AddressSpaceDevice => "target.address_space.device",
-            Self::AlignmentMaxStorage => "target.alignment.max_storage",
-            Self::AlignmentMaxAllocation => "target.alignment.max_allocation",
+            Self::IdentityName => "target.identity.NAME",
+            Self::IdentityArchitecture => "target.identity.ARCH",
+            Self::IdentityVendor => "target.identity.VENDOR",
+            Self::IdentitySystem => "target.identity.SYSTEM",
+            Self::IdentityEnvironment => "target.identity.ENVIRONMENT",
+            Self::IdentityAbi => "target.identity.ABI",
+            Self::PointerBits => "target.pointer.BITS",
+            Self::PointerBytes => "target.pointer.BYTES",
+            Self::EndianLittle => "target.endian.LITTLE",
+            Self::EndianBig => "target.endian.BIG",
+            Self::ScalarBool => "target.scalar.BOOL",
+            Self::ScalarChar => "target.scalar.CHAR",
+            Self::ScalarI8 => "target.scalar.I8",
+            Self::ScalarI16 => "target.scalar.I16",
+            Self::ScalarI32 => "target.scalar.I32",
+            Self::ScalarI64 => "target.scalar.I64",
+            Self::ScalarI128 => "target.scalar.I128",
+            Self::ScalarU8 => "target.scalar.U8",
+            Self::ScalarU16 => "target.scalar.U16",
+            Self::ScalarU32 => "target.scalar.U32",
+            Self::ScalarU64 => "target.scalar.U64",
+            Self::ScalarU128 => "target.scalar.U128",
+            Self::ScalarUsize => "target.scalar.USIZE",
+            Self::ScalarIsize => "target.scalar.ISIZE",
+            Self::ScalarR16 => "target.scalar.R16",
+            Self::ScalarR32 => "target.scalar.R32",
+            Self::ScalarR64 => "target.scalar.R64",
+            Self::ScalarR128 => "target.scalar.R128",
+            Self::ScalarC32 => "target.scalar.C32",
+            Self::ScalarC64 => "target.scalar.C64",
+            Self::ScalarC128 => "target.scalar.C128",
+            Self::ScalarC256 => "target.scalar.C256",
+            Self::AtomicU8 => "target.atomic.U8",
+            Self::AtomicU16 => "target.atomic.U16",
+            Self::AtomicU32 => "target.atomic.U32",
+            Self::AtomicU64 => "target.atomic.U64",
+            Self::AtomicU128 => "target.atomic.U128",
+            Self::AtomicPointer => "target.atomic.POINTER",
+            Self::AbiC => "target.abi.C",
+            Self::AbiSystem => "target.abi.SYSTEM",
+            Self::AddressSpaceHost => "target.address_space.HOST",
+            Self::AddressSpaceDevice => "target.address_space.DEVICE",
+            Self::AlignmentMaxStorage => "target.alignment.MAX_STORAGE",
+            Self::AlignmentMaxAllocation => "target.alignment.MAX_ALLOCATION",
         }
     }
 }

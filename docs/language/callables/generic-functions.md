@@ -18,7 +18,7 @@ func element_count<T, const N: usize>(pos items: &[T; N]) -> usize
 
 Bare generic parameter names declare type parameters.
 
-Const parameters are declared with `const Name: Type`.
+Const parameters are declared with `const NAME: Type`.
 
 Generic function parameter lists contain type parameters and const parameters.
 

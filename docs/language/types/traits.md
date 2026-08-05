@@ -185,7 +185,7 @@ A constant-valued member is a compile-time value output of a trait implementatio
 ```bray
 trait HasCapacity
 {
-    const capacity: usize;
+    const CAPACITY: usize;
 }
 ```
 
@@ -196,7 +196,7 @@ A trait implementation must provide every required constant-valued member.
 ```bray
 impl PacketBuffer(HasCapacity)
 {
-    const capacity: usize = 1500;
+    const CAPACITY: usize = 1500;
 }
 ```
 
@@ -205,7 +205,7 @@ A constant-valued member declaration with an initializer provides default behavi
 ```bray
 trait Chunked
 {
-    const chunk_size: usize = 4096;
+    const CHUNK_SIZE: usize = 4096;
 }
 ```
 

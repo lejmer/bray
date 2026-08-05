@@ -565,7 +565,7 @@ mod tests {
         let compilation = compilation_with_sources_product_and_worker_budget(
             &[
                 concat!(
-                    "@target(target.scalar.u64)\n",
+                    "@target(target.scalar.U64)\n",
                     "@link(\"first\")\n",
                     "module app;\n",
                 ),

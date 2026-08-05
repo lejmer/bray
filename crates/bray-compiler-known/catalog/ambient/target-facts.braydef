@@ -2,192 +2,192 @@ catalog compiler_known;
 
 scope TargetIdentity at target.identity {
     declaration TargetIdentityName {
-        surface { const name: string = ""; }
+        surface { const NAME: string = ""; }
     }
 
     declaration TargetIdentityArchitecture {
-        surface { const arch: string = ""; }
+        surface { const ARCH: string = ""; }
     }
 
     declaration TargetIdentityVendor {
-        surface { const vendor: string = ""; }
+        surface { const VENDOR: string = ""; }
     }
 
     declaration TargetIdentitySystem {
-        surface { const system: string = ""; }
+        surface { const SYSTEM: string = ""; }
     }
 
     declaration TargetIdentityEnvironment {
-        surface { const environment: string = ""; }
+        surface { const ENVIRONMENT: string = ""; }
     }
 
     declaration TargetIdentityAbi {
-        surface { const abi: string = ""; }
+        surface { const ABI: string = ""; }
     }
 }
 
 scope TargetPointer at target.pointer {
     declaration TargetPointerBits {
-        surface { const bits: usize = 0; }
+        surface { const BITS: usize = 0; }
     }
 
     declaration TargetPointerBytes {
-        surface { const bytes: usize = 0; }
+        surface { const BYTES: usize = 0; }
     }
 }
 
 scope TargetEndian at target.endian {
     declaration TargetEndianLittle {
-        surface { const little: bool = false; }
+        surface { const LITTLE: bool = false; }
     }
 
     declaration TargetEndianBig {
-        surface { const big: bool = false; }
+        surface { const BIG: bool = false; }
     }
 }
 
 scope TargetScalar at target.scalar {
     declaration TargetScalarBool {
-        surface { const bool: bool = false; }
+        surface { const BOOL: bool = false; }
     }
 
     declaration TargetScalarChar {
-        surface { const char: bool = false; }
+        surface { const CHAR: bool = false; }
     }
 
     declaration TargetScalarI8 {
-        surface { const i8: bool = false; }
+        surface { const I8: bool = false; }
     }
 
     declaration TargetScalarI16 {
-        surface { const i16: bool = false; }
+        surface { const I16: bool = false; }
     }
 
     declaration TargetScalarI32 {
-        surface { const i32: bool = false; }
+        surface { const I32: bool = false; }
     }
 
     declaration TargetScalarI64 {
-        surface { const i64: bool = false; }
+        surface { const I64: bool = false; }
     }
 
     declaration TargetScalarI128 {
-        surface { const i128: bool = false; }
+        surface { const I128: bool = false; }
     }
 
     declaration TargetScalarU8 {
-        surface { const u8: bool = false; }
+        surface { const U8: bool = false; }
     }
 
     declaration TargetScalarU16 {
-        surface { const u16: bool = false; }
+        surface { const U16: bool = false; }
     }
 
     declaration TargetScalarU32 {
-        surface { const u32: bool = false; }
+        surface { const U32: bool = false; }
     }
 
     declaration TargetScalarU64 {
-        surface { const u64: bool = false; }
+        surface { const U64: bool = false; }
     }
 
     declaration TargetScalarU128 {
-        surface { const u128: bool = false; }
+        surface { const U128: bool = false; }
     }
 
     declaration TargetScalarUsize {
-        surface { const usize: bool = false; }
+        surface { const USIZE: bool = false; }
     }
 
     declaration TargetScalarIsize {
-        surface { const isize: bool = false; }
+        surface { const ISIZE: bool = false; }
     }
 
     declaration TargetScalarR16 {
-        surface { const r16: bool = false; }
+        surface { const R16: bool = false; }
     }
 
     declaration TargetScalarR32 {
-        surface { const r32: bool = false; }
+        surface { const R32: bool = false; }
     }
 
     declaration TargetScalarR64 {
-        surface { const r64: bool = false; }
+        surface { const R64: bool = false; }
     }
 
     declaration TargetScalarR128 {
-        surface { const r128: bool = false; }
+        surface { const R128: bool = false; }
     }
 
     declaration TargetScalarC32 {
-        surface { const c32: bool = false; }
+        surface { const C32: bool = false; }
     }
 
     declaration TargetScalarC64 {
-        surface { const c64: bool = false; }
+        surface { const C64: bool = false; }
     }
 
     declaration TargetScalarC128 {
-        surface { const c128: bool = false; }
+        surface { const C128: bool = false; }
     }
 
     declaration TargetScalarC256 {
-        surface { const c256: bool = false; }
+        surface { const C256: bool = false; }
     }
 }
 
 scope TargetAtomic at target.atomic {
     declaration TargetAtomicU8 {
-        surface { const u8: bool = false; }
+        surface { const U8: bool = false; }
     }
 
     declaration TargetAtomicU16 {
-        surface { const u16: bool = false; }
+        surface { const U16: bool = false; }
     }
 
     declaration TargetAtomicU32 {
-        surface { const u32: bool = false; }
+        surface { const U32: bool = false; }
     }
 
     declaration TargetAtomicU64 {
-        surface { const u64: bool = false; }
+        surface { const U64: bool = false; }
     }
 
     declaration TargetAtomicU128 {
-        surface { const u128: bool = false; }
+        surface { const U128: bool = false; }
     }
 
     declaration TargetAtomicPointer {
-        surface { const pointer: bool = false; }
+        surface { const POINTER: bool = false; }
     }
 }
 
 scope TargetAbi at target.abi {
     declaration TargetAbiC {
-        surface { const c: bool = false; }
+        surface { const C: bool = false; }
     }
 
     declaration TargetAbiSystem {
-        surface { const system: bool = false; }
+        surface { const SYSTEM: bool = false; }
     }
 }
 
 scope TargetAddressSpace at target.address_space {
     declaration TargetAddressSpaceHost {
-        surface { const host: bool = false; }
+        surface { const HOST: bool = false; }
     }
 
     declaration TargetAddressSpaceDevice {
-        surface { const device: bool = false; }
+        surface { const DEVICE: bool = false; }
     }
 }
 
 scope TargetAlignment at target.alignment {
     declaration TargetAlignmentMaxStorage {
-        surface { const max_storage: usize = 0; }
+        surface { const MAX_STORAGE: usize = 0; }
     }
 
     declaration TargetAlignmentMaxAllocation {
-        surface { const max_allocation: usize = 0; }
+        surface { const MAX_ALLOCATION: usize = 0; }
     }
 }

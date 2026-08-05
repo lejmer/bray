@@ -328,7 +328,7 @@ impl Holder
     #[test]
     fn source_surfaces_retain_target_dependencies_from_contributing_modules() {
         let compilation = compilation(
-            r#"@target(target.scalar.u64)
+            r#"@target(target.scalar.U64)
 module app
 {
     impl Holder

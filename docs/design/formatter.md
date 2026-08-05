@@ -17,23 +17,14 @@ files without moving formatter policy into the command layer.
 
 ## Layout
 
-The formatter uses syntax node context and source-order token traversal. Ordinary formatting preserves the ordered non-trivia
-token stream. Syntax-changing transformations are separate, explicitly enabled rewrite rules with stronger correctness
-requirements.
+The formatter implements the canonical policies in the
+[Bray source style guide](../contributing/bray-style-guide.md). The style guide owns source conventions, while this document owns
+the formatter architecture and behavior required to apply them.
 
-- Indentation is four spaces.
-- Braces use the language documentation's block layout.
-- Module declarations are separated by one empty line.
-- Struct construction and overload-arm bodies place comma-separated entries on
-  separate lines.
-- Ordinary blocks preserve at most one intentional empty line between complete block items.
-- Adjacent match case clauses have no empty lines between them.
-- Parenthesized and bracketed lists remain inline while they fit and wrap at syntax-defined breakpoints when they do not.
-- Lines have a default maximum width of 120 display columns.
-- Token spellings, literal spellings, and comment text are copied exactly from
-  the source snapshot.
-- Ordinary whitespace is reconstructed from syntax context. Source whitespace
-  still controls blank-line placement around comments.
+The formatter uses syntax node context and source-order token traversal. Ordinary formatting preserves the ordered non-trivia
+token stream. Token spellings, literal spellings, and comment text are copied exactly from the source snapshot. Ordinary
+whitespace is reconstructed from syntax context, while source whitespace still controls blank-line placement around comments.
+Syntax-changing transformations are separate, explicitly enabled rewrite rules with stronger correctness requirements.
 
 The maximum width is a layout target rather than permission to rewrite source tokens. An indivisible token, preserved comment,
 or other source text without a legal breakpoint may exceed it. Width-aware layout uses groups, indentation, required breaks, and
