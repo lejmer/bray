@@ -65,21 +65,21 @@ internal struct StandardStreamLock
     }
 }
 
-internal func support_standard_input() -> StandardInput
+func standard_input() -> StandardInput
 {
     return StandardInput {
         handle = trusted process_context_stream_handle(offset = 16),
     };
 }
 
-internal func support_standard_output() -> StandardOutput
+func standard_output() -> StandardOutput
 {
     return StandardOutput {
         handle = trusted process_context_stream_handle(offset = 24),
     };
 }
 
-internal func support_standard_error() -> StandardError
+func standard_error() -> StandardError
 {
     return StandardError {
         handle = trusted process_context_stream_handle(offset = 32),
@@ -241,7 +241,7 @@ internal func platform_error_kind(pos category: u32) -> IoErrorKind
     return Other;
 }
 
-internal func support_io_error(
+internal func io_error(
     kind: IoErrorKind,
     native_code: i64,
     transferred: usize,
@@ -270,7 +270,7 @@ internal func platform_status_error(
     let kind: IoErrorKind = platform_error_kind(category);
     let native_code: i64 = status.native_code;
 
-    return support_io_error(
+    return io_error(
         kind = kind,
         native_code = native_code,
         transferred = transferred,
@@ -279,7 +279,7 @@ internal func platform_status_error(
 
 internal func invalid_transfer_error(transferred: usize = 0) -> IoError
 {
-    return support_io_error(
+    return io_error(
         kind = Other,
         native_code = 0,
         transferred = transferred,
@@ -288,7 +288,7 @@ internal func invalid_transfer_error(transferred: usize = 0) -> IoError
 
 internal func unavailable_stream_error() -> IoError
 {
-    return support_io_error(
+    return io_error(
         kind = Unsupported,
         native_code = 0,
         transferred = 0,
@@ -297,7 +297,7 @@ internal func unavailable_stream_error() -> IoError
 
 internal func no_progress_error(transferred: usize = 0) -> IoError
 {
-    return support_io_error(
+    return io_error(
         kind = BrokenStream,
         native_code = 0,
         transferred = transferred,

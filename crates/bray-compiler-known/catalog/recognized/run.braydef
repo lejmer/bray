@@ -1,27 +1,27 @@
 catalog recognized_standard_library;
 
 scope StandardRun at std.run {
-    declaration StandardRunCancellationRequestedSupport {
-        identity name support_cancellation_requested;
+    declaration StandardRunCancellationObservation {
+        identity name observe_cancellation;
         implementation CurrentRunCancellationObservation;
 
-        surface { internal func support_cancellation_requested() -> bool; }
+        surface { internal func observe_cancellation() -> bool; }
     }
 
-    declaration StandardRunEnterCancellationSupport {
-        identity name support_enter_cancellation;
-        implementation CurrentRunCancellationEntry;
+    declaration StandardRunCancellationPropagation {
+        identity name propagate_cancellation;
+        implementation CurrentRunCancellationPropagation;
 
-        surface { internal func support_enter_cancellation(); }
+        surface { internal func propagate_cancellation(); }
     }
 
 }
 
 scope StandardTask at std.task {
-    declaration StandardTaskYieldSupport {
-        identity name support_yield;
+    declaration StandardTaskYield {
+        identity name yield_current_task;
         implementation TaskYield;
 
-        surface { internal func support_yield(); }
+        surface { internal func yield_current_task(); }
     }
 }

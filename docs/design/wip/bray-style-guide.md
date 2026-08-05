@@ -72,3 +72,12 @@ unless the language semantics explicitly make an import module-wide.
 
 Do not use numbered filenames or rely on source-file ordering. Split module contributions must remain understandable and correct
 independently of filesystem enumeration or compilation order.
+
+## Naming
+
+Name declarations for the operation or concept they represent. Do not add prefixes such as `support_`, `helper_`, `internal_`,
+`external_`, or `compiler_` merely to describe a declaration's implementation role, visibility, or compiler-known status.
+
+Internal, external, and compiler-known declarations follow the same naming rules as ordinary declarations. Their syntax and
+catalog metadata already communicate those properties. A prefix is appropriate only when the prefixed word is part of the
+domain concept itself.

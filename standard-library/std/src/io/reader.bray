@@ -1,13 +1,31 @@
 trusted module std.io;
 
-internal func support_buffered_reader<Source>(
+trait Reader
+{
+    mut func read(pos destination: &mut [u8]) -> Result<usize, IoError>
+        requires(blocking_execution());
+}
+
+trait AsyncReader
+{
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>
+        requires(blocking_execution());
+}
+
+struct StandardInput
+{
+    internal handle: u64;
+}
+
+func buffered_reader<Source>(
     pos source: Source,
     capacity: usize,
 ) -> Result<BufferedReader<Source>, IoError>
+    requires(capacity > 0)
 {
     if capacity == 0
     {
-        return Error(support_io_error(
+        return Error(io_error(
             kind = InvalidInput,
             native_code = 0,
             transferred = 0,

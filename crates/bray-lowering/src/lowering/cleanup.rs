@@ -525,7 +525,7 @@ impl Lowerer<'_> {
                 runtime: self.runtime_reference(RuntimeAbiRole::PanicPropagation),
             },
             CleanupDestination::PropagateCancellation => MirTerminatorKind::PropagateCancellation {
-                runtime: self.runtime_reference(RuntimeAbiRole::CurrentRunCancellationEntry),
+                runtime: self.runtime_reference(RuntimeAbiRole::CurrentRunCancellationPropagation),
             },
         };
 

@@ -30,11 +30,12 @@ const STANDARD_BUFFER_FIXTURES: &[&str] = &[
 ];
 const STANDARD_BUFFER_MEMORY_FIXTURE: &str =
     "xtask/fixtures/native-execution/standard-buffer-memory.bray";
-const STANDARD_BYTES_SOURCE: &str = "standard-library/std/src/bytes.bray";
-const STANDARD_BYTES_IMPLEMENTATION: &str = "standard-library/std/src/bytes_impl.bray";
+const STANDARD_BYTES_SOURCE: &str = "standard-library/std/src/bytes/buffer.bray";
 const STANDARD_CHARACTER_SOURCE: &str = "standard-library/std/src/character.bray";
-const STANDARD_FORMAT_SOURCE: &str = "standard-library/std/src/format.bray";
-const STANDARD_FORMAT_IMPLEMENTATION: &str = "standard-library/std/src/format_impl.bray";
+const STANDARD_FORMAT_OPTIONS_SOURCE: &str = "standard-library/std/src/format/options.bray";
+const STANDARD_FORMAT_ARGUMENT_SOURCE: &str = "standard-library/std/src/format/argument.bray";
+const STANDARD_FORMAT_SINK_SOURCE: &str = "standard-library/std/src/format/sink.bray";
+const STANDARD_FORMAT_RENDERING_SOURCE: &str = "standard-library/std/src/format/rendering.bray";
 const STANDARD_FORMAT_FIXTURE: &str = "xtask/fixtures/native-execution/standard-format.bray";
 const STANDARD_STRING_SOURCE: &str = "standard-library/std/src/string.bray";
 
@@ -49,7 +50,6 @@ pub(super) fn audit_standard_buffer(
         let fixtures = [
             STANDARD_BUFFER_MEMORY_FIXTURE,
             STANDARD_BYTES_SOURCE,
-            STANDARD_BYTES_IMPLEMENTATION,
             fixture,
         ];
 
@@ -74,11 +74,12 @@ pub(super) fn audit_standard_format(
     let fixtures = [
         STANDARD_BUFFER_MEMORY_FIXTURE,
         STANDARD_BYTES_SOURCE,
-        STANDARD_BYTES_IMPLEMENTATION,
         STANDARD_STRING_SOURCE,
         STANDARD_CHARACTER_SOURCE,
-        STANDARD_FORMAT_SOURCE,
-        STANDARD_FORMAT_IMPLEMENTATION,
+        STANDARD_FORMAT_OPTIONS_SOURCE,
+        STANDARD_FORMAT_ARGUMENT_SOURCE,
+        STANDARD_FORMAT_SINK_SOURCE,
+        STANDARD_FORMAT_RENDERING_SOURCE,
         STANDARD_FORMAT_FIXTURE,
     ];
 

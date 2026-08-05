@@ -42,8 +42,8 @@ pub const CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL: &str =
     "bray_runtime_current_run_cancellation_observation_v1";
 
 /// Stable symbol transferring cancellation to the current run boundary.
-pub const CURRENT_RUN_CANCELLATION_ENTRY_SYMBOL: &str =
-    "bray_runtime_current_run_cancellation_entry_v1";
+pub const CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL: &str =
+    "bray_runtime_current_run_cancellation_propagation_v1";
 
 /// Stable symbol shutting down the initialized runtime infrastructure.
 pub const STRUCTURED_SHUTDOWN_SYMBOL: &str = "bray_runtime_structured_shutdown_v1";
@@ -163,7 +163,9 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
         Role::CurrentRunCancellationObservation => {
             Some(CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL)
         }
-        Role::CurrentRunCancellationEntry => Some(CURRENT_RUN_CANCELLATION_ENTRY_SYMBOL),
+        Role::CurrentRunCancellationPropagation => {
+            Some(CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL)
+        }
         Role::JoinRegistration => Some(JOIN_REGISTRATION_SYMBOL),
         Role::TerminalPublication => Some(TERMINAL_PUBLICATION_SYMBOL),
         Role::RuntimeEvent => Some(RUNTIME_EVENT_SYMBOL),

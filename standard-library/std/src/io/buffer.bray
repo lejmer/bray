@@ -1,8 +1,26 @@
 trusted module std.io;
 
+struct BufferedReader<Source>
+{
+    internal mut source: Source;
+    internal mut storage: std.bytes.Buffer;
+    internal capacity: usize;
+    internal mut start: usize;
+    internal mut length: usize;
+}
+
+struct BufferedWriter<Sink>
+{
+    internal mut sink: Sink;
+    internal mut storage: std.bytes.Buffer;
+    internal capacity: usize;
+    internal mut start: usize;
+    internal mut length: usize;
+}
+
 internal func buffer_allocation_error() -> IoError
 {
-    return support_io_error(
+    return io_error(
         kind = Exhausted,
         native_code = 0,
         transferred = 0,
@@ -63,7 +81,7 @@ internal func transferred_error(pos error: IoError, transferred: usize) -> IoErr
         }
     };
 
-    return support_io_error(
+    return io_error(
         kind = kind,
         native_code = native_code,
         transferred = transferred,

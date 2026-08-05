@@ -8,9 +8,10 @@ use bray_base::NonEmptySharedStr;
 use bray_runtime_interface::{
     AWAITED_FRAME_COMPOSITION_SYMBOL, BinarySymbolName, CLEANUP_INCIDENT_REPORTING_SYMBOL,
     COMPATIBLE_LANE_SELECTION_SYMBOL, CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
-    ENTRY_FAILURE_REPORTING_SYMBOL, FRAME_COMPLETION_MOVE_SYMBOL, JOIN_REGISTRATION_SYMBOL,
-    MAIN_THREAD_LANE_DRIVE_SYMBOL, MAIN_THREAD_LANE_STARTUP_SYMBOL, PANIC_PROPAGATION_SYMBOL,
-    PANIC_REPORT_CONSTRUCTION_SYMBOL, PANIC_REPORTING_SYMBOL, PanicAbiIdentity,
+    CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL, ENTRY_FAILURE_REPORTING_SYMBOL,
+    FRAME_COMPLETION_MOVE_SYMBOL, JOIN_REGISTRATION_SYMBOL, MAIN_THREAD_LANE_DRIVE_SYMBOL,
+    MAIN_THREAD_LANE_STARTUP_SYMBOL, PANIC_PROPAGATION_SYMBOL, PANIC_REPORT_CONSTRUCTION_SYMBOL,
+    PANIC_REPORTING_SYMBOL, PanicAbiIdentity,
     ProtectedFrameAbiVersions, ROOT_CANCELLATION_REQUEST_SYMBOL, ROOT_COMPLETION_RESOLUTION_SYMBOL,
     ROOT_EXECUTION_SYMBOL, ROOT_TERMINAL_OBSERVATION_SYMBOL, RUNTIME_EVENT_SYMBOL, RuntimeAbiRole,
     RuntimeAbiVersion, RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
@@ -315,6 +316,10 @@ fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
         (
             RuntimeAbiRole::CurrentRunCancellationObservation,
             CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
+        ),
+        (
+            RuntimeAbiRole::CurrentRunCancellationPropagation,
+            CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL,
         ),
         (RuntimeAbiRole::JoinRegistration, JOIN_REGISTRATION_SYMBOL),
         (
@@ -789,6 +794,7 @@ mod tests {
                 RuntimeAbiRole::Wake,
                 RuntimeAbiRole::TaskCancellationRequest,
                 RuntimeAbiRole::CurrentRunCancellationObservation,
+                RuntimeAbiRole::CurrentRunCancellationPropagation,
                 RuntimeAbiRole::JoinRegistration,
                 RuntimeAbiRole::TerminalPublication,
                 RuntimeAbiRole::RuntimeEvent,

@@ -1,0 +1,47 @@
+module std.format;
+
+using std.memory;
+
+struct Argument<Value>
+{
+    value: Value;
+    options: Options;
+}
+
+func argument<Value>(pos value: Value) -> Argument<Value>
+{
+    return
+    {
+        value = value,
+        options = default_options(),
+    };
+}
+
+func argument_with<Value>(pos value: Value, options: Options) -> Argument<Value>
+{
+    return
+    {
+        value = value,
+        options = options,
+    };
+}
+
+trait Format
+{
+    func format(
+        pos destination: &mut ByteSink,
+        pos options: &Options,
+    ) -> Result<unit, std.memory.MemoryLayoutError>;
+}
+
+func write<Value>(
+    pos destination: &mut ByteSink,
+    pos value: Argument<Value>,
+) -> Result<unit, std.memory.MemoryLayoutError>
+    with(Value: Format)
+{
+    let formatted: Value = value.value;
+    let formatting_options: Options = value.options;
+
+    return formatted.format(destination, &formatting_options);
+}

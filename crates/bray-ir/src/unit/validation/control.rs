@@ -145,7 +145,7 @@ pub(super) fn validate_terminator(
             validate_runtime_role(
                 unit,
                 *runtime,
-                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationEntry,
+                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
             )?;
         }
         MirTerminatorKind::CancelCurrentRun { cleanup } => {

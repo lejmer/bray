@@ -1501,7 +1501,7 @@ mod tests {
             implementation_hooks(&compilation, "checkpoint"),
             [
                 ImplementationHook::CurrentRunCancellationObservation,
-                ImplementationHook::CurrentRunCancellationEntry,
+                ImplementationHook::CurrentRunCancellationPropagation,
             ]
         );
 

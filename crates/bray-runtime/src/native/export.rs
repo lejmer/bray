@@ -634,7 +634,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_current_run_cancellation_entry_v1() -> ! {
+    pub extern "C-unwind" fn bray_runtime_current_run_cancellation_propagation_v1() -> ! {
         propagate_current_run_cancellation()
     }
 }
@@ -1548,7 +1548,7 @@ mod tests {
     }
 
     extern "C-unwind" fn propagate_test_cancellation(_: usize) {
-        super::bray_runtime_current_run_cancellation_entry_v1()
+        super::bray_runtime_current_run_cancellation_propagation_v1()
     }
 
     extern "C-unwind" fn suspend_and_self_wake(_: usize) -> NativeFrameProgress {
