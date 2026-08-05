@@ -66,8 +66,9 @@ another configuration. Check and semantic inspection remain configuration-indepe
 
 ## Formatter Configuration
 
-Formatting uses the formatter defaults when the workspace does not select a formatter configuration. A workspace can select one
-formatter configuration file, and `bray fmt --config <path>` can explicitly override that selection for one invocation. Relative
+Formatting uses the formatter defaults when the workspace does not select a formatter configuration. The optional
+`formatter_configuration` path in `bray-workspace.json` selects one workspace-relative configuration file, and
+`bray fmt --config <path>` can explicitly override that selection for one invocation. Relative
 configuration paths are resolved against the workspace directory rather than the process working directory.
 
 Bray Tack owns configuration selection and path resolution, but it does not interpret formatting rules or reproduce formatter

@@ -178,10 +178,15 @@ fn execute_invocation_with_progress(
                 output_format,
             );
         }
-        TackCommand::Format { check, files } => {
+        TackCommand::Format {
+            check,
+            configuration,
+            files,
+        } => {
             return run_format(
                 &workspace_root,
                 check,
+                configuration,
                 files,
                 output_format,
                 executor,
@@ -678,6 +683,7 @@ fn run_language_server(
 fn run_format(
     workspace_root: &Path,
     check: bool,
+    configuration: Option<PathBuf>,
     files: Vec<PathBuf>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
@@ -685,38 +691,79 @@ fn run_format(
 ) -> TackRunResult {
     let explicit_files = !files.is_empty();
 
-    let mut files = if files.is_empty() {
-        let graph = match load_graph(workspace_root) {
-            Ok(graph) => graph,
+    let graph = if configuration.is_none() || files.is_empty() {
+        match load_graph(workspace_root) {
+            Ok(graph) => Some(graph),
             Err(diagnostics) => return failure(diagnostics, output_format),
-        };
+        }
+    } else {
+        None
+    };
 
-        root_source_files(&graph, workspace_root)
+    let mut files = if let Some(graph) = graph.as_ref().filter(|_| files.is_empty()) {
+        root_source_files(graph, workspace_root)
     } else {
         files
     };
 
-    if explicit_files && files.as_slice() != [PathBuf::from("-")] {
-        let invocation_directory = match std::env::current_dir() {
-            Ok(directory) => directory,
+    let needs_invocation_directory = explicit_files && files.as_slice() != [PathBuf::from("-")]
+        || configuration
+            .as_ref()
+            .is_some_and(|path| path.is_relative());
+
+    let invocation_directory = if needs_invocation_directory {
+        match std::env::current_dir() {
+            Ok(directory) => Some(directory),
             Err(_) => {
                 return failure(
                     operation_diagnostics("formatter_working_directory"),
                     output_format,
                 );
             }
-        };
+        }
+    } else {
+        None
+    };
+
+    if explicit_files && files.as_slice() != [PathBuf::from("-")] {
+        let invocation_directory = invocation_directory
+            .as_deref()
+            .unwrap_or_else(|| unreachable!("explicit files require an invocation directory"));
 
         for path in &mut files {
             if path.is_relative() {
                 *path = invocation_directory.join(&*path);
             }
         }
+
+        files.sort_unstable();
     }
+
+    let configuration = configuration.map(|path| {
+        if path.is_relative() {
+            invocation_directory
+                .as_deref()
+                .unwrap_or_else(|| unreachable!("relative configuration requires a directory"))
+                .join(path)
+        } else {
+            path
+        }
+    });
+
+    let configuration = configuration.or_else(|| {
+        graph
+            .as_ref()
+            .and_then(ProjectGraph::formatter_configuration)
+            .map(|path| path.beneath(workspace_root))
+    });
 
     let mut request = ToolRequest::new(Tool::Formatter, workspace_root);
 
     request.arg("--format").arg(output_format.as_str());
+
+    if let Some(configuration) = configuration {
+        request.arg("--config").arg(configuration.into_os_string());
+    }
 
     if check {
         request.arg("--check");
@@ -742,7 +789,7 @@ fn run_format(
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::io::{Cursor, Read, Write};
     use std::path::PathBuf;
     use std::process::ExitCode;
@@ -1234,6 +1281,72 @@ mod tests {
     }
 
     #[test]
+    fn formatter_configuration_paths_follow_workspace_and_invocation_ownership() {
+        let workspace = ProjectWorkspace::basic();
+        workspace.set_formatter_configuration("configuration/workspace.json");
+
+        let workspace_executor = RecordingExecutor::default();
+
+        let workspace_result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "fmt".into(),
+            ],
+            &workspace_executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(workspace_result.exit_code(), ExitCode::SUCCESS);
+
+        let workspace_requests = workspace_executor.requests();
+
+        let [workspace_request] = workspace_requests.as_slice() else {
+            panic!("workspace format should invoke exactly one formatter");
+        };
+
+        assert!(workspace_request.arguments.windows(2).any(|pair| {
+            pair[0] == "--config"
+                && PathBuf::from(&pair[1]).ends_with("configuration/workspace.json")
+        }));
+
+        let override_executor = RecordingExecutor::default();
+
+        let override_result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "fmt".into(),
+                "--config".into(),
+                "override.json".into(),
+                "-".into(),
+            ],
+            &override_executor,
+            Cursor::new(b"module app;".to_vec()),
+        );
+
+        assert_eq!(override_result.exit_code(), ExitCode::SUCCESS);
+
+        let override_requests = override_executor.requests();
+
+        let [override_request] = override_requests.as_slice() else {
+            panic!("overridden format should invoke exactly one formatter");
+        };
+
+        let expected_override = std::env::current_dir()
+            .unwrap_or_else(|error| panic!("test invocation directory must exist: {error:?}"))
+            .join("override.json");
+
+        assert!(has_argument_pair(
+            &override_request.arguments,
+            "--config",
+            expected_override
+        ));
+    }
+
+    #[test]
     fn project_inspection_remains_owned_by_tack() {
         let workspace = ProjectWorkspace::basic();
         let executor = RecordingExecutor::default();
@@ -1307,7 +1420,9 @@ mod tests {
         assert!(has_argument_pair(&request.arguments, "--target", "native"));
     }
 
-    fn has_argument_pair(arguments: &[OsString], name: &str, value: &str) -> bool {
+    fn has_argument_pair(arguments: &[OsString], name: &str, value: impl AsRef<OsStr>) -> bool {
+        let value = value.as_ref();
+
         arguments
             .windows(2)
             .any(|pair| pair[0] == name && pair[1] == value)

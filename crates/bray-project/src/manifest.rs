@@ -6,6 +6,8 @@ pub(crate) struct WorkspaceManifest {
     pub format: u32,
     #[serde(default)]
     pub package: Option<WorkspacePackageMetadataManifest>,
+    #[serde(default)]
+    pub formatter_configuration: Option<String>,
     pub output_root: String,
     pub targets: Vec<TargetManifest>,
     pub packages: Vec<WorkspacePackageManifest>,
