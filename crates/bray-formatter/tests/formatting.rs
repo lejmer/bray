@@ -211,7 +211,7 @@ fn formats_generic_delimiters_prefix_operators_and_inline_collections() {
             "\n",
             "@test\n",
             "@abi(\"C\")\n",
-            "public async func transform<T, const N: i32>(pos value: i32 = 1, mut tail: bool,) -> unit\n",
+            "public async func transform<T, const N: i32>(pos value: i32 = 1, mut tail: bool) -> unit\n",
             "{\n",
             "}\n",
             "\n",
@@ -243,6 +243,35 @@ fn separates_binary_operators_from_prefix_operands() {
 
     assert!(parsed.diagnostics().is_empty());
     assert!(!parsed.source_unit().is_recovered());
+    assert!(!formatted(output.text()).changed());
+}
+
+#[test]
+fn separates_mutable_slice_types_from_their_element_list() {
+    let source = "module app; func read(pos bytes: &mut[u8]){}";
+    let output = formatted(source);
+
+    assert!(output.text().contains("pos bytes: &mut [u8]"));
+    assert!(!formatted(output.text()).changed());
+}
+
+#[test]
+fn removes_trailing_commas_when_lists_flatten() {
+    let source = concat!(
+        "module app;\n",
+        "extern const func layout_of<T>(\n",
+        "    count: usize,\n",
+        ") -> Result<MemoryLayout, MemoryLayoutError>;\n",
+    );
+
+    let output = formatted(source);
+
+    assert!(
+        output
+            .text()
+            .contains("layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>")
+    );
+
     assert!(!formatted(output.text()).changed());
 }
 

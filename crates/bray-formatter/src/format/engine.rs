@@ -364,6 +364,17 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                 .configuration
                 .is_enabled(FormatterRule::TrailingCommaLayout);
 
+        if is_close_delimiter(kind)
+            && list_delimiter
+            && matches!(self.previous_token, Some(SyntaxKind::CommaToken))
+            && self
+                .configuration
+                .is_enabled(FormatterRule::TrailingCommaLayout)
+            && self.nodes.last().copied() != Some(SyntaxKind::TupleExpression)
+        {
+            self.writer.omit_trailing_comma_when_flat();
+        }
+
         if is_close_delimiter(kind) && list_delimiter && trailing_comma_layout {
             if self.configuration.is_enabled(FormatterRule::Indentation) {
                 self.writer.decrease_indent();

@@ -138,6 +138,7 @@ trusted internal func process_context_stream_handle(offset: usize) -> u64
                 destination,
                 capacity = required,
                 written_or_required = written_pointer,
+
             );
 
             if copied.category != 0
@@ -155,7 +156,7 @@ trusted internal func process_context_stream_handle(offset: usize) -> u64
                 return 0;
             }
 
-            trusted std.memory.set_initialized_count<u8>(&mut buffer, count = capacity,);
+            trusted std.memory.set_initialized_count<u8>(&mut buffer, count = capacity);
 
             return read_context_u64(&buffer, offset = offset);
         }
@@ -233,7 +234,7 @@ internal func platform_error_kind(pos category: u32) -> IoErrorKind
     return Other;
 }
 
-internal func io_error(kind: IoErrorKind, native_code: i64, transferred: usize,) -> IoError
+internal func io_error(kind: IoErrorKind, native_code: i64, transferred: usize) -> IoError
 {
     let mut platform_code: i64? = none;
 
@@ -250,28 +251,28 @@ internal func io_error(kind: IoErrorKind, native_code: i64, transferred: usize,)
     };
 }
 
-internal func platform_status_error(pos status: PlatformStatus, transferred: usize = 0,) -> IoError
+internal func platform_status_error(pos status: PlatformStatus, transferred: usize = 0) -> IoError
 {
     let category: u32 = status.category;
     let kind: IoErrorKind = platform_error_kind(category);
     let native_code: i64 = status.native_code;
 
-    return io_error(kind = kind, native_code = native_code, transferred = transferred,);
+    return io_error(kind = kind, native_code = native_code, transferred = transferred);
 }
 
 internal func invalid_transfer_error(transferred: usize = 0) -> IoError
 {
-    return io_error(kind = Other, native_code = 0, transferred = transferred,);
+    return io_error(kind = Other, native_code = 0, transferred = transferred);
 }
 
 internal func unavailable_stream_error() -> IoError
 {
-    return io_error(kind = Unsupported, native_code = 0, transferred = 0,);
+    return io_error(kind = Unsupported, native_code = 0, transferred = 0);
 }
 
 internal func no_progress_error(transferred: usize = 0) -> IoError
 {
-    return io_error(kind = BrokenStream, native_code = 0, transferred = transferred,);
+    return io_error(kind = BrokenStream, native_code = 0, transferred = transferred);
 }
 
 internal func checked_transfer(
@@ -295,7 +296,7 @@ internal func checked_transfer(
 
     if status.category != 0
     {
-        return Error(platform_status_error(status, transferred = transferred_count,));
+        return Error(platform_status_error(status, transferred = transferred_count));
     }
 
     if require_progress && maximum > 0 && transferred_count == 0
@@ -368,9 +369,10 @@ trusted internal func write_standard_stream_unlocked(pos source: &[u8], handle: 
         source = source_pointer,
         length = requested as u64,
         transferred = transferred_pointer,
+
     );
 
-    return checked_transfer(status, transferred = transferred, maximum = requested, require_progress = true,);
+    return checked_transfer(status, transferred = transferred, maximum = requested, require_progress = true);
 }
 
 internal func write_standard_stream(pos source: &[u8], handle: u64) -> Result<usize, IoError>
@@ -414,7 +416,7 @@ internal async func flush_standard_stream_async(handle: u64) -> Result<unit, IoE
     return flush_standard_stream(handle = handle);
 }
 
-trusted internal func read_standard_stream(pos destination: &mut[u8], handle: u64) -> Result<usize, IoError>
+trusted internal func read_standard_stream(pos destination: &mut [u8], handle: u64) -> Result<usize, IoError>
     requires(blocking_execution())
     uses(foreign_call)
 {
@@ -433,14 +435,15 @@ trusted internal func read_standard_stream(pos destination: &mut[u8], handle: u6
         destination = destination_pointer,
         length = capacity as u64,
         transferred = transferred_pointer,
+
     );
 
-    return checked_transfer(status, transferred = transferred, maximum = capacity, require_progress = false,);
+    return checked_transfer(status, transferred = transferred, maximum = capacity, require_progress = false);
 }
 
 impl StandardInputReader = StandardInput(Reader)
 {
-    mut func read(pos destination: &mut[u8]) -> Result<usize, IoError>
+    mut func read(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
         let handle: u64 = self.handle;
@@ -489,7 +492,7 @@ impl StandardErrorWriter = StandardError(Writer)
 
 impl StandardInputAsyncReader = StandardInput(AsyncReader)
 {
-    mut async func read_async(pos destination: &mut[u8]) -> Result<usize, IoError>
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
         let handle: u64 = self.handle;

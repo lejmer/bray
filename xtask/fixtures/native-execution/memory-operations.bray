@@ -16,7 +16,7 @@ trusted func main() -> i32
     trusted core.memory.write<u8>(pointer, 7);
     trusted core.memory.write<u8>(next, 9);
     trusted core.memory.copy<u8>(source = pointer, destination = destination, count = 2);
-    trusted core.memory.copy_overlapping<u8>(source = destination, destination = overlapping_destination, count = 2,);
+    trusted core.memory.copy_overlapping<u8>(source = destination, destination = overlapping_destination, count = 2);
 
     let copied: u8 = trusted core.memory.read<u8>(overlapping_destination);
     let bytes: RawPointer<u8> = trusted core.memory.reinterpret<u8, u8>(overlapping_destination);

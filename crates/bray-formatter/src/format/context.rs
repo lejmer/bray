@@ -260,6 +260,9 @@ fn punctuation_spacing(previous: SyntaxKind, current: SyntaxKind) -> Option<Toke
         SyntaxKind::OpenParenToken | SyntaxKind::CloseParenToken => {
             Some(no_space(FormatterRule::ParenthesizedListLayout))
         }
+        SyntaxKind::OpenBracketToken if previous == SyntaxKind::MutKeyword => {
+            Some(space(FormatterRule::WordSpacing))
+        }
         SyntaxKind::OpenBracketToken | SyntaxKind::CloseBracketToken => {
             Some(no_space(FormatterRule::BracketedListLayout))
         }

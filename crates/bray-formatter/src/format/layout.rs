@@ -14,6 +14,7 @@ pub(super) enum BreakKind {
 
 pub(super) enum LayoutElement {
     Text(Box<str>),
+    TrailingComma,
     Space,
     Break(BreakKind),
     Indent(i8),
@@ -65,6 +66,12 @@ impl Renderer<'_> {
         for (index, element) in self.elements.iter().enumerate() {
             match element {
                 LayoutElement::Text(text) => self.write_text(text),
+                LayoutElement::TrailingComma
+                    if matches!(self.groups.last(), Some(GroupMode::Broken)) =>
+                {
+                    self.write_text(",");
+                }
+                LayoutElement::TrailingComma => {}
                 LayoutElement::Space => self.write_space(),
                 LayoutElement::Break(kind) => self.write_break(index, *kind),
                 LayoutElement::Indent(change) => self.change_indent(*change),
@@ -192,6 +199,7 @@ fn flat_width_until_break(elements: &[LayoutElement]) -> Option<usize> {
             LayoutElement::Text(text) => {
                 width = width.saturating_add(UnicodeWidthStr::width(text.as_ref()));
             }
+            LayoutElement::TrailingComma => {}
             LayoutElement::Space => width = width.saturating_add(1),
             LayoutElement::Break(_) => return Some(width),
             LayoutElement::Indent(_) | LayoutElement::GroupStart | LayoutElement::GroupEnd => {}
@@ -211,6 +219,7 @@ fn flat_width(elements: &[LayoutElement]) -> Option<usize> {
             LayoutElement::Text(text) => {
                 width = width.saturating_add(UnicodeWidthStr::width(text.as_ref()));
             }
+            LayoutElement::TrailingComma => {}
             LayoutElement::Space => width = width.saturating_add(1),
             LayoutElement::Break(BreakKind::Required(_)) => return None,
             LayoutElement::Break(BreakKind::Optional { space_when_flat }) => {

@@ -50,6 +50,7 @@ internal func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<
             result = result,
             written = written,
             remaining = length - written,
+
         );
 
         match consume advanced
@@ -68,7 +69,7 @@ internal func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<
     return Ok(written);
 }
 
-internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8],) -> Result<usize, IoError>
+internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<usize, IoError>
     with(Sink: AsyncWriter)
     requires(blocking_execution())
 {
@@ -84,6 +85,7 @@ internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8]
             result = result,
             written = written,
             remaining = length - written,
+
         );
 
         match consume advanced
@@ -102,7 +104,7 @@ internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8]
     return Ok(written);
 }
 
-internal func write_standard_output_all(pos output: &mut StandardOutput, pos source: &[u8],) -> Result<usize, IoError>
+internal func write_standard_output_all(pos output: &mut StandardOutput, pos source: &[u8]) -> Result<usize, IoError>
     requires(blocking_execution())
 {
     let length: usize = internal std.memory.byte_slice_length(source);
@@ -112,12 +114,13 @@ internal func write_standard_output_all(pos output: &mut StandardOutput, pos sou
     {
         let remaining: &[u8] = &source[written.. length];
 
-        let result: Result<usize, IoError> = trusted write_standard_stream_unlocked(remaining, handle = output.handle,);
+        let result: Result<usize, IoError> = trusted write_standard_stream_unlocked(remaining, handle = output.handle);
 
         let advanced: Result<usize, IoError> = advance_write_all(
             result = result,
             written = written,
             remaining = length - written,
+
         );
 
         match consume advanced
@@ -157,7 +160,7 @@ internal func flush_after_write<Sink>(pos sink: &mut Sink, written: usize) -> Re
 {
     let result: Result<unit, IoError> = sink.flush();
 
-    return checked_flush_result(result = result, written = written,);
+    return checked_flush_result(result = result, written = written);
 }
 
 internal async func flush_after_write_async<Sink>(pos sink: &mut Sink, written: usize) -> Result<unit, IoError>
@@ -166,7 +169,7 @@ internal async func flush_after_write_async<Sink>(pos sink: &mut Sink, written: 
 {
     let result: Result<unit, IoError> = await sink.flush_async();
 
-    return checked_flush_result(result = result, written = written,);
+    return checked_flush_result(result = result, written = written);
 }
 
 func print(pos text: string) -> Result<unit, IoError>
@@ -188,7 +191,7 @@ func print(pos text: string) -> Result<unit, IoError>
         {
             let flush_result: Result<unit, IoError> = trusted flush_standard_stream_unlocked(handle = handle);
 
-            return checked_flush_result(result = flush_result, written = written,);
+            return checked_flush_result(result = flush_result, written = written);
         }
         case Error(error)
         {
@@ -225,7 +228,7 @@ func print_line(pos text: string) -> Result<unit, IoError>
                 {
                     let flush_result: Result<unit, IoError> = trusted flush_standard_stream_unlocked(handle = handle);
 
-                    return checked_flush_result(result = flush_result, written = written + count,);
+                    return checked_flush_result(result = flush_result, written = written + count);
                 }
                 case Error(error)
                 {

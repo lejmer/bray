@@ -8,7 +8,7 @@ internal func write_text(
     pos value: &string,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    return std.bytes.append(&mut destination.buffer, bytes = std.string.utf8(value),);
+    return std.bytes.append(&mut destination.buffer, bytes = std.string.utf8(value));
 }
 
 internal func write_padding(
@@ -16,7 +16,7 @@ internal func write_padding(
     pos count: usize,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    return std.bytes.append_repeated(&mut destination.buffer, value = 32, count = count,);
+    return std.bytes.append_repeated(&mut destination.buffer, value = 32, count = count);
 }
 
 internal func write_aligned(
@@ -341,14 +341,14 @@ internal func write_unsigned_digits(
 {
     if value < radix
     {
-        return std.bytes.push(&mut destination.buffer, value = digit_byte(value, uppercase),);
+        return std.bytes.push(&mut destination.buffer, value = digit_byte(value, uppercase));
     }
 
     let digit: u8 = digit_byte(value % radix, uppercase);
 
-    try write_unsigned_digits(&mut destination, value / radix, radix, uppercase,);
+    try write_unsigned_digits(&mut destination, value / radix, radix, uppercase);
 
-    return std.bytes.push(&mut destination.buffer, value = digit,);
+    return std.bytes.push(&mut destination.buffer, value = digit);
 }
 
 internal func write_signed_digits(
@@ -360,14 +360,14 @@ internal func write_signed_digits(
 {
     if value > -radix
     {
-        return std.bytes.push(&mut destination.buffer, value = signed_digit_byte(-value, uppercase),);
+        return std.bytes.push(&mut destination.buffer, value = signed_digit_byte(-value, uppercase));
     }
 
     let digit: u8 = signed_digit_byte(-(value % radix), uppercase);
 
-    try write_signed_digits(&mut destination, value / radix, radix, uppercase,);
+    try write_signed_digits(&mut destination, value / radix, radix, uppercase);
 
-    return std.bytes.push(&mut destination.buffer, value = digit,);
+    return std.bytes.push(&mut destination.buffer, value = digit);
 }
 
 internal func write_requested_sign(
@@ -417,7 +417,7 @@ internal func write_unsigned_integer(
     try write_requested_sign(&mut destination, negative = false, options = options);
     try write_padding(&mut destination, digits - natural_digits);
 
-    try write_unsigned_digits(&mut destination, value, radix, uppercase_digits(options),);
+    try write_unsigned_digits(&mut destination, value, radix, uppercase_digits(options));
 
     return write_padding(destination, padding - left);
 }
@@ -443,12 +443,12 @@ internal func write_signed_integer(
     try write_requested_sign(&mut destination, negative = negative, options = options);
     try write_padding(&mut destination, digits - natural_digits);
 
-    try write_signed_digits(&mut destination, normalized, radix, uppercase_digits(options),);
+    try write_signed_digits(&mut destination, normalized, radix, uppercase_digits(options));
 
     return write_padding(destination, padding - left);
 }
 
-internal func write_escape(pos destination: &mut ByteSink, pos value: u8,) -> Result<unit, std.memory.MemoryLayoutError>
+internal func write_escape(pos destination: &mut ByteSink, pos value: u8) -> Result<unit, std.memory.MemoryLayoutError>
 {
     try std.bytes.push(&mut destination.buffer, value = 92);
 
@@ -652,7 +652,7 @@ internal func write_raw_character(
 
     while index < length
     {
-        try std.bytes.push(&mut destination.buffer, value = std.character.utf8_byte(value = value, index = index),);
+        try std.bytes.push(&mut destination.buffer, value = std.character.utf8_byte(value = value, index = index));
 
         index = index + 1;
     }
@@ -708,7 +708,7 @@ internal func write_character_value(
     if escaped
     {
         try std.bytes.push(&mut destination.buffer, value = 92);
-        try std.bytes.push(&mut destination.buffer, value = character_escape_byte(scalar),);
+        try std.bytes.push(&mut destination.buffer, value = character_escape_byte(scalar));
     }
     else
     {

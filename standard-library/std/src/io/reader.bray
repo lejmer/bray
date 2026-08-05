@@ -2,13 +2,13 @@ trusted module std.io;
 
 trait Reader
 {
-    mut func read(pos destination: &mut[u8]) -> Result<usize, IoError>
+    mut func read(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution());
 }
 
 trait AsyncReader
 {
-    mut async func read_async(pos destination: &mut[u8]) -> Result<usize, IoError>
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution());
 }
 
@@ -17,7 +17,7 @@ struct StandardInput
     internal handle: u64;
 }
 
-internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source>, pos destination: &mut[u8],) -> usize
+internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source>, pos destination: &mut [u8]) -> usize
 {
     let destination_length: usize = internal std.memory.byte_slice_length(&destination);
 
@@ -45,7 +45,7 @@ internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source
 
 internal func buffered_read_result<Source>(
     pos reader: &mut BufferedReader<Source>,
-    pos destination: &mut[u8],
+    pos destination: &mut [u8],
     result: Result<usize, IoError>,
 ) -> Result<usize, IoError>
 {
@@ -84,7 +84,7 @@ internal func buffered_read_result<Source>(
 
 internal func read_buffered<Source>(
     pos reader: &mut BufferedReader<Source>,
-    pos destination: &mut[u8],
+    pos destination: &mut [u8],
 ) -> Result<usize, IoError>
     with(Source: Reader)
     requires(blocking_execution())
@@ -105,7 +105,7 @@ internal func read_buffered<Source>(
 
     let result: Result<usize, IoError> =
     {
-        let storage: &mut[u8] = std.bytes.as_slice_mut(&mut reader.storage);
+        let storage: &mut [u8] = std.bytes.as_slice_mut(&mut reader.storage);
 
         yield reader.source.read(storage);
     };
@@ -115,7 +115,7 @@ internal func read_buffered<Source>(
 
 internal async func read_buffered_async<Source>(
     pos reader: &mut BufferedReader<Source>,
-    pos destination: &mut[u8],
+    pos destination: &mut [u8],
 ) -> Result<usize, IoError>
     with(Source: AsyncReader)
     requires(blocking_execution())
@@ -182,7 +182,7 @@ impl BufferedReader<Source>
 
 impl BufferedReaderSourceReader = BufferedReader<Source>(Reader) with(Source: Reader)
 {
-    mut func read(pos destination: &mut[u8]) -> Result<usize, IoError>
+    mut func read(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
         return read_buffered(&mut self, destination);
@@ -191,7 +191,7 @@ impl BufferedReaderSourceReader = BufferedReader<Source>(Reader) with(Source: Re
 
 impl BufferedReaderSourceAsyncReader = BufferedReader<Source>(AsyncReader) with(Source: AsyncReader)
 {
-    mut async func read_async(pos destination: &mut[u8]) -> Result<usize, IoError>
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, IoError>
         requires(blocking_execution())
     {
         return await read_buffered_async(&mut self, destination);

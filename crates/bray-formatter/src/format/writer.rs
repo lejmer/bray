@@ -102,6 +102,18 @@ impl FormatWriter {
         }
     }
 
+    pub(super) fn omit_trailing_comma_when_flat(&mut self) {
+        for element in self.elements.iter_mut().rev() {
+            if let LayoutElement::Text(text) = element {
+                if text.as_ref() == "," {
+                    *element = LayoutElement::TrailingComma;
+                }
+
+                break;
+            }
+        }
+    }
+
     pub(super) fn write(&mut self, text: &str) {
         self.flush_layout();
         self.elements.push(LayoutElement::Text(text.into()));

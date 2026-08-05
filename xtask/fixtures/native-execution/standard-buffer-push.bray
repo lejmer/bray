@@ -10,7 +10,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try push(value = 6, buffer = &mut buffer);
     try reserve(additional = 2, buffer = &mut buffer);
 
-    let values: &mut[u8] = as_slice_mut(&mut buffer);
+    let values: &mut [u8] = as_slice_mut(&mut buffer);
 
     assert(length(&buffer) == 3);
     assert(capacity(&buffer) >= 5);
