@@ -153,6 +153,7 @@ impl Workspace {
             .ok_or(WorkspaceError::DocumentNotFound)?;
 
         source.uri.clone_from(&uri);
+
         source.version = version;
         source.text = text;
         source.is_open = true;
@@ -211,7 +212,6 @@ impl Workspace {
         apply_changes(source, version, changes)?;
 
         let affected = self.rebuild_products_from(&owner.product)?;
-
         let current = self.document(uri).ok_or(WorkspaceError::DocumentNotFound)?;
 
         Ok(WorkspaceUpdate {
@@ -855,6 +855,7 @@ mod tests {
 
         assert_eq!(opened.revision, 1);
         assert_eq!(changed.revision, 2);
+
         assert!(!Arc::ptr_eq(&opened.compilation, &changed.compilation));
 
         assert_eq!(
@@ -937,6 +938,7 @@ mod tests {
 
         assert!(!workspace.is_current(&other_before.compilation_revision));
         assert!(workspace.is_current(&other_after.compilation_revision));
+
         assert_eq!(other_before.revision, other_after.revision);
     }
 
@@ -1082,6 +1084,7 @@ mod tests {
 
         assert!(!workspace.is_current(&opened.compilation_revision));
         assert!(workspace.is_current(&dependent.compilation_revision));
+
         assert_eq!(opened.revision, dependent.revision);
     }
 }
