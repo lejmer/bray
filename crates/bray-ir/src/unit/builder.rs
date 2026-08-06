@@ -45,7 +45,7 @@ impl MirUnitBuilder {
         target: MirTargetFacts,
     ) -> Self {
         Self {
-            key: MirUnitKey::ExternalCallable(callable),
+            key: MirUnitKey::ImportedCallable(callable),
             unit,
             source: MirSourceOrigin::ImportedCallable(callable),
             target,

@@ -435,12 +435,35 @@ fn publish_package_interface(
         publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData)
     })?;
 
+    let implementation = bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
+        &artifact,
+        bundle,
+        bray_package_interface::InterfaceValidationLimits::default(),
+    )
+    .map_err(|_| publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData))?;
+
+    publish_artifact(destination, artifact.bytes(), diagnostic_id)?;
+
+    let implementation_destination = destination.with_extension("brayimpl");
+
+    publish_artifact(
+        &implementation_destination,
+        implementation.bytes(),
+        diagnostic_id,
+    )
+}
+
+fn publish_artifact(
+    destination: &Path,
+    bytes: &[u8],
+    diagnostic_id: DiagnosticId,
+) -> Result<(), Diagnostic> {
     let mut staging =
         StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
             .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))?;
 
     staging
-        .write_all(artifact.bytes())
+        .write_all(bytes)
         .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))?;
 
     staging

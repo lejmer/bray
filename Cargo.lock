@@ -430,6 +430,7 @@ dependencies = [
  "bray-bound-tree",
  "bray-compiler-known",
  "bray-diagnostics",
+ "bray-ir",
  "bray-messages",
  "bray-runtime-interface",
  "bray-symbols",

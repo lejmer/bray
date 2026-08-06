@@ -312,6 +312,7 @@ const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
         | ArtifactKind::ExecutableModule
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata => None,
     }
 }

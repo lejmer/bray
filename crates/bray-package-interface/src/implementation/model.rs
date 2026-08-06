@@ -4,13 +4,14 @@ use std::sync::Arc;
 use bray_bound_tree::CheckedTemplateKind;
 use bray_symbols::InterfaceSymbolId;
 
-use crate::decode::map_wire_error;
+use crate::decode::{DecodeBudget, map_wire_error};
 use crate::semantic::{decode_template_payload, encode_template_payload};
 use crate::wire::{WireEncoder, WireReader};
 use crate::{
-    InterfaceCheckedTemplate, InterfaceContentHash, InterfaceLanguageRevision, InterfaceLimit,
-    InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,
-    PackageInterfaceSurface, ValidatedPackageInterface,
+    InterfaceArtifact, InterfaceCheckedTemplate, InterfaceContentHash, InterfaceLanguageRevision,
+    InterfaceLimit, InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,
+    InterfaceValidationPolicy, PackageInterfaceExportBundle, PackageInterfaceSurface,
+    ValidatedPackageInterface,
 };
 
 const MAGIC: [u8; 8] = *b"BRAYIMPL";
@@ -99,9 +100,32 @@ pub struct PackageImplementationArtifact {
     interface_content_hash: InterfaceContentHash,
     language_revision: InterfaceLanguageRevision,
     directory: Arc<[ImplementationDirectoryEntry]>,
+    limits: InterfaceValidationLimits,
 }
 
 impl PackageImplementationArtifact {
+    /// Encodes the implementation payloads associated with one interface export.
+    pub fn try_from_export_bundle(
+        interface: &InterfaceArtifact,
+        bundle: &PackageInterfaceExportBundle,
+        limits: InterfaceValidationLimits,
+    ) -> Result<Self, PackageImplementationArtifactBuildError> {
+        let validated = ValidatedPackageInterface::try_new(
+            interface.shared_bytes(),
+            InterfaceValidationPolicy::new(bundle.language_revision()).with_limits(limits),
+        )
+        .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)?;
+
+        Self::try_new(
+            &validated,
+            bundle.surface(),
+            bundle.semantic_facts(),
+            [],
+            bundle.executable_templates().iter().cloned(),
+            limits,
+        )
+    }
+
     /// Validates and encodes implementation payloads for one exact package interface.
     pub fn try_new(
         interface: &ValidatedPackageInterface,
@@ -166,6 +190,12 @@ impl PackageImplementationArtifact {
         limits: InterfaceValidationLimits,
     ) -> Result<Self, InterfaceValidationError> {
         let bytes = bytes.into();
+
+        limits.check(
+            InterfaceLimit::FileSize,
+            u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        )?;
+
         let mut reader = WireReader::new(&bytes);
 
         if reader.read_array::<8>().map_err(map_wire_error)? != MAGIC {
@@ -200,11 +230,13 @@ impl PackageImplementationArtifact {
             return Err(InterfaceValidationError::Truncated);
         }
 
-        let mut directory = Vec::with_capacity(count);
+        let mut budget = DecodeBudget::new(limits);
+        let mut directory = budget.allocate_items(&reader, count)?;
         let mut expected_offset = 0_u64;
 
         for _ in 0..count {
             let owner = InterfaceSymbolId::new(reader.read_u32().map_err(map_wire_error)?);
+
             let kind = ImplementationPayloadKind::from_raw(
                 reader.read_array::<1>().map_err(map_wire_error)?[0],
             )
@@ -216,6 +248,8 @@ impl PackageImplementationArtifact {
 
             let offset = reader.read_u64().map_err(map_wire_error)?;
             let length = reader.read_u64().map_err(map_wire_error)?;
+
+            limits.check(InterfaceLimit::BlobLength, length)?;
 
             if offset != expected_offset {
                 return Err(InterfaceValidationError::Malformed);
@@ -273,6 +307,7 @@ impl PackageImplementationArtifact {
             interface_content_hash,
             language_revision,
             directory: directory.into(),
+            limits,
         })
     }
 
@@ -291,12 +326,16 @@ impl PackageImplementationArtifact {
         &self.bytes
     }
 
+    /// Returns the canonical encoded implementation artifact bytes.
+    pub fn shared_bytes(&self) -> Arc<[u8]> {
+        Arc::clone(&self.bytes)
+    }
+
     /// Decodes and validates only the requested checked body payload.
     pub fn constant_callable_body(
         &self,
         owner: InterfaceSymbolId,
         surface: &PackageInterfaceSurface,
-        limits: InterfaceValidationLimits,
     ) -> Result<Option<InterfaceConstantCallableBody>, InterfaceValidationError> {
         let Some(entry) = self.entry(owner, ImplementationPayloadKind::ConstantCallableBody) else {
             return Ok(None);
@@ -307,7 +346,7 @@ impl PackageImplementationArtifact {
             .get(entry.payload.clone())
             .ok_or(InterfaceValidationError::Malformed)?;
 
-        let template = decode_template_payload(payload, limits)?;
+        let template = decode_template_payload(payload, self.limits)?;
 
         validate_body_owner(surface, owner, &template)
             .map_err(|_| InterfaceValidationError::Malformed)?;
@@ -328,6 +367,11 @@ impl PackageImplementationArtifact {
             .bytes
             .get(entry.payload.clone())
             .ok_or(InterfaceValidationError::Malformed)?;
+
+        self.limits.check(
+            InterfaceLimit::DecodedAllocation,
+            u64::try_from(payload.len()).unwrap_or(u64::MAX),
+        )?;
 
         InterfaceExecutableTemplate::new(owner, Arc::<[u8]>::from(payload))
             .map(Some)
@@ -477,15 +521,16 @@ pub enum PackageImplementationArtifactBuildError {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::CheckedTemplateKind;
-    use bray_symbols::SymbolKind;
+    use bray_symbols::{InterfaceSymbolId, SymbolKind};
 
     use super::{
         InterfaceConstantCallableBody, InterfaceExecutableTemplate, PackageImplementationArtifact,
         PackageImplementationArtifactBuildError,
     };
     use crate::{
-        InterfaceCheckedTemplate, InterfaceLanguageRevision, InterfaceValidationLimits,
-        InterfaceValidationPolicy, ValidatedPackageInterface, encode_package_interface,
+        InterfaceCheckedTemplate, InterfaceLanguageRevision, InterfaceValidationError,
+        InterfaceValidationLimits, InterfaceValidationPolicy, ValidatedPackageInterface,
+        encode_package_interface,
     };
 
     #[test]
@@ -516,7 +561,6 @@ mod tests {
             .constant_callable_body(
                 fixture.body.owner(),
                 fixture.bundle.surface(),
-                InterfaceValidationLimits::default(),
             )
             .unwrap_or_else(|error| panic!("requested body must decode: {error:?}"));
 
@@ -557,7 +601,6 @@ mod tests {
         let first = artifact.constant_callable_body(
             fixture.body.owner(),
             fixture.bundle.surface(),
-            InterfaceValidationLimits::default(),
         );
 
         assert_eq!(first.map(|body| body.is_some()), Ok(true));
@@ -567,7 +610,6 @@ mod tests {
                 .constant_callable_body(
                     second_owner,
                     fixture.bundle.surface(),
-                    InterfaceValidationLimits::default(),
                 )
                 .is_err()
         );
@@ -599,16 +641,67 @@ mod tests {
     #[test]
     fn artifacts_load_executable_templates_independently() {
         let fixture = artifact_fixture();
+        let owner = generic_callable_owner(&fixture.bundle);
 
-        let owner = fixture
-            .bundle
+        let template = InterfaceExecutableTemplate::new(owner, [1_u8, 2, 3])
+            .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
+
+        let artifact = PackageImplementationArtifact::try_new(
+            &fixture.interface,
+            fixture.bundle.surface(),
+            fixture.bundle.semantic_facts(),
+            [],
+            [template.clone()],
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("executable template artifact must validate: {error:?}"));
+
+        assert_eq!(artifact.executable_template(owner), Ok(Some(template)));
+    }
+
+    #[test]
+    fn artifacts_bound_executable_payloads_by_the_validation_policy() {
+        let fixture = artifact_fixture();
+        let owner = generic_callable_owner(&fixture.bundle);
+
+        let template = InterfaceExecutableTemplate::new(owner, [1_u8, 2, 3])
+            .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
+
+        let result = PackageImplementationArtifact::try_new(
+            &fixture.interface,
+            fixture.bundle.surface(),
+            fixture.bundle.semantic_facts(),
+            [],
+            [template],
+            InterfaceValidationLimits::default().with_blob_length(2),
+        );
+
+        assert_eq!(
+            result,
+            Err(PackageImplementationArtifactBuildError::InvalidArtifact(
+                InterfaceValidationError::ResourceLimitExceeded {
+                    limit: crate::InterfaceLimit::BlobLength,
+                    actual: 3,
+                    maximum: 2,
+                }
+            ))
+        );
+    }
+
+    struct ArtifactFixture {
+        interface: ValidatedPackageInterface,
+        bundle: crate::PackageInterfaceExportBundle,
+        body: InterfaceConstantCallableBody,
+    }
+
+    fn generic_callable_owner(bundle: &crate::PackageInterfaceExportBundle) -> InterfaceSymbolId {
+        bundle
             .semantic_facts()
             .generic_declarations()
             .iter()
             .find_map(|declaration| match declaration.owner() {
                 crate::InterfaceSymbolReference::Local(owner)
-                    if fixture
-                        .bundle
+                    if bundle
                         .surface()
                         .symbols()
                         .symbol(*owner)
@@ -618,28 +711,7 @@ mod tests {
                 }
                 _ => None,
             })
-            .unwrap_or_else(|| panic!("test interface must export a generic callable"));
-
-        let template = InterfaceExecutableTemplate::new(owner, [1_u8, 2, 3])
-            .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
-
-        let artifact = PackageImplementationArtifact::try_new(
-            &fixture.interface,
-            fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
-            [fixture.body],
-            [template.clone()],
-            InterfaceValidationLimits::default(),
-        )
-        .unwrap_or_else(|error| panic!("executable template artifact must validate: {error:?}"));
-
-        assert_eq!(artifact.executable_template(owner), Ok(Some(template)));
-    }
-
-    struct ArtifactFixture {
-        interface: ValidatedPackageInterface,
-        bundle: crate::PackageInterfaceExportBundle,
-        body: InterfaceConstantCallableBody,
+            .unwrap_or_else(|| panic!("test interface must export a generic callable"))
     }
 
     fn artifact_fixture() -> ArtifactFixture {

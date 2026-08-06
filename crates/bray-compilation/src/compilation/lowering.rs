@@ -1286,7 +1286,7 @@ mod tests {
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
             MirTerminatorKind::PatternBranch {
-                predicate: bray_bound_tree::PatternPredicate::ActiveUnionVariant(_),
+                predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(_),
                 ..
             }
         )));

@@ -159,9 +159,28 @@ const fn diagnostic_runtime_abi(
 }
 
 pub(super) fn implementation_body_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag {
+    implementation_artifact_diagnostics(
+        input,
+        DiagnosticKind::InterfaceConstantCallableBodyUnavailable,
+    )
+}
+
+pub(super) fn executable_template_diagnostics(
+    input: &DependencyInterfaceInput,
+) -> DiagnosticBag {
+    implementation_artifact_diagnostics(
+        input,
+        DiagnosticKind::InterfaceExecutableTemplateUnavailable,
+    )
+}
+
+fn implementation_artifact_diagnostics(
+    input: &DependencyInterfaceInput,
+    kind: DiagnosticKind,
+) -> DiagnosticBag {
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
-        DiagnosticKind::InterfaceConstantCallableBodyUnavailable,
+        kind,
         SeverityKind::Error,
     );
 

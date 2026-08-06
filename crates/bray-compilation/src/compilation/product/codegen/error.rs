@@ -59,6 +59,16 @@ impl NativeProductFactError {
                 | Self::Codegen(super::super::super::CodegenFactError::UnsupportedType(_))
         )
     }
+
+    /// Returns structured diagnostics produced while deriving native product facts.
+    pub const fn diagnostics(&self) -> Option<&bray_diagnostics::DiagnosticBag> {
+        match self {
+            Self::Codegen(super::super::super::CodegenFactError::Diagnostics(diagnostics)) => {
+                Some(diagnostics)
+            }
+            _ => None,
+        }
+    }
 }
 
 impl From<FactQueryError> for NativeProductFactError {

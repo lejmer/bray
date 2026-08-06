@@ -3,12 +3,216 @@ use std::sync::Arc;
 use bray_bound_tree::CheckedTemplate;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_package_interface::ImportedInterfaceSymbolResolver;
-use bray_symbols::ImportedSymbolFactAddress;
+use bray_symbols::{CallableDefinitionId, ImportedSymbolFactAddress};
 
-use super::diagnostic::implementation_body_diagnostics;
+use super::diagnostic::{executable_template_diagnostics, implementation_body_diagnostics};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl super::super::Compilation {
+    fn loaded_dependency_implementation_with_cancellation(
+        &self,
+        interface: bray_symbols::ImportedInterfaceId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<&DiagnosticResult<Option<Arc<bray_package_interface::PackageImplementationArtifact>>>>, FactQueryError>
+    {
+        let Some(index) = interface.to_index() else {
+            return Ok(None);
+        };
+
+        let Some(input) = self.state.dependency_interfaces.get(index) else {
+            return Ok(None);
+        };
+
+        let Some(cache) = self.state.loaded_dependency_implementations.get(index) else {
+            return Ok(None);
+        };
+
+        self.query_fact_with_cancellation(
+            CompilationFactKey::DependencyImplementation(interface),
+            cache,
+            cancellation,
+            |_| {
+                if let Some(artifact) = input.implementation_artifact() {
+                    return Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
+                        artifact.clone(),
+                    ))));
+                }
+
+                let bytes = match input.shared_implementation_bytes() {
+                    Ok(Some(bytes)) => bytes,
+                    Ok(None) => return Ok(DiagnosticResult::without_diagnostics(None)),
+                    Err(_) => {
+                        return Ok(DiagnosticResult::new(
+                            None,
+                            executable_template_diagnostics(input),
+                        ));
+                    }
+                };
+
+                let artifact = bray_package_interface::PackageImplementationArtifact::try_from_bytes(
+                    bytes,
+                    input.validation_policy().limits(),
+                );
+
+                match artifact {
+                    Ok(artifact) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
+                        artifact,
+                    )))),
+                    Err(_) => Ok(DiagnosticResult::new(
+                        None,
+                        executable_template_diagnostics(input),
+                    )),
+                }
+            },
+        )
+        .map(Some)
+    }
+
+    pub(in crate::compilation) fn imported_executable_template_with_cancellation(
+        &self,
+        address: ImportedSymbolFactAddress,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<DiagnosticResult<Option<Arc<bray_package_interface::InterfaceExecutableTemplate>>>>, FactQueryError>
+    {
+        let cell = self.state.imported_executable_templates.cell(address)?;
+
+        let result = cell.get_or_compute(
+            &self.state.fact_runtime,
+            CompilationFactKey::ImportedExecutableTemplate(address),
+            cancellation,
+            || {
+                self.compute_imported_executable_template(address, cancellation)
+                    .map(Arc::new)
+            },
+        )?;
+
+        Ok(Arc::clone(result))
+    }
+
+    fn compute_imported_executable_template(
+        &self,
+        address: ImportedSymbolFactAddress,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Option<Arc<bray_package_interface::InterfaceExecutableTemplate>>>, FactQueryError>
+    {
+        let input = self
+            .dependency_interface_input(address.interface())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let loaded = self
+            .loaded_dependency_interface_with_cancellation(address.interface(), cancellation)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let Some(validated) = loaded.validated() else {
+            return Ok(DiagnosticResult::without_diagnostics(None));
+        };
+
+        let artifact = self
+            .loaded_dependency_implementation_with_cancellation(address.interface(), cancellation)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let Some(artifact) = artifact.value() else {
+            return Ok(DiagnosticResult::new(
+                None,
+                DiagnosticBag::merged_all([
+                    artifact.diagnostics(),
+                    &executable_template_diagnostics(input),
+                ]),
+            ));
+        };
+
+        if artifact.interface_content_hash() != validated.header().content_hash()
+            || artifact.language_revision() != validated.header().language_revision()
+        {
+            return Ok(DiagnosticResult::new(
+                None,
+                executable_template_diagnostics(input),
+            ));
+        }
+
+        let template = match artifact.executable_template(address.symbol()) {
+            Ok(Some(template)) => template,
+            Ok(None) | Err(_) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    executable_template_diagnostics(input),
+                ));
+            }
+        };
+
+        Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(template))))
+    }
+
+    pub(in crate::compilation) fn imported_executable_mir(
+        &self,
+        definition: CallableDefinitionId,
+        unit: bray_ir::MirUnitId,
+        target: bray_ir::MirTargetFacts,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_ir::MirUnit>, FactQueryError> {
+        let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+        let Some(skeleton) = skeleton.value() else {
+            return Ok(None);
+        };
+
+        let Some(address) = skeleton.imported_fact_address(definition.callable_symbol().into_any())
+        else {
+            return Ok(None);
+        };
+
+        let input = self
+            .dependency_interface_input(address.interface())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let template = self
+            .imported_executable_template_with_cancellation(address, cancellation)?;
+
+        let Some(template) = template.value() else {
+            return Ok(None);
+        };
+
+        let graph = self
+            .imported_semantic_graph_result_with_cancellation(address.interface(), cancellation)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let Some(graph) = graph.value() else {
+            return Ok(None);
+        };
+
+        let interfaces = self
+            .loaded_interface_views(cancellation)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let current = interfaces
+            .iter()
+            .copied()
+            .find(|loaded| loaded.interface() == address.interface())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let symbols = self.symbol_graph()?;
+
+        let resolver = ImportedInterfaceSymbolResolver::try_new(
+            current,
+            interfaces,
+            skeleton,
+            symbols.compiler_known_provider().symbol_keys(),
+        )
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        bray_package_interface::decode_executable_template(
+            template,
+            definition,
+            unit,
+            target,
+            graph,
+            &resolver,
+            input.validation_policy().limits(),
+        )
+        .map(Some)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
     pub(in crate::compilation) fn imported_constant_callable_body_with_cancellation(
         &self,
         address: ImportedSymbolFactAddress,
@@ -46,10 +250,17 @@ impl super::super::Compilation {
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
 
-        let Some(artifact) = input.implementation_artifact() else {
+        let artifact = self
+            .loaded_dependency_implementation_with_cancellation(address.interface(), cancellation)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let Some(artifact) = artifact.value() else {
             return Ok(DiagnosticResult::new(
                 None,
-                implementation_body_diagnostics(input),
+                DiagnosticBag::merged_all([
+                    artifact.diagnostics(),
+                    &implementation_body_diagnostics(input),
+                ]),
             ));
         };
 
@@ -73,11 +284,7 @@ impl super::super::Compilation {
             ));
         };
 
-        let body = match artifact.constant_callable_body(
-            address.symbol(),
-            surface,
-            input.validation_policy().limits(),
-        ) {
+        let body = match artifact.constant_callable_body(address.symbol(), surface) {
             Ok(Some(body)) => body,
             Ok(None) | Err(_) => {
                 return Ok(DiagnosticResult::new(

@@ -374,6 +374,7 @@ const fn linked_product_kind(kind: ArtifactKind) -> Option<LinkedProductKind> {
         | ArtifactKind::ExecutableModule
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::LinkedCompanion => None,
     }

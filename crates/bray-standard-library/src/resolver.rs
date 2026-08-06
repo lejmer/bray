@@ -93,6 +93,15 @@ impl StandardLibraryResolver {
         self.resolve(manifest.interface())
     }
 
+    /// Returns the implementation payload companion selected by the manifest.
+    pub fn implementation(
+        &self,
+    ) -> Result<ResolvedStandardLibraryArtifact, StandardLibraryLoadError> {
+        let manifest = self.manifest()?;
+
+        self.resolve(manifest.implementation())
+    }
+
     /// Returns the exact artifacts selected for a target and runtime ABI.
     pub fn target_artifacts(
         &self,
@@ -349,6 +358,15 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("interface metadata must be valid: {error:?}"));
 
+            let implementation = StandardLibraryArtifact::try_for_bytes(
+                StandardLibraryArtifactKind::PackageImplementation,
+                "interfaces/std.brayimpl",
+                b"implementation",
+            )
+            .unwrap_or_else(|error| {
+                panic!("implementation metadata must be valid: {error:?}")
+            });
+
             let archive = StandardLibraryArtifact::try_for_bytes(
                 StandardLibraryArtifactKind::StaticLibrary,
                 "targets/x86_64-unknown-linux-gnu/1.0/libstd.a",
@@ -366,8 +384,9 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
-            let manifest = StandardLibraryBundleManifest::try_new(interface, [target])
-                .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
+            let manifest =
+                StandardLibraryBundleManifest::try_new(interface, implementation, [target])
+                    .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
 
             Self {
                 directory,
@@ -394,6 +413,12 @@ mod tests {
 
         fn write(&self) {
             let interface = self.manifest.interface().beneath(self.directory.path());
+
+            let implementation = self
+                .manifest
+                .implementation()
+                .beneath(self.directory.path());
+
             let archive = self.archive_path();
 
             fs::create_dir_all(
@@ -412,6 +437,9 @@ mod tests {
 
             fs::write(interface, b"interface")
                 .unwrap_or_else(|error| panic!("interface must be written: {error}"));
+
+            fs::write(implementation, b"implementation")
+                .unwrap_or_else(|error| panic!("implementation must be written: {error}"));
 
             fs::write(archive, b"archive")
                 .unwrap_or_else(|error| panic!("archive must be written: {error}"));

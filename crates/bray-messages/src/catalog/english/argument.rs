@@ -221,6 +221,7 @@ const fn format_english_artifact_kind(kind: DiagnosticArtifactKind) -> &'static 
         DiagnosticArtifactKind::ExecutableModule => "executable module",
         DiagnosticArtifactKind::DebugCompanion => "debug companion",
         DiagnosticArtifactKind::PackageInterface => "package interface",
+        DiagnosticArtifactKind::PackageImplementation => "package implementation",
         DiagnosticArtifactKind::DependencyMetadata => "dependency metadata",
         DiagnosticArtifactKind::Executable => "executable",
         DiagnosticArtifactKind::StaticLibrary => "static library",

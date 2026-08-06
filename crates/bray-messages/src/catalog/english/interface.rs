@@ -55,6 +55,9 @@ const SEMANTIC_FACTS_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::Te
 const CONSTANT_CALLABLE_BODY_UNAVAILABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "selected imported const callable has no compatible implementation body",
 )];
+const EXECUTABLE_TEMPLATE_UNAVAILABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected imported generic callable has no compatible executable template",
+)];
 
 pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate {
     let parts = match kind {
@@ -74,6 +77,7 @@ pub(super) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::InterfaceConstantCallableBodyUnavailable => {
             CONSTANT_CALLABLE_BODY_UNAVAILABLE
         }
+        DiagnosticKind::InterfaceExecutableTemplateUnavailable => EXECUTABLE_TEMPLATE_UNAVAILABLE,
         _ => unreachable!(),
     };
 

@@ -404,6 +404,11 @@ fn validate_producer(
         {
             Ok(())
         }
+        ArtifactProducer::PackageImplementation
+            if artifact.id().kind() == ArtifactKind::PackageImplementation =>
+        {
+            Ok(())
+        }
         ArtifactProducer::DependencyMetadata(_)
             if artifact.id().kind() == ArtifactKind::DependencyMetadata =>
         {
@@ -421,6 +426,7 @@ fn validate_producer(
             Ok(())
         }
         ArtifactProducer::PackageInterface
+        | ArtifactProducer::PackageImplementation
         | ArtifactProducer::DependencyMetadata(_)
         | ArtifactProducer::Linker(_) => {
             // Plan errors retain Arc-backed artifact identities after validation returns.

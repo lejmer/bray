@@ -39,8 +39,10 @@ pub use header::{
     InterfaceRequiredFlags,
 };
 pub use implementation::{
+    ExecutableTemplateDecodeError, ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, PackageImplementationArtifact,
-    PackageImplementationArtifactBuildError,
+    PackageImplementationArtifactBuildError, decode_executable_template,
+    encode_executable_template,
 };
 pub use inspection::{
     InterfaceInspectionRecord, InterfaceInspectionRecordKind, InterfaceInspectionSection,

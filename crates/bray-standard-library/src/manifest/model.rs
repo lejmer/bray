@@ -12,6 +12,7 @@ use super::wire::encode_payload;
 /// Fixed bundle manifest file name beneath a configured standard library root.
 pub const STANDARD_LIBRARY_MANIFEST_FILE_NAME: &str = "manifest.json";
 const STANDARD_LIBRARY_INTERFACE_PATH: &str = "interfaces/std.brayi";
+const STANDARD_LIBRARY_IMPLEMENTATION_PATH: &str = "interfaces/std.brayimpl";
 
 /// BLAKE3 digest of one complete standard library artifact.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -73,6 +74,8 @@ impl StandardLibraryBundleDigest {
 pub enum StandardLibraryArtifactKind {
     /// Public compiled package interface.
     PackageInterface,
+    /// Generic executable and const-evaluation implementation payloads.
+    PackageImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
     /// Relocatable native object.
@@ -89,6 +92,7 @@ impl StandardLibraryArtifactKind {
     pub(super) const fn as_str(self) -> &'static str {
         match self {
             Self::PackageInterface => "package_interface",
+            Self::PackageImplementation => "package_implementation",
             Self::DependencyMetadata => "dependency_metadata",
             Self::RelocatableObject => "relocatable_object",
             Self::StaticLibrary => "static_library",
@@ -100,6 +104,7 @@ impl StandardLibraryArtifactKind {
     pub(super) fn for_str(value: &str) -> Option<Self> {
         match value {
             "package_interface" => Some(Self::PackageInterface),
+            "package_implementation" => Some(Self::PackageImplementation),
             "dependency_metadata" => Some(Self::DependencyMetadata),
             "relocatable_object" => Some(Self::RelocatableObject),
             "static_library" => Some(Self::StaticLibrary),
@@ -221,7 +226,11 @@ impl StandardLibraryTargetArtifacts {
         );
 
         if artifacts.iter().any(|artifact| {
-            artifact.kind() == StandardLibraryArtifactKind::PackageInterface
+            matches!(
+                artifact.kind(),
+                StandardLibraryArtifactKind::PackageInterface
+                    | StandardLibraryArtifactKind::PackageImplementation
+            )
                 || artifact
                     .path()
                     .strip_prefix(&prefix)
@@ -257,6 +266,7 @@ impl StandardLibraryTargetArtifacts {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StandardLibraryBundleManifest {
     interface: StandardLibraryArtifact,
+    implementation: StandardLibraryArtifact,
     targets: Arc<[StandardLibraryTargetArtifacts]>,
     bundle_digest: StandardLibraryBundleDigest,
 }
@@ -265,6 +275,7 @@ impl StandardLibraryBundleManifest {
     /// Creates a manifest, validates its closed inventory, and derives its bundle identity.
     pub fn try_new(
         interface: StandardLibraryArtifact,
+        implementation: StandardLibraryArtifact,
         targets: impl IntoIterator<Item = StandardLibraryTargetArtifacts>,
     ) -> Result<Self, StandardLibraryManifestError> {
         if interface.kind() != StandardLibraryArtifactKind::PackageInterface {
@@ -273,6 +284,12 @@ impl StandardLibraryBundleManifest {
 
         if interface.path() != STANDARD_LIBRARY_INTERFACE_PATH {
             return Err(StandardLibraryManifestError::InvalidInterfaceArtifact);
+        }
+
+        if implementation.kind() != StandardLibraryArtifactKind::PackageImplementation
+            || implementation.path() != STANDARD_LIBRARY_IMPLEMENTATION_PATH
+        {
+            return Err(StandardLibraryManifestError::InvalidImplementationArtifact);
         }
 
         let mut targets: Vec<_> = targets.into_iter().collect();
@@ -296,6 +313,10 @@ impl StandardLibraryBundleManifest {
             return Err(StandardLibraryManifestError::DuplicateArtifactPath);
         }
 
+        if !paths.insert(implementation.path()) {
+            return Err(StandardLibraryManifestError::DuplicateArtifactPath);
+        }
+
         for artifact in targets.iter().flat_map(|target| target.artifacts()) {
             if !paths.insert(artifact.path()) {
                 return Err(StandardLibraryManifestError::DuplicateArtifactPath);
@@ -303,11 +324,12 @@ impl StandardLibraryBundleManifest {
         }
 
         let targets: Arc<[_]> = targets.into();
-        let payload = encode_payload(&interface, &targets)?;
+        let payload = encode_payload(&interface, &implementation, &targets)?;
         let bundle_digest = StandardLibraryBundleDigest::for_payload(&payload)?;
 
         Ok(Self {
             interface,
+            implementation,
             targets,
             bundle_digest,
         })
@@ -316,6 +338,11 @@ impl StandardLibraryBundleManifest {
     /// Returns the public package-interface artifact.
     pub const fn interface(&self) -> &StandardLibraryArtifact {
         &self.interface
+    }
+
+    /// Returns the package implementation artifact paired with the public interface.
+    pub const fn implementation(&self) -> &StandardLibraryArtifact {
+        &self.implementation
     }
 
     /// Returns target sets in canonical target order.
@@ -340,6 +367,8 @@ pub enum StandardLibraryManifestError {
     InvalidDigest,
     /// The public interface artifact has the wrong kind.
     InvalidInterfaceArtifact,
+    /// The package implementation artifact has the wrong kind or path.
+    InvalidImplementationArtifact,
     /// A target artifact is outside its exact target and runtime ABI directory.
     InvalidTargetArtifact,
     /// An artifact path is not canonical and relative.

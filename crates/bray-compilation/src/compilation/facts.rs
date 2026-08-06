@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "the compilation state keeps the complete lazy fact inventory and its construction auditable together")
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -102,6 +104,9 @@ pub(super) struct CompilationState {
     pub(super) semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
     pub(super) loaded_dependency_interfaces:
         Vec<FactCell<super::imported::LoadedDependencyInterface>>,
+    pub(super) loaded_dependency_implementations: Vec<
+        FactCell<DiagnosticResult<Option<Arc<bray_package_interface::PackageImplementationArtifact>>>>,
+    >,
     pub(super) imported_symbol_skeleton:
         FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
     pub(super) imported_semantic_graphs:
@@ -111,6 +116,10 @@ pub(super) struct CompilationState {
     pub(super) imported_constant_callable_bodies: FactCellMap<
         ImportedSymbolFactAddress,
         Arc<DiagnosticResult<Option<Arc<bray_bound_tree::CheckedTemplate>>>>,
+    >,
+    pub(super) imported_executable_templates: FactCellMap<
+        ImportedSymbolFactAddress,
+        Arc<DiagnosticResult<Option<Arc<bray_package_interface::InterfaceExecutableTemplate>>>>,
     >,
     pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) implementation_participation: FactCellMap<
@@ -331,10 +340,12 @@ impl Compilation {
                 symbol_graph: FactCell::new(),
                 semantic_values: FactCell::new(),
                 loaded_dependency_interfaces: empty_fact_caches(dependency_count),
+                loaded_dependency_implementations: empty_fact_caches(dependency_count),
                 imported_symbol_skeleton: FactCell::new(),
                 imported_semantic_graphs: empty_fact_caches(dependency_count),
                 imported_semantic_facts: FactCellMap::new(),
                 imported_constant_callable_bodies: FactCellMap::new(),
+                imported_executable_templates: FactCellMap::new(),
                 imported_diagnostics: FactCell::new(),
                 implementation_participation: FactCellMap::new(),
                 implementation_coherence: FactCell::new(),

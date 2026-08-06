@@ -157,6 +157,28 @@ pub struct MirCall {
 }
 
 impl MirCall {
+    /// Creates a checked call reconstructed from a compiled dependency.
+    pub fn imported(
+        target: MirCallTarget,
+        result: BoundCallResult,
+        arguments: impl IntoIterator<Item = MirCallArgument>,
+        phase_behaviors: Option<CallablePhaseBehaviors>,
+        dispatch_witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+        trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
+        witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
+    ) -> Self {
+        Self {
+            target,
+            result,
+            arguments: shared_slice(arguments),
+            phase_behaviors: phase_behaviors.map(Arc::new),
+            contract: None,
+            dispatch_witnesses: sorted_unique_shared_slice(dispatch_witnesses),
+            trait_dispatch,
+            witnesses: sorted_unique_shared_slice(witnesses),
+        }
+    }
+
     /// Creates a compiler-selected protocol call with positional arguments.
     pub fn protocol(
         target: MirCallTarget,

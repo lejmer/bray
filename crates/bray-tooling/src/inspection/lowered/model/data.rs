@@ -214,6 +214,9 @@ pub(crate) enum InspectionMirUnitKey {
         role: &'static str,
         type_identity: String,
     },
+    ImportedCallable {
+        callable: InspectionSymbolIdentity,
+    },
     ExternalCallable {
         callable: InspectionSymbolIdentity,
     },
@@ -1803,6 +1806,9 @@ fn inspection_unit_key(
         MirUnitKey::GeneratedLifecycle(key) => Ok(InspectionMirUnitKey::GeneratedLifecycle {
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),
+        }),
+        MirUnitKey::ImportedCallable(definition) => Ok(InspectionMirUnitKey::ImportedCallable {
+            callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
         }),
         MirUnitKey::ExternalCallable(definition) => Ok(InspectionMirUnitKey::ExternalCallable {
             callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),

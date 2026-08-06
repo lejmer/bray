@@ -9,6 +9,7 @@ use super::definition::define_diagnostic_kinds;
 const REQUEST_PRODUCT_EMISSION_KEY: &str = "request_unsupported_product_emission";
 const DECLARATION_VISIBILITY_KEY: &str = "declaration_conflicting_module_visibility";
 const INTERFACE_CONSTANT_BODY_KEY: &str = "interface_constant_callable_body_unavailable";
+const INTERFACE_EXECUTABLE_TEMPLATE_KEY: &str = "interface_executable_template_unavailable";
 const CHECKING_PROPAGATION_BOUNDARY_KEY: &str = "checking_no_compatible_propagation_boundary";
 
 define_diagnostic_kinds! {
@@ -192,6 +193,8 @@ define_diagnostic_kinds! {
     InterfaceSemanticFactsInvalid,
     /// A selected imported const callable has no compatible implementation body.
     InterfaceConstantCallableBodyUnavailable,
+    /// A selected imported generic callable has no compatible executable template.
+    InterfaceExecutableTemplateUnavailable,
     /// Name binding could not find a declaration or local with the requested spelling.
     BindingUnresolvedName,
     /// Name binding found more than one candidate for one ordinary name.
@@ -520,6 +523,7 @@ impl DiagnosticKind {
             Self::InterfaceDependencyGraphInvalid => 5012,
             Self::InterfaceSemanticFactsInvalid => 5013,
             Self::InterfaceConstantCallableBodyUnavailable => 5014,
+            Self::InterfaceExecutableTemplateUnavailable => 5015,
             Self::BindingUnresolvedName => 6001,
             Self::BindingAmbiguousName => 6002,
             Self::BindingInaccessibleName => 6003,
@@ -749,6 +753,7 @@ impl DiagnosticKind {
             Self::InterfaceDependencyGraphInvalid => "interface_dependency_graph_invalid",
             Self::InterfaceSemanticFactsInvalid => "interface_semantic_facts_invalid",
             Self::InterfaceConstantCallableBodyUnavailable => INTERFACE_CONSTANT_BODY_KEY,
+            Self::InterfaceExecutableTemplateUnavailable => INTERFACE_EXECUTABLE_TEMPLATE_KEY,
             Self::BindingUnresolvedName => "binding_unresolved_name",
             Self::BindingAmbiguousName => "binding_ambiguous_name",
             Self::BindingInaccessibleName => "binding_inaccessible_name",

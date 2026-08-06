@@ -294,6 +294,17 @@ impl DependencyInterfaceInput {
         }
     }
 
+    pub(crate) fn shared_implementation_bytes(
+        &self,
+    ) -> Result<Option<Arc<[u8]>>, StandardLibraryLoadError> {
+        match &self.source {
+            DependencyInterfaceSource::Bytes { .. } => Ok(None),
+            DependencyInterfaceSource::StandardLibrary { resolver, .. } => resolver
+                .implementation()
+                .map(|artifact| Some(artifact.shared_bytes())),
+        }
+    }
+
     pub(crate) fn for_standard_library(resolver: StandardLibraryResolver) -> Self {
         let package = PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
             .unwrap_or_else(|| panic!("standard library package identity must be valid"));
@@ -302,6 +313,12 @@ impl DependencyInterfaceInput {
             .unwrap_or_else(|| panic!("standard library product identity must be valid"));
 
         let artifact_path = resolver.root().path().join("interfaces").join("std.brayi");
+
+        let implementation_path = resolver
+            .root()
+            .path()
+            .join("interfaces")
+            .join("std.brayimpl");
 
         Self {
             package,
@@ -312,7 +329,7 @@ impl DependencyInterfaceInput {
             },
             dependency_span: None,
             validation_policy: InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-            implementation_artifact_path: None,
+            implementation_artifact_path: Some(Arc::from(implementation_path)),
             implementation_artifact: None,
         }
     }

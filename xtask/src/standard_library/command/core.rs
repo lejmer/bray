@@ -294,6 +294,7 @@ fn build_bundle(
         .collect();
 
     let mut interface = None;
+    let mut implementation = None;
     let mut built_targets = Vec::new();
 
     for target in targets {
@@ -303,6 +304,7 @@ fn build_bundle(
             selected,
             native,
             interface_bytes,
+            implementation_bytes,
             archive_bytes,
         } = built;
 
@@ -324,6 +326,27 @@ fn build_bundle(
                 .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
                 interface = Some((interface_bytes, artifact));
+            }
+        }
+
+        match implementation.as_ref() {
+            Some((expected, _)) if expected != &implementation_bytes => {
+                return Err(BuildError::TargetDependentInterface(target.clone()));
+            }
+            Some(_) => {}
+            None => {
+                let path = "interfaces/std.brayimpl";
+
+                write_bundle_artifact(bundle, path, &implementation_bytes)?;
+
+                let artifact = StandardLibraryArtifact::try_for_bytes(
+                    StandardLibraryArtifactKind::PackageImplementation,
+                    path,
+                    &implementation_bytes,
+                )
+                .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
+                implementation = Some((implementation_bytes, artifact));
             }
         }
 
@@ -351,7 +374,9 @@ fn build_bundle(
 
     let (_, interface) = interface.ok_or(BuildError::MissingInterface)?;
 
-    StandardLibraryBundleManifest::try_new(interface, built_targets)
+    let (_, implementation) = implementation.ok_or(BuildError::MissingInterface)?;
+
+    StandardLibraryBundleManifest::try_new(interface, implementation, built_targets)
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))
 }
 
@@ -359,6 +384,7 @@ struct BuiltTarget {
     selected: SelectedTarget,
     native: NativeTarget,
     interface_bytes: Vec<u8>,
+    implementation_bytes: Vec<u8>,
     archive_bytes: Vec<u8>,
 }
 
@@ -426,6 +452,7 @@ fn build_target(
         native,
         [
             TargetOutputKind::PackageInterface,
+            TargetOutputKind::PackageImplementation,
             TargetOutputKind::StaticLibrary,
         ],
     );
@@ -439,6 +466,10 @@ fn build_target(
         [
             RequestedArtifact::new(
                 ArtifactKind::PackageInterface,
+                ArtifactRequirement::Required,
+            ),
+            RequestedArtifact::new(
+                ArtifactKind::PackageImplementation,
                 ArtifactRequirement::Required,
             ),
             RequestedArtifact::new(ArtifactKind::StaticLibrary, ArtifactRequirement::Required),
@@ -470,10 +501,14 @@ fn build_target(
     }
 
     let interface_path = emitted_path(&outcome, ArtifactKind::PackageInterface)?;
+    let implementation_path = emitted_path(&outcome, ArtifactKind::PackageImplementation)?;
     let archive_path = emitted_path(&outcome, ArtifactKind::StaticLibrary)?;
 
     let interface_bytes =
         fs::read(&interface_path).map_err(|error| BuildError::read(&interface_path, error))?;
+
+    let implementation_bytes = fs::read(&implementation_path)
+        .map_err(|error| BuildError::read(&implementation_path, error))?;
 
     let archive_bytes =
         fs::read(&archive_path).map_err(|error| BuildError::read(&archive_path, error))?;
@@ -482,6 +517,7 @@ fn build_target(
         selected,
         native,
         interface_bytes,
+        implementation_bytes,
         archive_bytes,
     })
 }

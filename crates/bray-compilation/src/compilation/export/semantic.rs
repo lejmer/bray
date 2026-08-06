@@ -30,7 +30,8 @@ use bray_package_interface::{
     InterfaceImplementationInstance, InterfaceImplementationInstanceId,
     InterfaceImplementationRecord, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
     InterfacePredicateSummary, InterfaceSemanticFacts, InterfaceStorageMember,
-    InterfaceStorageShape, InterfaceSupportEntity, InterfaceSymbolReference,
+    InterfaceExecutableTemplate, InterfaceStorageShape, InterfaceSupportEntity,
+    InterfaceSymbolReference,
     InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
     InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
     InterfaceUnionTag, PackageInterfaceSurface,
@@ -68,7 +69,10 @@ pub(super) fn build_semantic_facts(
     surface: &PackageInterfaceSurface,
     selected: &BTreeSet<AnySymbolId>,
     keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
-) -> Result<InterfaceSemanticFacts, PackageInterfaceExportError> {
+) -> Result<
+    (InterfaceSemanticFacts, Vec<InterfaceExecutableTemplate>),
+    PackageInterfaceExportError,
+> {
     let values = compilation
         .semantic_value_store()
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
@@ -113,7 +117,10 @@ pub(super) fn build_semantic_facts(
     declarations.generic_declarations.sort_unstable();
     declarations.declaration_templates.sort_unstable();
 
-    Ok(InterfaceSemanticFacts::new()
+    let executable_templates =
+        executable_templates(compilation, graph, &binder, selected, &mut export)?;
+
+    let facts = InterfaceSemanticFacts::new()
         .with_applications(
             export.substitutions,
             export.trait_applications,
@@ -140,7 +147,88 @@ pub(super) fn build_semantic_facts(
             declarations.declaration_templates,
             declarations.support_entities,
         )
-        .with_implementations(implementations, coherence))
+        .with_implementations(implementations, coherence);
+
+    Ok((facts, executable_templates))
+}
+
+fn executable_templates(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    binder: &CompilationBinderFacts<'_>,
+    selected: &BTreeSet<AnySymbolId>,
+    export: &mut SemanticExporter<'_>,
+) -> Result<Vec<InterfaceExecutableTemplate>, PackageInterfaceExportError> {
+    let mut templates = Vec::new();
+
+    for symbol in selected.iter().copied() {
+        let Some(definition) = bray_symbols::CallableDefinitionId::try_new(symbol) else {
+            continue;
+        };
+
+        if !callable_uses_generic_parameters(graph, binder, symbol)? {
+            continue;
+        }
+
+        let Some(key) = compilation
+            .callable_body_key(definition)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+        else {
+            continue;
+        };
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        if lowered.diagnostics().has_errors() {
+            return Err(PackageInterfaceExportError::InvalidCompilation);
+        }
+
+        let mir = lowered
+            .value()
+            .as_ref()
+            .and_then(bray_lowering::LoweredUnit::mir)
+            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+
+        let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
+            return Err(PackageInterfaceExportError::InvalidCompilation);
+        };
+
+        let payload = bray_package_interface::encode_executable_template(mir, export)
+            .map_err(|error| match error {
+                bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
+                bray_package_interface::ExecutableTemplateEncodeError::NestedUnit
+                | bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
+                    PackageInterfaceExportError::InvalidCompilation
+                }
+            })?;
+
+        let template = InterfaceExecutableTemplate::new(owner, payload)
+            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+
+        templates.push(template);
+    }
+
+    Ok(templates)
+}
+
+fn callable_uses_generic_parameters(
+    graph: &bray_symbols::SymbolGraph,
+    binder: &CompilationBinderFacts<'_>,
+    symbol: AnySymbolId,
+) -> Result<bool, PackageInterfaceExportError> {
+    let mut current = Some(symbol);
+
+    while let Some(symbol) = current {
+        if !generic_parameters(binder, symbol)?.is_empty() {
+            return Ok(true);
+        }
+
+        current = graph.containing_symbol(symbol);
+    }
+
+    Ok(false)
 }
 
 #[derive(Default)]
@@ -1579,7 +1667,7 @@ impl<'a> SemanticExporter<'a> {
         Ok(exported)
     }
 
-    fn trait_application_id(
+    pub(super) fn trait_application_id(
         &mut self,
         id: TraitApplicationId,
     ) -> Result<InterfaceTraitApplicationId, PackageInterfaceExportError> {
@@ -1629,7 +1717,7 @@ impl<'a> SemanticExporter<'a> {
         Ok(exported)
     }
 
-    fn implementation_instance_id(
+    pub(super) fn implementation_instance_id(
         &mut self,
         id: ImplementationInstanceId,
     ) -> Result<InterfaceImplementationInstanceId, PackageInterfaceExportError> {
@@ -1873,7 +1961,7 @@ impl<'a> SemanticExporter<'a> {
         ))
     }
 
-    fn constant_value_id(
+    pub(super) fn constant_value_id(
         &mut self,
         id: ConstantValueId,
     ) -> Result<InterfaceConstantValueId, PackageInterfaceExportError> {
@@ -2097,6 +2185,63 @@ impl<'a> SemanticExporter<'a> {
             }
             _ => Err(incomplete(symbol)),
         }
+    }
+}
+
+impl bray_package_interface::ExecutableTemplateEncodeContext for SemanticExporter<'_> {
+    type Error = PackageInterfaceExportError;
+
+    fn type_id(&mut self, id: TypeId) -> Result<InterfaceTypeId, Self::Error> {
+        SemanticExporter::type_id(self, id)
+    }
+
+    fn constant_value_id(
+        &mut self,
+        id: ConstantValueId,
+    ) -> Result<InterfaceConstantValueId, Self::Error> {
+        SemanticExporter::constant_value_id(self, id)
+    }
+
+    fn constant_term_id(
+        &mut self,
+        id: ConstantTermId,
+    ) -> Result<InterfaceConstantTermId, Self::Error> {
+        SemanticExporter::constant_term_id(self, id)
+    }
+
+    fn substitution_id(
+        &mut self,
+        id: GenericSubstitutionId,
+    ) -> Result<InterfaceGenericSubstitutionId, Self::Error> {
+        SemanticExporter::substitution_id(self, id)
+    }
+
+    fn trait_application_id(
+        &mut self,
+        id: TraitApplicationId,
+    ) -> Result<InterfaceTraitApplicationId, Self::Error> {
+        SemanticExporter::trait_application_id(self, id)
+    }
+
+    fn implementation_instance_id(
+        &mut self,
+        id: ImplementationInstanceId,
+    ) -> Result<InterfaceImplementationInstanceId, Self::Error> {
+        SemanticExporter::implementation_instance_id(self, id)
+    }
+
+    fn dependency_contract_id(
+        &mut self,
+        id: bray_symbols::DependencyContractTemplateId,
+    ) -> Result<InterfaceDependencyContractId, Self::Error> {
+        SemanticExporter::dependency_contract_id(self, id)
+    }
+
+    fn symbol_reference(
+        &mut self,
+        id: AnySymbolId,
+    ) -> Result<InterfaceSymbolReference, Self::Error> {
+        SemanticExporter::symbol_reference(self, id)
     }
 }
 

@@ -2211,6 +2211,7 @@ impl Compilation {
             MirUnitKey::Bound(_)
             | MirUnitKey::ExecutableHost(_)
             | MirUnitKey::GeneratedLifecycle(_)
+            | MirUnitKey::ImportedCallable(_)
             | MirUnitKey::ExternalCallable(_) => Ok(None),
         }
     }
@@ -3543,7 +3544,9 @@ impl Compilation {
 
         let definition = match instance.key().template() {
             MirUnitKey::ExecutableHost(_) => return Ok(void_signature(CallableAbi::Bray)),
-            MirUnitKey::Bound(_) | MirUnitKey::ExternalCallable(_) => {
+            MirUnitKey::Bound(_)
+            | MirUnitKey::ImportedCallable(_)
+            | MirUnitKey::ExternalCallable(_) => {
                 self.codegen_callable_definition(instance.key())?
             }
             MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::ExternalRuntimeDefault(_) => {
@@ -3813,7 +3816,8 @@ impl Compilation {
 
                 CallableDefinitionId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)
             }
-            MirUnitKey::ExternalCallable(definition) => Ok(*definition),
+            MirUnitKey::ImportedCallable(definition)
+            | MirUnitKey::ExternalCallable(definition) => Ok(*definition),
             MirUnitKey::ExecutableHost(_)
             | MirUnitKey::GeneratedLifecycle(_)
             | MirUnitKey::ExternalRuntimeDefault(_) => Err(FactQueryError::InfrastructureFailure),
@@ -4855,7 +4859,7 @@ mod tests {
             .iter()
             .find_map(|block| match block.terminator().kind() {
                 MirTerminatorKind::PatternBranch {
-                    predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                    predicate: bray_ir::MirPatternPredicate::NullablePresent,
                     matched,
                     unmatched,
                     ..
@@ -4924,7 +4928,7 @@ mod tests {
             .iter()
             .find_map(|block| match block.terminator().kind() {
                 MirTerminatorKind::PatternBranch {
-                    predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                    predicate: bray_ir::MirPatternPredicate::NullablePresent,
                     matched,
                     unmatched,
                     ..
@@ -4988,7 +4992,7 @@ mod tests {
             .iter()
             .filter_map(|block| match block.terminator().kind() {
                 MirTerminatorKind::PatternBranch {
-                    predicate: bray_bound_tree::PatternPredicate::ActiveUnionVariant(variant),
+                    predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(variant),
                     matched,
                     ..
                 } => Some((*variant, matched.target())),
@@ -5368,6 +5372,7 @@ mod tests {
             bray_ir::MirUnitKey::Bound(unit) => unit.clone(),
             bray_ir::MirUnitKey::ExecutableHost(_)
             | bray_ir::MirUnitKey::GeneratedLifecycle(_)
+            | bray_ir::MirUnitKey::ImportedCallable(_)
             | bray_ir::MirUnitKey::ExternalCallable(_)
             | bray_ir::MirUnitKey::ExternalRuntimeDefault(_) => {
                 panic!("test dependency must be bound");

@@ -98,6 +98,13 @@ impl WireEncoder {
         self.bytes.extend_from_slice(&value.to_le_bytes());
     }
 
+    pub(crate) fn write_count(&mut self, count: usize) {
+        let count = u32::try_from(count)
+            .unwrap_or_else(|_| unreachable!("validated artifact counts fit the wire format"));
+
+        self.write_u32(count);
+    }
+
     pub(crate) fn write_bytes(&mut self, bytes: &[u8]) {
         self.bytes.extend_from_slice(bytes);
     }
