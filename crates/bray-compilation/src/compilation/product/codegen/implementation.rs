@@ -821,9 +821,10 @@ mod tests {
         LinkPlan, LinkedProductKind, Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
     };
     use bray_package_interface::{
-        InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
-        InterfaceValidationLimits, InterfaceValidationPolicy, PackageImplementationArtifact,
-        PackageInterfaceIdentity, encode_package_interface,
+        InterfaceExecutableTemplate, InterfaceLanguageRevision, InterfaceProductIdentity,
+        InterfaceProductKind, InterfaceValidationLimits, InterfaceValidationPolicy,
+        PackageImplementationArtifact, PackageInterfaceIdentity, ValidatedPackageInterface,
+        encode_package_interface,
     };
     use bray_runtime_interface::{
         BinarySymbolName, ExecutableEntryResult, ExecutableHostContractBuildError,
@@ -1621,22 +1622,7 @@ mod tests {
     #[test]
     fn imported_generic_templates_are_shared_by_concurrent_requests() {
         let compilation = generic_consumer(generic_dependency(true));
-
-        let skeleton = compilation
-            .imported_symbol_skeleton_result()
-            .unwrap_or_else(|error| panic!("imported skeleton must load: {error:?}"));
-
-        let skeleton = skeleton
-            .value()
-            .as_deref()
-            .unwrap_or_else(|| panic!("valid dependency must publish a symbol skeleton"));
-
-        let address = skeleton
-            .functions()
-            .iter()
-            .filter_map(|function| skeleton.imported_fact_address(function.id().into()))
-            .next()
-            .unwrap_or_else(|| panic!("imported generic function must have a fact address"));
+        let address = first_imported_function_address(&compilation);
 
         std::thread::scope(|scope| {
             let first = scope.spawn(|| {
@@ -1664,8 +1650,66 @@ mod tests {
                 .unwrap_or_else(|error| panic!("second template query must complete: {error:?}"));
 
             assert!(Arc::ptr_eq(&first, &second));
-            assert!(first.value().is_some());
+
+            let first = first
+                .value()
+                .as_ref()
+                .unwrap_or_else(|| panic!("first query must publish validated MIR"));
+
+            let second = second
+                .value()
+                .as_ref()
+                .unwrap_or_else(|| panic!("second query must publish validated MIR"));
+
+            assert!(Arc::ptr_eq(first, second));
         });
+    }
+
+    #[test]
+    fn imported_executable_templates_reject_a_different_target_contract() {
+        let compilation = generic_consumer_for_target(
+            generic_dependency(true),
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+        );
+
+        let result = compilation
+            .imported_executable_template_with_cancellation(
+                first_imported_function_address(&compilation),
+                &compilation.state.cancellation,
+            )
+            .unwrap_or_else(|error| panic!("target mismatch must be diagnosed: {error:?}"));
+
+        assert!(result.value().is_none());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::InterfaceExecutableTemplateUnavailable)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn malformed_imported_executable_templates_publish_dependency_diagnostics() {
+        let compilation = generic_consumer(generic_dependency_with_templates(true, true));
+
+        let result = compilation
+            .imported_executable_template_with_cancellation(
+                first_imported_function_address(&compilation),
+                &compilation.state.cancellation,
+            )
+            .unwrap_or_else(|error| panic!("malformed template must be diagnosed: {error:?}"));
+
+        assert!(result.value().is_none());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::InterfaceTruncated)
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -2375,6 +2419,13 @@ mod tests {
     }
 
     fn generic_consumer(dependency: DependencyInterfaceInput) -> crate::Compilation {
+        generic_consumer_for_target(dependency, SelectedTarget::baseline())
+    }
+
+    fn generic_consumer_for_target(
+        dependency: DependencyInterfaceInput,
+        target: SelectedTarget,
+    ) -> crate::Compilation {
         let request = CompilationRequest::with_options(
             crate::test_support::package_identity(),
             vec![crate::test_support::source_input(
@@ -2393,7 +2444,7 @@ mod tests {
             CompilationOptions::new(
                 WorkerBudget::serial(),
                 ProductKind::Executable,
-                SelectedTarget::baseline(),
+                target,
             ),
         )
         .with_dependency_interfaces([dependency]);
@@ -2403,6 +2454,13 @@ mod tests {
     }
 
     fn generic_dependency(include_implementation: bool) -> DependencyInterfaceInput {
+        generic_dependency_with_templates(include_implementation, false)
+    }
+
+    fn generic_dependency_with_templates(
+        include_implementation: bool,
+        malformed_templates: bool,
+    ) -> DependencyInterfaceInput {
         let package = bray_symbols::PackageIdentity::try_new("example.dependency")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
 
@@ -2464,9 +2522,30 @@ mod tests {
         let interface = encode_package_interface(bundle)
             .unwrap_or_else(|error| panic!("dependency interface must encode: {error:?}"));
 
-        let implementation = PackageImplementationArtifact::try_from_export_bundle(
-            &interface,
-            bundle,
+        let policy = InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0));
+
+        let validated = ValidatedPackageInterface::try_new(interface.bytes(), policy)
+            .unwrap_or_else(|error| panic!("dependency interface must validate: {error:?}"));
+
+        let templates = bundle
+            .executable_templates()
+            .iter()
+            .map(|template| {
+                if malformed_templates {
+                    InterfaceExecutableTemplate::new(template.owner(), [0_u8])
+                        .unwrap_or_else(|| panic!("malformed test payload must remain nonempty"))
+                } else {
+                    template.clone()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let implementation = PackageImplementationArtifact::try_new(
+            &validated,
+            bundle.surface(),
+            bundle.semantic_facts(),
+            [],
+            templates,
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("dependency implementation must encode: {error:?}"));
@@ -2478,7 +2557,7 @@ mod tests {
             product,
             "dependency.brayi",
             interface.shared_bytes(),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            policy,
         );
 
         if include_implementation {
@@ -2486,5 +2565,25 @@ mod tests {
         } else {
             dependency
         }
+    }
+
+    fn first_imported_function_address(
+        compilation: &crate::Compilation,
+    ) -> bray_symbols::ImportedSymbolFactAddress {
+        let skeleton = compilation
+            .imported_symbol_skeleton_result()
+            .unwrap_or_else(|error| panic!("imported skeleton must load: {error:?}"));
+
+        let skeleton = skeleton
+            .value()
+            .as_deref()
+            .unwrap_or_else(|| panic!("valid dependency must publish a symbol skeleton"));
+
+        skeleton
+            .functions()
+            .iter()
+            .filter_map(|function| skeleton.imported_fact_address(function.id().into()))
+            .next()
+            .unwrap_or_else(|| panic!("imported generic function must have a fact address"))
     }
 }

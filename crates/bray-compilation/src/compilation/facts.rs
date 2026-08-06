@@ -119,7 +119,7 @@ pub(super) struct CompilationState {
     >,
     pub(super) imported_executable_templates: FactCellMap<
         ImportedSymbolFactAddress,
-        Arc<DiagnosticResult<Option<Arc<bray_package_interface::InterfaceExecutableTemplate>>>>,
+        Arc<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>>,
     >,
     pub(super) imported_diagnostics: FactCell<DiagnosticBag>,
     pub(super) implementation_participation: FactCellMap<

@@ -2,10 +2,13 @@ use std::sync::Arc;
 
 use bray_bound_tree::CheckedTemplate;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_package_interface::ImportedInterfaceSymbolResolver;
+use bray_package_interface::{ImportedInterfaceSymbolResolver, InterfaceSymbolResolver};
 use bray_symbols::{CallableDefinitionId, ImportedSymbolFactAddress};
 
-use super::diagnostic::{executable_template_diagnostics, implementation_body_diagnostics};
+use super::diagnostic::{
+    executable_template_decode_diagnostics, executable_template_diagnostics,
+    implementation_body_diagnostics,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl super::super::Compilation {
@@ -72,7 +75,7 @@ impl super::super::Compilation {
         &self,
         address: ImportedSymbolFactAddress,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<DiagnosticResult<Option<Arc<bray_package_interface::InterfaceExecutableTemplate>>>>, FactQueryError>
+    ) -> Result<Arc<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>>, FactQueryError>
     {
         let cell = self.state.imported_executable_templates.cell(address)?;
 
@@ -93,7 +96,7 @@ impl super::super::Compilation {
         &self,
         address: ImportedSymbolFactAddress,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Option<Arc<bray_package_interface::InterfaceExecutableTemplate>>>, FactQueryError>
+    ) -> Result<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>, FactQueryError>
     {
         let input = self
             .dependency_interface_input(address.interface())
@@ -140,36 +143,10 @@ impl super::super::Compilation {
             }
         };
 
-        Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(template))))
-    }
-
-    pub(in crate::compilation) fn imported_executable_mir(
-        &self,
-        definition: CallableDefinitionId,
-        unit: bray_ir::MirUnitId,
-        target: bray_ir::MirTargetFacts,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<bray_ir::MirUnit>, FactQueryError> {
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
         let Some(skeleton) = skeleton.value() else {
-            return Ok(None);
-        };
-
-        let Some(address) = skeleton.imported_fact_address(definition.callable_symbol().into_any())
-        else {
-            return Ok(None);
-        };
-
-        let input = self
-            .dependency_interface_input(address.interface())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let template = self
-            .imported_executable_template_with_cancellation(address, cancellation)?;
-
-        let Some(template) = template.value() else {
-            return Ok(None);
+            return Ok(DiagnosticResult::new(None, skeleton.diagnostics().clone()));
         };
 
         let graph = self
@@ -177,7 +154,7 @@ impl super::super::Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let Some(graph) = graph.value() else {
-            return Ok(None);
+            return Ok(DiagnosticResult::new(None, graph.diagnostics().clone()));
         };
 
         let interfaces = self
@@ -200,17 +177,74 @@ impl super::super::Compilation {
         )
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        bray_package_interface::decode_executable_template(
-            template,
-            definition,
-            unit,
+        let owner = resolver
+            .resolve(&bray_package_interface::InterfaceSymbolReference::Local(
+                address.symbol(),
+            ))
+            .and_then(CallableDefinitionId::try_new)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let selected_target = self.selected_target().target();
+
+        let target = bray_ir::MirTargetFacts::new(
+            selected_target.profile().clone(),
+            selected_target.runtime_abi(),
+        );
+
+        let template = match bray_package_interface::decode_executable_template(
+            &template,
+            owner,
+            bray_ir::MirUnitId::new(0),
             target,
             graph,
             &resolver,
             input.validation_policy().limits(),
-        )
-        .map(Some)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        ) {
+            Ok(template) => template,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    executable_template_decode_diagnostics(input, error),
+                ));
+            }
+        };
+
+        Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(template))))
+    }
+
+    pub(in crate::compilation) fn imported_executable_mir(
+        &self,
+        definition: CallableDefinitionId,
+        unit: bray_ir::MirUnitId,
+        target: bray_ir::MirTargetFacts,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_ir::MirUnit>, FactQueryError> {
+        let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+        let Some(skeleton) = skeleton.value() else {
+            return Ok(None);
+        };
+
+        let Some(address) = skeleton.imported_fact_address(definition.callable_symbol().into_any())
+        else {
+            return Ok(None);
+        };
+
+        let template = self
+            .imported_executable_template_with_cancellation(address, cancellation)?;
+
+        let Some(template) = template.value() else {
+            return Ok(None);
+        };
+
+        if template.unit() != unit
+            || template.key() != &bray_ir::MirUnitKey::ImportedCallable(definition)
+            || template.target() != &target
+        {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
+
+        Ok(Some((**template).clone()))
     }
 
     pub(in crate::compilation) fn imported_constant_callable_body_with_cancellation(

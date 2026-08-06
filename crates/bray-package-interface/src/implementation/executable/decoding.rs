@@ -28,6 +28,7 @@ use bray_symbols::{
     TraitConstraintDispatch, TrustedCapabilityRequirement,
 };
 
+use crate::decode::map_wire_error;
 use crate::semantic::{SemanticDecodeContext, read_symbol_reference};
 use crate::wire::WireReader;
 use crate::{
@@ -42,6 +43,10 @@ use super::support::{FORMAT_VERSION, read_bool, read_count, read_optional, read_
 pub enum ExecutableTemplateDecodeError {
     /// The encoded template is malformed or references absent interface facts.
     Malformed,
+    /// The encoded template was lowered for a different target contract.
+    TargetMismatch,
+    /// The encoded template violated package-interface validation policy.
+    Validation(InterfaceValidationError),
     /// The reconstructed MIR failed ordinary unit validation.
     InvalidMir(MirUnitBuildError),
 }
@@ -62,12 +67,13 @@ pub fn decode_executable_template(
         facts,
         symbols,
         unit,
-        limits,
     };
 
     if read_u32(&mut decoder.reader)? != FORMAT_VERSION {
         return Err(ExecutableTemplateDecodeError::Malformed);
     }
+
+    decoder.require_target(&target)?;
 
     let kind = decoder.unit_kind()?;
     let entry_slot = read_u32(&mut decoder.reader)?;
@@ -75,8 +81,10 @@ pub fn decode_executable_template(
     let mut builder = MirUnitBuilder::for_imported_callable(unit, owner, kind, target);
 
     let block_count = decoder.count()?;
-    let mut block_records = Vec::with_capacity(block_count);
-    let mut blocks = Vec::with_capacity(block_count);
+    let mut block_records = decoder.items(block_count)?;
+    let mut blocks = decoder.derived_items(block_count)?;
+
+    decoder.charge_items::<bray_ir::MirBlock>(block_count)?;
 
     for _ in 0..block_count {
         let kind = decoder.block_kind()?;
@@ -96,7 +104,9 @@ pub fn decode_executable_template(
     }
 
     let storage_count = decoder.count()?;
-    let mut storages = Vec::with_capacity(storage_count);
+    let mut storages = decoder.items(storage_count)?;
+
+    decoder.charge_items::<bray_ir::MirStorage>(storage_count)?;
 
     for _ in 0..storage_count {
         let kind = decoder.storage_kind()?;
@@ -110,7 +120,9 @@ pub fn decode_executable_template(
     }
 
     let value_count = decoder.count()?;
-    let mut values = Vec::with_capacity(value_count);
+    let mut values = decoder.items(value_count)?;
+
+    decoder.charge_items::<bray_ir::MirValue>(value_count)?;
 
     for _ in 0..value_count {
         let ty = decoder.ty()?;
@@ -125,7 +137,9 @@ pub fn decode_executable_template(
     }
 
     let operation_count = decoder.count()?;
-    let mut operations = Vec::with_capacity(operation_count);
+    let mut operations = decoder.items(operation_count)?;
+
+    decoder.charge_items::<bray_ir::MirOperation>(operation_count)?;
 
     for _ in 0..operation_count {
         let result = read_optional(&mut decoder.reader, read_u32)?;
@@ -134,7 +148,7 @@ pub fn decode_executable_template(
         operations.push(OperationRecord { result, kind });
     }
 
-    let mut terminators = Vec::with_capacity(block_count);
+    let mut terminators = decoder.items(block_count)?;
 
     for _ in 0..block_count {
         terminators.push(decoder.terminator()?);
@@ -142,14 +156,20 @@ pub fn decode_executable_template(
 
     let frame = decoder.frame_descriptor()?;
 
+    let mut seen_parameters = decoder.derived_items(values.len())?;
+    seen_parameters.resize(values.len(), false);
+
+    let mut operation_owner_slots = decoder.derived_items(operation_count)?;
+    operation_owner_slots.resize(operation_count, None);
+
     decoder
         .reader
         .finish()
         .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
 
-    validate_block_parameters(&block_records, &values)?;
+    validate_block_parameters(&block_records, &values, seen_parameters)?;
 
-    let operation_owners = operation_owners(&block_records, operation_count)?;
+    let operation_owners = operation_owners(&block_records, operation_owner_slots)?;
     let mut next_operation = 0;
 
     for (value_slot, value) in values.iter().enumerate() {
@@ -280,15 +300,12 @@ struct Decoder<'data, 'facts, R> {
     facts: &'facts ImportedSemanticFacts,
     symbols: &'facts R,
     unit: MirUnitId,
-    limits: InterfaceValidationLimits,
 }
 
 fn operation_owners(
     blocks: &[BlockRecord],
-    operation_count: usize,
+    mut owners: Vec<Option<u32>>,
 ) -> Result<Vec<u32>, ExecutableTemplateDecodeError> {
-    let mut owners = vec![None; operation_count];
-
     for (block, record) in blocks.iter().enumerate() {
         let block = u32::try_from(block).map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
 
@@ -312,9 +329,8 @@ fn operation_owners(
 fn validate_block_parameters(
     blocks: &[BlockRecord],
     values: &[ValueRecord],
+    mut seen: Vec<bool>,
 ) -> Result<(), ExecutableTemplateDecodeError> {
-    let mut seen = vec![false; values.len()];
-
     for (block, record) in blocks.iter().enumerate() {
         let block = u32::try_from(block).map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
 
@@ -416,14 +432,46 @@ fn require_slot(
 }
 
 impl From<InterfaceValidationError> for ExecutableTemplateDecodeError {
-    fn from(_: InterfaceValidationError) -> Self {
-        Self::Malformed
+    fn from(error: InterfaceValidationError) -> Self {
+        Self::Validation(error)
     }
 }
 
 impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn count(&mut self) -> Result<usize, InterfaceValidationError> {
-        read_count(&mut self.reader, self.limits)
+        read_count(&mut self.reader, self.semantic.limits())
+    }
+
+    fn items<T>(&mut self, count: usize) -> Result<Vec<T>, ExecutableTemplateDecodeError> {
+        self.semantic
+            .allocate_items(&self.reader, count)
+            .map_err(Into::into)
+    }
+
+    fn derived_items<T>(&mut self, count: usize) -> Result<Vec<T>, ExecutableTemplateDecodeError> {
+        self.semantic
+            .allocate_derived_items(count)
+            .map_err(Into::into)
+    }
+
+    fn charge_items<T>(&mut self, count: usize) -> Result<(), ExecutableTemplateDecodeError> {
+        self.semantic.charge_items::<T>(count).map_err(Into::into)
+    }
+
+    fn require_target(
+        &mut self,
+        target: &MirTargetFacts,
+    ) -> Result<(), ExecutableTemplateDecodeError> {
+        let digest = self
+            .reader
+            .read_array::<32>()
+            .map_err(map_wire_error)?;
+
+        if digest != target.compatibility_digest() {
+            return Err(ExecutableTemplateDecodeError::TargetMismatch);
+        }
+
+        Ok(())
     }
 
     fn operation(&mut self) -> Result<MirOperationKind, ExecutableTemplateDecodeError> {
@@ -453,7 +501,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             6 => {
                 let target = self.construction_target()?;
                 let count = self.count()?;
-                let mut inputs = Vec::with_capacity(count);
+                let mut inputs = self.items(count)?;
 
                 for _ in 0..count {
                     inputs.push(self.construction_input()?);
@@ -511,7 +559,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
     fn operands(&mut self) -> Result<Vec<MirOperand>, ExecutableTemplateDecodeError> {
         let count = self.count()?;
-        let mut operands = Vec::with_capacity(count);
+        let mut operands = self.items(count)?;
 
         for _ in 0..count {
             operands.push(self.operand()?);
@@ -532,7 +580,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         let storage = self.storage_id()?;
         let ty = self.ty()?;
         let count = self.count()?;
-        let mut projections = Vec::with_capacity(count);
+        let mut projections = self.items(count)?;
 
         for _ in 0..count {
             let kind = self.projection_kind()?;
@@ -675,7 +723,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
         let result = self.call_result()?;
         let argument_count = self.count()?;
-        let mut arguments = Vec::with_capacity(argument_count);
+        let mut arguments = self.items(argument_count)?;
 
         for _ in 0..argument_count {
             arguments.push(self.call_argument()?);
@@ -684,7 +732,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         let phase_behaviors = self.phase_behaviors()?;
 
         let dispatch_count = self.count()?;
-        let mut dispatch_witnesses = Vec::with_capacity(dispatch_count);
+        let mut dispatch_witnesses = self.items(dispatch_count)?;
 
         for _ in 0..dispatch_count {
             dispatch_witnesses.push(self.implementation()?);
@@ -697,7 +745,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         };
 
         let witness_count = self.count()?;
-        let mut witnesses = Vec::with_capacity(witness_count);
+        let mut witnesses = self.items(witness_count)?;
 
         for _ in 0..witness_count {
             witnesses.push(SelectedImplementationWitness::new(
@@ -744,21 +792,21 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         &mut self,
     ) -> Result<CallablePhaseBehavior, ExecutableTemplateDecodeError> {
         let effect_count = self.count()?;
-        let mut effects = Vec::with_capacity(effect_count);
+        let mut effects = self.items(effect_count)?;
 
         for _ in 0..effect_count {
             effects.push(CallableEffectRequirement::new(self.symbol()?));
         }
 
         let capability_count = self.count()?;
-        let mut capabilities = Vec::with_capacity(capability_count);
+        let mut capabilities = self.items(capability_count)?;
 
         for _ in 0..capability_count {
             capabilities.push(CallableCapabilityRequirement::new(self.symbol()?));
         }
 
         let trusted_count = self.count()?;
-        let mut trusted_capabilities = Vec::with_capacity(trusted_count);
+        let mut trusted_capabilities = self.items(trusted_count)?;
 
         for _ in 0..trusted_count {
             trusted_capabilities.push(TrustedCapabilityRequirement::new(
@@ -768,14 +816,14 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
 
         let execution_count = self.count()?;
-        let mut execution_requirements = Vec::with_capacity(execution_count);
+        let mut execution_requirements = self.items(execution_count)?;
 
         for _ in 0..execution_count {
             execution_requirements.push(CallableExecutionRequirement::new(self.symbol()?));
         }
 
         let lifecycle_count = self.count()?;
-        let mut lifecycle_obligations = Vec::with_capacity(lifecycle_count);
+        let mut lifecycle_obligations = self.items(lifecycle_count)?;
 
         for _ in 0..lifecycle_count {
             lifecycle_obligations.push(match read_u32(&mut self.reader)? {
@@ -937,7 +985,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             1 => ConversionTarget::BuiltInScalar,
             2 => {
                 let count = self.count()?;
-                let mut conversions = Vec::with_capacity(count);
+                let mut conversions = self.items(count)?;
 
                 for _ in 0..count {
                     conversions.push(self.conversion()?);
@@ -1051,7 +1099,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         let kind = self.memory_kind()?;
         let operands = self.operands()?;
         let type_count = self.count()?;
-        let mut operand_types = Vec::with_capacity(type_count);
+        let mut operand_types = self.items(type_count)?;
 
         for _ in 0..type_count {
             operand_types.push(self.ty()?);
@@ -1163,7 +1211,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         let kind = self.text_kind()?;
         let operands = self.operands()?;
         let type_count = self.count()?;
-        let mut operand_types = Vec::with_capacity(type_count);
+        let mut operand_types = self.items(type_count)?;
 
         for _ in 0..type_count {
             operand_types.push(self.ty()?);
@@ -1337,7 +1385,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             4 => {
                 let discriminant = self.operand()?;
                 let count = self.count()?;
-                let mut cases = Vec::with_capacity(count);
+                let mut cases = self.items(count)?;
 
                 for _ in 0..count {
                     cases.push(MirSwitchCase::new(self.constant_value()?, self.edge()?));
@@ -1497,20 +1545,20 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
                 let result_type = self.ty()?;
                 let state_count = self.count()?;
-                let mut states = Vec::with_capacity(state_count);
+                let mut states = self.items(state_count)?;
 
                 for _ in 0..state_count {
                     let state = bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?);
                     let entry = self.block_id()?;
                     let lane_count = self.count()?;
-                    let mut lanes = Vec::with_capacity(lane_count);
+                    let mut lanes = self.items(lane_count)?;
 
                     for _ in 0..lane_count {
                         lanes.push(self.execution_lane()?);
                     }
 
                     let storage_count = self.count()?;
-                    let mut storages = Vec::with_capacity(storage_count);
+                    let mut storages = self.items(storage_count)?;
 
                     for _ in 0..storage_count {
                         storages.push(self.storage_id()?);
@@ -1565,7 +1613,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
     fn slots(&mut self) -> Result<Vec<u32>, ExecutableTemplateDecodeError> {
         let count = self.count()?;
-        let mut slots = Vec::with_capacity(count);
+        let mut slots = self.items(count)?;
 
         for _ in 0..count {
             slots.push(read_u32(&mut self.reader)?);

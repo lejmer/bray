@@ -103,6 +103,7 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
     };
 
     encoder.wire.write_u32(FORMAT_VERSION);
+    encoder.target(unit.target());
     encoder.unit_kind(unit.kind())?;
     encoder.wire.write_u32(unit.entry().slot());
 
@@ -172,6 +173,10 @@ struct Encoder<'context, C> {
 }
 
 impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
+    fn target(&mut self, target: &bray_ir::MirTargetFacts) {
+        self.wire.write_bytes(&target.compatibility_digest());
+    }
+
     fn semantic<T>(
         result: Result<T, C::Error>,
     ) -> Result<T, ExecutableTemplateEncodeError<C::Error>> {

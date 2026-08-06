@@ -332,16 +332,30 @@ impl SemanticDecodeContext {
         }
     }
 
-    pub(super) const fn limits(&self) -> InterfaceValidationLimits {
+    pub(in crate) const fn limits(&self) -> InterfaceValidationLimits {
         self.budget.limits()
     }
 
-    pub(super) fn allocate_items<T>(
+    pub(in crate) fn allocate_items<T>(
         &mut self,
         reader: &WireReader<'_>,
         count: usize,
     ) -> Result<Vec<T>, InterfaceValidationError> {
         self.budget.allocate_items(reader, count)
+    }
+
+    pub(in crate) fn allocate_derived_items<T>(
+        &mut self,
+        count: usize,
+    ) -> Result<Vec<T>, InterfaceValidationError> {
+        self.budget.allocate_derived_items(count)
+    }
+
+    pub(in crate) fn charge_items<T>(
+        &mut self,
+        count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        self.budget.charge_items::<T>(count)
     }
 
     fn charge_external_reference(
