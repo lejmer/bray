@@ -82,7 +82,8 @@ pub use origin::{
 };
 pub use pattern::{
     CheckedPatternFacts, MatchCoverageEntry, PatternBindingTypeEntry, PatternCheckEntry,
-    PatternOperation, PatternPredicate, PatternProjection, PatternRefutability,
+    PatternLiteralPredicate, PatternOperation, PatternPredicate, PatternProjection,
+    PatternRefutability,
 };
 pub use refinement::{
     CheckedRefinementFacts, RefinementFact, RefinementFactKind, RefinementFactsBuildError,

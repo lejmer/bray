@@ -1,7 +1,7 @@
-use std::collections::BTreeSet;
 use std::env;
 use std::io::{self, Read, Write};
 use std::sync::{Condvar, Mutex, OnceLock};
+use std::thread::ThreadId;
 
 use bray_runtime_interface::NativePlatformStatus;
 
@@ -221,10 +221,41 @@ fn platform_io_error(error: &io::Error) -> NativePlatformStatus {
     NativePlatformStatus::new(category, error.raw_os_error().map_or(0, i64::from))
 }
 
-fn stream_locks() -> &'static (Mutex<BTreeSet<u64>>, Condvar) {
-    static LOCKS: OnceLock<(Mutex<BTreeSet<u64>>, Condvar)> = OnceLock::new();
+#[derive(Default)]
+struct StreamLockState {
+    owners: Vec<(u64, ThreadId)>,
+}
 
-    LOCKS.get_or_init(|| (Mutex::new(BTreeSet::new()), Condvar::new()))
+impl StreamLockState {
+    fn owner(&self, handle: u64) -> Option<ThreadId> {
+        self.owners
+            .iter()
+            .find_map(|(held, owner)| (*held == handle).then_some(*owner))
+    }
+
+    fn acquire(&mut self, handle: u64, owner: ThreadId) {
+        self.owners.push((handle, owner));
+    }
+
+    fn release(&mut self, handle: u64, owner: ThreadId) -> bool {
+        let Some(index) = self
+            .owners
+            .iter()
+            .position(|(held, held_by)| *held == handle && *held_by == owner)
+        else {
+            return false;
+        };
+
+        self.owners.swap_remove(index);
+
+        true
+    }
+}
+
+fn stream_locks() -> &'static (Mutex<StreamLockState>, Condvar) {
+    static LOCKS: OnceLock<(Mutex<StreamLockState>, Condvar)> = OnceLock::new();
+
+    LOCKS.get_or_init(|| (Mutex::new(StreamLockState::default()), Condvar::new()))
 }
 
 fn lock_stream(handle: u64) -> NativePlatformStatus {
@@ -234,11 +265,17 @@ fn lock_stream(handle: u64) -> NativePlatformStatus {
 
     let (locks, available) = stream_locks();
 
+    let owner = std::thread::current().id();
+
     let Ok(mut held) = locks.lock() else {
         return NativePlatformStatus::OTHER;
     };
 
-    while held.contains(&handle) {
+    while let Some(held_by) = held.owner(handle) {
+        if held_by == owner {
+            return NativePlatformStatus::INVALID_INPUT;
+        }
+
         let Ok(next) = available.wait(held) else {
             return NativePlatformStatus::OTHER;
         };
@@ -246,7 +283,7 @@ fn lock_stream(handle: u64) -> NativePlatformStatus {
         held = next;
     }
 
-    held.insert(handle);
+    held.acquire(handle, owner);
 
     NativePlatformStatus::SUCCESS
 }
@@ -258,11 +295,13 @@ fn unlock_stream(handle: u64) -> NativePlatformStatus {
 
     let (locks, available) = stream_locks();
 
+    let owner = std::thread::current().id();
+
     let Ok(mut held) = locks.lock() else {
         return NativePlatformStatus::OTHER;
     };
 
-    if !held.remove(&handle) {
+    if !held.release(handle, owner) {
         return NativePlatformStatus::INVALID_INPUT;
     }
 
@@ -419,8 +458,8 @@ mod tests {
     use bray_runtime_interface::NativePlatformStatus;
 
     use super::{
-        CONTEXT_HEADER_BYTES, STANDARD_OUTPUT_HANDLE, bray_platform_stream_write_v1, lock_stream,
-        process_context, unlock_stream,
+        CONTEXT_HEADER_BYTES, STANDARD_ERROR_HANDLE, STANDARD_OUTPUT_HANDLE,
+        bray_platform_stream_write_v1, lock_stream, process_context, unlock_stream,
     };
     use crate::{RunOutputContext, RunOutputStream, with_run_output_context};
 
@@ -524,5 +563,23 @@ mod tests {
         waiter
             .join()
             .unwrap_or_else(|_| panic!("waiter must finish"));
+    }
+
+    #[test]
+    fn stream_lock_rejects_reentrant_acquisition() {
+        assert_eq!(
+            lock_stream(STANDARD_ERROR_HANDLE),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(
+            lock_stream(STANDARD_ERROR_HANDLE),
+            NativePlatformStatus::INVALID_INPUT
+        );
+
+        assert_eq!(
+            unlock_stream(STANDARD_ERROR_HANDLE),
+            NativePlatformStatus::SUCCESS
+        );
     }
 }

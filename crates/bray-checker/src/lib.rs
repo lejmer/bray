@@ -20,6 +20,7 @@ mod service;
 mod storage;
 mod target;
 mod type_check;
+mod type_normalization;
 mod type_representation;
 mod unit;
 
@@ -33,9 +34,10 @@ pub use constant::{
     ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantLiteralError,
     ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
     EvaluatedConstantCall, check_array_length, check_constant_literal,
-    evaluate_constant_callable_template, evaluate_generic_constraint_template,
-    normalize_integer_literal, resolve_callable_signature_template,
-    resolve_trait_application_template, resolve_type_expression_template,
+    evaluate_constant_callable_template, evaluate_constant_definition_template,
+    evaluate_generic_constraint_template, normalize_integer_literal,
+    resolve_callable_signature_template, resolve_trait_application_template,
+    resolve_type_expression_template,
 };
 pub use context::{
     CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
@@ -57,8 +59,9 @@ pub use selection::{
     OperationCandidate, OperationCandidateSource, OperationCandidateState,
     OperationSelectionRequest, PredicateCandidateTemplate, ReceiverCapability, ReceiverSelection,
     SelectionCandidateKey, SelectionFailure, built_in_conversion_plan,
-    built_in_conversion_plan_for_context, built_in_trait_constraint_outcome,
-    compiler_known_operation_role, composite_conversion_children,
+    built_in_conversion_plan_for_context, built_in_operation_result_type,
+    built_in_trait_constraint_outcome, compiler_known_operation_role,
+    composite_conversion_children,
 };
 pub use semantic_context::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
@@ -81,8 +84,10 @@ pub use target::{
     TargetValidityRequirement,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
+pub(crate) use type_normalization::normalize_type_valued_members;
 pub use type_representation::{
-    DeclaredStorageMember, DeclaredTypeDefinition, DeclaredUnionVariant, RepresentationIntegerType,
-    TypeRepresentationContext, check_declared_type_representation,
+    DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
+    DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,
+    check_declared_type_representation,
 };
 pub use unit::{CheckerUnitRoot, CheckerUnitView, CheckerUnitViewError};

@@ -4,27 +4,30 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
+use std::sync::Arc;
 
 use bray_base::StableDigestHasher;
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
     CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout, CodegenHelperMapping,
-    CodegenIndirectParameterKind, CodegenInstance, CodegenLinkage, CodegenMappings,
-    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSourceFile,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout, CodegenUnit,
-    CodegenValueAttribute, TargetAddressSpaceKind, child_constants, demanded_callable_instances,
-    demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
-    demanded_debug_sources, mapped_runtime_references,
+    CodegenIndirectParameterKind, CodegenInstance, CodegenInstanceKey, CodegenInstanceTypeMapping,
+    CodegenLinkage, CodegenMappings, CodegenOperationMapping, CodegenParameterMapping,
+    CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
+    CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
+    CodegenUnit, CodegenValueAttribute, TargetAddressSpaceKind, child_constants,
+    demanded_callable_instances, demanded_callable_instances_for_mir, demanded_constant_terms,
+    demanded_constants, demanded_debug_sources, mapped_runtime_references,
 };
-use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
+use bray_compiler_known::{
+    CompilerKnownDeclarationKey, RecognizedStandardLibraryDeclarationKey, RepresentationRole,
+};
 use bray_ir::{
     MirAsyncOperation, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirCleanupEdge,
     MirEdge, MirFrameInitializer, MirFrameReference, MirGeneratorOperation, MirHelperReference,
-    MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirRuntimeReference,
-    MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnit, MirUnitBuilder,
-    MirUnitId, MirUnitKey, MirUnitKind,
+    MirMemoryOperation, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
+    MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnit,
+    MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
 };
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation, RuntimeAbiRole,
@@ -34,8 +37,8 @@ use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultFact, CallableParameterDefaultValue, CallableSignature,
     CallableSignatureFact, ConstantTermData, ConstantValueKind, DeclaredLayoutMode,
-    ForeignCallableDirection, GenericSubstitutionId, ImplementationCoherenceFact,
-    NamedTypeSymbolId, ReceiverMode, RuntimeDefaultProviderInput, SelfTypeContext,
+    ForeignCallableDirection, GenericArgument, GenericSubstitutionId, ImplementationCoherenceFact,
+    NamedTypeSymbolId, PackageIdentity, ReceiverMode, RuntimeDefaultProviderInput, SelfTypeContext,
     StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId, SymbolFactRequest, SymbolKey,
     SymbolKeyData, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
     UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
@@ -113,23 +116,12 @@ impl Compilation {
 
         let callables = self.codegen_callables(unit, target, reachability, cancellation)?;
 
-        let realization = unit
-            .instances()
-            .iter()
-            .filter_map(|instance| reachability.instance(instance.key()))
-            .find(|instance| instance.substitution().is_some())
-            .or_else(|| {
-                unit.instances()
-                    .first()
-                    .and_then(|instance| reachability.instance(instance.key()))
-            })
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
         let constants = self.codegen_constants(unit)?;
 
-        let (constant_terms, terminators) = self.codegen_constant_terms(unit, realization)?;
+        let (constant_terms, terminators) = self.codegen_constant_terms(unit, reachability)?;
 
         let mut type_mappings = BTreeMap::new();
+        let mut instance_type_mappings = Vec::new();
 
         for instance in unit.instances() {
             let realization = reachability
@@ -142,6 +134,8 @@ impl Compilation {
                 target,
                 cancellation,
                 &mut type_mappings,
+                Some(instance.key()),
+                &mut instance_type_mappings,
             )?;
         }
 
@@ -157,10 +151,12 @@ impl Compilation {
 
         self.extend_codegen_types(
             demanded,
-            realization.substitution(),
+            None,
             target,
             cancellation,
             &mut type_mappings,
+            None,
+            &mut instance_type_mappings,
         )?;
 
         symbols =
@@ -180,6 +176,7 @@ impl Compilation {
             unit,
             target,
             types,
+            instance_type_mappings,
             symbols,
             constants,
             constant_terms,
@@ -409,15 +406,19 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                self.concrete_codegen_bound_helper(
+                self.concrete_codegen_runtime_default(
                     &callee,
-                    self.runtime_default_unit((*provider).into(), reference)?,
+                    (*provider).into(),
+                    reference,
+                    cancellation,
                 )?
             }
             MirHelperReference::ConstructionDefault(provider) => self
-                .concrete_codegen_bound_helper(
+                .concrete_codegen_runtime_default(
                     owner,
-                    self.runtime_default_unit(provider.symbol(), reference)?,
+                    provider.symbol(),
+                    reference,
+                    cancellation,
                 )?,
             MirHelperReference::TypeForm(callable) | MirHelperReference::Conversion(callable) => {
                 self.concrete_codegen_callable_data(owner, callable, target, cancellation)?
@@ -481,24 +482,78 @@ impl Compilation {
         })
     }
 
+    fn concrete_codegen_runtime_default(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        provider: AnySymbolId,
+        reference: &MirHelperReference,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+        if let Some(unit) = self.runtime_default_unit(provider)? {
+            return self.concrete_codegen_bound_helper(owner, unit);
+        }
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let key = facts
+            .symbol_key(provider)
+            .map_err(super::super::binder::binder_fact_error)?
+            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+
+        if !matches!(key.data(), SymbolKeyData::External(_)) {
+            return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
+        }
+
+        Ok(ConcreteCodegenInstance::external_runtime_default(
+            owner, provider,
+        ))
+    }
+
     fn runtime_default_unit(
         &self,
         provider: AnySymbolId,
-        reference: &MirHelperReference,
-    ) -> Result<bray_bound_tree::BoundUnitKey, CodegenFactError> {
+    ) -> Result<Option<bray_bound_tree::BoundUnitKey>, CodegenFactError> {
         let symbols = self.symbol_graph()?;
 
-        let provider = symbols
-            .symbol_key(provider)
-            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+        let Some(provider) = symbols.symbol_key(provider) else {
+            return Ok(None);
+        };
 
-        self.declared_unit_keys()?
-            .into_iter()
-            .find(|unit| {
-                unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
-                    && unit.declared_owner() == provider
-            })
-            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))
+        Ok(self.declared_unit_keys()?.into_iter().find(|unit| {
+            unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
+                && unit.declared_owner() == provider
+        }))
+    }
+
+    pub(super) fn concrete_codegen_callable_defaults(
+        &self,
+        callable: CallableDefinitionId,
+        owner: &ConcreteCodegenInstance,
+    ) -> Result<Vec<ConcreteCodegenInstance>, CodegenFactError> {
+        let symbols = self.symbol_graph()?;
+
+        let (parameters, _) = symbols
+            .callable_parameters_and_receiver(callable.callable_symbol())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let mut defaults = Vec::new();
+
+        for parameter in parameters {
+            let Some(provider) = symbols
+                .callable_parameter(*parameter)
+                .and_then(bray_symbols::CallableParameterSymbol::default_provider)
+            else {
+                continue;
+            };
+
+            let unit = self
+                .runtime_default_unit(provider.into())?
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            defaults.push(self.concrete_codegen_bound_helper(owner, unit)?);
+        }
+
+        Ok(defaults)
     }
 
     fn frame_creation_symbol(
@@ -711,6 +766,7 @@ impl Compilation {
             reference,
             &place,
             runtime_abi,
+            cancellation,
         )? {
             return Ok(block);
         }
@@ -1352,6 +1408,7 @@ impl Compilation {
         reference: &MirHelperReference,
         place: &MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
+        cancellation: &CancellationToken,
     ) -> Result<bool, CodegenFactError> {
         let Some(ty) = reference.lifecycle_type() else {
             return Ok(false);
@@ -1363,9 +1420,53 @@ impl Compilation {
             .type_data(ty)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let TypeData::Named { definition, .. } = data.as_ref() else {
+        let TypeData::Named {
+            definition,
+            substitution,
+        } = data.as_ref()
+        else {
             return Ok(false);
         };
+
+        if let MirHelperReference::Destroy(_) = reference
+            && let Some(element) =
+                self.imported_raw_buffer_element(*definition, *substitution, cancellation)?
+        {
+            let borrowed = values
+                .intern_type(TypeData::Borrow {
+                    kind: BorrowKind::Mutable,
+                    target: ty,
+                })
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let buffer = builder
+                .push_operation(
+                    block,
+                    source.clone(),
+                    MirOperationKind::Borrow {
+                        kind: BorrowKind::Mutable,
+                        place: place.clone(),
+                    },
+                    Some(borrowed),
+                )
+                .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?
+                .result()
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            self.push_lifecycle_operation(
+                builder,
+                block,
+                source,
+                MirOperationKind::Memory(MirMemoryOperation::new(
+                    bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element },
+                    [MirOperand::Value(buffer)],
+                    [borrowed],
+                    None,
+                )),
+            )?;
+
+            return Ok(true);
+        }
 
         let Some(role) = super::super::foreign::compiler_known_representation(self, *definition)
         else {
@@ -1488,6 +1589,58 @@ impl Compilation {
         }
 
         Ok(true)
+    }
+
+    fn imported_raw_buffer_element(
+        &self,
+        definition: NamedTypeSymbolId,
+        substitution: GenericSubstitutionId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<TypeId>, CodegenFactError> {
+        let Some(key) = RecognizedStandardLibraryDeclarationKey::try_new("StandardRawBuffer")
+        else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        let Some(package) = PackageIdentity::try_new(
+            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
+        ) else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+        let Some(imported) = imported.value() else {
+            return Ok(None);
+        };
+
+        let target = self.selected_target().target();
+
+        let recognized =
+            Arc::clone(imported).recognize_standard_library(&package, |rule| target.supports(rule));
+
+        let Some(raw_buffer) = recognized.declaration_symbol::<StructSymbolId>(&key) else {
+            return Ok(None);
+        };
+
+        if definition != NamedTypeSymbolId::Struct(raw_buffer) {
+            return Ok(None);
+        }
+
+        let substitution = self
+            .semantic_value_store()?
+            .generic_substitution_data(substitution)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let [binding] = substitution.bindings() else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        let GenericArgument::Type(element) = binding.argument() else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        Ok(Some(element))
     }
 
     fn push_lifecycle_operation(
@@ -1960,7 +2113,9 @@ impl Compilation {
     ) -> Result<Option<(BinarySymbolName, CodegenLinkage)>, CodegenFactError> {
         if matches!(
             instance.template(),
-            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::ExecutableHost(_)
+            MirUnitKey::GeneratedLifecycle(_)
+                | MirUnitKey::ExecutableHost(_)
+                | MirUnitKey::ExternalRuntimeDefault(_)
         ) {
             return Ok(None);
         }
@@ -2003,6 +2158,20 @@ impl Compilation {
         realization: &ConcreteCodegenInstance,
         cancellation: &CancellationToken,
     ) -> Result<BinarySymbolName, CodegenFactError> {
+        if let Some(provider) = self.codegen_runtime_default_provider(realization.key())? {
+            let facts = self.binder_facts(cancellation)?;
+            let provider = self.portable_codegen_symbol_key(&facts, provider)?;
+            let mut hasher = StableDigestHasher::new();
+
+            hasher.write(b"bray.codegen-runtime-default-symbol");
+            provider.hash(&mut hasher);
+            realization.key().specialization().hash(&mut hasher);
+            realization.key().witnesses().hash(&mut hasher);
+            realization.key().target().hash(&mut hasher);
+
+            return binary_symbol_name(target, linkage, "default", hasher.finalize());
+        }
+
         let Some(callable) = realization.callable_instance() else {
             return generated_instance_symbol_name(target, linkage, realization.key());
         };
@@ -2021,6 +2190,27 @@ impl Compilation {
         realization.key().target().hash(&mut hasher);
 
         binary_symbol_name(target, linkage, "instance", hasher.finalize())
+    }
+
+    fn codegen_runtime_default_provider(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+    ) -> Result<Option<AnySymbolId>, FactQueryError> {
+        match instance.template() {
+            MirUnitKey::Bound(key)
+                if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault =>
+            {
+                self.symbol_graph()?
+                    .symbol_for_key(key.declared_owner())
+                    .map(Some)
+                    .ok_or(FactQueryError::InfrastructureFailure)
+            }
+            MirUnitKey::ExternalRuntimeDefault(provider) => Ok(Some(*provider)),
+            MirUnitKey::Bound(_)
+            | MirUnitKey::ExecutableHost(_)
+            | MirUnitKey::GeneratedLifecycle(_)
+            | MirUnitKey::ExternalCallable(_) => Ok(None),
+        }
     }
 
     pub(super) fn portable_codegen_symbol_key(
@@ -2042,6 +2232,18 @@ impl Compilation {
                 )
                 .map_err(|_| FactQueryError::InfrastructureFailure)?,
             )),
+            SymbolKeyData::Synthesized(synthesized)
+                if source_backed_symbol_key(synthesized.subject()) =>
+            {
+                Ok(SymbolKey::external(
+                    super::super::export::external_symbol_key(
+                        facts.symbols(),
+                        self.package_identity(),
+                        symbol,
+                    )
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?,
+                ))
+            }
             // Symbol keys are Arc-backed and the generated mapping owns its identity input.
             _ => Ok(definition.clone()),
         }
@@ -2103,7 +2305,7 @@ impl Compilation {
     fn codegen_constant_terms(
         &self,
         unit: &CodegenUnit,
-        realization: &ConcreteCodegenInstance,
+        reachability: &ConcreteCodegenReachability,
     ) -> Result<
         (
             Vec<CodegenConstantTermMapping>,
@@ -2116,6 +2318,10 @@ impl Compilation {
         let mut resolved = BTreeMap::new();
 
         for instance in unit.instances() {
+            let realization = reachability
+                .instance(instance.key())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
             for template_term in demanded_constant_terms(instance.mir()) {
                 let term = self
                     .substitute_codegen_constant_term(template_term, realization.substitution())?;
@@ -2142,6 +2348,16 @@ impl Compilation {
 
         for instance in unit.instances() {
             for (block, data) in instance.mir().blocks_with_ids() {
+                if let Some(value) = data.terminator().kind().pattern_literal_value() {
+                    terminators.push(CodegenTerminatorMapping::new(
+                        instance.key().clone(),
+                        block,
+                        [value],
+                    ));
+
+                    continue;
+                }
+
                 let Some(term) = data.terminator().kind().pattern_constant_term() else {
                     continue;
                 };
@@ -2170,8 +2386,17 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenTypeMapping>, CodegenFactError> {
         let mut mappings = BTreeMap::new();
+        let mut instance_mappings = Vec::new();
 
-        self.extend_codegen_types(demanded, substitution, target, cancellation, &mut mappings)?;
+        self.extend_codegen_types(
+            demanded,
+            substitution,
+            target,
+            cancellation,
+            &mut mappings,
+            None,
+            &mut instance_mappings,
+        )?;
 
         Ok(mappings.into_values().collect())
     }
@@ -2183,6 +2408,8 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
         mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        instance: Option<&CodegenInstanceKey>,
+        instance_mappings: &mut Vec<CodegenInstanceTypeMapping>,
     ) -> Result<(), CodegenFactError> {
         let mut pending = BTreeSet::new();
 
@@ -2197,15 +2424,25 @@ impl Compilation {
                     .cloned()
                     .ok_or(CodegenFactError::UnsupportedType(ty))?;
 
-                let mapping = match mapping.layout() {
-                    Some(layout) => {
-                        CodegenTypeMapping::new(template, layout, mapping.kind().clone())
+                if let Some(instance) = instance {
+                    // Published mappings own instance identities independently of realization.
+                    instance_mappings.push(CodegenInstanceTypeMapping::new(
+                        instance.clone(),
+                        template,
+                        ty,
+                    ));
+                } else {
+                    let mapping = match mapping.layout() {
+                        Some(layout) => {
+                            CodegenTypeMapping::new(template, layout, mapping.kind().clone())
+                        }
+                        None => CodegenTypeMapping::new_unsized(template, mapping.kind().clone()),
                     }
-                    None => CodegenTypeMapping::new_unsized(template, mapping.kind().clone()),
-                }
-                .with_behavior(mapping.behavior());
+                    .with_backend_type(ty)
+                    .with_behavior(mapping.behavior());
 
-                mappings.insert(template, mapping);
+                    mappings.insert(template, mapping);
+                }
             }
         }
 
@@ -2569,37 +2806,31 @@ impl Compilation {
             return Ok(pointer_mapping(ty, ty, target));
         }
 
-        let facts = self.binder_facts(cancellation)?;
-
         match definition {
             NamedTypeSymbolId::Struct(structure) => {
-                let structure = facts
-                    .structure(structure)
-                    .map_err(super::super::binder::binder_fact_error)?
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let representation = self.declared_type_representation_with_cancellation(
+                    NamedTypeSymbolId::Struct(structure),
+                    cancellation,
+                )?;
 
-                let fields = structure
-                    .fields()
+                let bray_symbols::DeclaredStorageShape::Structure(storage) =
+                    representation.value().storage()
+                else {
+                    return Err(CodegenFactError::UnresolvedType(ty));
+                };
+
+                let fields = storage
                     .iter()
                     .map(|field| {
-                        let template = facts
-                            .symbol_fact(
-                                SymbolFactRequest::<bray_symbols::StructFieldTypeFact>::new(*field),
-                            )
-                            .map_err(super::super::binder::binder_fact_error)?;
+                        let field_ty =
+                            self.resolve_codegen_type(field.ty(), substitution, cancellation)?;
 
-                        let field_ty = self.resolve_codegen_type(
-                            template.value(),
-                            substitution,
-                            cancellation,
-                        )?;
-
-                        Ok((Some(bray_ir::MirFieldReference::Struct(*field)), field_ty))
+                        Ok((
+                            field.field().map(bray_ir::MirFieldReference::Struct),
+                            field_ty,
+                        ))
                     })
                     .collect::<Result<Vec<_>, FactQueryError>>()?;
-
-                let representation =
-                    self.declared_type_representation_with_cancellation(definition, cancellation)?;
 
                 self.codegen_aggregate_type(
                     ty,
@@ -2745,17 +2976,15 @@ impl Compilation {
         mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
         pending: &mut BTreeSet<TypeId>,
     ) -> Result<CodegenTypeMapping, CodegenFactError> {
-        let facts = self.binder_facts(cancellation)?;
-
-        let union = facts
-            .union(union)
-            .map_err(super::super::binder::binder_fact_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
         let representation = self.declared_type_representation_with_cancellation(
-            NamedTypeSymbolId::Union(union.id()),
+            NamedTypeSymbolId::Union(union),
             cancellation,
         )?;
+
+        let bray_symbols::DeclaredStorageShape::Union(storage) = representation.value().storage()
+        else {
+            return Err(CodegenFactError::UnresolvedType(ty));
+        };
 
         let tag = representation
             .value()
@@ -2771,25 +3000,15 @@ impl Compilation {
 
         let mut payload_alignment = NonZeroU64::MIN;
         let mut payload_size = 0_u64;
-        let mut variants = Vec::with_capacity(union.variants().len());
+        let mut variants = Vec::with_capacity(storage.len());
 
-        for variant in union.variants() {
-            let record = facts
-                .union_variant(*variant)
-                .map_err(super::super::binder::binder_fact_error)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
+        for variant in storage.iter() {
             let mut offset = 0_u64;
             let mut alignment = NonZeroU64::MIN;
-            let mut fields = Vec::with_capacity(record.payload_fields().len());
+            let mut fields = Vec::with_capacity(variant.members().len());
 
-            for field in record.payload_fields() {
-                let template = facts
-                    .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(*field))
-                    .map_err(super::super::binder::binder_fact_error)?;
-
-                let field_ty =
-                    self.resolve_codegen_type(template.value(), substitution, cancellation)?;
+            for field in variant.members() {
+                let field_ty = self.resolve_codegen_type(field.ty(), substitution, cancellation)?;
 
                 self.codegen_type(field_ty, target, cancellation, mappings, pending)?;
 
@@ -2803,7 +3022,7 @@ impl Compilation {
                     .ok_or(CodegenFactError::LayoutOverflow(ty))?;
 
                 fields.push(CodegenFieldLayout::new(
-                    Some(bray_ir::MirFieldReference::UnionPayload(*field)),
+                    field.field().map(bray_ir::MirFieldReference::UnionPayload),
                     field_ty,
                     offset,
                 ));
@@ -2817,7 +3036,7 @@ impl Compilation {
 
             payload_alignment = payload_alignment.max(alignment);
             payload_size = payload_size.max(size);
-            variants.push((*variant, fields));
+            variants.push((variant.variant(), fields));
         }
 
         let payload_offset = align_to(tag_layout.size(), payload_alignment)
@@ -3308,7 +3527,16 @@ impl Compilation {
         if let MirUnitKey::Bound(key) = instance.key().template()
             && key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
         {
-            return self.codegen_runtime_default_signature(instance, key, cancellation);
+            let provider = self
+                .symbol_graph()?
+                .symbol_for_key(key.declared_owner())
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            return self.codegen_runtime_default_signature(instance, provider, cancellation);
+        }
+
+        if let MirUnitKey::ExternalRuntimeDefault(provider) = instance.key().template() {
+            return self.codegen_runtime_default_signature(instance, *provider, cancellation);
         }
 
         let definition = match instance.key().template() {
@@ -3316,7 +3544,7 @@ impl Compilation {
             MirUnitKey::Bound(_) | MirUnitKey::ExternalCallable(_) => {
                 self.codegen_callable_definition(instance.key())?
             }
-            MirUnitKey::GeneratedLifecycle(_) => {
+            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::ExternalRuntimeDefault(_) => {
                 return Err(FactQueryError::InfrastructureFailure.into());
             }
         };
@@ -3428,20 +3656,15 @@ impl Compilation {
     fn codegen_runtime_default_signature(
         &self,
         instance: &ConcreteCodegenInstance,
-        key: &bray_bound_tree::BoundUnitKey,
+        provider: AnySymbolId,
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenFactError> {
-        let symbols = self.symbol_graph()?;
-
-        let provider = symbols
-            .symbol_for_key(key.declared_owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let owner = symbols
-            .runtime_default_subject(provider)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
         let facts = self.binder_facts(cancellation)?;
+
+        let owner = facts
+            .runtime_default_subject(provider)
+            .map_err(super::super::binder::binder_fact_error)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let (inputs, result) = match owner {
             AnySymbolId::CallableParameter(owner) => {
@@ -3517,28 +3740,28 @@ impl Compilation {
         substitution: Option<GenericSubstitutionId>,
         cancellation: &CancellationToken,
     ) -> Result<TypeId, CodegenFactError> {
-        let symbols = self.symbol_graph()?;
+        let facts = self.binder_facts(cancellation)?;
 
         let (owner, parameter) = match input {
             RuntimeDefaultProviderInput::Receiver(parameter) => {
-                let owner = symbols
+                let owner = facts
                     .receiver_parameter(parameter)
+                    .map_err(super::super::binder::binder_fact_error)?
                     .map(bray_symbols::ReceiverParameterSymbol::owner)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 (owner, AnySymbolId::ReceiverParameter(parameter))
             }
             RuntimeDefaultProviderInput::EarlierParameter(parameter) => {
-                let owner = symbols
+                let owner = facts
                     .callable_parameter(parameter)
+                    .map_err(super::super::binder::binder_fact_error)?
                     .map(bray_symbols::CallableParameterSymbol::owner)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 (owner, AnySymbolId::CallableParameter(parameter))
             }
         };
-
-        let facts = self.binder_facts(cancellation)?;
 
         let template = facts
             .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(owner))
@@ -3589,9 +3812,9 @@ impl Compilation {
                 CallableDefinitionId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)
             }
             MirUnitKey::ExternalCallable(definition) => Ok(*definition),
-            MirUnitKey::ExecutableHost(_) | MirUnitKey::GeneratedLifecycle(_) => {
-                Err(FactQueryError::InfrastructureFailure)
-            }
+            MirUnitKey::ExecutableHost(_)
+            | MirUnitKey::GeneratedLifecycle(_)
+            | MirUnitKey::ExternalRuntimeDefault(_) => Err(FactQueryError::InfrastructureFailure),
         }
     }
 
@@ -3708,6 +3931,17 @@ impl Compilation {
             self.semantic_value_store()?,
             NamedTypeSymbolId::Struct(definition),
         )
+    }
+}
+
+fn source_backed_symbol_key(key: &SymbolKey) -> bool {
+    match key.data() {
+        SymbolKeyData::SourceDeclaration { .. } => true,
+        SymbolKeyData::Synthesized(synthesized) => source_backed_symbol_key(synthesized.subject()),
+        SymbolKeyData::Root(_)
+        | SymbolKeyData::Module { .. }
+        | SymbolKeyData::CompilerKnownDeclaration { .. }
+        | SymbolKeyData::External(_) => false,
     }
 }
 
@@ -5132,7 +5366,8 @@ mod tests {
             bray_ir::MirUnitKey::Bound(unit) => unit.clone(),
             bray_ir::MirUnitKey::ExecutableHost(_)
             | bray_ir::MirUnitKey::GeneratedLifecycle(_)
-            | bray_ir::MirUnitKey::ExternalCallable(_) => {
+            | bray_ir::MirUnitKey::ExternalCallable(_)
+            | bray_ir::MirUnitKey::ExternalRuntimeDefault(_) => {
                 panic!("test dependency must be bound");
             }
         });

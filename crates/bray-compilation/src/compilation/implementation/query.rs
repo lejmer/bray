@@ -46,7 +46,7 @@ impl super::super::Compilation {
         Ok(Arc::clone(result))
     }
 
-    pub(super) fn implementation_header_index(
+    pub(in crate::compilation) fn implementation_header_index(
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticResult<Arc<ImplementationHeaderIndex>>, FactQueryError> {

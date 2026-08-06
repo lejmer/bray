@@ -50,9 +50,21 @@ impl Lowerer<'_> {
                     source,
                 ))
             }
-            BoundExpression::Name(_) | BoundExpression::PatternReference(_) => {
-                self.lower_storage_operand(id, current)
+            BoundExpression::Name(_) => {
+                if let Some(value) = self.input.constant_reference_value(id) {
+                    let source = self.source(expression.origin());
+                    let ty = self.expression_type(id)?;
+
+                    Ok(LoweredExpression::continuing(
+                        current,
+                        Some(MirOperand::Constant { value, ty }),
+                        source,
+                    ))
+                } else {
+                    self.lower_storage_operand(id, current)
+                }
             }
+            BoundExpression::PatternReference(_) => self.lower_storage_operand(id, current),
             BoundExpression::Unary(expression) => {
                 self.lower_unary(id, expression.operator(), expression.operands(), current)
             }
@@ -161,7 +173,8 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         };
 
-        let lowered = self.lower_expression(*operand, current)?;
+        let selection = self.selected_operator(id)?;
+        let lowered = self.lower_operator_operand(id, *operand, selection, current)?;
 
         let Some(current) = lowered.block else {
             return Ok(lowered);
@@ -172,8 +185,6 @@ impl Lowerer<'_> {
         };
 
         let source = self.expression_source(id)?;
-
-        let selection = self.selected_operator(id)?;
 
         let value = match selection {
             OperatorTarget::BuiltIn(_) => {
@@ -260,7 +271,8 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         };
 
-        let left = self.lower_expression(*left_id, current)?;
+        let selection = self.selected_operator(id)?;
+        let left = self.lower_operator_operand(id, *left_id, selection, current)?;
 
         let Some(current) = left.block else {
             return Ok(left);
@@ -270,7 +282,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingOperationResult(*left_id));
         };
 
-        let right = self.lower_expression(*right_id, current)?;
+        let right = self.lower_operator_operand(id, *right_id, selection, current)?;
 
         let Some(current) = right.block else {
             return Ok(right);
@@ -281,7 +293,6 @@ impl Lowerer<'_> {
         };
 
         let source = self.expression_source(id)?;
-        let selection = self.selected_operator(id)?;
 
         let value = match selection {
             OperatorTarget::BuiltIn(_) => {
@@ -621,6 +632,21 @@ impl Lowerer<'_> {
         };
 
         Ok(*target)
+    }
+
+    fn lower_operator_operand(
+        &mut self,
+        parent: BoundExpressionId,
+        operand: BoundExpressionId,
+        target: OperatorTarget,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        match target {
+            OperatorTarget::BuiltIn(_) => self.lower_expression(operand, current),
+            OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => {
+                self.lower_implicit_shared_borrow(parent, operand, current)
+            }
+        }
     }
 
     pub(in crate::lowering) fn push_value_operation(

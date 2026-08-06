@@ -249,6 +249,23 @@ impl MirUnitBuilder {
         Ok(())
     }
 
+    /// Returns whether any completed block transfers control to the target block.
+    pub fn has_incoming_edge(&self, target: MirBlockId) -> Result<bool, MirUnitBuildError> {
+        self.block_index(target)?;
+
+        Ok(self.blocks.iter().any(|block| {
+            block.terminator.as_ref().is_some_and(|terminator| {
+                let mut reaches_target = false;
+
+                terminator.kind().for_each_successor(|successor| {
+                    reaches_target |= successor == target;
+                });
+
+                reaches_target
+            })
+        }))
+    }
+
     /// Completes the MIR unit after validating all identities and control-flow contracts.
     pub fn finish(self, entry: MirBlockId) -> Result<MirUnit, MirUnitBuildError> {
         if entry.unit() != self.unit {
@@ -406,6 +423,28 @@ mod tests {
                 .and_then(|item| item.result()),
             Some(result)
         );
+    }
+
+    #[test]
+    fn builders_report_completed_incoming_edges() {
+        let bound = test_bound_unit(28);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let join = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
+        assert_eq!(builder.has_incoming_edge(join), Ok(false));
+
+        set_terminator(
+            &mut builder,
+            entry,
+            source,
+            MirTerminatorKind::Goto(MirEdge::new(join, [])),
+        );
+
+        assert_eq!(builder.has_incoming_edge(join), Ok(true));
     }
 
     #[test]

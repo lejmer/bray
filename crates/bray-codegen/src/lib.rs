@@ -29,8 +29,8 @@ pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, C
 pub use mapping::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
     CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout, CodegenHelperMapping,
-    CodegenIndirectParameterKind, CodegenIntegerExtension, CodegenMappings,
-    CodegenMappingsBuildError, CodegenOperationMapping, CodegenParameterMapping,
+    CodegenIndirectParameterKind, CodegenInstanceTypeMapping, CodegenIntegerExtension,
+    CodegenMappings, CodegenMappingsBuildError, CodegenOperationMapping, CodegenParameterMapping,
     CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
     CodegenTerminatorMapping, CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping,
     CodegenUnionVariantLayout, CodegenValueAttribute, ConstantDemands, DemandedCallableInstance,

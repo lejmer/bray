@@ -25,6 +25,20 @@ pub enum SemanticSelection {
     Propagation(SelectedPropagation),
 }
 
+impl SemanticSelection {
+    /// Returns the selected expression result type when the selection determines one.
+    pub const fn result_type(&self) -> Option<bray_symbols::TypeId> {
+        match self {
+            Self::Reference(_) => None,
+            Self::Call(call) => Some(call.resolution().result().ty()),
+            Self::Predicate(predicate) => Some(predicate.result_type()),
+            Self::Operation(operation) => operation.result_type(),
+            Self::Iteration(_) => None,
+            Self::Propagation(_) => None,
+        }
+    }
+}
+
 /// One source-correlated expression and its exact semantic selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticSelectionEntry {
@@ -160,7 +174,7 @@ fn validate_entry(
 
     validate_operation_subject(types, expression_id, expression, entry.selection())?;
 
-    let selected_type = selection_result_type(entry.selection());
+    let selected_type = entry.selection().result_type();
 
     if let Some(selected_type) = selected_type {
         let Some(expression_type) = types.expression(expression_id) else {
@@ -499,17 +513,6 @@ fn construction_source_inputs(expression: &BoundExpression) -> Vec<BoundExpressi
             source.operands().to_vec()
         }
         _ => Vec::new(),
-    }
-}
-
-fn selection_result_type(selection: &SemanticSelection) -> Option<bray_symbols::TypeId> {
-    match selection {
-        SemanticSelection::Reference(_) => None,
-        SemanticSelection::Call(call) => Some(call.resolution().result().ty()),
-        SemanticSelection::Predicate(predicate) => Some(predicate.result_type()),
-        SemanticSelection::Operation(operation) => operation.result_type(),
-        SemanticSelection::Iteration(_) => None,
-        SemanticSelection::Propagation(_) => None,
     }
 }
 

@@ -159,13 +159,19 @@ where
             Some(_) => Ok(CleanupShape::default()),
             None => {
                 let representation = self.request.declared_type_representation(definition)?;
-                let recovered = representation.value().is_recovered();
+                let lifecycle = self.request.declared_type_has_lifecycle(definition)?;
+
+                let recovered =
+                    representation.value().is_recovered() || lifecycle.diagnostics().has_errors();
 
                 self.diagnostics
                     .add_range(representation.diagnostics().clone());
 
+                self.diagnostics.add_range(lifecycle.diagnostics().clone());
+
                 Ok(if representation.value().is_plain_storage() {
                     CleanupShape {
+                        lifecycle: *lifecycle.value(),
                         recovered,
                         ..CleanupShape::default()
                     }

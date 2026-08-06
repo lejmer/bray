@@ -7,14 +7,17 @@ use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
 
 use crate::{
     CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
-    CodegenDebugLocation, CodegenHelperMapping, CodegenInstanceKey, CodegenOperationMapping,
-    CodegenParameterMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
-    CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
+    CodegenDebugLocation, CodegenHelperMapping, CodegenInstanceKey, CodegenInstanceTypeMapping,
+    CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
+    CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
 };
 
 use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
 use super::callable_demand::demanded_callable_references;
-use super::validation::{demanded_debug_sources, demanded_types, mapped_runtime_references};
+use super::validation::{
+    demanded_debug_sources, mapped_runtime_references, validate_instance_type_structure,
+    validate_type_coverage, validate_type_structure,
+};
 
 /// Canonical code generation facts demanded by one concrete code generation unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -22,6 +25,7 @@ pub struct CodegenMappings {
     unit: CodegenUnitKey,
     target: CodegenTarget,
     types: Arc<[CodegenTypeMapping]>,
+    instance_types: Arc<[CodegenInstanceTypeMapping]>,
     symbols: Arc<[CodegenSymbolMapping]>,
     constants: Arc<[CodegenConstantMapping]>,
     constant_terms: Arc<[CodegenConstantTermMapping]>,
@@ -41,6 +45,7 @@ impl CodegenMappings {
         unit: &CodegenUnit,
         target: &CodegenTarget,
         types: impl IntoIterator<Item = CodegenTypeMapping>,
+        instance_types: impl IntoIterator<Item = CodegenInstanceTypeMapping>,
         symbols: impl IntoIterator<Item = CodegenSymbolMapping>,
         constants: impl IntoIterator<Item = CodegenConstantMapping>,
         constant_terms: impl IntoIterator<Item = CodegenConstantTermMapping>,
@@ -54,6 +59,7 @@ impl CodegenMappings {
         }
 
         let mut types: Vec<_> = types.into_iter().collect();
+        let mut instance_types: Vec<_> = instance_types.into_iter().collect();
         let mut symbols: Vec<_> = symbols.into_iter().collect();
         let mut constants: Vec<_> = constants.into_iter().collect();
         let mut constant_terms: Vec<_> = constant_terms.into_iter().collect();
@@ -63,6 +69,7 @@ impl CodegenMappings {
         let mut debug_locations: Vec<_> = debug_locations.into_iter().collect();
 
         types.sort_unstable_by_key(CodegenTypeMapping::ty);
+        instance_types.sort_unstable();
         symbols.sort_unstable_by(|left, right| left.key().cmp(right.key()));
         constants.sort_unstable_by_key(CodegenConstantMapping::value);
         constant_terms.sort_unstable_by(compare_constant_terms);
@@ -71,33 +78,8 @@ impl CodegenMappings {
         terminators.sort_unstable_by(compare_terminators);
         debug_locations.sort_unstable_by(|left, right| left.anchor().cmp(right.anchor()));
 
-        if types.windows(2).any(|pair| pair[0].ty() == pair[1].ty()) {
-            return Err(CodegenMappingsBuildError::DuplicateType);
-        }
-
-        if types.iter().any(|mapping| {
-            matches!(
-                (mapping.layout(), mapping.kind()),
-                (
-                    Some(_),
-                    CodegenTypeKind::UnsizedSlice { .. } | CodegenTypeKind::UnsizedTraitView
-                ) | (
-                    None,
-                    CodegenTypeKind::Unit
-                        | CodegenTypeKind::Boolean
-                        | CodegenTypeKind::SignedInteger(_)
-                        | CodegenTypeKind::UnsignedInteger(_)
-                        | CodegenTypeKind::Float(_)
-                        | CodegenTypeKind::Pointer { .. }
-                        | CodegenTypeKind::Aggregate(_)
-                        | CodegenTypeKind::Array { .. }
-                        | CodegenTypeKind::Union { .. }
-                        | CodegenTypeKind::Callable(_)
-                )
-            )
-        }) {
-            return Err(CodegenMappingsBuildError::InvalidTypeLayout);
-        }
+        validate_type_structure(&types)?;
+        validate_instance_type_structure(unit, &types, &instance_types)?;
 
         if symbols
             .windows(2)
@@ -224,55 +206,14 @@ impl CodegenMappings {
             return Err(CodegenMappingsBuildError::FrameSymbolCoverageMismatch);
         }
 
-        let mut expected_types = demanded_types(unit);
-
-        expected_types.extend(constants.iter().map(|mapping| mapping.data().ty()));
-
-        expected_types.extend(symbols.iter().flat_map(|symbol| {
-            let signature = symbol.signature();
-
-            signature
-                .parameters()
-                .iter()
-                .flat_map(CodegenParameterMapping::demanded_types)
-                .chain(signature.result().demanded_types())
-                .flatten()
-        }));
-
-        if expected_types.iter().any(|ty| {
-            types
-                .binary_search_by_key(ty, CodegenTypeMapping::ty)
-                .is_err()
-        }) {
-            return Err(CodegenMappingsBuildError::TypeCoverageMismatch);
-        }
-
-        let is_unsized = |ty: TypeId| {
-            types
-                .binary_search_by_key(&ty, CodegenTypeMapping::ty)
-                .ok()
-                .is_some_and(|index| types[index].layout().is_none())
-        };
-
-        if symbols
-            .iter()
-            .any(|symbol| signature_passes_unsized_by_value(symbol.signature(), &is_unsized))
-            || types.iter().any(|mapping| {
-                let CodegenTypeKind::Callable(signature) = mapping.kind() else {
-                    return false;
-                };
-
-                signature_passes_unsized_by_value(signature, &is_unsized)
-            })
-        {
-            return Err(CodegenMappingsBuildError::InvalidAbiTypeLayout);
-        }
+        validate_type_coverage(unit, &types, &instance_types, &symbols, &constants)?;
 
         Ok(Self {
             // The mappings retain immutable structural request identities independently.
             unit: unit.key().clone(),
             target: target.clone(),
             types: types.into(),
+            instance_types: instance_types.into(),
             symbols: symbols.into(),
             constants: constants.into(),
             constant_terms: constant_terms.into(),
@@ -296,6 +237,11 @@ impl CodegenMappings {
     /// Returns type mappings in canonical semantic-type order.
     pub fn types(&self) -> &[CodegenTypeMapping] {
         &self.types
+    }
+
+    /// Returns instance-local substitutions in canonical instance and template order.
+    pub fn instance_types(&self) -> &[CodegenInstanceTypeMapping] {
+        &self.instance_types
     }
 
     /// Returns symbol mappings in canonical semantic-key order.
@@ -339,6 +285,25 @@ impl CodegenMappings {
             .binary_search_by_key(&ty, CodegenTypeMapping::ty)
             .ok()
             .map(|index| &self.types[index])
+    }
+
+    /// Returns the demanded mapping for a type as interpreted by one concrete MIR instance.
+    pub fn instance_ty(
+        &self,
+        instance: &CodegenInstanceKey,
+        ty: TypeId,
+    ) -> Option<&CodegenTypeMapping> {
+        let key = (instance, ty);
+
+        let concrete = self
+            .instance_types
+            .binary_search_by(|mapping| (mapping.instance(), mapping.template()).cmp(&key))
+            .ok()
+            .and_then(|index| self.instance_types.get(index))
+            .map(CodegenInstanceTypeMapping::concrete)
+            .unwrap_or(ty);
+
+        self.ty(concrete)
     }
 
     /// Returns the demanded mapping for one semantic symbol.
@@ -462,6 +427,10 @@ pub enum CodegenMappingsBuildError {
     TargetMismatch,
     /// One semantic type appears more than once.
     DuplicateType,
+    /// One MIR template type is substituted more than once for the same concrete instance.
+    DuplicateInstanceType,
+    /// An instance-local type substitution names an unknown instance or concrete type.
+    InvalidInstanceType,
     /// A sized type kind lacks a layout or an unsized type kind declares one.
     InvalidTypeLayout,
     /// A callable signature passes an unsized semantic type by value.
@@ -509,29 +478,6 @@ fn compare_constant_terms(
     left.owner()
         .cmp(right.owner())
         .then_with(|| left.term().cmp(&right.term()))
-}
-
-fn signature_passes_unsized_by_value(
-    signature: &crate::CodegenCallableSignature,
-    is_unsized: &impl Fn(TypeId) -> bool,
-) -> bool {
-    signature
-        .parameters()
-        .iter()
-        .any(|parameter| match parameter {
-            CodegenParameterMapping::Ignore => false,
-            CodegenParameterMapping::Direct { ty, .. } => is_unsized(*ty),
-            CodegenParameterMapping::Indirect {
-                pointer, pointee, ..
-            } => is_unsized(*pointer) || is_unsized(*pointee),
-        })
-        || match signature.result() {
-            crate::CodegenResultMapping::Void => false,
-            crate::CodegenResultMapping::Direct { ty, .. } => is_unsized(*ty),
-            crate::CodegenResultMapping::Indirect {
-                pointer, pointee, ..
-            } => is_unsized(*pointer) || is_unsized(*pointee),
-        }
 }
 
 fn compare_callables(
@@ -746,21 +692,25 @@ fn valid_helper(symbols: &[CodegenSymbolMapping], helper: &CodegenHelperMapping)
 
 #[cfg(test)]
 mod tests {
+    use std::num::{NonZeroU16, NonZeroU64};
+
     use bray_ir::{
         MirAsyncOperation, MirBlockKind, MirOperationKind, MirRuntimeReference, MirSourceAnchor,
         MirTerminatorKind, MirUnitBuilder, MirUnitKind,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiRole, RuntimeAbiVersion};
     use bray_symbols::{ConstantValueData, ConstantValueKind, SemanticValueStore, TypeData};
+    use bray_target::{TargetLayoutContract, TargetValueLayout};
     use bray_testing::{test_bound_unit, test_mir_target, test_mir_type};
 
-    use super::{
-        CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources, demanded_types,
-    };
+    use super::{CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources};
+    use crate::demanded_types;
     use crate::test_support::codegen_request;
     use crate::{
-        CodegenCallableSignature, CodegenConstantMapping, CodegenLinkage, CodegenResultMapping,
-        CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
+        CodegenCallableSignature, CodegenConstantMapping, CodegenGenericArgument, CodegenInstance,
+        CodegenInstanceKey, CodegenInstanceTypeMapping, CodegenLinkage, CodegenResultMapping,
+        CodegenSpecialization, CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind,
+        CodegenTypeMapping, CodegenUnit, CodegenValueKey,
     };
 
     #[test]
@@ -773,6 +723,7 @@ mod tests {
             request.unit(),
             request.target(),
             mappings.types().iter().cloned(),
+            mappings.instance_types().iter().cloned(),
             mappings.symbols().iter().cloned(),
             mappings.constants().iter().cloned(),
             mappings.constant_terms().iter().cloned(),
@@ -786,6 +737,7 @@ mod tests {
             request.unit(),
             request.target(),
             mappings.types().iter().rev().cloned(),
+            mappings.instance_types().iter().rev().cloned(),
             mappings.symbols().iter().rev().cloned(),
             mappings.constants().iter().rev().cloned(),
             mappings.constant_terms().iter().rev().cloned(),
@@ -797,6 +749,157 @@ mod tests {
 
         assert_eq!(first, second);
         assert!(mappings.covers_debug_sources(request.unit()));
+    }
+
+    #[test]
+    fn generic_instances_map_the_same_template_type_independently() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic values must initialize: {error:?}"));
+
+        let open = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("open test type must intern: {error:?}"));
+
+        let first_type = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("first test type must intern: {error:?}"));
+
+        let second_type = values
+            .intern_type(TypeData::tuple([first_type]))
+            .unwrap_or_else(|error| panic!("second test type must intern: {error:?}"));
+
+        let bound = test_bound_unit(71);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            test_mir_target(),
+        );
+
+        let _ = builder
+            .push_storage(source.clone(), bray_ir::MirStorageKind::Local, open)
+            .unwrap_or_else(|error| panic!("test storage must validate: {error:?}"));
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap_or_else(|error| panic!("test block must validate: {error:?}"));
+
+        builder
+            .set_terminator(entry, source, MirTerminatorKind::Return(None))
+            .unwrap_or_else(|error| panic!("test terminator must validate: {error:?}"));
+
+        let mir = builder
+            .finish(entry)
+            .unwrap_or_else(|error| panic!("test MIR must validate: {error:?}"));
+
+        let first_key = CodegenInstanceKey::new(
+            mir.key().clone(),
+            CodegenSpecialization::generic([CodegenGenericArgument::Type(CodegenValueKey::new(
+                [1; 32],
+            ))]),
+            [],
+            mir.target().clone(),
+        );
+
+        let second_key = CodegenInstanceKey::new(
+            mir.key().clone(),
+            CodegenSpecialization::generic([CodegenGenericArgument::Type(CodegenValueKey::new(
+                [2; 32],
+            ))]),
+            [],
+            mir.target().clone(),
+        );
+
+        let first = CodegenInstance::try_new(first_key.clone(), mir.clone(), [])
+            .unwrap_or_else(|error| panic!("first instance must validate: {error:?}"));
+
+        let second = CodegenInstance::try_new(second_key.clone(), mir, [])
+            .unwrap_or_else(|error| panic!("second instance must validate: {error:?}"));
+
+        let unit = CodegenUnit::try_from_instances(1, [first, second])
+            .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
+
+        let fixture = codegen_request();
+        let target = fixture.request().target();
+
+        let first_layout = TargetValueLayout::new(
+            4,
+            NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN),
+            TargetLayoutContract::Default,
+        );
+
+        let second_layout = TargetValueLayout::new(
+            8,
+            NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN),
+            TargetLayoutContract::Default,
+        );
+
+        let types = [
+            CodegenTypeMapping::new(
+                first_type,
+                first_layout,
+                CodegenTypeKind::SignedInteger(NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN)),
+            ),
+            CodegenTypeMapping::new(
+                second_type,
+                second_layout,
+                CodegenTypeKind::UnsignedInteger(NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN)),
+            ),
+        ];
+
+        let symbols = unit
+            .instances()
+            .iter()
+            .enumerate()
+            .map(|(index, instance)| {
+                let name = BinarySymbolName::try_new(format!("generic_{index}"))
+                    .unwrap_or_else(|| panic!("test symbol name must validate"));
+
+                CodegenSymbolMapping::new(
+                    CodegenSymbolKey::Instance(instance.key().clone()),
+                    name,
+                    CodegenLinkage::Internal,
+                    CodegenCallableSignature::new(
+                        [],
+                        CodegenResultMapping::Void,
+                        bray_symbols::CallableAbi::Bray,
+                        false,
+                    ),
+                )
+            });
+
+        let mappings = CodegenMappings::try_new(
+            &unit,
+            target,
+            types,
+            [
+                CodegenInstanceTypeMapping::new(first_key.clone(), open, first_type),
+                CodegenInstanceTypeMapping::new(second_key.clone(), open, second_type),
+            ],
+            symbols,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+        .unwrap_or_else(|error| panic!("instance type mappings must validate: {error:?}"));
+
+        assert_eq!(
+            mappings
+                .instance_ty(&first_key, open)
+                .map(CodegenTypeMapping::ty),
+            Some(first_type)
+        );
+
+        assert_eq!(
+            mappings
+                .instance_ty(&second_key, open)
+                .map(CodegenTypeMapping::ty),
+            Some(second_type)
+        );
     }
 
     #[test]
@@ -824,6 +927,7 @@ mod tests {
                 request.unit(),
                 request.target(),
                 mappings.types().iter().cloned(),
+                mappings.instance_types().iter().cloned(),
                 mappings.symbols().iter().cloned(),
                 [CodegenConstantMapping::new(value, data)],
                 [],
@@ -856,6 +960,7 @@ mod tests {
                 request.unit(),
                 request.target(),
                 types,
+                mappings.instance_types().iter().cloned(),
                 mappings.symbols().iter().cloned(),
                 mappings.constants().iter().cloned(),
                 mappings.constant_terms().iter().cloned(),
@@ -902,6 +1007,7 @@ mod tests {
                 request.unit(),
                 request.target(),
                 types,
+                mappings.instance_types().iter().cloned(),
                 symbols,
                 mappings.constants().iter().cloned(),
                 mappings.constant_terms().iter().cloned(),
@@ -940,6 +1046,7 @@ mod tests {
                 request.unit(),
                 request.target(),
                 [],
+                mappings.instance_types().iter().cloned(),
                 direct_symbols,
                 mappings.constants().iter().cloned(),
                 mappings.constant_terms().iter().cloned(),
@@ -956,6 +1063,7 @@ mod tests {
                 request.unit(),
                 request.target(),
                 mappings.types().iter().cloned(),
+                mappings.instance_types().iter().cloned(),
                 [],
                 mappings.constants().iter().cloned(),
                 mappings.constant_terms().iter().cloned(),
@@ -971,6 +1079,7 @@ mod tests {
             request.unit(),
             request.target(),
             mappings.types().iter().cloned(),
+            mappings.instance_types().iter().cloned(),
             mappings.symbols().iter().cloned(),
             mappings.constants().iter().cloned(),
             mappings.constant_terms().iter().cloned(),
@@ -1054,6 +1163,7 @@ mod tests {
             &unit,
             target,
             types,
+            [],
             [instance, runtime.clone()],
             [],
             [],
@@ -1084,6 +1194,7 @@ mod tests {
                 request.unit(),
                 target,
                 base_mappings.types().iter().cloned(),
+                base_mappings.instance_types().iter().cloned(),
                 unsolicited,
                 base_mappings.constants().iter().cloned(),
                 base_mappings.constant_terms().iter().cloned(),

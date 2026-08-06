@@ -17,7 +17,8 @@ use bray_symbols::{
     GenericConstraintTemplate, GenericDeclarationTemplate, GenericDeclarationTemplateFact,
     GenericSubstitutionData, GenericSubstitutionId, ImplementationCandidate,
     ImplementationRequirementKey, ImplementationSelection, ProofOutcome, SemanticFactResult,
-    SymbolFactRequest, TraitApplicationTemplate, TraitSymbolId, TypeExpressionTemplate,
+    SymbolFactRequest, TraitApplicationTemplate, TraitSymbolId, TypeData, TypeExpressionTemplate,
+    TypeId,
 };
 
 use super::Compilation;
@@ -213,6 +214,9 @@ impl Compilation {
                         .substitute_type(right, substitution)
                         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
+                    let left = self.normalize_built_in_operation_result(left, cancellation)?;
+                    let right = self.normalize_built_in_operation_result(right, cancellation)?;
+
                     Ok(DiagnosticResult::without_diagnostics(if left == right {
                         ProofOutcome::Proven
                     } else {
@@ -292,6 +296,9 @@ impl Compilation {
             .substitute_type(right, substitution)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
+        let left = self.normalize_built_in_operation_result(left, cancellation)?;
+        let right = self.normalize_built_in_operation_result(right, cancellation)?;
+
         Ok(DiagnosticResult::new(
             if left == right {
                 ProofOutcome::Proven
@@ -300,6 +307,33 @@ impl Compilation {
             },
             diagnostics,
         ))
+    }
+
+    fn normalize_built_in_operation_result(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<TypeId, FactQueryError> {
+        let values = self.semantic_value_store()?;
+
+        let data = values
+            .type_data(ty)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let TypeData::TypeValuedMemberProjection {
+            subject,
+            application,
+            member,
+        } = data.as_ref()
+        else {
+            return Ok(ty);
+        };
+
+        let context = CompilationCheckerContext::new(self.binder_facts(cancellation)?);
+
+        bray_checker::built_in_operation_result_type(&context, *subject, *application, *member)
+            .map_err(FactQueryError::CheckerInfrastructure)
+            .map(|result| result.unwrap_or(ty))
     }
 
     fn evaluate_source_predicate_constraint(

@@ -85,12 +85,18 @@ impl MirOperand {
             Self::Value(_) => None,
         }
     }
+
+    /// Returns whether this operand reads from the exact storage place.
+    pub fn reads_from(&self, place: &MirPlace) -> bool {
+        matches!(self, Self::Copy(source) | Self::Move(source) if source == place)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MirImmediateValue, MirOperand};
+    use super::{MirImmediateValue, MirOperand, MirPlace};
     use crate::test_support::test_type;
+    use crate::{MirStorageId, MirUnitId};
 
     #[test]
     fn immediate_values_carry_types_without_semantic_value_ids() {
@@ -102,5 +108,17 @@ mod tests {
         };
 
         assert_eq!(operand.explicit_type(), Some(ty));
+    }
+
+    #[test]
+    fn storage_operands_report_exact_place_reads() {
+        let ty = test_type();
+        let unit = MirUnitId::new(0);
+        let place = MirPlace::new(MirStorageId::from_slot(unit, 0), [], ty);
+        let other = MirPlace::new(MirStorageId::from_slot(unit, 1), [], ty);
+
+        assert!(MirOperand::Copy(place.clone()).reads_from(&place));
+        assert!(MirOperand::Move(place.clone()).reads_from(&place));
+        assert!(!MirOperand::Copy(other).reads_from(&place));
     }
 }

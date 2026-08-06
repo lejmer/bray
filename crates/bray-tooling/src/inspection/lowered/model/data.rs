@@ -217,6 +217,9 @@ pub(crate) enum InspectionMirUnitKey {
     ExternalCallable {
         callable: InspectionSymbolIdentity,
     },
+    ExternalRuntimeDefault {
+        provider: InspectionSymbolIdentity,
+    },
 }
 
 #[derive(Serialize)]
@@ -1801,6 +1804,11 @@ fn inspection_unit_key(
         MirUnitKey::ExternalCallable(definition) => Ok(InspectionMirUnitKey::ExternalCallable {
             callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
         }),
+        MirUnitKey::ExternalRuntimeDefault(provider) => {
+            Ok(InspectionMirUnitKey::ExternalRuntimeDefault {
+                provider: InspectionSymbolIdentity::from_symbol(symbols, *provider),
+            })
+        }
     }
 }
 
@@ -1973,6 +1981,7 @@ fn pattern_predicate(
 ) -> Result<(), MirInspectionModelError> {
     match predicate {
         PatternPredicate::Literal(literal) => {
+            let literal = literal.literal();
             parts.attribute("predicate", "literal");
             parts.attribute("literal_kind", literal_kind(literal.kind()));
             parts.attribute("literal_start", u32::from(literal.range().start()));

@@ -1,8 +1,8 @@
 use bray_bound_tree::{
     BoundCallableTarget, BoundControlTransferKind, BoundExpression, BoundExpressionId,
     BoundPatternMode, BoundReferenceTarget, BoundStructuredExpressionKind, IndexTarget,
-    SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose, StorageIdentity,
-    StorageProjection,
+    OperatorTarget, SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose,
+    StorageIdentity, StorageProjection,
 };
 use bray_symbols::{BorrowKind, ReceiverMode};
 
@@ -47,6 +47,8 @@ where
             BoundExpression::Assignment(assignment) => {
                 self.plan_assignment(id, assignment.operands())?
             }
+            BoundExpression::Unary(expression) => self.plan_operator(id, expression.operands())?,
+            BoundExpression::Binary(expression) => self.plan_operator(id, expression.operands())?,
             BoundExpression::MemberAccess(member) => {
                 if self.is_compile_time_qualifier(member.receiver())? {
                     self.temporary_access(id)?
@@ -256,6 +258,26 @@ where
                 StorageAccessPurpose::ValueTransfer
             }
         }
+    }
+
+    fn plan_operator(
+        &mut self,
+        id: BoundExpressionId,
+        operands: &[BoundExpressionId],
+    ) -> Result<StorageAccessId, PlanError> {
+        let purpose = match self.selections.expression(id) {
+            Some(SemanticSelection::Operation(SelectedOperation::Operator {
+                target: OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. },
+                ..
+            })) => StorageAccessPurpose::Borrow(BorrowKind::Shared),
+            _ => StorageAccessPurpose::Read,
+        };
+
+        for operand in operands {
+            self.plan_expression(*operand, Some(purpose))?;
+        }
+
+        self.temporary_access(id)
     }
 
     fn plan_assignment(

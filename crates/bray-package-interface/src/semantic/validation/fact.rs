@@ -156,6 +156,14 @@ impl InterfaceSemanticFacts {
                 }
             }
 
+            validate_storage_shape(
+                &representation.storage,
+                owner,
+                owner_kind,
+                self.types.len(),
+                surface,
+            )?;
+
             if representation.copy == bray_symbols::DeclaredCopyContract::Conditional {
                 if representation.copy_dependencies.is_empty()
                     || !is_strictly_sorted(&representation.copy_dependencies)
@@ -555,6 +563,86 @@ impl InterfaceSemanticFacts {
             self.dependency_contracts.len(),
         )
     }
+}
+
+fn validate_storage_shape(
+    storage: &crate::InterfaceStorageShape,
+    owner: bray_symbols::InterfaceSymbolId,
+    owner_kind: SymbolKind,
+    type_count: usize,
+    surface: &PackageInterfaceSurface,
+) -> Result<(), InterfaceValidationError> {
+    match storage {
+        crate::InterfaceStorageShape::Structure(members) if owner_kind == SymbolKind::Struct => {
+            for member in &**members {
+                validate_index(member.ty().to_index(), type_count)?;
+
+                if let Some(field) = member.field() {
+                    validate_storage_member(
+                        field,
+                        owner,
+                        SymbolKind::StructField,
+                        bray_symbols::SymbolRelationshipKind::StructField,
+                        surface,
+                    )?;
+                }
+            }
+        }
+        crate::InterfaceStorageShape::Union(variants) if owner_kind == SymbolKind::Union => {
+            for variant in &**variants {
+                let variant_id = local_symbol(variant.variant())?;
+
+                validate_storage_member(
+                    variant.variant(),
+                    owner,
+                    SymbolKind::UnionVariant,
+                    bray_symbols::SymbolRelationshipKind::UnionVariant,
+                    surface,
+                )?;
+
+                for member in variant.members() {
+                    validate_index(member.ty().to_index(), type_count)?;
+
+                    if let Some(field) = member.field() {
+                        validate_storage_member(
+                            field,
+                            variant_id,
+                            SymbolKind::UnionPayloadField,
+                            bray_symbols::SymbolRelationshipKind::UnionPayloadField,
+                            surface,
+                        )?;
+                    }
+                }
+            }
+        }
+        crate::InterfaceStorageShape::Structure(_) | crate::InterfaceStorageShape::Union(_) => {
+            return Err(InterfaceValidationError::Malformed);
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_storage_member(
+    member: &InterfaceSymbolReference,
+    owner: bray_symbols::InterfaceSymbolId,
+    expected_kind: SymbolKind,
+    relationship_kind: bray_symbols::SymbolRelationshipKind,
+    surface: &PackageInterfaceSurface,
+) -> Result<(), InterfaceValidationError> {
+    let member_id = local_symbol(member)?;
+
+    if validate_symbol_kind(member, surface)? != expected_kind
+        || !surface.relationships().iter().any(|relationship| {
+            relationship.kind() == relationship_kind
+                && relationship.owner() == owner
+                && relationship.member() == member_id
+        })
+    {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    Ok(())
 }
 
 fn validate_owned_parameter(

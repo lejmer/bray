@@ -181,9 +181,9 @@ impl Compilation {
             MirUnitKey::GeneratedLifecycle(_) => Err(CodegenFactError::MirUnavailable(
                 instance.template().clone(),
             )),
-            MirUnitKey::ExternalCallable(_) => Err(CodegenFactError::MirUnavailable(
-                instance.template().clone(),
-            )),
+            MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
+                CodegenFactError::MirUnavailable(instance.template().clone()),
+            ),
         }
     }
 
@@ -359,7 +359,7 @@ fn codegen_mappings(
         }
     }
 
-    CodegenMappings::try_new(unit, target, [], symbols, [], [], [], [], [], [])
+    CodegenMappings::try_new(unit, target, [], [], symbols, [], [], [], [], [], [])
         .map_err(CodegenFactError::InvalidMappings)
 }
 

@@ -1,0 +1,56 @@
+module bray.standard_library_conformance.lifecycle;
+
+using std.bytes;
+using std.format;
+using std.io;
+using std.memory;
+
+@test
+func imported_buffer_is_destroyed() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 2);
+
+    try std.bytes.push(buffer = &mut buffer, value = 65);
+    try std.bytes.push(buffer = &mut buffer, value = 66);
+
+    assert(std.bytes.length(&buffer) == 2);
+
+    return Ok(unit);
+}
+
+@test
+func imported_format_sinks_are_destroyed() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let sink: std.format.ByteSink = try std.format.ByteSink(capacity = 2);
+    let mut text: std.format.TextSink = try std.format.TextSink(capacity = 2);
+    let text_bytes: &mut std.format.ByteSink = std.format.text_bytes(&mut text);
+
+    assert(std.bytes.slice_length(std.format.bytes(&sink)) == 0);
+
+    return Ok(unit);
+}
+
+@test
+func imported_buffered_streams_are_destroyed() -> Result<unit, std.io.IoError>
+{
+    let input: std.io.BufferedReader<std.io.StandardInput> = try std.io.BufferedReader<std.io.StandardInput>(
+        std.io.standard_input(),
+        capacity = 8,
+    );
+
+    let output: std.io.BufferedWriter<std.io.StandardOutput> = try std.io.BufferedWriter<std.io.StandardOutput>(
+        std.io.standard_output(),
+        capacity = 8,
+    );
+
+    return Ok(unit);
+}
+
+@test
+func repeated_standard_output_locks_are_released() -> Result<unit, std.io.IoError>
+{
+    try std.io.print("first-lock|");
+    try std.io.print("second-lock");
+
+    return Ok(unit);
+}

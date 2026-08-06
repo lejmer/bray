@@ -201,6 +201,16 @@ where
         self.context.generic_constraints(obligation)
     }
 
+    pub(crate) fn selected_type_valued_member(
+        self,
+        subject: bray_symbols::TypeId,
+        application: bray_symbols::TraitApplicationId,
+        member: bray_symbols::TraitTypeMemberSymbolId,
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<Option<bray_symbols::TypeId>>> {
+        self.context
+            .selected_type_valued_member(subject, application, member)
+    }
+
     /// Returns the checked representation contract for one declared type.
     pub(crate) fn declared_type_representation(
         self,
@@ -209,6 +219,13 @@ where
         bray_diagnostics::DiagnosticResult<bray_symbols::DeclaredTypeRepresentation>,
     > {
         self.context.declared_type_representation(subject)
+    }
+
+    pub(crate) fn declared_type_has_lifecycle(
+        self,
+        subject: bray_symbols::NamedTypeSymbolId,
+    ) -> crate::CheckerFactResult<bray_diagnostics::DiagnosticResult<bool>> {
+        self.context.declared_type_has_lifecycle(subject)
     }
 
     /// Checks every source constant expression embedded in one type template.

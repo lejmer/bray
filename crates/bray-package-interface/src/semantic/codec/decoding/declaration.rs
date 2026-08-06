@@ -6,7 +6,8 @@ use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
     InterfaceDeclaredType, InterfaceGenericDeclaration, InterfacePredicateDefinition,
-    InterfaceSemanticFacts, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionTag,
+    InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceTypeId,
+    InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
 };
 use crate::wire::WireReader;
 use crate::{
@@ -153,6 +154,44 @@ fn decode_type_representation(
         ));
     }
 
+    let storage = match read_u32(reader)? {
+        1 => {
+            let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+            let mut members = context.allocate_items(reader, count)?;
+
+            for _ in 0..count {
+                members.push(InterfaceStorageMember::new(
+                    read_optional_symbol_reference(reader, context)?,
+                    InterfaceTypeId::new(read_u32(reader)?),
+                ));
+            }
+
+            InterfaceStorageShape::Structure(members.into())
+        }
+        2 => {
+            let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+            let mut variants = context.allocate_items(reader, count)?;
+
+            for _ in 0..count {
+                let variant = read_symbol_reference(reader, context)?;
+                let member_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+                let mut members = context.allocate_items(reader, member_count)?;
+
+                for _ in 0..member_count {
+                    members.push(InterfaceStorageMember::new(
+                        read_optional_symbol_reference(reader, context)?,
+                        InterfaceTypeId::new(read_u32(reader)?),
+                    ));
+                }
+
+                variants.push(InterfaceUnionStorageVariant::new(variant, members));
+            }
+
+            InterfaceStorageShape::Union(variants.into())
+        }
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
     let copy = match read_u32(reader)? {
         1 => bray_symbols::DeclaredCopyContract::Absent,
         2 => bray_symbols::DeclaredCopyContract::Unconditional,
@@ -169,8 +208,20 @@ fn decode_type_representation(
     Ok(InterfaceTypeRepresentation::new(owner)
         .with_layout(layout, alignment, packing, union_tag_type)
         .with_union_tags(union_tags)
+        .with_storage(storage)
         .with_copy(copy, copy_dependencies)
         .with_properties(plain_storage, finite_size))
+}
+
+fn read_optional_symbol_reference(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<Option<crate::InterfaceSymbolReference>, InterfaceValidationError> {
+    match read_u32(reader)? {
+        0 => Ok(None),
+        1 => read_symbol_reference(reader, context).map(Some),
+        _ => Err(InterfaceValidationError::Malformed),
+    }
 }
 
 fn read_optional_u64(reader: &mut WireReader<'_>) -> Result<Option<u64>, InterfaceValidationError> {

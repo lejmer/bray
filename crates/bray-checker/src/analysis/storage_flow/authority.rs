@@ -133,7 +133,13 @@ fn insert_identity(
     storage: &StoragePlan,
     target: StorageBindingTarget,
 ) {
-    if let Some(StorageBinding::Identity(identity)) = storage.binding(target) {
+    let identity = match storage.binding(target) {
+        Some(StorageBinding::Identity(identity)) => Some(identity),
+        Some(StorageBinding::Access(access)) => storage.root_identity(access),
+        None => None,
+    };
+
+    if let Some(identity) = identity {
         mutable.insert(identity);
     }
 }

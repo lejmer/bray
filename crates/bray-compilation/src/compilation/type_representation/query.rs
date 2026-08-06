@@ -157,7 +157,8 @@ impl Compilation {
 
         diagnostics.add_range(ty.diagnostics().iter().cloned());
 
-        Ok(DeclaredStorageMember::new(
+        Ok(DeclaredStorageMember::struct_field(
+            field,
             ty.value().clone(),
             symbol_span(facts.symbols(), field.into(), record.syntax_anchor())?,
             record.is_recovered(),
@@ -213,7 +214,8 @@ impl Compilation {
 
         diagnostics.add_range(ty.diagnostics().iter().cloned());
 
-        Ok(DeclaredStorageMember::new(
+        Ok(DeclaredStorageMember::union_payload_field(
+            field,
             ty.value().clone(),
             symbol_span(facts.symbols(), field.into(), record.syntax_anchor())?,
             record.is_recovered(),

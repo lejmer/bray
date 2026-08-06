@@ -3,20 +3,19 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundPattern,
     BoundPatternId, BoundPatternKind, BoundPatternTarget, BoundWalkControl, BoundWalkEvent,
-    MatchCoverageEntry, PatternRefutability, walk_bound_unit_view,
+    MatchCoverageEntry, PatternPredicate, PatternRefutability, walk_bound_unit_view,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{Diagnostic, DiagnosticKind, SeverityKind};
 use bray_source::TextRange;
 use bray_symbols::{
-    AnySymbolId, ConstantValueData, ConstantValueId, ConstantValueKind, NamedTypeSymbolId,
-    StructFieldTypeFact, TypeData, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
+    AnySymbolId, ConstantValueId, ConstantValueKind, NamedTypeSymbolId, StructFieldTypeFact,
+    TypeData, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
 };
 
 use super::check::{PatternChecker, effective_pattern_kind};
-use crate::constant::{check_constant_literal, constant_values_equal};
+use crate::constant::constant_values_equal;
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::representation::type_representation;
 use crate::{
     CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
 };
@@ -69,6 +68,15 @@ where
             .semantic_values()
             .type_data(subject.ty)
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let subject_data = match subject_data.as_ref() {
+            TypeData::Borrow { target, .. } => self
+                .request
+                .semantic_values()
+                .type_data(*target)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?,
+            _ => subject_data,
+        };
 
         let mut covered = Coverage::default();
         let mut unreachable = Vec::new();
@@ -150,7 +158,10 @@ where
         let kind = effective_pattern_kind(pattern, checked.target());
 
         let coverage = match kind {
-            BoundPatternKind::Literal => self.literal_coverage(pattern, checked.input_type())?,
+            BoundPatternKind::Literal => match checked.test() {
+                Some(PatternPredicate::Literal(literal)) => Coverage::constant(literal.value()),
+                _ => Coverage::unknown(),
+            },
             BoundPatternKind::Path => self.constant_coverage(id)?,
             BoundPatternKind::NullableAbsent => Coverage::nullable_absent(),
             BoundPatternKind::NullablePresent => {
@@ -201,45 +212,6 @@ where
                 .get(child)
                 .is_some_and(|entry| entry.refutability() == PatternRefutability::Irrefutable)
         })
-    }
-
-    fn literal_coverage(
-        &self,
-        pattern: &BoundPattern,
-        input_type: bray_symbols::TypeId,
-    ) -> Result<Coverage, CheckerInfrastructureError> {
-        let Some(literal) = pattern.literal() else {
-            return Ok(Coverage::unknown());
-        };
-
-        let source = self.request.source(pattern.origin().source_anchor())?;
-
-        let Some(spelling) = source.text_for_range(literal.range()) else {
-            return Err(CheckerInfrastructureError::InvalidSourceRange {
-                span: bray_source::SourceSpan::new(source.span().source_id(), literal.range()),
-            });
-        };
-
-        let Some(representation) = type_representation(self.request, input_type)? else {
-            return Ok(Coverage::unknown());
-        };
-
-        let Ok(value) = check_constant_literal(literal.kind(), spelling, representation, || {
-            self.request
-                .selected_target()
-                .machine()
-                .pointer_width_bits()
-        }) else {
-            return Ok(Coverage::unknown());
-        };
-
-        let value = self
-            .request
-            .semantic_values()
-            .intern_constant_value(ConstantValueData::new(input_type, value))
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-        Ok(Coverage::constant(value))
     }
 
     fn constant_coverage(

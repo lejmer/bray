@@ -31,5 +31,6 @@ pub use template::{
     resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use template_evaluation::{
-    evaluate_constant_callable_template, evaluate_generic_constraint_template,
+    evaluate_constant_callable_template, evaluate_constant_definition_template,
+    evaluate_generic_constraint_template,
 };

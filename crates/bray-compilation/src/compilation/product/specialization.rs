@@ -118,6 +118,24 @@ impl ConcreteCodegenInstance {
         }
     }
 
+    pub(super) fn external_runtime_default(
+        owner: &Self,
+        provider: bray_symbols::AnySymbolId,
+    ) -> Self {
+        Self {
+            key: CodegenInstanceKey::new(
+                MirUnitKey::ExternalRuntimeDefault(provider),
+                owner.key.specialization().clone(),
+                owner.key.witnesses().iter().cloned(),
+                owner.key.target().clone(),
+            ),
+            callable: None,
+            lifecycle: None,
+            substitution: owner.substitution,
+            witnesses: Arc::clone(&owner.witnesses),
+        }
+    }
+
     pub(super) fn try_generated_lifecycle(
         key: CodegenInstanceKey,
         reference: MirHelperReference,

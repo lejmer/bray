@@ -54,6 +54,42 @@ pub(super) fn type_templates_are_compatible(
                 );
             }
 
+            if let TypeData::Borrow {
+                kind: requirement_kind,
+                target: requirement,
+            } = requirement_data.as_ref()
+            {
+                let Some(fulfillment) = fulfillment.resolved_type() else {
+                    return Ok(false);
+                };
+
+                let fulfillment_data = values
+                    .type_data(fulfillment)
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                let TypeData::Borrow {
+                    kind: fulfillment_kind,
+                    target: fulfillment,
+                } = fulfillment_data.as_ref()
+                else {
+                    return Ok(false);
+                };
+
+                if requirement_kind != fulfillment_kind {
+                    return Ok(false);
+                }
+
+                return type_templates_are_compatible(
+                    values,
+                    subject,
+                    trait_application,
+                    generic_substitution,
+                    &TypeExpressionTemplate::Resolved(*requirement),
+                    &TypeExpressionTemplate::Resolved(*fulfillment),
+                    type_bindings,
+                );
+            }
+
             if let TypeData::TypeValuedMemberProjection { member, .. } = requirement_data.as_ref() {
                 let Some(requirement) = type_bindings.get(member) else {
                     return Ok(false);

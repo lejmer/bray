@@ -1,6 +1,6 @@
 use bray_bound_tree::{ConversionTarget, SelectedConversion, SelectedOperation};
-use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
-use bray_symbols::{GenericArgument, ProofOutcome, TraitApplicationId, TypeData, TypeId};
+use bray_compiler_known::RepresentationRole;
+use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
@@ -173,53 +173,6 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     composite_conversion_children_for_context(request.context(), source, target)
-}
-
-/// Returns whether one trait application is satisfied by a compiler-defined operation.
-pub fn built_in_trait_constraint_outcome<C>(
-    request: &C,
-    subject: TypeId,
-    application: TraitApplicationId,
-) -> Result<Option<ProofOutcome>, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let Some(contract) = request
-        .available_compiler_known_symbols()
-        .operation_contract(CompilerKnownOperationRole::PlainConversion)
-    else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
-    };
-
-    let application = request
-        .semantic_values()
-        .trait_application_data(application)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-    if application.definition() != contract.trait_definition() {
-        return Ok(None);
-    }
-
-    let substitution = request
-        .semantic_values()
-        .generic_substitution_data(application.substitution())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-    let [binding] = substitution.bindings() else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
-    };
-
-    let GenericArgument::Type(target) = binding.argument() else {
-        return Err(CheckerInfrastructureError::SemanticValueUnavailable);
-    };
-
-    let conversion = built_in_conversion_plan_for_context(request, subject, target)?;
-
-    Ok(Some(if conversion.is_some() {
-        ProofOutcome::Proven
-    } else {
-        ProofOutcome::Disproven
-    }))
 }
 
 fn composite_conversion_children_for_context<C>(

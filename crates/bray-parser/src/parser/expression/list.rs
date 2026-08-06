@@ -77,10 +77,11 @@ impl Parser {
     ) {
         let recovery_kinds = array_element_recovery_kinds();
 
-        while !self.at(SyntaxKind::CloseBracketToken)
-            && !self.at(SyntaxKind::EndOfFileToken)
-            && !at_boundary(self)
-        {
+        loop {
+            if self.at(SyntaxKind::CloseBracketToken) || self.at(SyntaxKind::EndOfFileToken) {
+                break;
+            }
+
             if self.at(SyntaxKind::CommaToken) || self.at_array_element_missing_separator() {
                 builder.push_separator_token(self.expect(SyntaxKind::CommaToken));
 
@@ -93,6 +94,10 @@ impl Parser {
 
                 builder.push_expression(self.parse_expression_until(&mut at_element_boundary));
                 continue;
+            }
+
+            if at_boundary(self) {
+                break;
             }
 
             if self.recover_until(builder, &recovery_kinds) {
@@ -251,5 +256,24 @@ mod tests {
                 DiagnosticKind::SyntaxExpectedToken,
             ]
         );
+    }
+
+    #[test]
+    fn array_separators_take_precedence_over_the_enclosing_initializer_boundary() {
+        let sources = source_store(["Value { items = [1, 2, 3], other = 4 };"]);
+        let snapshot = source(&sources, 0);
+
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+        let expression = parser.parse_expression_until(&mut boundary);
+        let diagnostics = parser.finish();
+
+        assert_eq!(
+            expression.full_text(),
+            "Value { items = [1, 2, 3], other = 4 }"
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

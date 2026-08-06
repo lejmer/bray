@@ -1,8 +1,8 @@
 use bray_bound_tree::{
     BoundExpressionId, BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode,
     BoundPatternTarget, BoundReferenceTarget, PatternOperation, PatternProjection, StorageAccess,
-    StorageAccessId, StorageAccessPurpose, StorageBinding, StorageBindingTarget, StorageIdentity,
-    StorageProjection,
+    StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
+    StorageIdentity, StorageProjection,
 };
 
 use super::plan::{PlanError, Planner, invalid_node};
@@ -144,11 +144,31 @@ where
                 PatternOperation::Consume
                 | PatternOperation::Copy
                 | PatternOperation::Recovered => {
-                    self.bind_identity(
+                    let identity = self.bind_identity(
                         target,
                         StorageIdentity::LocalOwned(pattern.into()),
                         Some(checked.ty()),
                     )?;
+
+                    if let Some(identity) = identity {
+                        let pattern = self
+                            .request
+                            .view()
+                            .pattern(pattern)
+                            .ok_or_else(|| invalid_node(pattern))?;
+
+                        let access = StorageAccess::new(
+                            StorageAccessRoot::Storage(identity),
+                            [],
+                            checked.ty(),
+                            pattern.origin().source_anchor(),
+                            pattern.is_recovered() || checked.is_recovered(),
+                        );
+
+                        self.builder_mut()?
+                            .push_access(access)
+                            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                    }
 
                     None
                 }
@@ -264,7 +284,7 @@ where
                 .push_alternative(pattern_id, accesses)
                 .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
 
-            self.bind_identity(
+            let identity = self.bind_identity(
                 StorageBindingTarget::Local(binding),
                 StorageIdentity::Alternative {
                     pattern: pattern_id,
@@ -272,6 +292,20 @@ where
                 },
                 Some(ty),
             )?;
+
+            if let Some(identity) = identity {
+                let access = StorageAccess::new(
+                    StorageAccessRoot::Storage(identity),
+                    [],
+                    ty,
+                    pattern.origin().source_anchor(),
+                    pattern.is_recovered(),
+                );
+
+                self.builder_mut()?
+                    .push_access(access)
+                    .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            }
         }
 
         Ok(())

@@ -94,7 +94,8 @@ internal func contribute_unsigned<Value, Sink>(pos value: Value, pos sink: &mut 
     sink.write(value as u128);
 }
 
-impl BooleanHashable = bool(Hashable<Sink>) with(Sink: HashSink)
+impl BooleanHashable = bool(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
@@ -109,7 +110,8 @@ impl BooleanHashable = bool(Hashable<Sink>) with(Sink: HashSink)
     }
 }
 
-impl CharacterHashable = char(Hashable<Sink>) with(Sink: HashSink)
+impl CharacterHashable = char(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
@@ -117,7 +119,8 @@ impl CharacterHashable = char(Hashable<Sink>) with(Sink: HashSink)
     }
 }
 
-impl U8Hashable = u8(Hashable<Sink>) with(Sink: HashSink)
+impl U8Hashable = u8(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
@@ -125,7 +128,8 @@ impl U8Hashable = u8(Hashable<Sink>) with(Sink: HashSink)
     }
 }
 
-impl U16Hashable = u16(Hashable<Sink>) with(Sink: HashSink)
+impl U16Hashable = u16(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
@@ -133,7 +137,8 @@ impl U16Hashable = u16(Hashable<Sink>) with(Sink: HashSink)
     }
 }
 
-impl U32Hashable = u32(Hashable<Sink>) with(Sink: HashSink)
+impl U32Hashable = u32(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
@@ -141,7 +146,8 @@ impl U32Hashable = u32(Hashable<Sink>) with(Sink: HashSink)
     }
 }
 
-impl U64Hashable = u64(Hashable<Sink>) with(Sink: HashSink)
+impl U64Hashable = u64(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
@@ -149,7 +155,8 @@ impl U64Hashable = u64(Hashable<Sink>) with(Sink: HashSink)
     }
 }
 
-impl U128Hashable = u128(Hashable<Sink>) with(Sink: HashSink)
+impl U128Hashable = u128(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
@@ -157,7 +164,8 @@ impl U128Hashable = u128(Hashable<Sink>) with(Sink: HashSink)
     }
 }
 
-impl UsizeHashable = usize(Hashable<Sink>) with(Sink: HashSink)
+impl UsizeHashable = usize(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
@@ -165,7 +173,8 @@ impl UsizeHashable = usize(Hashable<Sink>) with(Sink: HashSink)
     }
 }
 
-impl StringHashable = string(Hashable<Sink>) with(Sink: HashSink)
+impl StringHashable = string(Hashable<Sink>)
+    with(Sink: HashSink)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {

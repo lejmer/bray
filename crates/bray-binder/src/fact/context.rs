@@ -119,6 +119,14 @@ pub trait BinderFactContext: Send + Sync {
             .and_then(|parameter| parameter.default_provider()))
     }
 
+    /// Returns the declaration evaluated by one runtime-default provider.
+    fn runtime_default_subject(
+        &self,
+        provider: AnySymbolId,
+    ) -> BinderFactResult<Option<AnySymbolId>> {
+        Ok(self.symbols().runtime_default_subject(provider))
+    }
+
     /// Resolves the longest selected dependency package prefix of a qualified source path.
     fn imported_path_root(
         &self,

@@ -64,10 +64,7 @@ impl Lowerer<'_> {
 
         let place = self.place_for_identity(temporary, ty, origin)?;
 
-        if matches!(
-            &value,
-            MirOperand::Copy(existing) | MirOperand::Move(existing) if existing == &place
-        ) {
+        if value.reads_from(&place) {
             return Ok(LoweredExpression::continuing(
                 current,
                 Some(value),

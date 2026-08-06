@@ -116,6 +116,8 @@ pub enum MirUnitKey {
     GeneratedLifecycle(MirGeneratedLifecycleKey),
     /// A bodyless callable referenced by generated MIR.
     ExternalCallable(CallableDefinitionId),
+    /// A bodyless runtime-default provider referenced from another package.
+    ExternalRuntimeDefault(bray_symbols::AnySymbolId),
 }
 
 /// One immutable backend-independent MIR unit.

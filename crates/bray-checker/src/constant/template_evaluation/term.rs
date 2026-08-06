@@ -1,12 +1,14 @@
+use bray_compiler_known::IntegerRepresentation;
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::{
     AnyConstantDefinitionId, ConstantField, ConstantInstanceKey, ConstantProjectionKind,
     ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind, GenericSubstitutionId,
-    ImplementationInstanceId, TypeId,
+    ImplementationInstanceId, TargetSizedIntegerType, TypeId,
 };
 
 use super::super::ConstantReferenceResolution;
 use super::super::call::ConstantCallRequest;
+use super::super::integer::fits_integer_representation;
 use super::super::operation::fold_binary;
 use super::evaluator::TemplateEvaluator;
 use super::support::{
@@ -235,8 +237,30 @@ where
 
             value.ok_or_else(TemplateEvaluationFailure::invalid_input)
         }
-        ConstantTermData::IntegerLiteral { .. }
-        | ConstantTermData::Parameter(_)
+        ConstantTermData::IntegerLiteral {
+            ty: integer_type,
+            value,
+        } => {
+            let representation = match integer_type {
+                TargetSizedIntegerType::Isize => IntegerRepresentation::TargetSigned,
+                TargetSizedIntegerType::Usize => IntegerRepresentation::TargetUnsigned,
+            };
+
+            if !fits_integer_representation(value, representation, || {
+                evaluator
+                    .context
+                    .selected_target()
+                    .machine()
+                    .pointer_width_bits()
+            }) {
+                return Err(TemplateEvaluationFailure::Diagnostic(
+                    DiagnosticKind::CheckingConstantLiteralNotRepresentable,
+                ));
+            }
+
+            evaluator.intern_value(ty, ConstantValueKind::Integer(value.clone()))
+        }
+        ConstantTermData::Parameter(_)
         | ConstantTermData::TargetFact(_)
         | ConstantTermData::PredicateCall { .. } => Err(TemplateEvaluationFailure::invalid_input()),
     }

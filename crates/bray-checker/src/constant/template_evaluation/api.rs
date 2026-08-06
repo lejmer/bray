@@ -96,8 +96,64 @@ pub fn evaluate_generic_constraint_template<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let limits = crate::ConstantEvaluationLimits::default();
+    match evaluate_closed_template(
+        context,
+        template,
+        CheckedTemplateKind::GenericConstraint,
+        substitution,
+        result_type,
+        resolver,
+        diagnostic_span,
+        crate::ConstantEvaluationLimits::default(),
+    ) {
+        CheckerOutcome::Complete(result) => CheckerOutcome::Complete(
+            result.map(|evaluated| evaluated.map(EvaluatedConstantCall::value)),
+        ),
+        CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
+        CheckerOutcome::InfrastructureFailure(error) => {
+            CheckerOutcome::InfrastructureFailure(error)
+        }
+    }
+}
 
+/// Evaluates one source-independent constant definition.
+pub fn evaluate_constant_definition_template<C>(
+    context: &C,
+    template: &CheckedTemplate,
+    substitution: ConcreteGenericSubstitutionId,
+    result_type: TypeId,
+    resolver: &dyn ConstantTemplateResolver,
+    diagnostic_span: Option<SourceSpan>,
+    limits: crate::ConstantEvaluationLimits,
+) -> CheckerOutcome<Option<EvaluatedConstantCall>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    evaluate_closed_template(
+        context,
+        template,
+        CheckedTemplateKind::ConstantDefinition,
+        substitution,
+        result_type,
+        resolver,
+        diagnostic_span,
+        limits,
+    )
+}
+
+fn evaluate_closed_template<C>(
+    context: &C,
+    template: &CheckedTemplate,
+    kind: CheckedTemplateKind,
+    substitution: ConcreteGenericSubstitutionId,
+    result_type: TypeId,
+    resolver: &dyn ConstantTemplateResolver,
+    diagnostic_span: Option<SourceSpan>,
+    limits: crate::ConstantEvaluationLimits,
+) -> CheckerOutcome<Option<EvaluatedConstantCall>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let mut evaluator = TemplateEvaluator {
         context,
         template,
@@ -111,10 +167,16 @@ where
         diagnostics: DiagnosticBag::new(),
     };
 
-    let evaluated = evaluator.evaluate_result(CheckedTemplateKind::GenericConstraint, result_type);
+    let evaluated = evaluator.evaluate_result(kind, result_type);
 
     match evaluated {
-        Ok(value) => CheckerOutcome::complete(Some(value), evaluator.diagnostics),
+        Ok(value) => CheckerOutcome::complete(
+            Some(EvaluatedConstantCall::new(
+                value,
+                evaluator.budget.usage(limits),
+            )),
+            evaluator.diagnostics,
+        ),
         Err(TemplateEvaluationFailure::Diagnostic(kind)) => {
             let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error);
 

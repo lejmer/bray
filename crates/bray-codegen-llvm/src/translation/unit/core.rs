@@ -34,6 +34,8 @@ pub(crate) fn translate_instances<'context, 'request>(
             return Err(TranslationError::Cancelled);
         }
 
+        types.select_instance(instance.key());
+
         if instance.protected_frame_identity().is_some() {
             super::super::frame::translate_protected_instance(
                 context, module, request, instance, types, debug,

@@ -9,6 +9,7 @@ use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
     GenericConstraintObligationKey, NamedTypeSymbolId, ProofOutcome, SemanticValueStore,
     SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult, SymbolGraph,
+    TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -89,6 +90,12 @@ pub enum CheckerFactError {
     Cancelled,
     /// Compiler infrastructure could not supply the dependency.
     Infrastructure(CheckerInfrastructureError),
+}
+
+impl From<CheckerInfrastructureError> for CheckerFactError {
+    fn from(error: CheckerInfrastructureError) -> Self {
+        Self::Infrastructure(error)
+    }
 }
 
 /// The result of requesting one checker dependency.
@@ -216,11 +223,27 @@ pub trait CheckerRequestContext: Sync {
         obligation: GenericConstraintObligationKey,
     ) -> CheckerFactResult<DiagnosticResult<ProofOutcome>>;
 
+    /// Resolves one selected type-valued member projection when its witness is available.
+    fn selected_type_valued_member(
+        &self,
+        _subject: TypeId,
+        _application: TraitApplicationId,
+        _member: TraitTypeMemberSymbolId,
+    ) -> CheckerFactResult<DiagnosticResult<Option<TypeId>>> {
+        Ok(DiagnosticResult::without_diagnostics(None))
+    }
+
     /// Returns the checked representation contract for one declared type.
     fn declared_type_representation(
         &self,
         subject: NamedTypeSymbolId,
     ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeRepresentation>>;
+
+    /// Returns whether a declared type has finalization or destruction behavior.
+    fn declared_type_has_lifecycle(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> CheckerFactResult<DiagnosticResult<bool>>;
 
     /// Returns whether the enclosing static context establishes a copy contract for an open type.
     fn statically_establishes_copyability(

@@ -1,9 +1,11 @@
 use bray_symbols::{
-    CallableParameterSymbolId, CallableSignatureTemplate, CallableSymbolId,
+    CallableParameterSymbolId, CallableSignatureTemplate, CallableSymbolId, DeclaredStorageShape,
+    DeclaredStructStorageMember, DeclaredUnionStorageMember, DeclaredUnionStorageVariant,
     GenericConstraintTemplate, GenericDeclarationTemplate, GenericOwnerId,
     GenericParameterSymbolId, GenericTypeParameterSymbolId, NamedTypeSymbolId,
     PredicateDefinitionSymbolId, ReceiverParameterSignature, ReceiverParameterSymbolId,
-    TypeExpressionTemplate, UnevaluatedDefaultTemplate, UnionVariantSymbolId,
+    StructFieldSymbolId, TypeExpressionTemplate, UnevaluatedDefaultTemplate,
+    UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use super::common::{invalid_symbol, resolve_exact, resolve_family, resolve_symbol};
@@ -215,6 +217,72 @@ impl InternState {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
+                let storage = match input.storage() {
+                    crate::InterfaceStorageShape::Structure(members) => {
+                        DeclaredStorageShape::Structure(
+                            members
+                                .iter()
+                                .map(|member| {
+                                    let field = member
+                                        .field()
+                                        .map(|field| {
+                                            resolve_exact::<StructFieldSymbolId>(symbols, field)
+                                        })
+                                        .transpose()?;
+
+                                    let ty = self.type_id(member.ty()).ok_or(
+                                        InterfaceSemanticInternError::UnresolvedValueGraph,
+                                    )?;
+
+                                    Ok(DeclaredStructStorageMember::new(
+                                        field,
+                                        TypeExpressionTemplate::Resolved(ty),
+                                    ))
+                                })
+                                .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?
+                                .into(),
+                        )
+                    }
+                    crate::InterfaceStorageShape::Union(variants) => DeclaredStorageShape::Union(
+                        variants
+                            .iter()
+                            .map(|variant| {
+                                let variant_id = resolve_exact::<UnionVariantSymbolId>(
+                                    symbols,
+                                    variant.variant(),
+                                )?;
+
+                                let members = variant
+                                    .members()
+                                    .iter()
+                                    .map(|member| {
+                                        let field = member
+                                            .field()
+                                            .map(|field| {
+                                                resolve_exact::<UnionPayloadFieldSymbolId>(
+                                                    symbols, field,
+                                                )
+                                            })
+                                            .transpose()?;
+
+                                        let ty = self.type_id(member.ty()).ok_or(
+                                            InterfaceSemanticInternError::UnresolvedValueGraph,
+                                        )?;
+
+                                        Ok(DeclaredUnionStorageMember::new(
+                                            field,
+                                            TypeExpressionTemplate::Resolved(ty),
+                                        ))
+                                    })
+                                    .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?;
+
+                                Ok(DeclaredUnionStorageVariant::new(variant_id, members))
+                            })
+                            .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?
+                            .into(),
+                    ),
+                };
+
                 Ok(bray_symbols::DeclaredTypeRepresentation::new(subject)
                     .with_layout(
                         input.layout(),
@@ -223,6 +291,7 @@ impl InternState {
                         union_tag_type,
                     )
                     .with_union_tags(union_tags)
+                    .with_storage(storage)
                     .with_properties(
                         input.copy_contract(),
                         input.is_plain_storage(),

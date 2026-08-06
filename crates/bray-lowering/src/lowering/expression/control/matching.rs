@@ -38,7 +38,6 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::UnsupportedExpression(id))?;
 
         let mut candidate = current;
-        let mut reaches_join = !coverage.is_exhaustive();
 
         for (index, arm) in expression.arms().iter().copied().enumerate() {
             let ordinal =
@@ -71,8 +70,6 @@ impl Lowerer<'_> {
 
             let body = self.lower_yielding_block(arm.body(), body_entry, join, result_type)?;
 
-            reaches_join |= body.block.is_some();
-
             self.finish_result_edge(body, join, result_type)?;
 
             candidate = next;
@@ -87,7 +84,7 @@ impl Lowerer<'_> {
         self.builder
             .set_terminator(candidate, Self::retained_source(&source), terminator)?;
 
-        if !reaches_join {
+        if !self.builder.has_incoming_edge(join)? {
             self.builder.set_terminator(
                 join,
                 Self::retained_source(&source),

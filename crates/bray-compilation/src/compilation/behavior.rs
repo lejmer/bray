@@ -303,7 +303,7 @@ impl Compilation {
             }
 
             let contributions =
-                self.body_behavior_contributions_with_cancellation(key, cancellation)?;
+                self.body_behavior_contributions_with_cancellation(key.clone(), cancellation)?;
 
             diagnostics = diagnostics.merged(contributions.result().diagnostics());
 
@@ -410,14 +410,14 @@ impl Compilation {
         builder: &mut BodyBehaviorBuilder,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<(), FactQueryError> {
-        let symbols = facts.symbols();
-
         match provider {
             bray_bound_tree::ConstructionDefaultProvider::CallableParameter(provider) => {
-                let owner = symbols
-                    .callable_parameter_default_provider(provider)
-                    .map(bray_symbols::CallableParameterDefaultProviderSymbol::subject)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let Some(AnySymbolId::CallableParameter(owner)) = facts
+                    .runtime_default_subject(provider.into())
+                    .map_err(binder_fact_error)?
+                else {
+                    return Err(FactQueryError::InfrastructureFailure);
+                };
 
                 let template = facts
                     .symbol_fact(
@@ -447,10 +447,12 @@ impl Compilation {
                 }
             }
             bray_bound_tree::ConstructionDefaultProvider::StructField(provider) => {
-                let owner = symbols
-                    .struct_field_default_provider(provider)
-                    .map(bray_symbols::StructFieldDefaultProviderSymbol::subject)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let Some(AnySymbolId::StructField(owner)) = facts
+                    .runtime_default_subject(provider.into())
+                    .map_err(binder_fact_error)?
+                else {
+                    return Err(FactQueryError::InfrastructureFailure);
+                };
 
                 let template = facts
                     .symbol_fact(SymbolFactRequest::<StructFieldDefaultTemplateFact>::new(
@@ -478,10 +480,12 @@ impl Compilation {
                 }
             }
             bray_bound_tree::ConstructionDefaultProvider::UnionPayload(provider) => {
-                let owner = symbols
-                    .union_payload_default_provider(provider)
-                    .map(bray_symbols::UnionPayloadDefaultProviderSymbol::subject)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let Some(AnySymbolId::UnionPayloadField(owner)) = facts
+                    .runtime_default_subject(provider.into())
+                    .map_err(binder_fact_error)?
+                else {
+                    return Err(FactQueryError::InfrastructureFailure);
+                };
 
                 let template = facts
                     .symbol_fact(

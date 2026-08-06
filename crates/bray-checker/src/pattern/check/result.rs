@@ -1,16 +1,18 @@
 use bray_bound_tree::{
     BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternMode, BoundPatternTarget,
-    PatternBindingTypeEntry, PatternOperation, PatternPredicate, PatternProjection,
-    PatternRefutability,
+    PatternBindingTypeEntry, PatternLiteralPredicate, PatternOperation, PatternPredicate,
+    PatternProjection, PatternRefutability,
 };
 use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticKind, SeverityKind};
 use bray_symbols::{
-    AnySymbolId, NamedTypeSymbolId, StructFieldTypeFact, SymbolOrdinal, TypeData, TypeId,
-    UnionPayloadFieldTypeFact,
+    AnySymbolId, ConstantValueData, NamedTypeSymbolId, StructFieldTypeFact, SymbolOrdinal,
+    TypeData, TypeId, UnionPayloadFieldTypeFact,
 };
 
 use super::state::{PatternChecker, PatternSubject};
+use crate::constant::check_constant_literal;
 use crate::diagnostic::{diagnostic_id, pattern_span};
+use crate::representation::type_representation;
 use crate::type_check::diagnostic_type;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider};
 
@@ -66,10 +68,13 @@ where
         pattern: &BoundPattern,
         kind: BoundPatternKind,
         target: Option<BoundPatternTarget>,
+        input_type: TypeId,
         subject: &TypeData,
     ) -> Result<Option<PatternPredicate>, CheckerInfrastructureError> {
         let predicate = match (kind, subject) {
-            (BoundPatternKind::Literal, _) => pattern.literal().map(PatternPredicate::Literal),
+            (BoundPatternKind::Literal, _) => self
+                .literal_predicate(pattern, input_type)?
+                .map(PatternPredicate::Literal),
             (BoundPatternKind::Path, _) => self
                 .constant_patterns
                 .get(&id)
@@ -113,6 +118,45 @@ where
         };
 
         Ok(predicate)
+    }
+
+    pub(super) fn literal_predicate(
+        &self,
+        pattern: &BoundPattern,
+        input_type: TypeId,
+    ) -> Result<Option<PatternLiteralPredicate>, CheckerInfrastructureError> {
+        let Some(literal) = pattern.literal() else {
+            return Ok(None);
+        };
+
+        let source = self.request.source(pattern.origin().source_anchor())?;
+
+        let Some(spelling) = source.text_for_range(literal.range()) else {
+            return Err(CheckerInfrastructureError::InvalidSourceRange {
+                span: bray_source::SourceSpan::new(source.span().source_id(), literal.range()),
+            });
+        };
+
+        let Some(representation) = type_representation(self.request, input_type)? else {
+            return Ok(None);
+        };
+
+        let Ok(value) = check_constant_literal(literal.kind(), spelling, representation, || {
+            self.request
+                .selected_target()
+                .machine()
+                .pointer_width_bits()
+        }) else {
+            return Ok(None);
+        };
+
+        let value = self
+            .request
+            .semantic_values()
+            .intern_constant_value(ConstantValueData::new(input_type, value))
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        Ok(Some(PatternLiteralPredicate::new(literal, value)))
     }
 
     pub(super) fn record_bindings(

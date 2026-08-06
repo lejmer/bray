@@ -6,7 +6,41 @@ use bray_ir::MirFieldReference;
 use bray_symbols::{CallableAbi, IntegerConstant, TypeId, UnionVariantSymbolId};
 use bray_target::TargetValueLayout;
 
-use crate::TargetAddressSpaceKind;
+use crate::{CodegenInstanceKey, TargetAddressSpaceKind};
+
+/// One concrete type selected for an open MIR type in a code generation instance.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenInstanceTypeMapping {
+    instance: CodegenInstanceKey,
+    template: TypeId,
+    concrete: TypeId,
+}
+
+impl CodegenInstanceTypeMapping {
+    /// Creates one instance-local type substitution.
+    pub const fn new(instance: CodegenInstanceKey, template: TypeId, concrete: TypeId) -> Self {
+        Self {
+            instance,
+            template,
+            concrete,
+        }
+    }
+
+    /// Returns the concrete code generation instance.
+    pub const fn instance(&self) -> &CodegenInstanceKey {
+        &self.instance
+    }
+
+    /// Returns the open type retained by the MIR template.
+    pub const fn template(&self) -> TypeId {
+        self.template
+    }
+
+    /// Returns the closed semantic type selected for the instance.
+    pub const fn concrete(&self) -> TypeId {
+        self.concrete
+    }
+}
 
 /// Integer extension selected for a directly passed ABI value.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -383,6 +417,7 @@ impl CodegenTypeKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenTypeMapping {
     ty: TypeId,
+    backend_type: TypeId,
     layout: Option<TargetValueLayout>,
     kind: CodegenTypeKind,
     behavior: Option<CodegenTypeBehavior>,
@@ -393,6 +428,7 @@ impl CodegenTypeMapping {
     pub const fn new(ty: TypeId, layout: TargetValueLayout, kind: CodegenTypeKind) -> Self {
         Self {
             ty,
+            backend_type: ty,
             layout: Some(layout),
             kind,
             behavior: None,
@@ -403,10 +439,18 @@ impl CodegenTypeMapping {
     pub const fn new_unsized(ty: TypeId, kind: CodegenTypeKind) -> Self {
         Self {
             ty,
+            backend_type: ty,
             layout: None,
             kind,
             behavior: None,
         }
+    }
+
+    /// Returns this mapping using another semantic type's exact backend identity.
+    pub const fn with_backend_type(mut self, backend_type: TypeId) -> Self {
+        self.backend_type = backend_type;
+
+        self
     }
 
     /// Returns this mapping with its optional semantic behavior.
@@ -419,6 +463,11 @@ impl CodegenTypeMapping {
     /// Returns the semantic type identity.
     pub const fn ty(&self) -> TypeId {
         self.ty
+    }
+
+    /// Returns the semantic type whose backend identity represents this type.
+    pub const fn backend_type(&self) -> TypeId {
+        self.backend_type
     }
 
     /// Returns the exact selected physical layout, or `None` for an unsized semantic type.

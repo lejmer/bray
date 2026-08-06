@@ -5,9 +5,8 @@ use bray_base::shared_slice;
 use bray_binder::BinderFactContext;
 use bray_codegen::{
     AssemblySyntaxKind, CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey,
-    CodegenMappings, CodegenOptions, CodegenReachabilityBuilder, CodegenTarget, CodegenUnit,
-    DebugInformationMode, DebugInformationOutputMode, LinkableArtifactKind,
-    partition_codegen_units,
+    CodegenReachabilityBuilder, CodegenTarget, DebugInformationMode, DebugInformationOutputMode,
+    LinkableArtifactKind, partition_codegen_units,
 };
 use bray_emitter::{BackendEmissionPolicy, EmissionBackend, ProductLinkFacts};
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
@@ -24,66 +23,15 @@ use bray_symbols::{
 
 use super::super::super::Compilation;
 use super::super::super::binder::has_visible_generic_parameters;
+use super::super::super::implementation::implementation_fulfillments;
 use super::super::super::substitution::empty_substitution;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::NativeProductFactError;
+use super::facts::NativeProductFacts;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, NativeProductFactKey};
 
 pub(super) const CODEGEN_PARTITION_REVISION: u32 = 1;
 const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
-
-/// Compilation-owned native product facts consumed by emission.
-#[derive(Clone, Debug)]
-pub struct NativeProductFacts {
-    backend: EmissionBackend,
-    target: CodegenTarget,
-    options: CodegenOptions,
-    host: Option<ExecutableHostContract>,
-    test_catalog: Option<bray_test_protocol::TestCatalog>,
-    link: Option<ProductLinkFacts>,
-    units: Arc<[CodegenUnit]>,
-    mappings: Arc<[CodegenMappings]>,
-}
-
-impl NativeProductFacts {
-    /// Returns the selected backend and demanded unit keys.
-    pub const fn backend(&self) -> &EmissionBackend {
-        &self.backend
-    }
-
-    /// Returns the selected code generation target.
-    pub const fn target(&self) -> &CodegenTarget {
-        &self.target
-    }
-
-    /// Returns the selected code generation options.
-    pub const fn options(&self) -> &CodegenOptions {
-        &self.options
-    }
-
-    /// Returns the executable host when the product has a process root.
-    pub const fn executable_host(&self) -> Option<&ExecutableHostContract> {
-        self.host.as_ref()
-    }
-
-    /// Returns the immutable test catalog published with a native test host.
-    pub const fn test_catalog(&self) -> Option<&bray_test_protocol::TestCatalog> {
-        self.test_catalog.as_ref()
-    }
-
-    /// Returns native link facts when link planning was requested.
-    pub const fn link(&self) -> Option<&ProductLinkFacts> {
-        self.link.as_ref()
-    }
-
-    pub(in crate::compilation) fn units(&self) -> &[CodegenUnit] {
-        &self.units
-    }
-
-    pub(in crate::compilation) fn mappings(&self) -> &[CodegenMappings] {
-        &self.mappings
-    }
-}
 
 impl Compilation {
     /// Returns the native facts required to emit one selected product.
@@ -189,7 +137,9 @@ impl Compilation {
 
         let test_discovery = if semantic.value().kind() == ProductKind::Test {
             // Discovery owns the product identity used by its independently cached fact key.
-            Some(self.test_discovery_with_cancellation(product.clone(), cancellation)?)
+            let discovery = self.test_discovery_with_cancellation(product.clone(), cancellation)?;
+
+            Some(discovery)
         } else {
             None
         };
@@ -214,12 +164,10 @@ impl Compilation {
             let source_reachability = if source_roots.is_empty() {
                 None
             } else {
-                Some(self.codegen_reachability(
-                    source_roots.clone(),
-                    None,
-                    &target,
-                    cancellation,
-                )?)
+                let reachability =
+                    self.codegen_reachability(source_roots.clone(), None, &target, cancellation)?;
+
+                Some(reachability)
             };
 
             let host = self.executable_host(
@@ -264,12 +212,14 @@ impl Compilation {
                         &host_mir,
                     ));
 
-                    self.codegen_reachability(
+                    let reachability = self.codegen_reachability(
                         [host],
                         Some((host_mir, source_roots)),
                         &target,
                         cancellation,
-                    )?
+                    )?;
+
+                    reachability
                 }
                 None => source_reachability.ok_or(NativeProductFactError::MissingProductRoot)?,
             };
@@ -357,7 +307,9 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductFactError> {
-        let symbols: Vec<_> = match semantic.kind() {
+        let facts = self.binder_facts(cancellation)?;
+
+        let mut symbols: Vec<_> = match semantic.kind() {
             ProductKind::Executable => semantic
                 .entrypoint()
                 .map(AnySymbolId::from)
@@ -377,8 +329,24 @@ impl Compilation {
             ProductKind::Library => semantic.public_symbols().to_vec(),
         };
 
+        if semantic.kind() == ProductKind::Library {
+            for implementation in semantic
+                .public_symbols()
+                .iter()
+                .copied()
+                .filter_map(bray_symbols::ImplementationSymbolId::try_from_any)
+            {
+                symbols.extend(
+                    implementation_fulfillments(&facts, implementation)?
+                        .callables
+                        .iter()
+                        .copied()
+                        .map(AnySymbolId::from),
+                );
+            }
+        }
+
         let mut roots = Vec::new();
-        let facts = self.binder_facts(cancellation)?;
 
         for symbol in symbols {
             if has_visible_generic_parameters(facts.symbols(), symbol) {
@@ -389,14 +357,17 @@ impl Compilation {
                 continue;
             };
 
-            let substitution = empty_substitution(self.semantic_value_store()?, symbol)?;
+            let (callable, witnesses) =
+                self.product_root_callable(symbol, definition, &facts, cancellation)?;
 
-            roots.push(self.concrete_codegen_callable(
-                CallableInstanceData::new(definition, substitution),
-                [],
-                target,
-                cancellation,
-            )?);
+            let callable =
+                self.concrete_codegen_callable(callable, witnesses, target, cancellation)?;
+
+            if semantic.kind() == ProductKind::Library {
+                roots.extend(self.concrete_codegen_callable_defaults(definition, &callable)?);
+            }
+
+            roots.push(callable);
         }
 
         if semantic.kind() != ProductKind::Test {
@@ -409,6 +380,66 @@ impl Compilation {
         }
 
         Ok(roots)
+    }
+
+    fn product_root_callable(
+        &self,
+        symbol: AnySymbolId,
+        definition: CallableDefinitionId,
+        facts: &super::super::super::binder::CompilationBinderFacts<'_>,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            CallableInstanceData,
+            Vec<bray_symbols::ImplementationInstanceId>,
+        ),
+        NativeProductFactError,
+    > {
+        let Some(implementation) = facts
+            .symbols()
+            .containing_symbol(symbol)
+            .and_then(bray_symbols::ImplementationSymbolId::try_from_any)
+        else {
+            let substitution = empty_substitution(self.semantic_value_store()?, symbol)?;
+
+            return Ok((
+                CallableInstanceData::new(definition, substitution),
+                Vec::new(),
+            ));
+        };
+
+        let headers = self.implementation_header_index(cancellation)?;
+
+        let header = headers
+            .value()
+            .headers()
+            .into_iter()
+            .find(|header| header.implementation() == implementation)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let values = self.semantic_value_store()?;
+
+        let application = values
+            .trait_application_data(header.trait_application())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let implementation_substitution = empty_substitution(values, implementation.into_any())?;
+
+        let callable = super::super::super::implementation::callable_instance(
+            values,
+            symbol,
+            [application.substitution(), implementation_substitution],
+        )
+        .map_err(NativeProductFactError::from)?;
+
+        let witness = values
+            .intern_implementation_instance(bray_symbols::ImplementationInstanceData::new(
+                implementation,
+                implementation_substitution,
+            ))
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        Ok((callable, vec![witness]))
     }
 
     fn codegen_reachability(
@@ -454,7 +485,10 @@ impl Compilation {
                     .cloned()
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                if matches!(key.template(), MirUnitKey::ExternalCallable(_)) {
+                if matches!(
+                    key.template(),
+                    MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_)
+                ) {
                     builder
                         .push_external(key.clone())
                         .map_err(NativeProductFactError::InvalidReachability)?;
@@ -1411,6 +1445,72 @@ mod tests {
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         assert!(roots.is_empty());
+    }
+
+    #[test]
+    fn library_roots_include_public_implementation_fulfillments() {
+        let compilation = crate::test_support::compilation_with_product(
+            concat!(
+                "module app;\n",
+                "trait Equal<Other>\n",
+                "{\n",
+                "    func equals(pos other: &Other) -> bool;\n",
+                "}\n",
+                "\n",
+                "struct Value\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "impl ValueEqual = Value(Equal<Value>)\n",
+                "{\n",
+                "    func equals(pos other: &Value) -> bool\n",
+                "    {\n",
+                "        return true;\n",
+                "    }\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbols must resolve: {error:?}"));
+
+        let fulfillment = symbols
+            .trait_callable_fulfillments()
+            .iter()
+            .find(|fulfillment| fulfillment.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("source fulfillment must exist"));
+
+        let fulfillment = CallableDefinitionId::try_new(fulfillment.id().into())
+            .unwrap_or_else(|| panic!("trait callable fulfillment must be callable"));
+
+        assert!(roots.iter().any(|root| {
+            root.callable_instance()
+                .is_some_and(|callable| callable.definition() == fulfillment)
+        }));
     }
 
     #[test]

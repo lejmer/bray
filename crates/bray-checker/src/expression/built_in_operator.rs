@@ -2,10 +2,11 @@ use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundOperator, CheckedExpressionTypes, OperatorTarget,
     SelectedOperation, SemanticSelection, SemanticSelectionEntry,
 };
-use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
-use bray_symbols::TypeId;
+use bray_compiler_known::RepresentationRole;
+use bray_symbols::{TypeData, TypeId};
 
 use crate::representation::{representation_type, type_representation};
+use crate::selection::representation_supports_operator;
 use crate::type_check::ExpressionTypeSession;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
@@ -47,6 +48,11 @@ impl PreparedBuiltInOperator {
                 | BoundOperator::Divide
                 | BoundOperator::Remainder
                 | BoundOperator::Exponentiate
+                | BoundOperator::BitwiseAnd
+                | BoundOperator::BitwiseOr
+                | BoundOperator::BitwiseXor
+                | BoundOperator::ShiftLeft
+                | BoundOperator::ShiftRight
                 | BoundOperator::BitwiseNot
         )
         .then_some(Self {
@@ -122,7 +128,7 @@ where
         };
 
         if let Some(ty) = built_in_operand_type(request, types, *left, operation.operator)? {
-            session.add_expectation(*right, ty)?;
+            add_operand_expectation(request, session, *right, ty)?;
 
             session.add_evidence(
                 operation.expression,
@@ -130,7 +136,7 @@ where
             )?;
         } else if let Some(ty) = built_in_operand_type(request, types, *right, operation.operator)?
         {
-            session.add_expectation(*left, ty)?;
+            add_operand_expectation(request, session, *left, ty)?;
 
             session.add_evidence(
                 operation.expression,
@@ -185,9 +191,11 @@ where
         return Ok(None);
     };
 
-    Ok(type_representation(request, result.ty())?
+    let ty = observed_type(request, result.ty())?;
+
+    Ok(type_representation(request, ty)?
         .filter(|role| representation_supports_operator(*role, operator))
-        .map(|_| result.ty()))
+        .map(|_| ty))
 }
 
 fn selected_result_type<C>(
@@ -223,12 +231,14 @@ where
             return Ok(None);
         };
 
-        if first.ty() != second.ty() {
+        if observed_type(request, first.ty())? != observed_type(request, second.ty())? {
             return Ok(None);
         }
     }
 
-    let Some(role) = type_representation(request, first.ty())? else {
+    let operand = observed_type(request, first.ty())?;
+
+    let Some(role) = type_representation(request, operand)? else {
         return Ok(None);
     };
 
@@ -236,7 +246,7 @@ where
         return Ok(None);
     }
 
-    result_type(request, operation.operator, first.ty()).map(Some)
+    result_type(request, operation.operator, operand).map(Some)
 }
 
 fn numeric_operation_type<C>(
@@ -252,10 +262,10 @@ where
     if let Some(result) = session
         .expression_type(expression_id)
         .filter(|result| !result.is_recovered())
-        && type_representation(request, result.ty())?
+        && type_representation(request, observed_type(request, result.ty())?)?
             .is_some_and(|role| representation_supports_operator(role, operator))
     {
-        return Ok(Some(result.ty()));
+        return observed_type(request, result.ty()).map(Some);
     }
 
     if let Some(expected) = session.unique_matching_expectation(expression_id, |ty| {
@@ -273,14 +283,54 @@ where
             continue;
         };
 
-        if type_representation(request, result.ty())?
+        let ty = observed_type(request, result.ty())?;
+
+        if type_representation(request, ty)?
             .is_some_and(|role| representation_supports_operator(role, operator))
         {
-            return Ok(Some(result.ty()));
+            return Ok(Some(ty));
         }
     }
 
     Ok(None)
+}
+
+fn add_operand_expectation<C>(
+    request: CheckerUnitView<'_, C>,
+    session: &mut ExpressionTypeSession<'_, C>,
+    expression: BoundExpressionId,
+    expected: TypeId,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if let Some(actual) = session
+        .expression_type(expression)
+        .filter(|result| !result.is_recovered())
+        && observed_type(request, actual.ty())? == expected
+    {
+        return Ok(());
+    }
+
+    session.add_expectation(expression, expected)
+}
+
+fn observed_type<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<TypeId, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let data = request
+        .semantic_values()
+        .type_data(ty)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    Ok(match data.as_ref() {
+        TypeData::Borrow { target, .. } => *target,
+        _ => ty,
+    })
 }
 
 fn result_type<C>(
@@ -319,61 +369,4 @@ const fn is_comparison_operator(operator: BoundOperator) -> bool {
             | BoundOperator::Greater
             | BoundOperator::GreaterEqual
     )
-}
-
-const fn representation_supports_comparison(
-    role: RepresentationRole,
-    operator: BoundOperator,
-) -> bool {
-    match operator {
-        BoundOperator::Equal | BoundOperator::NotEqual => {
-            role.numeric_kind().is_some()
-                || matches!(
-                    role,
-                    RepresentationRole::ScalarBool
-                        | RepresentationRole::ScalarChar
-                        | RepresentationRole::String
-                )
-        }
-        BoundOperator::Less
-        | BoundOperator::LessEqual
-        | BoundOperator::Greater
-        | BoundOperator::GreaterEqual => {
-            matches!(
-                role.numeric_kind(),
-                Some(NumericRepresentationKind::Integer | NumericRepresentationKind::Real)
-            ) || matches!(
-                role,
-                RepresentationRole::ScalarChar | RepresentationRole::String
-            )
-        }
-        _ => false,
-    }
-}
-
-const fn representation_supports_operator(
-    role: RepresentationRole,
-    operator: BoundOperator,
-) -> bool {
-    match operator {
-        BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr => {
-            matches!(role, RepresentationRole::ScalarBool)
-        }
-        BoundOperator::Add
-        | BoundOperator::Subtract
-        | BoundOperator::Multiply
-        | BoundOperator::Divide
-        | BoundOperator::Exponentiate => role.numeric_kind().is_some(),
-        BoundOperator::Remainder => matches!(
-            role.numeric_kind(),
-            Some(NumericRepresentationKind::Integer | NumericRepresentationKind::Real)
-        ),
-        BoundOperator::BitwiseNot => {
-            matches!(
-                role.numeric_kind(),
-                Some(NumericRepresentationKind::Integer)
-            )
-        }
-        _ => representation_supports_comparison(role, operator),
-    }
 }

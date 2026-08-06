@@ -29,21 +29,23 @@ use bray_package_interface::{
     InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
     InterfaceImplementationInstance, InterfaceImplementationInstanceId,
     InterfaceImplementationRecord, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
-    InterfacePredicateSummary, InterfaceSemanticFacts, InterfaceSupportEntity,
-    InterfaceSymbolReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
-    InterfaceTypeRepresentation, InterfaceUnionTag, PackageInterfaceSurface,
+    InterfacePredicateSummary, InterfaceSemanticFacts, InterfaceStorageMember,
+    InterfaceStorageShape, InterfaceSupportEntity, InterfaceSymbolReference,
+    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
+    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
+    InterfaceUnionTag, PackageInterfaceSurface,
 };
 use bray_symbols::{
     AnySymbolId, CallableContractClauseValue, CallableContractTemplate,
     CallableContractTemplateFact, CallableContractsFact, CallableInstanceId,
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
-    CallableSignatureFact, CallableSymbolId, CheckedConstraintKind, ConstantField,
-    ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
-    CurrentRunCancellation, DeclarationPredicateClauseKind, DependencyGuard, DependencyProjection,
-    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
-    ExternalSymbolKey, GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
+    CallableSignatureFact, CallableSymbolId, CheckedConstraintKind, ConstantDefinitionState,
+    ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
+    ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind,
+    DeclaredStorageShape, DependencyGuard, DependencyProjection, DependencyRequirement,
+    DependencyRequirementKind, DependencySubject, DependencySubjectRoot, ExternalSymbolKey,
+    GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact, GenericOwnerId,
+    GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
     ImplementationCoherenceFact, ImplementationInstanceId, ImplementationSymbolId,
     InterfaceSupportEntityId, NamedTypeSymbolId, PredicateDefinitionFact, PredicateDefinitionState,
     RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
@@ -89,6 +91,8 @@ pub(super) fn build_semantic_facts(
         )?;
 
         export_generic_facts(compilation, &binder, symbol, &mut export, &mut declarations)?;
+
+        export_constant_fact(compilation, symbol, &mut export, &mut declarations)?;
 
         export_predicate_fact(&binder, symbol, &export, &mut declarations)?;
 
@@ -1981,6 +1985,56 @@ impl<'a> SemanticExporter<'a> {
             .map(|parameter| self.symbol_reference(parameter.into()))
             .collect::<Result<Vec<_>, _>>()?;
 
+        let storage = match representation.storage() {
+            DeclaredStorageShape::Structure(members) => InterfaceStorageShape::Structure(
+                members
+                    .iter()
+                    .map(|member| {
+                        let field = member
+                            .field()
+                            .map(AnySymbolId::from)
+                            .filter(|field| self.keys.contains_key(field))
+                            .map(|field| self.symbol_reference(field))
+                            .transpose()?;
+
+                        let ty = self.resolve_type_template(owner, member.ty())?;
+
+                        Ok(InterfaceStorageMember::new(field, self.type_id(ty)?))
+                    })
+                    .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?
+                    .into(),
+            ),
+            DeclaredStorageShape::Union(variants) => InterfaceStorageShape::Union(
+                variants
+                    .iter()
+                    .map(|variant| {
+                        let members = variant
+                            .members()
+                            .iter()
+                            .map(|member| {
+                                let field = member
+                                    .field()
+                                    .map(AnySymbolId::from)
+                                    .filter(|field| self.keys.contains_key(field))
+                                    .map(|field| self.symbol_reference(field))
+                                    .transpose()?;
+
+                                let ty = self.resolve_type_template(owner, member.ty())?;
+
+                                Ok(InterfaceStorageMember::new(field, self.type_id(ty)?))
+                            })
+                            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+                        Ok(InterfaceUnionStorageVariant::new(
+                            self.symbol_reference(variant.variant().into())?,
+                            members,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?
+                    .into(),
+            ),
+        };
+
         Ok(
             InterfaceTypeRepresentation::new(self.symbol_reference(owner)?)
                 .with_layout(
@@ -1990,6 +2044,7 @@ impl<'a> SemanticExporter<'a> {
                     union_tag_type,
                 )
                 .with_union_tags(union_tags)
+                .with_storage(storage)
                 .with_copy(representation.copy_contract(), copy_dependencies)
                 .with_properties(
                     representation.is_plain_storage(),
@@ -2171,6 +2226,54 @@ fn checked_constraint_expression(
 
 fn incomplete(symbol: AnySymbolId) -> PackageInterfaceExportError {
     PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind())
+}
+
+fn export_constant_fact(
+    compilation: &Compilation,
+    symbol: AnySymbolId,
+    export: &mut SemanticExporter<'_>,
+    facts: &mut ExportedDeclarationFacts,
+) -> Result<(), PackageInterfaceExportError> {
+    let Some(definition) = crate::compilation::constant::constant_definition_id(symbol) else {
+        return Ok(());
+    };
+
+    let definition = compilation
+        .constant_definition(definition)
+        .map_err(|_| incomplete(symbol))?;
+
+    if definition.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    let ConstantDefinitionState::Defined(definition) = definition.value() else {
+        return Ok(());
+    };
+
+    let dependency_contract = export
+        .values
+        .empty_dependency_contract_template()
+        .map_err(|_| incomplete(symbol))?;
+
+    let checked = export.checked_constant_template(
+        CheckedTemplateKind::ConstantDefinition,
+        CheckedConstantExpression {
+            term: definition.term(),
+            ty: definition.ty(),
+        },
+        dependency_contract,
+    )?;
+
+    push_declaration_template(
+        export,
+        symbol,
+        CheckedTemplateKind::ConstantDefinition,
+        bray_symbols::SymbolOrdinal::new(0),
+        checked,
+        &mut facts.checked_templates,
+        &mut facts.declaration_templates,
+        &mut facts.support_entities,
+    )
 }
 
 const fn incomplete_type() -> PackageInterfaceExportError {

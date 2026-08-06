@@ -1,6 +1,7 @@
 mod error;
+mod facts;
 mod host;
 mod implementation;
 
 pub use error::NativeProductFactError;
-pub use implementation::NativeProductFacts;
+pub use facts::NativeProductFacts;

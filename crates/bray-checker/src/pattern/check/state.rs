@@ -321,20 +321,31 @@ where
             return Err(CheckerInfrastructureError::InvalidBoundNode { node: id.into() });
         };
 
-        let type_data = self
-            .request
-            .semantic_values()
-            .type_data(subject.ty)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        let (matched_subject, type_data) = self.matched_subject(subject)?;
 
         let (target, is_ambiguous) = self.pattern_target(pattern, type_data.as_ref());
 
         let kind = effective_pattern_kind(pattern, target);
 
-        let compatible =
-            self.pattern_is_compatible(id, pattern, kind, target, subject.ty, type_data.as_ref())?;
+        let compatible = self.pattern_is_compatible(
+            id,
+            pattern,
+            kind,
+            target,
+            matched_subject.ty,
+            type_data.as_ref(),
+        )?;
 
-        let children = self.child_subjects(pattern, subject, target, type_data.as_ref())?;
+        let child_parent = if matches!(
+            kind,
+            BoundPatternKind::Grouped | BoundPatternKind::Alternative
+        ) {
+            subject
+        } else {
+            matched_subject
+        };
+
+        let children = self.child_subjects(pattern, child_parent, target, type_data.as_ref())?;
 
         let mut child_refutability = Vec::with_capacity(pattern.children().len());
         let mut child_recovered = false;
@@ -398,7 +409,14 @@ where
             )?;
         }
 
-        let predicate = self.pattern_predicate(id, pattern, kind, target, type_data.as_ref())?;
+        let predicate = self.pattern_predicate(
+            id,
+            pattern,
+            kind,
+            target,
+            matched_subject.ty,
+            type_data.as_ref(),
+        )?;
 
         let entry = PatternCheckEntry::new(id, subject.ty, operation, refutability, target)
             .with_test((!is_recovered).then_some(predicate).flatten())
@@ -408,6 +426,27 @@ where
         self.patterns.insert(id, entry);
 
         Ok(entry)
+    }
+
+    fn matched_subject(
+        &self,
+        subject: PatternSubject,
+    ) -> Result<(PatternSubject, std::sync::Arc<TypeData>), CheckerInfrastructureError> {
+        let mut matched = subject;
+
+        loop {
+            let data = self
+                .request
+                .semantic_values()
+                .type_data(matched.ty)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+            let TypeData::Borrow { target, .. } = data.as_ref() else {
+                return Ok((matched, data));
+            };
+
+            matched.ty = *target;
+        }
     }
 
     fn pattern_target(

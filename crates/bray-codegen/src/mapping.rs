@@ -21,6 +21,7 @@ pub use reference::{
 pub use symbol::{CodegenSymbolKey, CodegenSymbolMapping};
 pub use ty::{
     CodegenCallableSignature, CodegenFieldLayout, CodegenIndirectParameterKind,
-    CodegenIntegerExtension, CodegenParameterMapping, CodegenResultMapping, CodegenTypeBehavior,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout, CodegenValueAttribute,
+    CodegenInstanceTypeMapping, CodegenIntegerExtension, CodegenParameterMapping,
+    CodegenResultMapping, CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping,
+    CodegenUnionVariantLayout, CodegenValueAttribute,
 };

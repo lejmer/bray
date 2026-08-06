@@ -98,7 +98,6 @@ where
     pub(super) alternative_pattern_bindings:
         BTreeMap<bray_symbols::LocalBindingSymbolId, Vec<Vec<StorageAccessId>>>,
     pub(super) result_storage: bray_bound_tree::StorageIdentityId,
-    pub(super) receiver_storage: Option<bray_bound_tree::StorageIdentityId>,
     receiver_entry: Option<(
         bray_symbols::ReceiverParameterSymbolId,
         Option<(BorrowKind, TypeId)>,
@@ -108,6 +107,15 @@ where
 pub(super) enum PlanError {
     Cancelled,
     Infrastructure(CheckerInfrastructureError),
+}
+
+impl<C> Planner<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    pub(super) fn receiver_parameter(&self) -> Option<bray_symbols::ReceiverParameterSymbolId> {
+        self.receiver_entry.map(|(receiver, _)| receiver)
+    }
 }
 
 impl From<CheckerInfrastructureError> for PlanError {
@@ -181,7 +189,6 @@ where
             planned_patterns: BTreeSet::new(),
             alternative_pattern_bindings: BTreeMap::new(),
             result_storage,
-            receiver_storage: None,
             receiver_entry,
         })
     }
@@ -383,9 +390,9 @@ where
         target: StorageBindingTarget,
         identity: StorageIdentity,
         ty: Option<TypeId>,
-    ) -> Result<(), PlanError> {
+    ) -> Result<Option<bray_bound_tree::StorageIdentityId>, PlanError> {
         if self.builder()?.binding(target).is_some() {
-            return Ok(());
+            return Ok(None);
         }
 
         let storage = self
@@ -399,15 +406,11 @@ where
                 .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
         }
 
-        if matches!(target, StorageBindingTarget::Receiver(_)) {
-            self.receiver_storage = Some(storage);
-        }
-
         self.builder_mut()?
             .bind(target, StorageBinding::Identity(storage))
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
 
-        Ok(())
+        Ok(Some(storage))
     }
 
     fn bind_entry(
@@ -576,7 +579,7 @@ where
             let target = StorageBindingTarget::Local(binding);
 
             if self.builder()?.binding(target).is_none() {
-                self.bind_identity(target, StorageIdentity::LocalOwned(root), None)?;
+                let _ = self.bind_identity(target, StorageIdentity::LocalOwned(root), None)?;
             }
         }
 
