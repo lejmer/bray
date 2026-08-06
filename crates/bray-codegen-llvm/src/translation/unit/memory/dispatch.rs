@@ -828,6 +828,7 @@ mod tests {
             unit,
             target,
             type_mappings,
+            [],
             [symbol],
             [],
             [],

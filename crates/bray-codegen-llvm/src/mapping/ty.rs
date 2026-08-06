@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;
 
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFailure, CodegenMappings, CodegenParameterMapping,
-    CodegenResultMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping, TargetScalarKind,
+    CodegenCallableSignature, CodegenFailure, CodegenInstanceKey, CodegenMappings,
+    CodegenParameterMapping, CodegenResultMapping, CodegenTarget, CodegenTypeKind,
+    CodegenTypeMapping, TargetScalarKind,
 };
 use bray_symbols::TypeId;
 use inkwell::AddressSpace;
@@ -17,6 +18,7 @@ pub(crate) struct LlvmTypeMappings<'context, 'mappings> {
     mappings: &'mappings CodegenMappings,
     target: &'mappings CodegenTarget,
     target_data: &'mappings TargetData,
+    instance: Option<&'mappings CodegenInstanceKey>,
     mapped: BTreeMap<TypeId, BasicTypeEnum<'context>>,
     active: BTreeSet<TypeId>,
 }
@@ -33,6 +35,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             mappings,
             target,
             target_data,
+            instance: None,
             mapped: BTreeMap::new(),
             active: BTreeSet::new(),
         }
@@ -44,6 +47,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
     pub(crate) const fn target_data(&self) -> &'mappings TargetData {
         self.target_data
+    }
+
+    pub(crate) const fn select_instance(&mut self, instance: &'mappings CodegenInstanceKey) {
+        self.instance = Some(instance);
     }
 
     pub(crate) fn default_pointer_type(&self) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
@@ -60,6 +67,16 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
     }
 
     pub(crate) fn map(&mut self, ty: TypeId) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        if let Some(instance) = self.instance {
+            let Some(mapping) = self.mappings.instance_ty(instance, ty) else {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            };
+
+            if mapping.ty() != ty {
+                return self.map(mapping.ty());
+            }
+        }
+
         if self.active.contains(&ty) {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
@@ -387,6 +404,7 @@ mod tests {
             request.unit(),
             request.target(),
             all_types,
+            mappings.instance_types().iter().cloned(),
             mappings.symbols().iter().cloned(),
             mappings.constants().iter().cloned(),
             mappings.constant_terms().iter().cloned(),
@@ -462,6 +480,7 @@ mod tests {
             request.unit(),
             request.target(),
             all_types,
+            mappings.instance_types().iter().cloned(),
             mappings.symbols().iter().cloned(),
             mappings.constants().iter().cloned(),
             mappings.constant_terms().iter().cloned(),

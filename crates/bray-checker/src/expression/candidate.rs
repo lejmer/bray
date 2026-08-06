@@ -149,11 +149,14 @@ where
                                 .push(CallableCandidateTemplate::Declaration(candidate.clone()));
                         }
                         CallableCandidateTemplate::Declaration(candidate) => {
-                            let materialized = resolve_declaration_candidate(
-                                request,
-                                candidate,
-                                &mut diagnostics,
-                            )?;
+                            let materialized = match dependency_progress(
+                                resolve_declaration_candidate(request, candidate, &mut diagnostics),
+                            )? {
+                                SessionProgress::Complete(materialized) => materialized,
+                                SessionProgress::Cancelled => {
+                                    return Ok(SessionProgress::Cancelled);
+                                }
+                            };
 
                             match materialized {
                                 TemplateResolution::Resolved(candidate) => {
@@ -542,9 +545,17 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(materialized) =
-            materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
-        else {
+        let materialized = match dependency_progress(materialize_call_candidates(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+        ))? {
+            SessionProgress::Complete(materialized) => materialized,
+            SessionProgress::Cancelled => return Ok(SessionProgress::Cancelled),
+        };
+
+        let Some(materialized) = materialized else {
             continue;
         };
 
@@ -717,12 +728,22 @@ struct MaterializedCallCandidates<'prepared> {
     diagnostics: DiagnosticBag,
 }
 
+fn dependency_progress<T>(
+    result: CheckerFactResult<T>,
+) -> Result<SessionProgress<T>, CheckerInfrastructureError> {
+    match result {
+        Ok(value) => Ok(SessionProgress::Complete(value)),
+        Err(CheckerFactError::Cancelled) => Ok(SessionProgress::Cancelled),
+        Err(CheckerFactError::Infrastructure(error)) => Err(error),
+    }
+}
+
 fn materialize_call_candidates<'prepared, C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &'prepared PreparedCall,
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
-) -> Result<Option<MaterializedCallCandidates<'prepared>>, CheckerInfrastructureError>
+) -> CheckerFactResult<Option<MaterializedCallCandidates<'prepared>>>
 where
     C: CheckerRequestContext + CheckerSemanticFactProvider<GenericConstraintsFact> + ?Sized,
 {
@@ -745,7 +766,7 @@ where
                 resolve_generic_arguments(request, template.generic_arguments(), &mut diagnostics)?
             }
             CallableCandidateTemplate::Value(_) => {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             }
         };
 
@@ -763,12 +784,12 @@ where
                 resolve_open_predicate_candidate(request, template, &explicit, &mut diagnostics)?,
             ),
             CallableCandidateTemplate::Value(_) => {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             }
         };
 
         let Some(parameters) = parameters.get(explicit.len()..) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         };
 
         let Some(inferred) =
@@ -797,7 +818,7 @@ where
                 )?
             }
             CallableCandidateTemplate::Value(_) => {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             }
         };
 
@@ -820,11 +841,11 @@ where
     }
 
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let Some(callee_type) = types.expression(call.callee()) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     if callee_type.is_recovered() {
@@ -971,9 +992,17 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(materialized) =
-            materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
-        else {
+        let materialized = match dependency_progress(materialize_call_candidates(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+        ))? {
+            SessionProgress::Complete(materialized) => materialized,
+            SessionProgress::Cancelled => return Ok(SessionProgress::Cancelled),
+        };
+
+        let Some(materialized) = materialized else {
             continue;
         };
 
@@ -1091,9 +1120,18 @@ where
     let mut diagnostics = DiagnosticBag::new();
 
     for prepared_call in &prepared.calls {
-        let Some(materialized) =
-            materialize_call_candidates(request, types, prepared_call, &prepared.member_targets)?
-        else {
+        let materialized = match materialize_call_candidates(
+            request,
+            types,
+            prepared_call,
+            &prepared.member_targets,
+        ) {
+            Ok(materialized) => materialized,
+            Err(CheckerFactError::Cancelled) => return Ok(None),
+            Err(CheckerFactError::Infrastructure(error)) => return Err(error),
+        };
+
+        let Some(materialized) = materialized else {
             continue;
         };
 

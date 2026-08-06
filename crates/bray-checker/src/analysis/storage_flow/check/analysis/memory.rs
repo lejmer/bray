@@ -151,7 +151,8 @@ where
             }
         }
 
-        let ([(source, purpose)], [destination]) = (sources.as_slice(), destinations.as_slice()) else {
+        let ([(source, purpose)], [destination]) = (sources.as_slice(), destinations.as_slice())
+        else {
             return;
         };
 

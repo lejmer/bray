@@ -36,39 +36,15 @@ pub struct InterfaceUnionTag {
     pub(crate) value: IntegerConstant,
 }
 
-/// One product storage member required for consumer-side layout realization.
+/// One storage member required for consumer-side layout realization.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct InterfaceStructStorageMember {
+pub struct InterfaceStorageMember {
     pub(crate) field: Option<InterfaceSymbolReference>,
     pub(crate) ty: InterfaceTypeId,
 }
 
-impl InterfaceStructStorageMember {
+impl InterfaceStorageMember {
     /// Creates one storage member with an optional exported field identity.
-    pub const fn new(field: Option<InterfaceSymbolReference>, ty: InterfaceTypeId) -> Self {
-        Self { field, ty }
-    }
-
-    /// Returns the exported field identity when one exists.
-    pub const fn field(&self) -> Option<&InterfaceSymbolReference> {
-        self.field.as_ref()
-    }
-
-    /// Returns the member type.
-    pub const fn ty(&self) -> InterfaceTypeId {
-        self.ty
-    }
-}
-
-/// One union payload member required for consumer-side layout realization.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct InterfaceUnionStorageMember {
-    pub(crate) field: Option<InterfaceSymbolReference>,
-    pub(crate) ty: InterfaceTypeId,
-}
-
-impl InterfaceUnionStorageMember {
-    /// Creates one payload member with an optional exported field identity.
     pub const fn new(field: Option<InterfaceSymbolReference>, ty: InterfaceTypeId) -> Self {
         Self { field, ty }
     }
@@ -88,14 +64,14 @@ impl InterfaceUnionStorageMember {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceUnionStorageVariant {
     pub(crate) variant: InterfaceSymbolReference,
-    pub(crate) members: Arc<[InterfaceUnionStorageMember]>,
+    pub(crate) members: Arc<[InterfaceStorageMember]>,
 }
 
 impl InterfaceUnionStorageVariant {
     /// Creates one variant payload shape in declaration order.
     pub fn new(
         variant: InterfaceSymbolReference,
-        members: impl IntoIterator<Item = InterfaceUnionStorageMember>,
+        members: impl IntoIterator<Item = InterfaceStorageMember>,
     ) -> Self {
         Self {
             variant,
@@ -109,7 +85,7 @@ impl InterfaceUnionStorageVariant {
     }
 
     /// Returns payload members in storage order.
-    pub fn members(&self) -> &[InterfaceUnionStorageMember] {
+    pub fn members(&self) -> &[InterfaceStorageMember] {
         &self.members
     }
 }
@@ -118,7 +94,7 @@ impl InterfaceUnionStorageVariant {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceStorageShape {
     /// Product members in storage order.
-    Structure(Arc<[InterfaceStructStorageMember]>),
+    Structure(Arc<[InterfaceStorageMember]>),
     /// Union variants and payload members in declaration order.
     Union(Arc<[InterfaceUnionStorageVariant]>),
 }

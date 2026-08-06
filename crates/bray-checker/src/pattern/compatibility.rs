@@ -27,27 +27,6 @@ where
         subject_type: bray_symbols::TypeId,
         subject: &TypeData,
     ) -> Result<bool, CheckerInfrastructureError> {
-        if let TypeData::Borrow {
-            target: borrowed_target,
-            ..
-        } = subject
-        {
-            let target_data = self
-                .request
-                .semantic_values()
-                .type_data(*borrowed_target)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
-
-            return self.pattern_is_compatible(
-                id,
-                pattern,
-                kind,
-                target,
-                *borrowed_target,
-                target_data.as_ref(),
-            );
-        }
-
         let compatible = match kind {
             BoundPatternKind::Binding
             | BoundPatternKind::Discard

@@ -92,6 +92,12 @@ pub enum CheckerFactError {
     Infrastructure(CheckerInfrastructureError),
 }
 
+impl From<CheckerInfrastructureError> for CheckerFactError {
+    fn from(error: CheckerInfrastructureError) -> Self {
+        Self::Infrastructure(error)
+    }
+}
+
 /// The result of requesting one checker dependency.
 pub type CheckerFactResult<T> = Result<T, CheckerFactError>;
 

@@ -359,7 +359,7 @@ fn codegen_mappings(
         }
     }
 
-    CodegenMappings::try_new(unit, target, [], symbols, [], [], [], [], [], [])
+    CodegenMappings::try_new(unit, target, [], [], symbols, [], [], [], [], [], [])
         .map_err(CodegenFactError::InvalidMappings)
 }
 

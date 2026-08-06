@@ -6,9 +6,8 @@ use crate::semantic::codec::record::RecordTable;
 use crate::semantic::model::{
     InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
     InterfaceDeclaredType, InterfaceGenericDeclaration, InterfacePredicateDefinition,
-    InterfaceSemanticFacts, InterfaceStorageShape, InterfaceStructStorageMember, InterfaceTypeId,
-    InterfaceTypeRepresentation, InterfaceUnionStorageMember, InterfaceUnionStorageVariant,
-    InterfaceUnionTag,
+    InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceTypeId,
+    InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
 };
 use crate::wire::WireReader;
 use crate::{
@@ -161,7 +160,7 @@ fn decode_type_representation(
             let mut members = context.allocate_items(reader, count)?;
 
             for _ in 0..count {
-                members.push(InterfaceStructStorageMember::new(
+                members.push(InterfaceStorageMember::new(
                     read_optional_symbol_reference(reader, context)?,
                     InterfaceTypeId::new(read_u32(reader)?),
                 ));
@@ -179,7 +178,7 @@ fn decode_type_representation(
                 let mut members = context.allocate_items(reader, member_count)?;
 
                 for _ in 0..member_count {
-                    members.push(InterfaceUnionStorageMember::new(
+                    members.push(InterfaceStorageMember::new(
                         read_optional_symbol_reference(reader, context)?,
                         InterfaceTypeId::new(read_u32(reader)?),
                     ));

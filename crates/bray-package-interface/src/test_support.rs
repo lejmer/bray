@@ -18,12 +18,11 @@ use crate::{
     InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationRecord,
     InterfaceLanguageRevision, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
     InterfacePredicateSummary, InterfaceProductIdentity, InterfaceProductKind,
-    InterfaceSemanticFacts, InterfaceStorageShape, InterfaceStructStorageMember,
-    InterfaceSupportEntity, InterfaceSymbolReference, InterfaceTargetFactDependency,
-    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
-    InterfaceTypeRepresentation, PackageInterfaceExportBundle, PackageInterfaceIdentity,
-    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
-    encode_package_interface,
+    InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceSupportEntity,
+    InterfaceSymbolReference, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation,
+    PackageInterfaceExportBundle, PackageInterfaceIdentity, PackageInterfaceSurface,
+    SymbolRelationshipKind, build_package_interface_surface, encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -616,16 +615,10 @@ fn template_facts(
         )
 }
 
-fn type_representations(
-    structure: InterfaceSymbolReference,
-) -> [InterfaceTypeRepresentation; 1] {
+fn type_representations(structure: InterfaceSymbolReference) -> [InterfaceTypeRepresentation; 1] {
     [InterfaceTypeRepresentation::new(structure)
         .with_storage(InterfaceStorageShape::Structure(
-            [InterfaceStructStorageMember::new(
-                None,
-                InterfaceTypeId::new(0),
-            )]
-            .into(),
+            [InterfaceStorageMember::new(None, InterfaceTypeId::new(0))].into(),
         ))
         .with_properties(true, true)]
 }

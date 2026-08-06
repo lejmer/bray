@@ -75,12 +75,12 @@ pub use semantic::{
     InterfaceImplementationReference, InterfacePredicateDefinition,
     InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceRuntimeRequirement,
     InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts,
-    InterfaceSemanticInternError, InterfaceSourceProvenance, InterfaceStorageShape,
-    InterfaceStructStorageMember, InterfaceSupportEntity, InterfaceSupportImplementation,
+    InterfaceSemanticInternError, InterfaceSourceProvenance, InterfaceStorageMember,
+    InterfaceStorageShape, InterfaceSupportEntity, InterfaceSupportImplementation,
     InterfaceSymbolResolver, InterfaceTargetFactDependency, InterfaceTemplateReference,
     InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
-    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageMember,
-    InterfaceUnionStorageVariant, InterfaceUnionTag, decode_semantic_facts, encode_semantic_facts,
+    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
+    InterfaceUnionTag, decode_semantic_facts, encode_semantic_facts,
 };
 pub use surface::{
     CompilerKnownSymbolReference, DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind,

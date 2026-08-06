@@ -11,13 +11,13 @@ use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
     CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout, CodegenHelperMapping,
-    CodegenIndirectParameterKind, CodegenInstance, CodegenLinkage, CodegenMappings,
-    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSourceFile,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTerminatorMapping,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout, CodegenUnit,
-    CodegenValueAttribute, TargetAddressSpaceKind, child_constants, demanded_callable_instances,
-    demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
-    demanded_debug_sources, mapped_runtime_references,
+    CodegenIndirectParameterKind, CodegenInstance, CodegenInstanceKey, CodegenInstanceTypeMapping,
+    CodegenLinkage, CodegenMappings, CodegenOperationMapping, CodegenParameterMapping,
+    CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
+    CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
+    CodegenUnit, CodegenValueAttribute, TargetAddressSpaceKind, child_constants,
+    demanded_callable_instances, demanded_callable_instances_for_mir, demanded_constant_terms,
+    demanded_constants, demanded_debug_sources, mapped_runtime_references,
 };
 use bray_compiler_known::{
     CompilerKnownDeclarationKey, RecognizedStandardLibraryDeclarationKey, RepresentationRole,
@@ -121,6 +121,7 @@ impl Compilation {
         let (constant_terms, terminators) = self.codegen_constant_terms(unit, reachability)?;
 
         let mut type_mappings = BTreeMap::new();
+        let mut instance_type_mappings = Vec::new();
 
         for instance in unit.instances() {
             let realization = reachability
@@ -133,6 +134,8 @@ impl Compilation {
                 target,
                 cancellation,
                 &mut type_mappings,
+                Some(instance.key()),
+                &mut instance_type_mappings,
             )?;
         }
 
@@ -146,7 +149,15 @@ impl Compilation {
 
         demanded.retain(|ty| !type_mappings.contains_key(ty));
 
-        self.extend_codegen_types(demanded, None, target, cancellation, &mut type_mappings)?;
+        self.extend_codegen_types(
+            demanded,
+            None,
+            target,
+            cancellation,
+            &mut type_mappings,
+            None,
+            &mut instance_type_mappings,
+        )?;
 
         symbols =
             self.classify_codegen_symbols(symbols, target, cancellation, &mut type_mappings)?;
@@ -165,6 +176,7 @@ impl Compilation {
             unit,
             target,
             types,
+            instance_type_mappings,
             symbols,
             constants,
             constant_terms,
@@ -2374,8 +2386,17 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenTypeMapping>, CodegenFactError> {
         let mut mappings = BTreeMap::new();
+        let mut instance_mappings = Vec::new();
 
-        self.extend_codegen_types(demanded, substitution, target, cancellation, &mut mappings)?;
+        self.extend_codegen_types(
+            demanded,
+            substitution,
+            target,
+            cancellation,
+            &mut mappings,
+            None,
+            &mut instance_mappings,
+        )?;
 
         Ok(mappings.into_values().collect())
     }
@@ -2387,6 +2408,8 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
         mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
+        instance: Option<&CodegenInstanceKey>,
+        instance_mappings: &mut Vec<CodegenInstanceTypeMapping>,
     ) -> Result<(), CodegenFactError> {
         let mut pending = BTreeSet::new();
 
@@ -2401,16 +2424,25 @@ impl Compilation {
                     .cloned()
                     .ok_or(CodegenFactError::UnsupportedType(ty))?;
 
-                let mapping = match mapping.layout() {
-                    Some(layout) => {
-                        CodegenTypeMapping::new(template, layout, mapping.kind().clone())
+                if let Some(instance) = instance {
+                    // Published mappings own instance identities independently of realization.
+                    instance_mappings.push(CodegenInstanceTypeMapping::new(
+                        instance.clone(),
+                        template,
+                        ty,
+                    ));
+                } else {
+                    let mapping = match mapping.layout() {
+                        Some(layout) => {
+                            CodegenTypeMapping::new(template, layout, mapping.kind().clone())
+                        }
+                        None => CodegenTypeMapping::new_unsized(template, mapping.kind().clone()),
                     }
-                    None => CodegenTypeMapping::new_unsized(template, mapping.kind().clone()),
-                }
-                .with_backend_type(ty)
-                .with_behavior(mapping.behavior());
+                    .with_backend_type(ty)
+                    .with_behavior(mapping.behavior());
 
-                mappings.insert(template, mapping);
+                    mappings.insert(template, mapping);
+                }
             }
         }
 

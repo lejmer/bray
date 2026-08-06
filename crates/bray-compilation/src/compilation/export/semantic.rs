@@ -29,11 +29,11 @@ use bray_package_interface::{
     InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
     InterfaceImplementationInstance, InterfaceImplementationInstanceId,
     InterfaceImplementationRecord, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
-    InterfacePredicateSummary, InterfaceSemanticFacts, InterfaceStorageShape,
-    InterfaceStructStorageMember, InterfaceSupportEntity, InterfaceSymbolReference,
+    InterfacePredicateSummary, InterfaceSemanticFacts, InterfaceStorageMember,
+    InterfaceStorageShape, InterfaceSupportEntity, InterfaceSymbolReference,
     InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
-    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageMember,
-    InterfaceUnionStorageVariant, InterfaceUnionTag, PackageInterfaceSurface,
+    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
+    InterfaceUnionTag, PackageInterfaceSurface,
 };
 use bray_symbols::{
     AnySymbolId, CallableContractClauseValue, CallableContractTemplate,
@@ -1999,7 +1999,7 @@ impl<'a> SemanticExporter<'a> {
 
                         let ty = self.resolve_type_template(owner, member.ty())?;
 
-                        Ok(InterfaceStructStorageMember::new(field, self.type_id(ty)?))
+                        Ok(InterfaceStorageMember::new(field, self.type_id(ty)?))
                     })
                     .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?
                     .into(),
@@ -2021,7 +2021,7 @@ impl<'a> SemanticExporter<'a> {
 
                                 let ty = self.resolve_type_template(owner, member.ty())?;
 
-                                Ok(InterfaceUnionStorageMember::new(field, self.type_id(ty)?))
+                                Ok(InterfaceStorageMember::new(field, self.type_id(ty)?))
                             })
                             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 

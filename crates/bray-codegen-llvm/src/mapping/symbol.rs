@@ -407,6 +407,7 @@ mod tests {
             request.unit(),
             request.target(),
             mappings.types().iter().cloned().chain(types),
+            mappings.instance_types().iter().cloned(),
             symbols,
             mappings.constants().iter().cloned(),
             mappings.constant_terms().iter().cloned(),

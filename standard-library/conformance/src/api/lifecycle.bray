@@ -30,8 +30,21 @@ func imported_format_sinks_are_destroyed() -> Result<unit, std.memory.MemoryLayo
     return Ok(unit);
 }
 
-// TODO(BRA-357): Add imported buffered reader and writer lifecycle coverage once consumers can
-// instantiate generic executable templates from package implementation artifacts.
+@test
+func imported_buffered_streams_are_destroyed() -> Result<unit, std.io.IoError>
+{
+    let input: std.io.BufferedReader<std.io.StandardInput> = try std.io.BufferedReader<std.io.StandardInput>(
+        std.io.standard_input(),
+        capacity = 8,
+    );
+
+    let output: std.io.BufferedWriter<std.io.StandardOutput> = try std.io.BufferedWriter<std.io.StandardOutput>(
+        std.io.standard_output(),
+        capacity = 8,
+    );
+
+    return Ok(unit);
+}
 
 @test
 func repeated_standard_output_locks_are_released() -> Result<unit, std.io.IoError>

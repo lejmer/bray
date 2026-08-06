@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundBlockItem, BoundExpressionId,
-    CheckedMemoryOperations, CheckedRefinementFacts, LivenessFacts, StorageAccessId,
-    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
-    StorageBindingTarget, StorageIdentity, StorageIdentityId, StoragePlan,
+    AnyBoundNodeId, BorrowCapabilityId, BoundBlockItem, BoundExpressionId, CheckedMemoryOperations,
+    CheckedRefinementFacts, LivenessFacts, StorageAccessId, StorageAccessPlan,
+    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
+    StorageIdentityId, StoragePlan,
 };
 use bray_symbols::TypeId;
 

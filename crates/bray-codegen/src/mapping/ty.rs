@@ -6,7 +6,41 @@ use bray_ir::MirFieldReference;
 use bray_symbols::{CallableAbi, IntegerConstant, TypeId, UnionVariantSymbolId};
 use bray_target::TargetValueLayout;
 
-use crate::TargetAddressSpaceKind;
+use crate::{CodegenInstanceKey, TargetAddressSpaceKind};
+
+/// One concrete type selected for an open MIR type in a code generation instance.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenInstanceTypeMapping {
+    instance: CodegenInstanceKey,
+    template: TypeId,
+    concrete: TypeId,
+}
+
+impl CodegenInstanceTypeMapping {
+    /// Creates one instance-local type substitution.
+    pub const fn new(instance: CodegenInstanceKey, template: TypeId, concrete: TypeId) -> Self {
+        Self {
+            instance,
+            template,
+            concrete,
+        }
+    }
+
+    /// Returns the concrete code generation instance.
+    pub const fn instance(&self) -> &CodegenInstanceKey {
+        &self.instance
+    }
+
+    /// Returns the open type retained by the MIR template.
+    pub const fn template(&self) -> TypeId {
+        self.template
+    }
+
+    /// Returns the closed semantic type selected for the instance.
+    pub const fn concrete(&self) -> TypeId {
+        self.concrete
+    }
+}
 
 /// Integer extension selected for a directly passed ABI value.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

@@ -1323,10 +1323,7 @@ mod tests {
         );
     }
 
-    fn assert_standard_memory_body_has_no_diagnostic(
-        source: &str,
-        diagnostic: DiagnosticKind,
-    ) {
+    fn assert_standard_memory_body_has_no_diagnostic(source: &str, diagnostic: DiagnosticKind) {
         let package = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library identity must be valid"));
 
@@ -4642,6 +4639,41 @@ func other()
 
         assert!(coverage.is_exhaustive(), "{facts:?}");
         assert!(coverage.unreachable_arms().is_empty());
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn borrowed_union_subjects_use_the_referent_for_pattern_semantics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Choice\n",
+            "{\n",
+            "    First;\n",
+            "    Second;\n",
+            "}\n",
+            "func main(pos value: &Choice)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case .First {}\n",
+            "        case .Second {}\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("borrowed pattern facts must be available: {error:?}"),
+        };
+
+        let [coverage] = facts.value().matches() else {
+            panic!("test source must contain one match expression");
+        };
+
+        assert!(coverage.is_exhaustive(), "{facts:?}");
+        assert!(!facts.value().is_recovered());
         assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
     }
 

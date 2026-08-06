@@ -238,7 +238,7 @@ mod tests {
         InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
         InterfaceGenericSubstitutionId, InterfacePredicateDefinitionState,
         InterfaceRuntimeRequirement, InterfaceSectionTag, InterfaceSemanticFactKind,
-        InterfaceSemanticFacts, InterfaceStorageShape, InterfaceStructStorageMember,
+        InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape,
         InterfaceSymbolReference, InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation,
         InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
     };
@@ -461,7 +461,7 @@ mod tests {
 
         let invalid_type = InterfaceTypeRepresentation::new(structure.clone()).with_storage(
             InterfaceStorageShape::Structure(
-                [InterfaceStructStorageMember::new(
+                [InterfaceStorageMember::new(
                     None,
                     InterfaceTypeId::new(u32::MAX),
                 )]

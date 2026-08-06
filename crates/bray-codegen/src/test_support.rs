@@ -243,6 +243,7 @@ fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappin
         unit,
         target,
         types,
+        [],
         symbols,
         [],
         [],

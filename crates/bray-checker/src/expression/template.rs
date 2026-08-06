@@ -9,7 +9,7 @@ use bray_symbols::{
     CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
     CallableInstanceData, CallableParameterData, CallableParameterMode, CallableParameterSignature,
     CallablePosition, CallableSignature, CallableSignatureTemplate, CallableTrust,
-    CallableTypeData, ConstantTermData, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
+    CallableTypeData, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, GenericSubstitutionId, PredicateInstanceData,
     ReceiverParameterSignature, TypeData, TypeExpressionTemplate, TypeId,
 };
@@ -17,8 +17,9 @@ use bray_symbols::{
 use crate::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplateState,
     CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerFactError,
-    CheckerInfrastructureError, PredicateCandidateTemplate, normalize_type_valued_members,
-    resolve_callable_signature_template, resolve_type_expression_template,
+    CheckerFactResult, CheckerInfrastructureError, PredicateCandidateTemplate,
+    normalize_type_valued_members, resolve_callable_signature_template,
+    resolve_type_expression_template,
 };
 
 pub(super) enum TemplateResolution<T> {
@@ -62,7 +63,7 @@ where
     match resolve_predicate_candidate_with_arguments(request, template, arguments, diagnostics)? {
         TemplateResolution::Resolved(candidate) => Ok(candidate),
         TemplateResolution::Unsupported => {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
         }
     }
 }
@@ -170,17 +171,11 @@ where
     parameters
         .iter()
         .copied()
-        .map(|parameter| match parameter {
-            GenericParameterSymbolId::Type(parameter) => request
+        .map(|parameter| {
+            request
                 .semantic_values()
-                .intern_type(TypeData::TypeParameter(parameter))
-                .map(GenericArgument::Type)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
-            GenericParameterSymbolId::Const(parameter) => request
-                .semantic_values()
-                .intern_constant_term(ConstantTermData::Parameter(parameter))
-                .map(GenericArgument::Constant)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
+                .intern_generic_parameter_argument(parameter)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
         })
         .collect()
 }
@@ -194,7 +189,7 @@ where
     C: crate::CheckerRequestContext + ?Sized,
 {
     let Some(remaining) = parameters.get(explicit.len()..) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let mut arguments = Vec::with_capacity(parameters.len());
@@ -208,7 +203,7 @@ pub(super) fn resolve_declaration_candidate<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &CallableDeclarationCandidateTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TemplateResolution<CallableCandidate>, CheckerInfrastructureError>
+) -> CheckerFactResult<TemplateResolution<CallableCandidate>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -230,7 +225,7 @@ pub(super) fn resolve_open_declaration_candidate<C>(
     template: &CallableDeclarationCandidateTemplate,
     explicit: &[GenericArgument],
     diagnostics: &mut DiagnosticBag,
-) -> Result<CallableCandidate, CheckerInfrastructureError>
+) -> CheckerFactResult<CallableCandidate>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -240,7 +235,7 @@ where
     match resolve_declaration_candidate_with_arguments(request, template, arguments, diagnostics)? {
         TemplateResolution::Resolved(candidate) => Ok(candidate),
         TemplateResolution::Unsupported => {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
         }
     }
 }
@@ -250,7 +245,7 @@ pub(super) fn resolve_declaration_candidate_with_arguments<C>(
     template: &CallableDeclarationCandidateTemplate,
     arguments: Vec<GenericArgument>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TemplateResolution<CallableCandidate>, CheckerInfrastructureError>
+) -> CheckerFactResult<TemplateResolution<CallableCandidate>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -278,7 +273,7 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let callable_owner = GenericOwnerId::try_new(template.definition().symbol())
@@ -289,12 +284,17 @@ where
     } else {
         values
             .inherit_generic_substitution(substitution, callable_owner)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+            .map_err(|_| {
+                CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?
     };
 
     let instance = CallableInstanceData::new(template.definition(), callable_substitution);
 
-    let result = call_result(request, callable_type, signature.result())?;
+    let result = call_result(request, callable_type, signature.result())
+        .map_err(CheckerFactError::Infrastructure)?;
 
     let resolution = BoundResolvedCall::new(BoundCallableTarget::Declaration(instance), [], result);
 
@@ -306,7 +306,9 @@ where
         }
 
         let Some(provider) = default.provider() else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerFactError::Infrastructure(
+                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            ));
         };
 
         defaults.push((default.parameter(), provider));
@@ -355,7 +357,7 @@ fn resolve_signature<C>(
     template: &CallableSignatureTemplate,
     substitution: GenericSubstitutionId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TemplateResolution<CallableSignature>, CheckerInfrastructureError>
+) -> CheckerFactResult<TemplateResolution<CallableSignature>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -363,7 +365,9 @@ where
         request,
         [template.callable_type(), template.result()],
         diagnostics,
-    )? {
+    )
+    .map_err(CheckerFactError::Infrastructure)?
+    {
         TemplateResolution::Resolved(constants) => constants,
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
@@ -374,7 +378,9 @@ where
         substitution,
         &constants,
     )
-    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+    .map_err(|_| {
+        CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+    })?
     else {
         return Ok(TemplateResolution::Unsupported);
     };

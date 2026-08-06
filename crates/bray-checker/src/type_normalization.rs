@@ -12,7 +12,7 @@ pub(crate) fn normalize_type_valued_members<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TypeId, CheckerInfrastructureError>
+) -> Result<TypeId, CheckerFactError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -39,7 +39,7 @@ impl<C> TypeNormalizer<'_, '_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    fn normalize_type(&mut self, ty: TypeId) -> Result<TypeId, CheckerInfrastructureError> {
+    fn normalize_type(&mut self, ty: TypeId) -> Result<TypeId, CheckerFactError> {
         if let Some(normalized) = self.normalized.get(&ty).copied() {
             return Ok(normalized);
         }
@@ -52,7 +52,7 @@ where
             .request
             .semantic_values()
             .type_data(ty)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(semantic_value_error)?;
 
         let normalized = match data.as_ref() {
             TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
@@ -75,10 +75,9 @@ where
                 let subject = self.normalize_type(*subject)?;
                 let application = self.normalize_application(*application)?;
 
-                let result = self
-                    .request
-                    .selected_type_valued_member(subject, application, *member)
-                    .map_err(checker_fact_error)?;
+                let result =
+                    self.request
+                        .selected_type_valued_member(subject, application, *member)?;
 
                 self.diagnostics
                     .extend(result.diagnostics().iter().cloned());
@@ -185,30 +184,30 @@ where
     fn normalize_application(
         &mut self,
         application: TraitApplicationId,
-    ) -> Result<TraitApplicationId, CheckerInfrastructureError> {
+    ) -> Result<TraitApplicationId, CheckerFactError> {
         let data = self
             .request
             .semantic_values()
             .trait_application_data(application)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(semantic_value_error)?;
 
         let substitution = self.normalize_substitution(data.substitution())?;
 
         self.request
             .semantic_values()
             .intern_trait_application(TraitApplicationData::new(data.definition(), substitution))
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(semantic_value_error)
     }
 
     fn normalize_substitution(
         &mut self,
         substitution: GenericSubstitutionId,
-    ) -> Result<GenericSubstitutionId, CheckerInfrastructureError> {
+    ) -> Result<GenericSubstitutionId, CheckerFactError> {
         let data = self
             .request
             .semantic_values()
             .generic_substitution_data(substitution)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(semantic_value_error)?;
 
         let parameters = data.bindings().iter().map(|binding| binding.parameter());
 
@@ -222,25 +221,26 @@ where
             .collect::<Result<Vec<_>, _>>()?;
 
         let normalized = GenericSubstitutionData::try_new(data.owner(), parameters, arguments)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(|_| {
+                CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
 
         self.request
             .semantic_values()
             .intern_generic_substitution(normalized)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(semantic_value_error)
     }
 
-    fn intern(&self, data: TypeData) -> Result<TypeId, CheckerInfrastructureError> {
+    fn intern(&self, data: TypeData) -> Result<TypeId, CheckerFactError> {
         self.request
             .semantic_values()
             .intern_type(data)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(semantic_value_error)
     }
 }
 
-const fn checker_fact_error(error: CheckerFactError) -> CheckerInfrastructureError {
-    match error {
-        CheckerFactError::Cancelled => CheckerInfrastructureError::SemanticValueUnavailable,
-        CheckerFactError::Infrastructure(error) => error,
-    }
+fn semantic_value_error(_: bray_symbols::SemanticValueStoreError) -> CheckerFactError {
+    CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
 }
