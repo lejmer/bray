@@ -6,15 +6,18 @@ use bray_diagnostics::{
     SeverityKind,
 };
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, DeclaredCopyContract, DeclaredTypeRepresentation,
-    GenericArgument, GenericArgumentTemplate, GenericParameterSymbolId,
-    GenericTypeParameterSymbolId, NamedTypeSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    AvailableCompilerKnownSymbols, DeclaredCopyContract, DeclaredStorageShape,
+    DeclaredStructStorageMember, DeclaredTypeRepresentation, DeclaredUnionStorageMember,
+    DeclaredUnionStorageVariant, GenericArgument, GenericArgumentTemplate,
+    GenericParameterSymbolId, GenericTypeParameterSymbolId, NamedTypeSymbolId, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 
 use crate::{CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome};
 
 use super::model::{
-    DeclaredStorageMember, DeclaredTypeDefinition, DeclaredUnionVariant, TypeRepresentationContext,
+    DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
+    DeclaredUnionVariant, TypeRepresentationContext,
 };
 
 /// Derives one source-level named type representation contract.
@@ -224,6 +227,7 @@ where
 
         let plain_storage = !definition.has_lifecycle() && member_representation.plain;
         let finite_size = member_representation.finite;
+        let storage = storage_shape(definition);
 
         if !finite_size {
             self.add_diagnostic(
@@ -242,6 +246,7 @@ where
                 tag_type.map(|tag_type| tag_type.ty()),
             )
             .with_union_tags(tags)
+            .with_storage(storage)
             .with_properties(copy, plain_storage, finite_size, recovered)
             .with_copy_dependencies(copy_dependencies))
     }
@@ -482,6 +487,46 @@ where
                     u64::try_from(maximum).unwrap_or(u64::MAX),
                 )),
         );
+    }
+}
+
+fn storage_shape(definition: &DeclaredTypeDefinition) -> DeclaredStorageShape {
+    match definition.subject() {
+        NamedTypeSymbolId::Struct(_) => DeclaredStorageShape::Structure(
+            definition
+                .fields()
+                .iter()
+                .filter_map(|member| match member.identity() {
+                    DeclaredStorageMemberIdentity::StructField(field) => Some(
+                        DeclaredStructStorageMember::new(Some(field), member.ty().clone()),
+                    ),
+                    DeclaredStorageMemberIdentity::UnionPayloadField(_) => None,
+                })
+                .collect(),
+        ),
+        NamedTypeSymbolId::Union(_) => DeclaredStorageShape::Union(
+            definition
+                .variants()
+                .iter()
+                .map(|variant| {
+                    let members =
+                        variant
+                            .payload()
+                            .iter()
+                            .filter_map(|member| match member.identity() {
+                                DeclaredStorageMemberIdentity::UnionPayloadField(field) => {
+                                    Some(DeclaredUnionStorageMember::new(
+                                        Some(field),
+                                        member.ty().clone(),
+                                    ))
+                                }
+                                DeclaredStorageMemberIdentity::StructField(_) => None,
+                            });
+
+                    DeclaredUnionStorageVariant::new(variant.id(), members)
+                })
+                .collect(),
+        ),
     }
 }
 

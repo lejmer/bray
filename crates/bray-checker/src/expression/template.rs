@@ -7,17 +7,18 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
-    CallableInstanceData, CallableParameterData, CallableParameterMode, CallablePosition,
-    CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData, GenericArgument,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
-    PredicateInstanceData, TypeData, TypeExpressionTemplate, TypeId,
+    CallableInstanceData, CallableParameterData, CallableParameterMode, CallableParameterSignature,
+    CallablePosition, CallableSignature, CallableSignatureTemplate, CallableTrust,
+    CallableTypeData, ConstantTermData, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
+    GenericSubstitutionData, GenericSubstitutionId, PredicateInstanceData,
+    ReceiverParameterSignature, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplateState,
     CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerFactError,
-    CheckerInfrastructureError, PredicateCandidateTemplate, resolve_callable_signature_template,
-    resolve_type_expression_template,
+    CheckerInfrastructureError, PredicateCandidateTemplate, normalize_type_valued_members,
+    resolve_callable_signature_template, resolve_type_expression_template,
 };
 
 pub(super) enum TemplateResolution<T> {
@@ -169,11 +170,17 @@ where
     parameters
         .iter()
         .copied()
-        .map(|parameter| {
-            request
+        .map(|parameter| match parameter {
+            GenericParameterSymbolId::Type(parameter) => request
                 .semantic_values()
-                .intern_generic_parameter_argument(parameter)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+                .intern_type(TypeData::TypeParameter(parameter))
+                .map(GenericArgument::Type)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
+            GenericParameterSymbolId::Const(parameter) => request
+                .semantic_values()
+                .intern_constant_term(ConstantTermData::Parameter(parameter))
+                .map(GenericArgument::Constant)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
         })
         .collect()
 }
@@ -361,18 +368,47 @@ where
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
 
-    resolve_callable_signature_template(
+    let Some(signature) = resolve_callable_signature_template(
         request.semantic_values(),
         template,
         substitution,
         &constants,
     )
-    .map(|signature| {
-        signature.map_or(
-            TemplateResolution::Unsupported,
-            TemplateResolution::Resolved,
-        )
-    })
+    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+    else {
+        return Ok(TemplateResolution::Unsupported);
+    };
+
+    let callable_type =
+        normalize_type_valued_members(request, signature.callable_type(), diagnostics)?;
+
+    let receiver = signature
+        .receiver()
+        .map(|receiver| {
+            normalize_type_valued_members(request, receiver.ty(), diagnostics).map(|ty| {
+                ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
+            })
+        })
+        .transpose()?;
+
+    let parameters = signature
+        .parameters()
+        .iter()
+        .copied()
+        .map(|parameter| {
+            normalize_type_valued_members(request, parameter.ty(), diagnostics)
+                .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let result = normalize_type_valued_members(request, signature.result(), diagnostics)?;
+
+    Ok(TemplateResolution::Resolved(CallableSignature::new(
+        callable_type,
+        receiver,
+        parameters,
+        result,
+    )))
 }
 
 pub(super) fn resolve_generic_arguments<C>(

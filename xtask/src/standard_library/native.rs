@@ -54,15 +54,13 @@ fn audit_api(
     toolchain: &Path,
     target: NativeTarget,
 ) -> Result<(), BuildError> {
-    // TODO(BRA-348): Cover owned buffers, sinks, buffering, and repeated stream access
-    // once imported standard-library lifecycle execution terminates reliably.
     let sequential = run_tests(
         root,
         workspace,
         toolchain,
         target,
         API_PRODUCT,
-        &["--sequential"],
+        &["--sequential", "--timeout-ms", "1000"],
     )?;
 
     require_success("sequential execution", &sequential)?;
@@ -84,7 +82,7 @@ fn audit_api(
         toolchain,
         target,
         API_PRODUCT,
-        &["--jobs", "2"],
+        &["--jobs", "2", "--timeout-ms", "1000"],
     )?;
 
     require_success("parallel execution", &parallel)?;
@@ -112,25 +110,25 @@ fn audit_api(
         toolchain,
         target,
         API_PRODUCT,
-        &["standard_output"],
+        &["--timeout-ms", "1000", "standard_output"],
     )?;
 
     require_success("filtered execution", &filtered)?;
 
     let filtered_report = parse_report("filtered execution", &filtered)?;
 
-    require_selection(&filtered_report, 6, 2, 4)?;
+    require_selection(&filtered_report, 13, 3, 10)?;
 
     let tests = tests(&filtered_report);
 
-    if tests.len() != 2
+    if tests.len() != 3
         || tests
             .iter()
             .any(|test| !test.identity.contains("standard_output"))
     {
         return Err(BuildError::conformance(
             "native filtering",
-            "the standard_output filter did not select exactly the two I/O fixtures",
+            "the standard_output filter did not select exactly the three I/O fixtures",
         ));
     }
 
@@ -234,12 +232,12 @@ fn audit_outcome(
 
 fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
     require_product(report, API_PRODUCT)?;
-    require_selection(report, 6, 6, 0)?;
+    require_selection(report, 13, 13, 0)?;
 
-    if report.summary.passed != 6 || report.summary.failed != 0 {
+    if report.summary.passed != 13 || report.summary.failed != 0 {
         return Err(BuildError::conformance(
             "native execution",
-            "the API product did not report six passing tests",
+            "the API product did not report thirteen passing tests",
         ));
     }
 
@@ -269,6 +267,11 @@ fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
             .ends_with("asynchronous_standard_output_is_captured")
         {
             b"captured-async-output".as_slice()
+        } else if test
+            .identity
+            .ends_with("repeated_standard_output_locks_are_released")
+        {
+            b"first-lock|second-lock".as_slice()
         } else if test.identity.ends_with("standard_output_is_captured") {
             b"captured-standard-output".as_slice()
         } else {

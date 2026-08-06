@@ -164,6 +164,8 @@ where
                 )
             }
             Some(PatternPredicate::Literal(literal)) => {
+                let literal = literal.literal();
+
                 let source = self
                     .request
                     .source(pattern.origin().source_anchor())

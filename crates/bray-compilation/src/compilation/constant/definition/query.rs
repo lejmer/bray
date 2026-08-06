@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "constant fact queries share one recursive evaluation and dependency context")
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -9,7 +11,7 @@ use bray_bound_tree::{
 use bray_checker::{
     CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits,
     ConstantEvaluator, ConstantReferenceResolution, DefaultConstantChecker,
-    DefaultConstantEvaluator, EvaluatedConstantCall,
+    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_definition_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -25,9 +27,13 @@ use super::support::{
     selected_implementation_for_reference, substitute_expression_types,
 };
 use crate::compilation::Compilation;
-use crate::compilation::binder::{binder_fact_error, imported_declaration_template};
+use crate::compilation::binder::{
+    binder_fact_error, has_visible_generic_parameters, imported_declaration_template,
+};
 use crate::compilation::checker::checker_result;
-use crate::compilation::constant::call::CompilationConstantCallResolver;
+use crate::compilation::constant::call::{
+    CompilationConstantCallResolver, CompilationConstantTemplateResolver,
+};
 use crate::compilation::substitution::empty_substitution;
 use crate::compilation::unit::semantic_unit_context_for;
 use crate::fact::{
@@ -36,6 +42,70 @@ use crate::fact::{
 };
 
 impl Compilation {
+    pub(in crate::compilation) fn resolve_surface_constant(
+        &self,
+        symbol: AnySymbolId,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<(bray_symbols::TypeId, ConstantReferenceResolution)>, FactQueryError> {
+        let Some(definition) = constant_definition_id(symbol) else {
+            return Ok(None);
+        };
+
+        let definition_result =
+            self.constant_definition_with_cancellation(definition, cancellation)?;
+
+        *diagnostics = diagnostics.merged(definition_result.diagnostics());
+
+        let ConstantDefinitionState::Defined(definition_data) = definition_result.value() else {
+            return Ok(None);
+        };
+
+        let ty = definition_data.ty();
+        let term = definition_data.term();
+
+        let term_data = self
+            .semantic_value_store()?
+            .constant_term_data(term)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if let ConstantTermData::Value(value) = term_data.as_ref() {
+            return Ok(Some((ty, ConstantReferenceResolution::Value(*value))));
+        }
+
+        if !self.constant_can_evaluate_without_context(symbol, definition)? {
+            return Ok(Some((ty, ConstantReferenceResolution::Term(term))));
+        }
+
+        let substitution = empty_concrete_substitution(self.semantic_value_store()?, definition)?;
+        let instance = ConstantInstanceKey::new(definition, substitution, None);
+
+        let resolution = match self.constant_instance_with_cancellation(instance, cancellation) {
+            Ok(result) => {
+                *diagnostics = diagnostics.merged(result.diagnostics());
+
+                ConstantReferenceResolution::Evaluated(*result.value())
+            }
+            Err(FactQueryError::Cycle(_)) => ConstantReferenceResolution::Cycle,
+            Err(error) => return Err(error),
+        };
+
+        Ok(Some((ty, resolution)))
+    }
+
+    fn constant_can_evaluate_without_context(
+        &self,
+        symbol: AnySymbolId,
+        definition: AnyConstantDefinitionId,
+    ) -> Result<bool, FactQueryError> {
+        let symbols = self.symbol_graph()?;
+
+        Ok(
+            !matches!(definition, AnyConstantDefinitionId::TraitMember(_))
+                && !has_visible_generic_parameters(symbols, symbol),
+        )
+    }
+
     /// Returns the semantic definition state of one constant declaration.
     pub fn constant_definition(
         &self,
@@ -279,9 +349,9 @@ impl Compilation {
             ));
         }
 
-        let key = self
-            .constant_template_key(instance.definition())?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let Some(key) = self.constant_template_key(instance.definition())? else {
+            return self.compute_imported_constant_instance(instance, limits, cancellation);
+        };
 
         let term = self.symbolic_constant_term_with_cancellation(key.clone(), cancellation)?;
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
@@ -345,6 +415,83 @@ impl Compilation {
 
         Ok(DiagnosticResult::new(
             EvaluatedConstantCall::new(evaluated.value().value(), evaluated.value().usage()),
+            diagnostics,
+        ))
+    }
+
+    fn compute_imported_constant_instance(
+        &self,
+        instance: ConstantInstanceKey,
+        limits: ConstantEvaluationLimits,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<EvaluatedConstantCall>, FactQueryError> {
+        let facts = self.binder_facts(cancellation)?;
+
+        let address = facts
+            .imported_fact_address(instance.definition().into_any())
+            .map_err(binder_fact_error)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let template =
+            imported_declaration_template(&facts, address, CheckedTemplateKind::ConstantDefinition)
+                .map_err(binder_fact_error)?;
+
+        let definition_result =
+            self.constant_definition_with_cancellation(instance.definition(), cancellation)?;
+
+        let ConstantDefinitionState::Defined(definition) = definition_result.value() else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        let imported = template
+            .value()
+            .as_ref()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let imported_symbols =
+            self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+        let imported_symbols = imported_symbols
+            .value()
+            .as_deref()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let context = self.checker_context(cancellation)?;
+
+        let resolver =
+            CompilationConstantTemplateResolver::new(self, cancellation, imported_symbols);
+
+        let diagnostic_span = self
+            .dependency_interface_input(address.interface())
+            .and_then(crate::request::DependencyInterfaceInput::dependency_span);
+
+        let evaluated = checker_result(evaluate_constant_definition_template(
+            &context,
+            imported.template(),
+            instance.substitution(),
+            definition.ty(),
+            &resolver,
+            diagnostic_span,
+            limits,
+        ))?;
+
+        let diagnostics = DiagnosticBag::merged_all([
+            template.diagnostics(),
+            definition_result.diagnostics(),
+            evaluated.diagnostics(),
+        ]);
+
+        if let Some(evaluated) = evaluated.value() {
+            return Ok(DiagnosticResult::new(*evaluated, diagnostics));
+        }
+
+        let value = self
+            .semantic_value_store()?
+            .intern_error_constant_value(definition.ty())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        Ok(DiagnosticResult::new(
+            EvaluatedConstantCall::new(value, Default::default()),
             diagnostics,
         ))
     }

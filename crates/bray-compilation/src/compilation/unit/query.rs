@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "unit semantic fact queries share one demand-driven convergence pipeline")
+
 use std::sync::Arc;
 
 use bray_binder::{BinderDependency, BoundUnitComputation};
@@ -286,35 +288,51 @@ impl Compilation {
                 let (pattern_input, iteration_sources, iteration_diagnostics, has_iterations) =
                     self.iteration_inputs(&key, bound.result().value(), cancellation)?;
 
-                let (operation_resolutions, operation_diagnostics, has_operations) =
+                let (mut operation_resolutions, mut operation_diagnostics, has_operations) =
                     self.operation_inputs(&key, bound.result().value(), cancellation)?;
 
                 if !has_iterations && !has_operations {
                     return Ok((provisional.result().as_ref().clone(), Box::new([])));
                 }
 
-                let operation_input = operation_type_input(&operation_resolutions)
-                    .with_iteration_sources(iteration_sources.iter().cloned());
+                loop {
+                    let operation_input = operation_type_input(&operation_resolutions)
+                        .with_iteration_sources(iteration_sources.iter().cloned());
 
-                let mut result = self.compute_expression_semantics(
-                    &key,
-                    cancellation,
-                    &pattern_input,
-                    &operation_input,
-                )?;
+                    let mut result = self.compute_expression_semantics(
+                        &key,
+                        cancellation,
+                        &pattern_input,
+                        &operation_input,
+                    )?;
 
-                let (semantics, diagnostics) = result.0.into_parts();
+                    let (additional, diagnostics) = self.additional_operation_inputs(
+                        &key,
+                        bound.result().value(),
+                        result.0.value(),
+                        &operation_resolutions,
+                        cancellation,
+                    )?;
 
-                result.0 = DiagnosticResult::new(
-                    semantics,
-                    DiagnosticBag::merged_all([
-                        &diagnostics,
-                        &iteration_diagnostics,
-                        &operation_diagnostics,
-                    ]),
-                );
+                    operation_diagnostics = operation_diagnostics.merged(&diagnostics);
 
-                Ok(result)
+                    if additional.is_empty() {
+                        let (semantics, diagnostics) = result.0.into_parts();
+
+                        result.0 = DiagnosticResult::new(
+                            semantics,
+                            DiagnosticBag::merged_all([
+                                &diagnostics,
+                                &iteration_diagnostics,
+                                &operation_diagnostics,
+                            ]),
+                        );
+
+                        return Ok(result);
+                    }
+
+                    operation_resolutions.extend(additional);
+                }
             },
         )
     }
@@ -2992,6 +3010,83 @@ mod tests {
             selections.diagnostics().is_empty(),
             "{:?}",
             selections.diagnostics()
+        );
+    }
+
+    #[test]
+    fn scope_exits_destroy_plain_storage_with_declared_destructors() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Lock\n",
+            "{\n",
+            "    acquired: bool;\n",
+            "    destruct()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+            "func use_lock()\n",
+            "{\n",
+            "    let lock: Lock = Lock\n",
+            "    {\n",
+            "        acquired = true,\n",
+            "    };\n",
+            "}\n",
+        ));
+
+        let key = source_function_body_key(&compilation, "use_lock");
+
+        let facts = compilation
+            .async_facts(key)
+            .unwrap_or_else(|error| panic!("lifecycle facts must publish: {error:?}"));
+
+        assert!(
+            facts
+                .value()
+                .scope_exits()
+                .iter()
+                .any(|exit| { !exit.lifecycle_resolution().is_empty() }),
+            "plans={:#?}",
+            facts.value().scope_exits()
+        );
+    }
+
+    #[test]
+    fn mutable_trait_fulfillment_receivers_authorize_field_assignment() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Swappable\n",
+            "{\n",
+            "    mut func swap();\n",
+            "}\n",
+            "struct Pair\n",
+            "{\n",
+            "    mut left: i32;\n",
+            "    mut right: i32;\n",
+            "}\n",
+            "impl PairSwappable = Pair(Swappable)\n",
+            "{\n",
+            "    mut func swap()\n",
+            "    {\n",
+            "        let left: i32 = self.left;\n",
+            "\n",
+            "        self.left = self.right;\n",
+            "        self.right = left;\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_trait_callable_fulfillment_body_key(&compilation, "swap");
+
+        let flow = compilation
+            .storage_flow_facts(key)
+            .unwrap_or_else(|error| panic!("fulfillment storage flow must publish: {error:?}"));
+
+        assert!(
+            flow.value().operations().iter().all(|operation| {
+                operation.status()
+                    != bray_bound_tree::StorageOperationStatus::MissingMutationAuthority
+            }),
+            "{flow:?}"
         );
     }
 

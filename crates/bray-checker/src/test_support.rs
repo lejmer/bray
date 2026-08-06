@@ -160,6 +160,15 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn declared_type_has_lifecycle(
+        &self,
+        _subject: bray_symbols::NamedTypeSymbolId,
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bool>> {
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            false,
+        ))
+    }
+
     fn statically_establishes_copyability(
         &self,
         _context: &crate::SemanticUnitContext,

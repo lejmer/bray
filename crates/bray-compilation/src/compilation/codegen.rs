@@ -181,9 +181,9 @@ impl Compilation {
             MirUnitKey::GeneratedLifecycle(_) => Err(CodegenFactError::MirUnavailable(
                 instance.template().clone(),
             )),
-            MirUnitKey::ExternalCallable(_) => Err(CodegenFactError::MirUnavailable(
-                instance.template().clone(),
-            )),
+            MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
+                CodegenFactError::MirUnavailable(instance.template().clone()),
+            ),
         }
     }
 

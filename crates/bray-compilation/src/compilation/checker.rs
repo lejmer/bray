@@ -21,14 +21,18 @@ use bray_standard_library::{
 };
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
-    GenericDeclarationTemplateFact, GenericOwnerId, MemberLookupResult, ModuleOwnerId,
-    ModulePathKey, NamedTypeSymbolId, PackageIdentity, SemanticValueStore, SymbolFactContract,
-    SymbolFactRequest, SymbolFactResult, TraitSymbolId, TypeId,
+    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationRequirementKey,
+    ImplementationSelection, MemberLookupResult, ModuleOwnerId, ModulePathKey, NamedTypeSymbolId,
+    PackageIdentity, SemanticValueStore, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
+    TraitApplicationId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId,
 };
 use bray_target::TargetProfile;
 
 use super::Compilation;
 use super::binder::CompilationBinderFacts;
+use super::implementation::{
+    TypeValuedMemberResolution, implementation_fulfillments, selected_type_valued_member,
+};
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) struct CompilationCheckerContext<'compilation> {
@@ -387,6 +391,65 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         }
     }
 
+    fn selected_type_valued_member(
+        &self,
+        subject: TypeId,
+        application: TraitApplicationId,
+        member: TraitTypeMemberSymbolId,
+    ) -> CheckerFactResult<DiagnosticResult<Option<TypeId>>> {
+        if let Some(ty) =
+            bray_checker::built_in_operation_result_type(self, subject, application, member)
+                .map_err(CheckerFactError::Infrastructure)?
+        {
+            return Ok(DiagnosticResult::without_diagnostics(Some(ty)));
+        }
+
+        let requirement = ImplementationRequirementKey::new(subject, application);
+
+        let selection = self
+            .facts
+            .compilation()
+            .implementation_selection_result_with_cancellation(
+                requirement,
+                self.facts.cancellation(),
+            )
+            .map_err(checker_fact_error)?;
+
+        let mut diagnostics = selection.diagnostics().clone();
+
+        let ImplementationSelection::Selected(instance) = selection.value() else {
+            return Ok(DiagnosticResult::new(None, diagnostics));
+        };
+
+        let instance = self
+            .semantic_values()
+            .implementation_instance_data(*instance)
+            .map_err(|_| {
+                CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
+
+        let fulfillments = implementation_fulfillments(&self.facts, instance.definition())
+            .map_err(checker_fact_error)?;
+
+        let resolved = selected_type_valued_member(
+            &self.facts,
+            instance.substitution(),
+            fulfillments.types,
+            member,
+            &mut diagnostics,
+        )
+        .map_err(checker_fact_error)?;
+
+        let ty = match resolved {
+            TypeValuedMemberResolution::Resolved(ty) => Some(ty),
+            TypeValuedMemberResolution::Invalid | TypeValuedMemberResolution::Deferred => None,
+        };
+
+        Ok(DiagnosticResult::new(ty, diagnostics))
+    }
+
     fn declared_type_representation(
         &self,
         subject: NamedTypeSymbolId,
@@ -397,6 +460,30 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .declared_type_representation_with_cancellation(subject, self.facts.cancellation())
             .map(|result| (*result).clone())
             .map_err(checker_fact_error)
+    }
+
+    fn declared_type_has_lifecycle(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> CheckerFactResult<DiagnosticResult<bool>> {
+        let surface = self
+            .facts
+            .compilation()
+            .type_associated_surface_result_with_cancellation(subject, self.facts.cancellation())
+            .map_err(checker_fact_error)?;
+
+        let has_lifecycle = surface.value().lifecycle_members().iter().any(|member| {
+            matches!(
+                member.slot(),
+                bray_symbols::TypeAssociatedLifecycleSlot::Finalizer
+                    | bray_symbols::TypeAssociatedLifecycleSlot::Destructor
+            )
+        });
+
+        Ok(DiagnosticResult::new(
+            has_lifecycle,
+            surface.diagnostics().clone(),
+        ))
     }
 
     fn statically_establishes_copyability(

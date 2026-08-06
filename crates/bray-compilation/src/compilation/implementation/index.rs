@@ -84,7 +84,7 @@ impl ImplementationHeader {
         &self.key
     }
 
-    pub(super) const fn implementation(&self) -> ImplementationSymbolId {
+    pub(in crate::compilation) const fn implementation(&self) -> ImplementationSymbolId {
         self.implementation
     }
 
@@ -178,7 +178,7 @@ impl ImplementationHeaderIndex {
         ))
     }
 
-    pub(super) fn headers(&self) -> Vec<&ImplementationHeader> {
+    pub(in crate::compilation) fn headers(&self) -> Vec<&ImplementationHeader> {
         merge_headers(self.buckets.values().map(Arc::as_ref))
     }
 

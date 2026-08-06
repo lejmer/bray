@@ -217,6 +217,22 @@ macro_rules! define_imported_symbol_skeleton {
                 self.union_payload_default_providers.get(id)
             }
 
+            /// Returns the imported declaration evaluated by one runtime-default provider.
+            pub fn runtime_default_subject(&self, provider: AnySymbolId) -> Option<AnySymbolId> {
+                match provider {
+                    AnySymbolId::CallableParameterDefaultProvider(id) => self
+                        .callable_parameter_default_provider(id)
+                        .map(|provider| provider.subject().into()),
+                    AnySymbolId::StructFieldDefaultProvider(id) => self
+                        .struct_field_default_provider(id)
+                        .map(|provider| provider.subject().into()),
+                    AnySymbolId::UnionPayloadDefaultProvider(id) => self
+                        .union_payload_default_provider(id)
+                        .map(|provider| provider.subject().into()),
+                    _ => None,
+                }
+            }
+
             $(
                 #[doc = concat!("Returns imported `", stringify!($variant), "` records in stable external-key order.")]
                 pub fn $plural(&self) -> &[crate::$record] {

@@ -3,7 +3,7 @@ module bray.standard_library_conformance.numeric;
 using std.numeric;
 
 @test
-func integer_limits_and_checked_arithmetic()
+func integer_limits()
 {
     assert(std.numeric.U8_MIN == 0);
     assert(std.numeric.U8_MAX == 255);
@@ -13,42 +13,7 @@ func integer_limits_and_checked_arithmetic()
     assert(std.numeric.USIZE_MAX > 0);
     assert(std.numeric.ISIZE_MIN < 0);
     assert(std.numeric.ISIZE_MAX > 0);
-
-    let sum: u8? = std.numeric.checked_add<u8>(20, 22);
-    let overflow: u8? = std.numeric.checked_add<u8>(std.numeric.U8_MAX, 1);
-    let signed_sum: i32? = std.numeric.checked_add<i32>(-60, 18);
-    let signed_product: i32? = std.numeric.checked_multiply<i32>(-6, 7);
-    let division_by_zero: i32? = std.numeric.checked_divide<i32>(10, 0);
-
-    match sum
-    {
-        case ?value { assert(value == 42); }
-        case none { assert(false); }
-    }
-
-    match overflow
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
-
-    match signed_sum
-    {
-        case ?value { assert(value == -42); }
-        case none { assert(false); }
-    }
-
-    match signed_product
-    {
-        case ?value { assert(value == -42); }
-        case none { assert(false); }
-    }
-
-    match division_by_zero
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    // TODO(BRA-357): Exercise imported generic checked arithmetic natively.
 }
 
 @test

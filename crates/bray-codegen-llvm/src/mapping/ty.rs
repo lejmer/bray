@@ -72,6 +72,14 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
+        if mapping.backend_type() != ty {
+            let mapped = self.map(mapping.backend_type())?;
+
+            self.mapped.insert(ty, mapped);
+
+            return Ok(mapped);
+        }
+
         self.active.insert(ty);
 
         let mapped = self.map_kind(mapping)?;

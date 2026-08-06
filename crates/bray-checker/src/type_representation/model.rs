@@ -7,9 +7,18 @@ use bray_diagnostics::DiagnosticResult;
 use bray_source::SourceSpan;
 use bray_symbols::{
     AvailableCompilerKnownSymbols, DeclarationExpressionTemplate, DirectiveSurface,
-    IntegerConstant, NamedTypeSymbolId, SemanticValueStore, TypeExpressionTemplate, TypeId,
-    UnionVariantSymbolId,
+    IntegerConstant, NamedTypeSymbolId, SemanticValueStore, StructFieldSymbolId,
+    TypeExpressionTemplate, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
+
+/// The exact declaration represented by one storage member.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeclaredStorageMemberIdentity {
+    /// A product field.
+    StructField(StructFieldSymbolId),
+    /// A union payload field.
+    UnionPayloadField(UnionPayloadFieldSymbolId),
+}
 
 use crate::{CheckerFactResult, CheckerInfrastructureError, CheckerSource};
 
@@ -51,19 +60,46 @@ impl RepresentationIntegerType {
 /// One represented field or union payload field.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeclaredStorageMember {
+    identity: DeclaredStorageMemberIdentity,
     ty: TypeExpressionTemplate,
     span: SourceSpan,
     recovered: bool,
 }
 
 impl DeclaredStorageMember {
-    /// Creates one source-backed represented member.
-    pub const fn new(ty: TypeExpressionTemplate, span: SourceSpan, recovered: bool) -> Self {
+    /// Creates one source-backed product field.
+    pub const fn struct_field(
+        field: StructFieldSymbolId,
+        ty: TypeExpressionTemplate,
+        span: SourceSpan,
+        recovered: bool,
+    ) -> Self {
         Self {
+            identity: DeclaredStorageMemberIdentity::StructField(field),
             ty,
             span,
             recovered,
         }
+    }
+
+    /// Creates one source-backed union payload field.
+    pub const fn union_payload_field(
+        field: UnionPayloadFieldSymbolId,
+        ty: TypeExpressionTemplate,
+        span: SourceSpan,
+        recovered: bool,
+    ) -> Self {
+        Self {
+            identity: DeclaredStorageMemberIdentity::UnionPayloadField(field),
+            ty,
+            span,
+            recovered,
+        }
+    }
+
+    /// Returns the exact represented declaration.
+    pub const fn identity(&self) -> DeclaredStorageMemberIdentity {
+        self.identity
     }
 
     /// Returns the member's bound type template.

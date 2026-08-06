@@ -12,17 +12,13 @@ use bray_checker::{
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnyLocalSymbolId, AnySymbolId, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
-    ConstantTermId, ConstantValueId, ConstantValueKind, LocalConstantSymbolId, TypeId,
+    AnyLocalSymbolId, AnySymbolId, ConstantTermData, ConstantTermId, ConstantValueId,
+    ConstantValueKind, LocalConstantSymbolId, TypeId,
 };
 
 use super::Compilation;
-use super::binder::has_visible_generic_parameters;
 use super::checker::CompilationCheckerContext;
-use super::constant::{
-    CompilationConstantCallResolver, collect_constant_references_from, constant_definition_id,
-    empty_concrete_substitution,
-};
+use super::constant::{CompilationConstantCallResolver, collect_constant_references_from};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -216,59 +212,6 @@ impl Compilation {
         Ok(())
     }
 
-    fn resolve_surface_constant(
-        &self,
-        symbol: AnySymbolId,
-        cancellation: &CancellationToken,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<(TypeId, ConstantReferenceResolution)>, FactQueryError> {
-        let Some(definition) = constant_definition_id(symbol) else {
-            return Ok(None);
-        };
-
-        let definition_result =
-            self.constant_definition_with_cancellation(definition, cancellation)?;
-
-        *diagnostics = diagnostics.merged(definition_result.diagnostics());
-
-        let ConstantDefinitionState::Defined(definition_data) = definition_result.value() else {
-            return Ok(None);
-        };
-
-        let ty = definition_data.ty();
-        let term = definition_data.term();
-
-        let term_data = self
-            .semantic_value_store()?
-            .constant_term_data(term)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        if let ConstantTermData::Value(value) = term_data.as_ref() {
-            return Ok(Some((ty, ConstantReferenceResolution::Value(*value))));
-        }
-
-        if self.constant_template_key(definition)?.is_none()
-            || !constant_can_evaluate_without_context(self, symbol, definition)?
-        {
-            return Ok(Some((ty, ConstantReferenceResolution::Term(term))));
-        }
-
-        let substitution = empty_concrete_substitution(self.semantic_value_store()?, definition)?;
-        let instance = ConstantInstanceKey::new(definition, substitution, None);
-
-        let resolution = match self.constant_instance_with_cancellation(instance, cancellation) {
-            Ok(result) => {
-                *diagnostics = diagnostics.merged(result.diagnostics());
-
-                ConstantReferenceResolution::Evaluated(*result.value())
-            }
-            Err(FactQueryError::Cycle(_)) => ConstantReferenceResolution::Cycle,
-            Err(error) => return Err(error),
-        };
-
-        Ok(Some((ty, resolution)))
-    }
-
     fn constant_value_term(
         &self,
         value: ConstantValueId,
@@ -442,17 +385,4 @@ fn collect_constant_sites(
             Err(FactQueryError::InfrastructureFailure)
         }
     }
-}
-
-fn constant_can_evaluate_without_context(
-    compilation: &Compilation,
-    symbol: AnySymbolId,
-    definition: bray_symbols::AnyConstantDefinitionId,
-) -> Result<bool, FactQueryError> {
-    let symbols = compilation.symbol_graph()?;
-
-    Ok(!matches!(
-        definition,
-        bray_symbols::AnyConstantDefinitionId::TraitMember(_)
-    ) && !has_visible_generic_parameters(symbols, symbol))
 }

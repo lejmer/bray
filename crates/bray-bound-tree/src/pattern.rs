@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_symbols::{
-    ConstantTermId, LocalBindingSymbolId, StructFieldSymbolId, StructSymbolId, SymbolOrdinal,
-    TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    ConstantTermId, ConstantValueId, LocalBindingSymbolId, StructFieldSymbolId, StructSymbolId,
+    SymbolOrdinal, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
 use crate::{
@@ -32,7 +32,7 @@ pub enum PatternOperation {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PatternPredicate {
     /// The subject equals one source literal.
-    Literal(BoundPatternLiteral),
+    Literal(PatternLiteralPredicate),
     /// The subject equals one checked open or closed constant term.
     Constant(ConstantTermId),
     /// The nullable subject is absent.
@@ -49,6 +49,30 @@ pub enum PatternPredicate {
     ArrayShape(u32),
     /// The subject is available through owned indirection.
     OwnedTarget,
+}
+
+/// A checked source literal and its canonical typed value.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PatternLiteralPredicate {
+    literal: BoundPatternLiteral,
+    value: ConstantValueId,
+}
+
+impl PatternLiteralPredicate {
+    /// Creates one checked literal predicate.
+    pub const fn new(literal: BoundPatternLiteral, value: ConstantValueId) -> Self {
+        Self { literal, value }
+    }
+
+    /// Returns the source-correlated literal.
+    pub const fn literal(self) -> BoundPatternLiteral {
+        self.literal
+    }
+
+    /// Returns the canonical typed literal value.
+    pub const fn value(self) -> ConstantValueId {
+        self.value
+    }
 }
 
 /// One checked structural step from a pattern subject to a nested subject.

@@ -13,6 +13,43 @@ trait OrderedSequence
     mut func swap_indices(pos left: usize, pos right: usize) -> unit;
 }
 
+impl OrderingEquatable = Ordering(Equatable<Ordering>)
+{
+    func equals(pos rhs: &Ordering) -> bool
+    {
+        return match self
+        {
+            case Ordering.Less
+            {
+                yield match rhs
+                {
+                    case Ordering.Less { yield true; }
+                    case Ordering.Equal { yield false; }
+                    case Ordering.Greater { yield false; }
+                };
+            }
+            case Ordering.Equal
+            {
+                yield match rhs
+                {
+                    case Ordering.Less { yield false; }
+                    case Ordering.Equal { yield true; }
+                    case Ordering.Greater { yield false; }
+                };
+            }
+            case Ordering.Greater
+            {
+                yield match rhs
+                {
+                    case Ordering.Less { yield false; }
+                    case Ordering.Equal { yield false; }
+                    case Ordering.Greater { yield true; }
+                };
+            }
+        };
+    }
+}
+
 func reverse(pos ordering: Ordering) -> Ordering
 {
     return match ordering

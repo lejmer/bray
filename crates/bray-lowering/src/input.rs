@@ -1,5 +1,7 @@
+// rust-style: allow(module-too-large, reason = "lowering inputs and their cross-fact validation form one cohesive boundary contract")
+
 use bray_bound_tree::{
-    BoundBlockId, BoundDependencySubject, BoundExpression, BoundExpressionId,
+    BoundBlockId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitKind, CheckedAsyncFacts,
     CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
     CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts,
@@ -8,7 +10,9 @@ use bray_bound_tree::{
     StoragePlan,
 };
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
-use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
+use bray_symbols::{
+    AnySymbolId, AvailableCompilerKnownSymbols, ConstantValueId, SemanticValueStore,
+};
 
 use crate::result::requires_mir;
 
@@ -34,6 +38,7 @@ pub struct LoweringInput<'unit> {
     body_behavior: &'unit CheckedBodyBehavior,
     semantic_values: &'unit SemanticValueStore,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
+    constant_reference_values: &'unit [(BoundExpressionId, ConstantValueId)],
     unit_kind: MirUnitKind,
     target: MirTargetFacts,
 }
@@ -190,6 +195,7 @@ impl<'unit> LoweringInput<'unit> {
             body_behavior,
             semantic_values,
             available_compiler_known_symbols,
+            constant_reference_values: &[],
             unit_kind,
             target,
         })
@@ -270,6 +276,34 @@ impl<'unit> LoweringInput<'unit> {
         self.available_compiler_known_symbols
     }
 
+    /// Adds closed constant values reached through source references.
+    pub fn with_constant_reference_values(
+        mut self,
+        values: &'unit [(BoundExpressionId, ConstantValueId)],
+    ) -> Result<Self, LoweringInputError> {
+        validate_constant_reference_values(
+            self.unit,
+            self.expression_types,
+            self.semantic_values,
+            values,
+        )?;
+
+        self.constant_reference_values = values;
+
+        Ok(self)
+    }
+
+    /// Returns the closed value reached by one constant reference occurrence.
+    pub fn constant_reference_value(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<ConstantValueId> {
+        self.constant_reference_values
+            .binary_search_by_key(&expression, |(expression, _)| *expression)
+            .ok()
+            .map(|index| self.constant_reference_values[index].1)
+    }
+
     /// Returns the MIR representation category selected for this source unit.
     pub const fn unit_kind(&self) -> &MirUnitKind {
         &self.unit_kind
@@ -304,6 +338,8 @@ pub enum LoweringFactKind {
     SemanticSelections,
     /// Source-literal values.
     LiteralValues,
+    /// Closed values reached through source constant references.
+    ConstantReferences,
     /// Storage identities and occurrence-specific access plans.
     StoragePlan,
     /// Last-use and lexical lifetime decisions.
@@ -399,6 +435,61 @@ fn validate_literal_values(
         return Err(LoweringInputError::InvalidFactContents(
             LoweringFactKind::LiteralValues,
         ));
+    }
+
+    Ok(())
+}
+
+fn validate_constant_reference_values(
+    unit: &BoundUnit,
+    types: &CheckedExpressionTypes,
+    values: &SemanticValueStore,
+    references: &[(BoundExpressionId, ConstantValueId)],
+) -> Result<(), LoweringInputError> {
+    if references.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+        return Err(LoweringInputError::InvalidFactContents(
+            LoweringFactKind::ConstantReferences,
+        ));
+    }
+
+    for (expression, value) in references {
+        let Some(BoundExpression::Name(name)) = unit.view().expression(*expression) else {
+            return Err(LoweringInputError::InvalidFactContents(
+                LoweringFactKind::ConstantReferences,
+            ));
+        };
+
+        if !matches!(
+            name.target(),
+            BoundReferenceTarget::Surface(
+                AnySymbolId::Constant(_)
+                    | AnySymbolId::TraitConstantMember(_)
+                    | AnySymbolId::TraitConstantFulfillment(_)
+            )
+        ) {
+            return Err(LoweringInputError::InvalidFactContents(
+                LoweringFactKind::ConstantReferences,
+            ));
+        }
+
+        let Some(expression_type) = types.expression(*expression) else {
+            return Err(LoweringInputError::InvalidFactContents(
+                LoweringFactKind::ConstantReferences,
+            ));
+        };
+
+        let value_type = values
+            .constant_value_data(*value)
+            .map_err(|_| {
+                LoweringInputError::InvalidFactContents(LoweringFactKind::ConstantReferences)
+            })?
+            .ty();
+
+        if expression_type.ty() != value_type {
+            return Err(LoweringInputError::InvalidFactContents(
+                LoweringFactKind::ConstantReferences,
+            ));
+        }
     }
 
     Ok(())

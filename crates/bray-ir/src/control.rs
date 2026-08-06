@@ -366,6 +366,17 @@ impl MirTerminatorKind {
         )
     }
 
+    /// Returns the canonical typed value tested by a literal pattern branch.
+    pub const fn pattern_literal_value(&self) -> Option<bray_symbols::ConstantValueId> {
+        match self {
+            Self::PatternBranch {
+                predicate: PatternPredicate::Literal(literal),
+                ..
+            } => Some(literal.value()),
+            _ => None,
+        }
+    }
+
     /// Returns the closed constant term tested by a pattern branch, when present.
     pub const fn pattern_constant_term(&self) -> Option<bray_symbols::ConstantTermId> {
         match self {

@@ -383,6 +383,7 @@ impl CodegenTypeKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenTypeMapping {
     ty: TypeId,
+    backend_type: TypeId,
     layout: Option<TargetValueLayout>,
     kind: CodegenTypeKind,
     behavior: Option<CodegenTypeBehavior>,
@@ -393,6 +394,7 @@ impl CodegenTypeMapping {
     pub const fn new(ty: TypeId, layout: TargetValueLayout, kind: CodegenTypeKind) -> Self {
         Self {
             ty,
+            backend_type: ty,
             layout: Some(layout),
             kind,
             behavior: None,
@@ -403,10 +405,18 @@ impl CodegenTypeMapping {
     pub const fn new_unsized(ty: TypeId, kind: CodegenTypeKind) -> Self {
         Self {
             ty,
+            backend_type: ty,
             layout: None,
             kind,
             behavior: None,
         }
+    }
+
+    /// Returns this mapping using another semantic type's exact backend identity.
+    pub const fn with_backend_type(mut self, backend_type: TypeId) -> Self {
+        self.backend_type = backend_type;
+
+        self
     }
 
     /// Returns this mapping with its optional semantic behavior.
@@ -419,6 +429,11 @@ impl CodegenTypeMapping {
     /// Returns the semantic type identity.
     pub const fn ty(&self) -> TypeId {
         self.ty
+    }
+
+    /// Returns the semantic type whose backend identity represents this type.
+    pub const fn backend_type(&self) -> TypeId {
+        self.backend_type
     }
 
     /// Returns the exact selected physical layout, or `None` for an unsized semantic type.

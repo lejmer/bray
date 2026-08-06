@@ -21,7 +21,9 @@ pub use constant::{
 pub use declaration::{
     InterfaceCallableParameterDefault, InterfaceCallableReceiver, InterfaceCallableSignature,
     InterfaceDeclaredType, InterfaceGenericDeclaration, InterfacePredicateDefinition,
-    InterfacePredicateDefinitionState, InterfaceTypeRepresentation, InterfaceUnionTag,
+    InterfacePredicateDefinitionState, InterfaceStorageShape, InterfaceStructStorageMember,
+    InterfaceTypeRepresentation, InterfaceUnionStorageMember, InterfaceUnionStorageVariant,
+    InterfaceUnionTag,
 };
 pub use dependency::{
     InterfaceDependencyContract, InterfaceDependencyGuard, InterfaceDependencyProjection,

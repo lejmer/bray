@@ -7,9 +7,10 @@ use bray_binder::{
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
-    FunctionSymbol, FunctionSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton,
-    MemberLookupResult, ModuleSurfaceFact, ModuleSymbolId, NamedTypeSymbolId, SemanticValueStore,
+    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbol,
+    CallableParameterSymbolId, FunctionSymbol, FunctionSymbolId, ImportedSymbolFactAddress,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceFact, ModuleSymbolId,
+    NamedTypeSymbolId, ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore,
     StructSymbol, StructSymbolId, SymbolFactRequest, SymbolGraph, TypeAssociatedSurface,
     UnionSymbol, UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
 };
@@ -170,6 +171,32 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
             .and_then(|symbols| symbols.function(id)))
     }
 
+    pub(in crate::compilation) fn callable_parameter(
+        &self,
+        id: CallableParameterSymbolId,
+    ) -> BinderFactResult<Option<&CallableParameterSymbol>> {
+        if let Some(record) = self.symbols.callable_parameter(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.callable_parameter(id)))
+    }
+
+    pub(in crate::compilation) fn receiver_parameter(
+        &self,
+        id: ReceiverParameterSymbolId,
+    ) -> BinderFactResult<Option<&ReceiverParameterSymbol>> {
+        if let Some(record) = self.symbols.receiver_parameter(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.receiver_parameter(id)))
+    }
+
     pub(in crate::compilation) fn union(
         &self,
         id: UnionSymbolId,
@@ -252,6 +279,19 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
             .imported_symbols()?
             .and_then(|symbols| symbols.callable_parameter(parameter))
             .and_then(|parameter| parameter.default_provider()))
+    }
+
+    fn runtime_default_subject(
+        &self,
+        provider: AnySymbolId,
+    ) -> BinderFactResult<Option<AnySymbolId>> {
+        if let Some(subject) = self.symbols.runtime_default_subject(provider) {
+            return Ok(Some(subject));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.runtime_default_subject(provider)))
     }
 
     fn imported_path_root(

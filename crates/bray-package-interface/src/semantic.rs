@@ -39,9 +39,11 @@ pub use model::{
     InterfaceImplementationReference, InterfacePredicateDefinition,
     InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceRuntimeRequirement,
     InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts,
-    InterfaceSourceProvenance, InterfaceSupportEntity, InterfaceSupportImplementation,
-    InterfaceTargetFactDependency, InterfaceTemplateReference, InterfaceTraitApplication,
-    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType,
-    InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionTag,
+    InterfaceSourceProvenance, InterfaceStorageShape, InterfaceStructStorageMember,
+    InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceTargetFactDependency,
+    InterfaceTemplateReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
+    InterfaceTypeRepresentation, InterfaceUnionStorageMember, InterfaceUnionStorageVariant,
+    InterfaceUnionTag,
 };
 pub(crate) use validation::validate_constraint_templates;

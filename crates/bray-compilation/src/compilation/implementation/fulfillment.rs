@@ -57,14 +57,11 @@ pub(in crate::compilation) fn selected_type_valued_member(
     member: TraitTypeMemberSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<TypeValuedMemberResolution, FactQueryError> {
-    let expected_name = facts
-        .symbols()
-        .member_name(member.into())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let expected_name =
+        fulfillment_name(facts, member.into()).ok_or(FactQueryError::InfrastructureFailure)?;
 
     let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(facts, (*fulfillment).into())
-            .is_some_and(|name| name == expected_name.as_str())
+        fulfillment_name(facts, (*fulfillment).into()).is_some_and(|name| name == expected_name)
     });
 
     let Some(fulfillment) = matching.next() else {
@@ -172,11 +169,10 @@ pub(in crate::compilation) fn selected_callable(
     fulfillments: &[TraitCallableFulfillmentSymbolId],
     member: TraitCallableMemberSymbolId,
 ) -> Option<TraitCallableFulfillmentSymbolId> {
-    let expected_name = facts.symbols().member_name(member.into())?;
+    let expected_name = fulfillment_name(facts, member.into())?;
 
     let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
-        fulfillment_name(facts, (*fulfillment).into())
-            .is_some_and(|name| name == expected_name.as_str())
+        fulfillment_name(facts, (*fulfillment).into()).is_some_and(|name| name == expected_name)
     });
 
     let fulfillment = matching.next()?;

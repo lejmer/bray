@@ -6,7 +6,7 @@ use crate::semantic::codec::common::{write_count, write_symbol_reference};
 use crate::semantic::codec::record::encode_record_table;
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
-use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
+use crate::{InterfaceSectionTag, InterfaceSemanticFacts, InterfaceStorageShape};
 
 pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
@@ -100,6 +100,32 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
                 super::value::encode_integer(encoder, &tag.value);
             }
 
+            match &representation.storage {
+                InterfaceStorageShape::Structure(members) => {
+                    encoder.write_u32(1);
+                    write_count(encoder, members.len());
+
+                    for member in &**members {
+                        write_optional_symbol_reference(encoder, member.field.as_ref());
+                        encoder.write_u32(member.ty.raw());
+                    }
+                }
+                InterfaceStorageShape::Union(variants) => {
+                    encoder.write_u32(2);
+                    write_count(encoder, variants.len());
+
+                    for variant in &**variants {
+                        write_symbol_reference(encoder, &variant.variant);
+                        write_count(encoder, variant.members.len());
+
+                        for member in &*variant.members {
+                            write_optional_symbol_reference(encoder, member.field.as_ref());
+                            encoder.write_u32(member.ty.raw());
+                        }
+                    }
+                }
+            }
+
             encoder.write_u32(encode_copy(representation.copy));
             write_count(encoder, representation.copy_dependencies.len());
 
@@ -122,6 +148,19 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
             + facts.type_representations.len(),
         encoder,
     )
+}
+
+fn write_optional_symbol_reference(
+    encoder: &mut WireEncoder,
+    reference: Option<&crate::InterfaceSymbolReference>,
+) {
+    match reference {
+        Some(reference) => {
+            encoder.write_u32(1);
+            write_symbol_reference(encoder, reference);
+        }
+        None => encoder.write_u32(0),
+    }
 }
 
 fn encode_layout(layout: DeclaredLayoutMode) -> u32 {

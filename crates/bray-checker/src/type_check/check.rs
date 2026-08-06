@@ -1323,11 +1323,9 @@ mod tests {
         let request = CheckerUnitView::new(&unit, &entry, &context)
             .unwrap_or_else(|error| panic!("test checker unit view must be valid: {error:?}"));
 
-        let result_type = crate::representation::representation_type(
-            request,
-            RepresentationRole::ScalarU8,
-        )
-        .unwrap_or_else(|error| panic!("u8 must be available: {error:?}"));
+        let result_type =
+            crate::representation::representation_type(request, RepresentationRole::ScalarU8)
+                .unwrap_or_else(|error| panic!("u8 must be available: {error:?}"));
 
         let input = ExpressionTypeInput::new().with_callable_result_type(result_type);
 
@@ -1337,7 +1335,10 @@ mod tests {
 
         for expression in [first_value, second_value, matched] {
             assert_eq!(
-                result.value().expression(expression).map(|value| value.ty()),
+                result
+                    .value()
+                    .expression(expression)
+                    .map(|value| value.ty()),
                 Some(result_type)
             );
         }

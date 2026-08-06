@@ -88,7 +88,9 @@ pub use predicate::{
     TrustedCapabilityRequirement,
 };
 pub use representation::{
-    DeclaredCopyContract, DeclaredLayoutMode, DeclaredTypeRepresentation, DeclaredUnionTag,
+    DeclaredCopyContract, DeclaredLayoutMode, DeclaredStorageShape, DeclaredStructStorageMember,
+    DeclaredTypeRepresentation, DeclaredUnionStorageMember, DeclaredUnionStorageVariant,
+    DeclaredUnionTag,
 };
 pub use signature::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate,

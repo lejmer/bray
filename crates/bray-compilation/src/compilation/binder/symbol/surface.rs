@@ -94,7 +94,8 @@ fn collect_modifiers(node: SyntaxNodeView<'_>, modifiers: &mut CallableModifierP
 const fn is_callable_modifier_kind(kind: SyntaxKind) -> bool {
     matches!(
         kind,
-        SyntaxKind::FunctionModifiers
+        SyntaxKind::CallableModifiers
+            | SyntaxKind::FunctionModifiers
             | SyntaxKind::TypeCallableMemberModifiers
             | SyntaxKind::TraitCallableMemberModifiers
             | SyntaxKind::ConstructorMemberModifiers

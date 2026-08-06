@@ -71,33 +71,7 @@ impl CodegenMappings {
         terminators.sort_unstable_by(compare_terminators);
         debug_locations.sort_unstable_by(|left, right| left.anchor().cmp(right.anchor()));
 
-        if types.windows(2).any(|pair| pair[0].ty() == pair[1].ty()) {
-            return Err(CodegenMappingsBuildError::DuplicateType);
-        }
-
-        if types.iter().any(|mapping| {
-            matches!(
-                (mapping.layout(), mapping.kind()),
-                (
-                    Some(_),
-                    CodegenTypeKind::UnsizedSlice { .. } | CodegenTypeKind::UnsizedTraitView
-                ) | (
-                    None,
-                    CodegenTypeKind::Unit
-                        | CodegenTypeKind::Boolean
-                        | CodegenTypeKind::SignedInteger(_)
-                        | CodegenTypeKind::UnsignedInteger(_)
-                        | CodegenTypeKind::Float(_)
-                        | CodegenTypeKind::Pointer { .. }
-                        | CodegenTypeKind::Aggregate(_)
-                        | CodegenTypeKind::Array { .. }
-                        | CodegenTypeKind::Union { .. }
-                        | CodegenTypeKind::Callable(_)
-                )
-            )
-        }) {
-            return Err(CodegenMappingsBuildError::InvalidTypeLayout);
-        }
+        validate_type_structure(&types)?;
 
         if symbols
             .windows(2)
@@ -224,49 +198,7 @@ impl CodegenMappings {
             return Err(CodegenMappingsBuildError::FrameSymbolCoverageMismatch);
         }
 
-        let mut expected_types = demanded_types(unit);
-
-        expected_types.extend(constants.iter().map(|mapping| mapping.data().ty()));
-
-        expected_types.extend(symbols.iter().flat_map(|symbol| {
-            let signature = symbol.signature();
-
-            signature
-                .parameters()
-                .iter()
-                .flat_map(CodegenParameterMapping::demanded_types)
-                .chain(signature.result().demanded_types())
-                .flatten()
-        }));
-
-        if expected_types.iter().any(|ty| {
-            types
-                .binary_search_by_key(ty, CodegenTypeMapping::ty)
-                .is_err()
-        }) {
-            return Err(CodegenMappingsBuildError::TypeCoverageMismatch);
-        }
-
-        let is_unsized = |ty: TypeId| {
-            types
-                .binary_search_by_key(&ty, CodegenTypeMapping::ty)
-                .ok()
-                .is_some_and(|index| types[index].layout().is_none())
-        };
-
-        if symbols
-            .iter()
-            .any(|symbol| signature_passes_unsized_by_value(symbol.signature(), &is_unsized))
-            || types.iter().any(|mapping| {
-                let CodegenTypeKind::Callable(signature) = mapping.kind() else {
-                    return false;
-                };
-
-                signature_passes_unsized_by_value(signature, &is_unsized)
-            })
-        {
-            return Err(CodegenMappingsBuildError::InvalidAbiTypeLayout);
-        }
+        validate_type_coverage(unit, &types, &symbols, &constants)?;
 
         Ok(Self {
             // The mappings retain immutable structural request identities independently.
@@ -509,6 +441,109 @@ fn compare_constant_terms(
     left.owner()
         .cmp(right.owner())
         .then_with(|| left.term().cmp(&right.term()))
+}
+
+fn validate_type_structure(types: &[CodegenTypeMapping]) -> Result<(), CodegenMappingsBuildError> {
+    if types.windows(2).any(|pair| pair[0].ty() == pair[1].ty()) {
+        return Err(CodegenMappingsBuildError::DuplicateType);
+    }
+
+    if types.iter().any(|mapping| {
+        matches!(
+            (mapping.layout(), mapping.kind()),
+            (
+                Some(_),
+                CodegenTypeKind::UnsizedSlice { .. } | CodegenTypeKind::UnsizedTraitView
+            ) | (
+                None,
+                CodegenTypeKind::Unit
+                    | CodegenTypeKind::Boolean
+                    | CodegenTypeKind::SignedInteger(_)
+                    | CodegenTypeKind::UnsignedInteger(_)
+                    | CodegenTypeKind::Float(_)
+                    | CodegenTypeKind::Pointer { .. }
+                    | CodegenTypeKind::Aggregate(_)
+                    | CodegenTypeKind::Array { .. }
+                    | CodegenTypeKind::Union { .. }
+                    | CodegenTypeKind::Callable(_)
+            )
+        )
+    }) {
+        return Err(CodegenMappingsBuildError::InvalidTypeLayout);
+    }
+
+    if types.iter().any(|mapping| {
+        if mapping.backend_type() == mapping.ty() {
+            return false;
+        }
+
+        types
+            .binary_search_by_key(&mapping.backend_type(), CodegenTypeMapping::ty)
+            .ok()
+            .and_then(|index| types.get(index))
+            .is_none_or(|backend| {
+                backend.backend_type() != backend.ty()
+                    || mapping.layout() != backend.layout()
+                    || mapping.kind() != backend.kind()
+            })
+    }) {
+        return Err(CodegenMappingsBuildError::InvalidTypeLayout);
+    }
+
+    Ok(())
+}
+
+fn validate_type_coverage(
+    unit: &CodegenUnit,
+    types: &[CodegenTypeMapping],
+    symbols: &[CodegenSymbolMapping],
+    constants: &[CodegenConstantMapping],
+) -> Result<(), CodegenMappingsBuildError> {
+    let mut expected_types = demanded_types(unit);
+
+    expected_types.extend(constants.iter().map(|mapping| mapping.data().ty()));
+
+    expected_types.extend(symbols.iter().flat_map(|symbol| {
+        let signature = symbol.signature();
+
+        signature
+            .parameters()
+            .iter()
+            .flat_map(CodegenParameterMapping::demanded_types)
+            .chain(signature.result().demanded_types())
+            .flatten()
+    }));
+
+    if expected_types.iter().any(|ty| {
+        types
+            .binary_search_by_key(ty, CodegenTypeMapping::ty)
+            .is_err()
+    }) {
+        return Err(CodegenMappingsBuildError::TypeCoverageMismatch);
+    }
+
+    let is_unsized = |ty: TypeId| {
+        types
+            .binary_search_by_key(&ty, CodegenTypeMapping::ty)
+            .ok()
+            .is_some_and(|index| types[index].layout().is_none())
+    };
+
+    if symbols
+        .iter()
+        .any(|symbol| signature_passes_unsized_by_value(symbol.signature(), &is_unsized))
+        || types.iter().any(|mapping| {
+            let CodegenTypeKind::Callable(signature) = mapping.kind() else {
+                return false;
+            };
+
+            signature_passes_unsized_by_value(signature, &is_unsized)
+        })
+    {
+        return Err(CodegenMappingsBuildError::InvalidAbiTypeLayout);
+    }
+
+    Ok(())
 }
 
 fn signature_passes_unsized_by_value(

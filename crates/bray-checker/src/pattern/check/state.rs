@@ -398,7 +398,8 @@ where
             )?;
         }
 
-        let predicate = self.pattern_predicate(id, pattern, kind, target, type_data.as_ref())?;
+        let predicate =
+            self.pattern_predicate(id, pattern, kind, target, subject.ty, type_data.as_ref())?;
 
         let entry = PatternCheckEntry::new(id, subject.ty, operation, refutability, target)
             .with_test((!is_recovered).then_some(predicate).flatten())

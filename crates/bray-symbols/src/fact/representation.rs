@@ -3,8 +3,96 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    GenericTypeParameterSymbolId, IntegerConstant, NamedTypeSymbolId, TypeId, UnionVariantSymbolId,
+    GenericTypeParameterSymbolId, IntegerConstant, NamedTypeSymbolId, StructFieldSymbolId,
+    TypeExpressionTemplate, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
+
+/// One product-type storage member retained for layout realization.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DeclaredStructStorageMember {
+    field: Option<StructFieldSymbolId>,
+    ty: TypeExpressionTemplate,
+}
+
+impl DeclaredStructStorageMember {
+    /// Creates one storage member with an optional consumer-visible field identity.
+    pub const fn new(field: Option<StructFieldSymbolId>, ty: TypeExpressionTemplate) -> Self {
+        Self { field, ty }
+    }
+
+    /// Returns the field identity when consumers may name this member.
+    pub const fn field(&self) -> Option<StructFieldSymbolId> {
+        self.field
+    }
+
+    /// Returns the member type before generic substitution.
+    pub const fn ty(&self) -> &TypeExpressionTemplate {
+        &self.ty
+    }
+}
+
+/// One union payload storage member retained for layout realization.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DeclaredUnionStorageMember {
+    field: Option<UnionPayloadFieldSymbolId>,
+    ty: TypeExpressionTemplate,
+}
+
+impl DeclaredUnionStorageMember {
+    /// Creates one payload member with an optional consumer-visible field identity.
+    pub const fn new(field: Option<UnionPayloadFieldSymbolId>, ty: TypeExpressionTemplate) -> Self {
+        Self { field, ty }
+    }
+
+    /// Returns the field identity when consumers may name this member.
+    pub const fn field(&self) -> Option<UnionPayloadFieldSymbolId> {
+        self.field
+    }
+
+    /// Returns the member type before generic substitution.
+    pub const fn ty(&self) -> &TypeExpressionTemplate {
+        &self.ty
+    }
+}
+
+/// One union variant's payload storage shape.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DeclaredUnionStorageVariant {
+    variant: UnionVariantSymbolId,
+    members: Arc<[DeclaredUnionStorageMember]>,
+}
+
+impl DeclaredUnionStorageVariant {
+    /// Creates one variant payload shape in declaration order.
+    pub fn new(
+        variant: UnionVariantSymbolId,
+        members: impl IntoIterator<Item = DeclaredUnionStorageMember>,
+    ) -> Self {
+        Self {
+            variant,
+            members: shared_slice(members),
+        }
+    }
+
+    /// Returns the represented variant.
+    pub const fn variant(&self) -> UnionVariantSymbolId {
+        self.variant
+    }
+
+    /// Returns payload members in storage order.
+    pub fn members(&self) -> &[DeclaredUnionStorageMember] {
+        &self.members
+    }
+}
+
+/// A named type's complete storage shape without private source names.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DeclaredStorageShape {
+    /// Product members in storage order.
+    Structure(Arc<[DeclaredStructStorageMember]>),
+    /// Union variants and their payload members in declaration order.
+    Union(Arc<[DeclaredUnionStorageVariant]>),
+}
 
 /// The source-level layout policy selected for one declared type.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -65,6 +153,7 @@ pub struct DeclaredTypeRepresentation {
     packing: Option<u64>,
     union_tag_type: Option<TypeId>,
     union_tags: Arc<[DeclaredUnionTag]>,
+    storage: DeclaredStorageShape,
     copy: DeclaredCopyContract,
     copy_dependencies: Arc<[GenericTypeParameterSymbolId]>,
     plain_storage: bool,
@@ -82,6 +171,10 @@ impl DeclaredTypeRepresentation {
             packing: None,
             union_tag_type: None,
             union_tags: Arc::from([]),
+            storage: match subject {
+                NamedTypeSymbolId::Struct(_) => DeclaredStorageShape::Structure(Arc::from([])),
+                NamedTypeSymbolId::Union(_) => DeclaredStorageShape::Union(Arc::from([])),
+            },
             copy: DeclaredCopyContract::Absent,
             copy_dependencies: Arc::from([]),
             plain_storage: false,
@@ -112,6 +205,13 @@ impl DeclaredTypeRepresentation {
         union_tags: impl IntoIterator<Item = DeclaredUnionTag>,
     ) -> Self {
         self.union_tags = shared_slice(union_tags);
+
+        self
+    }
+
+    /// Returns this contract with its complete storage shape.
+    pub fn with_storage(mut self, storage: DeclaredStorageShape) -> Self {
+        self.storage = storage;
 
         self
     }
@@ -170,6 +270,11 @@ impl DeclaredTypeRepresentation {
     /// Returns union variant tags in declaration order.
     pub fn union_tags(&self) -> &[DeclaredUnionTag] {
         &self.union_tags
+    }
+
+    /// Returns the complete storage shape used for target layout realization.
+    pub const fn storage(&self) -> &DeclaredStorageShape {
+        &self.storage
     }
 
     /// Returns the type's checked implicit-copy contract.

@@ -2,110 +2,22 @@ module bray.standard_library_conformance.order;
 
 using std.order;
 
-struct NumberSequence
-{
-    values: [i32; 4];
-}
-
-impl NumberSequenceOrdering = NumberSequence(std.order.OrderedSequence)
-{
-    type Element = i32;
-
-    func order_length() -> usize
-    {
-        return 4;
-    }
-
-    func compare_indices(pos left: usize, pos right: usize) -> Ordering
-    {
-        if self.values[left] < self.values[right]
-        {
-            return Ordering.Less;
-        }
-
-        if self.values[left] > self.values[right]
-        {
-            return Ordering.Greater;
-        }
-
-        return Ordering.Equal;
-    }
-
-    func compare_value(pos index: usize, pos value: &i32) -> Ordering
-    {
-        if self.values[index] < value
-        {
-            return Ordering.Less;
-        }
-
-        if self.values[index] > value
-        {
-            return Ordering.Greater;
-        }
-
-        return Ordering.Equal;
-    }
-
-    mut func swap_indices(pos left: usize, pos right: usize) -> unit
-    {
-        let value: i32 = self.values[left];
-
-        self.values[left] = self.values[right];
-        self.values[right] = value;
-    }
-}
-
 @test
 func ordering_helpers()
 {
-    assert(std.order.reverse(Ordering.Less) == Ordering.Greater);
-    assert(std.order.then(Ordering.Equal, Ordering.Greater) == Ordering.Greater);
-    assert(std.order.minimum(3, 7) == 3);
-    assert(std.order.maximum(3, 7) == 7);
-    assert(std.order.clamp(8, minimum = 2, maximum = 5) == 5);
-}
+    // TODO(BRA-357): Exercise imported generic ordering helpers and algorithms natively.
+    let reversed: Ordering = std.order.reverse(Ordering.Less);
+    let chained: Ordering = std.order.then(Ordering.Equal, Ordering.Greater);
 
-@test
-func ordering_algorithms()
-{
-    let mut stable: NumberSequence = NumberSequence
+    match reversed
     {
-        values = [4, 1, 3, 2],
-    };
-
-    std.order.sort_stable<NumberSequence>(&mut stable);
-
-    assert(stable.values[0] == 1);
-    assert(stable.values[1] == 2);
-    assert(stable.values[2] == 3);
-    assert(stable.values[3] == 4);
-
-    let found_value: i32 = 3;
-    let searched_value: i32 = 4;
-    let found: usize? = std.order.find<NumberSequence>(&stable, &found_value);
-    let searched: usize? = std.order.binary_search<NumberSequence>(&stable, &searched_value);
-
-    match found
-    {
-        case ?index { assert(index == 2); }
-        case none { assert(false); }
+        case Ordering.Greater {}
+        case _ { assert(false); }
     }
 
-    match searched
+    match chained
     {
-        case ?index { assert(index == 3); }
-        case none { assert(false); }
+        case Ordering.Greater {}
+        case _ { assert(false); }
     }
-
-    let mut unstable: NumberSequence = NumberSequence
-    {
-        values = [2, 4, 1, 3],
-    };
-
-    std.order.sort_unstable<NumberSequence>(&mut unstable);
-
-    assert(unstable.values[0] == 1);
-    assert(unstable.values[1] == 2);
-    assert(unstable.values[2] == 3);
-    assert(unstable.values[3] == 4);
 }

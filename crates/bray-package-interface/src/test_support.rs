@@ -18,11 +18,12 @@ use crate::{
     InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationRecord,
     InterfaceLanguageRevision, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
     InterfacePredicateSummary, InterfaceProductIdentity, InterfaceProductKind,
-    InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSymbolReference,
-    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, PackageInterfaceExportBundle,
-    PackageInterfaceIdentity, PackageInterfaceSurface, SymbolRelationshipKind,
-    build_package_interface_surface, encode_package_interface,
+    InterfaceSemanticFacts, InterfaceStorageShape, InterfaceStructStorageMember,
+    InterfaceSupportEntity, InterfaceSymbolReference, InterfaceTargetFactDependency,
+    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
+    InterfaceTypeRepresentation, PackageInterfaceExportBundle, PackageInterfaceIdentity,
+    PackageInterfaceSurface, SymbolRelationshipKind, build_package_interface_surface,
+    encode_package_interface,
 };
 
 /// One valid encoded interface used by cross-crate compilation tests.
@@ -559,9 +560,7 @@ fn template_facts(
                 ),
             ],
         )
-        .with_type_representations([
-            InterfaceTypeRepresentation::new(structure.clone()).with_properties(true, true)
-        ])
+        .with_type_representations(type_representations(structure.clone()))
         .with_templates(
             [template, predicate_template, constraint_template],
             declaration_templates,
@@ -615,6 +614,20 @@ fn template_facts(
             ],
             [],
         )
+}
+
+fn type_representations(
+    structure: InterfaceSymbolReference,
+) -> [InterfaceTypeRepresentation; 1] {
+    [InterfaceTypeRepresentation::new(structure)
+        .with_storage(InterfaceStorageShape::Structure(
+            [InterfaceStructStorageMember::new(
+                None,
+                InterfaceTypeId::new(0),
+            )]
+            .into(),
+        ))
+        .with_properties(true, true)]
 }
 
 pub(crate) fn callable_phase_behavior() -> InterfaceCallablePhaseBehavior {

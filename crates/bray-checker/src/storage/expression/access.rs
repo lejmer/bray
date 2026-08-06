@@ -79,11 +79,18 @@ where
         expression: BoundExpressionId,
         projection: StorageProjection,
     ) -> Result<StorageAccessId, PlanError> {
-        let Some(receiver) = self.receiver_storage else {
+        let Some(receiver) = self.receiver_parameter() else {
             return self.recovery_access(expression);
         };
 
-        let receiver = self.direct_access(expression, receiver)?;
+        let receiver = match self
+            .builder()?
+            .binding(StorageBindingTarget::Receiver(receiver))
+        {
+            Some(StorageBinding::Identity(storage)) => self.direct_access(expression, storage)?,
+            Some(StorageBinding::Access(access)) => self.copy_access(expression, access)?,
+            None => return self.recovery_access(expression),
+        };
 
         self.project_access(expression, receiver, Some(projection))
     }

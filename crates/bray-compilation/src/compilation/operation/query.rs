@@ -31,37 +31,8 @@ impl Compilation {
         bound: &BoundUnit,
         cancellation: &CancellationToken,
     ) -> Result<(Vec<OperationResolution>, DiagnosticBag, bool), FactQueryError> {
-        let mut expressions = Vec::new();
         let facts = self.binder_facts_for(key, cancellation)?;
-        let variant_construction_callees = variant_construction_callees(&facts, bound);
-
-        let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
-            if cancellation.is_cancelled() {
-                return BoundWalkControl::Stop;
-            }
-
-            let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(id)) = event else {
-                return BoundWalkControl::Continue;
-            };
-
-            let Some(expression) = bound.view().expression(id) else {
-                return BoundWalkControl::Stop;
-            };
-
-            if selection_kind(expression).is_ok() && !variant_construction_callees.contains(&id) {
-                expressions.push(id);
-            }
-
-            BoundWalkControl::Continue
-        });
-
-        if cancellation.is_cancelled() {
-            return Err(FactQueryError::Cancelled);
-        }
-
-        if outcome != BoundWalkOutcome::Completed {
-            return Err(FactQueryError::InfrastructureFailure);
-        }
+        let expressions = operation_expressions(&facts, bound, cancellation)?;
 
         let has_operations = !expressions.is_empty();
         let mut resolutions = Vec::with_capacity(expressions.len());
@@ -81,6 +52,48 @@ impl Compilation {
         }
 
         Ok((resolutions, diagnostics, has_operations))
+    }
+
+    pub(in crate::compilation) fn additional_operation_inputs(
+        &self,
+        key: &BoundUnitKey,
+        bound: &BoundUnit,
+        semantics: &super::super::facts::CheckedExpressionSemantics,
+        existing: &[OperationResolution],
+        cancellation: &CancellationToken,
+    ) -> Result<(Vec<OperationResolution>, DiagnosticBag), FactQueryError> {
+        let facts = self.binder_facts_for(key, cancellation)?;
+        let expressions = operation_expressions(&facts, bound, cancellation)?;
+
+        let resolved = existing
+            .iter()
+            .map(OperationResolution::expression)
+            .collect::<BTreeSet<_>>();
+
+        let mut resolutions = Vec::new();
+        let mut diagnostics = DiagnosticBag::new();
+
+        for expression in expressions {
+            if resolved.contains(&expression) || semantics.1.expression(expression).is_some() {
+                continue;
+            }
+
+            let operation_key = OperationSelectionFactKey::new(key.clone(), expression);
+
+            if let Some(resolution) = self.resolve_operation_selection(
+                &operation_key,
+                &facts,
+                bound,
+                &semantics.0,
+                &semantics.1,
+                cancellation,
+                &mut diagnostics,
+            )? {
+                resolutions.push(resolution);
+            }
+        }
+
+        Ok((resolutions, diagnostics))
     }
 
     pub(in crate::compilation) fn operation_selection_with_cancellation(
@@ -120,101 +133,114 @@ impl Compilation {
 
         let facts = self.binder_facts_for(key.unit(), cancellation)?;
 
-        let expression = bound
-            .result()
-            .value()
+        let mut diagnostics = bound.result().diagnostics().clone();
+
+        let resolution = self.resolve_operation_selection(
+            key,
+            &facts,
+            bound.result().value(),
+            &semantics.result().value().0,
+            &semantics.result().value().1,
+            cancellation,
+            &mut diagnostics,
+        )?;
+
+        Ok(DiagnosticResult::new(resolution, diagnostics))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "operation resolution keeps its exact unit, semantic input, and cancellation context explicit"
+    )]
+    fn resolve_operation_selection(
+        &self,
+        key: &OperationSelectionFactKey,
+        facts: &CompilationBinderFacts<'_>,
+        unit: &BoundUnit,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<OperationResolution>, FactQueryError> {
+        let expression = unit
             .view()
             .expression(key.expression())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let mut diagnostics = bound.result().diagnostics().clone();
+        let selection_kind = selection_kind_for(facts, unit, key.expression(), expression)?;
 
-        let selection_kind =
-            selection_kind_for(&facts, bound.result().value(), key.expression(), expression)?;
-
-        if !matches!(expression, BoundExpression::Call(_))
-            && semantics
-                .result()
-                .value()
-                .1
-                .expression(key.expression())
-                .is_some()
-            && selection_kind != bray_bound_tree::SelectionKind::Construction
-        {
-            return Ok(DiagnosticResult::new(None, diagnostics));
+        if selections.expression(key.expression()).is_some() {
+            return Ok(None);
         }
 
         let Some(types) = self.operation_input_types(
             key,
-            bound.result().value(),
+            unit,
             expression,
             selection_kind,
-            &semantics.result().value().0,
+            types,
+            selections,
             cancellation,
-            &mut diagnostics,
+            diagnostics,
         )?
         else {
-            return Ok(DiagnosticResult::new(None, diagnostics));
+            return Ok(None);
         };
 
         let resolution = match selection_kind {
-            bray_bound_tree::SelectionKind::Member => self.resolve_member_operation(
-                &facts,
-                bound.result().value(),
-                &types,
-                key.expression(),
-                &mut diagnostics,
-            )?,
+            bray_bound_tree::SelectionKind::Member => {
+                self.resolve_member_operation(facts, unit, &types, key.expression(), diagnostics)?
+            }
             bray_bound_tree::SelectionKind::Index => {
                 let built_in = self.resolve_index_operation(
-                    &facts,
-                    bound.result().value(),
+                    facts,
+                    unit,
                     &types,
                     key.expression(),
-                    &mut diagnostics,
+                    diagnostics,
                 )?;
 
                 match built_in {
                     Some(resolution) => Some(resolution),
                     None => self.resolve_custom_index_operation(
                         key,
-                        &facts,
-                        bound.result().value(),
+                        facts,
+                        unit,
                         &types,
                         cancellation,
-                        &mut diagnostics,
+                        diagnostics,
                     )?,
                 }
             }
             bray_bound_tree::SelectionKind::Conversion => self.resolve_conversion_operation(
                 key,
-                &facts,
-                bound.result().value(),
+                facts,
+                unit,
                 &types,
                 cancellation,
-                &mut diagnostics,
+                diagnostics,
             )?,
             bray_bound_tree::SelectionKind::Operator => self.resolve_operator_operation(
                 key,
-                &facts,
-                bound.result().value(),
+                facts,
+                unit,
                 &types,
                 cancellation,
-                &mut diagnostics,
+                diagnostics,
             )?,
             bray_bound_tree::SelectionKind::Construction => self.resolve_construction_operation(
                 key,
-                &facts,
-                bound.result().value(),
+                facts,
+                unit,
                 &types,
                 cancellation,
-                &mut diagnostics,
+                diagnostics,
             )?,
             bray_bound_tree::SelectionKind::Implementation
             | bray_bound_tree::SelectionKind::Callable => None,
         };
 
-        Ok(DiagnosticResult::new(resolution, diagnostics))
+        Ok(resolution)
     }
 
     fn operation_input_types(
@@ -224,6 +250,7 @@ impl Compilation {
         expression: &BoundExpression,
         kind: bray_bound_tree::SelectionKind,
         provisional: &bray_bound_tree::CheckedExpressionTypes,
+        provisional_selections: &bray_bound_tree::CheckedSemanticSelections,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<bray_bound_tree::CheckedExpressionTypes>, FactQueryError> {
@@ -235,6 +262,15 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             if !result.is_recovered() {
+                continue;
+            }
+
+            if let Some(ty) = provisional_selections
+                .expression(operand)
+                .and_then(bray_bound_tree::SemanticSelection::result_type)
+            {
+                replace_expression_type(&mut entries, operand, ty)?;
+
                 continue;
             }
 
@@ -259,17 +295,7 @@ impl Compilation {
                 return Ok(None);
             };
 
-            let Some(entry) = entries
-                .iter_mut()
-                .find(|entry| entry.expression() == operand)
-            else {
-                return Err(FactQueryError::InfrastructureFailure);
-            };
-
-            *entry = ExpressionTypeEntry::new(
-                operand,
-                ExpressionTypeResult::new(resolution.result_type(), ExpressionTypeStatus::Valid),
-            );
+            replace_expression_type(&mut entries, operand, resolution.result_type())?;
         }
 
         let types = bray_bound_tree::CheckedExpressionTypes::new(
@@ -362,6 +388,26 @@ impl Compilation {
     }
 }
 
+fn replace_expression_type(
+    entries: &mut [ExpressionTypeEntry],
+    expression: BoundExpressionId,
+    ty: TypeId,
+) -> Result<(), FactQueryError> {
+    let Some(entry) = entries
+        .iter_mut()
+        .find(|entry| entry.expression() == expression)
+    else {
+        return Err(FactQueryError::InfrastructureFailure);
+    };
+
+    *entry = ExpressionTypeEntry::new(
+        expression,
+        ExpressionTypeResult::new(ty, ExpressionTypeStatus::Valid),
+    );
+
+    Ok(())
+}
+
 pub(in crate::compilation) fn selection_kind(
     expression: &BoundExpression,
 ) -> Result<bray_bound_tree::SelectionKind, FactQueryError> {
@@ -444,6 +490,45 @@ fn variant_construction_callees(
             is_variant.then_some(call.callee())
         })
         .collect()
+}
+
+fn operation_expressions(
+    facts: &CompilationBinderFacts<'_>,
+    unit: &BoundUnit,
+    cancellation: &CancellationToken,
+) -> Result<Vec<BoundExpressionId>, FactQueryError> {
+    let variant_construction_callees = variant_construction_callees(facts, unit);
+    let mut expressions = Vec::new();
+
+    let outcome = walk_bound_unit_view(unit.view(), unit.root(), |event| {
+        if cancellation.is_cancelled() {
+            return BoundWalkControl::Stop;
+        }
+
+        let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(id)) = event else {
+            return BoundWalkControl::Continue;
+        };
+
+        let Some(expression) = unit.view().expression(id) else {
+            return BoundWalkControl::Stop;
+        };
+
+        if selection_kind(expression).is_ok() && !variant_construction_callees.contains(&id) {
+            expressions.push(id);
+        }
+
+        BoundWalkControl::Continue
+    });
+
+    if cancellation.is_cancelled() {
+        return Err(FactQueryError::Cancelled);
+    }
+
+    if outcome != BoundWalkOutcome::Completed {
+        return Err(FactQueryError::InfrastructureFailure);
+    }
+
+    Ok(expressions)
 }
 
 fn selection_kind_for(

@@ -49,7 +49,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         }
 
-        self.lower_storage_borrow(id, current, kind, *target, result_type, source)
+        self.lower_storage_borrow(id, id, current, kind, *target, result_type, source)
     }
 
     pub(super) fn lower_call_receiver(
@@ -79,6 +79,7 @@ impl Lowerer<'_> {
 
         self.lower_storage_borrow(
             receiver.expression(),
+            receiver.expression(),
             current,
             kind,
             target,
@@ -90,20 +91,23 @@ impl Lowerer<'_> {
 
     fn lower_storage_borrow(
         &mut self,
-        id: BoundExpressionId,
+        access_expression: BoundExpressionId,
+        initialization_expression: BoundExpressionId,
         current: MirBlockId,
         kind: BorrowKind,
         target: TypeId,
         result_type: TypeId,
         source: bray_ir::MirSourceAnchor,
     ) -> Result<LoweredExpression, LoweringError> {
-        let decision =
-            self.storage_decision(id, |purpose| purpose == StorageAccessPurpose::Borrow(kind))?;
+        let decision = self.storage_decision(access_expression, |purpose| {
+            purpose == StorageAccessPurpose::Borrow(kind)
+        })?;
 
-        let (current, place) = match self.lower_access_place(id, decision.access(), current)? {
-            LoweredPlace::Continuing { block, place } => (block, place),
-            LoweredPlace::Terminated(completion) => return Ok(completion),
-        };
+        let (current, place) =
+            match self.lower_access_place(initialization_expression, decision.access(), current)? {
+                LoweredPlace::Continuing { block, place } => (block, place),
+                LoweredPlace::Terminated(completion) => return Ok(completion),
+            };
 
         let mut projections = place.projections().to_vec();
 
@@ -148,9 +152,39 @@ impl Lowerer<'_> {
         let value = commit
             .result()
             .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(id))?;
+            .ok_or(LoweringError::MissingOperationResult(access_expression))?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    pub(super) fn lower_implicit_shared_borrow(
+        &mut self,
+        parent: BoundExpressionId,
+        operand: BoundExpressionId,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let target = self.expression_type(operand)?;
+
+        let result_type = self
+            .input
+            .semantic_values()
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target,
+            })
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let source = self.expression_source(operand)?;
+
+        self.lower_storage_borrow(
+            operand,
+            parent,
+            current,
+            BorrowKind::Shared,
+            target,
+            result_type,
+            source,
+        )
     }
 
     pub(super) fn lower_member_access(
@@ -451,7 +485,9 @@ impl Lowerer<'_> {
 
         let place = self.place_for_identity(identity, root_type, origin)?;
 
-        if let Some((owner, value)) = initial_value {
+        if let Some((owner, value)) = initial_value
+            && !value.reads_from(&place)
+        {
             self.builder.push_operation(
                 current,
                 self.expression_source(owner)?,

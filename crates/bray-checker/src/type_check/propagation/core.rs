@@ -424,7 +424,11 @@ where
         };
 
         if last.is_some_and(|expression| {
-            own_block_yield(request.view(), expression, block.origin().source_anchor().syntax())
+            own_block_yield(
+                request.view(),
+                expression,
+                block.origin().source_anchor().syntax(),
+            )
         }) {
             continue;
         }

@@ -36,6 +36,93 @@ pub struct InterfaceUnionTag {
     pub(crate) value: IntegerConstant,
 }
 
+/// One product storage member required for consumer-side layout realization.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfaceStructStorageMember {
+    pub(crate) field: Option<InterfaceSymbolReference>,
+    pub(crate) ty: InterfaceTypeId,
+}
+
+impl InterfaceStructStorageMember {
+    /// Creates one storage member with an optional exported field identity.
+    pub const fn new(field: Option<InterfaceSymbolReference>, ty: InterfaceTypeId) -> Self {
+        Self { field, ty }
+    }
+
+    /// Returns the exported field identity when one exists.
+    pub const fn field(&self) -> Option<&InterfaceSymbolReference> {
+        self.field.as_ref()
+    }
+
+    /// Returns the member type.
+    pub const fn ty(&self) -> InterfaceTypeId {
+        self.ty
+    }
+}
+
+/// One union payload member required for consumer-side layout realization.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfaceUnionStorageMember {
+    pub(crate) field: Option<InterfaceSymbolReference>,
+    pub(crate) ty: InterfaceTypeId,
+}
+
+impl InterfaceUnionStorageMember {
+    /// Creates one payload member with an optional exported field identity.
+    pub const fn new(field: Option<InterfaceSymbolReference>, ty: InterfaceTypeId) -> Self {
+        Self { field, ty }
+    }
+
+    /// Returns the exported field identity when one exists.
+    pub const fn field(&self) -> Option<&InterfaceSymbolReference> {
+        self.field.as_ref()
+    }
+
+    /// Returns the member type.
+    pub const fn ty(&self) -> InterfaceTypeId {
+        self.ty
+    }
+}
+
+/// One union variant's payload storage shape.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfaceUnionStorageVariant {
+    pub(crate) variant: InterfaceSymbolReference,
+    pub(crate) members: Arc<[InterfaceUnionStorageMember]>,
+}
+
+impl InterfaceUnionStorageVariant {
+    /// Creates one variant payload shape in declaration order.
+    pub fn new(
+        variant: InterfaceSymbolReference,
+        members: impl IntoIterator<Item = InterfaceUnionStorageMember>,
+    ) -> Self {
+        Self {
+            variant,
+            members: members.into_iter().collect(),
+        }
+    }
+
+    /// Returns the represented variant.
+    pub const fn variant(&self) -> &InterfaceSymbolReference {
+        &self.variant
+    }
+
+    /// Returns payload members in storage order.
+    pub fn members(&self) -> &[InterfaceUnionStorageMember] {
+        &self.members
+    }
+}
+
+/// A named type's storage shape without private declaration names.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InterfaceStorageShape {
+    /// Product members in storage order.
+    Structure(Arc<[InterfaceStructStorageMember]>),
+    /// Union variants and payload members in declaration order.
+    Union(Arc<[InterfaceUnionStorageVariant]>),
+}
+
 impl InterfaceUnionTag {
     /// Creates one checked union tag.
     pub const fn new(variant: InterfaceSymbolReference, value: IntegerConstant) -> Self {
@@ -62,6 +149,7 @@ pub struct InterfaceTypeRepresentation {
     pub(crate) packing: Option<u64>,
     pub(crate) union_tag_type: Option<InterfaceTypeId>,
     pub(crate) union_tags: Arc<[InterfaceUnionTag]>,
+    pub(crate) storage: InterfaceStorageShape,
     pub(crate) copy: DeclaredCopyContract,
     pub(crate) copy_dependencies: Arc<[InterfaceSymbolReference]>,
     pub(crate) plain_storage: bool,
@@ -78,6 +166,7 @@ impl InterfaceTypeRepresentation {
             packing: None,
             union_tag_type: None,
             union_tags: Arc::from([]),
+            storage: InterfaceStorageShape::Structure(Arc::from([])),
             copy: DeclaredCopyContract::Absent,
             copy_dependencies: Arc::from([]),
             plain_storage: false,
@@ -107,6 +196,13 @@ impl InterfaceTypeRepresentation {
         union_tags: impl IntoIterator<Item = InterfaceUnionTag>,
     ) -> Self {
         self.union_tags = union_tags.into_iter().collect();
+
+        self
+    }
+
+    /// Returns this contract with its complete storage shape.
+    pub fn with_storage(mut self, storage: InterfaceStorageShape) -> Self {
+        self.storage = storage;
 
         self
     }
@@ -159,6 +255,11 @@ impl InterfaceTypeRepresentation {
     /// Returns union tags in declaration order.
     pub fn union_tags(&self) -> &[InterfaceUnionTag] {
         &self.union_tags
+    }
+
+    /// Returns the complete storage shape used by consumers.
+    pub const fn storage(&self) -> &InterfaceStorageShape {
+        &self.storage
     }
 
     /// Returns the declared implicit-copy contract.

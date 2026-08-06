@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use bray_bound_tree::BoundUnitKey;
+use bray_bound_tree::{BoundExpression, BoundReferenceTarget, BoundUnit, BoundUnitKey};
+use bray_checker::ConstantReferenceResolution;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_ir::MirTargetFacts;
 use bray_lowering::{
     CompileTimeUnit, LoweredUnit, LoweringInput, executable_unit_kind, lower_unit,
 };
+use bray_symbols::ConstantValueId;
 
 use super::Compilation;
 use crate::fact::{
@@ -115,6 +117,9 @@ impl Compilation {
 
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
+        let (constant_reference_values, constant_reference_diagnostics) =
+            self.constant_reference_values(unit.result().value(), cancellation)?;
+
         let diagnostics = DiagnosticBag::merged_all([
             unit.result().diagnostics(),
             control_flow.result().diagnostics(),
@@ -129,6 +134,7 @@ impl Compilation {
             dependencies.result().diagnostics(),
             async_facts.result().diagnostics(),
             behavior.result().diagnostics(),
+            &constant_reference_diagnostics,
         ]);
 
         if diagnostics.has_errors() {
@@ -166,6 +172,7 @@ impl Compilation {
             unit_kind,
             target,
         )
+        .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let mir = lower_unit(input).map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -176,6 +183,51 @@ impl Compilation {
             DiagnosticResult::new(Some(LoweredUnit::Mir(Box::new(mir))), diagnostics),
             Box::new([]),
         ))
+    }
+
+    fn constant_reference_values(
+        &self,
+        unit: &BoundUnit,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            Vec<(bray_bound_tree::BoundExpressionId, ConstantValueId)>,
+            DiagnosticBag,
+        ),
+        FactQueryError,
+    > {
+        let mut values = Vec::new();
+        let mut diagnostics = DiagnosticBag::new();
+
+        for (expression, node) in unit.tree().expressions() {
+            let BoundExpression::Name(name) = node else {
+                continue;
+            };
+
+            let BoundReferenceTarget::Surface(symbol) = name.target() else {
+                continue;
+            };
+
+            let resolved = self.resolve_surface_constant(symbol, cancellation, &mut diagnostics);
+
+            let Some((_, resolution)) = resolved? else {
+                continue;
+            };
+
+            let value = match resolution {
+                ConstantReferenceResolution::Value(value) => value,
+                ConstantReferenceResolution::Evaluated(result) => result.value(),
+                ConstantReferenceResolution::Term(_)
+                | ConstantReferenceResolution::Cycle
+                | ConstantReferenceResolution::Invalid => continue,
+            };
+
+            values.push((expression, value));
+        }
+
+        values.sort_unstable_by_key(|(expression, _)| *expression);
+
+        Ok((values, diagnostics))
     }
 }
 

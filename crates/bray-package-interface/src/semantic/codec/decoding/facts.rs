@@ -238,7 +238,8 @@ mod tests {
         InterfaceDependencySubject, InterfaceDependencySubjectRoot, InterfaceGenericDeclaration,
         InterfaceGenericSubstitutionId, InterfacePredicateDefinitionState,
         InterfaceRuntimeRequirement, InterfaceSectionTag, InterfaceSemanticFactKind,
-        InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceType, InterfaceTypeId,
+        InterfaceSemanticFacts, InterfaceStorageShape, InterfaceStructStorageMember,
+        InterfaceSymbolReference, InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation,
         InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
     };
 
@@ -444,6 +445,38 @@ mod tests {
             let facts = bundle.semantic_facts().clone().with_runtime_requirements([
                 InterfaceRuntimeRequirement::new(owner.clone(), None, requirements),
             ]);
+
+            assert_eq!(
+                encode_semantic_facts(&facts, surface, InterfaceValidationLimits::default()),
+                Err(InterfaceValidationError::Malformed)
+            );
+        }
+    }
+
+    #[test]
+    fn type_representations_reject_invalid_storage_shapes() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface();
+        let structure = local_by_kind(surface, SymbolKind::Struct);
+
+        let invalid_type = InterfaceTypeRepresentation::new(structure.clone()).with_storage(
+            InterfaceStorageShape::Structure(
+                [InterfaceStructStorageMember::new(
+                    None,
+                    InterfaceTypeId::new(u32::MAX),
+                )]
+                .into(),
+            ),
+        );
+
+        let invalid_kind = InterfaceTypeRepresentation::new(structure)
+            .with_storage(InterfaceStorageShape::Union([].into()));
+
+        for representation in [invalid_type, invalid_kind] {
+            let facts = bundle
+                .semantic_facts()
+                .clone()
+                .with_type_representations([representation]);
 
             assert_eq!(
                 encode_semantic_facts(&facts, surface, InterfaceValidationLimits::default()),

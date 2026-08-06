@@ -106,7 +106,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ty(ty)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        if mapping.kind() != &CodegenTypeKind::Unit {
+        if mapping.layout().is_none_or(|layout| layout.size() != 0) {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
