@@ -242,9 +242,9 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Do not add blank lines between near-identical statements that form one conceptual group.
 - Do not compress unrelated statements together just to minimize vertical space.
 
-### Mechanically enforced blank-line rules
+`cargo xtask style` applies automatic fixes and then runs every structural check. Use `cargo xtask style check` to run the same diagnostics without changing files.
 
-Run `cargo xtask style` to apply these rules automatically. Run `cargo xtask style check` when a non-mutating verification is required.
+### Mechanically enforced blank-line rules
 
 - Isolate `let ... else` guard clauses from both the setup before them and the work after them, even when the guard directly validates the preceding value.
 - Do not add blank lines inside argument lists, parameter lists, struct literals, enum variants, or match cases.
@@ -256,9 +256,9 @@ Run `cargo xtask style` to apply these rules automatically. Run `cargo xtask sty
 
 ### Automated structural checks
 
-`cargo xtask style` applies automatic fixes and then runs every structural check. `cargo xtask style check` runs the same diagnostics without changing files. A check-only rule still runs in both modes; it means the command reports the problem instead of trying to rewrite the source. Error diagnostics fail the command, while warning diagnostics do not.
+A check-only rule runs in both modes, but the command reports the problem instead of trying to rewrite the source. Error diagnostics fail the command, while warning diagnostics do not.
 
-The style command enforces these structural rules for Rust source:
+The following structural rules apply to Rust source:
 
 - A production module over 800 physical source lines produces a warning at its 801st production line. Test-only items and dedicated test sources do not count.
 - A production function over 250 physical source lines produces an error. Keep the design target at roughly 200 lines so functions do not routinely approach the enforced limit. Tests, dedicated test sources, and helpers inside test-only modules do not count.
