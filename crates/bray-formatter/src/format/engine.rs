@@ -356,16 +356,26 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             self.close_callable_header();
         }
 
-        if (self.callable_header_group_open || self.callable_clause_indent_open)
-            && is_callable_clause_keyword(kind)
+        if is_declaration_clause_keyword(kind)
+            && self.nodes.iter().any(|kind| {
+                matches!(
+                    kind,
+                    SyntaxKind::RequiresClause
+                        | SyntaxKind::EnsuresClause
+                        | SyntaxKind::WithClause
+                        | SyntaxKind::UsesClause
+                )
+            })
         {
             if self.callable_header_group_open {
                 self.close_callable_header_group();
+            }
 
-                if self.configuration.is_enabled(FormatterRule::Indentation) {
-                    self.writer.increase_indent();
-                    self.callable_clause_indent_open = true;
-                }
+            if !self.callable_clause_indent_open
+                && self.configuration.is_enabled(FormatterRule::Indentation)
+            {
+                self.writer.increase_indent();
+                self.callable_clause_indent_open = true;
             }
 
             self.writer.request_newlines(1);
@@ -700,7 +710,7 @@ fn compact_match_arm_body_is_empty(node: SyntaxNodeView<'_>) -> Option<bool> {
     Some(false)
 }
 
-fn is_callable_clause_keyword(kind: SyntaxKind) -> bool {
+fn is_declaration_clause_keyword(kind: SyntaxKind) -> bool {
     matches!(
         kind,
         SyntaxKind::RequiresKeyword

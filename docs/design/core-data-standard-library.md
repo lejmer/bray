@@ -293,10 +293,21 @@ they short-circuit and whether they preserve source order.
 Algorithms requiring multiple passes, exact size, stable ordering, random access, or contiguous storage use explicit additional
 contracts. They do not infer those properties from `Iterable` alone.
 
+The standard adapter surface covers transformation, filtering, flattening, bounded traversal, indexing, peeking, and chaining.
+Adapters such as `map`, `filter`, `flat_map`, `take`, `skip`, `enumerate`, `peekable`, and `chain` own their source cursors, advance
+them only when the adapter advances, and remain exhausted after their sources are exhausted. `take` produces at most the requested
+count. `skip` consumes at most the requested count before producing the remaining elements. `enumerate` pairs each produced
+element with a zero-based `usize` index and preserves source order.
+
+Terminal algorithms cover element selection, searching, predicates, folds, comparison, counting, and collection. Operations such
+as `first`, `nth`, `find`, `any`, and `all` consume one cursor, do not allocate, and stop once their result is known. Folds and
+collection operations state their accumulation and allocation behavior. Algorithms that must exhaust a source require
+caller-visible contracts that establish finiteness rather than assuming every `Iterator` is finite.
+
 ## Collections
 
-`std.collection` provides focused owning collection types rather than one universal container abstraction. The initial families
-include:
+`std.collection` provides focused owning collection types rather than one universal container abstraction. Its collection families
+are:
 
 - growable contiguous sequences,
 - double-ended queues,
@@ -319,6 +330,104 @@ tests must not treat unspecified hash iteration order as canonical ordering.
 Collection indexing uses the compiler-known indexing contracts where expression syntax participates. Named lookup operations use
 typed results for absence and do not return fabricated default values. Bounds errors follow the declared result or panic contract
 of the operation rather than relying on unchecked access.
+
+### Contiguous Sequence Surface
+
+`std.collection.List<T>` is an owning contiguous sequence. It keeps an initialized prefix and is movable but not copyable. Its
+public surface is:
+
+```bray
+module std.collection;
+
+struct List<T>
+{
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>;
+}
+
+func length<T>(pos list: &List<T>) -> usize;
+
+func capacity<T>(pos list: &List<T>) -> usize;
+
+func is_empty<T>(pos list: &List<T>) -> bool;
+
+func as_slice<T>(pos list: &List<T>) -> &[T];
+
+func as_slice_mut<T>(pos list: &mut List<T>) -> &mut [T];
+
+trusted func reserve<T>(
+    pos list: &mut List<T>,
+    additional: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
+trusted func reserve_exact<T>(
+    pos list: &mut List<T>,
+    additional: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
+trusted func push<T>(
+    pos list: &mut List<T>,
+    pos value: T,
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
+trusted func pop<T>(pos list: &mut List<T>) -> T?;
+
+trusted func insert<T>(
+    pos list: &mut List<T>,
+    pos value: T,
+    index: usize,
+) -> Result<bool, std.memory.MemoryLayoutError>;
+
+trusted func remove<T>(pos list: &mut List<T>, index: usize) -> T?;
+
+trusted func truncate<T>(pos list: &mut List<T>, new_length: usize) -> unit;
+
+trusted func clear<T>(pos list: &mut List<T>) -> unit;
+
+func reverse<T>(pos list: &mut List<T>) -> unit;
+```
+
+`reserve` uses deterministic geometric growth with a minimum non-zero capacity of four. `reserve_exact` grows only to the required
+capacity. Both preserve existing elements in source order and leave the sequence unchanged when current capacity is sufficient.
+Capacity arithmetic returns `MemoryLayoutError.SizeOverflow` rather than wrapping.
+
+`insert` accepts positions from zero through `length(list)` and returns `false` without changing the list for larger indexes.
+`remove` and `pop` return `none` when no element exists at the requested position. `truncate` destroys removed elements from the
+end and leaves the list unchanged when the requested length is not smaller.
+
+The `&List<T>`, `&mut List<T>`, and consuming `List<T>` implementations of `Iterable` preserve sequence order and respectively
+yield `&T`, `&mut T`, and owned `T` values. Shared and mutable cursors retain the corresponding slice borrow and its dependency.
+Consuming cursor destruction resolves every element that has not yet been produced before releasing its allocation.
+
+### Double-Ended Sequence Surface
+
+`std.collection.Deque<T>` is an owning sequence optimized for insertion and removal at both ends. It provides front and back
+access, push and pop operations at either end, indexed access where its complexity contract permits it, capacity management, and
+shared, mutable, and consuming iteration in logical sequence order. Its representation may wrap internally, but public views never
+expose uninitialized or out-of-order storage.
+
+### Hash Collection Surface
+
+`std.collection.HashMap<Key, Value, Hasher>` and `std.collection.HashSet<Value, Hasher>` provide expected constant-time lookup under
+the selected hashing policy. Their construction makes the hashing policy explicit or selects the standard process-local policy.
+Stable hashing is used only where a caller explicitly requests deterministic cross-run hashes. Hash collections expose entry-style
+mutation, insertion, replacement, removal, containment, capacity management, and shared, mutable, and consuming iteration without
+claiming a stable iteration order.
+
+Hash collection keys require compatible hashing and equality contracts. Mutating a key through an alias while it belongs to a hash
+collection is prevented by ownership and borrowing rather than tolerated as an invalid table state.
+
+### Ordered Collection Surface
+
+`std.collection.OrderedMap<Key, Value>` and `std.collection.OrderedSet<Value>` maintain keys according to their comparison contract.
+They provide ordered lookup, insertion, replacement, removal, range traversal, and shared, mutable, and consuming iteration.
+Ordering must be total and consistent for the stored key type. Range APIs represent inclusive and exclusive bounds explicitly and
+preserve ascending order unless the operation explicitly requests reverse traversal.
+
+### Collection Adapters
+
+Stack and queue types are narrow adapters over sequence storage when their restricted interfaces communicate a useful invariant.
+They do not duplicate storage engines solely to provide alternate names. Their public operations expose only the ordering policy
+that defines the adapter, while conversion to and from the underlying owning collection is explicit.
 
 ## Formatting
 

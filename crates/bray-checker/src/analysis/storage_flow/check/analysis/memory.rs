@@ -97,6 +97,30 @@ impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn transfer_memory_result_state(
+        &self,
+        state: &mut StorageFlowState,
+        node: AnyBoundNodeId,
+    ) {
+        let AnyBoundNodeId::Expression(expression) = node else {
+            return;
+        };
+
+        if self.memory.operation(expression).is_none() {
+            return;
+        }
+
+        let Some(source) = self.operation_result_storage(expression) else {
+            return;
+        };
+
+        let Some(destination) = self.input.initialization_destination(expression) else {
+            return;
+        };
+
+        copy_raw_state(state, source, destination);
+    }
+
     pub(super) fn transfer_raw_pointer_state(
         &self,
         state: &mut StorageFlowState,
@@ -127,8 +151,7 @@ where
             }
         }
 
-        let ([(source, purpose)], [destination]) = (sources.as_slice(), destinations.as_slice())
-        else {
+        let ([(source, purpose)], [destination]) = (sources.as_slice(), destinations.as_slice()) else {
             return;
         };
 

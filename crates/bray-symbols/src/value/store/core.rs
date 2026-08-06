@@ -3,7 +3,9 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-use crate::{GenericOwnerId, GenericParameterSymbolId, NamedTypeSymbolId, SymbolGraph};
+use crate::{
+    GenericArgument, GenericOwnerId, GenericParameterSymbolId, NamedTypeSymbolId, SymbolGraph,
+};
 
 use super::{
     super::{
@@ -90,14 +92,7 @@ impl SemanticValueStore {
         let arguments = parameters
             .iter()
             .copied()
-            .map(|parameter| match parameter {
-                GenericParameterSymbolId::Type(parameter) => self
-                    .intern_type(TypeData::TypeParameter(parameter))
-                    .map(super::super::GenericArgument::Type),
-                GenericParameterSymbolId::Const(parameter) => self
-                    .intern_constant_term(ConstantTermData::Parameter(parameter))
-                    .map(super::super::GenericArgument::Constant),
-            })
+            .map(|parameter| self.intern_generic_parameter_argument(parameter))
             .collect::<Result<Vec<_>, _>>()?;
 
         let Some(owner) = super::super::GenericOwnerId::try_new(owner) else {
@@ -176,6 +171,21 @@ impl SemanticValueStore {
         validate_type_data(&tables, self.id, &data)?;
 
         Arc::make_mut(&mut tables.types).intern(self.id, data)
+    }
+
+    /// Interns the open semantic argument represented by one generic parameter.
+    pub fn intern_generic_parameter_argument(
+        &self,
+        parameter: GenericParameterSymbolId,
+    ) -> Result<GenericArgument, SemanticValueStoreError> {
+        match parameter {
+            GenericParameterSymbolId::Type(parameter) => self
+                .intern_type(TypeData::TypeParameter(parameter))
+                .map(GenericArgument::Type),
+            GenericParameterSymbolId::Const(parameter) => self
+                .intern_constant_term(ConstantTermData::Parameter(parameter))
+                .map(GenericArgument::Constant),
+        }
     }
 
     /// Returns immutable data for a type issued by this store.

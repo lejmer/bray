@@ -1,0 +1,30 @@
+module std.iteration;
+
+func first<I>(pos mut iterator: I) -> I(Iterator).Element?
+    with(I: Iterator)
+{
+    let item: I(Iterator).Element? = iterator(Iterator).next();
+
+    return item;
+}
+
+func nth<I>(pos mut iterator: I, index: usize) -> I(Iterator).Element?
+    with(I: Iterator)
+{
+    let mut current: usize = 0;
+
+    while current < index
+    {
+        let skipped: I(Iterator).Element? = iterator(Iterator).next();
+
+        match consume skipped
+        {
+            case ?_ { current = current + 1; }
+            case none { return none; }
+        }
+    }
+
+    let item: I(Iterator).Element? = iterator(Iterator).next();
+
+    return item;
+}

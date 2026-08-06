@@ -1267,6 +1267,22 @@ mod tests {
     }
 
     #[test]
+    fn raw_pointer_assignment_preserves_addressed_storage_initialization() {
+        assert_standard_memory_body_has_no_diagnostic(
+            concat!(
+                "trusted module std.test;\n",
+                "trusted func main(pos value: &usize) -> usize uses(raw_memory)\n",
+                "{\n",
+                "    let pointer: RawPointer<usize> = std.memory.address_of<usize>(value);\n",
+                "\n",
+                "    return trusted std.memory.read<usize>(pointer);\n",
+                "}\n",
+            ),
+            DiagnosticKind::CheckingUninitializedRawStorage,
+        );
+    }
+
+    #[test]
     fn mutable_slice_element_can_be_reborrowed_for_a_raw_pointer() {
         assert_standard_memory_body_has_no_conflicting_borrow(concat!(
             "module std.test;\n",
@@ -1283,6 +1299,16 @@ mod tests {
     }
 
     fn assert_standard_memory_body_has_no_conflicting_borrow(source: &str) {
+        assert_standard_memory_body_has_no_diagnostic(
+            source,
+            DiagnosticKind::CheckingConflictingBorrow,
+        );
+    }
+
+    fn assert_standard_memory_body_has_no_diagnostic(
+        source: &str,
+        diagnostic: DiagnosticKind,
+    ) {
         let package = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard library identity must be valid"));
 
@@ -1312,11 +1338,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("storage-flow checking must publish: {error:?}"));
 
         assert!(
-            facts
-                .diagnostics()
-                .by_kind(DiagnosticKind::CheckingConflictingBorrow)
-                .next()
-                .is_none(),
+            facts.diagnostics().by_kind(diagnostic).next().is_none(),
             "{facts:#?}"
         );
     }

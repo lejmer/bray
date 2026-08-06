@@ -89,7 +89,7 @@ where
         }
     };
 
-    let input = StorageFlowInput::new(storage, copyable_types, mutable_storage);
+    let input = StorageFlowInput::new(request, storage, copyable_types, mutable_storage);
 
     let domain = StorageFlowDomain::new(
         &graph,
@@ -252,6 +252,7 @@ where
 
         self.transfer_raw_pointer_state(state, operation.kind().node());
         self.apply_memory_operation(state, operation.kind().node(), refinements);
+        self.transfer_memory_result_state(state, operation.kind().node());
 
         self.end_last_use_borrows(state, operation.kind().node());
 

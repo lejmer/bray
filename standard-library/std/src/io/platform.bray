@@ -93,9 +93,7 @@ trusted internal func process_context_stream_handle(offset: usize) -> u64
     uses(foreign_call)
 {
     let mut required: u64 = 0;
-
     let required_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut required);
-
     let measured: PlatformStatus = trusted platform_context_measure(required = required_pointer);
 
     if measured.category != 0
@@ -318,11 +316,8 @@ trusted internal func write_standard_stream_unlocked(pos source: &[u8], handle: 
     uses(foreign_call)
 {
     let requested: usize = internal std.memory.byte_slice_length(source);
-
     let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
-
     let mut transferred: u64 = 0;
-
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
 
     let status: PlatformStatus = trusted platform_stream_write(
@@ -340,7 +335,6 @@ internal func write_standard_stream(pos source: &[u8], handle: u64) -> Result<us
     requires(blocking_execution())
 {
     let lock: StandardStreamLock = try trusted acquire_standard_stream(handle = handle);
-
     let result: Result<usize, IoError> = trusted write_standard_stream_unlocked(source, handle = handle);
 
     return result;
@@ -359,7 +353,6 @@ internal func flush_standard_stream(handle: u64) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let lock: StandardStreamLock = try trusted acquire_standard_stream(handle = handle);
-
     let result: Result<unit, IoError> = trusted flush_standard_stream_unlocked(handle = handle);
 
     return result;
@@ -382,13 +375,9 @@ trusted internal func read_standard_stream(pos destination: &mut [u8], handle: u
     uses(foreign_call)
 {
     let lock: StandardStreamLock = try trusted acquire_standard_stream(handle = handle);
-
     let capacity: usize = internal std.memory.byte_slice_length(&destination);
-
     let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
-
     let mut transferred: u64 = 0;
-
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
 
     let status: PlatformStatus = trusted platform_stream_read(

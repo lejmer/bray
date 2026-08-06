@@ -48,4 +48,6 @@ Do not add a second build system, task runner, or command DSL unless explicitly 
 
 After changing Rust source, running `cargo xtask style` is mandatory. It applies deterministic fixes and runs all structural checks described in [coding-conventions.md](docs/contributing/coding-conventions.md). Do not substitute the non-mutating `cargo xtask style check` in the agent workflow.
 
+Native toolchain workflows that spawn LLVM, archiver, linker, or produced-executable processes must run outside the Codex sandbox. On Windows, sandboxed child processes can report `permission denied` even when their temporary files are redirected beneath the workspace. Treat that as an execution-environment restriction, not a compiler defect, and do not add production workarounds for it.
+
 > **Note:** If you do not change any code, you do not need to run tests, linting, or code checks.

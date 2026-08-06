@@ -236,8 +236,8 @@ func transfer<Source, Destination>(
 }
 ```
 
-Write each `with(...)`, `requires(...)`, and `ensures(...)` clause on its own continuation line when it follows a callable or
-type header.
+Write each `with(...)`, `requires(...)`, `ensures(...)`, and `uses(...)` clause on its own continuation line after the declaration
+header. This rule applies to every declaration form that accepts clauses, including callables, types, and implementations.
 
 Keep a match arm body on the same line as its case when the body is empty or contains exactly one expression and the complete
 arm fits within the configured line width. Put one space inside nonempty inline braces and no space inside empty braces. This is

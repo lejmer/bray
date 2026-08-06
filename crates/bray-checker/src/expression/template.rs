@@ -8,10 +8,9 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
     CallableInstanceData, CallableParameterData, CallableParameterMode, CallablePosition,
-    CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData,
-    ConstantTermData, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, GenericSubstitutionId, PredicateInstanceData, TypeData,
-    TypeExpressionTemplate, TypeId,
+    CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData, GenericArgument,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
+    PredicateInstanceData, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
@@ -170,17 +169,11 @@ where
     parameters
         .iter()
         .copied()
-        .map(|parameter| match parameter {
-            GenericParameterSymbolId::Type(parameter) => request
+        .map(|parameter| {
+            request
                 .semantic_values()
-                .intern_type(TypeData::TypeParameter(parameter))
-                .map(GenericArgument::Type)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
-            GenericParameterSymbolId::Const(parameter) => request
-                .semantic_values()
-                .intern_constant_term(ConstantTermData::Parameter(parameter))
-                .map(GenericArgument::Constant)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
+                .intern_generic_parameter_argument(parameter)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
         })
         .collect()
 }

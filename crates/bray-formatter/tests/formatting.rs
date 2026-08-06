@@ -497,11 +497,12 @@ fn wraps_complete_callable_headers_and_binary_chains() {
 }
 
 #[test]
-fn callable_contract_clauses_use_continuation_lines() {
+fn declaration_contract_clauses_use_continuation_lines() {
     let source = concat!(
         "module app;",
         "extern trusted func reinterpret<Target, Source>",
-        "(pos pointer: RawPointer<Source>) -> RawPointer<Target> uses(layout_reinterpret);"
+        "(pos pointer: RawPointer<Source>) -> RawPointer<Target> uses(layout_reinterpret);",
+        "impl Buffer<T> with(T: Copyable){}",
     );
 
     let output = formatted(source);
@@ -512,6 +513,12 @@ fn callable_contract_clauses_use_continuation_lines() {
         output
             .text()
             .contains(") -> RawPointer<Target>\n    uses(layout_reinterpret);")
+    );
+
+    assert!(
+        output
+            .text()
+            .contains("impl Buffer<T>\n    with(T: Copyable)\n{")
     );
 
     assert!(!formatted(output.text()).changed());

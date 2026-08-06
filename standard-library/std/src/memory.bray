@@ -75,6 +75,18 @@ extern const func stride_of<T>() -> usize;
 
 extern const func layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;
 
+internal func checked_add_size(pos current: usize, pos additional: usize) -> Result<usize, MemoryLayoutError>
+{
+    let maximum: usize = ~0;
+
+    if additional > maximum - current
+    {
+        return Error(MemoryLayoutError.SizeOverflow);
+    }
+
+    return Ok(current + additional);
+}
+
 struct RawAllocation
 {
     pointer: RawPointer<u8>;
@@ -215,7 +227,14 @@ internal func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8>
 
 internal func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>
 {
-    if byte_slice_length(&bytes) == 0
+    let is_empty: bool =
+    {
+        let shared: &[u8] = &bytes;
+
+        yield byte_slice_length(shared) == 0;
+    };
+
+    if is_empty
     {
         return null<u8>();
     }

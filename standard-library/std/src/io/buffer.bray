@@ -101,11 +101,7 @@ internal func transferred_error(pos error: IoError, transferred: usize) -> IoErr
     let native_code: i64 = match platform_code
     {
         case ?code { yield code; }
-
-        case none
-        {
-            yield 0;
-        }
+        case none { yield 0; }
     };
 
     return io_error(kind = kind, native_code = native_code, transferred = transferred);

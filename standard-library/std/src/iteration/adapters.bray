@@ -1,0 +1,146 @@
+module std.iteration;
+
+struct Take<I, E>
+{
+    internal mut source: I;
+    internal mut remaining: usize;
+}
+
+struct Skip<I, E>
+{
+    internal mut source: I;
+    internal mut remaining: usize;
+}
+
+struct Enumerate<I, E>
+{
+    internal mut source: I;
+    internal mut index: usize = 0;
+}
+
+func take<I>(pos source: I, count: usize) -> Take<I, I(Iterator).Element>
+    with(I: Iterator)
+{
+    let adapter: Take<I, I(Iterator).Element> =
+    {
+        source = source,
+        remaining = count,
+    };
+
+    return adapter;
+}
+
+func skip<I>(pos source: I, count: usize) -> Skip<I, I(Iterator).Element>
+    with(I: Iterator)
+{
+    let adapter: Skip<I, I(Iterator).Element> =
+    {
+        source = source,
+        remaining = count,
+    };
+
+    return adapter;
+}
+
+func enumerate<I>(pos source: I) -> Enumerate<I, I(Iterator).Element>
+    with(I: Iterator)
+{
+    let adapter: Enumerate<I, I(Iterator).Element> =
+    {
+        source = source,
+    };
+
+    return adapter;
+}
+
+impl TakeIterator = Take<I, E>(Iterator)
+    with(I: Iterator, I(Iterator).Element == E)
+{
+    type Element = E;
+
+    mut func next() -> E?
+    {
+        if self.remaining == 0
+        {
+            return none;
+        }
+
+        let item: E? = self.source(Iterator).next();
+
+        match consume item
+        {
+            case ?value
+            {
+                self.remaining = self.remaining - 1;
+
+                let mut result: E? = none;
+
+                result = value;
+
+                return result;
+            }
+            case none
+            {
+                self.remaining = 0;
+
+                return none;
+            }
+        }
+    }
+}
+
+impl SkipIterator = Skip<I, E>(Iterator)
+    with(I: Iterator, I(Iterator).Element == E)
+{
+    type Element = E;
+
+    mut func next() -> E?
+    {
+        while self.remaining > 0
+        {
+            let item: E? = self.source(Iterator).next();
+
+            match consume item
+            {
+                case ?_ { self.remaining = self.remaining - 1; }
+                case none
+                {
+                    self.remaining = 0;
+
+                    return none;
+                }
+            }
+        }
+
+        let item: E? = self.source(Iterator).next();
+
+        return item;
+    }
+}
+
+impl EnumerateIterator = Enumerate<I, E>(Iterator)
+    with(I: Iterator, I(Iterator).Element == E)
+{
+    type Element = (usize, E);
+
+    mut func next() -> (usize, E)?
+    {
+        let item: E? = self.source(Iterator).next();
+
+        match consume item
+        {
+            case ?value
+            {
+                let index: usize = self.index;
+                let pair: (usize, E) = (index, value);
+                let mut result: (usize, E)? = none;
+
+                self.index = index + 1;
+                result = pair;
+
+                return result;
+            }
+            case none { return none; }
+        }
+    }
+}
