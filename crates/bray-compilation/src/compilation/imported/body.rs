@@ -250,6 +250,7 @@ mod tests {
             bundle.surface(),
             bundle.semantic_facts(),
             [InterfaceConstantCallableBody::new(owner, template)],
+            [],
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("test implementation artifact must validate: {error:?}"));

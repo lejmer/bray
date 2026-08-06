@@ -39,7 +39,7 @@ pub use header::{
     InterfaceRequiredFlags,
 };
 pub use implementation::{
-    InterfaceConstantCallableBody, PackageImplementationArtifact,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, PackageImplementationArtifact,
     PackageImplementationArtifactBuildError,
 };
 pub use inspection::{

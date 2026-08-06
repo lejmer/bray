@@ -16,7 +16,24 @@ use crate::{
 const MAGIC: [u8; 8] = *b"BRAYIMPL";
 const FORMAT_VERSION: u16 = 1;
 const HEADER_LENGTH: usize = 48;
-const DIRECTORY_ENTRY_LENGTH: usize = 20;
+const DIRECTORY_ENTRY_LENGTH: usize = 24;
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(u8)]
+enum ImplementationPayloadKind {
+    ConstantCallableBody = 0,
+    ExecutableTemplate = 1,
+}
+
+impl ImplementationPayloadKind {
+    const fn from_raw(raw: u8) -> Option<Self> {
+        match raw {
+            0 => Some(Self::ConstantCallableBody),
+            1 => Some(Self::ExecutableTemplate),
+            _ => None,
+        }
+    }
+}
 
 /// One checked const-callable body addressed by its public interface identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,9 +59,36 @@ impl InterfaceConstantCallableBody {
     }
 }
 
+/// One source-independent generic executable body addressed by interface identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InterfaceExecutableTemplate {
+    owner: InterfaceSymbolId,
+    payload: Arc<[u8]>,
+}
+
+impl InterfaceExecutableTemplate {
+    /// Creates one encoded executable template for a generic callable declaration.
+    pub fn new(owner: InterfaceSymbolId, payload: impl Into<Arc<[u8]>>) -> Option<Self> {
+        let payload = payload.into();
+
+        (!payload.is_empty()).then_some(Self { owner, payload })
+    }
+
+    /// Returns the callable declaration that owns this template.
+    pub const fn owner(&self) -> InterfaceSymbolId {
+        self.owner
+    }
+
+    /// Returns the canonical source-independent executable payload.
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ImplementationDirectoryEntry {
     owner: InterfaceSymbolId,
+    kind: ImplementationPayloadKind,
     payload: Range<usize>,
 }
 
@@ -54,7 +98,7 @@ pub struct PackageImplementationArtifact {
     bytes: Arc<[u8]>,
     interface_content_hash: InterfaceContentHash,
     language_revision: InterfaceLanguageRevision,
-    constant_callable_bodies: Arc<[ImplementationDirectoryEntry]>,
+    directory: Arc<[ImplementationDirectoryEntry]>,
 }
 
 impl PackageImplementationArtifact {
@@ -64,6 +108,7 @@ impl PackageImplementationArtifact {
         surface: &PackageInterfaceSurface,
         semantic_facts: &InterfaceSemanticFacts,
         constant_callable_bodies: impl IntoIterator<Item = InterfaceConstantCallableBody>,
+        executable_templates: impl IntoIterator<Item = InterfaceExecutableTemplate>,
         limits: InterfaceValidationLimits,
     ) -> Result<Self, PackageImplementationArtifactBuildError> {
         let mut bodies = constant_callable_bodies.into_iter().collect::<Vec<_>>();
@@ -86,10 +131,29 @@ impl PackageImplementationArtifact {
                 .map_err(PackageImplementationArtifactBuildError::InvalidBody)?;
         }
 
+        let mut templates = executable_templates.into_iter().collect::<Vec<_>>();
+
+        templates.sort_by_key(InterfaceExecutableTemplate::owner);
+
+        for pair in templates.windows(2) {
+            if pair[0].owner() == pair[1].owner() {
+                return Err(
+                    PackageImplementationArtifactBuildError::DuplicateExecutableTemplate(
+                        pair[0].owner(),
+                    ),
+                );
+            }
+        }
+
+        for template in &templates {
+            validate_executable_owner(surface, semantic_facts, template.owner())?;
+        }
+
         let bytes = encode_artifact(
             interface.header().content_hash(),
             interface.header().language_revision(),
             &bodies,
+            &templates,
         )?;
 
         Self::try_from_bytes(bytes, limits)
@@ -141,6 +205,15 @@ impl PackageImplementationArtifact {
 
         for _ in 0..count {
             let owner = InterfaceSymbolId::new(reader.read_u32().map_err(map_wire_error)?);
+            let kind = ImplementationPayloadKind::from_raw(
+                reader.read_array::<1>().map_err(map_wire_error)?[0],
+            )
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+            if reader.read_array::<3>().map_err(map_wire_error)? != [0; 3] {
+                return Err(InterfaceValidationError::Malformed);
+            }
+
             let offset = reader.read_u64().map_err(map_wire_error)?;
             let length = reader.read_u64().map_err(map_wire_error)?;
 
@@ -168,13 +241,16 @@ impl PackageImplementationArtifact {
 
             if directory
                 .last()
-                .is_some_and(|previous: &ImplementationDirectoryEntry| previous.owner >= owner)
+                .is_some_and(|previous: &ImplementationDirectoryEntry| {
+                    (previous.owner, previous.kind) >= (owner, kind)
+                })
             {
                 return Err(InterfaceValidationError::Malformed);
             }
 
             directory.push(ImplementationDirectoryEntry {
                 owner,
+                kind,
                 payload: start..end_index,
             });
 
@@ -196,7 +272,7 @@ impl PackageImplementationArtifact {
             bytes,
             interface_content_hash,
             language_revision,
-            constant_callable_bodies: directory.into(),
+            directory: directory.into(),
         })
     }
 
@@ -222,17 +298,9 @@ impl PackageImplementationArtifact {
         surface: &PackageInterfaceSurface,
         limits: InterfaceValidationLimits,
     ) -> Result<Option<InterfaceConstantCallableBody>, InterfaceValidationError> {
-        let Ok(index) = self
-            .constant_callable_bodies
-            .binary_search_by_key(&owner, |entry| entry.owner)
-        else {
+        let Some(entry) = self.entry(owner, ImplementationPayloadKind::ConstantCallableBody) else {
             return Ok(None);
         };
-
-        let entry = self
-            .constant_callable_bodies
-            .get(index)
-            .ok_or(InterfaceValidationError::Malformed)?;
 
         let payload = self
             .bytes
@@ -246,6 +314,61 @@ impl PackageImplementationArtifact {
 
         Ok(Some(InterfaceConstantCallableBody::new(owner, template)))
     }
+
+    /// Returns the independently encoded executable template for one generic callable.
+    pub fn executable_template(
+        &self,
+        owner: InterfaceSymbolId,
+    ) -> Result<Option<InterfaceExecutableTemplate>, InterfaceValidationError> {
+        let Some(entry) = self.entry(owner, ImplementationPayloadKind::ExecutableTemplate) else {
+            return Ok(None);
+        };
+
+        let payload = self
+            .bytes
+            .get(entry.payload.clone())
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        InterfaceExecutableTemplate::new(owner, Arc::<[u8]>::from(payload))
+            .map(Some)
+            .ok_or(InterfaceValidationError::Malformed)
+    }
+
+    fn entry(
+        &self,
+        owner: InterfaceSymbolId,
+        kind: ImplementationPayloadKind,
+    ) -> Option<&ImplementationDirectoryEntry> {
+        self.directory
+            .binary_search_by_key(&(owner, kind), |entry| (entry.owner, entry.kind))
+            .ok()
+            .and_then(|index| self.directory.get(index))
+    }
+}
+
+fn validate_executable_owner(
+    surface: &PackageInterfaceSurface,
+    semantic_facts: &InterfaceSemanticFacts,
+    owner: InterfaceSymbolId,
+) -> Result<(), PackageImplementationArtifactBuildError> {
+    let Some(owner_symbol) = surface.symbols().symbol(owner) else {
+        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(owner));
+    };
+
+    let generic = semantic_facts
+        .generic_declarations()
+        .iter()
+        .find(|declaration| {
+            matches!(declaration.owner(), crate::InterfaceSymbolReference::Local(id) if *id == owner)
+        });
+
+    if !owner_symbol.kind().is_callable()
+        || generic.is_none_or(|generic| generic.parameters().is_empty())
+    {
+        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(owner));
+    }
+
+    Ok(())
 }
 
 fn validate_body_owner(
@@ -270,13 +393,30 @@ fn encode_artifact(
     interface_content_hash: InterfaceContentHash,
     language_revision: InterfaceLanguageRevision,
     bodies: &[InterfaceConstantCallableBody],
+    templates: &[InterfaceExecutableTemplate],
 ) -> Result<Arc<[u8]>, PackageImplementationArtifactBuildError> {
-    let payloads = bodies
+    let mut payloads = bodies
         .iter()
-        .map(|body| encode_template_payload(body.template()))
+        .map(|body| {
+            (
+                body.owner(),
+                ImplementationPayloadKind::ConstantCallableBody,
+                encode_template_payload(body.template()),
+            )
+        })
         .collect::<Vec<_>>();
 
-    let count = u32::try_from(bodies.len()).map_err(|_| {
+    payloads.extend(templates.iter().map(|template| {
+        (
+            template.owner(),
+            ImplementationPayloadKind::ExecutableTemplate,
+            template.payload().to_vec(),
+        )
+    }));
+
+    payloads.sort_by_key(|(owner, kind, _)| (*owner, *kind));
+
+    let count = u32::try_from(payloads.len()).map_err(|_| {
         PackageImplementationArtifactBuildError::InvalidArtifact(
             InterfaceValidationError::Malformed,
         )
@@ -292,14 +432,16 @@ fn encode_artifact(
 
     let mut offset = 0_u64;
 
-    for (body, payload) in bodies.iter().zip(&payloads) {
+    for (owner, kind, payload) in &payloads {
         let length = u64::try_from(payload.len()).map_err(|_| {
             PackageImplementationArtifactBuildError::InvalidArtifact(
                 InterfaceValidationError::Malformed,
             )
         })?;
 
-        encoder.write_u32(body.owner().raw());
+        encoder.write_u32(owner.raw());
+        encoder.write_bytes(&[*kind as u8]);
+        encoder.write_bytes(&[0; 3]);
         encoder.write_u64(offset);
         encoder.write_u64(length);
 
@@ -310,7 +452,7 @@ fn encode_artifact(
         )?;
     }
 
-    for payload in payloads {
+    for (_, _, payload) in payloads {
         encoder.write_bytes(&payload);
     }
 
@@ -322,6 +464,8 @@ fn encode_artifact(
 pub enum PackageImplementationArtifactBuildError {
     /// Two payloads claim the same callable identity.
     DuplicateCallableBody(InterfaceSymbolId),
+    /// Two executable templates claim the same callable identity.
+    DuplicateExecutableTemplate(InterfaceSymbolId),
     /// A payload owner is missing, is not callable, or disagrees with the body category.
     InvalidCallableOwner(InterfaceSymbolId),
     /// A checked body does not form a valid source-independent template graph.
@@ -336,7 +480,7 @@ mod tests {
     use bray_symbols::SymbolKind;
 
     use super::{
-        InterfaceConstantCallableBody, PackageImplementationArtifact,
+        InterfaceConstantCallableBody, InterfaceExecutableTemplate, PackageImplementationArtifact,
         PackageImplementationArtifactBuildError,
     };
     use crate::{
@@ -353,6 +497,7 @@ mod tests {
             fixture.bundle.surface(),
             fixture.bundle.semantic_facts(),
             [fixture.body.clone()],
+            [],
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("constant body artifact must validate: {error:?}"));
@@ -392,6 +537,7 @@ mod tests {
             fixture.interface.header().content_hash(),
             fixture.interface.header().language_revision(),
             &[fixture.body.clone(), second],
+            &[],
         )
         .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"))
         .to_vec();
@@ -436,6 +582,7 @@ mod tests {
             fixture.bundle.surface(),
             fixture.bundle.semantic_facts(),
             [fixture.body.clone(), fixture.body.clone()],
+            [],
             InterfaceValidationLimits::default(),
         );
 
@@ -447,6 +594,46 @@ mod tests {
                 )
             )
         );
+    }
+
+    #[test]
+    fn artifacts_load_executable_templates_independently() {
+        let fixture = artifact_fixture();
+
+        let owner = fixture
+            .bundle
+            .semantic_facts()
+            .generic_declarations()
+            .iter()
+            .find_map(|declaration| match declaration.owner() {
+                crate::InterfaceSymbolReference::Local(owner)
+                    if fixture
+                        .bundle
+                        .surface()
+                        .symbols()
+                        .symbol(*owner)
+                        .is_some_and(|symbol| symbol.kind().is_callable()) =>
+                {
+                    Some(*owner)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("test interface must export a generic callable"));
+
+        let template = InterfaceExecutableTemplate::new(owner, [1_u8, 2, 3])
+            .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
+
+        let artifact = PackageImplementationArtifact::try_new(
+            &fixture.interface,
+            fixture.bundle.surface(),
+            fixture.bundle.semantic_facts(),
+            [fixture.body],
+            [template.clone()],
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("executable template artifact must validate: {error:?}"));
+
+        assert_eq!(artifact.executable_template(owner), Ok(Some(template)));
     }
 
     struct ArtifactFixture {

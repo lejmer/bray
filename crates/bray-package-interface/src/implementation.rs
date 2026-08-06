@@ -1,6 +1,6 @@
 mod model;
 
 pub use model::{
-    InterfaceConstantCallableBody, PackageImplementationArtifact,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, PackageImplementationArtifact,
     PackageImplementationArtifactBuildError,
 };
