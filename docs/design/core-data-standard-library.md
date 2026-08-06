@@ -380,6 +380,10 @@ Utilities preserve the exact operand and result types stated by their signatures
 defined width. Parsing never depends on the host process locale. Operations whose behavior differs for integer, real, or complex
 domains expose that difference through overloads, traits, or typed policy rather than an untyped mode flag.
 
+The public `Integer` trait defines the common integer contract required by generic checked arithmetic. Every language-defined
+integer type implements that contract. Generic numeric APIs expose `Integer` when their validity depends on integer bounds rather
+than hiding those requirements behind an interface-private helper.
+
 The recognized conversion and numeric-policy operations at the `std` root retain the exact identities and semantics defined by the
 language specification. Named helpers may build on them but cannot weaken their range, representation, rounding, or failure
 contracts.

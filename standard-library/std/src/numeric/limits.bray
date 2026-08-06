@@ -48,7 +48,7 @@ const ISIZE_MAX: isize = 9223372036854775807;
 
 const ISIZE_MIN: isize = -ISIZE_MAX - 1;
 
-impl U8IntegerBounds = u8(IntegerBounds)
+impl U8Integer = u8(Integer)
 {
     func bounds() -> (u8, u8, u8, u8)
     {
@@ -56,7 +56,7 @@ impl U8IntegerBounds = u8(IntegerBounds)
     }
 }
 
-impl U16IntegerBounds = u16(IntegerBounds)
+impl U16Integer = u16(Integer)
 {
     func bounds() -> (u16, u16, u16, u16)
     {
@@ -64,7 +64,7 @@ impl U16IntegerBounds = u16(IntegerBounds)
     }
 }
 
-impl U32IntegerBounds = u32(IntegerBounds)
+impl U32Integer = u32(Integer)
 {
     func bounds() -> (u32, u32, u32, u32)
     {
@@ -72,7 +72,7 @@ impl U32IntegerBounds = u32(IntegerBounds)
     }
 }
 
-impl U64IntegerBounds = u64(IntegerBounds)
+impl U64Integer = u64(Integer)
 {
     func bounds() -> (u64, u64, u64, u64)
     {
@@ -80,7 +80,7 @@ impl U64IntegerBounds = u64(IntegerBounds)
     }
 }
 
-impl U128IntegerBounds = u128(IntegerBounds)
+impl U128Integer = u128(Integer)
 {
     func bounds() -> (u128, u128, u128, u128)
     {
@@ -88,7 +88,7 @@ impl U128IntegerBounds = u128(IntegerBounds)
     }
 }
 
-impl UsizeIntegerBounds = usize(IntegerBounds)
+impl UsizeInteger = usize(Integer)
 {
     func bounds() -> (usize, usize, usize, usize)
     {
@@ -96,7 +96,7 @@ impl UsizeIntegerBounds = usize(IntegerBounds)
     }
 }
 
-impl I8IntegerBounds = i8(IntegerBounds)
+impl I8Integer = i8(Integer)
 {
     func bounds() -> (i8, i8, i8, i8)
     {
@@ -104,7 +104,7 @@ impl I8IntegerBounds = i8(IntegerBounds)
     }
 }
 
-impl I16IntegerBounds = i16(IntegerBounds)
+impl I16Integer = i16(Integer)
 {
     func bounds() -> (i16, i16, i16, i16)
     {
@@ -112,7 +112,7 @@ impl I16IntegerBounds = i16(IntegerBounds)
     }
 }
 
-impl I32IntegerBounds = i32(IntegerBounds)
+impl I32Integer = i32(Integer)
 {
     func bounds() -> (i32, i32, i32, i32)
     {
@@ -120,7 +120,7 @@ impl I32IntegerBounds = i32(IntegerBounds)
     }
 }
 
-impl I64IntegerBounds = i64(IntegerBounds)
+impl I64Integer = i64(Integer)
 {
     func bounds() -> (i64, i64, i64, i64)
     {
@@ -128,7 +128,7 @@ impl I64IntegerBounds = i64(IntegerBounds)
     }
 }
 
-impl I128IntegerBounds = i128(IntegerBounds)
+impl I128Integer = i128(Integer)
 {
     func bounds() -> (i128, i128, i128, i128)
     {
@@ -136,7 +136,7 @@ impl I128IntegerBounds = i128(IntegerBounds)
     }
 }
 
-impl IsizeIntegerBounds = isize(IntegerBounds)
+impl IsizeInteger = isize(Integer)
 {
     func bounds() -> (isize, isize, isize, isize)
     {
