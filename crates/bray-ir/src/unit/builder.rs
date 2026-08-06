@@ -37,6 +37,27 @@ pub struct MirUnitBuilder {
 }
 
 impl MirUnitBuilder {
+    /// Starts MIR reconstruction for one checked executable template from a dependency.
+    pub fn for_imported_callable(
+        unit: MirUnitId,
+        callable: bray_symbols::CallableDefinitionId,
+        kind: MirUnitKind,
+        target: MirTargetFacts,
+    ) -> Self {
+        Self {
+            key: MirUnitKey::ExternalCallable(callable),
+            unit,
+            source: MirSourceOrigin::ImportedCallable(callable),
+            target,
+            kind,
+            frame_descriptor: None,
+            blocks: Vec::new(),
+            operations: Vec::new(),
+            storages: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
     /// Starts MIR construction for one checked bound unit.
     pub fn for_bound(
         identity: BoundUnitIdentity<'_>,
