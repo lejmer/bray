@@ -288,7 +288,7 @@ impl Lowerer<'_> {
                 Self::retained_source(&source),
                 MirTerminatorKind::PatternBranch {
                     subject: Self::retained_operand(&subject),
-                    predicate,
+                    predicate: predicate.into(),
                     matched: MirEdge::new(children_entry, []),
                     unmatched: MirEdge::new(unmatched, []),
                 },

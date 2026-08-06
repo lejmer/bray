@@ -22,6 +22,7 @@ struct PayloadWire<'manifest> {
     product_kind: &'static str,
     public_surface: &'static str,
     interface: ArtifactWire<'manifest>,
+    implementation: ArtifactWire<'manifest>,
     targets: Vec<TargetWire<'manifest>>,
 }
 
@@ -33,6 +34,7 @@ struct PublishedWire<'manifest> {
     product_kind: &'static str,
     public_surface: &'static str,
     interface: ArtifactWire<'manifest>,
+    implementation: ArtifactWire<'manifest>,
     targets: Vec<TargetWire<'manifest>>,
     bundle_digest: DigestWire,
 }
@@ -61,6 +63,7 @@ pub(super) struct OwnedPublishedWire {
     pub product_kind: String,
     pub public_surface: String,
     pub interface: OwnedArtifactWire,
+    pub implementation: OwnedArtifactWire,
     pub targets: Vec<OwnedTargetWire>,
     pub bundle_digest: OwnedDigestWire,
 }
@@ -104,18 +107,20 @@ pub(super) struct OwnedDigestWire {
 
 pub(super) fn encode_payload(
     interface: &StandardLibraryArtifact,
+    implementation: &StandardLibraryArtifact,
     targets: &[StandardLibraryTargetArtifacts],
 ) -> Result<Vec<u8>, StandardLibraryManifestError> {
-    serde_json::to_vec(&payload_wire(interface, targets))
+    serde_json::to_vec(&payload_wire(interface, implementation, targets))
         .map_err(|_| StandardLibraryManifestError::Malformed)
 }
 
 pub(super) fn encode_published(
     interface: &StandardLibraryArtifact,
+    implementation: &StandardLibraryArtifact,
     targets: &[StandardLibraryTargetArtifacts],
     bundle_digest: StandardLibraryBundleDigest,
 ) -> Result<Vec<u8>, StandardLibraryManifestError> {
-    let payload = payload_wire(interface, targets);
+    let payload = payload_wire(interface, implementation, targets);
 
     let published = PublishedWire {
         format: payload.format,
@@ -124,6 +129,7 @@ pub(super) fn encode_published(
         product_kind: payload.product_kind,
         public_surface: payload.public_surface,
         interface: payload.interface,
+        implementation: payload.implementation,
         targets: payload.targets,
         bundle_digest: digest_wire(bundle_digest.bytes()),
     };
@@ -156,6 +162,7 @@ pub(super) const fn runtime_abi(wire: RuntimeAbiWire) -> RuntimeAbiVersion {
 
 fn payload_wire<'manifest>(
     interface: &'manifest StandardLibraryArtifact,
+    implementation: &'manifest StandardLibraryArtifact,
     targets: &'manifest [StandardLibraryTargetArtifacts],
 ) -> PayloadWire<'manifest> {
     PayloadWire {
@@ -165,6 +172,7 @@ fn payload_wire<'manifest>(
         product_kind: "library",
         public_surface: PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY,
         interface: artifact_wire(interface),
+        implementation: artifact_wire(implementation),
         targets: targets.iter().map(target_wire).collect(),
     }
 }

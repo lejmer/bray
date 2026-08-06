@@ -37,6 +37,27 @@ pub struct MirUnitBuilder {
 }
 
 impl MirUnitBuilder {
+    /// Starts MIR reconstruction for one checked executable template from a dependency.
+    pub fn for_imported_callable(
+        unit: MirUnitId,
+        callable: bray_symbols::CallableDefinitionId,
+        kind: MirUnitKind,
+        target: MirTargetFacts,
+    ) -> Self {
+        Self {
+            key: MirUnitKey::ImportedCallable(callable),
+            unit,
+            source: MirSourceOrigin::ImportedCallable(callable),
+            target,
+            kind,
+            frame_descriptor: None,
+            blocks: Vec::new(),
+            operations: Vec::new(),
+            storages: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
     /// Starts MIR construction for one checked bound unit.
     pub fn for_bound(
         identity: BoundUnitIdentity<'_>,
@@ -942,7 +963,7 @@ mod tests {
         entry: crate::MirBlockId,
         result_type: bray_symbols::TypeId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
 
         let abi = RuntimeAbiVersion::new(1, 0);
 

@@ -735,6 +735,7 @@ impl Compilation {
                         LinkInputKind::Archive
                     }
                     bray_standard_library::StandardLibraryArtifactKind::PackageInterface
+                    | bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
                     | bray_standard_library::StandardLibraryArtifactKind::DependencyMetadata
                     | bray_standard_library::StandardLibraryArtifactKind::RuntimeArtifact => {
                         return None;
@@ -812,10 +813,18 @@ mod tests {
     };
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::DiagnosticBag;
-    use bray_ir::{MirHelperReference, MirHostOperation, MirOperationKind, MirUnitKind};
+    use bray_ir::{
+        MirHelperReference, MirHostOperation, MirOperationKind, MirUnitKey, MirUnitKind,
+    };
     use bray_linker::{
         LinkFailure, LinkInputKind, LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome,
         LinkPlan, LinkedProductKind, Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
+    };
+    use bray_package_interface::{
+        InterfaceExecutableTemplate, InterfaceLanguageRevision, InterfaceProductIdentity,
+        InterfaceProductKind, InterfaceValidationLimits, InterfaceValidationPolicy,
+        PackageImplementationArtifact, PackageInterfaceIdentity, ValidatedPackageInterface,
+        encode_package_interface,
     };
     use bray_runtime_interface::{
         BinarySymbolName, ExecutableEntryResult, ExecutableHostContractBuildError,
@@ -839,8 +848,11 @@ mod tests {
     use bray_testing::TemporaryFile;
 
     use super::CODEGEN_PARTITION_REVISION;
+    use super::NativeProductFactError;
+    use crate::compilation::CodegenFactError;
     use crate::{
-        CancellationToken, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
+        CancellationToken, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
+        PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
     };
 
     const CONCRETE_GENERIC_SOURCE: &str = concat!(
@@ -903,6 +915,13 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("interface metadata must be valid: {error:?}"));
 
+        let implementation = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageImplementation,
+            "interfaces/std.brayimpl",
+            b"implementation",
+        )
+        .unwrap_or_else(|error| panic!("implementation metadata must be valid: {error:?}"));
+
         let archive = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::StaticLibrary,
             archive_path,
@@ -914,8 +933,9 @@ mod tests {
             StandardLibraryTargetArtifacts::try_new(target, runtime_abi, [archive.clone()])
                 .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
-        let manifest = StandardLibraryBundleManifest::try_new(interface, [target_artifacts])
-            .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
+        let manifest =
+            StandardLibraryBundleManifest::try_new(interface, implementation, [target_artifacts])
+                .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
 
         let archive_file = archive.beneath(directory.path());
 
@@ -1538,6 +1558,202 @@ mod tests {
                 .iter()
                 .any(|argument| matches!(argument, CodegenGenericArgument::Constant(_)))
         }));
+    }
+
+    #[test]
+    fn imported_generic_templates_specialize_with_private_helpers_in_the_consumer() {
+        let compilation = generic_consumer(generic_dependency(true));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("consumer target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("consumer product facts must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
+
+        let reachability = compilation
+            .codegen_reachability(roots, None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("consumer reachability must close: {error:?}"));
+
+        let imported = reachability
+            .graph()
+            .instances()
+            .iter()
+            .filter(|instance| matches!(instance.key().template(), MirUnitKey::ImportedCallable(_)))
+            .collect::<Vec<_>>();
+
+        assert_eq!(imported.len(), 2);
+
+        assert!(imported.iter().all(|instance| {
+            matches!(
+                instance.key().specialization(),
+                CodegenSpecialization::Generic(arguments)
+                    if arguments.iter().any(|argument| {
+                        matches!(argument, CodegenGenericArgument::Type(_))
+                    })
+            )
+        }));
+
+        assert!(imported.iter().any(|instance| {
+            instance.mir().operations().iter().any(|operation| {
+                matches!(
+                    operation.kind(),
+                    MirOperationKind::Call(call) if call.phase_behaviors().is_some()
+                )
+            })
+        }));
+    }
+
+    #[test]
+    fn imported_generic_templates_are_shared_by_concurrent_requests() {
+        let compilation = generic_consumer(generic_dependency(true));
+        let address = first_imported_function_address(&compilation);
+
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| {
+                compilation.imported_executable_template_with_cancellation(
+                    address,
+                    &compilation.state.cancellation,
+                )
+            });
+
+            let second = scope.spawn(|| {
+                compilation.imported_executable_template_with_cancellation(
+                    address,
+                    &compilation.state.cancellation,
+                )
+            });
+
+            let first = first
+                .join()
+                .unwrap_or_else(|_| panic!("first template query must not panic"))
+                .unwrap_or_else(|error| panic!("first template query must complete: {error:?}"));
+
+            let second = second
+                .join()
+                .unwrap_or_else(|_| panic!("second template query must not panic"))
+                .unwrap_or_else(|error| panic!("second template query must complete: {error:?}"));
+
+            assert!(Arc::ptr_eq(&first, &second));
+
+            let first = first
+                .value()
+                .as_ref()
+                .unwrap_or_else(|| panic!("first query must publish validated MIR"));
+
+            let second = second
+                .value()
+                .as_ref()
+                .unwrap_or_else(|| panic!("second query must publish validated MIR"));
+
+            assert!(Arc::ptr_eq(first, second));
+        });
+    }
+
+    #[test]
+    fn imported_executable_templates_reject_a_different_target_contract() {
+        let compilation = generic_consumer_for_target(
+            generic_dependency(true),
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+        );
+
+        let result = compilation
+            .imported_executable_template_with_cancellation(
+                first_imported_function_address(&compilation),
+                &compilation.state.cancellation,
+            )
+            .unwrap_or_else(|error| panic!("target mismatch must be diagnosed: {error:?}"));
+
+        assert!(result.value().is_none());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::InterfaceExecutableTemplateUnavailable)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn malformed_imported_executable_templates_publish_dependency_diagnostics() {
+        let compilation = generic_consumer(generic_dependency_with_templates(true, true));
+
+        let result = compilation
+            .imported_executable_template_with_cancellation(
+                first_imported_function_address(&compilation),
+                &compilation.state.cancellation,
+            )
+            .unwrap_or_else(|error| panic!("malformed template must be diagnosed: {error:?}"));
+
+        assert!(result.value().is_none());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(bray_diagnostics::DiagnosticKind::InterfaceTruncated)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn imported_generic_body_without_an_implementation_template_is_diagnosed() {
+        let compilation = generic_consumer(generic_dependency(false));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("consumer target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("consumer product facts must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
+
+        let error = match compilation.codegen_reachability(roots, None, &target, &cancellation) {
+            Ok(_) => panic!("missing imported templates must stop code generation reachability"),
+            Err(error) => error,
+        };
+
+        let NativeProductFactError::Codegen(CodegenFactError::Diagnostics(diagnostics)) = error
+        else {
+            panic!("missing imported template must preserve its diagnostics: {error:?}");
+        };
+
+        assert_eq!(
+            diagnostics
+                .by_kind(bray_diagnostics::DiagnosticKind::InterfaceExecutableTemplateUnavailable)
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -2200,5 +2416,174 @@ mod tests {
                 CodegenSpecialization::NonGeneric => None,
             })
             .collect()
+    }
+
+    fn generic_consumer(dependency: DependencyInterfaceInput) -> crate::Compilation {
+        generic_consumer_for_target(dependency, SelectedTarget::baseline())
+    }
+
+    fn generic_consumer_for_target(
+        dependency: DependencyInterfaceInput,
+        target: SelectedTarget,
+    ) -> crate::Compilation {
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(
+                concat!(
+                    "module application;\n",
+                    "\n",
+                    "using example.dependency.templates.identity;\n",
+                    "\n",
+                    "func main()\n",
+                    "{\n",
+                    "    let value: i32 = example.dependency.templates.identity<i32>(1);\n",
+                    "}\n",
+                ),
+                0,
+            )],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Executable,
+                target,
+            ),
+        )
+        .with_dependency_interfaces([dependency]);
+
+        crate::Compilation::load(request)
+            .unwrap_or_else(|error| panic!("consumer compilation must load: {error:?}"))
+    }
+
+    fn generic_dependency(include_implementation: bool) -> DependencyInterfaceInput {
+        generic_dependency_with_templates(include_implementation, false)
+    }
+
+    fn generic_dependency_with_templates(
+        include_implementation: bool,
+        malformed_templates: bool,
+    ) -> DependencyInterfaceInput {
+        let package = bray_symbols::PackageIdentity::try_new("example.dependency")
+            .unwrap_or_else(|| panic!("dependency package identity must be valid"));
+
+        let product = InterfaceProductIdentity::try_new("library")
+            .unwrap_or_else(|| panic!("dependency product identity must be valid"));
+
+        let identity = PackageInterfaceIdentity::try_new(
+            package.clone(),
+            crate::test_support::package_version(),
+            product.clone(),
+            InterfaceProductKind::Library,
+            "public",
+        )
+        .unwrap_or_else(|| panic!("dependency interface identity must be valid"));
+
+        let export =
+            PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
+
+        let request = CompilationRequest::with_options(
+            package.clone(),
+            vec![crate::test_support::source_input(
+                concat!(
+                    "module templates;\n",
+                    "\n",
+                    "func helper<T>(pos value: T) -> T\n",
+                    "{\n",
+                    "    return value;\n",
+                    "}\n",
+                    "\n",
+                    "public func identity<T>(pos value: T) -> T\n",
+                    "{\n",
+                    "    return helper<T>(value);\n",
+                    "}\n",
+                ),
+                0,
+            )],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+            ),
+        )
+        .with_package_interface_export(export);
+
+        let compilation = crate::Compilation::load(request)
+            .unwrap_or_else(|error| panic!("dependency compilation must load: {error:?}"));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let bundle = compilation
+            .package_interface_export_bundle()
+            .and_then(|result| result.as_ref().ok())
+            .unwrap_or_else(|| panic!("dependency interface bundle must build"));
+
+        let interface = encode_package_interface(bundle)
+            .unwrap_or_else(|error| panic!("dependency interface must encode: {error:?}"));
+
+        let policy = InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0));
+
+        let validated = ValidatedPackageInterface::try_new(interface.bytes(), policy)
+            .unwrap_or_else(|error| panic!("dependency interface must validate: {error:?}"));
+
+        let templates = bundle
+            .executable_templates()
+            .iter()
+            .map(|template| {
+                if malformed_templates {
+                    InterfaceExecutableTemplate::new(template.owner(), [0_u8])
+                        .unwrap_or_else(|| panic!("malformed test payload must remain nonempty"))
+                } else {
+                    template.clone()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let implementation = PackageImplementationArtifact::try_new(
+            &validated,
+            bundle.surface(),
+            bundle.semantic_facts(),
+            [],
+            templates,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("dependency implementation must encode: {error:?}"));
+
+        assert_eq!(bundle.executable_templates().len(), 2);
+
+        let dependency = DependencyInterfaceInput::new(
+            package,
+            product,
+            "dependency.brayi",
+            interface.shared_bytes(),
+            policy,
+        );
+
+        if include_implementation {
+            dependency.with_implementation_artifact("dependency.brayimpl", Arc::new(implementation))
+        } else {
+            dependency
+        }
+    }
+
+    fn first_imported_function_address(
+        compilation: &crate::Compilation,
+    ) -> bray_symbols::ImportedSymbolFactAddress {
+        let skeleton = compilation
+            .imported_symbol_skeleton_result()
+            .unwrap_or_else(|error| panic!("imported skeleton must load: {error:?}"));
+
+        let skeleton = skeleton
+            .value()
+            .as_deref()
+            .unwrap_or_else(|| panic!("valid dependency must publish a symbol skeleton"));
+
+        skeleton
+            .functions()
+            .iter()
+            .filter_map(|function| skeleton.imported_fact_address(function.id().into()))
+            .next()
+            .unwrap_or_else(|| panic!("imported generic function must have a fact address"))
     }
 }

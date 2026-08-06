@@ -1,3 +1,6 @@
+use std::hash::{Hash, Hasher};
+
+use bray_base::StableDigestHasher;
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_target::{TargetIdentity, TargetMachineProperties, TargetProfile};
 
@@ -35,5 +38,45 @@ impl MirTargetFacts {
     /// Returns the selected private runtime ABI version.
     pub const fn runtime_abi(&self) -> RuntimeAbiVersion {
         self.runtime_abi
+    }
+
+    /// Returns a stable identity for every target fact that can affect MIR.
+    pub fn compatibility_digest(&self) -> [u8; 32] {
+        let mut digest = StableDigestHasher::new();
+
+        digest.write(b"bray.mir-target-facts.v1");
+        self.profile.hash(&mut digest);
+        self.runtime_abi.hash(&mut digest);
+
+        digest.finalize()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_runtime_interface::RuntimeAbiVersion;
+
+    use super::MirTargetFacts;
+
+    #[test]
+    fn compatibility_identity_covers_target_profile_and_runtime_abi() {
+        let profile = bray_target::test_support::test_target_profile();
+        let baseline = MirTargetFacts::new(profile.clone(), RuntimeAbiVersion::new(1, 0));
+        let different_abi = MirTargetFacts::new(profile, RuntimeAbiVersion::new(1, 1));
+
+        let different_target = MirTargetFacts::new(
+            bray_target::NativeTarget::X86_64WindowsMsvc.profile(),
+            RuntimeAbiVersion::new(1, 0),
+        );
+
+        assert_ne!(
+            baseline.compatibility_digest(),
+            different_abi.compatibility_digest()
+        );
+
+        assert_ne!(
+            baseline.compatibility_digest(),
+            different_target.compatibility_digest()
+        );
     }
 }

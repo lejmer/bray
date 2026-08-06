@@ -300,7 +300,8 @@ const fn artifact_matches_product(kind: ArtifactKind, product: ProductKind) -> b
         }
         ArtifactKind::StaticLibrary
         | ArtifactKind::SharedLibrary
-        | ArtifactKind::PackageInterface => matches!(product, ProductKind::Library),
+        | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageImplementation => matches!(product, ProductKind::Library),
         ArtifactKind::Assembly
         | ArtifactKind::BackendIr
         | ArtifactKind::BackendBitcode

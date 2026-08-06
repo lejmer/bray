@@ -346,7 +346,7 @@ mod tests {
         frame: ProtectedAsyncFrameId,
         entry: bray_ir::MirBlockId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
 
         match MirFrameDescriptor::try_new(
             frame,

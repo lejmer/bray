@@ -365,6 +365,8 @@ pub(crate) enum CompilationFactKey {
     DiscoverySymbolGraph,
     /// Structural validation and identity decoding for one compiled dependency interface.
     DependencyInterface(ImportedInterfaceId),
+    /// The implementation payload companion for one compiled dependency interface.
+    DependencyImplementation(ImportedInterfaceId),
     /// Diagnostics owned by all selected compiled dependency interfaces.
     ImportedDiagnostics,
     /// The immutable index over available implementation declaration headers.
@@ -386,6 +388,8 @@ pub(crate) enum CompilationFactKey {
     ImportedSemanticFact(ImportedSemanticFactKey),
     /// One checked imported const-callable body selected from an implementation artifact.
     ImportedConstantCallableBody(ImportedSymbolFactAddress),
+    /// One imported executable template selected from an implementation artifact.
+    ImportedExecutableTemplate(ImportedSymbolFactAddress),
     /// Implementations participating in one package coherence domain.
     ImplementationParticipation(ImplementationCoherenceDomainKey),
     /// Declaration-level coherence and overload-family validity for the source package.
@@ -469,6 +473,7 @@ impl CompilationFactKey {
             | Self::TestDiscovery(_)
             | Self::DiscoverySymbolGraph
             | Self::DependencyInterface(_)
+            | Self::DependencyImplementation(_)
             | Self::ImportedDiagnostics
             | Self::ImplementationHeaderIndex
             | Self::ImplementationCandidateSet(_)
@@ -478,6 +483,7 @@ impl CompilationFactKey {
             | Self::ImportedSemanticGraph(_)
             | Self::ImportedSemanticFact(_)
             | Self::ImportedConstantCallableBody(_)
+            | Self::ImportedExecutableTemplate(_)
             | Self::ImplementationParticipation(_)
             | Self::ImplementationCoherence
             | Self::CallableOverloadValidation

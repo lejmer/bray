@@ -120,6 +120,7 @@ pub(crate) enum OutputKindManifest {
     ExecutableModule,
     DebugCompanion,
     PackageInterface,
+    PackageImplementation,
     DependencyMetadata,
     Executable,
     StaticLibrary,

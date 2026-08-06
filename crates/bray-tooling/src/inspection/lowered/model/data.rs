@@ -3,19 +3,19 @@
 use std::fmt::Write;
 
 use bray_bound_tree::{
-    BoundCallResult, BoundLiteralKind, CheckedMemoryOperationKind, ConstructionDefaultProvider,
+    BoundCallResult, CheckedMemoryOperationKind, ConstructionDefaultProvider,
     ConstructionInputId, ConstructionTarget, ConversionTarget, MemoryLayoutQueryKind,
-    PatternOperation, PatternPredicate, PatternProjection, SelectedConversion,
+    PatternOperation, PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
     MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase, MirConstructionInput,
     MirEdge, MirFieldReference, MirFrameInitializer, MirFrameReference, MirGeneratorKind,
     MirGeneratorOperation, MirHelperReference, MirHostOperation, MirImmediateValue, MirOperand,
-    MirOperation, MirOperationKind, MirPanicCause, MirPlace, MirProjectionKind,
-    MirRuntimeReference, MirSourceAnchor, MirSourceOrigin, MirStorageKind, MirStoreKind,
-    MirTaskTerminalState, MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey, MirUnitKind,
-    MirValueOrigin,
+    MirOperation, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace,
+    MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirSourceOrigin, MirStorageKind,
+    MirStoreKind, MirTaskTerminalState, MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey,
+    MirUnitKind, MirValueOrigin,
 };
 use bray_symbols::{AnySymbolId, BorrowKind, CallableAbi, SemanticValueStore, SymbolGraph, TypeId};
 use serde::Serialize;
@@ -69,7 +69,7 @@ impl InspectionMirUnit {
         sources: &InspectionSources<'_>,
     ) -> Result<Self, MirInspectionModelError> {
         let key = inspection_unit_key(mir.key(), symbols, sources)?;
-        let source = inspection_source_origin(mir.source(), sources)?;
+        let source = inspection_source_origin(mir.source(), symbols, sources)?;
         let unit_kind = mir_unit_kind(mir.kind());
         let runtime_abi = mir.target().runtime_abi();
 
@@ -82,7 +82,7 @@ impl InspectionMirUnit {
                     id: compact_id(slot),
                     storage_kind: storage_kind(storage.kind()),
                     r#type: InspectionType::from_type(semantic_values, symbols, storage.ty())?,
-                    source: inspection_source_anchor(storage.source(), sources)?,
+                    source: inspection_source_anchor(storage.source(), symbols, sources)?,
                 })
             })
             .collect::<Result<_, MirInspectionModelError>>()?;
@@ -106,7 +106,7 @@ impl InspectionMirUnit {
                 Ok(InspectionMirValue {
                     id: compact_id(slot),
                     r#type: InspectionType::from_type(semantic_values, symbols, value.ty())?,
-                    source: inspection_source_anchor(value.source(), sources)?,
+                    source: inspection_source_anchor(value.source(), symbols, sources)?,
                     origin,
                 })
             })
@@ -138,7 +138,7 @@ impl InspectionMirUnit {
                 Ok(InspectionMirBlock {
                     id: compact_id(slot),
                     block_kind: block_kind(block.kind()),
-                    source: inspection_source_anchor(block.source(), sources)?,
+                    source: inspection_source_anchor(block.source(), symbols, sources)?,
                     parameters: block.parameters().iter().map(|id| id.slot()).collect(),
                     operations,
                     terminator: inspection_terminator(
@@ -214,6 +214,9 @@ pub(crate) enum InspectionMirUnitKey {
         role: &'static str,
         type_identity: String,
     },
+    ImportedCallable {
+        callable: InspectionSymbolIdentity,
+    },
     ExternalCallable {
         callable: InspectionSymbolIdentity,
     },
@@ -235,6 +238,9 @@ pub(crate) enum InspectionMirSource {
     },
     GeneratedLifecycle {
         role: &'static str,
+    },
+    ImportedCallable {
+        callable: InspectionSymbolIdentity,
     },
 }
 
@@ -565,7 +571,7 @@ fn inspection_operation(
         id,
         operation_kind,
         result: operation.result().map(|result| result.slot()),
-        source: inspection_source_anchor(operation.source(), sources)?,
+        source: inspection_source_anchor(operation.source(), symbols, sources)?,
         attributes: parts.attributes,
         operands: parts.operands,
         places: parts.places,
@@ -1553,7 +1559,7 @@ fn inspection_terminator(
 
     Ok(InspectionMirTerminator {
         terminator_kind,
-        source: inspection_source_anchor(source, sources)?,
+        source: inspection_source_anchor(source, symbols, sources)?,
         operands: parts.operands,
         places: parts.places,
         edges: parts.edges,
@@ -1801,6 +1807,9 @@ fn inspection_unit_key(
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),
         }),
+        MirUnitKey::ImportedCallable(definition) => Ok(InspectionMirUnitKey::ImportedCallable {
+            callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
+        }),
         MirUnitKey::ExternalCallable(definition) => Ok(InspectionMirUnitKey::ExternalCallable {
             callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
         }),
@@ -1814,6 +1823,7 @@ fn inspection_unit_key(
 
 fn inspection_source_origin(
     source: &MirSourceOrigin,
+    symbols: &SymbolGraph,
     sources: &InspectionSources<'_>,
 ) -> Result<InspectionMirSource, MirInspectionModelError> {
     match source {
@@ -1831,11 +1841,17 @@ fn inspection_source_origin(
                     .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
             })
         }
+        MirSourceOrigin::ImportedCallable(callable) => {
+            Ok(InspectionMirSource::ImportedCallable {
+                callable: InspectionSymbolIdentity::from_symbol(symbols, callable.symbol()),
+            })
+        }
     }
 }
 
 fn inspection_source_anchor(
     source: &MirSourceAnchor,
+    symbols: &SymbolGraph,
     sources: &InspectionSources<'_>,
 ) -> Result<InspectionMirSource, MirInspectionModelError> {
     match source {
@@ -1856,6 +1872,11 @@ fn inspection_source_anchor(
             Ok(InspectionMirSource::GeneratedLifecycle {
                 role: lifecycle_helper_role(reference)
                     .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
+            })
+        }
+        MirSourceAnchor::ImportedCallable(callable) => {
+            Ok(InspectionMirSource::ImportedCallable {
+                callable: InspectionSymbolIdentity::from_symbol(symbols, callable.symbol()),
             })
         }
     }
@@ -1975,41 +1996,38 @@ fn projection_kind(
 }
 
 fn pattern_predicate(
-    predicate: PatternPredicate,
+    predicate: MirPatternPredicate,
     parts: &mut TerminatorParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<(), MirInspectionModelError> {
     match predicate {
-        PatternPredicate::Literal(literal) => {
-            let literal = literal.literal();
+        MirPatternPredicate::Literal(literal) => {
             parts.attribute("predicate", "literal");
-            parts.attribute("literal_kind", literal_kind(literal.kind()));
-            parts.attribute("literal_start", u32::from(literal.range().start()));
-            parts.attribute("literal_end", u32::from(literal.range().end()));
+            parts.semantic_value("predicate", "constant_value", literal.slot(), None);
         }
-        PatternPredicate::Constant(constant) => {
+        MirPatternPredicate::Constant(constant) => {
             parts.attribute("predicate", "constant");
             parts.semantic_value("predicate", "constant_term", constant.slot(), None);
         }
-        PatternPredicate::NullableAbsent => parts.attribute("predicate", "nullable_absent"),
-        PatternPredicate::NullablePresent => parts.attribute("predicate", "nullable_present"),
-        PatternPredicate::ActiveUnionVariant(variant) => {
+        MirPatternPredicate::NullableAbsent => parts.attribute("predicate", "nullable_absent"),
+        MirPatternPredicate::NullablePresent => parts.attribute("predicate", "nullable_present"),
+        MirPatternPredicate::ActiveUnionVariant(variant) => {
             parts.attribute("predicate", "active_union_variant");
             parts.symbol("variant", variant.into(), context.symbols);
         }
-        PatternPredicate::ProductShape(product) => {
+        MirPatternPredicate::ProductShape(product) => {
             parts.attribute("predicate", "product_shape");
             parts.symbol("product", product.into(), context.symbols);
         }
-        PatternPredicate::TupleShape(arity) => {
+        MirPatternPredicate::TupleShape(arity) => {
             parts.attribute("predicate", "tuple_shape");
             parts.attribute("arity", arity);
         }
-        PatternPredicate::ArrayShape(length) => {
+        MirPatternPredicate::ArrayShape(length) => {
             parts.attribute("predicate", "array_shape");
             parts.attribute("length", length);
         }
-        PatternPredicate::OwnedTarget => parts.attribute("predicate", "owned_target"),
+        MirPatternPredicate::OwnedTarget => parts.attribute("predicate", "owned_target"),
     }
 
     Ok(())
@@ -2191,17 +2209,6 @@ const fn callable_abi(abi: CallableAbi) -> &'static str {
         CallableAbi::Bray => "bray",
         CallableAbi::C => "c",
         CallableAbi::System => "system",
-    }
-}
-
-const fn literal_kind(kind: BoundLiteralKind) -> &'static str {
-    match kind {
-        BoundLiteralKind::Integer => "integer",
-        BoundLiteralKind::Real => "real",
-        BoundLiteralKind::Imaginary => "imaginary",
-        BoundLiteralKind::Boolean => "boolean",
-        BoundLiteralKind::Character => "character",
-        BoundLiteralKind::String => "string",
     }
 }
 

@@ -9,7 +9,8 @@ macro_rules! define_unit_local_ids {
             }
 
             impl $name {
-                pub(crate) const fn from_slot(unit: MirUnitId, slot: u32) -> Self {
+                /// Reconstructs a validated unit-local identity from its compact slot.
+                pub const fn from_slot(unit: MirUnitId, slot: u32) -> Self {
                     Self { unit, slot }
                 }
 

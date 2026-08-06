@@ -11,12 +11,12 @@ use bray_ir::{
     MirUnitKey,
 };
 use bray_symbols::{
-    CallableInstanceData, CheckedConstraintKind, ConstantTermData, ConstantValueData,
-    ConstantValueKind, ExactSymbolId, GenericArgument, GenericConstraintsFact,
-    GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
-    ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
-    NamedTypeSymbolId, StructSymbolId, SymbolFactRequest, TargetSizedIntegerType,
-    TraitCallableMemberSymbolId,
+    CallableInstanceData, CallableSignatureFact, CheckedConstraintKind, ConstantTermData,
+    ConstantValueData, ConstantValueKind, ExactSymbolId, GenericArgument,
+    GenericConstraintsFact, GenericSubstitutionData, GenericSubstitutionId,
+    ImplementationInstanceData, ImplementationInstanceId, ImplementationRequirementKey,
+    ImplementationSelection, NamedTypeSymbolId, StructSymbolId, SymbolFactRequest,
+    TargetSizedIntegerType, TraitCallableMemberSymbolId,
 };
 
 use super::super::CodegenFactError;
@@ -231,10 +231,7 @@ impl Compilation {
             self.realize_codegen_substitution(callable.substitution())?,
         );
 
-        let template = self
-            .callable_body_key(callable.definition())?
-            .map(MirUnitKey::Bound)
-            .unwrap_or_else(|| MirUnitKey::ExternalCallable(callable.definition()));
+        let template = self.codegen_callable_template(callable.definition(), cancellation)?;
 
         let specialization = self.codegen_specialization(callable.substitution())?;
         let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
@@ -251,6 +248,46 @@ impl Compilation {
 
         ConcreteCodegenInstance::try_callable(key, callable, specialization, witnesses)
             .ok_or(FactQueryError::InfrastructureFailure.into())
+    }
+
+    fn codegen_callable_template(
+        &self,
+        definition: bray_symbols::CallableDefinitionId,
+        cancellation: &CancellationToken,
+    ) -> Result<MirUnitKey, CodegenFactError> {
+        if let Some(body) = self.callable_body_key(definition)? {
+            return Ok(MirUnitKey::Bound(body));
+        }
+
+        let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+        let Some(address) = skeleton.value().as_ref().and_then(|skeleton| {
+            skeleton.imported_fact_address(definition.callable_symbol().into_any())
+        }) else {
+            return Ok(MirUnitKey::ExternalCallable(definition));
+        };
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let signature = facts
+            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+                definition.callable_symbol(),
+            ))
+            .map_err(binder_fact_error)?;
+
+        if !signature.value().has_body() {
+            return Ok(MirUnitKey::ExternalCallable(definition));
+        }
+
+        let template = self.imported_executable_template_with_cancellation(address, cancellation)?;
+
+        if template.value().is_some() {
+            return Ok(MirUnitKey::ImportedCallable(definition));
+        }
+
+        Err(CodegenFactError::Diagnostics(
+            signature.diagnostics().merged(template.diagnostics()),
+        ))
     }
 
     pub(super) fn concrete_codegen_callee(

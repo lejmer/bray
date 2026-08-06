@@ -1,12 +1,54 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_bound_tree::PatternPredicate;
-use bray_symbols::{ConstantValueId, TypeId};
+use bray_symbols::{ConstantTermId, ConstantValueId, StructSymbolId, TypeId, UnionVariantSymbolId};
 
 use crate::{
     MirBlockId, MirCallableReference, MirFrameStateId, MirOperand, MirPlace, MirSourceAnchor,
 };
+
+/// One source-independent structural condition tested by MIR control flow.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirPatternPredicate {
+    /// The subject equals one canonical typed literal value.
+    Literal(ConstantValueId),
+    /// The subject equals one checked open or closed constant term.
+    Constant(ConstantTermId),
+    /// The nullable subject is absent.
+    NullableAbsent,
+    /// The nullable subject is present.
+    NullablePresent,
+    /// The named union has one active variant.
+    ActiveUnionVariant(UnionVariantSymbolId),
+    /// The subject has one named product shape.
+    ProductShape(StructSymbolId),
+    /// The subject has one tuple arity.
+    TupleShape(u32),
+    /// The subject has one fixed array length.
+    ArrayShape(u32),
+    /// The subject is available through owned indirection.
+    OwnedTarget,
+}
+
+impl From<bray_bound_tree::PatternPredicate> for MirPatternPredicate {
+    fn from(predicate: bray_bound_tree::PatternPredicate) -> Self {
+        match predicate {
+            bray_bound_tree::PatternPredicate::Literal(literal) => Self::Literal(literal.value()),
+            bray_bound_tree::PatternPredicate::Constant(term) => Self::Constant(term),
+            bray_bound_tree::PatternPredicate::NullableAbsent => Self::NullableAbsent,
+            bray_bound_tree::PatternPredicate::NullablePresent => Self::NullablePresent,
+            bray_bound_tree::PatternPredicate::ActiveUnionVariant(variant) => {
+                Self::ActiveUnionVariant(variant)
+            }
+            bray_bound_tree::PatternPredicate::ProductShape(product) => {
+                Self::ProductShape(product)
+            }
+            bray_bound_tree::PatternPredicate::TupleShape(arity) => Self::TupleShape(arity),
+            bray_bound_tree::PatternPredicate::ArrayShape(length) => Self::ArrayShape(length),
+            bray_bound_tree::PatternPredicate::OwnedTarget => Self::OwnedTarget,
+        }
+    }
+}
 
 /// One control-flow transfer and its block arguments.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -189,7 +231,7 @@ pub enum MirTerminatorKind {
         /// Subject value inspected by the predicate.
         subject: MirOperand,
         /// Exact predicate selected by pattern checking.
-        predicate: PatternPredicate,
+        predicate: MirPatternPredicate,
         /// Destination when the predicate matches.
         matched: MirEdge,
         /// Destination when the predicate does not match.
@@ -360,7 +402,7 @@ impl MirTerminatorKind {
         matches!(
             self,
             Self::PatternBranch {
-                predicate: PatternPredicate::Literal(_),
+                predicate: MirPatternPredicate::Literal(_),
                 ..
             }
         )
@@ -370,9 +412,9 @@ impl MirTerminatorKind {
     pub const fn pattern_literal_value(&self) -> Option<bray_symbols::ConstantValueId> {
         match self {
             Self::PatternBranch {
-                predicate: PatternPredicate::Literal(literal),
+                predicate: MirPatternPredicate::Literal(literal),
                 ..
-            } => Some(literal.value()),
+            } => Some(*literal),
             _ => None,
         }
     }
@@ -381,7 +423,7 @@ impl MirTerminatorKind {
     pub const fn pattern_constant_term(&self) -> Option<bray_symbols::ConstantTermId> {
         match self {
             Self::PatternBranch {
-                predicate: PatternPredicate::Constant(term),
+                predicate: MirPatternPredicate::Constant(term),
                 ..
             } => Some(*term),
             Self::Goto(_)

@@ -497,7 +497,7 @@ mod tests {
             panic!("test protected-frame terminator must validate");
         };
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
 
         let Ok(descriptor) = MirFrameDescriptor::try_new(
             frame,

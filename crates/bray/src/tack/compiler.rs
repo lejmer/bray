@@ -327,7 +327,9 @@ impl<'project> ProjectCompiler<'project> {
                     dependency.identity.name()
                 ))
                 .arg("--dependency-interface")
-                .arg(dependency.path.into_os_string());
+                .arg(dependency.interface.into_os_string())
+                .arg("--dependency-implementation")
+                .arg(dependency.implementation.into_os_string());
         }
 
         action.add_arguments(&mut request, product, runtime);
@@ -455,7 +457,8 @@ impl<'project> ProjectCompiler<'project> {
 
                 Ok(DependencyArtifact {
                     identity: identity.clone(),
-                    path: path.clone(),
+                    interface: path.clone(),
+                    implementation: path.with_extension("brayimpl"),
                 })
             })
             .collect()
@@ -554,7 +557,8 @@ fn display_path(path: &Path, workspace_root: &Path) -> String {
 
 struct DependencyArtifact {
     identity: ProductIdentity,
-    path: PathBuf,
+    interface: PathBuf,
+    implementation: PathBuf,
 }
 
 enum CompilerAction {
@@ -661,6 +665,7 @@ fn artifact_text(kind: TargetOutputKind) -> &'static str {
         TargetOutputKind::ExecutableModule => "executable-module",
         TargetOutputKind::DebugCompanion => "debug-companion",
         TargetOutputKind::PackageInterface => "package-interface",
+        TargetOutputKind::PackageImplementation => "package-implementation",
         TargetOutputKind::DependencyMetadata => "dependency-metadata",
         TargetOutputKind::Executable => "executable",
         TargetOutputKind::StaticLibrary => "static-library",

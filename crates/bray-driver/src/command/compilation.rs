@@ -17,16 +17,22 @@ pub struct DriverDependencyInterface {
     package: PackageIdentity,
     product: InterfaceProductIdentity,
     path: PathBuf,
+    implementation_path: Option<PathBuf>,
 }
 
 impl DriverDependencyInterface {
-    fn try_from_arguments(identity: &str, path: PathBuf) -> Option<Self> {
+    fn try_from_arguments(
+        identity: &str,
+        path: PathBuf,
+        implementation_path: Option<PathBuf>,
+    ) -> Option<Self> {
         let (package, product) = identity.rsplit_once('/')?;
 
         Some(Self {
             package: PackageIdentity::try_new(package)?,
             product: InterfaceProductIdentity::try_new(product)?,
             path,
+            implementation_path,
         })
     }
 
@@ -46,31 +52,73 @@ impl DriverDependencyInterface {
     }
 
     pub(crate) fn load(&self) -> Result<bray_compilation::DependencyInterfaceInput, DiagnosticBag> {
-        let bytes = std::fs::read(&self.path).map_err(|error| {
-            DiagnosticBag::single(
-                Diagnostic::new(
-                    DiagnosticId::new(0),
-                    DiagnosticKind::SourceFileReadFailed,
-                    SeverityKind::Error,
-                )
-                .with_arg(DiagnosticArg::file_path(&self.path))
-                .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
-                    error.kind(),
-                )))
-                .with_note(DiagnosticNote::new(
-                    DiagnosticNoteKind::SourceFileMustBeReadable,
-                )),
-            )
-        })?;
+        let bytes = std::fs::read(&self.path)
+            .map_err(|error| dependency_artifact_read_diagnostics(&self.path, error.kind()))?;
 
-        Ok(bray_compilation::DependencyInterfaceInput::new(
+        let mut input = bray_compilation::DependencyInterfaceInput::new(
             self.package.clone(),
             self.product.clone(),
             self.path.clone(),
             bytes,
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-        ))
+        );
+
+        if let Some(path) = &self.implementation_path {
+            let bytes = std::fs::read(path).map_err(|error| {
+                dependency_artifact_read_diagnostics(path, error.kind())
+            })?;
+
+            let artifact = bray_package_interface::PackageImplementationArtifact::try_from_bytes(
+                bytes,
+                bray_package_interface::InterfaceValidationLimits::default(),
+            )
+            .map_err(|_| dependency_implementation_diagnostics(self, path))?;
+
+            input = input.with_implementation_artifact(path, std::sync::Arc::new(artifact));
+        }
+
+        Ok(input)
     }
+}
+
+fn dependency_artifact_read_diagnostics(path: &Path, kind: std::io::ErrorKind) -> DiagnosticBag {
+    DiagnosticBag::single(
+        Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::SourceFileReadFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path(path))
+        .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+            kind,
+        )))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::SourceFileMustBeReadable,
+        )),
+    )
+}
+
+fn dependency_implementation_diagnostics(
+    dependency: &DriverDependencyInterface,
+    path: &Path,
+) -> DiagnosticBag {
+    DiagnosticBag::single(
+        Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::InterfaceMalformed,
+            SeverityKind::Error,
+        )
+        .with_note(
+            DiagnosticNote::new(DiagnosticNoteKind::InterfaceDependencyContext)
+                .with_arg(DiagnosticArg::expected_package_identity(
+                    dependency.package().as_str(),
+                ))
+                .with_arg(DiagnosticArg::expected_product_identity(
+                    dependency.product().as_str(),
+                ))
+                .with_arg(DiagnosticArg::artifact_path(path)),
+        ),
+    )
 }
 
 /// Exact package product and dependency context for one compiler invocation.
@@ -174,6 +222,8 @@ pub(crate) struct CliCompilationOptions {
     dependency_products: Vec<String>,
     #[arg(long = "dependency-interface", global = true, value_name = "PATH")]
     dependency_interfaces: Vec<PathBuf>,
+    #[arg(long = "dependency-implementation", global = true, value_name = "PATH")]
+    dependency_implementations: Vec<PathBuf>,
 }
 
 impl CliCompilationOptions {
@@ -193,7 +243,10 @@ impl CliCompilationOptions {
         let product = ProductIdentity::try_new(package, product_name.clone())
             .ok_or_else(|| invalid_selection(product_name))?;
 
-        if self.dependency_products.len() != self.dependency_interfaces.len() {
+        if self.dependency_products.len() != self.dependency_interfaces.len()
+            || (!self.dependency_implementations.is_empty()
+                && self.dependency_products.len() != self.dependency_implementations.len())
+        {
             return Err(invalid_selection("dependency-interface"));
         }
 
@@ -201,8 +254,15 @@ impl CliCompilationOptions {
             .dependency_products
             .iter()
             .zip(self.dependency_interfaces)
-            .map(|(identity, path)| {
-                DriverDependencyInterface::try_from_arguments(identity, path)
+            .enumerate()
+            .map(|(index, (identity, path))| {
+                let implementation_path = self.dependency_implementations.get(index).cloned();
+
+                DriverDependencyInterface::try_from_arguments(
+                    identity,
+                    path,
+                    implementation_path,
+                )
                     .ok_or_else(|| invalid_selection(identity))
             })
             .collect::<Result<Vec<_>, _>>()?;

@@ -2,7 +2,6 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
-use bray_bound_tree::{BodyBehaviorCall, BoundDependencyContractId};
 use bray_runtime_interface::{
     ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RuntimeAbiVersion,
 };
@@ -25,8 +24,6 @@ pub struct MirFrameStateFacts {
     state: MirFrameStateId,
     entry: MirBlockId,
     lane_requirements: Arc<[ExecutionLaneRequirement]>,
-    dependency_contract: Option<BoundDependencyContractId>,
-    deferred_calls: Arc<[BodyBehaviorCall]>,
     initialized_storages: Arc<[MirStorageId]>,
 }
 
@@ -36,16 +33,12 @@ impl MirFrameStateFacts {
         state: MirFrameStateId,
         entry: MirBlockId,
         lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
-        dependency_contract: Option<BoundDependencyContractId>,
-        deferred_calls: impl IntoIterator<Item = BodyBehaviorCall>,
         initialized_storages: impl IntoIterator<Item = MirStorageId>,
     ) -> Self {
         Self {
             state,
             entry,
             lane_requirements: sorted_unique_shared_slice(lane_requirements),
-            dependency_contract,
-            deferred_calls: sorted_unique_shared_slice(deferred_calls),
             initialized_storages: sorted_unique_shared_slice(initialized_storages),
         }
     }
@@ -63,16 +56,6 @@ impl MirFrameStateFacts {
     /// Returns checked execution-lane requirements in canonical order.
     pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
         &self.lane_requirements
-    }
-
-    /// Returns the checked dependency contract carried by the suspended future.
-    pub const fn dependency_contract(&self) -> Option<BoundDependencyContractId> {
-        self.dependency_contract
-    }
-
-    /// Returns deferred callable bodies that can execute from this state.
-    pub fn deferred_calls(&self) -> &[BodyBehaviorCall] {
-        &self.deferred_calls
     }
 
     /// Returns storages known to be initialized when this state is entered.
@@ -213,15 +196,14 @@ mod tests {
             Err(MirFrameDescriptorBuildError::MissingState)
         );
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
 
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [state.clone(), state]),
             Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry)
         );
 
-        let non_contiguous =
-            MirFrameStateFacts::new(MirFrameStateId::new(1), entry, [], None, [], []);
+        let non_contiguous = MirFrameStateFacts::new(MirFrameStateId::new(1), entry, [], []);
 
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [non_contiguous]),

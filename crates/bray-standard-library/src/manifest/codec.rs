@@ -21,6 +21,7 @@ pub fn encode_standard_library_manifest(
 ) -> Result<Vec<u8>, StandardLibraryManifestError> {
     encode_published(
         manifest.interface(),
+        manifest.implementation(),
         manifest.targets(),
         manifest.bundle_digest(),
     )
@@ -37,6 +38,7 @@ pub fn decode_standard_library_manifest(
 
     let published_digest = StandardLibraryBundleDigest::new(decode_digest(wire.bundle_digest)?);
     let interface = decode_artifact(wire.interface)?;
+    let implementation = decode_artifact(wire.implementation)?;
 
     let targets = wire
         .targets
@@ -59,7 +61,7 @@ pub fn decode_standard_library_manifest(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let manifest = StandardLibraryBundleManifest::try_new(interface, targets)?;
+    let manifest = StandardLibraryBundleManifest::try_new(interface, implementation, targets)?;
 
     if manifest.bundle_digest() != published_digest {
         return Err(StandardLibraryManifestError::BundleDigestMismatch);
@@ -158,6 +160,13 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("interface must be valid: {error:?}"));
 
+        let implementation = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageImplementation,
+            "interfaces/std.brayimpl",
+            b"implementation",
+        )
+        .unwrap_or_else(|error| panic!("implementation must be valid: {error:?}"));
+
         let archive = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::StaticLibrary,
             "targets/x86_64-unknown-linux-gnu/1.0/libstd.a",
@@ -175,7 +184,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("target artifacts must be valid: {error:?}"));
 
-        StandardLibraryBundleManifest::try_new(interface, [target])
+        StandardLibraryBundleManifest::try_new(interface, implementation, [target])
             .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"))
     }
 }

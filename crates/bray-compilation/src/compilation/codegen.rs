@@ -13,6 +13,7 @@ use bray_codegen::{
 #[cfg(test)]
 use bray_ir::MirUnitKind;
 use bray_ir::{MirHelperReference, MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey};
+use bray_diagnostics::DiagnosticBag;
 use bray_runtime_interface::ExecutableHostContract;
 #[cfg(test)]
 use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation};
@@ -181,6 +182,14 @@ impl Compilation {
             MirUnitKey::GeneratedLifecycle(_) => Err(CodegenFactError::MirUnavailable(
                 instance.template().clone(),
             )),
+            MirUnitKey::ImportedCallable(definition) => self
+                .imported_executable_mir(
+                    *definition,
+                    mir_unit,
+                    instance.target().clone(),
+                    cancellation,
+                )?
+                .ok_or_else(|| CodegenFactError::MirUnavailable(instance.template().clone())),
             MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
                 CodegenFactError::MirUnavailable(instance.template().clone()),
             ),
@@ -418,6 +427,8 @@ pub enum CodegenFactError {
     UnsupportedType(bray_symbols::TypeId),
     /// A declaration-backed or type-specific MIR helper has no matching concrete dependency.
     MissingHelperInstance(MirHelperReference),
+    /// Structured diagnostics prevent a demanded code generation fact from being produced.
+    Diagnostics(DiagnosticBag),
     /// A demanded type layout exceeds the selected target's representable size.
     LayoutOverflow(bray_symbols::TypeId),
     /// A deterministic generated binary symbol could not be represented.

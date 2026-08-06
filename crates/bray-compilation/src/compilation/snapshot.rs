@@ -110,6 +110,13 @@ fn reuse_published_facts(
     );
 
     reuse_indexed_cells(
+        &previous.loaded_dependency_implementations,
+        &mut updated.loaded_dependency_implementations,
+        &reusable,
+        dependency_implementation_key,
+    );
+
+    reuse_indexed_cells(
         &previous.imported_semantic_graphs,
         &mut updated.imported_semantic_graphs,
         &reusable,
@@ -264,6 +271,7 @@ fn invalidation_roots(
                 };
 
                 roots.insert(CompilationFactKey::DependencyInterface(interface));
+                roots.insert(CompilationFactKey::DependencyImplementation(interface));
                 roots.insert(CompilationFactKey::ImportedSemanticGraph(interface));
 
                 roots.extend(
@@ -273,6 +281,15 @@ fn invalidation_roots(
                         .into_iter()
                         .filter(|address| address.interface() == interface)
                         .map(CompilationFactKey::ImportedConstantCallableBody),
+                );
+
+                roots.extend(
+                    previous
+                        .imported_executable_templates
+                        .keys()
+                        .into_iter()
+                        .filter(|address| address.interface() == interface)
+                        .map(CompilationFactKey::ImportedExecutableTemplate),
                 );
             }
         }
@@ -432,6 +449,10 @@ fn reuse_mapped_cells(
 
     reuse!(imported_constant_callable_bodies, |key| {
         CompilationFactKey::ImportedConstantCallableBody(*key)
+    });
+
+    reuse!(imported_executable_templates, |key| {
+        CompilationFactKey::ImportedExecutableTemplate(*key)
     });
 
     reuse!(implementation_participation, |key| {
@@ -596,6 +617,14 @@ fn dependency_interface_key(index: u32) -> CompilationFactKey {
     };
 
     CompilationFactKey::DependencyInterface(interface)
+}
+
+fn dependency_implementation_key(index: u32) -> CompilationFactKey {
+    let Some(interface) = ImportedInterfaceId::try_from_index(index as usize) else {
+        unreachable!("loaded dependency implementation index must fit its compact identity");
+    };
+
+    CompilationFactKey::DependencyImplementation(interface)
 }
 
 fn imported_semantic_graph_key(index: u32) -> CompilationFactKey {

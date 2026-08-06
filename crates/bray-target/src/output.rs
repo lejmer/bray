@@ -21,6 +21,8 @@ pub enum TargetOutputKind {
     DebugCompanion,
     /// Compiled package interface.
     PackageInterface,
+    /// Compiled package implementation payloads.
+    PackageImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
     /// Final executable product.
@@ -222,6 +224,7 @@ const fn native_name_fragments(
             ("", debug_companion_suffix(format))
         }
         TargetOutputKind::PackageInterface => ("", ".brayi"),
+        TargetOutputKind::PackageImplementation => ("", ".brayimpl"),
         TargetOutputKind::DependencyMetadata => ("", ".brayd"),
         TargetOutputKind::Executable => match format {
             ObjectFormat::Coff => ("", ".exe"),

@@ -1,11 +1,11 @@
 use bray_bound_tree::{
-    BoundExpressionId, BoundStructuredExpression, PatternOperation, PatternPredicate,
-    PatternProjection, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
+    BoundExpressionId, BoundStructuredExpression, PatternOperation, PatternProjection,
+    SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirEdge, MirImmediateValue, MirOperand, MirOperationKind,
-    MirSourceAnchor, MirTerminatorKind,
+    MirPatternPredicate, MirSourceAnchor, MirTerminatorKind,
 };
 use bray_symbols::{TypeData, TypeId};
 
@@ -96,7 +96,7 @@ impl Lowerer<'_> {
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
-                predicate: PatternPredicate::NullablePresent,
+                predicate: MirPatternPredicate::NullablePresent,
                 matched: MirEdge::new(present, [Self::retained_operand(&operand)]),
                 unmatched: MirEdge::new(absent, [Self::retained_operand(&operand)]),
             },
@@ -199,7 +199,7 @@ impl Lowerer<'_> {
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
-                predicate: PatternPredicate::ActiveUnionVariant(representation.success_variant),
+                predicate: MirPatternPredicate::ActiveUnionVariant(representation.success_variant),
                 matched: MirEdge::new(success, [Self::retained_operand(&operand)]),
                 unmatched: MirEdge::new(error, [operand]),
             },
@@ -290,7 +290,9 @@ impl Lowerer<'_> {
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
-                predicate: PatternPredicate::ActiveUnionVariant(representation.completed_variant),
+                predicate: MirPatternPredicate::ActiveUnionVariant(
+                    representation.completed_variant,
+                ),
                 matched: MirEdge::new(completed, [Self::retained_operand(&operand)]),
                 unmatched: MirEdge::new(incomplete, [operand]),
             },
@@ -301,7 +303,9 @@ impl Lowerer<'_> {
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&incomplete_operand),
-                predicate: PatternPredicate::ActiveUnionVariant(representation.cancelled_variant),
+                predicate: MirPatternPredicate::ActiveUnionVariant(
+                    representation.cancelled_variant,
+                ),
                 matched: MirEdge::new(cancelled, [Self::retained_operand(&incomplete_operand)]),
                 unmatched: MirEdge::new(panicked, [incomplete_operand]),
             },

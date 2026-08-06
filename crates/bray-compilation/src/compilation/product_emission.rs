@@ -1,10 +1,10 @@
-use bray_codegen::{CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnit};
+use bray_codegen::{ArtifactContent, CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnit};
 use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
-    ArtifactKind, ArtifactProducer, ArtifactPublisher, BackendContributionSet, EmissionBackend,
-    EmissionOutcome, EmissionPlan, EmissionPlanner, EmissionPlanningError, EmissionRequest,
-    LinkPlanConstructionError, LinkStaging, LinkStagingError, OutputSinkResolver, ProductLinkFacts,
-    construct_link_plan,
+    ArtifactContribution, ArtifactKind, ArtifactProducer, ArtifactPublisher,
+    BackendContributionSet, EmissionBackend, EmissionOutcome, EmissionPlan, EmissionPlanner,
+    EmissionPlanningError, EmissionRequest, LinkPlanConstructionError, LinkStaging,
+    LinkStagingError, OutputSinkResolver, ProductLinkFacts, construct_link_plan,
 };
 use bray_linker::Linker;
 use bray_package_interface::{InterfaceValidationError, encode_package_interface};
@@ -202,6 +202,7 @@ impl Compilation {
 
         let ProductEmissionPlanningFacts {
             package_interface,
+            package_implementation,
             diagnostics: planning_diagnostics,
         } = self.product_emission_planning_facts(&request, cancellation)?;
 
@@ -221,6 +222,11 @@ impl Compilation {
                 planning_diagnostics.clone(),
             )
         })?;
+
+        let package_implementation = package_implementation
+            .map(|artifact| package_implementation_contribution(&plan, artifact))
+            .transpose()
+            .map_err(|kind| ProductEmissionError::new(kind, planning_diagnostics.clone()))?;
 
         let units = match inputs.generation.native() {
             Some(native) => native.units().to_vec(),
@@ -268,6 +274,7 @@ impl Compilation {
             .publish_product(
                 &plan,
                 codegen.backend,
+                package_implementation,
                 inputs.generation.linking(),
                 inputs.sink_resolver,
                 cancellation,
@@ -314,12 +321,20 @@ impl Compilation {
     ) -> Result<ProductEmissionPlanningFacts, ProductEmissionError> {
         let requires_interface = request.artifact(ArtifactKind::PackageInterface).is_some();
 
+        let requires_implementation = request
+            .artifact(ArtifactKind::PackageImplementation)
+            .is_some();
+
         let facts = self
             .state
             .fact_runtime
             .map_indexed(2, |index| match index {
                 0 => ProductEmissionPlanningFact::PackageInterface(
-                    self.product_interface_artifact(requires_interface, cancellation),
+                    self.product_interface_artifacts(
+                        requires_interface,
+                        requires_implementation,
+                        cancellation,
+                    ),
                 ),
                 1 => ProductEmissionPlanningFact::Diagnostics(
                     cancellation
@@ -360,18 +375,23 @@ impl Compilation {
             .map_err(|kind| ProductEmissionError::new(kind, diagnostics.clone()))?;
 
         Ok(ProductEmissionPlanningFacts {
-            package_interface,
+            package_interface: package_interface.interface,
+            package_implementation: package_interface.implementation,
             diagnostics,
         })
     }
 
-    fn product_interface_artifact(
+    fn product_interface_artifacts(
         &self,
-        required: bool,
+        interface_required: bool,
+        implementation_required: bool,
         cancellation: &CancellationToken,
-    ) -> Result<Option<bray_package_interface::InterfaceArtifact>, ProductEmissionErrorKind> {
-        if !required {
-            return Ok(None);
+    ) -> Result<ProductInterfaceArtifacts, ProductEmissionErrorKind> {
+        if !interface_required && !implementation_required {
+            return Ok(ProductInterfaceArtifacts {
+                interface: None,
+                implementation: None,
+            });
         }
 
         cancellation
@@ -390,11 +410,25 @@ impl Compilation {
         let artifact = encode_package_interface(bundle)
             .map_err(ProductEmissionErrorKind::PackageInterfaceEncoding)?;
 
+        let implementation = implementation_required
+            .then(|| {
+                bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
+                    &artifact,
+                    bundle,
+                    bray_package_interface::InterfaceValidationLimits::default(),
+                )
+                .map_err(ProductEmissionErrorKind::PackageImplementation)
+            })
+            .transpose()?;
+
         cancellation
             .check()
             .map_err(|_| ProductEmissionErrorKind::Cancelled)?;
 
-        Ok(Some(artifact))
+        Ok(ProductInterfaceArtifacts {
+            interface: interface_required.then_some(artifact),
+            implementation,
+        })
     }
 
     fn product_emission_contributions(
@@ -438,6 +472,7 @@ impl Compilation {
         &self,
         plan: &EmissionPlan,
         backend: Option<BackendContributionSet>,
+        package_implementation: Option<ArtifactContribution>,
         linking: Option<ProductLinkingInputs<'_>>,
         resolver: Option<&dyn OutputSinkResolver>,
         cancellation: &CancellationToken,
@@ -452,7 +487,8 @@ impl Compilation {
                 let contributions = backend
                     .iter()
                     .flat_map(|contributions| contributions.published(plan))
-                    .cloned();
+                    .cloned()
+                    .chain(package_implementation);
 
                 let publisher = publisher(cancellation, resolver);
 
@@ -464,7 +500,8 @@ impl Compilation {
                 let published = backend
                     .iter()
                     .flat_map(|contributions| contributions.published(plan))
-                    .cloned();
+                    .cloned()
+                    .chain(package_implementation);
 
                 let staged = backend
                     .iter()
@@ -498,12 +535,18 @@ impl Compilation {
 
 struct ProductEmissionPlanningFacts {
     package_interface: Option<bray_package_interface::InterfaceArtifact>,
+    package_implementation: Option<bray_package_interface::PackageImplementationArtifact>,
     diagnostics: DiagnosticBag,
+}
+
+struct ProductInterfaceArtifacts {
+    interface: Option<bray_package_interface::InterfaceArtifact>,
+    implementation: Option<bray_package_interface::PackageImplementationArtifact>,
 }
 
 enum ProductEmissionPlanningFact {
     PackageInterface(
-        Result<Option<bray_package_interface::InterfaceArtifact>, ProductEmissionErrorKind>,
+        Result<ProductInterfaceArtifacts, ProductEmissionErrorKind>,
     ),
     Diagnostics(Result<DiagnosticBag, ProductEmissionErrorKind>),
 }
@@ -511,6 +554,28 @@ enum ProductEmissionPlanningFact {
 struct ProductEmissionContributions {
     backend: Option<BackendContributionSet>,
     diagnostics: DiagnosticBag,
+}
+
+fn package_implementation_contribution(
+    plan: &EmissionPlan,
+    artifact: bray_package_interface::PackageImplementationArtifact,
+) -> Result<ArtifactContribution, ProductEmissionErrorKind> {
+    let planned = plan
+        .published_artifacts()
+        .find(|artifact| artifact.id().kind() == ArtifactKind::PackageImplementation)
+        .ok_or(ProductEmissionErrorKind::Query(
+            FactQueryError::InfrastructureFailure,
+        ))?;
+
+    let content = ArtifactContent::try_memory(artifact.shared_bytes())
+        .map_err(ProductEmissionErrorKind::PackageImplementationContent)?;
+
+    Ok(ArtifactContribution::new(
+        planned.id().clone(),
+        ArtifactProducer::PackageImplementation,
+        content,
+        None,
+    ))
 }
 
 /// Failure before a product reached emitter-owned publication.
@@ -560,6 +625,10 @@ pub enum ProductEmissionErrorKind {
     PackageInterface(PackageInterfaceExportError),
     /// The completed package-interface fact could not be encoded.
     PackageInterfaceEncoding(InterfaceValidationError),
+    /// The implementation payload companion could not be assembled.
+    PackageImplementation(bray_package_interface::PackageImplementationArtifactBuildError),
+    /// The implementation companion cannot be represented as artifact content.
+    PackageImplementationContent(bray_codegen::ArtifactContentBuildError),
     /// Immutable emitter planning rejected the selected request and producer facts.
     Planning(EmissionPlanningError),
     /// An executable plan does not request its generated host-stub codegen unit.
@@ -956,7 +1025,7 @@ mod tests {
             .set_terminator(entry, source, MirTerminatorKind::Return(None))
             .unwrap_or_else(|error| panic!("test frame terminator must be valid: {error:?}"));
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
 
         let descriptor = MirFrameDescriptor::try_new(
             frame,

@@ -22,6 +22,8 @@ pub enum ArtifactKind {
     DebugCompanion,
     /// Compiled package interface.
     PackageInterface,
+    /// Compiled package implementation payloads.
+    PackageImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
     /// Final executable product.
@@ -48,6 +50,7 @@ impl ArtifactKind {
             Self::ExecutableModule => DiagnosticArtifactKind::ExecutableModule,
             Self::DebugCompanion => DiagnosticArtifactKind::DebugCompanion,
             Self::PackageInterface => DiagnosticArtifactKind::PackageInterface,
+            Self::PackageImplementation => DiagnosticArtifactKind::PackageImplementation,
             Self::DependencyMetadata => DiagnosticArtifactKind::DependencyMetadata,
             Self::Executable => DiagnosticArtifactKind::Executable,
             Self::StaticLibrary => DiagnosticArtifactKind::StaticLibrary,
@@ -66,6 +69,7 @@ impl ArtifactKind {
             Self::ExecutableModule => Some(BackendArtifactKind::ExecutableModule),
             Self::DebugCompanion => Some(BackendArtifactKind::DebugCompanion),
             Self::PackageInterface
+            | Self::PackageImplementation
             | Self::DependencyMetadata
             | Self::Executable
             | Self::StaticLibrary
@@ -83,6 +87,7 @@ impl ArtifactKind {
             Self::ExecutableModule => TargetOutputKind::ExecutableModule,
             Self::DebugCompanion => TargetOutputKind::DebugCompanion,
             Self::PackageInterface => TargetOutputKind::PackageInterface,
+            Self::PackageImplementation => TargetOutputKind::PackageImplementation,
             Self::DependencyMetadata => TargetOutputKind::DependencyMetadata,
             Self::Executable => TargetOutputKind::Executable,
             Self::StaticLibrary => TargetOutputKind::StaticLibrary,
@@ -102,7 +107,10 @@ impl ArtifactKind {
             | Self::Executable
             | Self::StaticLibrary
             | Self::SharedLibrary => matches!(role, ArtifactRole::Product),
-            Self::DebugCompanion | Self::DependencyMetadata | Self::LinkedCompanion => {
+            Self::DebugCompanion
+            | Self::PackageImplementation
+            | Self::DependencyMetadata
+            | Self::LinkedCompanion => {
                 matches!(role, ArtifactRole::Companion)
             }
         }
@@ -126,6 +134,7 @@ impl ArtifactKind {
             | Self::ExecutableModule
             | Self::DebugCompanion
             | Self::PackageInterface
+            | Self::PackageImplementation
             | Self::DependencyMetadata => false,
         }
     }
@@ -154,6 +163,7 @@ impl From<TargetOutputKind> for ArtifactKind {
             TargetOutputKind::ExecutableModule => Self::ExecutableModule,
             TargetOutputKind::DebugCompanion => Self::DebugCompanion,
             TargetOutputKind::PackageInterface => Self::PackageInterface,
+            TargetOutputKind::PackageImplementation => Self::PackageImplementation,
             TargetOutputKind::DependencyMetadata => Self::DependencyMetadata,
             TargetOutputKind::Executable => Self::Executable,
             TargetOutputKind::StaticLibrary => Self::StaticLibrary,
@@ -206,6 +216,8 @@ pub enum ArtifactProducer {
     },
     /// Completed package-interface fact.
     PackageInterface,
+    /// Package implementation artifact.
+    PackageImplementation,
     /// Compiler-owned dependency metadata fact.
     DependencyMetadata(DependencyMetadataProducerId),
     /// Native linker output.
@@ -217,7 +229,10 @@ impl ArtifactProducer {
     pub const fn backend_artifact(&self) -> Option<&BackendArtifactId> {
         match self {
             Self::Backend { artifact, .. } => Some(artifact),
-            Self::PackageInterface | Self::DependencyMetadata(_) | Self::Linker(_) => None,
+            Self::PackageInterface
+            | Self::PackageImplementation
+            | Self::DependencyMetadata(_)
+            | Self::Linker(_) => None,
         }
     }
 }
@@ -258,6 +273,7 @@ mod tests {
             TargetOutputKind::ExecutableModule,
             TargetOutputKind::DebugCompanion,
             TargetOutputKind::PackageInterface,
+            TargetOutputKind::PackageImplementation,
             TargetOutputKind::DependencyMetadata,
             TargetOutputKind::Executable,
             TargetOutputKind::StaticLibrary,

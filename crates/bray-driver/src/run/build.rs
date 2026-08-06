@@ -207,6 +207,7 @@ fn required_artifacts(
         match product_kind {
             ProductKind::Library => vec![
                 TargetOutputKind::PackageInterface,
+                TargetOutputKind::PackageImplementation,
                 TargetOutputKind::StaticLibrary,
             ],
             ProductKind::Executable | ProductKind::Test => vec![TargetOutputKind::Executable],
@@ -355,6 +356,9 @@ fn native_product_failure_result(
         bray_compilation::NativeProductFactError::StandardLibrary(error) => compilation
             .check_diagnostics()
             .merged(&compilation.standard_library_load_diagnostics(error)),
+        error if let Some(diagnostics) = error.diagnostics() => {
+            compilation.check_diagnostics().merged(diagnostics)
+        }
         _ => compilation.check_diagnostics().clone(),
     };
 
@@ -495,9 +499,13 @@ mod tests {
 
         assert!(result.diagnostics().is_empty());
         assert!(output.join("library.brayi").is_file());
+        assert!(output.join("library.brayimpl").is_file());
         assert!(output.join("liblibrary.a").is_file());
 
         std::fs::remove_file(output.join("library.brayi"))
+            .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
+
+        std::fs::remove_file(output.join("library.brayimpl"))
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
 
         std::fs::remove_file(output.join("liblibrary.a"))

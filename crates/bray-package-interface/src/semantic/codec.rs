@@ -5,6 +5,7 @@ mod encoding;
 mod record;
 
 pub(super) use common::{DECLARATION_FACT_FORMAT_VERSION, DECLARATION_TEMPLATE_FORMAT_VERSION};
+pub(crate) use common::{SemanticDecodeContext, read_symbol_reference, write_symbol_reference};
 pub use decoding::decode_semantic_facts;
 pub(crate) use decoding::{
     decode_inspection_records, decode_selected_semantic_fact_graph, decode_semantic_fact_graph,

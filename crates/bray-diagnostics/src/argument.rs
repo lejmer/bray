@@ -982,6 +982,8 @@ pub enum DiagnosticArtifactKind {
     DebugCompanion,
     /// Compiled package interface.
     PackageInterface,
+    /// Compiled package implementation payloads.
+    PackageImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
     /// Final executable product.
@@ -1005,6 +1007,7 @@ impl DiagnosticArtifactKind {
             Self::ExecutableModule => "executable_module",
             Self::DebugCompanion => "debug_companion",
             Self::PackageInterface => "package_interface",
+            Self::PackageImplementation => "package_implementation",
             Self::DependencyMetadata => "dependency_metadata",
             Self::Executable => "executable",
             Self::StaticLibrary => "static_library",

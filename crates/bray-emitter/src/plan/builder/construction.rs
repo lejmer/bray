@@ -198,6 +198,7 @@ impl<'planner> PlanBuilder<'planner> {
     fn compiler_artifact_producer(&mut self, kind: ArtifactKind) -> ArtifactProducer {
         match kind {
             ArtifactKind::PackageInterface => ArtifactProducer::PackageInterface,
+            ArtifactKind::PackageImplementation => ArtifactProducer::PackageImplementation,
             ArtifactKind::DependencyMetadata => {
                 ArtifactProducer::DependencyMetadata(DependencyMetadataProducerId::new(0))
             }
@@ -380,7 +381,8 @@ fn published_backend_role(kind: ArtifactKind) -> ArtifactRole {
         | ArtifactKind::RelocatableObject => ArtifactRole::Inspection,
         ArtifactKind::ExecutableModule => ArtifactRole::Product,
         ArtifactKind::DebugCompanion => ArtifactRole::Companion,
-        ArtifactKind::PackageInterface
+            ArtifactKind::PackageInterface
+        | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::Executable
         | ArtifactKind::StaticLibrary
@@ -397,7 +399,9 @@ fn compiler_artifact_role(kind: ArtifactKind) -> ArtifactRole {
         | ArtifactKind::Executable
         | ArtifactKind::StaticLibrary
         | ArtifactKind::SharedLibrary => ArtifactRole::Product,
-        ArtifactKind::DependencyMetadata | ArtifactKind::LinkedCompanion => ArtifactRole::Companion,
+        ArtifactKind::PackageImplementation
+        | ArtifactKind::DependencyMetadata
+        | ArtifactKind::LinkedCompanion => ArtifactRole::Companion,
         ArtifactKind::Assembly
         | ArtifactKind::BackendIr
         | ArtifactKind::BackendBitcode

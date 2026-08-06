@@ -182,6 +182,8 @@ pub enum PackageInterfaceExportBuildError {
     MissingSemanticFacts(ExternalSymbolKey),
     /// Structural semantic or support-graph validation rejected the bundle.
     Validation(InterfaceValidationError),
+    /// Two executable templates claim the same callable owner.
+    DuplicateExecutableTemplate(bray_symbols::InterfaceSymbolId),
 }
 
 /// One validated immutable library surface ready for deterministic interface encoding.
@@ -189,6 +191,7 @@ pub enum PackageInterfaceExportBuildError {
 pub struct PackageInterfaceExportBundle {
     surface: PackageInterfaceSurface,
     semantic_facts: InterfaceSemanticFacts,
+    executable_templates: Arc<[crate::InterfaceExecutableTemplate]>,
     language_revision: InterfaceLanguageRevision,
 }
 
@@ -213,8 +216,33 @@ impl PackageInterfaceExportBundle {
         Ok(Self {
             surface,
             semantic_facts,
+            executable_templates: Arc::from([]),
             language_revision,
         })
+    }
+
+    /// Attaches executable templates in canonical owner order.
+    pub fn with_executable_templates(
+        mut self,
+        templates: impl IntoIterator<Item = crate::InterfaceExecutableTemplate>,
+    ) -> Result<Self, PackageInterfaceExportBuildError> {
+        let mut templates = templates.into_iter().collect::<Vec<_>>();
+
+        templates.sort_by_key(crate::InterfaceExecutableTemplate::owner);
+
+        for pair in templates.windows(2) {
+            if pair[0].owner() == pair[1].owner() {
+                return Err(
+                    PackageInterfaceExportBuildError::DuplicateExecutableTemplate(
+                        pair[0].owner(),
+                    ),
+                );
+            }
+        }
+
+        self.executable_templates = templates.into();
+
+        Ok(self)
     }
 
     /// Returns the canonical exported package and symbol surface.
@@ -225,6 +253,11 @@ impl PackageInterfaceExportBundle {
     /// Returns the complete semantic and private support graph.
     pub const fn semantic_facts(&self) -> &InterfaceSemanticFacts {
         &self.semantic_facts
+    }
+
+    /// Returns executable templates in canonical owner order.
+    pub fn executable_templates(&self) -> &[crate::InterfaceExecutableTemplate] {
+        &self.executable_templates
     }
 
     /// Returns the language semantic revision used to interpret the surface.

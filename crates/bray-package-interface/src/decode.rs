@@ -52,6 +52,13 @@ impl DecodeBudget {
             return Err(InterfaceValidationError::Truncated);
         }
 
+        self.allocate_derived_items(count)
+    }
+
+    pub(crate) fn allocate_derived_items<T>(
+        &mut self,
+        count: usize,
+    ) -> Result<Vec<T>, InterfaceValidationError> {
         self.charge_items::<T>(count)?;
 
         let mut values = Vec::new();

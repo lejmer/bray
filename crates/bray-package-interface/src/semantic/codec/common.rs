@@ -19,7 +19,7 @@ use crate::{
 pub(in crate::semantic) const DECLARATION_FACT_FORMAT_VERSION: u32 = 1;
 pub(in crate::semantic) const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
 
-pub(super) fn write_symbol_reference(
+pub(in crate) fn write_symbol_reference(
     encoder: &mut WireEncoder,
     reference: &InterfaceSymbolReference,
 ) {
@@ -41,7 +41,7 @@ pub(super) fn write_symbol_reference(
     }
 }
 
-pub(super) fn read_symbol_reference(
+pub(in crate) fn read_symbol_reference(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceSymbolReference, InterfaceValidationError> {
@@ -321,27 +321,41 @@ pub(super) fn read_external_key(
     key.ok_or(InterfaceValidationError::Malformed)
 }
 
-pub(super) struct SemanticDecodeContext {
+pub(in crate) struct SemanticDecodeContext {
     budget: DecodeBudget,
 }
 
 impl SemanticDecodeContext {
-    pub(super) const fn new(limits: InterfaceValidationLimits) -> Self {
+    pub(in crate) const fn new(limits: InterfaceValidationLimits) -> Self {
         Self {
             budget: DecodeBudget::new(limits),
         }
     }
 
-    pub(super) const fn limits(&self) -> InterfaceValidationLimits {
+    pub(in crate) const fn limits(&self) -> InterfaceValidationLimits {
         self.budget.limits()
     }
 
-    pub(super) fn allocate_items<T>(
+    pub(in crate) fn allocate_items<T>(
         &mut self,
         reader: &WireReader<'_>,
         count: usize,
     ) -> Result<Vec<T>, InterfaceValidationError> {
         self.budget.allocate_items(reader, count)
+    }
+
+    pub(in crate) fn allocate_derived_items<T>(
+        &mut self,
+        count: usize,
+    ) -> Result<Vec<T>, InterfaceValidationError> {
+        self.budget.allocate_derived_items(count)
+    }
+
+    pub(in crate) fn charge_items<T>(
+        &mut self,
+        count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        self.budget.charge_items::<T>(count)
     }
 
     fn charge_external_reference(
@@ -376,12 +390,7 @@ pub(super) fn read_string(
 }
 
 pub(super) fn write_count(encoder: &mut WireEncoder, count: usize) {
-    let value = match u32::try_from(count) {
-        Ok(value) => value,
-        Err(_) => unreachable!("validated interface counts fit the wire representation"),
-    };
-
-    encoder.write_u32(value);
+    encoder.write_count(count);
 }
 
 pub(super) fn read_count(

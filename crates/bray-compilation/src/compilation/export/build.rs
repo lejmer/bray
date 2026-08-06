@@ -96,7 +96,7 @@ impl Compilation {
         )
         .map_err(PackageInterfaceExportError::Surface)?;
 
-        let semantic_facts = super::semantic::build_semantic_facts(
+        let (semantic_facts, executable_templates) = super::semantic::build_semantic_facts(
             self,
             symbols,
             &surface,
@@ -105,6 +105,7 @@ impl Compilation {
         )?;
 
         PackageInterfaceExportBundle::try_new(surface, semantic_facts, request.language_revision())
+            .and_then(|bundle| bundle.with_executable_templates(executable_templates))
             .map(Arc::new)
             .map_err(PackageInterfaceExportError::Bundle)
     }
@@ -145,6 +146,12 @@ fn build_identity_surface(
     let package_symbol = package_symbol(graph, compilation.package_identity())?;
 
     let mut selected = BTreeSet::from_iter(public_symbols.iter().copied());
+
+    selected.extend(
+        graph
+            .symbols()
+            .filter(|symbol| graph.symbol_origin(*symbol) == Some(SymbolOrigin::Source)),
+    );
 
     for symbol in public_symbols.iter().copied() {
         select_required_children(graph, symbol, &mut selected);
@@ -691,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    fn internal_owner_chains_do_not_enter_the_public_export_selection() {
+    fn internal_owner_chains_retain_identity_without_entering_exported_lookup() {
         let compilation = compilation(concat!(
             "module app;\n",
             "internal struct Hidden\n",
@@ -704,7 +711,8 @@ mod tests {
 
         let bundle = export(&compilation);
 
-        assert_eq!(bundle.surface().symbols().symbols().len(), 2);
+        assert_eq!(bundle.surface().symbols().symbols().len(), 5);
+        assert!(bundle.surface().exports().is_empty());
     }
 
     #[test]
@@ -782,6 +790,37 @@ mod tests {
         assert_eq!(facts.declaration_templates().len(), 3);
         assert_eq!(facts.declared_types().len(), 2);
         assert_eq!(facts.type_representations().len(), 2);
+    }
+
+    #[test]
+    fn generic_container_lifecycle_bodies_publish_executable_templates() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "public struct Boxed<T>\n",
+            "{\n",
+            "    value: T;\n",
+            "\n",
+            "    construct(value: T) -> Self\n",
+            "    {\n",
+            "        return { value = value, };\n",
+            "    }\n",
+            "\n",
+            "    destruct()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let bundle = export(&compilation);
+
+        assert_eq!(bundle.executable_templates().len(), 2);
     }
 
     #[test]
