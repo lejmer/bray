@@ -70,6 +70,12 @@ enum InspectionSelectionTarget {
         fulfillment: InspectionSymbolIdentity,
         evidence: Box<InspectionImplementationEvidence>,
     },
+    TraitConstraintOperator {
+        operator: &'static str,
+        member: InspectionSymbolIdentity,
+        constraint_owner: InspectionSymbolIdentity,
+        constraint_ordinal: u32,
+    },
     BuiltInIndex {
         operation: &'static str,
     },
@@ -77,6 +83,11 @@ enum InspectionSelectionTarget {
         member: InspectionSymbolIdentity,
         fulfillment: InspectionSymbolIdentity,
         evidence: Box<InspectionImplementationEvidence>,
+    },
+    TraitConstraintIndex {
+        member: InspectionSymbolIdentity,
+        constraint_owner: InspectionSymbolIdentity,
+        constraint_ordinal: u32,
     },
     Construction {
         callable: InspectionSymbolIdentity,
@@ -122,9 +133,15 @@ impl InspectionSelectionTarget {
                 fulfillment,
                 ..
             } => format!("trait {operator} via {}", fulfillment.text()),
+            Self::TraitConstraintOperator {
+                operator, member, ..
+            } => format!("trait {operator} via constraint for {}", member.text()),
             Self::BuiltInIndex { operation } => format!("built-in {operation}"),
             Self::CustomIndex { fulfillment, .. } => {
                 format!("custom index via {}", fulfillment.text())
+            }
+            Self::TraitConstraintIndex { member, .. } => {
+                format!("custom index via constraint for {}", member.text())
             }
             Self::Construction { callable, .. } => {
                 format!("type-form construction via {}", callable.text())
@@ -216,6 +233,11 @@ enum InspectionConversionRule {
         fulfillment: InspectionSymbolIdentity,
         evidence: Box<InspectionImplementationEvidence>,
     },
+    TraitConstraint {
+        member: InspectionSymbolIdentity,
+        constraint_owner: InspectionSymbolIdentity,
+        constraint_ordinal: u32,
+    },
 }
 
 impl InspectionConversionRule {
@@ -225,6 +247,7 @@ impl InspectionConversionRule {
             Self::BuiltInScalar => "built-in scalar",
             Self::Composite { .. } => "composite",
             Self::Trait { .. } => "trait",
+            Self::TraitConstraint { .. } => "trait constraint",
         }
     }
 }
@@ -429,6 +452,20 @@ fn operator_target(
                 semantic_values,
             )?),
         }),
+        OperatorTarget::TraitConstraint {
+            operator,
+            member,
+            dispatch,
+            ..
+        } => Ok(InspectionSelectionTarget::TraitConstraintOperator {
+            operator: operator.as_str(),
+            member: callable_identity(symbols, member),
+            constraint_owner: InspectionSymbolIdentity::from_symbol(
+                symbols,
+                dispatch.owner().symbol(),
+            ),
+            constraint_ordinal: dispatch.ordinal().raw(),
+        }),
     }
 }
 
@@ -457,6 +494,18 @@ fn index_target(
                     symbols,
                     semantic_values,
                 )?),
+            });
+        }
+        IndexTarget::TraitConstraint {
+            member, dispatch, ..
+        } => {
+            return Ok(InspectionSelectionTarget::TraitConstraintIndex {
+                member: callable_identity(symbols, member),
+                constraint_owner: InspectionSymbolIdentity::from_symbol(
+                    symbols,
+                    dispatch.owner().symbol(),
+                ),
+                constraint_ordinal: dispatch.ordinal().raw(),
             });
         }
     };
@@ -492,6 +541,16 @@ fn inspection_conversion(
                 symbols,
                 semantic_values,
             )?),
+        },
+        ConversionTarget::TraitConstraint {
+            member, dispatch, ..
+        } => InspectionConversionRule::TraitConstraint {
+            member: callable_identity(symbols, *member),
+            constraint_owner: InspectionSymbolIdentity::from_symbol(
+                symbols,
+                dispatch.owner().symbol(),
+            ),
+            constraint_ordinal: dispatch.ordinal().raw(),
         },
     };
 

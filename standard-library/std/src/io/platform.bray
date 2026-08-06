@@ -183,52 +183,19 @@ internal func read_context_u64(pos buffer: &std.memory.RawBuffer<u8>, offset: us
 
 internal func platform_error_kind(pos category: u32) -> IoErrorKind
 {
-    if category == 1
+    match category
     {
-        return Unsupported;
+        case 1 { return Unsupported; }
+        case 2 { return PermissionDenied; }
+        case 3 { return NotFound; }
+        case 4 { return AlreadyExists; }
+        case 5 { return InvalidInput; }
+        case 6 { return Interrupted; }
+        case 7 { return Exhausted; }
+        case 8 { return BrokenStream; }
+        case 9 { return TimedOut; }
+        case _ { return Other; }
     }
-
-    if category == 2
-    {
-        return PermissionDenied;
-    }
-
-    if category == 3
-    {
-        return NotFound;
-    }
-
-    if category == 4
-    {
-        return AlreadyExists;
-    }
-
-    if category == 5
-    {
-        return InvalidInput;
-    }
-
-    if category == 6
-    {
-        return Interrupted;
-    }
-
-    if category == 7
-    {
-        return Exhausted;
-    }
-
-    if category == 8
-    {
-        return BrokenStream;
-    }
-
-    if category == 9
-    {
-        return TimedOut;
-    }
-
-    return Other;
 }
 
 internal func io_error(kind: IoErrorKind, native_code: i64, transferred: usize) -> IoError

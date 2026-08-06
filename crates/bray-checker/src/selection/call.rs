@@ -425,13 +425,11 @@ where
         BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => 0,
     };
 
-    Ok(
-        if arguments.is_empty() || arguments.len() == expected_count {
-            Compatibility::Yes
-        } else {
-            Compatibility::No
-        },
-    )
+    Ok(if arguments.len() <= expected_count {
+        Compatibility::Yes
+    } else {
+        Compatibility::No
+    })
 }
 
 fn callable_surface_is_consistent(

@@ -76,23 +76,7 @@ impl InterfaceSemanticFacts {
             return Err(InterfaceValidationError::Malformed);
         }
 
-        for constraint in &*self.constraints {
-            validate_symbol(&constraint.owner, symbol_count, dependency_count)?;
-
-            match constraint.kind {
-                InterfaceConstraintKind::Predicate(predicate) => validate_index(
-                    predicate.dependency_contract.to_index(),
-                    self.dependency_contracts.len(),
-                )?,
-                InterfaceConstraintKind::TraitSatisfaction {
-                    subject,
-                    application,
-                } => {
-                    validate_index(subject.to_index(), self.types.len())?;
-                    validate_index(application.to_index(), self.trait_applications.len())?;
-                }
-            }
-        }
+        self.validate_constraints(symbol_count, dependency_count)?;
 
         for contract in &*self.callable_contracts {
             self.validate_callable_contract(contract, symbol_count, dependency_count)?;
@@ -259,6 +243,36 @@ impl InterfaceSemanticFacts {
 
             if provenance.start > provenance.end {
                 return Err(InterfaceValidationError::Malformed);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_constraints(
+        &self,
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        for constraint in &*self.constraints {
+            validate_symbol(&constraint.owner, symbol_count, dependency_count)?;
+
+            match constraint.kind {
+                InterfaceConstraintKind::Predicate(predicate) => validate_index(
+                    predicate.dependency_contract.to_index(),
+                    self.dependency_contracts.len(),
+                )?,
+                InterfaceConstraintKind::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    validate_index(subject.to_index(), self.types.len())?;
+                    validate_index(application.to_index(), self.trait_applications.len())?;
+                }
+                InterfaceConstraintKind::TypeEquality { left, right } => {
+                    validate_index(left.to_index(), self.types.len())?;
+                    validate_index(right.to_index(), self.types.len())?;
+                }
             }
         }
 

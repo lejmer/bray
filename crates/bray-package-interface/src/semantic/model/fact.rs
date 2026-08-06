@@ -45,6 +45,13 @@ pub enum InterfaceConstraintKind {
         /// The required applied trait.
         application: InterfaceTraitApplicationId,
     },
+    /// Two types that must have the same semantic identity.
+    TypeEquality {
+        /// The left type.
+        left: InterfaceTypeId,
+        /// The right type.
+        right: InterfaceTypeId,
+    },
 }
 
 /// One generic constraint attached to an exported declaration.
@@ -83,6 +90,20 @@ impl InterfaceConstraint {
                 subject,
                 application,
             },
+        }
+    }
+
+    /// Creates one checked type-equality constraint.
+    pub const fn type_equality(
+        owner: InterfaceSymbolReference,
+        ordinal: SymbolOrdinal,
+        left: InterfaceTypeId,
+        right: InterfaceTypeId,
+    ) -> Self {
+        Self {
+            owner,
+            ordinal,
+            kind: InterfaceConstraintKind::TypeEquality { left, right },
         }
     }
 

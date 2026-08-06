@@ -106,7 +106,9 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         | MirOperationKind::Finalize(place)
         | MirOperationKind::Destroy(place)
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),
-        MirOperationKind::Unary { operand, .. } | MirOperationKind::Convert { operand, .. } => {
+        MirOperationKind::Unary { operand, .. }
+        | MirOperationKind::Convert { operand, .. }
+        | MirOperationKind::NumericConversion { operand, .. } => {
             collect_operand_value(operand, demands);
         }
         MirOperationKind::Binary { left, right, .. } => {

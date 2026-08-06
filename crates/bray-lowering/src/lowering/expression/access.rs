@@ -1,13 +1,12 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, IndexTarget, SelectedOperation, SelectedReceiver,
-    StorageAccessId, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
-    StorageOperationStatus, StorageProjection,
+    BoundExpressionId, SelectedOperation, SelectedReceiver, StorageAccessId, StorageAccessPurpose,
+    StorageIdentity, StorageIdentityId, StorageOperationStatus, StorageProjection,
 };
 use bray_ir::{
-    MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirFieldReference, MirOperand,
-    MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirStoreKind,
+    MirBlockId, MirFieldReference, MirOperand, MirOperationKind, MirPlace, MirProjection,
+    MirProjectionKind, MirStoreKind,
 };
-use bray_symbols::{AnySymbolId, BorrowKind, CallableAbi, ReceiverMode, TypeData, TypeId};
+use bray_symbols::{AnySymbolId, BorrowKind, ReceiverMode, TypeData, TypeId};
 
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
@@ -175,87 +174,6 @@ impl Lowerer<'_> {
             None => self.lower_storage_operand(id, current),
             _ => Err(LoweringError::UnsupportedExpression(id)),
         }
-    }
-
-    pub(super) fn lower_index(
-        &mut self,
-        id: BoundExpressionId,
-        current: MirBlockId,
-    ) -> Result<LoweredExpression, LoweringError> {
-        let target = match self.selected_operation(id)? {
-            SelectedOperation::Index { target, .. } => *target,
-            _ => return Err(LoweringError::MissingSemanticSelection(id)),
-        };
-
-        match target {
-            IndexTarget::ArrayElement
-            | IndexTarget::SliceElement
-            | IndexTarget::ArraySlice
-            | IndexTarget::Slice => self.lower_storage_operand(id, current),
-            IndexTarget::Custom {
-                fulfillment,
-                requirement,
-                witness,
-                ..
-            } => self.lower_custom_index(id, current, fulfillment, requirement, witness),
-        }
-    }
-
-    fn lower_custom_index(
-        &mut self,
-        id: BoundExpressionId,
-        current: MirBlockId,
-        fulfillment: bray_symbols::CallableInstanceData,
-        requirement: bray_symbols::ImplementationRequirementKey,
-        witness: bray_symbols::ImplementationInstanceId,
-    ) -> Result<LoweredExpression, LoweringError> {
-        let operands = self
-            .input
-            .unit()
-            .view()
-            .expression(id)
-            .and_then(|expression| match expression {
-                BoundExpression::Structured(expression) => Some(expression.operands()),
-                _ => None,
-            })
-            .ok_or_else(|| LoweringError::MissingBoundNode(id.into()))?
-            .to_vec();
-
-        let source = self.expression_source(id)?;
-        let mut block = current;
-        let mut arguments = Vec::with_capacity(operands.len());
-
-        for operand in operands {
-            let lowered = self.lower_expression(operand, block)?;
-
-            let Some(continuation) = lowered.block else {
-                return Ok(lowered);
-            };
-
-            let Some(value) = lowered.value else {
-                return Err(LoweringError::MissingOperationResult(operand));
-            };
-
-            block = continuation;
-            arguments.push(value);
-        }
-
-        let value = self.push_value_operation(
-            id,
-            block,
-            Self::retained_source(&source),
-            MirOperationKind::Call(MirCall::protocol(
-                MirCallTarget::Direct(MirCallableReference::new(fulfillment, CallableAbi::Bray)),
-                bray_bound_tree::BoundCallResult::Immediate(self.expression_type(id)?),
-                arguments,
-                [bray_bound_tree::SelectedImplementationWitness::new(
-                    requirement,
-                    witness,
-                )],
-            )),
-        )?;
-
-        Ok(LoweredExpression::continuing(block, Some(value), source))
     }
 
     pub(super) fn lower_storage_operand(

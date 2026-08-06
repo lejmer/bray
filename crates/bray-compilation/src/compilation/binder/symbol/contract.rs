@@ -96,32 +96,41 @@ fn bind_generic_constraints(
         for expression in clause.expressions() {
             let ordinal = symbol_ordinal(constraints.len())?;
 
-            let constraint = if expression.trait_satisfaction_constraint().is_some() {
-                let source = template
-                    .value()
-                    .constraints()
-                    .get(constraints.len())
-                    .ok_or(BinderFactError::DependencyUnavailable)?;
+            let source = template
+                .value()
+                .constraints()
+                .get(constraints.len())
+                .ok_or(BinderFactError::DependencyUnavailable)?;
 
-                resolve_trait_satisfaction_constraint(context, source, &mut diagnostics)?
-            } else {
-                let result = bind_predicate_clause(
-                    context,
-                    owner,
-                    syntax_node_view(&clause),
-                    [expression],
-                    PredicateClauseBindingContext::GenericConstraint,
-                )?;
+            let constraint = match source {
+                bray_symbols::GenericConstraintTemplate::TraitSatisfaction { .. } => {
+                    resolve_trait_satisfaction_constraint(context, source, &mut diagnostics)?
+                }
+                bray_symbols::GenericConstraintTemplate::TypeEquality { .. } => {
+                    resolve_type_equality_constraint(context, source, &mut diagnostics)?
+                }
+                bray_symbols::GenericConstraintTemplate::Source { .. } => {
+                    let result = bind_predicate_clause(
+                        context,
+                        owner,
+                        syntax_node_view(&clause),
+                        [expression],
+                        PredicateClauseBindingContext::GenericConstraint,
+                    )?;
 
-                let (predicates, clause_diagnostics) = result.into_parts();
+                    let (predicates, clause_diagnostics) = result.into_parts();
 
-                diagnostics = diagnostics.merged(&clause_diagnostics);
+                    diagnostics = diagnostics.merged(&clause_diagnostics);
 
-                let [predicate] = predicates.as_ref() else {
+                    let [predicate] = predicates.as_ref() else {
+                        return Err(BinderFactError::DependencyUnavailable);
+                    };
+
+                    CheckedConstraint::new(ordinal, *predicate)
+                }
+                bray_symbols::GenericConstraintTemplate::Resolved(_) => {
                     return Err(BinderFactError::DependencyUnavailable);
-                };
-
-                CheckedConstraint::new(ordinal, *predicate)
+                }
             };
 
             constraints.push(constraint);
@@ -545,6 +554,50 @@ fn resolve_trait_satisfaction_constraint(
         subject,
         application,
     ))
+}
+
+fn resolve_type_equality_constraint(
+    context: &CompilationBinderFacts<'_>,
+    constraint: &bray_symbols::GenericConstraintTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> BinderFactResult<CheckedConstraint> {
+    let Some((left, right)) = constraint.type_equality_templates() else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
+
+    let left = resolve_type_template(context, left, diagnostics)?;
+    let right = resolve_type_template(context, right, diagnostics)?;
+
+    Ok(CheckedConstraint::type_equality(
+        constraint.ordinal(),
+        left,
+        right,
+    ))
+}
+
+fn resolve_type_template(
+    context: &CompilationBinderFacts<'_>,
+    template: &bray_symbols::TypeExpressionTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> BinderFactResult<bray_symbols::TypeId> {
+    let mut terms = BTreeMap::new();
+
+    for occurrence in template.constant_expressions() {
+        let result = context
+            .compilation()
+            .embedded_constant_term_with_cancellation(occurrence, context.cancellation())
+            .map_err(super::binding::binder_error)?;
+
+        *diagnostics = diagnostics.merged(result.diagnostics());
+        terms.insert(occurrence.key(), *result.value());
+    }
+
+    let constants = bray_checker::CheckedConstantTerms::try_from_terms(terms)
+        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+    bray_checker::resolve_type_expression_template(context.semantic_values, template, &constants)
+        .map_err(|_| BinderFactError::DependencyUnavailable)?
+        .ok_or(BinderFactError::DependencyUnavailable)
 }
 
 fn resolve_trait_satisfaction_templates(

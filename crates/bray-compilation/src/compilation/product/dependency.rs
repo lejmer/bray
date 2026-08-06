@@ -488,6 +488,16 @@ fn push_conversion_dependencies(
                     dependencies,
                 )?;
             }
+            ConversionTarget::TraitConstraint { member, .. } => {
+                dependencies.push(member.definition().symbol());
+
+                exposes_internal |= callable_instance_exposes_internal(
+                    *member,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                );
+            }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
         }

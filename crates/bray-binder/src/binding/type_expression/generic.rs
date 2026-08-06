@@ -22,6 +22,10 @@ impl TypeExpressionBinder<'_> {
     ) -> BinderFactResult<bray_diagnostics::DiagnosticResult<Vec<GenericArgumentTemplate>>> {
         self.check_cancellation()?;
 
+        let Some(parameters) = parameters.get(..arguments.len()) else {
+            return Err(BinderFactError::DependencyUnavailable);
+        };
+
         let arguments = self.bind_generic_argument_syntaxes(arguments, parameters)?;
 
         self.check_cancellation()?;

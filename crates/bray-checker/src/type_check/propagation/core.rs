@@ -423,6 +423,12 @@ where
             continue;
         };
 
+        if last.is_some_and(|expression| {
+            own_block_yield(request.view(), expression, block.origin().source_anchor().syntax())
+        }) {
+            continue;
+        }
+
         let normal = last
             .and_then(|expression| variables.get(&expression).copied())
             .and_then(|expression| inference.evidence(expression))
@@ -436,6 +442,18 @@ where
     }
 
     Ok(true)
+}
+
+fn own_block_yield(
+    view: BoundUnitView<'_>,
+    expression: BoundExpressionId,
+    target: bray_declarations::SyntaxAnchor,
+) -> bool {
+    let Some(BoundExpression::ControlTransfer(transfer)) = view.expression(expression) else {
+        return false;
+    };
+
+    transfer.kind() == BoundControlTransferKind::Yield && transfer.target() == Some(target)
 }
 
 fn propagate_control_transfer(

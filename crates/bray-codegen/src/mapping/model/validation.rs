@@ -110,6 +110,7 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
+        | MirOperationKind::NumericConversion { .. }
         | MirOperationKind::PatternProjection { .. }
         | MirOperationKind::Generator(
             MirGeneratorOperation::Begin { .. }

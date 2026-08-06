@@ -50,7 +50,9 @@ pub(super) fn validate_operation(
         | MirOperationKind::Cleanup { place, .. } => {
             validate_place(unit, place, block, Some(id))?;
         }
-        MirOperationKind::Unary { operand, .. } | MirOperationKind::Convert { operand, .. } => {
+        MirOperationKind::Unary { operand, .. }
+        | MirOperationKind::Convert { operand, .. }
+        | MirOperationKind::NumericConversion { operand, .. } => {
             validate_operand(unit, operand, block, Some(id))?;
         }
         MirOperationKind::Binary { left, right, .. } => {
@@ -175,6 +177,7 @@ fn validate_operation_block(
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
+        | MirOperationKind::NumericConversion { .. }
         | MirOperationKind::Call(_)
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
@@ -204,6 +207,7 @@ fn validate_operation_result(
             | MirOperationKind::Aggregate(_)
             | MirOperationKind::Construct(_)
             | MirOperationKind::Convert { .. }
+            | MirOperationKind::NumericConversion { .. }
             | MirOperationKind::Call(_)
             | MirOperationKind::PanicReport(_)
             | MirOperationKind::Async(

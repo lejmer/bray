@@ -51,6 +51,16 @@ pub(crate) fn representation_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    representation_type_for_context(request.context(), role)
+}
+
+pub(crate) fn representation_type_for_context<C>(
+    request: &C,
+    role: RepresentationRole,
+) -> Result<TypeId, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
     let Some(definition) = request
         .available_compiler_known_symbols()
         .representation_symbol::<StructSymbolId>(role)
@@ -58,7 +68,10 @@ where
         return Err(CheckerInfrastructureError::CompilerKnownRepresentationUnavailable { role });
     };
 
-    named_type(request, NamedTypeSymbolId::Struct(definition))
+    intern_named_type(
+        request.semantic_values(),
+        NamedTypeSymbolId::Struct(definition),
+    )
 }
 
 pub(crate) fn representation_union_type<C>(

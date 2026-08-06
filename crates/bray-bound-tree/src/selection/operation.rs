@@ -155,13 +155,26 @@ pub enum OperatorTarget {
         /// The exact implementation witness.
         witness: bray_symbols::ImplementationInstanceId,
     },
+    /// A compiler-known operator supplied by a surrounding generic constraint.
+    TraitConstraint {
+        /// The exact source operator contract being implemented.
+        operator: BoundOperator,
+        /// The exact substituted trait member selected for the operation.
+        member: CallableInstanceData,
+        /// The exact trait requirement supplied by the constraint.
+        requirement: ImplementationRequirementKey,
+        /// The surrounding generic constraint that supplies dispatch.
+        dispatch: bray_symbols::TraitConstraintDispatch,
+    },
 }
 
 impl OperatorTarget {
     /// Returns the exact source operator implemented by this target.
     pub const fn operator(self) -> BoundOperator {
         match self {
-            Self::BuiltIn(operator) | Self::Trait { operator, .. } => operator,
+            Self::BuiltIn(operator)
+            | Self::Trait { operator, .. }
+            | Self::TraitConstraint { operator, .. } => operator,
         }
     }
 }
@@ -187,6 +200,15 @@ pub enum IndexTarget {
         requirement: ImplementationRequirementKey,
         /// The exact implementation witness.
         witness: bray_symbols::ImplementationInstanceId,
+    },
+    /// A custom indexing operation supplied by a surrounding generic constraint.
+    TraitConstraint {
+        /// The exact substituted trait member selected for indexing.
+        member: CallableInstanceData,
+        /// The exact trait requirement supplied by the constraint.
+        requirement: ImplementationRequirementKey,
+        /// The surrounding generic constraint that supplies dispatch.
+        dispatch: bray_symbols::TraitConstraintDispatch,
     },
 }
 
@@ -364,6 +386,15 @@ pub enum ConversionTarget {
         requirement: ImplementationRequirementKey,
         /// The exact implementation witness.
         witness: bray_symbols::ImplementationInstanceId,
+    },
+    /// A conversion supplied by a surrounding generic constraint.
+    TraitConstraint {
+        /// The exact substituted trait member selected for conversion.
+        member: CallableInstanceData,
+        /// The exact trait requirement supplied by the constraint.
+        requirement: ImplementationRequirementKey,
+        /// The surrounding generic constraint that supplies dispatch.
+        dispatch: bray_symbols::TraitConstraintDispatch,
     },
 }
 
@@ -544,7 +575,9 @@ fn conversion_witnesses(conversion: &SelectedConversion) -> Vec<SelectedImplemen
                 ..
             } => witnesses.push(SelectedImplementationWitness::new(*requirement, *witness)),
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
-            ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
+            ConversionTarget::Identity
+            | ConversionTarget::BuiltInScalar
+            | ConversionTarget::TraitConstraint { .. } => {}
         }
     }
 
@@ -555,11 +588,17 @@ const fn index_target_matches(target: IndexTarget, source: BoundStructuredExpres
     match source {
         BoundStructuredExpressionKind::ElementIndex => matches!(
             target,
-            IndexTarget::ArrayElement | IndexTarget::SliceElement | IndexTarget::Custom { .. }
+            IndexTarget::ArrayElement
+                | IndexTarget::SliceElement
+                | IndexTarget::Custom { .. }
+                | IndexTarget::TraitConstraint { .. }
         ),
         BoundStructuredExpressionKind::SliceIndex => matches!(
             target,
-            IndexTarget::ArraySlice | IndexTarget::Slice | IndexTarget::Custom { .. }
+            IndexTarget::ArraySlice
+                | IndexTarget::Slice
+                | IndexTarget::Custom { .. }
+                | IndexTarget::TraitConstraint { .. }
         ),
         _ => false,
     }
