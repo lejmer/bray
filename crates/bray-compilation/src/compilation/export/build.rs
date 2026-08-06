@@ -914,7 +914,7 @@ mod tests {
     #[test]
     fn standard_formatting_surface_round_trips_without_provider_source() {
         let provider = standard_library_compilation([
-            "module std;\n",
+            include_str!("../../../../../standard-library/std/src/std.bray"),
             concat!(
                 "module std.memory;\n",
                 "union MemoryLayoutError\n",

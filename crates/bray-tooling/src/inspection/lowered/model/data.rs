@@ -685,6 +685,18 @@ fn operation_parts(
 
             "convert"
         }
+        MirOperationKind::NumericConversion { kind, operand } => {
+            parts.attribute(
+                "policy",
+                match kind {
+                    bray_ir::MirNumericConversionKind::Truncate => "truncate",
+                },
+            );
+
+            parts.operand("operand", operand, context)?;
+
+            "numeric_conversion"
+        }
         MirOperationKind::PatternProjection {
             subject,
             projection,
@@ -2070,6 +2082,24 @@ fn conversion_parts(
                 None,
             );
         }
+        ConversionTarget::TraitConstraint {
+            member,
+            requirement,
+            dispatch,
+        } => {
+            callable_instance(&format!("{role}_member"), *member, parts, context.symbols);
+            implementation_requirement(role, *requirement, parts, context)?;
+
+            parts.attribute(
+                format!("{role}_constraint_owner"),
+                dispatch.owner().symbol().kind().as_str(),
+            );
+
+            parts.attribute(
+                format!("{role}_constraint_ordinal"),
+                dispatch.ordinal().raw().to_string(),
+            );
+        }
     }
 
     Ok(())
@@ -2310,6 +2340,7 @@ fn conversion_kind(target: &ConversionTarget) -> &'static str {
         ConversionTarget::BuiltInScalar => "built_in_scalar",
         ConversionTarget::Composite(_) => "composite",
         ConversionTarget::Trait { .. } => "trait",
+        ConversionTarget::TraitConstraint { .. } => "trait_constraint",
     }
 }
 

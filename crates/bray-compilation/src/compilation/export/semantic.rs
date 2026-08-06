@@ -1163,6 +1163,14 @@ impl<'a> SemanticExporter<'a> {
                     self.type_id(subject)?,
                     self.trait_application_id(application)?,
                 )),
+                CheckedConstraintKind::TypeEquality { left, right } => {
+                    Ok(InterfaceConstraint::type_equality(
+                        owner.clone(),
+                        constraint.ordinal(),
+                        self.type_id(left)?,
+                        self.type_id(right)?,
+                    ))
+                }
             })
             .collect()
     }

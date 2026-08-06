@@ -5,10 +5,11 @@ use bray_base::Cancellation;
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, BorrowKind, GenericOwnerId, GenericSubstitutionData,
-    GenericTypeParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId,
-    SelfTypeContext, SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData,
-    TraitApplicationTemplate, TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, BorrowKind, ConstantTermData, GenericArgument, GenericOwnerId,
+    GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, SelfTypeContext,
+    SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData, TraitApplicationTemplate,
+    TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     ImplementationSubjectSyntax, PathSyntax, SyntaxToken, TraitApplicationSyntax,
@@ -332,11 +333,7 @@ impl<'facts> TypeExpressionBinder<'facts> {
         let arguments = parameters
             .iter()
             .copied()
-            .map(|parameter| {
-                self.semantic_values
-                    .intern_generic_parameter_argument(parameter)
-                    .map_err(|_| BinderFactError::DependencyUnavailable)
-            })
+            .map(|parameter| self.contextual_generic_argument(parameter))
             .collect::<BinderFactResult<Vec<_>>>()?;
 
         let owner = GenericOwnerId::try_new(trait_definition.into())
@@ -361,6 +358,22 @@ impl<'facts> TypeExpressionBinder<'facts> {
             member,
         })
         .map(TypeExpressionTemplate::Resolved)
+    }
+
+    fn contextual_generic_argument(
+        &self,
+        parameter: GenericParameterSymbolId,
+    ) -> BinderFactResult<GenericArgument> {
+        match parameter {
+            GenericParameterSymbolId::Type(parameter) => self
+                .intern_type(TypeData::TypeParameter(parameter))
+                .map(GenericArgument::Type),
+            GenericParameterSymbolId::Const(parameter) => self
+                .semantic_values
+                .intern_constant_term(ConstantTermData::Parameter(parameter))
+                .map(GenericArgument::Constant)
+                .map_err(|_| BinderFactError::DependencyUnavailable),
+        }
     }
 
     pub(super) fn intern_type(&self, data: TypeData) -> BinderFactResult<TypeId> {

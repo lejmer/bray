@@ -147,6 +147,7 @@ impl Compilation {
             imported,
             values,
             &facts,
+            coherence.value().subject(),
             trait_application,
             &type_bindings,
         );

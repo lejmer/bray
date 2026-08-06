@@ -130,6 +130,15 @@ impl InternState {
                             self.trait_application_id(application)
                                 .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
                         ),
+                        crate::InterfaceConstraintKind::TypeEquality { left, right } => {
+                            CheckedConstraint::type_equality(
+                                input.ordinal,
+                                self.type_id(left)
+                                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                                self.type_id(right)
+                                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                            )
+                        }
                     },
                 })
             })

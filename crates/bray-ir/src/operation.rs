@@ -81,6 +81,13 @@ pub enum MirBinaryOperator {
     ShiftRight,
 }
 
+/// One explicit numeric conversion selected by a standard-library operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirNumericConversionKind {
+    /// Discards source precision or high-order integer bits as required by the target type.
+    Truncate,
+}
+
 /// The normalized representation built by one aggregate operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirAggregateKind {
@@ -621,6 +628,13 @@ pub enum MirOperationKind {
         operand: MirOperand,
         /// Exact checked conversion plan.
         conversion: SelectedConversion,
+    },
+    /// Apply an explicit numeric conversion policy.
+    NumericConversion {
+        /// Selected conversion policy.
+        kind: MirNumericConversionKind,
+        /// Input value.
+        operand: MirOperand,
     },
     /// Project one nested subject using an exact checked pattern step.
     PatternProjection {

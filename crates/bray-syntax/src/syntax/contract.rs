@@ -12,6 +12,40 @@ pub struct TraitSatisfactionConstraintSyntax {
     application: TraitApplicationSyntax,
 }
 
+/// One operand of a static type-equality constraint.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StaticTypeOperandSyntax {
+    /// An operand parsed unambiguously as a type expression.
+    Type(TypeExpressionSyntax),
+    /// An operand whose expression syntax requires semantic classification.
+    Expression(ExpressionSyntax),
+}
+
+/// A static constraint requiring two type expressions to denote the same type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TypeEqualityConstraintSyntax {
+    left: StaticTypeOperandSyntax,
+    equals_token: SyntaxToken,
+    right: StaticTypeOperandSyntax,
+}
+
+impl TypeEqualityConstraintSyntax {
+    /// Returns the left type operand.
+    pub const fn left(&self) -> &StaticTypeOperandSyntax {
+        &self.left
+    }
+
+    /// Returns the equality operator token.
+    pub const fn equals_token(&self) -> &SyntaxToken {
+        &self.equals_token
+    }
+
+    /// Returns the right type operand.
+    pub const fn right(&self) -> &StaticTypeOperandSyntax {
+        &self.right
+    }
+}
+
 impl TraitSatisfactionConstraintSyntax {
     /// Returns the implementation-eligible subject type.
     pub const fn subject(&self) -> &TypeExpressionSyntax {
@@ -50,6 +84,36 @@ impl ExpressionSyntax {
             subject,
             colon_token,
             application,
+        })
+    }
+
+    /// Returns this expression as a possible static type-equality constraint.
+    pub fn type_equality_constraint(&self) -> Option<TypeEqualityConstraintSyntax> {
+        let equals_token = self.operator_token()?;
+
+        if equals_token.kind() != SyntaxKind::EqualsEqualsToken {
+            return None;
+        }
+
+        let types = self.type_expressions().collect::<Vec<_>>();
+        let expressions = self.expressions().collect::<Vec<_>>();
+
+        let (left, right) = match (types.as_slice(), expressions.as_slice()) {
+            ([left, right], []) => (
+                StaticTypeOperandSyntax::Type(left.clone()),
+                StaticTypeOperandSyntax::Type(right.clone()),
+            ),
+            ([], [left, right]) => (
+                StaticTypeOperandSyntax::Expression(left.clone()),
+                StaticTypeOperandSyntax::Expression(right.clone()),
+            ),
+            _ => return None,
+        };
+
+        Some(TypeEqualityConstraintSyntax {
+            left,
+            equals_token,
+            right,
         })
     }
 }

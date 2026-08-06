@@ -1,0 +1,145 @@
+module std.numeric;
+
+const U8_MIN: u8 = 0;
+
+const U8_MAX: u8 = 255;
+
+const U16_MIN: u16 = 0;
+
+const U16_MAX: u16 = 65535;
+
+const U32_MIN: u32 = 0;
+
+const U32_MAX: u32 = 4294967295;
+
+const U64_MIN: u64 = 0;
+
+const U64_MAX: u64 = 18446744073709551615;
+
+const U128_MIN: u128 = 0;
+
+const U128_MAX: u128 = 340282366920938463463374607431768211455;
+
+const I8_MIN: i8 = -127 - 1;
+
+const I8_MAX: i8 = 127;
+
+const I16_MIN: i16 = -32767 - 1;
+
+const I16_MAX: i16 = 32767;
+
+const I32_MIN: i32 = -2147483647 - 1;
+
+const I32_MAX: i32 = 2147483647;
+
+const I64_MIN: i64 = -9223372036854775807 - 1;
+
+const I64_MAX: i64 = 9223372036854775807;
+
+const I128_MIN: i128 = -170141183460469231731687303715884105727 - 1;
+
+const I128_MAX: i128 = 170141183460469231731687303715884105727;
+
+const USIZE_MIN: usize = 0;
+
+const USIZE_MAX: usize = ~0;
+
+const ISIZE_MAX: isize = 9223372036854775807;
+
+const ISIZE_MIN: isize = -ISIZE_MAX - 1;
+
+impl U8Integer = u8(Integer)
+{
+    func bounds() -> (u8, u8, u8, u8)
+    {
+        return(0, 0, U8_MIN, U8_MAX);
+    }
+}
+
+impl U16Integer = u16(Integer)
+{
+    func bounds() -> (u16, u16, u16, u16)
+    {
+        return(0, 0, U16_MIN, U16_MAX);
+    }
+}
+
+impl U32Integer = u32(Integer)
+{
+    func bounds() -> (u32, u32, u32, u32)
+    {
+        return(0, 0, U32_MIN, U32_MAX);
+    }
+}
+
+impl U64Integer = u64(Integer)
+{
+    func bounds() -> (u64, u64, u64, u64)
+    {
+        return(0, 0, U64_MIN, U64_MAX);
+    }
+}
+
+impl U128Integer = u128(Integer)
+{
+    func bounds() -> (u128, u128, u128, u128)
+    {
+        return(0, 0, U128_MIN, U128_MAX);
+    }
+}
+
+impl UsizeInteger = usize(Integer)
+{
+    func bounds() -> (usize, usize, usize, usize)
+    {
+        return(0, 0, USIZE_MIN, USIZE_MAX);
+    }
+}
+
+impl I8Integer = i8(Integer)
+{
+    func bounds() -> (i8, i8, i8, i8)
+    {
+        return(0, -1, I8_MIN, I8_MAX);
+    }
+}
+
+impl I16Integer = i16(Integer)
+{
+    func bounds() -> (i16, i16, i16, i16)
+    {
+        return(0, -1, I16_MIN, I16_MAX);
+    }
+}
+
+impl I32Integer = i32(Integer)
+{
+    func bounds() -> (i32, i32, i32, i32)
+    {
+        return(0, -1, I32_MIN, I32_MAX);
+    }
+}
+
+impl I64Integer = i64(Integer)
+{
+    func bounds() -> (i64, i64, i64, i64)
+    {
+        return(0, -1, I64_MIN, I64_MAX);
+    }
+}
+
+impl I128Integer = i128(Integer)
+{
+    func bounds() -> (i128, i128, i128, i128)
+    {
+        return(0, -1, I128_MIN, I128_MAX);
+    }
+}
+
+impl IsizeInteger = isize(Integer)
+{
+    func bounds() -> (isize, isize, isize, isize)
+    {
+        return(0, -1, ISIZE_MIN, ISIZE_MAX);
+    }
+}

@@ -384,6 +384,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 self.enqueue(PendingRecord::Type(subject.raw()));
                 self.enqueue(PendingRecord::TraitApplication(application.raw()));
             }
+            crate::InterfaceConstraintKind::TypeEquality { left, right } => {
+                self.enqueue(PendingRecord::Type(left.raw()));
+                self.enqueue(PendingRecord::Type(right.raw()));
+            }
         }
 
         self.records.constraints.insert(index, constraint);

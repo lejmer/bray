@@ -44,6 +44,10 @@ impl Compilation {
             .resolve_conversion_plan(
                 request,
                 facts,
+                facts
+                    .symbols()
+                    .symbol_for_key(unit.key().declared_owner())
+                    .ok_or(FactQueryError::InfrastructureFailure)?,
                 source_type,
                 target_type,
                 cancellation,
@@ -70,6 +74,7 @@ impl Compilation {
             super::super::checker::CompilationCheckerContext<'_>,
         >,
         facts: &CompilationBinderFacts<'_>,
+        owner: bray_symbols::AnySymbolId,
         source: TypeId,
         target: TypeId,
         cancellation: &CancellationToken,
@@ -90,6 +95,7 @@ impl Compilation {
                 let Some(plan) = self.resolve_conversion_plan(
                     request,
                     facts,
+                    owner,
                     source,
                     target,
                     cancellation,
@@ -107,6 +113,7 @@ impl Compilation {
 
         let Some(candidate) = self.trait_operation_candidate_data(
             facts,
+            owner,
             bray_compiler_known::CompilerKnownOperationRole::PlainConversion,
             source,
             &[target],

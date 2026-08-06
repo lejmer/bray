@@ -31,20 +31,24 @@ pub(super) struct TraitOperationCandidate {
     pub(super) key: SymbolKey,
     pub(super) operation: SelectedOperation,
     pub(super) operand_types: Vec<TypeId>,
-    pub(super) implementation_selection: ImplementationSelectionEvidence,
+    pub(super) implementation_selection: Option<ImplementationSelectionEvidence>,
     pub(super) compiler_known_operation: CompilerKnownOperationEvidence,
 }
 
 impl TraitOperationCandidate {
     pub(super) fn into_candidate(self) -> OperationCandidate {
-        OperationCandidate::symbol(
+        let candidate = OperationCandidate::symbol(
             self.key,
             self.operation,
             self.operand_types,
             OperationCandidateState::Available,
         )
-        .with_implementation_selections([self.implementation_selection])
-        .with_compiler_known_operations([self.compiler_known_operation])
+        .with_compiler_known_operations([self.compiler_known_operation]);
+
+        match self.implementation_selection {
+            Some(selection) => candidate.with_implementation_selections([selection]),
+            None => candidate,
+        }
     }
 }
 
@@ -96,7 +100,7 @@ impl ConversionPlan {
 
         Ok(Self {
             conversion,
-            implementation_selections: vec![candidate.implementation_selection],
+            implementation_selections: candidate.implementation_selection.into_iter().collect(),
             compiler_known_operations: vec![candidate.compiler_known_operation],
         })
     }

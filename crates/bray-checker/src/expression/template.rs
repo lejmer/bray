@@ -49,12 +49,14 @@ where
 pub(super) fn resolve_open_predicate_candidate<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &PredicateCandidateTemplate,
+    explicit: &[GenericArgument],
     diagnostics: &mut DiagnosticBag,
 ) -> Result<CallableCandidate, CheckerInfrastructureError>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
-    let arguments = open_generic_arguments(request, template.generic().parameters())?;
+    let arguments =
+        open_generic_arguments_with_prefix(request, explicit, template.generic().parameters())?;
 
     match resolve_predicate_candidate_with_arguments(request, template, arguments, diagnostics)? {
         TemplateResolution::Resolved(candidate) => Ok(candidate),
@@ -176,6 +178,25 @@ where
         .collect()
 }
 
+fn open_generic_arguments_with_prefix<C>(
+    request: crate::CheckerUnitView<'_, C>,
+    explicit: &[GenericArgument],
+    parameters: &[GenericParameterSymbolId],
+) -> Result<Vec<GenericArgument>, CheckerInfrastructureError>
+where
+    C: crate::CheckerRequestContext + ?Sized,
+{
+    let Some(remaining) = parameters.get(explicit.len()..) else {
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    };
+
+    let mut arguments = Vec::with_capacity(parameters.len());
+    arguments.extend_from_slice(explicit);
+    arguments.extend(open_generic_arguments(request, remaining)?);
+
+    Ok(arguments)
+}
+
 pub(super) fn resolve_declaration_candidate<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &CallableDeclarationCandidateTemplate,
@@ -200,12 +221,14 @@ where
 pub(super) fn resolve_open_declaration_candidate<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &CallableDeclarationCandidateTemplate,
+    explicit: &[GenericArgument],
     diagnostics: &mut DiagnosticBag,
 ) -> Result<CallableCandidate, CheckerInfrastructureError>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
-    let arguments = open_generic_arguments(request, template.generic().parameters())?;
+    let arguments =
+        open_generic_arguments_with_prefix(request, explicit, template.generic().parameters())?;
 
     match resolve_declaration_candidate_with_arguments(request, template, arguments, diagnostics)? {
         TemplateResolution::Resolved(candidate) => Ok(candidate),

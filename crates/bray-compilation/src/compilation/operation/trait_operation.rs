@@ -6,9 +6,10 @@ use bray_bound_tree::{
 use bray_checker::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableParameterData, CallableParameterSignature, CallableSignature, CallableSignatureFact,
-    CallableTypeData, GenericArgument, GenericParameterSymbolId, ImplementationSelection,
-    NamedTypeSymbolId, ReceiverMode, ReceiverParameterSignature, SymbolFactRequest, TypeData,
+    AnySymbolId, CallableParameterData, CallableParameterSignature, CallableSignature,
+    CallableSignatureFact, CallableTypeData, CheckedConstraint, CheckedConstraintKind,
+    GenericArgument, GenericParameterSymbolId, ImplementationSelection, NamedTypeSymbolId,
+    ReceiverMode, ReceiverParameterSignature, SymbolFactRequest, TraitConstraintDispatch, TypeData,
     TypeExpressionTemplate, TypeId,
 };
 
@@ -63,6 +64,10 @@ impl Compilation {
 
         let Some(candidate) = self.trait_operation_candidate_data(
             facts,
+            facts
+                .symbols()
+                .symbol_for_key(unit.key().declared_owner())
+                .ok_or(FactQueryError::InfrastructureFailure)?,
             role,
             subject,
             arguments,
@@ -97,6 +102,7 @@ impl Compilation {
     pub(super) fn trait_operation_candidate_data(
         &self,
         facts: &CompilationBinderFacts<'_>,
+        owner: AnySymbolId,
         role: bray_compiler_known::CompilerKnownOperationRole,
         subject: TypeId,
         trait_arguments: &[TypeId],
@@ -135,6 +141,39 @@ impl Compilation {
             trait_arguments.iter().copied().map(GenericArgument::Type),
         )?;
 
+        let Some(member) = contract.callable() else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        let constraints =
+            super::constraint::enclosing_generic_constraints(facts, owner, diagnostics)?;
+
+        if let Some((generic_owner, constraint)) = constraints.iter().find(|(_, constraint)| {
+            matches!(
+                constraint.kind(),
+                CheckedConstraintKind::TraitSatisfaction {
+                    subject: constrained_subject,
+                    application,
+                } if constrained_subject == subject
+                    && application == requirement.trait_application()
+            )
+        }) {
+            return self.constrained_trait_operation_candidate(
+                facts,
+                role,
+                subject,
+                callable_parameters,
+                operand_types,
+                operation,
+                contract,
+                member,
+                requirement,
+                &constraints,
+                TraitConstraintDispatch::new(*generic_owner, constraint.ordinal()),
+                diagnostics,
+            );
+        }
+
         let selected =
             self.implementation_selection_result_with_cancellation(requirement, cancellation)?;
 
@@ -151,15 +190,11 @@ impl Compilation {
 
         let fulfillments = implementation_fulfillments(facts, instance.definition())?;
 
-        let Some(member) = contract.callable() else {
-            return Err(FactQueryError::InfrastructureFailure);
-        };
-
         let Some(fulfillment) = selected_callable(facts, fulfillments.callables, member) else {
             return Ok(None);
         };
 
-        let result_type = match operation {
+        let callable_result_type = match operation {
             TraitOperation::Conversion(target) => Some(target),
             TraitOperation::Operator(_) | TraitOperation::Index => self.operation_result_type(
                 facts,
@@ -170,9 +205,12 @@ impl Compilation {
             )?,
         };
 
-        let Some(result_type) = result_type else {
+        let Some(callable_result_type) = callable_result_type else {
             return Ok(None);
         };
+
+        let result_type =
+            self.operation_expression_result_type(facts, role, callable_result_type)?;
 
         let trait_application = facts
             .semantic_values()
@@ -235,7 +273,7 @@ impl Compilation {
             member,
             subject,
             callable_parameters,
-            result_type,
+            callable_result_type,
             receiver_mode,
             diagnostics,
         )?;
@@ -255,12 +293,172 @@ impl Compilation {
             operand_types: std::iter::once(subject)
                 .chain(operand_types.iter().copied())
                 .collect(),
-            implementation_selection: ImplementationSelectionEvidence::new(
+            implementation_selection: Some(ImplementationSelectionEvidence::new(
                 requirement,
                 selected.value().clone(),
-            ),
+            )),
             compiler_known_operation: evidence,
         }))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generic operation selection retains the exact static contract and callable shape"
+    )]
+    fn constrained_trait_operation_candidate(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        role: bray_compiler_known::CompilerKnownOperationRole,
+        subject: TypeId,
+        callable_parameters: &[TypeId],
+        operand_types: &[TypeId],
+        operation: TraitOperation,
+        contract: bray_symbols::CompilerKnownOperationContract,
+        member: bray_symbols::TraitCallableMemberSymbolId,
+        requirement: bray_symbols::ImplementationRequirementKey,
+        constraints: &[(bray_symbols::GenericOwnerId, CheckedConstraint)],
+        dispatch: TraitConstraintDispatch,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<TraitOperationCandidate>, FactQueryError> {
+        let application = facts
+            .semantic_values()
+            .trait_application_data(requirement.trait_application())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let member_instance = callable_instance(
+            facts.semantic_values(),
+            member.into(),
+            [application.substitution()],
+        )?;
+
+        let callable_result_type = match operation {
+            TraitOperation::Conversion(target) => target,
+            TraitOperation::Operator(_) | TraitOperation::Index => self
+                .constrained_operation_result_type(
+                    facts,
+                    contract,
+                    subject,
+                    requirement.trait_application(),
+                    constraints,
+                )?
+                .ok_or(FactQueryError::InfrastructureFailure)?,
+        };
+
+        let result_type =
+            self.operation_expression_result_type(facts, role, callable_result_type)?;
+
+        let selected_operation = match operation {
+            TraitOperation::Operator(operator) => SelectedOperation::Operator {
+                target: OperatorTarget::TraitConstraint {
+                    operator,
+                    member: member_instance,
+                    requirement,
+                    dispatch,
+                },
+                result_type,
+            },
+            TraitOperation::Index => SelectedOperation::Index {
+                target: IndexTarget::TraitConstraint {
+                    member: member_instance,
+                    requirement,
+                    dispatch,
+                },
+                result_type,
+            },
+            TraitOperation::Conversion(target) => {
+                SelectedOperation::Conversion(SelectedConversion::new(
+                    subject,
+                    target,
+                    ConversionTarget::TraitConstraint {
+                        member: member_instance,
+                        requirement,
+                        dispatch,
+                    },
+                ))
+            }
+        };
+
+        let receiver_mode = match operation {
+            TraitOperation::Conversion(_) => ReceiverMode::Consuming,
+            TraitOperation::Operator(_) | TraitOperation::Index => ReceiverMode::Shared,
+        };
+
+        let signature = self.operation_signature(
+            facts,
+            member,
+            subject,
+            callable_parameters,
+            callable_result_type,
+            receiver_mode,
+            diagnostics,
+        )?;
+
+        let evidence =
+            CompilerKnownOperationEvidence::new(role, requirement, member_instance, signature);
+
+        let key = facts
+            .symbol_key(member.into())
+            .map_err(binder_fact_error)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        Ok(Some(TraitOperationCandidate {
+            key: key.clone(),
+            operation: selected_operation,
+            operand_types: std::iter::once(subject)
+                .chain(operand_types.iter().copied())
+                .collect(),
+            implementation_selection: None,
+            compiler_known_operation: evidence,
+        }))
+    }
+
+    fn constrained_operation_result_type(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        contract: bray_symbols::CompilerKnownOperationContract,
+        subject: TypeId,
+        application: bray_symbols::TraitApplicationId,
+        constraints: &[(bray_symbols::GenericOwnerId, CheckedConstraint)],
+    ) -> Result<Option<TypeId>, FactQueryError> {
+        if let Some(member) = contract.result_type_member() {
+            let projection = facts
+                .semantic_values()
+                .intern_type(TypeData::TypeValuedMemberProjection {
+                    subject,
+                    application,
+                    member,
+                })
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            for (_, constraint) in constraints {
+                let CheckedConstraintKind::TypeEquality { left, right } = constraint.kind() else {
+                    continue;
+                };
+
+                if left == projection {
+                    return Ok(Some(right));
+                }
+
+                if right == projection {
+                    return Ok(Some(left));
+                }
+            }
+
+            return Ok(Some(projection));
+        }
+
+        if let Some(definition) = contract.fixed_callable_result_type() {
+            return super::super::substitution::named_type(facts.semantic_values(), definition)
+                .map(Some);
+        }
+
+        if contract.role() == bray_compiler_known::CompilerKnownOperationRole::Equality {
+            return self
+                .representation_type(facts, bray_compiler_known::RepresentationRole::ScalarBool)
+                .map(Some);
+        }
+
+        Ok(None)
     }
 
     fn operation_result_type(
@@ -314,6 +512,20 @@ impl Compilation {
             facts.semantic_values(),
             NamedTypeSymbolId::Struct(definition),
         )
+    }
+
+    fn operation_expression_result_type(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        role: bray_compiler_known::CompilerKnownOperationRole,
+        callable_result: TypeId,
+    ) -> Result<TypeId, FactQueryError> {
+        if role == bray_compiler_known::CompilerKnownOperationRole::Comparison {
+            return self
+                .representation_type(facts, bray_compiler_known::RepresentationRole::ScalarBool);
+        }
+
+        Ok(callable_result)
     }
 
     #[expect(

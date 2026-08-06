@@ -9,6 +9,7 @@ use crate::fact::FactQueryError;
 
 pub(super) fn type_templates_are_compatible(
     values: &SemanticValueStore,
+    subject: TypeId,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: &TypeExpressionTemplate,
@@ -19,6 +20,7 @@ pub(super) fn type_templates_are_compatible(
         TypeExpressionTemplate::Resolved(requirement) => {
             let requirement = substitute_requirement_type(
                 values,
+                subject,
                 trait_application,
                 generic_substitution,
                 *requirement,
@@ -43,6 +45,7 @@ pub(super) fn type_templates_are_compatible(
 
                 return type_templates_are_compatible(
                     values,
+                    subject,
                     trait_application,
                     generic_substitution,
                     &TypeExpressionTemplate::Resolved(*requirement),
@@ -58,6 +61,7 @@ pub(super) fn type_templates_are_compatible(
 
                 return type_templates_are_compatible(
                     values,
+                    subject,
                     trait_application,
                     generic_substitution,
                     requirement,
@@ -75,6 +79,7 @@ pub(super) fn type_templates_are_compatible(
 
             type_templates_are_compatible(
                 values,
+                subject,
                 trait_application,
                 generic_substitution,
                 requirement,
@@ -84,6 +89,7 @@ pub(super) fn type_templates_are_compatible(
         }
         TypeExpressionTemplate::Nullable(requirement) => nullable_templates_are_compatible(
             values,
+            subject,
             trait_application,
             generic_substitution,
             requirement,
@@ -96,6 +102,7 @@ pub(super) fn type_templates_are_compatible(
 
 fn nullable_templates_are_compatible(
     values: &SemanticValueStore,
+    subject: TypeId,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: &TypeExpressionTemplate,
@@ -105,6 +112,7 @@ fn nullable_templates_are_compatible(
     match fulfillment {
         TypeExpressionTemplate::Nullable(fulfillment) => type_templates_are_compatible(
             values,
+            subject,
             trait_application,
             generic_substitution,
             requirement,
@@ -122,6 +130,7 @@ fn nullable_templates_are_compatible(
 
             type_templates_are_compatible(
                 values,
+                subject,
                 trait_application,
                 generic_substitution,
                 requirement,
@@ -135,17 +144,25 @@ fn nullable_templates_are_compatible(
 
 pub(super) fn substitute_requirement_type(
     values: &SemanticValueStore,
+    subject: TypeId,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: TypeId,
 ) -> Result<TypeId, FactQueryError> {
-    let trait_substitution = values
+    let application = values
         .trait_application_data(trait_application)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?
-        .substitution();
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let requirement = values
-        .substitute_type(requirement, trait_substitution)
+        .substitute_type(requirement, application.substitution())
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let requirement = values
+        .substitute_contextual_self(
+            requirement,
+            bray_symbols::SelfTypeContext::Trait(application.definition()),
+            subject,
+        )
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     match generic_substitution {

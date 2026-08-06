@@ -79,6 +79,9 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
             collect_operand_types(operand, types);
             collect_conversion_types(conversion, types);
         }
+        MirOperationKind::NumericConversion { operand, .. } => {
+            collect_operand_types(operand, types);
+        }
         MirOperationKind::PatternProjection { subject, .. } => {
             collect_operand_types(subject, types);
         }

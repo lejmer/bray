@@ -229,6 +229,7 @@ mod tests {
         BoundStructuredExpressionKind, BoundTreeBuilder, BoundTypeReference, BoundUnitId,
         ExpressionTypeResult, ExpressionTypeStatus, IterationSourceMode,
     };
+    use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{GenericArgument, TypeData};
 
@@ -1232,6 +1233,114 @@ mod tests {
                 .map(|result| result.ty()),
             Some(result_type)
         );
+    }
+
+    #[test]
+    fn match_arm_literals_adopt_the_callable_result_type() {
+        let [first_origin, second_origin, root_origin] = test_source_origins();
+
+        let key = callable_key();
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(82));
+        let subject = push_expression(&mut tree, literal(root_origin, None));
+        let first_pattern = push_wildcard_pattern(&mut tree, first_origin);
+        let second_pattern = push_wildcard_pattern(&mut tree, second_origin);
+        let first_value = push_expression(&mut tree, literal(first_origin, None));
+        let second_value = push_expression(&mut tree, literal(second_origin, None));
+
+        let first_yield = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                first_origin,
+                BoundControlTransferKind::Yield,
+                Some(first_value),
+                Some(first_origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+
+        let second_yield = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                second_origin,
+                BoundControlTransferKind::Yield,
+                Some(second_value),
+                Some(second_origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+
+        let first_body = push_block(
+            &mut tree,
+            first_origin,
+            [BoundBlockItem::Expression(first_yield)],
+        );
+
+        let second_body = push_block(
+            &mut tree,
+            second_origin,
+            [BoundBlockItem::Expression(second_yield)],
+        );
+
+        let matched = push_expression(
+            &mut tree,
+            BoundExpression::Match(BoundMatchExpression::new(
+                root_origin,
+                subject,
+                [
+                    BoundMatchArm::new(first_pattern, None, first_body),
+                    BoundMatchArm::new(second_pattern, None, second_body),
+                ],
+                None,
+                false,
+            )),
+        );
+
+        let returned = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                root_origin,
+                BoundControlTransferKind::Return,
+                Some(matched),
+                None,
+                None,
+                false,
+            )),
+        );
+
+        let root_block = push_block(
+            &mut tree,
+            root_origin,
+            [BoundBlockItem::Expression(returned)],
+        );
+
+        let root = push_callable(&mut tree, root_origin, root_block);
+        let unit = callable_unit(&key, tree.finish(), root);
+        let entry = callable_entry(unit.key());
+        let context = crate::test_support::TestCheckerContext::new(false);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("test checker unit view must be valid: {error:?}"));
+
+        let result_type = crate::representation::representation_type(
+            request,
+            RepresentationRole::ScalarU8,
+        )
+        .unwrap_or_else(|error| panic!("u8 must be available: {error:?}"));
+
+        let input = ExpressionTypeInput::new().with_callable_result_type(result_type);
+
+        let result = completed_check(&unit, &input);
+
+        assert!(result.diagnostics().is_empty());
+
+        for expression in [first_value, second_value, matched] {
+            assert_eq!(
+                result.value().expression(expression).map(|value| value.ty()),
+                Some(result_type)
+            );
+        }
     }
 
     #[test]

@@ -81,6 +81,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Some(converted)
             }
+            MirOperationKind::NumericConversion { operand, .. } => {
+                let source = self.operand_type(operand)?;
+                let target = self.operation_result_type(operation)?;
+                let operand = self.operand(operand)?;
+
+                Some(self.convert(operand, source, target)?)
+            }
             MirOperationKind::Call(call) => self.translate_call(id, call)?,
             MirOperationKind::Memory(memory) => self.translate_memory(id, operation, memory)?,
             MirOperationKind::Text(text) => self.translate_text(text)?,

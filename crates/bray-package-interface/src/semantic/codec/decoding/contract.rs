@@ -107,6 +107,12 @@ pub(super) fn decode_constraint(
             crate::InterfaceTypeId::new(read_u32(reader)?),
             crate::InterfaceTraitApplicationId::new(read_u32(reader)?),
         )),
+        3 => Ok(InterfaceConstraint::type_equality(
+            owner,
+            ordinal,
+            crate::InterfaceTypeId::new(read_u32(reader)?),
+            crate::InterfaceTypeId::new(read_u32(reader)?),
+        )),
         _ => Err(InterfaceValidationError::Malformed),
     }
 }

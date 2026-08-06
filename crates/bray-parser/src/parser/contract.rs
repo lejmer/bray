@@ -249,6 +249,10 @@ impl Parser {
         &mut self,
         at_boundary: ContractBoundary,
     ) -> ExpressionSyntax {
+        if self.scan_ahead(|scan| scan.scan_explicit_type_equality(at_boundary)) {
+            return self.parse_explicit_type_equality(at_boundary);
+        }
+
         if !self.scan_ahead(|scan| {
             let mut at_subject_boundary = |parser: &mut Parser| {
                 parser.at(SyntaxKind::ColonToken)
@@ -280,6 +284,41 @@ impl Parser {
         builder.build()
     }
 
+    fn scan_explicit_type_equality(&mut self, at_boundary: ContractBoundary) -> bool {
+        let mut at_left_boundary = |parser: &mut Parser| {
+            parser.at(SyntaxKind::EqualsEqualsToken)
+                || parser.at(SyntaxKind::CommaToken)
+                || parser.at_contract_clause_sequence_end(at_boundary, &EXPRESSION_START_KINDS)
+        };
+
+        let left = self.parse_type_expression_until(&mut at_left_boundary);
+
+        self.at(SyntaxKind::EqualsEqualsToken) && has_explicit_type_syntax(&left)
+    }
+
+    fn parse_explicit_type_equality(&mut self, at_boundary: ContractBoundary) -> ExpressionSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
+
+        let mut at_left_boundary = |parser: &mut Parser| {
+            parser.at(SyntaxKind::EqualsEqualsToken)
+                || parser.at(SyntaxKind::CommaToken)
+                || parser.at_contract_clause_sequence_end(at_boundary, &EXPRESSION_START_KINDS)
+        };
+
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_left_boundary));
+        builder.push_operator_token(self.expect(SyntaxKind::EqualsEqualsToken));
+
+        let mut at_right_boundary = |parser: &mut Parser| {
+            parser.at(SyntaxKind::CommaToken)
+                || parser.at_contract_clause_sequence_end(at_boundary, &EXPRESSION_START_KINDS)
+        };
+
+        builder.push_type_expression(self.parse_type_expression_until(&mut at_right_boundary));
+
+        builder.build()
+    }
+
     fn parse_contract_clause_path(&mut self, _at_boundary: ContractBoundary) -> PathSyntax {
         self.parse_path()
     }
@@ -299,6 +338,20 @@ impl Parser {
 
         self.at_callable_contract_clause_start() || at_boundary(self)
     }
+}
+
+fn has_explicit_type_syntax(syntax: &bray_syntax::TypeExpressionSyntax) -> bool {
+    syntax.generic_argument_lists().next().is_some()
+        || syntax.trait_applications().next().is_some()
+        || syntax.type_expressions().next().is_some()
+        || syntax.func_keyword().is_some()
+        || syntax.unit_keyword().is_some()
+        || syntax.self_keyword().is_some()
+        || syntax.ampersand_token().is_some()
+        || syntax.box_keyword().is_some()
+        || syntax.view_keyword().is_some()
+        || syntax.open_bracket_token().is_some()
+        || syntax.open_paren_token().is_some()
 }
 
 pub(super) trait CallableContractClauseSyntaxSink: RecoverySyntaxSink {

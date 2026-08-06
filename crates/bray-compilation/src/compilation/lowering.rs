@@ -1425,6 +1425,40 @@ mod tests {
     }
 
     #[test]
+    fn standard_numeric_truncation_lowers_explicitly_with_an_inferred_source_type() {
+        let compilation = standard_text_compilation(&[concat!(
+            "module std.numeric;\n",
+            "\n",
+            "func truncate(pos value: u128) -> u8\n",
+            "{\n",
+            "    return std.truncate_to<u8>(value);\n",
+            "}\n",
+        )]);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "truncate");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("numeric truncation must lower: {error:?}"));
+
+        assert!(lowered_mir(&lowered).operations().iter().any(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::NumericConversion {
+                    kind: bray_ir::MirNumericConversionKind::Truncate,
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
     fn trait_qualified_standard_text_calls_lower_to_direct_calls() {
         let compilation = standard_text_compilation(&[include_str!(
             "../../../../xtask/fixtures/native-execution/standard-text-cursor.bray"

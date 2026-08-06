@@ -1,0 +1,94 @@
+module bray.standard_library_conformance.numeric;
+
+using std.numeric;
+
+@test
+func integer_limits_and_checked_arithmetic()
+{
+    assert(std.numeric.U8_MIN == 0);
+    assert(std.numeric.U8_MAX == 255);
+    assert(std.numeric.I32_MIN == -2147483647 - 1);
+    assert(std.numeric.I32_MAX == 2147483647);
+    assert(std.numeric.USIZE_MIN == 0);
+    assert(std.numeric.USIZE_MAX > 0);
+    assert(std.numeric.ISIZE_MIN < 0);
+    assert(std.numeric.ISIZE_MAX > 0);
+
+    let sum: u8? = std.numeric.checked_add<u8>(20, 22);
+    let overflow: u8? = std.numeric.checked_add<u8>(std.numeric.U8_MAX, 1);
+    let signed_sum: i32? = std.numeric.checked_add<i32>(-60, 18);
+    let signed_product: i32? = std.numeric.checked_multiply<i32>(-6, 7);
+    let division_by_zero: i32? = std.numeric.checked_divide<i32>(10, 0);
+
+    match sum
+    {
+        case ?value { assert(value == 42); }
+        case none { assert(false); }
+    }
+
+    match overflow
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    match signed_sum
+    {
+        case ?value { assert(value == -42); }
+        case none { assert(false); }
+    }
+
+    match signed_product
+    {
+        case ?value { assert(value == -42); }
+        case none { assert(false); }
+    }
+
+    match division_by_zero
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+}
+
+@test
+func widest_integer_parsing()
+{
+    let unsigned_decimal: Result<u128, std.numeric.ParseError> = std.numeric.parse_u128(&"42");
+    let unsigned_hexadecimal: Result<u128, std.numeric.ParseError> = std.numeric.parse_u128(&"ff", radix = 16);
+    let invalid: Result<u128, std.numeric.ParseError> = std.numeric.parse_u128(&"4z");
+    let signed: Result<i32, std.numeric.ParseError> = std.numeric.parse_i32(&"-42");
+    let narrow_overflow: Result<u8, std.numeric.ParseError> = std.numeric.parse_u8(&"256");
+
+    match consume unsigned_decimal
+    {
+        case Ok(value) { assert(value == 42); }
+        case Error(_) { assert(false); }
+    }
+
+    match consume unsigned_hexadecimal
+    {
+        case Ok(value) { assert(value == 255); }
+        case Error(_) { assert(false); }
+    }
+
+    match consume invalid
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.numeric.ParseError.InvalidDigit) {}
+        case Error(_) { assert(false); }
+    }
+
+    match consume signed
+    {
+        case Ok(value) { assert(value == -42); }
+        case Error(_) { assert(false); }
+    }
+
+    match consume narrow_overflow
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.numeric.ParseError.Overflow) {}
+        case Error(_) { assert(false); }
+    }
+}

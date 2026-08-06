@@ -591,7 +591,7 @@ mod tests {
         CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView, TargetValidity,
         TargetValidityRequest, TargetValidityRequirement,
     };
-    use bray_compiler_known::RepresentationRole;
+    use bray_compiler_known::{ImplementationHook, RepresentationRole};
     use bray_diagnostics::DiagnosticKind;
     use bray_source::SourceVersion;
     use bray_symbols::{
@@ -809,6 +809,62 @@ mod tests {
 
         assert!(is_public_standard_library_source(&public));
         assert!(!is_public_standard_library_source(&support));
+    }
+
+    #[test]
+    fn source_standard_library_recognizes_numeric_truncation() {
+        let package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library identity must be valid"));
+
+        let request = CompilationRequest::new(
+            package,
+            vec![
+                source_input(
+                    include_str!("../../../../standard-library/std/src/std.bray"),
+                    0,
+                ),
+                source_input(
+                    concat!(
+                        "module std.numeric;\n",
+                        "func exercise(pos value: u128) -> u8\n",
+                        "{\n",
+                        "    return std.truncate_to<u8>(value);\n",
+                        "}\n",
+                    ),
+                    1,
+                ),
+            ],
+        )
+        .with_standard_library_source_authority();
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("standard library compilation must load: {error:?}"));
+
+        let key = source_callable_body_key(&compilation);
+
+        let context = compilation
+            .checker_context_for(&key, &compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("checker context must be available: {error:?}"));
+
+        let function = context
+            .symbols()
+            .functions()
+            .iter()
+            .find(|function| {
+                context
+                    .symbols()
+                    .member_name(function.id().into())
+                    .is_some_and(|name| name.as_ref() == "truncate_to")
+            })
+            .unwrap_or_else(|| panic!("truncate_to must be declared"));
+
+        let hook = context
+            .implementation_hook(function.id().into())
+            .unwrap_or_else(|error| panic!("implementation hook must resolve: {error:?}"));
+
+        assert!(hook.is_some_and(|hook| {
+            hook.hook() == ImplementationHook::NumericTruncate && hook.is_available()
+        }));
     }
 
     fn callable_compilation() -> Compilation {

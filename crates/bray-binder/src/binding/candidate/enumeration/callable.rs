@@ -525,7 +525,7 @@ fn bind_generic_arguments<C>(
 where
     C: BinderFactContext,
 {
-    if !call.arguments.is_empty() && call.arguments.len() != declaration.parameters().len() {
+    if call.arguments.len() > declaration.parameters().len() {
         return Ok(None);
     }
 

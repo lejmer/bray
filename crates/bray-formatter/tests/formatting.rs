@@ -408,8 +408,8 @@ fn keeps_simple_match_arm_bodies_inline_when_they_fit() {
 
     assert!(!formatted_with_width(narrow.text(), 33).changed());
 
-    let multiline_configuration = FormatterConfiguration::default()
-        .with_rule(FormatterRule::MatchArmBodyLayout, false);
+    let multiline_configuration =
+        FormatterConfiguration::default().with_rule(FormatterRule::MatchArmBodyLayout, false);
 
     let multiline = formatted_with_configuration(
         "module app; func choose(value: i32) { match value { case 0 { return; } } }",

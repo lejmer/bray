@@ -291,7 +291,8 @@ struct Wrapper<T>
 {
 }
 
-impl WrapperConverts = Wrapper<T>(Converts<T>) with(true)
+impl WrapperConverts = Wrapper<T>(Converts<T>)
+    with(true)
 {
 }
 "#;
