@@ -956,7 +956,7 @@ mod tests {
             .set_terminator(entry, source, MirTerminatorKind::Return(None))
             .unwrap_or_else(|error| panic!("test frame terminator must be valid: {error:?}"));
 
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], None, [], []);
+        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
 
         let descriptor = MirFrameDescriptor::try_new(
             frame,

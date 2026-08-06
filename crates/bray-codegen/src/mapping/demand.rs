@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_ir::{
     MirAsyncOperation, MirCall, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
     MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirPlace,
-    MirProjectionKind, MirTaskTerminalState, MirTerminatorKind, MirUnit, PatternPredicate,
+    MirPatternPredicate, MirProjectionKind, MirTaskTerminalState, MirTerminatorKind, MirUnit,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId, ConstantValueKind, TypeId};
 
@@ -158,8 +158,8 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
         } => {
             collect_operand_value(subject, demands);
 
-            if let PatternPredicate::Literal(literal) = predicate {
-                demands.values.insert(literal.value());
+            if let MirPatternPredicate::Literal(literal) = predicate {
+                demands.values.insert(*literal);
             }
 
             collect_edge_values(matched, demands);

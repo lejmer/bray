@@ -855,7 +855,6 @@ mod tests {
         };
 
         assert_eq!(frame.states().len(), 2);
-        assert!(!frame.states()[1].deferred_calls().is_empty());
         assert!(!frame.states()[1].initialized_storages().is_empty());
 
         assert!(mir.operations().iter().any(|operation| matches!(

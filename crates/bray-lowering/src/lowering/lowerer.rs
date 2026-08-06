@@ -99,8 +99,6 @@ impl<'unit> Lowerer<'unit> {
                 MirFrameStateId::new(0),
                 entry,
                 self.execution_lane_requirements(),
-                None,
-                [],
                 [],
             ));
         }
@@ -343,7 +341,7 @@ mod tests {
         assert!(mir.blocks().iter().any(|block| matches!(
             block.terminator().kind(),
             MirTerminatorKind::PatternBranch {
-                predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                predicate: bray_ir::MirPatternPredicate::NullablePresent,
                 ..
             }
         )));

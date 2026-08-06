@@ -236,7 +236,9 @@ impl Compilation {
                     // The clone retains the shared immutable normalized path.
                     CodegenDebugLocation::new(anchor, file.clone(), line, column)
                 }
-                MirSourceAnchor::ExecutableHost(_) | MirSourceAnchor::GeneratedLifecycle(_) => {
+                MirSourceAnchor::ImportedCallable(_)
+                | MirSourceAnchor::ExecutableHost(_)
+                | MirSourceAnchor::GeneratedLifecycle(_) => {
                     // The clone retains the shared immutable generated path.
                     CodegenDebugLocation::new(
                         anchor,
@@ -981,7 +983,7 @@ impl Compilation {
                 source.clone(),
                 MirTerminatorKind::PatternBranch {
                     subject: MirOperand::Copy(place.clone()),
-                    predicate: bray_bound_tree::PatternPredicate::NullablePresent,
+                    predicate: bray_ir::MirPatternPredicate::NullablePresent,
                     matched: MirEdge::new(present, []),
                     unmatched: MirEdge::new(absent, []),
                 },
@@ -1055,7 +1057,7 @@ impl Compilation {
                     source.clone(),
                     MirTerminatorKind::PatternBranch {
                         subject: MirOperand::Copy(place.clone()),
-                        predicate: bray_bound_tree::PatternPredicate::ActiveUnionVariant(*variant),
+                        predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(*variant),
                         matched: MirEdge::new(matched, []),
                         unmatched: MirEdge::new(unmatched, []),
                     },

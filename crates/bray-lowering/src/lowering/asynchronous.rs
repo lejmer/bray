@@ -85,9 +85,6 @@ impl Lowerer<'_> {
             state,
             resume,
             self.execution_lane_requirements(),
-            suspension.dependency_contract(),
-            // The completed MIR state owns its deferred-call identities independently.
-            suspension.deferred_calls().iter().cloned(),
             initialized_storages,
         ));
 

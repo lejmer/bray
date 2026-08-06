@@ -71,8 +71,6 @@ impl Lowerer<'_> {
                     state,
                     resume,
                     self.execution_lane_requirements(),
-                    None,
-                    [],
                     [],
                 ));
 

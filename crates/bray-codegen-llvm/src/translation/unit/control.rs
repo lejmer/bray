@@ -3,7 +3,9 @@ use super::support::{
     aggregate_element, extract_value, int_value, integer_constant, llvm, pointer_value, result_type,
 };
 use bray_codegen::{CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind};
-use bray_ir::{MirBlockId, MirEdge, MirOperand, MirPlace, MirTerminatorKind, PatternPredicate};
+use bray_ir::{
+    MirBlockId, MirEdge, MirOperand, MirPatternPredicate, MirPlace, MirTerminatorKind,
+};
 use inkwell::values::{BasicValueEnum, PointerValue};
 use inkwell::{FloatPredicate, IntPredicate};
 
@@ -385,10 +387,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         block: MirBlockId,
         subject: BasicValueEnum<'context>,
         subject_type: bray_symbols::TypeId,
-        predicate: PatternPredicate,
+        predicate: MirPatternPredicate,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
         match predicate {
-            PatternPredicate::Literal(_) => {
+            MirPatternPredicate::Literal(_) => {
                 let mapping = self
                     .request
                     .mappings()
@@ -403,7 +405,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.equal_values(subject, literal)
             }
-            PatternPredicate::Constant(term) => {
+            MirPatternPredicate::Constant(term) => {
                 let value = self
                     .request
                     .mappings()
@@ -414,22 +416,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.equal_values(subject, value)
             }
-            PatternPredicate::NullableAbsent | PatternPredicate::NullablePresent => {
+            MirPatternPredicate::NullableAbsent | MirPatternPredicate::NullablePresent => {
                 let present = self.nullable_present(subject, subject_type)?;
 
-                if predicate == PatternPredicate::NullablePresent {
+                if predicate == MirPatternPredicate::NullablePresent {
                     Ok(present)
                 } else {
                     llvm(self.builder.build_not(present, "pattern.nullable.absent"))
                 }
             }
-            PatternPredicate::ActiveUnionVariant(variant) => {
+            MirPatternPredicate::ActiveUnionVariant(variant) => {
                 self.active_union_variant(subject, subject_type, variant)
             }
-            PatternPredicate::ProductShape(_)
-            | PatternPredicate::TupleShape(_)
-            | PatternPredicate::ArrayShape(_)
-            | PatternPredicate::OwnedTarget => {
+            MirPatternPredicate::ProductShape(_)
+            | MirPatternPredicate::TupleShape(_)
+            | MirPatternPredicate::ArrayShape(_)
+            | MirPatternPredicate::OwnedTarget => {
                 Ok(self.types.context().bool_type().const_int(1, false))
             }
         }
