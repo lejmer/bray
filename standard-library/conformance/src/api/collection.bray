@@ -59,8 +59,10 @@ trusted func list_capacity_and_iteration() -> Result<unit, std.memory.MemoryLayo
     assert(std.collection.capacity<i32>(&values) == 4);
 
     let cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
+
     let taken: std.iteration.Take<std.collection.MoveCursor<i32>, i32> =
         std.iteration.take<std.collection.MoveCursor<i32>>(cursor, count = 2);
+
     let second: i32? = std.iteration.nth<std.iteration.Take<std.collection.MoveCursor<i32>, i32>>(
         taken,
         index = 1,
@@ -85,10 +87,13 @@ trusted func iterator_adapters_preserve_order() -> Result<unit, std.memory.Memor
     try trusted std.collection.push<i32>(&mut values, 6);
 
     let cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
+
     let skipped: std.iteration.Skip<std.collection.MoveCursor<i32>, i32> =
         std.iteration.skip<std.collection.MoveCursor<i32>>(cursor, count = 1);
+
     let enumerated: std.iteration.Enumerate<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>, i32> =
         std.iteration.enumerate<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>>(skipped);
+
     let item: (usize, i32)? =
         std.iteration.first<std.iteration.Enumerate<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>, i32>>(
             enumerated,

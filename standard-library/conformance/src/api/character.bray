@@ -28,10 +28,6 @@ func character_operations()
     match decoded
     {
         case ?character { assert(character == value); }
-
-        case none
-        {
-            assert(false);
-        }
+        case none { assert(false); }
     }
 }

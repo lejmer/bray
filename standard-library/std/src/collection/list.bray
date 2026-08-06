@@ -37,7 +37,6 @@ trusted internal func ensure_capacity<T>(
     }
 
     let required: usize = try internal std.memory.checked_add_size(current_length, additional);
-
     let mut replacement_capacity: usize = required;
 
     if !exact
@@ -93,6 +92,7 @@ trusted internal func push_available<T>(pos list: &mut List<T>, pos value: T) ->
 trusted internal func take_last<T>(pos list: &mut List<T>) -> T
 {
     let current_length: usize = list.storage.initialized;
+
     let value: T =
     {
         let values: &mut [T] = trusted std.memory.initialized_slice_mut<T>(&mut list.storage);

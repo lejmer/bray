@@ -175,11 +175,9 @@ trusted func push(pos buffer: &mut Buffer, value: u8) -> Result<unit, std.memory
     try reserve(additional = 1, buffer = &mut buffer);
 
     let current_length: usize = buffer.storage.initialized;
-
     let pointer: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
     trusted internal std.memory.byte_buffer_fill(destination = pointer, value = value, count = 1);
-
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + 1);
 
     return Ok(unit);
@@ -203,7 +201,6 @@ trusted func append(pos buffer: &mut Buffer, bytes: &[u8]) -> Result<unit, std.m
     let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
     trusted internal std.memory.byte_buffer_copy(source = source, destination = destination, count = byte_count);
-
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + byte_count);
 
     return Ok(unit);
@@ -226,7 +223,6 @@ trusted func append_repeated(
     let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
     trusted internal std.memory.byte_buffer_fill(destination = destination, value = value, count = count);
-
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + count);
 
     return Ok(unit);

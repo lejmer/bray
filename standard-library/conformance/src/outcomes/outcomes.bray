@@ -32,11 +32,7 @@ func recoverable_error() -> Result<unit, std.string.Utf8Error>
     match consume decoded
     {
         case Ok(_) { panic("invalid UTF-8 unexpectedly decoded"); }
-
-        case Error(error)
-        {
-            return Error(error);
-        }
+        case Error(error) { return Error(error); }
     }
 }
 

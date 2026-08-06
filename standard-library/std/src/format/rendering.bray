@@ -401,7 +401,6 @@ internal func write_boolean_value(
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
     let rendered: string = boolean_text(value);
-
     let content: &[u8] = std.string.utf8(&rendered);
 
     return write_aligned(destination, content, options);
