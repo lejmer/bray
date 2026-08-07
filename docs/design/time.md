@@ -107,7 +107,7 @@ require an explicit `DateAdjustment` policy such as reject or clamp.
 
 The principal operations are:
 
-- `monotonic_now`, `wall_now`, blocking `sleep`, and runtime-backed `sleep_async`,
+- `monotonic_now`, `wall_now`, blocking `sleep`, and blocking-lane `sleep_async`,
 - checked duration and timestamp arithmetic,
 - checked date and calendar-period arithmetic,
 - UTC and fixed-offset conversion without named-zone data,
@@ -119,6 +119,10 @@ The principal operations are:
 
 Conveniences may choose an ambiguous or nonexistent local-time result only when their names state the policy, such as `earlier` or
 `later`. A general conversion does not make that decision for the caller.
+
+`sleep_async` carries `blocking_execution()` as a deferred execution requirement. Starting its future selects a compatible blocking
+lane, while directly awaiting it requires the current lane to permit blocking. The operation therefore does not block a cooperative
+worker.
 
 ## Arithmetic
 

@@ -138,8 +138,9 @@ timezone database, so compilation and execution do not depend on the host's data
 Clock resolution is explicit target information. Arithmetic detects overflow and does not silently wrap. Reading either clock is
 an I/O effect and can return a typed failure when the selected service cannot provide a valid reading.
 
-Blocking waits require `blocking_execution()`. Async timers suspend through the selected runtime's wait integration and do not
-block a cooperative execution lane.
+Blocking waits require `blocking_execution()`. An async wait can defer that requirement into its future so that `start()` selects a
+compatible blocking lane. Directly awaiting such a future requires the current lane to permit blocking. An async wait implemented
+through runtime timer integration can instead suspend its current task without requiring a blocking lane.
 
 ## Entropy And Random Generation
 

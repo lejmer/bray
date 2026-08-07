@@ -561,7 +561,8 @@ union EntropyError
 func fill_entropy(pos destination: &mut [u8]) -> Result<unit, EntropyError>
     requires(blocking_execution());
 
-async func fill_entropy_async(pos destination: &mut [u8]) -> Result<unit, EntropyError>;
+async func fill_entropy_async(pos destination: &mut [u8]) -> Result<unit, EntropyError>
+    requires(blocking_execution());
 
 struct Generator
 {
@@ -575,7 +576,8 @@ impl Generator
     static func from_entropy() -> Result<Generator, EntropyError>
         requires(blocking_execution());
 
-    static async func from_entropy_async() -> Result<Generator, EntropyError>;
+    static async func from_entropy_async() -> Result<Generator, EntropyError>
+        requires(blocking_execution());
 
     mut func fill(pos destination: &mut [u8]);
     mut func next_u64() -> u64;
@@ -587,6 +589,10 @@ impl Generator
 little-endian `u64` state words. The all-zero state is replaced with state words
 `[11400714819323198485, 0, 0, 0]`. `fill` emits each `next_u64` result in little-endian byte order. Equal seeds therefore produce
 equal byte and `u64` sequences on every target. No generator method consults system entropy after construction.
+
+The async entropy operations defer `blocking_execution()` into their futures. Starting one selects a compatible blocking lane;
+direct await requires the current lane to permit blocking. This keeps operating-system entropy acquisition off cooperative workers
+without duplicating the platform entropy provider.
 
 ## Navigation
 

@@ -6,33 +6,37 @@ using std.bytes;
 @test
 func deterministic_generators_repeat_the_seeded_sequence()
 {
-    let first_seed: [u8; 32] = [1; 32];
-    let repeated_seed: [u8; 32] = [1; 32];
-    let mut first: std.random.Generator = std.random.Generator(seed = first_seed);
-    let mut repeated: std.random.Generator = std.random.Generator(seed = repeated_seed);
+    let seed: [u8; 32] = [1; 32];
+    let mut generator: std.random.Generator = std.random.Generator(seed = seed);
 
-    let first_value: u64 = first.next_u64();
-    let repeated_value: u64 = repeated.next_u64();
-
-    assert(first_value == repeated_value);
-    assert(first.next_u64() == repeated.next_u64());
-    assert(first.next_u64() == repeated.next_u64());
+    assert(generator.next_u64() == 10851025925711500946);
+    assert(generator.next_u64() == 10851025925711500946);
+    assert(generator.next_u64() == 3255307777710489645);
+    assert(generator.next_u64() == 14106333703421990591);
 }
 
 @test
 func deterministic_generators_fill_bytes_in_sequence_order()
 {
     let seed: [u8; 32] = [1; 32];
-    let repeated_seed: [u8; 32] = [1; 32];
     let mut generator: std.random.Generator = std.random.Generator(seed = seed);
-    let mut repeated: std.random.Generator = std.random.Generator(seed = repeated_seed);
     let mut bytes: [u8; 10] = [0; 10];
-    let mut repeated_bytes: [u8; 10] = [0; 10];
+    let expected: [u8; 10] = [146, 150, 150, 150, 150, 150, 150, 150, 146, 150];
 
     generator.fill(&mut bytes[..]);
-    repeated.fill(&mut repeated_bytes[..]);
 
-    assert(std.bytes.equals(&bytes[..], &repeated_bytes[..]));
+    assert(std.bytes.equals(&bytes[..], &expected[..]));
+}
+
+@test
+func all_zero_seed_uses_the_specified_nonzero_state()
+{
+    let seed: [u8; 32] = [0; 32];
+    let mut generator: std.random.Generator = std.random.Generator(seed = seed);
+
+    assert(generator.next_u64() == 0);
+    assert(generator.next_u64() == 16155200969329072355);
+    assert(generator.next_u64() == 16155200969329072355);
 }
 
 @test

@@ -136,8 +136,10 @@ impl<'plan> LinkPlanConstructor<'plan> {
     fn build(mut self) -> Result<LinkPlan, LinkPlanConstructionError> {
         self.push_startup_inputs()?;
         self.push_staged_inputs()?;
+        self.validate_native_inputs()?;
+        self.push_native_inputs_matching(is_archive_input)?;
         self.push_runtime_input()?;
-        self.push_native_inputs()?;
+        self.push_native_inputs_matching(is_native_library_input)?;
         self.push_termination_inputs()?;
         self.push_outputs()?;
         self.push_product_facts();
@@ -228,9 +230,8 @@ impl<'plan> LinkPlanConstructor<'plan> {
         Ok(())
     }
 
-    fn push_native_inputs(&mut self) -> Result<(), LinkPlanConstructionError> {
-        // The link plan owns input specifications independently of the product-fact borrow.
-        for input in self.facts.native_inputs.iter().cloned() {
+    fn validate_native_inputs(&self) -> Result<(), LinkPlanConstructionError> {
+        for input in self.facts.native_inputs.iter() {
             if !matches!(
                 input.kind(),
                 LinkInputKind::Archive | LinkInputKind::NativeLibrary | LinkInputKind::Framework
@@ -239,7 +240,24 @@ impl<'plan> LinkPlanConstructor<'plan> {
                     input.kind(),
                 ));
             }
+        }
 
+        Ok(())
+    }
+
+    fn push_native_inputs_matching(
+        &mut self,
+        include: fn(LinkInputKind) -> bool,
+    ) -> Result<(), LinkPlanConstructionError> {
+        // The link plan owns input specifications independently of the product-fact borrow.
+        for input in self
+            .facts
+            .native_inputs
+            .iter()
+            .filter(|input| include(input.kind()))
+            .cloned()
+            .collect::<Vec<_>>()
+        {
             self.push_input(input)?;
         }
 
@@ -350,6 +368,17 @@ impl<'plan> LinkPlanConstructor<'plan> {
 
         Ok(id)
     }
+}
+
+fn is_archive_input(kind: LinkInputKind) -> bool {
+    kind == LinkInputKind::Archive
+}
+
+fn is_native_library_input(kind: LinkInputKind) -> bool {
+    matches!(
+        kind,
+        LinkInputKind::NativeLibrary | LinkInputKind::Framework
+    )
 }
 
 fn linked_product_kind_for_plan(
@@ -564,7 +593,16 @@ mod tests {
             .executable_host()
             .unwrap_or_else(|| panic!("async executable must have a host contract"));
 
-        let facts = product_link_facts().with_runtime(runtime.clone());
+        let facts = product_link_facts()
+            .with_runtime(runtime.clone())
+            .with_native_inputs([
+                native_library("pthread"),
+                file_input(
+                    LinkInputKind::Archive,
+                    "dependencies/standard-library.a",
+                    LinkInputProvenance::HostConfiguration,
+                ),
+            ]);
 
         let link_plan = construct_link_plan(
             &plan,
@@ -580,6 +618,21 @@ mod tests {
 
         assert_eq!(link_plan.entry_point(), Some(host.native_entry()));
         assert_eq!(linked_host, host);
+
+        assert_eq!(
+            link_plan
+                .inputs()
+                .iter()
+                .map(|input| input.kind())
+                .collect::<Vec<_>>(),
+            [
+                LinkInputKind::RelocatableObject,
+                LinkInputKind::RelocatableObject,
+                LinkInputKind::Archive,
+                LinkInputKind::RuntimeComponent,
+                LinkInputKind::NativeLibrary,
+            ]
+        );
 
         let runtime_inputs = link_plan
             .inputs()
