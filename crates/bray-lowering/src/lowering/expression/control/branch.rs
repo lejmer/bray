@@ -158,8 +158,7 @@ impl Lowerer<'_> {
                 },
             )?;
 
-            let then_completion =
-                self.lower_yielding_block(*then_block, then_entry, join, ty)?;
+            let then_completion = self.lower_yielding_block(*then_block, then_entry, join, ty)?;
 
             self.finish_result_edge(then_completion, join, ty)?;
             current = else_entry;

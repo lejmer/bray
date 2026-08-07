@@ -388,10 +388,7 @@ struct Id
 struct Arguments
 {
     internal state: ArgumentsState;
-}
 
-impl Arguments
-{
     func length() -> usize;
     func value_at(pos index: usize) -> std.path.NativeText?;
 }
@@ -405,10 +402,7 @@ struct EnvironmentEntry
 struct Environment
 {
     internal state: EnvironmentState;
-}
 
-impl Environment
-{
     func length() -> usize;
     func value(pos key: &std.path.NativeText) -> std.path.NativeText?;
     func entry_at(pos index: usize) -> EnvironmentEntry?;

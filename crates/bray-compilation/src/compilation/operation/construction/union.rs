@@ -416,7 +416,9 @@ mod tests {
 
         let selections = compilation
             .semantic_selections(key)
-            .unwrap_or_else(|error| panic!("nested construction selections must publish: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("nested construction selections must publish: {error:?}")
+            });
 
         let constructions = selections
             .value()
@@ -431,8 +433,7 @@ mod tests {
             .count();
 
         assert_eq!(
-            constructions,
-            2,
+            constructions, 2,
             "types: {types:?}; selections: {selections:?}"
         );
 

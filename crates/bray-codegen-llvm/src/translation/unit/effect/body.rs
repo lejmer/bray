@@ -224,40 +224,49 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(MirOperation::source)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let MirSourceAnchor::Source(origin) = source else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+        let source = match source {
+            MirSourceAnchor::Source(origin) => {
+                let anchor = origin.source_anchor();
+                let syntax = anchor.syntax();
+                let range = syntax.full_range();
+
+                bray_runtime_interface::NativeSourceAnchor::new(
+                    syntax.source_id().raw(),
+                    range.start().bytes(),
+                    range.end().bytes(),
+                    anchor.source_version().raw(),
+                )
+            }
+            MirSourceAnchor::ExecutableHost(_)
+            | MirSourceAnchor::GeneratedLifecycle(_)
+            | MirSourceAnchor::ImportedExecutable(_) => {
+                bray_runtime_interface::NativeSourceAnchor::unavailable()
+            }
         };
 
-        let anchor = origin.source_anchor();
-        let syntax = anchor.syntax();
-        let range = syntax.full_range();
         let context = self.types.context();
 
-        let fields = [
-            context
-                .i32_type()
-                .const_int(u64::from(syntax.source_id().raw()), false)
-                .into(),
-            context
-                .i32_type()
-                .const_int(u64::from(range.start().bytes()), false)
-                .into(),
-            context
-                .i32_type()
-                .const_int(u64::from(range.end().bytes()), false)
-                .into(),
-            context
-                .i64_type()
-                .const_int(anchor.source_version().raw(), false)
-                .into(),
-        ];
-
-        fields.into_iter().enumerate().try_fold(
-            crate::native::source_anchor_type(context)
-                .const_zero()
-                .into(),
-            |source, (index, field)| insert_value(&self.builder, source, field, index),
-        )
+        Ok(crate::native::source_anchor_type(context)
+            .const_named_struct(&[
+                context
+                    .i32_type()
+                    .const_int(u64::from(source.is_available()), false)
+                    .into(),
+                context
+                    .i32_type()
+                    .const_int(u64::from(source.source()), false)
+                    .into(),
+                context
+                    .i32_type()
+                    .const_int(u64::from(source.start()), false)
+                    .into(),
+                context
+                    .i32_type()
+                    .const_int(u64::from(source.end()), false)
+                    .into(),
+                context.i64_type().const_int(source.version(), false).into(),
+            ])
+            .into())
     }
 
     fn native_string_view(

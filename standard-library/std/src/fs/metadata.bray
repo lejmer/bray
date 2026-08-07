@@ -58,7 +58,7 @@ trusted internal func path_metadata(pos path: &std.path.Path) -> Result<FileMeta
     let native: PlatformPath = platform_path(path);
     let mut output: PlatformFileMetadata = empty_platform_metadata();
     let output_pointer: RawPointer<PlatformFileMetadata> = std.memory.address_of_mut(&mut output);
-    let status: std.io.PlatformStatus = trusted platform_path_metadata(native, metadata = output_pointer);
+    let status: std.platform.PlatformStatus = trusted platform_path_metadata(native, metadata = output_pointer);
 
     try checked_platform_status(status);
 
@@ -143,7 +143,7 @@ trusted internal func rename_path(
 {
     let native_source: PlatformPath = platform_path(source);
     let native_destination: PlatformPath = platform_path(destination);
-    let status: std.io.PlatformStatus = trusted platform_path_rename(native_source, native_destination);
+    let status: std.platform.PlatformStatus = trusted platform_path_rename(native_source, native_destination);
 
     return checked_platform_status(status);
 }

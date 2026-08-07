@@ -13,6 +13,8 @@ use super::command::BuildError;
 const PACKAGE_IDENTITY: &str = "bray.standard_library_conformance";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
+const API_TEST_COUNT: usize = 35;
+const API_FILTERED_TEST_COUNT: usize = 3;
 
 pub(super) fn test() -> Result<(), BuildError> {
     let root = crate::workspace::root().map_err(BuildError::Workspace)?;
@@ -119,7 +121,12 @@ fn audit_api(
 
     let filtered_report = parse_report("filtered execution", &filtered)?;
 
-    require_selection(&filtered_report, 34, 3, 31)?;
+    require_selection(
+        &filtered_report,
+        API_TEST_COUNT,
+        API_FILTERED_TEST_COUNT,
+        API_TEST_COUNT - API_FILTERED_TEST_COUNT,
+    )?;
 
     let tests = tests(&filtered_report);
 
@@ -234,12 +241,12 @@ fn audit_outcome(
 
 fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
     require_product(report, API_PRODUCT)?;
-    require_selection(report, 34, 34, 0)?;
+    require_selection(report, API_TEST_COUNT, API_TEST_COUNT, 0)?;
 
-    if report.summary.passed != 34 || report.summary.failed != 0 {
+    if report.summary.passed != API_TEST_COUNT || report.summary.failed != 0 {
         return Err(BuildError::conformance(
             "native execution",
-            "the API product did not report thirty-four passing tests",
+            format!("the API product did not report {API_TEST_COUNT} passing tests"),
         ));
     }
 
@@ -414,10 +421,12 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
         .map(|entry| entry.identity().declaration().name().as_str())
         .collect::<Vec<_>>();
 
-    if names != [
-        "files_and_directories_follow_the_portable_contract",
-        "string_operations",
-    ] {
+    if names
+        != [
+            "files_and_directories_follow_the_portable_contract",
+            "string_operations",
+        ]
+    {
         return Err(BuildError::conformance(
             "catalog metadata",
             "the native catalog did not retain the exact serial test constraint",

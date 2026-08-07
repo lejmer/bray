@@ -26,11 +26,15 @@
       "platform_services": [
         {
           "role": "platform.context.measure",
-          "declaration": "std.io.platform_context_measure"
+          "declaration": "std.platform.context_measure"
         },
         {
           "role": "platform.context.copy",
-          "declaration": "std.io.platform_context_copy"
+          "declaration": "std.platform.context_copy"
+        },
+        {
+          "role": "platform.context.environment_key_equals",
+          "declaration": "std.platform.environment_key_equals"
         },
         {
           "role": "platform.stream.read",

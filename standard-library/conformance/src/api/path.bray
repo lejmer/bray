@@ -2,6 +2,7 @@ module bray.standard_library_conformance.path;
 
 using std.io;
 using std.path;
+using std.platform;
 using std.string;
 
 @test
@@ -30,7 +31,7 @@ trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.pa
 
     assert(std.string.equals(&unicode_text, &"data/Bray-λ"));
 
-    if trusted internal std.io.native_text_width() == 16
+    if trusted internal std.platform.native_text_width() == 16
     {
         let drive_base: std.path.Path = try std.path.Path.from_string("C:\\base");
         let rooted_child: std.path.Path = try std.path.Path.from_string("\\child");

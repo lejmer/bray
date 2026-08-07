@@ -28,7 +28,7 @@ struct Directory
     {
         if self.is_open
         {
-            let _: std.io.PlatformStatus = trusted platform_directory_close(handle = self.handle);
+            let _: std.platform.PlatformStatus = trusted platform_directory_close(handle = self.handle);
         }
     }
 
@@ -63,7 +63,11 @@ trusted internal func open_directory(pos path: &std.path.Path) -> Result<Directo
 {
     let mut handle: u64 = 0;
     let handle_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut handle);
-    let status: std.io.PlatformStatus = trusted platform_directory_open(platform_path(path), opened = handle_pointer);
+
+    let status: std.platform.PlatformStatus = trusted platform_directory_open(
+        platform_path(path),
+        opened = handle_pointer
+    );
 
     try checked_platform_status(status);
 
@@ -112,7 +116,7 @@ trusted internal func next_directory_entry(pos directory: &mut Directory) -> Res
     let mut platform_metadata_value: PlatformFileMetadata = empty_platform_metadata();
     let metadata_pointer: RawPointer<PlatformFileMetadata> = std.memory.address_of_mut(&mut platform_metadata_value);
 
-    let measured: std.io.PlatformStatus = trusted platform_directory_next(
+    let measured: std.platform.PlatformStatus = trusted platform_directory_next(
         handle = directory.handle,
         destination = std.memory.null<u8>(),
         capacity = 0,
@@ -145,7 +149,7 @@ trusted internal func next_directory_entry(pos directory: &mut Directory) -> Res
     let mut buffer: std.bytes.Buffer = try internal std.io.allocate_fixed_buffer(capacity = capacity);
     let destination: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(std.bytes.as_slice_mut(&mut buffer));
 
-    let copied: std.io.PlatformStatus = trusted platform_directory_next(
+    let copied: std.platform.PlatformStatus = trusted platform_directory_next(
         handle = directory.handle,
         destination = destination,
         capacity = required,

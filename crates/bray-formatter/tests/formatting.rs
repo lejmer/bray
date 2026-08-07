@@ -97,33 +97,27 @@ fn separates_multiline_block_items_from_adjacent_items() {
     let output = formatted_with_width(source, 48);
 
     assert!(
-        output.text().contains(
-            concat!(
-                "    let first = compute(\n",
-                "        first_argument,\n",
-                "        second_argument,\n",
-                "        third_argument\n",
-                "    );\n",
-                "\n",
-                "    let second = 2;\n",
-            )
-        ),
+        output.text().contains(concat!(
+            "    let first = compute(\n",
+            "        first_argument,\n",
+            "        second_argument,\n",
+            "        third_argument\n",
+            "    );\n",
+            "\n",
+            "    let second = 2;\n",
+        )),
         "{}",
         output.text()
     );
 
     assert!(
-        output
-            .text()
-            .contains("    let second = 2;\n\n    assert("),
+        output.text().contains("    let second = 2;\n\n    assert("),
         "{}",
         output.text()
     );
 
     assert!(
-        output
-            .text()
-            .contains("    );\n\n    let third = 3;"),
+        output.text().contains("    );\n\n    let third = 3;"),
         "{}",
         output.text()
     );
@@ -518,6 +512,29 @@ fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
         formatted_with_width(output.text(), 36).text(),
         output.text()
     );
+}
+
+#[test]
+fn wraps_nested_argument_lists_after_long_statement_prefixes() {
+    let source = concat!(
+        "module app;",
+        "func read(){",
+        "let status:std.platform.PlatformStatus=trusted platform_file_metadata(",
+        "handle=handle,metadata=output_pointer);",
+        "}",
+    );
+
+    let output = formatted_with_width(source, 120);
+
+    assert!(
+        output.text().lines().all(|line| line.len() <= 120),
+        "{}",
+        output.text()
+    );
+
+    assert!(output.text().contains("trusted platform_file_metadata(\n"));
+
+    assert!(!formatted_with_width(output.text(), 120).changed());
 }
 
 #[test]

@@ -154,7 +154,10 @@ impl Renderer<'_> {
                 .insert_str(active.insertion_offset, self.line_ending);
 
             self.line = self.line.saturating_add(1);
-            self.line_start_offset = self.line_start_offset.saturating_add(self.line_ending.len());
+
+            self.line_start_offset = self
+                .line_start_offset
+                .saturating_add(self.line_ending.len());
         }
     }
 
@@ -175,11 +178,13 @@ impl Renderer<'_> {
             && !already_separated;
 
         if separate {
-            self.output
-                .insert_str(insertion_offset, self.line_ending);
+            self.output.insert_str(insertion_offset, self.line_ending);
 
             self.line = self.line.saturating_add(1);
-            self.line_start_offset = self.line_start_offset.saturating_add(self.line_ending.len());
+
+            self.line_start_offset = self
+                .line_start_offset
+                .saturating_add(self.line_ending.len());
         }
 
         let active = &mut self.active_block_items[index];
@@ -191,9 +196,8 @@ impl Renderer<'_> {
     }
 
     fn begin_group(&mut self, index: usize) {
-        let mode = if matches!(self.groups.last(), Some(GroupMode::Flat))
-            || flat_width(&self.elements[index + 1..])
-                .is_some_and(|width| self.column.saturating_add(width) <= self.maximum_width)
+        let mode = if flat_width(&self.elements[index + 1..])
+            .is_some_and(|width| self.column.saturating_add(width) <= self.maximum_width)
         {
             GroupMode::Flat
         } else {
@@ -212,10 +216,7 @@ impl Renderer<'_> {
         self.line = self.line.saturating_add(usize::from(line_breaks));
 
         if line_breaks > 0 {
-            self.line_start_offset = self
-                .output
-                .rfind(['\r', '\n'])
-                .map_or(0, |index| index + 1);
+            self.line_start_offset = self.output.rfind(['\r', '\n']).map_or(0, |index| index + 1);
         }
 
         if let Some(last_line) = text.rsplit(['\r', '\n']).next()
@@ -357,7 +358,7 @@ fn flat_width(elements: &[LayoutElement]) -> Option<usize> {
     let mut width = 0_usize;
     let mut depth = 0_usize;
 
-    for element in elements {
+    for (index, element) in elements.iter().enumerate() {
         match element {
             LayoutElement::Text(text) if text.contains(['\r', '\n']) => return None,
             LayoutElement::Text(text) => {
@@ -374,7 +375,11 @@ fn flat_width(elements: &[LayoutElement]) -> Option<usize> {
             }) => width = width.saturating_add(usize::from(*space_when_flat)),
             LayoutElement::Indent(_) => {}
             LayoutElement::GroupStart => depth = depth.saturating_add(1),
-            LayoutElement::GroupEnd if depth == 0 => return Some(width),
+            LayoutElement::GroupEnd if depth == 0 => {
+                let suffix = flat_width_until_break(&elements[index + 1..]).unwrap_or(0);
+
+                return Some(width.saturating_add(suffix));
+            }
             LayoutElement::GroupEnd => depth -= 1,
             LayoutElement::BlockItemStart { .. } | LayoutElement::BlockItemEnd(_) => {}
         }

@@ -1172,9 +1172,7 @@ mod tests {
         let branch_count = lowered_mir(&result)
             .blocks()
             .iter()
-            .filter(|block| {
-                matches!(block.terminator().kind(), MirTerminatorKind::Branch { .. })
-            })
+            .filter(|block| matches!(block.terminator().kind(), MirTerminatorKind::Branch { .. }))
             .count();
 
         assert_eq!(branch_count, 2);

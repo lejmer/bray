@@ -60,61 +60,65 @@ pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation_v1";
 pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation_v1";
 
 /// Stable symbol measuring the immutable process-context block.
-pub const PLATFORM_CONTEXT_MEASURE_SYMBOL: &str = "bray_platform_context_measure_v1";
+pub const PLATFORM_CONTEXT_MEASURE_SYMBOL: &str = "bray_platform_context_measure";
 
 /// Stable symbol copying the immutable process-context block.
-pub const PLATFORM_CONTEXT_COPY_SYMBOL: &str = "bray_platform_context_copy_v1";
+pub const PLATFORM_CONTEXT_COPY_SYMBOL: &str = "bray_platform_context_copy";
+
+/// Stable symbol comparing environment keys with target-native rules.
+pub const PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL: &str =
+    "bray_platform_context_environment_key_equals";
 
 /// Stable symbol reading from a borrowed platform stream handle.
-pub const PLATFORM_STREAM_READ_SYMBOL: &str = "bray_platform_stream_read_v1";
+pub const PLATFORM_STREAM_READ_SYMBOL: &str = "bray_platform_stream_read";
 
 /// Stable symbol writing to a borrowed platform stream handle.
-pub const PLATFORM_STREAM_WRITE_SYMBOL: &str = "bray_platform_stream_write_v1";
+pub const PLATFORM_STREAM_WRITE_SYMBOL: &str = "bray_platform_stream_write";
 
 /// Stable symbol flushing a borrowed platform stream handle.
-pub const PLATFORM_STREAM_FLUSH_SYMBOL: &str = "bray_platform_stream_flush_v1";
+pub const PLATFORM_STREAM_FLUSH_SYMBOL: &str = "bray_platform_stream_flush";
 
 /// Stable symbol seeking a borrowed platform stream handle.
-pub const PLATFORM_STREAM_SEEK_SYMBOL: &str = "bray_platform_stream_seek_v1";
+pub const PLATFORM_STREAM_SEEK_SYMBOL: &str = "bray_platform_stream_seek";
 
 /// Stable symbol closing an owned platform stream handle.
-pub const PLATFORM_STREAM_CLOSE_SYMBOL: &str = "bray_platform_stream_close_v1";
+pub const PLATFORM_STREAM_CLOSE_SYMBOL: &str = "bray_platform_stream_close";
 
 /// Stable symbol acquiring product-wide stream serialization.
-pub const PLATFORM_STREAM_LOCK_SYMBOL: &str = "bray_platform_stream_lock_v1";
+pub const PLATFORM_STREAM_LOCK_SYMBOL: &str = "bray_platform_stream_lock";
 
 /// Stable symbol releasing product-wide stream serialization.
-pub const PLATFORM_STREAM_UNLOCK_SYMBOL: &str = "bray_platform_stream_unlock_v1";
+pub const PLATFORM_STREAM_UNLOCK_SYMBOL: &str = "bray_platform_stream_unlock";
 
 /// Stable symbol opening a platform file stream.
-pub const PLATFORM_FILE_OPEN_SYMBOL: &str = "bray_platform_file_open_v1";
+pub const PLATFORM_FILE_OPEN_SYMBOL: &str = "bray_platform_file_open";
 
 /// Stable symbol reading metadata from a platform file stream.
-pub const PLATFORM_FILE_METADATA_SYMBOL: &str = "bray_platform_file_metadata_v1";
+pub const PLATFORM_FILE_METADATA_SYMBOL: &str = "bray_platform_file_metadata";
 
 /// Stable symbol reading metadata for a platform path.
-pub const PLATFORM_PATH_METADATA_SYMBOL: &str = "bray_platform_path_metadata_v1";
+pub const PLATFORM_PATH_METADATA_SYMBOL: &str = "bray_platform_path_metadata";
 
 /// Stable symbol opening a platform directory traversal.
-pub const PLATFORM_DIRECTORY_OPEN_SYMBOL: &str = "bray_platform_directory_open_v1";
+pub const PLATFORM_DIRECTORY_OPEN_SYMBOL: &str = "bray_platform_directory_open";
 
 /// Stable symbol reading a platform directory traversal entry.
-pub const PLATFORM_DIRECTORY_NEXT_SYMBOL: &str = "bray_platform_directory_next_v1";
+pub const PLATFORM_DIRECTORY_NEXT_SYMBOL: &str = "bray_platform_directory_next";
 
 /// Stable symbol closing a platform directory traversal.
-pub const PLATFORM_DIRECTORY_CLOSE_SYMBOL: &str = "bray_platform_directory_close_v1";
+pub const PLATFORM_DIRECTORY_CLOSE_SYMBOL: &str = "bray_platform_directory_close";
 
 /// Stable symbol creating a platform directory.
-pub const PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL: &str = "bray_platform_path_create_directory_v1";
+pub const PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL: &str = "bray_platform_path_create_directory";
 
 /// Stable symbol removing a platform file.
-pub const PLATFORM_PATH_REMOVE_FILE_SYMBOL: &str = "bray_platform_path_remove_file_v1";
+pub const PLATFORM_PATH_REMOVE_FILE_SYMBOL: &str = "bray_platform_path_remove_file";
 
 /// Stable symbol removing a platform directory.
-pub const PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL: &str = "bray_platform_path_remove_directory_v1";
+pub const PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL: &str = "bray_platform_path_remove_directory";
 
 /// Stable symbol renaming a platform filesystem entry.
-pub const PLATFORM_PATH_RENAME_SYMBOL: &str = "bray_platform_path_rename_v1";
+pub const PLATFORM_PATH_RENAME_SYMBOL: &str = "bray_platform_path_rename";
 
 /// Stable symbol counting Unicode scalar values in UTF-8 text.
 pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count_v1";
@@ -244,6 +248,7 @@ pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRol
     match role {
         Role::ContextMeasure => PLATFORM_CONTEXT_MEASURE_SYMBOL,
         Role::ContextCopy => PLATFORM_CONTEXT_COPY_SYMBOL,
+        Role::ContextEnvironmentKeyEquals => PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL,
         Role::StreamRead => PLATFORM_STREAM_READ_SYMBOL,
         Role::StreamWrite => PLATFORM_STREAM_WRITE_SYMBOL,
         Role::StreamFlush => PLATFORM_STREAM_FLUSH_SYMBOL,
@@ -385,6 +390,7 @@ impl NativePanicCause {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NativeSourceAnchor {
+    present: u32,
     source: u32,
     start: u32,
     end: u32,
@@ -395,11 +401,28 @@ impl NativeSourceAnchor {
     /// Creates one source anchor from its stable scalar ABI fields.
     pub const fn new(source: u32, start: u32, end: u32, version: u64) -> Self {
         Self {
+            present: 1,
             source,
             start,
             end,
             version,
         }
+    }
+
+    /// Creates an anchor for generated or imported code without local source coordinates.
+    pub const fn unavailable() -> Self {
+        Self {
+            present: 0,
+            source: 0,
+            start: 0,
+            end: 0,
+            version: 0,
+        }
+    }
+
+    /// Returns whether this anchor carries local source coordinates.
+    pub const fn is_available(self) -> bool {
+        self.present == 1
     }
 
     /// Returns the source snapshot identity.
@@ -424,7 +447,11 @@ impl NativeSourceAnchor {
 
     /// Returns whether the half-open source range is ordered.
     pub const fn is_valid(&self) -> bool {
-        self.start <= self.end
+        match self.present {
+            0 => self.source == 0 && self.start == 0 && self.end == 0 && self.version == 0,
+            1 => self.start <= self.end,
+            _ => false,
+        }
     }
 }
 

@@ -8,8 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 
 use bray_runtime_interface::{
-    NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath,
-    NativePlatformStatus,
+    NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath, NativePlatformStatus,
 };
 
 use super::platform::{platform_io_error, startup_working_directory};
@@ -128,9 +127,7 @@ fn remove_handle(id: u64, expected: HandleKind) -> Result<NativeHandle, NativePl
     };
 
     match Arc::try_unwrap(handle) {
-        Ok(handle) => handle
-            .into_inner()
-            .map_err(|_| NativePlatformStatus::OTHER),
+        Ok(handle) => handle.into_inner().map_err(|_| NativePlatformStatus::OTHER),
         Err(handle) => {
             handles.insert(id, handle);
 
@@ -149,8 +146,7 @@ impl HandleKind {
     const fn matches(self, handle: &NativeHandle) -> bool {
         matches!(
             (self, handle),
-            (Self::File, NativeHandle::File(_))
-                | (Self::Directory, NativeHandle::Directory(_))
+            (Self::File, NativeHandle::File(_)) | (Self::Directory, NativeHandle::Directory(_))
         )
     }
 }
@@ -193,9 +189,7 @@ pub(super) fn flush_file(id: u64) -> Result<(), NativePlatformStatus> {
             return Err(NativePlatformStatus::INVALID_INPUT);
         }
 
-        file.file
-            .flush()
-            .map_err(|error| platform_io_error(&error))
+        file.file.flush().map_err(|error| platform_io_error(&error))
     })
 }
 
@@ -241,7 +235,7 @@ fn with_file<T>(
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_file_open_v1(
+    pub extern "C" fn bray_platform_file_open(
         path: NativePlatformPath,
         options: NativePlatformFileOptions,
         opened: *mut u64,
@@ -321,7 +315,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_file_metadata_v1(
+    pub extern "C" fn bray_platform_file_metadata(
         handle: u64,
         output: *mut NativePlatformFileMetadata,
     ) -> NativePlatformStatus {
@@ -345,7 +339,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_path_metadata_v1(
+    pub extern "C" fn bray_platform_path_metadata(
         path: NativePlatformPath,
         output: *mut NativePlatformFileMetadata,
     ) -> NativePlatformStatus {
@@ -378,7 +372,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_directory_open_v1(
+    pub extern "C" fn bray_platform_directory_open(
         path: NativePlatformPath,
         opened: *mut u64,
     ) -> NativePlatformStatus {
@@ -419,7 +413,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_directory_next_v1(
+    pub extern "C" fn bray_platform_directory_next(
         id: u64,
         destination: *mut u8,
         capacity: u64,
@@ -537,7 +531,7 @@ fn read_directory(path: PathBuf) -> Result<VecDeque<DirectoryEntry>, NativePlatf
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_directory_close_v1(id: u64) -> NativePlatformStatus {
+    pub extern "C" fn bray_platform_directory_close(id: u64) -> NativePlatformStatus {
         match remove_handle(id, HandleKind::Directory) {
             Ok(NativeHandle::Directory(_)) => NativePlatformStatus::SUCCESS,
             Ok(NativeHandle::File(_)) => NativePlatformStatus::OTHER,
@@ -564,12 +558,12 @@ macro_rules! path_operation {
     };
 }
 
-path_operation!(bray_platform_path_create_directory_v1, fs::create_dir);
-path_operation!(bray_platform_path_remove_file_v1, fs::remove_file);
-path_operation!(bray_platform_path_remove_directory_v1, fs::remove_dir);
+path_operation!(bray_platform_path_create_directory, fs::create_dir);
+path_operation!(bray_platform_path_remove_file, fs::remove_file);
+path_operation!(bray_platform_path_remove_directory, fs::remove_dir);
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_path_rename_v1(
+    pub extern "C" fn bray_platform_path_rename(
         source: NativePlatformPath,
         destination: NativePlatformPath,
     ) -> NativePlatformStatus {
@@ -616,7 +610,10 @@ fn file_metadata(metadata: &Metadata) -> NativePlatformFileMetadata {
 
 fn system_time_parts(time: std::time::SystemTime) -> Option<(i64, u32)> {
     match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => Some((i64::try_from(duration.as_secs()).ok()?, duration.subsec_nanos())),
+        Ok(duration) => Some((
+            i64::try_from(duration.as_secs()).ok()?,
+            duration.subsec_nanos(),
+        )),
         Err(error) => {
             let duration = error.duration();
             let seconds = i64::try_from(duration.as_secs()).ok()?;
@@ -625,7 +622,10 @@ fn system_time_parts(time: std::time::SystemTime) -> Option<(i64, u32)> {
             if nanoseconds == 0 {
                 Some((-seconds, 0))
             } else {
-                Some((seconds.checked_neg()?.checked_sub(1)?, 1_000_000_000 - nanoseconds))
+                Some((
+                    seconds.checked_neg()?.checked_sub(1)?,
+                    1_000_000_000 - nanoseconds,
+                ))
             }
         }
     }
@@ -754,11 +754,9 @@ mod tests {
     use bray_testing::unique_temporary_directory;
 
     use super::{
-        anchor_native_path,
-        bray_platform_directory_close_v1, bray_platform_directory_next_v1,
-        bray_platform_directory_open_v1, bray_platform_file_metadata_v1,
-        bray_platform_file_open_v1, close_file, flush_file, native_text, read_file, seek_file,
-        write_file,
+        anchor_native_path, bray_platform_directory_close, bray_platform_directory_next,
+        bray_platform_directory_open, bray_platform_file_metadata, bray_platform_file_open,
+        close_file, flush_file, native_text, read_file, seek_file, write_file,
     };
 
     #[test]
@@ -769,7 +767,7 @@ mod tests {
         let mut handle = 0;
 
         assert_eq!(
-            bray_platform_file_open_v1(
+            bray_platform_file_open(
                 path.view(),
                 NativePlatformFileOptions::new(2, 2),
                 &mut handle,
@@ -788,7 +786,7 @@ mod tests {
         let mut metadata = NativePlatformFileMetadata::new(2, 0, 0, 0, 0);
 
         assert_eq!(
-            bray_platform_file_metadata_v1(handle, &mut metadata),
+            bray_platform_file_metadata(handle, &mut metadata),
             NativePlatformStatus::SUCCESS
         );
 
@@ -812,7 +810,7 @@ mod tests {
         let mut readable = 0;
 
         assert_eq!(
-            bray_platform_file_open_v1(
+            bray_platform_file_open(
                 readable_path.view(),
                 NativePlatformFileOptions::new(0, 0),
                 &mut readable,
@@ -836,7 +834,7 @@ mod tests {
         let mut writable = 0;
 
         assert_eq!(
-            bray_platform_file_open_v1(
+            bray_platform_file_open(
                 writable_path.view(),
                 NativePlatformFileOptions::new(1, 1),
                 &mut writable,
@@ -902,7 +900,7 @@ mod tests {
         let mut handle = 0;
 
         assert_eq!(
-            bray_platform_directory_open_v1(path.view(), &mut handle),
+            bray_platform_directory_open(path.view(), &mut handle),
             NativePlatformStatus::SUCCESS
         );
 
@@ -911,7 +909,7 @@ mod tests {
         assert_eq!(next_entry(handle), None);
 
         assert_eq!(
-            bray_platform_directory_close_v1(handle),
+            bray_platform_directory_close(handle),
             NativePlatformStatus::SUCCESS
         );
     }
@@ -923,7 +921,7 @@ mod tests {
         let mut handle = 0;
 
         assert_eq!(
-            bray_platform_directory_open_v1(path.view(), &mut handle),
+            bray_platform_directory_open(path.view(), &mut handle),
             NativePlatformStatus::SUCCESS
         );
 
@@ -932,7 +930,7 @@ mod tests {
         let mut metadata = NativePlatformFileMetadata::new(2, 0, 0, 0, 0);
 
         assert_eq!(
-            bray_platform_directory_next_v1(
+            bray_platform_directory_next(
                 handle,
                 std::ptr::null_mut(),
                 0,
@@ -944,7 +942,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_platform_directory_close_v1(handle),
+            bray_platform_directory_close(handle),
             NativePlatformStatus::SUCCESS
         );
     }
@@ -954,7 +952,7 @@ mod tests {
         let mut end = 0;
         let mut metadata = NativePlatformFileMetadata::new(2, 0, 0, 0, 0);
 
-        let status = bray_platform_directory_next_v1(
+        let status = bray_platform_directory_next(
             handle,
             std::ptr::null_mut(),
             0,
@@ -977,7 +975,7 @@ mod tests {
         let mut bytes = vec![0; length];
 
         assert_eq!(
-            bray_platform_directory_next_v1(
+            bray_platform_directory_next(
                 handle,
                 bytes.as_mut_ptr(),
                 required,
