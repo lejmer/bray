@@ -29,7 +29,7 @@ macro_rules! native_platform_export {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_context_measure_v1(
+    pub extern "C" fn bray_platform_context_measure(
         required: *mut u64,
     ) -> NativePlatformStatus {
         if MemoryRegion::write(required).is_none() {
@@ -52,7 +52,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_context_copy_v1(
+    pub extern "C" fn bray_platform_context_copy(
         destination: *mut u8,
         capacity: u64,
         written_or_required: *mut u64,
@@ -95,7 +95,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_context_environment_key_equals_v1(
+    pub extern "C" fn bray_platform_context_environment_key_equals(
         left: NativePlatformText,
         right: NativePlatformText,
         equal: *mut u32,
@@ -142,7 +142,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_stream_read_v1(
+    pub extern "C" fn bray_platform_stream_read(
         handle: u64,
         destination: *mut u8,
         length: u64,
@@ -175,7 +175,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_stream_write_v1(
+    pub extern "C" fn bray_platform_stream_write(
         handle: u64,
         source: *const u8,
         length: u64,
@@ -217,7 +217,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_stream_flush_v1(handle: u64) -> NativePlatformStatus {
+    pub extern "C" fn bray_platform_stream_flush(handle: u64) -> NativePlatformStatus {
         let Some(stream) = run_output_stream(handle) else {
             return match flush_file(handle) {
                 Ok(()) => NativePlatformStatus::SUCCESS,
@@ -242,7 +242,7 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_stream_seek_v1(
+    pub extern "C" fn bray_platform_stream_seek(
         handle: u64,
         offset_bits: u64,
         origin: u32,
@@ -264,19 +264,19 @@ native_platform_export! {
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_stream_close_v1(handle: u64) -> NativePlatformStatus {
+    pub extern "C" fn bray_platform_stream_close(handle: u64) -> NativePlatformStatus {
         close_file(handle)
     }
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_stream_lock_v1(handle: u64) -> NativePlatformStatus {
+    pub extern "C" fn bray_platform_stream_lock(handle: u64) -> NativePlatformStatus {
         lock_stream(handle)
     }
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_stream_unlock_v1(handle: u64) -> NativePlatformStatus {
+    pub extern "C" fn bray_platform_stream_unlock(handle: u64) -> NativePlatformStatus {
         unlock_stream(handle)
     }
 }
@@ -624,8 +624,8 @@ mod tests {
 
     use super::{
         CONTEXT_HEADER_BYTES, STANDARD_ERROR_HANDLE, STANDARD_OUTPUT_HANDLE,
-        bray_platform_context_environment_key_equals_v1, bray_platform_stream_write_v1,
-        lock_stream, native_text, process_context, unlock_stream,
+        bray_platform_context_environment_key_equals, bray_platform_stream_write, lock_stream,
+        native_text, process_context, unlock_stream,
     };
     use crate::{RunOutputContext, RunOutputStream, with_run_output_context};
 
@@ -658,7 +658,7 @@ mod tests {
         let right = NativePlatformText::new(right.as_ptr(), right.len() as u64);
         let mut equal = u32::MAX;
 
-        let status = bray_platform_context_environment_key_equals_v1(left, right, &raw mut equal);
+        let status = bray_platform_context_environment_key_equals(left, right, &raw mut equal);
 
         assert_eq!(status, NativePlatformStatus::SUCCESS);
         assert_eq!(equal, u32::from(cfg!(windows)));
@@ -669,7 +669,7 @@ mod tests {
         let empty = NativePlatformText::new(std::ptr::null(), 0);
         let mut equal = u32::MAX;
 
-        let status = bray_platform_context_environment_key_equals_v1(empty, empty, &raw mut equal);
+        let status = bray_platform_context_environment_key_equals(empty, empty, &raw mut equal);
 
         assert_eq!(status, NativePlatformStatus::SUCCESS);
         assert_eq!(equal, 1);
@@ -686,7 +686,7 @@ mod tests {
         let mut transferred = 0;
 
         let status = with_run_output_context(output.clone(), || {
-            bray_platform_stream_write_v1(
+            bray_platform_stream_write(
                 STANDARD_OUTPUT_HANDLE,
                 bytes.as_ptr(),
                 byte_count,
