@@ -160,7 +160,6 @@ trusted internal func process_context_buffer() -> std.memory.RawBuffer<u8>?
                 destination,
                 capacity = required,
                 written_or_required = written_pointer,
-
             );
 
             if copied.category != 0
@@ -360,7 +359,6 @@ trusted internal func write_standard_stream_unlocked(pos source: &[u8], handle: 
         source = source_pointer,
         length = requested as u64,
         transferred = transferred_pointer,
-
     );
 
     return checked_transfer(status, transferred = transferred, maximum = requested, require_progress = true);
@@ -420,7 +418,6 @@ trusted internal func read_standard_stream(pos destination: &mut [u8], handle: u
         destination = destination_pointer,
         length = capacity as u64,
         transferred = transferred_pointer,
-
     );
 
     return checked_transfer(status, transferred = transferred, maximum = capacity, require_progress = false);
