@@ -21,10 +21,12 @@ use bray_standard_library::{
 };
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
-    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationRequirementKey,
-    ImplementationSelection, MemberLookupResult, ModuleOwnerId, ModulePathKey, NamedTypeSymbolId,
-    PackageIdentity, SemanticValueStore, SymbolFactContract, SymbolFactRequest, SymbolFactResult,
-    TraitApplicationId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId,
+    GenericDeclarationTemplateFact, GenericOwnerId, ImplementationInstanceId,
+    ImplementationRequirementKey, ImplementationSelection, MemberLookupResult, ModuleOwnerId,
+    ModulePathKey, NamedTypeSymbolId, PackageIdentity, SemanticValueStore, StructSymbol,
+    StructSymbolId, SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolName,
+    TraitApplicationId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId,
+    UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_target::TargetProfile;
 
@@ -37,6 +39,7 @@ use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) struct CompilationCheckerContext<'compilation> {
     facts: CompilationBinderFacts<'compilation>,
+    implementation_witnesses: Arc<[ImplementationInstanceId]>,
     recognized_standard_library_implementations:
         OnceLock<Result<BTreeMap<AnySymbolId, ImplementationHookResolution>, CheckerFactError>>,
 }
@@ -45,12 +48,71 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
     pub(super) fn new(facts: CompilationBinderFacts<'compilation>) -> Self {
         Self {
             facts,
+            implementation_witnesses: Arc::from([]),
             recognized_standard_library_implementations: OnceLock::new(),
         }
     }
 
+    pub(super) fn with_implementation_witnesses(
+        mut self,
+        witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+    ) -> Self {
+        self.implementation_witnesses = witnesses.into_iter().collect::<Vec<_>>().into();
+
+        self
+    }
+
     pub(super) fn symbols(&self) -> &bray_symbols::SymbolGraph {
         self.facts.symbols()
+    }
+
+    fn matching_implementation_witness(
+        &self,
+        requirement: ImplementationRequirementKey,
+    ) -> CheckerFactResult<Option<ImplementationInstanceId>> {
+        let compilation = self.facts.compilation();
+
+        let headers = compilation
+            .implementation_header_index(self.facts.cancellation())
+            .map_err(checker_fact_error)?;
+
+        let values = self.semantic_values();
+
+        for witness in self.implementation_witnesses.iter().copied() {
+            let instance = values.implementation_instance_data(witness).map_err(|_| {
+                CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
+
+            let header = headers.value().header(instance.definition()).ok_or(
+                CheckerFactError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                ),
+            )?;
+
+            let subject = values
+                .substitute_type(header.subject(), instance.substitution())
+                .map_err(|_| {
+                    CheckerFactError::Infrastructure(
+                        CheckerInfrastructureError::SemanticValueUnavailable,
+                    )
+                })?;
+
+            let application = values
+                .substitute_trait_application(header.trait_application(), instance.substitution())
+                .map_err(|_| {
+                    CheckerFactError::Infrastructure(
+                        CheckerInfrastructureError::SemanticValueUnavailable,
+                    )
+                })?;
+
+            if requirement == ImplementationRequirementKey::new(subject, application) {
+                return Ok(Some(witness));
+            }
+        }
+
+        Ok(None)
     }
 
     fn statically_establishes_copyability(
@@ -335,6 +397,35 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         CompilationCheckerContext::symbols(self)
     }
 
+    fn lookup_member(
+        &self,
+        owner: AnySymbolId,
+        name: &str,
+    ) -> CheckerFactResult<MemberLookupResult<AnySymbolId>> {
+        self.facts
+            .lookup_member(owner, name)
+            .map_err(checker_binder_error)
+    }
+
+    fn member_name(&self, member: AnySymbolId) -> CheckerFactResult<Option<&SymbolName>> {
+        self.facts.member_name(member).map_err(checker_binder_error)
+    }
+
+    fn structure(&self, id: StructSymbolId) -> CheckerFactResult<Option<&StructSymbol>> {
+        self.facts.structure(id).map_err(checker_binder_error)
+    }
+
+    fn union(&self, id: UnionSymbolId) -> CheckerFactResult<Option<&UnionSymbol>> {
+        self.facts.union(id).map_err(checker_binder_error)
+    }
+
+    fn union_variant(
+        &self,
+        id: UnionVariantSymbolId,
+    ) -> CheckerFactResult<Option<&UnionVariantSymbol>> {
+        self.facts.union_variant(id).map_err(checker_binder_error)
+    }
+
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
         self.facts
             .compilation()
@@ -391,6 +482,20 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         }
     }
 
+    fn implementation_selection(
+        &self,
+        requirement: ImplementationRequirementKey,
+    ) -> CheckerFactResult<DiagnosticResult<ImplementationSelection>> {
+        self.facts
+            .compilation()
+            .implementation_selection_result_with_cancellation(
+                requirement,
+                self.facts.cancellation(),
+            )
+            .map(|result| (*result).clone())
+            .map_err(checker_fact_error)
+    }
+
     fn selected_type_valued_member(
         &self,
         subject: TypeId,
@@ -406,24 +511,31 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 
         let requirement = ImplementationRequirementKey::new(subject, application);
 
-        let selection = self
-            .facts
-            .compilation()
-            .implementation_selection_result_with_cancellation(
-                requirement,
-                self.facts.cancellation(),
-            )
-            .map_err(checker_fact_error)?;
+        let (instance, mut diagnostics) =
+            if let Some(instance) = self.matching_implementation_witness(requirement)? {
+                (instance, bray_diagnostics::DiagnosticBag::new())
+            } else {
+                let selection = self
+                    .facts
+                    .compilation()
+                    .implementation_selection_result_with_cancellation(
+                        requirement,
+                        self.facts.cancellation(),
+                    )
+                    .map_err(checker_fact_error)?;
 
-        let mut diagnostics = selection.diagnostics().clone();
+                let diagnostics = selection.diagnostics().clone();
 
-        let ImplementationSelection::Selected(instance) = selection.value() else {
-            return Ok(DiagnosticResult::new(None, diagnostics));
-        };
+                let ImplementationSelection::Selected(instance) = selection.value() else {
+                    return Ok(DiagnosticResult::new(None, diagnostics));
+                };
+
+                (*instance, diagnostics)
+            };
 
         let instance = self
             .semantic_values()
-            .implementation_instance_data(*instance)
+            .implementation_instance_data(instance)
             .map_err(|_| {
                 CheckerFactError::Infrastructure(
                     CheckerInfrastructureError::SemanticValueUnavailable,
@@ -574,6 +686,15 @@ fn checker_source(
     };
 
     Ok(CheckerSource::new(span, text))
+}
+
+fn checker_binder_error(error: BinderFactError) -> CheckerFactError {
+    match error {
+        BinderFactError::Cancelled => CheckerFactError::Cancelled,
+        BinderFactError::DependencyUnavailable => {
+            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        }
+    }
 }
 
 impl<'compilation, C> CheckerSemanticFactProvider<C> for CompilationCheckerContext<'compilation>

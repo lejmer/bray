@@ -8,6 +8,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{CallableSymbolId, GenericArgument, TypeData, TypeId};
 
+use crate::storage::StorageScopeOwners;
 use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -212,6 +213,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let mut cleanup_shapes = CleanupShapeResolver::new(request);
+    let owners = StorageScopeOwners::collect(request)?;
     let mut plans = Vec::new();
 
     for exit in flow.exits() {
@@ -220,6 +222,10 @@ where
         let mut is_recovered = exit.is_recovered();
 
         for identity in exit.initialized().iter().rev().copied() {
+            if owners.scope(storage.identity(identity)) != Some(exit.scope()) {
+                continue;
+            }
+
             if scope_exit_transfers_identity(request, storage, identity) {
                 continue;
             }
@@ -259,6 +265,7 @@ where
 
         plans.push(AsyncScopeExitPlan::new(
             exit.scope(),
+            exit.exit(),
             cancellation,
             lifecycle,
             exit.moved().iter().copied(),

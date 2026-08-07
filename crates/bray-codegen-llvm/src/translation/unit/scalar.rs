@@ -1,17 +1,81 @@
 use super::core::UnitTranslator;
-use super::support::{float_predicate, integer_predicate, llvm};
-use bray_codegen::CodegenFailure;
+use super::support::{float_predicate, integer_predicate, llvm, pointer_value};
+use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind, IntrinsicCall};
 use bray_ir::{MirBinaryOperator, MirOperand, MirUnaryOperator};
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn translate_intrinsic_call(
+        &mut self,
+        intrinsic: &IntrinsicCall,
+        operand_type: bray_symbols::TypeId,
+        arguments: &[BasicValueEnum<'context>],
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        match (intrinsic, arguments) {
+            (IntrinsicCall::Unary(operator), [operand]) => {
+                let (_, operand) = self.intrinsic_operand(operand_type, *operand)?;
+
+                self.translate_unary_value(*operator, operand)
+            }
+            (IntrinsicCall::Binary(operator), [left, right]) => {
+                let (concrete_type, left) = self.intrinsic_operand(operand_type, *left)?;
+
+                let (_, right) = self.intrinsic_operand(operand_type, *right)?;
+
+                self.translate_binary_values(*operator, left, right, concrete_type)
+            }
+            (IntrinsicCall::Conversion(conversion), [operand]) => {
+                let mut helpers = std::iter::empty::<&CodegenHelperMapping>();
+
+                self.translate_conversion_plan(*operand, conversion, &mut helpers)
+            }
+            _ => Err(CodegenFailure::GeneratedModuleInvariant),
+        }
+    }
+
+    fn intrinsic_operand(
+        &mut self,
+        ty: bray_symbols::TypeId,
+        value: BasicValueEnum<'context>,
+    ) -> Result<(bray_symbols::TypeId, BasicValueEnum<'context>), CodegenFailure> {
+        let mapping = self
+            .type_mapping(ty)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Pointer { target, .. } = mapping.kind() else {
+            return Ok((ty, value));
+        };
+
+        let target = *target;
+        let pointer = pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let value = llvm(self.builder.build_load(
+            self.types.map(target)?,
+            pointer,
+            "intrinsic.operand",
+        ))?;
+
+        Ok((target, value))
+    }
+
     pub(super) fn translate_unary(
         &mut self,
         operator: MirUnaryOperator,
         operand: &MirOperand,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let operand_type = self.operand_type(operand)?;
         let value = self.operand(operand)?;
 
+        let (_, value) = self.intrinsic_operand(operand_type, value)?;
+
+        self.translate_unary_value(operator, value)
+    }
+
+    fn translate_unary_value(
+        &self,
+        operator: MirUnaryOperator,
+        value: BasicValueEnum<'context>,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match (operator, value) {
             (MirUnaryOperator::Negate, BasicValueEnum::IntValue(value)) => {
                 llvm(self.builder.build_int_neg(value, "negate")).map(Into::into)
@@ -34,9 +98,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         right: &MirOperand,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let operand_type = self.operand_type(left)?;
+        let right_type = self.operand_type(right)?;
         let left = self.operand(left)?;
         let right = self.operand(right)?;
 
+        let (operand_type, left) = self.intrinsic_operand(operand_type, left)?;
+
+        let (_, right) = self.intrinsic_operand(right_type, right)?;
+
+        self.translate_binary_values(operator, left, right, operand_type)
+    }
+
+    fn translate_binary_values(
+        &self,
+        operator: MirBinaryOperator,
+        left: BasicValueEnum<'context>,
+        right: BasicValueEnum<'context>,
+        operand_type: bray_symbols::TypeId,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match (left, right) {
             (BasicValueEnum::IntValue(left), BasicValueEnum::IntValue(right)) => {
                 self.integer_binary(operator, left, right, self.signed_integer(operand_type)?)

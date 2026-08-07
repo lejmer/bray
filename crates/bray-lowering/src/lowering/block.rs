@@ -1,4 +1,6 @@
-use bray_bound_tree::{BoundBlockId, BoundBlockItem, BoundLocalBinding};
+use bray_bound_tree::{
+    BoundBlockExpression, BoundBlockId, BoundBlockItem, BoundExpressionId, BoundLocalBinding,
+};
 use bray_ir::{MirBlockId, MirOperand, MirSourceAnchor};
 use bray_symbols::TypeId;
 
@@ -34,6 +36,29 @@ impl LoweredExpression {
 }
 
 impl Lowerer<'_> {
+    pub(super) fn lower_block_expression(
+        &mut self,
+        expression_id: BoundExpressionId,
+        expression: &BoundBlockExpression,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let source = self.source(expression.origin());
+
+        let (join, result, result_type) =
+            self.push_result_join(expression_id, expression.origin())?;
+
+        let completion =
+            self.lower_yielding_block(expression.block(), current, join, result_type)?;
+
+        self.finish_result_edge(completion, join, result_type)?;
+
+        Ok(LoweredExpression::continuing(
+            join,
+            Some(MirOperand::Value(result)),
+            source,
+        ))
+    }
+
     pub(super) fn lower_block(
         &mut self,
         id: BoundBlockId,

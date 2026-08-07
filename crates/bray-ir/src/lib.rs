@@ -41,8 +41,8 @@ pub use operation::{
     MirTextOperation, MirTextOperationKind, MirUnaryOperator,
 };
 pub use reference::{
-    MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirFieldReference,
-    MirRuntimeReference,
+    MirCall, MirCallArgument, MirCallIntrinsic, MirCallTarget, MirCallableReference,
+    MirFieldReference, MirRuntimeReference,
 };
 pub use source::{MirSourceAnchor, MirSourceOrigin};
 pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};

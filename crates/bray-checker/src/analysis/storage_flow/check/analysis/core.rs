@@ -2,14 +2,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
-    CheckedMemoryOperations, CheckedRefinementFacts, LivenessFacts, MemoryOperationStatus,
-    RefinementFact, StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
-    StorageExitDecision, StorageFlowFacts, StorageOperationDecision, StorageOperationStatus,
-    StoragePlan, StorageProjection, StorageRelationship, StorageSuspensionState,
+    CheckedMemoryOperations, CheckedRefinementFacts, CheckedSemanticSelections, LivenessFacts,
+    MemoryOperationStatus, RefinementFact, StorageAccessId, StorageAccessPlan,
+    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlowFacts,
+    StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
+    StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_symbols::CallableSignatureFact;
 
+use crate::storage::StorageScopeOwners;
 use crate::{
     CheckerFactError, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticFactProvider, CheckerUnitView,
@@ -27,6 +29,7 @@ use crate::analysis::storage_flow::model::{StorageFlowDomain, StorageFlowInput, 
 
 pub(crate) fn check_storage_flow<C>(
     request: CheckerUnitView<'_, C>,
+    selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     liveness: &LivenessFacts,
     refinements: &CheckedRefinementFacts,
@@ -35,7 +38,9 @@ pub(crate) fn check_storage_flow<C>(
 where
     C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
-    if storage.unit() != request.unit().unit()
+    if selections.unit() != request.unit().unit()
+        || selections.kind() != request.unit().key().kind()
+        || storage.unit() != request.unit().unit()
         || storage.kind() != request.unit().key().kind()
         || liveness.unit() != request.unit().unit()
         || liveness.kind() != request.unit().key().kind()
@@ -49,7 +54,7 @@ where
         );
     }
 
-    let graph = match build_storage_control_flow_graph(request, storage) {
+    let graph = match build_storage_control_flow_graph(request, storage, selections) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
@@ -91,6 +96,14 @@ where
 
     let input = StorageFlowInput::new(request, storage, copyable_types, mutable_storage);
 
+    let owners = match StorageScopeOwners::collect(request) {
+        Ok(owners) => owners,
+        Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerFactError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+    };
+
     let domain = StorageFlowDomain::new(
         &graph,
         &reachability,
@@ -99,6 +112,7 @@ where
         refinements,
         memory,
         &input,
+        &owners,
         request,
     );
 
@@ -110,8 +124,15 @@ where
         }
     };
 
-    let mut collector =
-        StorageFlowCollector::new(request, storage, liveness, refinements, memory, &input);
+    let mut collector = StorageFlowCollector::new(
+        request,
+        storage,
+        liveness,
+        refinements,
+        memory,
+        &input,
+        &owners,
+    );
 
     collector.diagnostics.add_range(copyability_diagnostics);
     collector.diagnostics.add_range(authority_diagnostics);
@@ -172,6 +193,7 @@ where
     pub(super) refinements: &'analysis CheckedRefinementFacts,
     pub(super) memory: &'analysis CheckedMemoryOperations,
     pub(super) input: &'analysis StorageFlowInput,
+    pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: Vec<StorageSuspensionState>,
     pub(super) exits: Vec<StorageExitDecision>,
@@ -194,6 +216,7 @@ where
         refinements: &'analysis CheckedRefinementFacts,
         memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
+        owners: &'analysis StorageScopeOwners,
     ) -> Self {
         Self {
             request,
@@ -202,6 +225,7 @@ where
             refinements,
             memory,
             input,
+            owners,
             statuses: BTreeMap::new(),
             suspensions: Vec::new(),
             exits: Vec::new(),
@@ -221,10 +245,19 @@ where
         refinements: &'analysis CheckedRefinementFacts,
         memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
+        owners: &'analysis StorageScopeOwners,
     ) -> Self {
         Self {
             publish: false,
-            ..Self::new(request, storage, liveness, refinements, memory, input)
+            ..Self::new(
+                request,
+                storage,
+                liveness,
+                refinements,
+                memory,
+                input,
+                owners,
+            )
         }
     }
 
@@ -233,7 +266,7 @@ where
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
     ) {
-        if let AnalysisOperationKind::DirectAwait(expression) = operation.kind() {
+        if let AnalysisOperationKind::Suspension { expression, .. } = operation.kind() {
             self.record_suspension(state, expression);
         }
 
@@ -258,10 +291,11 @@ where
 
         if let AnalysisOperationKind::ScopeExit {
             block,
+            exit,
             phase: AnalysisScopeExitPhase::LifecycleResolution,
         } = operation.kind()
         {
-            self.record_exit(state, block);
+            self.record_exit(state, block, exit);
             self.end_scope(state, block);
         }
     }
@@ -416,15 +450,27 @@ where
     }
 
     fn pattern_establishes_projection(&self, access: StorageAccessId) -> bool {
-        self.storage.access(access).is_some_and(|access| {
-            matches!(
-                access.source().syntax().syntax_kind(),
-                bray_syntax::SyntaxKind::IrrefutablePattern
-                    | bray_syntax::SyntaxKind::IrrefutablePatternEntry
-                    | bray_syntax::SyntaxKind::CasePattern
-                    | bray_syntax::SyntaxKind::CasePatternEntry
-            )
-        })
+        let source_is_pattern = |access: StorageAccessId| {
+            self.storage.access(access).is_some_and(|access| {
+                matches!(
+                    access.source().syntax().syntax_kind(),
+                    bray_syntax::SyntaxKind::IrrefutablePattern
+                        | bray_syntax::SyntaxKind::IrrefutablePatternEntry
+                        | bray_syntax::SyntaxKind::CasePattern
+                        | bray_syntax::SyntaxKind::CasePatternEntry
+                )
+            })
+        };
+
+        source_is_pattern(access)
+            || self.storage.bindings().iter().any(|(_, binding)| {
+                let StorageBinding::Access(binding) = binding else {
+                    return false;
+                };
+
+                source_is_pattern(*binding)
+                    && self.storage.relationship(*binding, access) == StorageRelationship::Identical
+            })
     }
 
     fn move_consumes_complete_union_payload(&self, access: StorageAccessId) -> bool {
@@ -543,14 +589,9 @@ where
     }
 
     fn end_scope(&self, state: &mut StorageFlowState, block: bray_bound_tree::BoundBlockId) {
-        state.live.retain(|storage| {
-            self.storage
-                .identity(*storage)
-                .is_some_and(bray_bound_tree::StorageIdentity::is_initialized_at_entry)
-                || self
-                    .liveness
-                    .is_live_across_scope(block, BoundDependencySubject::Storage(*storage))
-        });
+        state
+            .live
+            .retain(|storage| self.owners.identity_scope(self.storage, *storage) != Some(block));
 
         state
             .initialized
@@ -583,13 +624,19 @@ where
             .is_some_and(|capability| capability.entry_binding().is_some())
     }
 
-    fn record_exit(&mut self, state: &StorageFlowState, block: bray_bound_tree::BoundBlockId) {
+    fn record_exit(
+        &mut self,
+        state: &StorageFlowState,
+        block: bray_bound_tree::BoundBlockId,
+        exit: bray_bound_tree::AnyBoundNodeId,
+    ) {
         if !self.publish {
             return;
         }
 
         self.exits.push(StorageExitDecision::new(
             block,
+            exit,
             state.initialized.iter().copied(),
             state.moved.iter().copied(),
             state.active_borrows.iter().copied(),

@@ -301,7 +301,9 @@ mod tests {
             [],
             [AsyncSuspensionPoint::new(
                 expressions[2],
-                expressions[1],
+                bray_bound_tree::AsyncSuspensionKind::Await {
+                    operand: expressions[1],
+                },
                 None,
                 [BodyBehaviorCall::new(
                     BoundCallableTarget::Indirect(callable_type),

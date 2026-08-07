@@ -36,19 +36,11 @@ where
         + SymbolFactProvider<CallableParameterDefaultTemplateFact>
         + SymbolFactProvider<CallableOverloadTemplateFact>,
 {
+    let Some(subject) = type_member_subject(unit, callee) else {
+        return Ok(CandidateAbsence::UnavailableDeclarationFacts);
+    };
+
     let Some(BoundExpression::MemberAccess(member)) = unit.view().expression(callee) else {
-        return Ok(CandidateAbsence::UnavailableDeclarationFacts);
-    };
-
-    let Some(BoundExpression::Name(receiver)) = unit.view().expression(member.receiver()) else {
-        return Ok(CandidateAbsence::UnavailableDeclarationFacts);
-    };
-
-    let BoundReferenceTarget::Surface(receiver) = receiver.target() else {
-        return Ok(CandidateAbsence::UnavailableDeclarationFacts);
-    };
-
-    let Some(subject) = NamedTypeSymbolId::try_from_any(receiver) else {
         return Ok(CandidateAbsence::UnavailableDeclarationFacts);
     };
 
@@ -97,6 +89,25 @@ where
     };
 
     Ok(outcome.absence())
+}
+
+pub(super) fn type_member_subject(
+    unit: &BoundUnit,
+    expression: BoundExpressionId,
+) -> Option<NamedTypeSymbolId> {
+    let Some(BoundExpression::MemberAccess(member)) = unit.view().expression(expression) else {
+        return None;
+    };
+
+    let Some(BoundExpression::Name(receiver)) = unit.view().expression(member.receiver()) else {
+        return None;
+    };
+
+    let BoundReferenceTarget::Surface(receiver) = receiver.target() else {
+        return None;
+    };
+
+    NamedTypeSymbolId::try_from_any(receiver)
 }
 
 pub(super) fn bind_primary_constructor_candidates<C>(

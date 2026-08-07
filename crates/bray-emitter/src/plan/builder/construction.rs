@@ -381,7 +381,7 @@ fn published_backend_role(kind: ArtifactKind) -> ArtifactRole {
         | ArtifactKind::RelocatableObject => ArtifactRole::Inspection,
         ArtifactKind::ExecutableModule => ArtifactRole::Product,
         ArtifactKind::DebugCompanion => ArtifactRole::Companion,
-            ArtifactKind::PackageInterface
+        ArtifactKind::PackageInterface
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::Executable

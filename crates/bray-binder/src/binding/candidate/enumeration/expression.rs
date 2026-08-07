@@ -208,7 +208,7 @@ where
         return None;
     };
 
-    match context.symbols().lookup_member(union.into(), name.as_str()) {
+    match context.lookup_member(union.into(), name.as_str()).ok()? {
         MemberLookupResult::Found(AnySymbolId::UnionVariant(variant)) => Some(variant),
         _ => None,
     }

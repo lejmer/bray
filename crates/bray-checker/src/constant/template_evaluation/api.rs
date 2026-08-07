@@ -141,6 +141,10 @@ where
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "template evaluation requires each validated semantic input independently"
+)]
 fn evaluate_closed_template<C>(
     context: &C,
     template: &CheckedTemplate,

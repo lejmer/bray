@@ -6,10 +6,10 @@ use bray_bound_tree::{
     BoundBlockItem, BoundExpressionId, BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitRoot,
 };
 use bray_checker::{
-    CheckedConstantTerms, CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator,
-    DefaultConstantEvaluator, closed_type_is_copyable, evaluate_generic_constraint_template,
-    resolve_trait_application_template, resolve_type_expression_template,
-    type_is_copyable_in_context,
+    CheckedConstantTerms, CheckerFactError, CheckerRequestContext, CheckerUnitView,
+    ConstantEvaluationInput, ConstantEvaluator, DefaultConstantEvaluator, closed_type_is_copyable,
+    evaluate_generic_constraint_template, resolve_trait_application_template,
+    resolve_type_expression_template, type_is_copyable_in_context,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -214,14 +214,20 @@ impl Compilation {
                         .substitute_type(right, substitution)
                         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-                    let left = self.normalize_built_in_operation_result(left, cancellation)?;
-                    let right = self.normalize_built_in_operation_result(right, cancellation)?;
+                    let left = self.normalize_type_valued_member(left, cancellation)?;
+                    let right = self.normalize_type_valued_member(right, cancellation)?;
 
-                    Ok(DiagnosticResult::without_diagnostics(if left == right {
-                        ProofOutcome::Proven
-                    } else {
-                        ProofOutcome::Disproven
-                    }))
+                    let diagnostics =
+                        DiagnosticBag::merged_all([left.diagnostics(), right.diagnostics()]);
+
+                    Ok(DiagnosticResult::new(
+                        if left.value() == right.value() {
+                            ProofOutcome::Proven
+                        } else {
+                            ProofOutcome::Disproven
+                        },
+                        diagnostics,
+                    ))
                 }
             },
             GenericConstraintTemplate::TraitSatisfaction {
@@ -296,11 +302,14 @@ impl Compilation {
             .substitute_type(right, substitution)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let left = self.normalize_built_in_operation_result(left, cancellation)?;
-        let right = self.normalize_built_in_operation_result(right, cancellation)?;
+        let left = self.normalize_type_valued_member(left, cancellation)?;
+        let right = self.normalize_type_valued_member(right, cancellation)?;
+
+        diagnostics = diagnostics.merged(left.diagnostics());
+        diagnostics = diagnostics.merged(right.diagnostics());
 
         Ok(DiagnosticResult::new(
-            if left == right {
+            if left.value() == right.value() {
                 ProofOutcome::Proven
             } else {
                 ProofOutcome::Disproven
@@ -309,11 +318,11 @@ impl Compilation {
         ))
     }
 
-    fn normalize_built_in_operation_result(
+    fn normalize_type_valued_member(
         &self,
         ty: TypeId,
         cancellation: &CancellationToken,
-    ) -> Result<TypeId, FactQueryError> {
+    ) -> Result<DiagnosticResult<TypeId>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
         let data = values
@@ -326,14 +335,25 @@ impl Compilation {
             member,
         } = data.as_ref()
         else {
-            return Ok(ty);
+            return Ok(DiagnosticResult::without_diagnostics(ty));
         };
 
         let context = CompilationCheckerContext::new(self.binder_facts(cancellation)?);
 
-        bray_checker::built_in_operation_result_type(&context, *subject, *application, *member)
-            .map_err(FactQueryError::CheckerInfrastructure)
-            .map(|result| result.unwrap_or(ty))
+        if let Some(result) =
+            bray_checker::built_in_operation_result_type(&context, *subject, *application, *member)
+                .map_err(FactQueryError::CheckerInfrastructure)?
+        {
+            return Ok(DiagnosticResult::without_diagnostics(result));
+        }
+
+        let result = context
+            .selected_type_valued_member(*subject, *application, *member)
+            .map_err(checker_dependency_error)?;
+
+        let (resolved, diagnostics) = result.into_parts();
+
+        Ok(DiagnosticResult::new(resolved.unwrap_or(ty), diagnostics))
     }
 
     fn evaluate_source_predicate_constraint(
@@ -651,7 +671,10 @@ impl Compilation {
         })
     }
 
-    fn is_copyable_trait(&self, definition: TraitSymbolId) -> Result<bool, FactQueryError> {
+    pub(in crate::compilation) fn is_copyable_trait(
+        &self,
+        definition: TraitSymbolId,
+    ) -> Result<bool, FactQueryError> {
         let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Copyable")
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -679,6 +702,13 @@ impl Compilation {
         let source = BoundSourceAnchor::new(syntax, source.version());
 
         BoundUnitKey::constraint(owner.clone(), source).ok_or(FactQueryError::InfrastructureFailure)
+    }
+}
+
+fn checker_dependency_error(error: CheckerFactError) -> FactQueryError {
+    match error {
+        CheckerFactError::Cancelled => FactQueryError::Cancelled,
+        CheckerFactError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
     }
 }
 

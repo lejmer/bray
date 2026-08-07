@@ -153,11 +153,27 @@ pub struct MirCall {
     contract: Option<Arc<CallableContractTemplate>>,
     dispatch_witnesses: Arc<[ImplementationInstanceId]>,
     trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
+    intrinsic: Option<MirCallIntrinsic>,
     witnesses: Arc<[SelectedImplementationWitness]>,
+}
+
+/// A compiler-defined operation that may realize a generic protocol call after specialization.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirCallIntrinsic {
+    /// A scalar unary operation.
+    Unary(crate::MirUnaryOperator),
+    /// A scalar binary operation.
+    Binary(crate::MirBinaryOperator),
+    /// A compiler-defined conversion to the retained target type.
+    Conversion(bray_symbols::TypeId),
 }
 
 impl MirCall {
     /// Creates a checked call reconstructed from a compiled dependency.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a MIR call retains each checked call component explicitly"
+    )]
     pub fn imported(
         target: MirCallTarget,
         result: BoundCallResult,
@@ -165,6 +181,7 @@ impl MirCall {
         phase_behaviors: Option<CallablePhaseBehaviors>,
         dispatch_witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
+        intrinsic: Option<MirCallIntrinsic>,
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
@@ -175,6 +192,7 @@ impl MirCall {
             contract: None,
             dispatch_witnesses: sorted_unique_shared_slice(dispatch_witnesses),
             trait_dispatch,
+            intrinsic,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -196,6 +214,7 @@ impl MirCall {
             contract: None,
             dispatch_witnesses: Arc::from([]),
             trait_dispatch: None,
+            intrinsic: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -210,7 +229,18 @@ impl MirCall {
         self
     }
 
+    /// Returns a protocol call with its compiler-defined concrete realization retained.
+    pub const fn with_intrinsic(mut self, intrinsic: MirCallIntrinsic) -> Self {
+        self.intrinsic = Some(intrinsic);
+
+        self
+    }
+
     /// Creates a source call from its complete checked selection.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a MIR call retains each checked call component explicitly"
+    )]
     pub fn selected(
         target: MirCallTarget,
         result: BoundCallResult,
@@ -229,6 +259,7 @@ impl MirCall {
             contract: contract.map(Arc::new),
             dispatch_witnesses: sorted_unique_shared_slice(dispatch_witnesses),
             trait_dispatch,
+            intrinsic: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -266,6 +297,11 @@ impl MirCall {
     /// Returns the generic constraint supplying callable dispatch.
     pub const fn trait_dispatch(&self) -> Option<bray_symbols::TraitConstraintDispatch> {
         self.trait_dispatch
+    }
+
+    /// Returns the compiler-defined operation available for concrete protocol realization.
+    pub const fn intrinsic(&self) -> Option<MirCallIntrinsic> {
+        self.intrinsic
     }
 
     /// Returns exact implementation requirements and witnesses in canonical order.

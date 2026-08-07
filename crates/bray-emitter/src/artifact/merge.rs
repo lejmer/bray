@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::io;
+use std::sync::Arc;
 
 use bray_base::Cancellation;
 use bray_codegen::{
@@ -75,7 +76,7 @@ impl BackendContributionSet {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BackendContributionMergeError {
     artifact: Option<ArtifactId>,
-    kind: BackendContributionMergeErrorKind,
+    kind: Arc<BackendContributionMergeErrorKind>,
 }
 
 impl BackendContributionMergeError {
@@ -85,7 +86,7 @@ impl BackendContributionMergeError {
     }
 
     /// Returns the exact contribution contract violation.
-    pub const fn kind(&self) -> &BackendContributionMergeErrorKind {
+    pub fn kind(&self) -> &BackendContributionMergeErrorKind {
         &self.kind
     }
 }
@@ -262,14 +263,14 @@ fn content_error(
 
     BackendContributionMergeError {
         artifact: planned,
-        kind,
+        kind: Arc::new(kind),
     }
 }
 
 fn unit_error(kind: BackendContributionMergeErrorKind) -> BackendContributionMergeError {
     BackendContributionMergeError {
         artifact: None,
-        kind,
+        kind: Arc::new(kind),
     }
 }
 
@@ -279,7 +280,7 @@ fn merge_error(
 ) -> BackendContributionMergeError {
     BackendContributionMergeError {
         artifact: Some(artifact.clone()),
-        kind,
+        kind: Arc::new(kind),
     }
 }
 

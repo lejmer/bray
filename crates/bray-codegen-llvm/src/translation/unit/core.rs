@@ -1,8 +1,9 @@
-use super::support::{llvm, pointer_value};
+use super::support::{llvm, physical_aggregate_element, pointer_value};
 use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings};
 use crate::translation::frame::frame_storage_field_index;
 use bray_codegen::{
-    CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
+    CodegenFailure, CodegenFieldLayout, CodegenInstance, CodegenParameterMapping, CodegenRequest,
+    CodegenResultMapping, CodegenTypeKind, CodegenTypeMapping,
 };
 use bray_ir::{
     MirBlockId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId,
@@ -129,6 +130,52 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
 }
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn type_mapping(
+        &self,
+        ty: bray_symbols::TypeId,
+    ) -> Option<&'request CodegenTypeMapping> {
+        self.request.mappings().instance_ty(self.instance.key(), ty)
+    }
+
+    pub(super) fn mapped_type_size(&self, ty: bray_symbols::TypeId) -> Result<u64, CodegenFailure> {
+        self.type_mapping(ty)
+            .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+    }
+
+    pub(super) fn aggregate_element(
+        &self,
+        fields: &[CodegenFieldLayout],
+        semantic_index: usize,
+    ) -> Result<u32, CodegenFailure> {
+        physical_aggregate_element(fields, semantic_index, |field| {
+            self.mapped_type_size(field.ty())
+        })
+    }
+
+    pub(super) fn aggregate_value_element(
+        &self,
+        fields: &[CodegenFieldLayout],
+        semantic_index: usize,
+    ) -> Result<usize, CodegenFailure> {
+        usize::try_from(self.aggregate_element(fields, semantic_index)?)
+            .map_err(|_| CodegenFailure::ResourceExhausted)
+    }
+
+    pub(super) fn pointer_field_index(
+        &self,
+        fields: &[CodegenFieldLayout],
+    ) -> Result<usize, CodegenFailure> {
+        fields
+            .iter()
+            .position(|field| {
+                self.type_mapping(field.ty()).is_some_and(|mapping| {
+                    matches!(mapping.kind(), CodegenTypeKind::Pointer { .. })
+                })
+            })
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "translator construction keeps independent LLVM, MIR, type, and debug inputs explicit"

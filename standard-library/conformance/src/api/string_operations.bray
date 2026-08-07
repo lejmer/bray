@@ -1,6 +1,9 @@
 module bray.standard_library_conformance.string_operations;
 
 using std.string;
+using std.string.ScalarCursorIterator;
+using std.bytes;
+using std.iteration;
 
 @test(serial)
 func string_operations()
@@ -9,4 +12,86 @@ func string_operations()
     let count: usize = std.string.scalar_count(&value);
 
     assert(count == 2);
+}
+
+@test
+func string_queries_and_slices()
+{
+    let value: string = "AéZ";
+    let same: string = "AéZ";
+    let different: string = "AéY";
+
+    assert(!std.string.is_empty(&value));
+    assert(std.string.is_empty(&""));
+    assert(std.string.equals(&value, &same));
+    assert(!std.string.equals(&value, &different));
+    let slice: string = std.string.scalar_slice(&value, start = 1, end = 2);
+
+    assert(std.string.equals(&slice, &"é"));
+
+    let middle: char? = std.string.scalar_at(&value, index = 1);
+    let missing: char? = std.string.scalar_at(&value, index = 3);
+
+    match middle
+    {
+        case ?character { assert(character == 'é'); }
+        case none { assert(false); }
+    }
+
+    match missing
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+}
+
+@test
+func utf8_conversion_and_scalar_iteration()
+{
+    let value: string = "Aé";
+    let bytes: &[u8] = std.string.utf8(&value);
+    let decoded: Result<string, std.string.Utf8Error> = std.string.from_utf8(bytes);
+
+    assert(std.bytes.slice_length(bytes) == 3);
+    assert(bytes[0] == 65);
+    assert(bytes[1] == 195);
+    assert(bytes[2] == 169);
+
+    match consume decoded
+    {
+        case Ok(text) { assert(std.string.equals(&text, &value)); }
+        case Error(_) { assert(false); }
+    }
+
+    let invalid: [u8; 1] = [255];
+    let rejected: Result<string, std.string.Utf8Error> = std.string.from_utf8(&invalid[..]);
+
+    match consume rejected
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.string.Utf8Error.InvalidEncoding) {}
+    }
+
+    let mut cursor: std.string.ScalarCursor = std.string.scalars(&value);
+    let first: char? = cursor(Iterator).next();
+    let second: char? = cursor(Iterator).next();
+    let exhausted: char? = cursor(Iterator).next();
+
+    match first
+    {
+        case ?character { assert(character == 'A'); }
+        case none { assert(false); }
+    }
+
+    match second
+    {
+        case ?character { assert(character == 'é'); }
+        case none { assert(false); }
+    }
+
+    match exhausted
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
 }

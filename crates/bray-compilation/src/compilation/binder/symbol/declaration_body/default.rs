@@ -189,7 +189,8 @@ fn checked_runtime_default(
     match template {
         UnevaluatedDefaultTemplate::Absent => Err(BinderFactError::DependencyUnavailable),
         UnevaluatedDefaultTemplate::Present(expression) => {
-            let provider = runtime_default_provider(context, owner)?;
+            let provider = runtime_default_provider(context, owner)?
+                .ok_or(BinderFactError::DependencyUnavailable)?;
 
             let key = context
                 .compilation()
@@ -233,7 +234,8 @@ fn checked_runtime_default(
             ))
         }
         UnevaluatedDefaultTemplate::Resolved => {
-            let provider = runtime_default_provider(context, owner)?;
+            let provider = runtime_default_provider(context, owner)?
+                .ok_or(BinderFactError::DependencyUnavailable)?;
 
             let address = context
                 .imported_fact_address(provider)?

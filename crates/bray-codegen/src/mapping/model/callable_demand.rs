@@ -7,17 +7,24 @@ use bray_ir::{
 };
 use bray_symbols::ImplementationInstanceId;
 
-use crate::{CodegenInstanceKey, CodegenUnit};
+use crate::{CodegenCallSite, CodegenInstanceKey, CodegenUnit};
 
 /// One direct callable reference and the exact implementation witnesses selected for it.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DemandedCallableInstance {
+    site: CodegenCallSite,
     reference: MirCallableReference,
     trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
+    intrinsic: Option<bray_ir::MirCallIntrinsic>,
     witnesses: Arc<[ImplementationInstanceId]>,
 }
 
 impl DemandedCallableInstance {
+    /// Returns the exact MIR occurrence containing the call.
+    pub const fn site(&self) -> CodegenCallSite {
+        self.site
+    }
+
     /// Returns the selected callable reference.
     pub const fn reference(&self) -> MirCallableReference {
         self.reference
@@ -26,6 +33,11 @@ impl DemandedCallableInstance {
     /// Returns the generic constraint supplying callable dispatch.
     pub const fn trait_dispatch(&self) -> Option<bray_symbols::TraitConstraintDispatch> {
         self.trait_dispatch
+    }
+
+    /// Returns the compiler-defined realization available after concrete specialization.
+    pub const fn intrinsic(&self) -> Option<bray_ir::MirCallIntrinsic> {
+        self.intrinsic
     }
 
     /// Returns selected implementation witnesses in canonical semantic order.
@@ -37,10 +49,10 @@ impl DemandedCallableInstance {
 /// Returns direct callable references retained by one code generation unit.
 pub fn demanded_callable_references(
     unit: &CodegenUnit,
-) -> BTreeSet<(CodegenInstanceKey, MirCallableReference)> {
+) -> BTreeSet<(CodegenInstanceKey, CodegenCallSite, MirCallableReference)> {
     demanded_callable_instances(unit)
         .into_iter()
-        .map(|(owner, demand)| (owner, demand.reference()))
+        .map(|(owner, demand)| (owner, demand.site(), demand.reference()))
         .collect()
 }
 
@@ -61,10 +73,10 @@ pub fn demanded_callable_instances(
 /// Returns direct callable references retained by one MIR definition.
 pub fn demanded_callable_references_for_mir(
     unit: &bray_ir::MirUnit,
-) -> BTreeSet<MirCallableReference> {
+) -> BTreeSet<(CodegenCallSite, MirCallableReference)> {
     demanded_callable_instances_for_mir(unit)
         .into_iter()
-        .map(|demand| demand.reference())
+        .map(|demand| (demand.site(), demand.reference()))
         .collect()
 }
 
@@ -72,18 +84,23 @@ pub fn demanded_callable_references_for_mir(
 pub fn demanded_callable_instances_for_mir(
     unit: &bray_ir::MirUnit,
 ) -> BTreeSet<DemandedCallableInstance> {
-    unit.operations()
-        .iter()
-        .filter_map(|operation| operation_callable_instance(operation.kind()))
-        .chain(
-            unit.blocks()
-                .iter()
-                .filter_map(|block| terminator_callable_instance(block.terminator().kind())),
-        )
+    unit.operations_with_ids()
+        .filter_map(|(operation, data)| {
+            operation_callable_instance(CodegenCallSite::Operation(operation), data.kind())
+        })
+        .chain(unit.blocks_with_ids().filter_map(|(block, data)| {
+            terminator_callable_instance(
+                CodegenCallSite::Terminator(block),
+                data.terminator().kind(),
+            )
+        }))
         .collect()
 }
 
-fn operation_callable_instance(operation: &MirOperationKind) -> Option<DemandedCallableInstance> {
+fn operation_callable_instance(
+    site: CodegenCallSite,
+    operation: &MirOperationKind,
+) -> Option<DemandedCallableInstance> {
     let call = match operation {
         MirOperationKind::Call(call)
         | MirOperationKind::Async(MirAsyncOperation::CreateFrame {
@@ -122,22 +139,27 @@ fn operation_callable_instance(operation: &MirOperationKind) -> Option<DemandedC
     witnesses.dedup();
 
     Some(DemandedCallableInstance {
+        site,
         reference: *reference,
         trait_dispatch: call.trait_dispatch(),
+        intrinsic: call.intrinsic(),
         witnesses: witnesses.into(),
     })
 }
 
 fn terminator_callable_instance(
+    site: CodegenCallSite,
     terminator: &MirTerminatorKind,
 ) -> Option<DemandedCallableInstance> {
-    let MirTerminatorKind::Iterate { next, .. } = terminator else {
+    let MirTerminatorKind::Iterate { next, witness, .. } = terminator else {
         return None;
     };
 
     Some(DemandedCallableInstance {
+        site,
         reference: *next,
         trait_dispatch: None,
-        witnesses: Arc::from([]),
+        intrinsic: None,
+        witnesses: Arc::from([*witness]),
     })
 }

@@ -1,4 +1,4 @@
-use bray_bound_tree::BoundBlockId;
+use bray_bound_tree::{AnyBoundNodeId, BoundBlockId};
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge,
     MirOperand, MirOperationKind, MirSourceAnchor, MirTaskTerminalState, MirTerminatorKind,
@@ -32,8 +32,9 @@ impl Lowerer<'_> {
     pub(super) fn suspension_cleanup_edge(
         &mut self,
         source: &MirSourceAnchor,
+        exit: AnyBoundNodeId,
     ) -> Result<MirCleanupEdge, LoweringError> {
-        let plans = self.cleanup_plans(0)?;
+        let plans = self.cleanup_plans(0, exit)?;
 
         let cancellation = self.builder.push_block(
             Self::retained_source(source),
@@ -88,7 +89,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
         source: &MirSourceAnchor,
     ) -> Result<MirBlockId, LoweringError> {
-        if !self.scope_has_cleanup(scope)? {
+        if !self.scope_has_cleanup(scope, scope.into())? {
             return Ok(current);
         }
 
@@ -103,6 +104,7 @@ impl Lowerer<'_> {
             CleanupEntry::Ordinary,
             CleanupDestination::Goto(continuation),
             None,
+            scope.into(),
         )?;
 
         Ok(continuation)
@@ -115,6 +117,7 @@ impl Lowerer<'_> {
         scope_depth: usize,
         target: MirBlockId,
         value: Option<(MirOperand, TypeId)>,
+        exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
         self.finish_cleanup(
             current,
@@ -123,6 +126,7 @@ impl Lowerer<'_> {
             CleanupEntry::Ordinary,
             CleanupDestination::Goto(target),
             value,
+            exit,
         )
     }
 
@@ -131,6 +135,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
         source: &MirSourceAnchor,
         mut value: Option<(MirOperand, TypeId)>,
+        exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
         let destination = if self.input.unit_kind().protected_frame().is_some() {
             let result_type = self
@@ -157,9 +162,14 @@ impl Lowerer<'_> {
             CleanupEntry::Ordinary,
             destination,
             value,
+            exit,
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "panic cleanup requires the complete transfer and cleanup context"
+    )]
     pub(super) fn finish_panic(
         &mut self,
         current: MirBlockId,
@@ -168,6 +178,7 @@ impl Lowerer<'_> {
         report_type: TypeId,
         catch: Option<MirBlockId>,
         scope_depth: usize,
+        exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
         let destination = match (catch, self.input.unit_kind().protected_frame()) {
             (Some(catch), _) => CleanupDestination::Goto(catch),
@@ -184,6 +195,7 @@ impl Lowerer<'_> {
             CleanupEntry::Panic(Self::retained_operand(&report)),
             destination,
             Some((report, report_type)),
+            exit,
         )
     }
 
@@ -191,6 +203,7 @@ impl Lowerer<'_> {
         &mut self,
         current: MirBlockId,
         source: &MirSourceAnchor,
+        exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
         let destination = if self.input.unit_kind().protected_frame().is_some() {
             CleanupDestination::Goto(self.terminal_state_block(source, TerminalState::Cancelled)?)
@@ -205,6 +218,7 @@ impl Lowerer<'_> {
             CleanupEntry::Cancellation,
             destination,
             None,
+            exit,
         )
     }
 
@@ -258,6 +272,10 @@ impl Lowerer<'_> {
         Ok(block)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "cleanup finalization requires the complete transfer and cleanup context"
+    )]
     fn finish_cleanup(
         &mut self,
         current: MirBlockId,
@@ -266,8 +284,9 @@ impl Lowerer<'_> {
         entry: CleanupEntry,
         destination: CleanupDestination,
         value: Option<(MirOperand, TypeId)>,
+        exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
-        let plans = self.cleanup_plans(scope_depth)?;
+        let plans = self.cleanup_plans(scope_depth, exit)?;
 
         if plans.iter().all(|plan| {
             plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty()
@@ -345,6 +364,7 @@ impl Lowerer<'_> {
     fn cleanup_plans(
         &self,
         scope_depth: usize,
+        exit: AnyBoundNodeId,
     ) -> Result<Vec<bray_bound_tree::AsyncScopeExitPlan>, LoweringError> {
         let mut plans = Vec::new();
 
@@ -360,7 +380,7 @@ impl Lowerer<'_> {
                 .async_facts()
                 .scope_exits()
                 .iter()
-                .find(|plan| plan.scope() == *scope)
+                .find(|plan| plan.scope() == *scope && plan.exit() == exit)
             else {
                 if self.scope_requires_cleanup_plan(*scope) {
                     return Err(LoweringError::MissingCleanupPlan(*scope));
@@ -375,18 +395,18 @@ impl Lowerer<'_> {
         Ok(plans)
     }
 
-    fn scope_has_cleanup(&self, scope: BoundBlockId) -> Result<bool, LoweringError> {
+    fn scope_has_cleanup(
+        &self,
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+    ) -> Result<bool, LoweringError> {
         let Some(plan) = self
             .input
             .async_facts()
             .scope_exits()
             .iter()
-            .find(|plan| plan.scope() == scope)
+            .find(|plan| plan.scope() == scope && plan.exit() == exit)
         else {
-            if self.scope_requires_cleanup_plan(scope) {
-                return Err(LoweringError::MissingCleanupPlan(scope));
-            }
-
             return Ok(false);
         };
 

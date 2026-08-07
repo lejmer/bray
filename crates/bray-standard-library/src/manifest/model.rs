@@ -230,11 +230,10 @@ impl StandardLibraryTargetArtifacts {
                 artifact.kind(),
                 StandardLibraryArtifactKind::PackageInterface
                     | StandardLibraryArtifactKind::PackageImplementation
-            )
-                || artifact
-                    .path()
-                    .strip_prefix(&prefix)
-                    .is_none_or(|file_name| file_name.is_empty() || file_name.contains('/'))
+            ) || artifact
+                .path()
+                .strip_prefix(&prefix)
+                .is_none_or(|file_name| file_name.is_empty() || file_name.contains('/'))
         }) {
             return Err(StandardLibraryManifestError::InvalidTargetArtifact);
         }

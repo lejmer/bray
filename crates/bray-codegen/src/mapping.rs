@@ -16,7 +16,8 @@ pub use model::{
     demanded_types, mapped_runtime_references,
 };
 pub use reference::{
-    CodegenCallableMapping, CodegenHelperMapping, CodegenOperationMapping, CodegenTerminatorMapping,
+    CodegenCallSite, CodegenCallableMapping, CodegenCallableTarget, CodegenHelperMapping,
+    CodegenOperationMapping, CodegenTerminatorMapping, IntrinsicCall,
 };
 pub use symbol::{CodegenSymbolKey, CodegenSymbolMapping};
 pub use ty::{

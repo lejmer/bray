@@ -13,7 +13,7 @@ use bray_symbols::{
     TypeData, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
 };
 
-use super::check::{PatternChecker, effective_pattern_kind};
+use super::check::{PatternChecker, available_dependency, effective_pattern_kind};
 use crate::constant::constant_values_equal;
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{
@@ -449,12 +449,14 @@ impl Coverage {
             TypeData::Named {
                 definition: NamedTypeSymbolId::Union(union),
                 ..
-            } => request.symbols().union(*union).is_some_and(|record| {
-                record
-                    .variants()
-                    .iter()
-                    .all(|variant| self.variants.contains(variant))
-            }),
+            } => available_dependency(request.union(*union))?
+                .flatten()
+                .is_some_and(|record| {
+                    record
+                        .variants()
+                        .iter()
+                        .all(|variant| self.variants.contains(variant))
+                }),
             TypeData::Named { definition, .. } => {
                 let is_boolean = request
                     .available_compiler_known_symbols()

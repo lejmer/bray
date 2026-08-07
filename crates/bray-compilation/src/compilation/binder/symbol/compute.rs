@@ -253,6 +253,17 @@ impl CompilationSymbolFactBinding<ImplementationCoherenceFact> for CompilationSy
     ) -> BinderFactResult<SymbolFactResult<ImplementationCoherenceFact>> {
         let owner = request.owner();
 
+        if let Some(address) = context.imported_fact_address(owner.into_any())? {
+            let imported = super::imported::imported_implementation(context, address)?;
+
+            return Ok(imported.map(|implementation| {
+                ImplementationCoherenceKey::new(
+                    implementation.subject().ty(),
+                    implementation.trait_application(),
+                )
+            }));
+        }
+
         let subject =
             context.symbol_fact(SymbolFactRequest::<ImplementationSubjectFact>::new(owner))?;
 

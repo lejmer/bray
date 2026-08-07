@@ -16,6 +16,7 @@ use super::trivia::{scan_leading_trivia, scan_trailing_trivia};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum LexerScanMode {
     Normal,
+    GenericClose,
     TupleElementIndexAfterDot,
 }
 
@@ -64,10 +65,19 @@ pub(super) fn scan_token_at(
 fn scan_token_core(snapshot: &SourceSnapshot, start: TextSize, mode: LexerScanMode) -> TokenScan {
     match mode {
         LexerScanMode::Normal => scan_normal_token(snapshot, start),
+        LexerScanMode::GenericClose => scan_generic_close_or_normal(snapshot, start),
         LexerScanMode::TupleElementIndexAfterDot => {
             scan_tuple_element_index_or_normal(snapshot, start)
         }
     }
+}
+
+fn scan_generic_close_or_normal(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
+    if first_character(snapshot, start) == Some('>') {
+        return TokenScan::clean(make_scalar_token(SyntaxKind::GreaterToken, start, '>'));
+    }
+
+    scan_normal_token(snapshot, start)
 }
 
 fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
@@ -296,6 +306,10 @@ fn operator_cluster_end(snapshot: &SourceSnapshot, start: TextSize) -> TextSize 
 
     while let Some(byte) = bytes.get(index).copied() {
         let character = char::from(byte);
+
+        if character == '.' && index > text_size_to_usize(start) && bytes[index - 1] == b'>' {
+            break;
+        }
 
         if is_operator_cluster_character(character) {
             index += 1;

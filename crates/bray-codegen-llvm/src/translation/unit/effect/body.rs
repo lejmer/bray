@@ -1,7 +1,5 @@
 use super::super::core::UnitTranslator;
-use super::super::support::{
-    aggregate_value_element, extract_value, insert_value, int_value, llvm, next_helper,
-};
+use super::super::support::{extract_value, insert_value, int_value, llvm, next_helper};
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
     BoundUnitKey, MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation,
@@ -32,9 +30,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let result = self.operation_result_type(operation)?;
 
                 let source = self
-                    .request
-                    .mappings()
-                    .ty(place.ty())
+                    .type_mapping(place.ty())
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 if matches!(
@@ -272,9 +268,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let message = self.operand(message)?;
 
         let fields = self
-            .request
-            .mappings()
-            .ty(message_type)
+            .type_mapping(message_type)
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Aggregate(fields)
                     if fields.len() == 3
@@ -290,21 +284,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let pointer = 0;
         let length = 2;
 
-        let pointer_element = u32::try_from(aggregate_value_element(
-            self.request.mappings(),
-            &fields,
-            pointer,
-        )?)
-        .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+        let pointer_element = u32::try_from(self.aggregate_value_element(&fields, pointer)?)
+            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
 
         let pointer = extract_value(&self.builder, message, pointer_element)?;
 
-        let length_element = u32::try_from(aggregate_value_element(
-            self.request.mappings(),
-            &fields,
-            length,
-        )?)
-        .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+        let length_element = u32::try_from(self.aggregate_value_element(&fields, length)?)
+            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
 
         let length = extract_value(&self.builder, message, length_element)?;
 
@@ -511,9 +497,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let frame = self.operand(frame)?;
 
         let fields = self
-            .request
-            .mappings()
-            .ty(frame_type)
+            .type_mapping(frame_type)
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Aggregate(fields) if fields.len() == 2 => Some(fields.clone()),
                 _ => None,
@@ -525,12 +509,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .into();
 
         for (index, _) in fields.iter().enumerate() {
-            let element = u32::try_from(aggregate_value_element(
-                self.request.mappings(),
-                &fields,
-                index,
-            )?)
-            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+            let element = u32::try_from(self.aggregate_value_element(&fields, index)?)
+                .map_err(|_| CodegenFailure::UnsupportedTarget)?;
 
             let value = extract_value(&self.builder, frame, element)?;
 

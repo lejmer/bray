@@ -1,8 +1,5 @@
 use super::core::UnitTranslator;
-use super::support::{
-    aggregate_element, extract_value, insert_value, int_value, llvm, mapped_type_size,
-    pointer_field_index, pointer_value,
-};
+use super::support::{extract_value, insert_value, int_value, llvm, pointer_value};
 use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{
     MirBlockId, MirOperand, MirOperation, MirPlace, MirProjectionKind, MirStorageId, MirValueId,
@@ -49,9 +46,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         // Projection can translate index operands after releasing the immutable mapping borrow.
         let kind = self
-            .request
-            .mappings()
-            .ty(source_type)
+            .type_mapping(source_type)
             .map(|mapping| mapping.kind().clone())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -59,9 +54,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match projection.kind() {
             MirProjectionKind::Dereference
                 if self
-                    .request
-                    .mappings()
-                    .ty(projection.result_type())
+                    .type_mapping(projection.result_type())
                     .is_some_and(|mapping| {
                         matches!(
                             mapping.kind(),
@@ -108,9 +101,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.static_element_pointer(
                     pointer,
-                    self.request
-                        .mappings()
-                        .ty(source_type)
+                    self.type_mapping(source_type)
                         .map(bray_codegen::CodegenTypeMapping::kind)
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
                     index,
@@ -159,7 +150,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let stride = mapped_type_size(self.request.mappings(), *element)?;
+        let stride = self.mapped_type_size(*element)?;
 
         let offset = stride
             .checked_mul(index)
@@ -179,14 +170,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         match kind {
             CodegenTypeKind::Array { element, .. } => {
-                let stride = mapped_type_size(self.request.mappings(), *element)?;
+                let stride = self.mapped_type_size(*element)?;
 
                 self.dynamic_offset_pointer(pointer, index, stride)
             }
             CodegenTypeKind::UnsizedSlice { element } => {
                 let (data, _) = self.unsized_slice_parts(pointer, source_type)?;
 
-                let stride = mapped_type_size(self.request.mappings(), *element)?;
+                let stride = self.mapped_type_size(*element)?;
 
                 self.dynamic_offset_pointer(data, index, stride)
             }
@@ -194,16 +185,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let (data, _) = self.slice_parts(pointer, source_type, fields)?;
 
                 let element = self
-                    .request
-                    .mappings()
-                    .ty(fields[0].ty())
+                    .type_mapping(fields[0].ty())
                     .and_then(|mapping| match mapping.kind() {
                         CodegenTypeKind::Pointer { target, .. } => Some(*target),
                         _ => None,
                     })
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                let stride = mapped_type_size(self.request.mappings(), element)?;
+                let stride = self.mapped_type_size(element)?;
 
                 self.dynamic_offset_pointer(data, index, stride)
             }
@@ -244,9 +233,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let (data, length) = self.slice_parts(pointer, source_type, fields)?;
 
                 let element = self
-                    .request
-                    .mappings()
-                    .ty(fields[0].ty())
+                    .type_mapping(fields[0].ty())
                     .and_then(|mapping| match mapping.kind() {
                         CodegenTypeKind::Pointer { target, .. } => Some(*target),
                         _ => None,
@@ -274,14 +261,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let length = llvm(self.builder.build_int_sub(end, start, "slice.length"))?;
 
-        let stride = mapped_type_size(self.request.mappings(), element)?;
+        let stride = self.mapped_type_size(element)?;
 
         let data = self.dynamic_offset_pointer(data, start, stride)?;
 
         let result_mapping = self
-            .request
-            .mappings()
-            .ty(result_type)
+            .type_mapping(result_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::UnsizedSlice { .. } = result_mapping.kind() else {
@@ -347,7 +332,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         source_type: bray_symbols::TypeId,
         fields: &[bray_codegen::CodegenFieldLayout],
     ) -> Result<(PointerValue<'context>, inkwell::values::IntValue<'context>), CodegenFailure> {
-        let pointer_index = pointer_field_index(self.request.mappings(), fields)?;
+        let pointer_index = self.pointer_field_index(fields)?;
 
         let length_index = 1_usize
             .checked_sub(pointer_index)
@@ -356,14 +341,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let pointer_field = llvm(self.builder.build_struct_gep(
             self.types.map(source_type)?,
             pointer,
-            aggregate_element(self.request.mappings(), fields, pointer_index)?,
+            self.aggregate_element(fields, pointer_index)?,
             "slice.data.address",
         ))?;
 
         let length_field = llvm(self.builder.build_struct_gep(
             self.types.map(source_type)?,
             pointer,
-            aggregate_element(self.request.mappings(), fields, length_index)?,
+            self.aggregate_element(fields, length_index)?,
             "slice.length.address",
         ))?;
 
@@ -456,7 +441,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_struct_gep(
                     self.types.map(source_type)?,
                     pointer,
-                    aggregate_element(self.request.mappings(), fields, payload)?,
+                    self.aggregate_element(fields, payload)?,
                     "nullable.value",
                 ))
             }
@@ -522,9 +507,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         projection: &MirProjectionKind,
     ) -> Result<u32, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(source)
+            .type_mapping(source)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         match (mapping.kind(), projection) {
@@ -534,12 +517,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .position(|field| field.reference() == Some(*reference))
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                aggregate_element(self.request.mappings(), fields, index)
+                self.aggregate_element(fields, index)
             }
             (CodegenTypeKind::Aggregate(fields), MirProjectionKind::TupleField(index))
             | (CodegenTypeKind::Aggregate(fields), MirProjectionKind::ElementFromStart(index)) => {
-                aggregate_element(
-                    self.request.mappings(),
+                self.aggregate_element(
                     fields,
                     usize::try_from(*index).map_err(|_| CodegenFailure::ResourceExhausted)?,
                 )
@@ -553,7 +535,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .checked_sub(index + 1)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                aggregate_element(self.request.mappings(), fields, index)
+                self.aggregate_element(fields, index)
             }
             (
                 _,
@@ -637,8 +619,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         source: bray_symbols::TypeId,
         target: bray_symbols::TypeId,
     ) -> Option<bray_target::TargetValueLayout> {
-        let source = self.request.mappings().ty(source)?;
-        let target = self.request.mappings().ty(target)?;
+        let source = self.type_mapping(source)?;
+        let target = self.type_mapping(target)?;
 
         (source.kind() == target.kind() && source.layout() == target.layout())
             .then(|| source.layout())
@@ -656,9 +638,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let mapping = self
-            .request
-            .mappings()
-            .ty(subject_type)
+            .type_mapping(subject_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
@@ -673,7 +653,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         extract_value(
             &self.builder,
             subject,
-            aggregate_element(self.request.mappings(), fields, payload)?,
+            self.aggregate_element(fields, payload)?,
         )
     }
 
@@ -703,9 +683,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn signed_integer(&self, ty: bray_symbols::TypeId) -> Result<bool, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(ty)
+            .type_mapping(ty)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         match mapping.kind() {

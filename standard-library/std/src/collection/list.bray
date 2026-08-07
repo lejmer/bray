@@ -397,7 +397,7 @@ impl ListReadIterable = &List<T>(Iterable)
 
 struct WriteCursor<T>
 {
-    internal values: &mut [T];
+    internal mut values: &mut [T];
     internal mut index: usize = 0;
     internal count: usize;
 }
@@ -417,7 +417,7 @@ impl WriteCursorIterator = WriteCursor<T>(Iterator)
 
         self.index = index + 1;
 
-        let value: &mut T = self.values[index];
+        let value: &mut T = &mut self.values[index];
         let mut result: (&mut T)? = none;
 
         result = value;

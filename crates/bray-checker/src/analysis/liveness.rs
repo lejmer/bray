@@ -1,12 +1,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundUnit,
-    CheckedMemoryOperations, LastUse, LiveAcrossScope, LiveAcrossSuspension, LivenessFacts,
-    StorageAccessRoot, StorageIdentity, StoragePlan,
+    AnyBoundNodeId, BoundDependencyGuard, BoundDependencyRequirement, BoundDependencySubject,
+    BoundExpression, BoundExpressionId, BoundUnit, CheckedMemoryOperations,
+    CheckedSemanticSelections, DependencyContractInstantiationError, LastUse, LiveAcrossScope,
+    LiveAcrossSuspension, LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding,
+    StoragePlan,
 };
+use bray_symbols::{CallableSignatureFact, TypeData};
 
-use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::dependency::selected_call_contract;
+use crate::storage::local_initialization_bindings;
+use crate::{
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
+    CheckerUnitView,
+};
 
 use super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use super::fixed_point::{FixedPointDomain, FixedPointOutcome, FlowDirection, solve_fixed_point};
@@ -15,22 +23,28 @@ use super::model::{
     AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use super::reachability::{ReachabilityResult, analyze_reachability};
+use super::storage_index::index_storage_roots;
 
 pub(crate) fn analyze_storage_liveness<C>(
     request: CheckerUnitView<'_, C>,
+    selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<LivenessFacts>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
-    if storage.unit() != request.unit().unit() || storage.kind() != request.unit().key().kind() {
+    if selections.unit() != request.unit().unit()
+        || selections.kind() != request.unit().key().kind()
+        || storage.unit() != request.unit().unit()
+        || storage.kind() != request.unit().key().kind()
+    {
         return CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidLivenessFacts,
         );
     }
 
-    let graph = match build_storage_control_flow_graph(request, storage) {
+    let graph = match build_storage_control_flow_graph(request, storage, selections) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
@@ -41,11 +55,16 @@ where
         panic!("checker control-flow graph violated its construction invariants");
     }
 
+    let effects = match OperationEffects::from_checked_inputs(request, selections, storage, memory)
+    {
+        Ok(effects) => effects,
+        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+    };
+
     let Some(reachability) = analyze_reachability(&graph, request) else {
         return CheckerOutcome::Cancelled;
     };
 
-    let effects = OperationEffects::from_storage_plan(request.unit(), storage, memory);
     let domain = LivenessDomain::new(&graph, &reachability, &effects);
 
     let result = match solve_fixed_point(&graph, &domain, &request) {
@@ -89,6 +108,24 @@ struct OperationEffects {
 }
 
 impl OperationEffects {
+    fn from_checked_inputs<C>(
+        request: CheckerUnitView<'_, C>,
+        selections: &CheckedSemanticSelections,
+        storage: &StoragePlan,
+        memory: &CheckedMemoryOperations,
+    ) -> Result<Self, CheckerInfrastructureError>
+    where
+        C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    {
+        let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
+
+        effects.retain_call_input_dependencies(request.unit());
+        effects.add_selected_call_dependencies(request, selections, storage)?;
+        effects.retain_local_borrow_dependencies(request, storage)?;
+
+        Ok(effects)
+    }
+
     fn from_storage_plan(
         unit: &BoundUnit,
         storage: &StoragePlan,
@@ -101,7 +138,7 @@ impl OperationEffects {
 
             effects.universe.insert(subject);
 
-            let Some(node) = identity_definition(provenance) else {
+            let Some(node) = provenance.definition_node() else {
                 continue;
             };
 
@@ -156,6 +193,12 @@ impl OperationEffects {
                 .uses
                 .insert(BoundDependencySubject::StorageAccess(planned.access()));
 
+            if let Some(access) = storage.access(planned.access()) {
+                effect
+                    .uses
+                    .extend(access_root_subjects(storage, access.root()));
+            }
+
             if let Some(parent) = planned.parent() {
                 let parent = BoundDependencySubject::BorrowCapability(parent);
 
@@ -191,6 +234,118 @@ impl OperationEffects {
         }
 
         effects
+    }
+
+    fn retain_call_input_dependencies(&mut self, unit: &BoundUnit) {
+        let call_inputs = unit
+            .tree()
+            .expressions()
+            .filter_map(|(expression, node)| {
+                let BoundExpression::Call(call) = node else {
+                    return None;
+                };
+
+                let subjects = std::iter::once(call.callee())
+                    .chain(
+                        call.arguments()
+                            .iter()
+                            .map(bray_bound_tree::BoundArgument::expression),
+                    )
+                    .flat_map(|input| self.subtree_subjects(unit, input))
+                    .collect::<BTreeSet<_>>();
+
+                Some((expression, subjects))
+            })
+            .collect::<Vec<_>>();
+
+        for (expression, subjects) in call_inputs {
+            self.extend_uses(expression, subjects);
+        }
+    }
+
+    fn add_selected_call_dependencies<C>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        selections: &CheckedSemanticSelections,
+        storage: &StoragePlan,
+    ) -> Result<(), CheckerInfrastructureError>
+    where
+        C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    {
+        for entry in selections.entries() {
+            let SemanticSelection::Call(call) = entry.selection() else {
+                continue;
+            };
+
+            let contract = match selected_call_contract(request, storage, entry.expression(), call)
+            {
+                Ok(contract) => contract,
+                Err(DependencyContractInstantiationError::Resolution(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                )) => {
+                    self.recovered_nodes
+                        .insert(AnyBoundNodeId::Expression(entry.expression()));
+
+                    continue;
+                }
+                Err(DependencyContractInstantiationError::Resolution(error)) => return Err(error),
+                Err(DependencyContractInstantiationError::ForeignUnit) => {
+                    return Err(CheckerInfrastructureError::InvalidLivenessFacts);
+                }
+            };
+
+            let subjects = dependency_subjects(contract.requirements(), storage);
+
+            self.universe.extend(subjects.iter().copied());
+            self.extend_uses(entry.expression(), subjects);
+        }
+
+        Ok(())
+    }
+
+    fn retain_local_borrow_dependencies<C>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        storage: &StoragePlan,
+    ) -> Result<(), CheckerInfrastructureError>
+    where
+        C: CheckerRequestContext + ?Sized,
+    {
+        let (accesses_by_root, types_by_root) = index_storage_roots(storage);
+
+        for (initializer, bindings) in local_initialization_bindings(request, storage) {
+            let subjects = self.subtree_subjects(request.unit(), initializer);
+
+            for binding in bindings {
+                let (root, ty) = match binding {
+                    StorageBinding::Identity(identity) => {
+                        (Some(identity), types_by_root.get(&identity).copied())
+                    }
+                    StorageBinding::Access(access) => (
+                        storage.root_identity(access),
+                        storage.access(access).map(|access| access.reached_type()),
+                    ),
+                };
+
+                let Some(root) = root else {
+                    continue;
+                };
+
+                let Some(ty) = ty else {
+                    continue;
+                };
+
+                if !type_is_borrow(request, ty)? {
+                    continue;
+                }
+
+                for expression in accesses_by_root.get(&root).into_iter().flatten() {
+                    self.extend_uses(*expression, subjects.iter().copied());
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn extend_uses(
@@ -233,27 +388,70 @@ impl OperationEffects {
         self.by_node.get(&node)
     }
 
-    fn operation_is_recovered(&self, operation: &AnalysisOperation) -> bool {
+    fn operation_requires_conservative_liveness(operation: &AnalysisOperation) -> bool {
         matches!(operation.kind(), AnalysisOperationKind::Recovery(_))
-            || self.recovered_nodes.contains(&operation.kind().node())
     }
 }
 
-const fn identity_definition(identity: StorageIdentity) -> Option<AnyBoundNodeId> {
-    match identity {
-        StorageIdentity::LocalOwned(node) | StorageIdentity::Result(node) => Some(node),
-        StorageIdentity::Temporary(expression)
-        | StorageIdentity::IterationCursor(expression)
-        | StorageIdentity::IterationElement(expression)
-        | StorageIdentity::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
-        StorageIdentity::Alternative { pattern, .. } => Some(AnyBoundNodeId::Pattern(pattern)),
-        StorageIdentity::Parameter(_)
-        | StorageIdentity::Receiver(_)
-        | StorageIdentity::AnonymousParameter(_)
-        | StorageIdentity::PredicateParameter(_)
-        | StorageIdentity::PostconditionResult(_)
-        | StorageIdentity::CompilerCreated(_)
-        | StorageIdentity::Error(_) => None,
+fn type_is_borrow<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: bray_symbols::TypeId,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    request
+        .semantic_values()
+        .type_data(ty)
+        .map(|data| matches!(data.as_ref(), TypeData::Borrow { .. }))
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+}
+
+fn dependency_subjects(
+    requirements: &[BoundDependencyRequirement],
+    storage: &StoragePlan,
+) -> BTreeSet<BoundDependencySubject> {
+    let mut subjects = BTreeSet::new();
+
+    collect_dependency_subjects(requirements, storage, &mut subjects);
+
+    subjects
+}
+
+fn collect_dependency_subjects(
+    requirements: &[BoundDependencyRequirement],
+    storage: &StoragePlan,
+    subjects: &mut BTreeSet<BoundDependencySubject>,
+) {
+    for requirement in requirements {
+        match requirement {
+            BoundDependencyRequirement::Direct { subject, .. } => {
+                subjects.insert(*subject);
+
+                if let BoundDependencySubject::StorageAccess(access) = subject
+                    && let Some(access) = storage.access(*access)
+                {
+                    subjects.extend(access_root_subjects(storage, access.root()));
+                }
+            }
+            BoundDependencyRequirement::Guarded(requirement) => {
+                let guard = match requirement.guard() {
+                    BoundDependencyGuard::NullablePresent(access)
+                    | BoundDependencyGuard::ActiveUnionVariant { access, .. } => {
+                        BoundDependencySubject::StorageAccess(access)
+                    }
+                    BoundDependencyGuard::BorrowCapabilityActive(capability) => {
+                        BoundDependencySubject::BorrowCapability(capability)
+                    }
+                    BoundDependencyGuard::ScopedCapabilityLive(capability) => {
+                        BoundDependencySubject::ScopedCapability(capability)
+                    }
+                };
+
+                subjects.insert(guard);
+                collect_dependency_subjects(requirement.requirements(), storage, subjects);
+            }
+        }
     }
 }
 
@@ -411,7 +609,7 @@ fn block_transfer(
             continue;
         };
 
-        if effects.operation_is_recovered(operation) {
+        if OperationEffects::operation_requires_conservative_liveness(operation) {
             transfer.generated = effects.universe.clone();
             transfer.killed.clear();
 
@@ -439,7 +637,7 @@ fn transfer_operation(
     effects: &OperationEffects,
     universe: &BTreeSet<BoundDependencySubject>,
 ) {
-    if effects.operation_is_recovered(operation) {
+    if OperationEffects::operation_requires_conservative_liveness(operation) {
         state.extend(universe.iter().copied());
 
         return;
@@ -496,6 +694,7 @@ fn collect_facts(
             if let AnalysisOperationKind::ScopeExit {
                 block,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                ..
             } = operation.kind()
             {
                 live_across_scopes.extend(
@@ -506,7 +705,7 @@ fn collect_facts(
                 );
             }
 
-            if let AnalysisOperationKind::DirectAwait(expression) = operation.kind() {
+            if let AnalysisOperationKind::Suspension { expression, .. } = operation.kind() {
                 live_across_suspensions.extend(
                     state
                         .iter()
@@ -521,9 +720,11 @@ fn collect_facts(
                 );
             }
 
-            if effects.operation_is_recovered(operation) {
+            if OperationEffects::operation_requires_conservative_liveness(operation) {
                 is_recovered = true;
             } else if let Some(effect) = effects.effect(operation.kind().node()) {
+                is_recovered |= effects.recovered_nodes.contains(&operation.kind().node());
+
                 last_uses.extend(
                     effect
                         .uses
@@ -574,11 +775,13 @@ mod tests {
     use std::collections::BTreeSet;
 
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundDependencySubject, BoundErrorExpression, BoundExpression,
-        BoundExpressionId, BoundNodeOrigin, BoundUnit, BoundUnitId, CheckedMemoryOperations,
+        AnyBoundNodeId, BorrowCapabilityOrigin, BoundArgument, BoundCallExpression,
+        BoundDependencySubject, BoundErrorExpression, BoundExpression, BoundExpressionId,
+        BoundNodeOrigin, BoundUnit, BoundUnitId, CheckedMemoryOperations, PlannedBorrowCapability,
         StorageAccess, StorageAccessPurpose, StorageAccessRoot, StorageIdentity,
         StoragePlanBuilder,
     };
+    use bray_symbols::BorrowKind;
 
     use super::{OperationEffects, transfer_operation};
     use crate::analysis::id::{AnalysisOperationId, ProgramPointId};
@@ -707,11 +910,95 @@ mod tests {
         let origin = BoundNodeOrigin::source(key.source());
         let identity = StorageIdentity::CompilerCreated(origin);
 
-        assert_eq!(super::identity_definition(identity), None);
+        assert_eq!(identity.definition_node(), None);
 
         assert_eq!(
-            super::identity_definition(StorageIdentity::Temporary(expression)),
+            StorageIdentity::Temporary(expression).definition_node(),
             Some(expression.into())
+        );
+    }
+
+    #[test]
+    fn calls_retain_borrow_capabilities_created_by_their_inputs() {
+        let unit = BoundUnitId::new(10);
+
+        let (bound_unit, expressions) = expression_unit(unit, |tree, origin| {
+            let callee = push_expression(
+                tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+            );
+
+            let argument = push_expression(
+                tree,
+                BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+            );
+
+            let call = push_expression(
+                tree,
+                BoundExpression::Call(BoundCallExpression::pending(
+                    origin,
+                    callee,
+                    [],
+                    [BoundArgument::new(argument, None, false)],
+                )),
+            );
+
+            vec![callee, argument, call]
+        });
+
+        let [_, argument, call] = expressions.as_slice() else {
+            panic!("test expressions must retain their source order");
+        };
+
+        let source = bound_unit
+            .tree()
+            .expression(*argument)
+            .map(BoundExpression::origin)
+            .map(BoundNodeOrigin::source_anchor)
+            .unwrap_or_else(|| panic!("test argument must retain its source anchor"));
+
+        let mut builder =
+            StoragePlanBuilder::new(unit, bray_bound_tree::BoundUnitKind::CallableBody);
+
+        let identity = builder
+            .push_identity(StorageIdentity::Temporary(*argument))
+            .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
+
+        let access = builder
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(identity),
+                [],
+                error_type(),
+                source,
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test storage access must build: {error:?}"));
+
+        let capability = builder
+            .push_borrow_capability(PlannedBorrowCapability::new(
+                BorrowCapabilityOrigin::Expression(*argument),
+                BorrowKind::Shared,
+                access,
+                None,
+                source,
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("test borrow capability must build: {error:?}"));
+
+        let memory = empty_memory_operations(unit);
+        let storage = builder.finish();
+        let mut effects = OperationEffects::from_storage_plan(&bound_unit, &storage, &memory);
+
+        effects.retain_call_input_dependencies(&bound_unit);
+
+        let Some(effect) = effects.effect(AnyBoundNodeId::Expression(*call)) else {
+            panic!("call input retention must produce one operation effect");
+        };
+
+        assert!(
+            effect
+                .uses
+                .contains(&BoundDependencySubject::BorrowCapability(capability))
         );
     }
 

@@ -40,9 +40,9 @@ pub use header::{
 };
 pub use implementation::{
     ExecutableTemplateDecodeError, ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
-    InterfaceConstantCallableBody, InterfaceExecutableTemplate, PackageImplementationArtifact,
-    PackageImplementationArtifactBuildError, decode_executable_template,
-    encode_executable_template,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+    PackageImplementationArtifact, PackageImplementationArtifactBuildError,
+    decode_executable_template, encode_executable_template,
 };
 pub use inspection::{
     InterfaceInspectionRecord, InterfaceInspectionRecordKind, InterfaceInspectionSection,

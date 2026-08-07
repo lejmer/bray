@@ -80,7 +80,7 @@ fn apply_linkage(
             Linkage::External
         }
         CodegenLinkage::Weak => Linkage::WeakAny,
-        CodegenLinkage::LinkOnce => Linkage::LinkOnceODR,
+        CodegenLinkage::LinkOnce => Linkage::WeakODR,
         CodegenLinkage::Common => return Err(CodegenFailure::UnsupportedTarget),
     };
 
@@ -308,6 +308,36 @@ mod tests {
 
         assert_eq!(apply_linkage(function, &weak, request.target()), Ok(()));
         assert_eq!(function.get_linkage(), Linkage::WeakAny);
+    }
+
+    #[test]
+    fn deduplicated_symbols_remain_available_to_other_codegen_units() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let mapping = &request.mappings().symbols()[0];
+
+        let link_once = CodegenSymbolMapping::new(
+            mapping.key().clone(),
+            mapping.name().clone(),
+            CodegenLinkage::LinkOnce,
+            mapping.signature().clone(),
+        );
+
+        let context = Context::create();
+        let module = context.create_module("link-once");
+
+        let function = module.add_function(
+            link_once.name().as_str(),
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        assert_eq!(
+            apply_linkage(function, &link_once, request.target()),
+            Ok(())
+        );
+
+        assert_eq!(function.get_linkage(), Linkage::WeakODR);
     }
 
     #[test]

@@ -11,7 +11,8 @@ use bray_symbols::{
     CallableParameterSymbolId, FunctionSymbol, FunctionSymbolId, ImportedSymbolFactAddress,
     ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceFact, ModuleSymbolId,
     NamedTypeSymbolId, ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore,
-    StructSymbol, StructSymbolId, SymbolFactRequest, SymbolGraph, TypeAssociatedSurface,
+    StructFieldSymbol, StructFieldSymbolId, StructSymbol, StructSymbolId, SymbolFactRequest,
+    SymbolGraph, TypeAssociatedSurface, UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId,
     UnionSymbol, UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_syntax::{PathSyntax, SyntaxTree};
@@ -145,6 +146,35 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
             .and_then(|symbols| symbols.imported_fact_address(symbol)))
     }
 
+    pub(in crate::compilation) fn lookup_member(
+        &self,
+        owner: AnySymbolId,
+        name: &str,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+        if self.symbols.symbol_key(owner).is_some() {
+            return Ok(self.symbols.lookup_member(owner, name));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .map_or(MemberLookupResult::NotFound, |symbols| {
+                symbols.lookup_member(owner, name)
+            }))
+    }
+
+    pub(in crate::compilation) fn member_name(
+        &self,
+        member: AnySymbolId,
+    ) -> BinderFactResult<Option<&bray_symbols::SymbolName>> {
+        if let Some(name) = self.symbols.member_name(member) {
+            return Ok(Some(name));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.member_name(member)))
+    }
+
     pub(in crate::compilation) fn structure(
         &self,
         id: StructSymbolId,
@@ -156,6 +186,19 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
         Ok(self
             .imported_symbols()?
             .and_then(|symbols| symbols.structure(id)))
+    }
+
+    pub(in crate::compilation) fn struct_field(
+        &self,
+        id: StructFieldSymbolId,
+    ) -> BinderFactResult<Option<&StructFieldSymbol>> {
+        if let Some(record) = self.symbols.struct_field(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.struct_field(id)))
     }
 
     pub(in crate::compilation) fn function(
@@ -222,6 +265,19 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
             .imported_symbols()?
             .and_then(|symbols| symbols.union_variant(id)))
     }
+
+    pub(in crate::compilation) fn union_payload_field(
+        &self,
+        id: UnionPayloadFieldSymbolId,
+    ) -> BinderFactResult<Option<&UnionPayloadFieldSymbol>> {
+        if let Some(record) = self.symbols.union_payload_field(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.union_payload_field(id)))
+    }
 }
 
 impl BinderFactContext for CompilationBinderFacts<'_> {
@@ -263,6 +319,16 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
             .and_then(|symbols| symbols.symbol_is_recovered(symbol)))
     }
 
+    fn containing_symbol(&self, symbol: AnySymbolId) -> BinderFactResult<Option<AnySymbolId>> {
+        if let Some(owner) = self.symbols.containing_symbol(symbol) {
+            return Ok(Some(owner));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.containing_symbol(symbol)))
+    }
+
     fn callable_parameter_default_provider(
         &self,
         parameter: CallableParameterSymbolId,
@@ -292,6 +358,14 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         Ok(self
             .imported_symbols()?
             .and_then(|symbols| symbols.runtime_default_subject(provider)))
+    }
+
+    fn lookup_member(
+        &self,
+        owner: AnySymbolId,
+        name: &str,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+        CompilationBinderFacts::lookup_member(self, owner, name)
     }
 
     fn imported_path_root(
@@ -407,7 +481,7 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::{BinderFactError, bind_expression_candidates};
+    use bray_binder::{BinderFactContext, BinderFactError, bind_expression_candidates};
     use bray_bound_tree::{
         AnyBoundNodeId, BoundBlock, BoundBlockItem, BoundCallExpression, BoundCallableBody,
         BoundExpression, BoundExpressionId, BoundNameExpression, BoundNodeOrigin,
@@ -489,6 +563,45 @@ mod tests {
             root.map(|root| root.consumed_components()),
             Some(components.len())
         );
+    }
+
+    #[test]
+    fn origin_neutral_member_lookup_resolves_imported_type_members() {
+        let fixture = encoded_semantic_test_interface();
+        let compilation = compilation([crate::test_support::encoded_semantic_dependency(&fixture)]);
+        let cancellation = CancellationToken::new();
+
+        let facts = compilation
+            .binder_facts(&cancellation)
+            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+
+        let symbols = facts
+            .imported_symbols()
+            .unwrap_or_else(|error| panic!("imported symbols must load: {error:?}"))
+            .unwrap_or_else(|| panic!("test dependency must publish imported symbols"));
+
+        let package = symbols
+            .package_by_identity(&fixture.package)
+            .unwrap_or_else(|| panic!("test dependency package must be present"));
+
+        let path = ModulePathKey::try_new(["templates"])
+            .unwrap_or_else(|| panic!("test module path must be valid"));
+
+        let module = symbols
+            .module_by_path(package.id(), &path)
+            .unwrap_or_else(|| panic!("test dependency module must be present"));
+
+        let MemberLookupResult::Found(structure) = symbols.lookup(module.id().into(), "Record")
+        else {
+            panic!("test imported structure must resolve");
+        };
+
+        assert!(matches!(
+            BinderFactContext::lookup_member(&facts, structure, "direct"),
+            Ok(MemberLookupResult::Found(AnySymbolId::TypeCallableMember(
+                _
+            )))
+        ));
     }
 
     #[test]

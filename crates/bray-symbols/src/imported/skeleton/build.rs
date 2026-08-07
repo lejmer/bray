@@ -371,9 +371,18 @@ mod tests {
             .symbol_by_external_key(&first.function_key)
             .unwrap_or_else(|| panic!("fixture function must receive an imported identity"));
 
+        let module = forward
+            .symbol_by_external_key(&first.module_key)
+            .unwrap_or_else(|| panic!("fixture module must receive an imported identity"));
+
         assert_eq!(
             forward.member_name(function).map(|name| name.as_str()),
             Some("zeta")
+        );
+
+        assert_eq!(
+            forward.lookup_member(module, "zeta"),
+            crate::MemberLookupResult::Found(function)
         );
     }
 

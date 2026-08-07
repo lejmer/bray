@@ -4,6 +4,7 @@ use bray_bound_tree::{
     StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget,
     StorageIdentity, StorageProjection,
 };
+use bray_symbols::TypeData;
 
 use super::plan::{PlanError, Planner, invalid_node};
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
@@ -135,6 +136,9 @@ where
 
         let target = StorageBindingTarget::Local(binding);
 
+        let transfers_borrow = checked.operation() == PatternOperation::Consume
+            && self.type_is_borrow(checked.ty())?;
+
         if let Some(alternatives) = self.alternative_pattern_bindings.get_mut(&binding) {
             for accesses in alternatives {
                 accesses.push(access);
@@ -197,6 +201,7 @@ where
         }
 
         let purpose = match checked.operation() {
+            PatternOperation::Consume if transfers_borrow => StorageAccessPurpose::Read,
             PatternOperation::Consume => {
                 match self.request.view().pattern(pattern).map(BoundPattern::mode) {
                     Some(BoundPatternMode::MatchConsume) => StorageAccessPurpose::Move,
@@ -220,6 +225,16 @@ where
         };
 
         self.record_purpose(subject_expression, Some(purpose), access)
+    }
+
+    fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> Result<bool, PlanError> {
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(ty)
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        Ok(matches!(data.as_ref(), TypeData::Borrow { .. }))
     }
 
     fn install_alternative_bindings(&mut self, pattern: &BoundPattern) -> Result<(), PlanError> {

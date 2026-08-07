@@ -363,9 +363,7 @@ mod tests {
                 "interfaces/std.brayimpl",
                 b"implementation",
             )
-            .unwrap_or_else(|error| {
-                panic!("implementation metadata must be valid: {error:?}")
-            });
+            .unwrap_or_else(|error| panic!("implementation metadata must be valid: {error:?}"));
 
             let archive = StandardLibraryArtifact::try_for_bytes(
                 StandardLibraryArtifactKind::StaticLibrary,

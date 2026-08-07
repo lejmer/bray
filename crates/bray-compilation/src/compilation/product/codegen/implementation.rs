@@ -412,9 +412,7 @@ impl Compilation {
 
         let header = headers
             .value()
-            .headers()
-            .into_iter()
-            .find(|header| header.implementation() == implementation)
+            .header(implementation)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let values = self.semantic_value_store()?;
@@ -1594,7 +1592,9 @@ mod tests {
             .graph()
             .instances()
             .iter()
-            .filter(|instance| matches!(instance.key().template(), MirUnitKey::ImportedCallable(_)))
+            .filter(|instance| {
+                matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(imported.len(), 2);
@@ -1924,7 +1924,7 @@ mod tests {
             .instance(instance.key())
             .unwrap_or_else(|| panic!("test witness payload must be retained"));
 
-        assert_eq!(realization.witness_instances(), [witness]);
+        assert_eq!(realization.implementation_witnesses(), [witness]);
     }
 
     fn runtime_native_facts(
@@ -2441,11 +2441,7 @@ mod tests {
                 ),
                 0,
             )],
-            CompilationOptions::new(
-                WorkerBudget::serial(),
-                ProductKind::Executable,
-                target,
-            ),
+            CompilationOptions::new(WorkerBudget::serial(), ProductKind::Executable, target),
         )
         .with_dependency_interfaces([dependency]);
 
@@ -2546,6 +2542,7 @@ mod tests {
             bundle.semantic_facts(),
             [],
             templates,
+            [],
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("dependency implementation must encode: {error:?}"));

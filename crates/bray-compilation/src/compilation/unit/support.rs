@@ -161,6 +161,7 @@ pub(super) fn analyze_liveness(
     bound: &BoundUnit,
     semantic_context: &SemanticUnitContext,
     context: &CompilationCheckerContext<'_>,
+    selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
 ) -> Result<DiagnosticResult<LivenessFacts>, FactQueryError> {
@@ -168,7 +169,7 @@ pub(super) fn analyze_liveness(
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
     })?;
 
-    checker_result(DefaultLivenessAnalyzer.analyze_liveness(unit, storage, memory))
+    checker_result(DefaultLivenessAnalyzer.analyze_liveness(unit, selections, storage, memory))
 }
 
 pub(super) fn analyze_refinements(
@@ -176,13 +177,16 @@ pub(super) fn analyze_refinements(
     semantic_context: &SemanticUnitContext,
     context: &CompilationCheckerContext<'_>,
     patterns: &CheckedPatternFacts,
+    selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
 ) -> Result<DiagnosticResult<CheckedRefinementFacts>, FactQueryError> {
     let unit = CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
         FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
     })?;
 
-    checker_result(DefaultRefinementAnalyzer.analyze_refinements(unit, patterns, storage))
+    checker_result(
+        DefaultRefinementAnalyzer.analyze_refinements(unit, patterns, selections, storage),
+    )
 }
 
 pub(super) const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {

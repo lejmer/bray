@@ -1,5 +1,5 @@
 use bray_bound_tree::{BoundNodeOrigin, BoundSourceAnchor};
-use bray_symbols::{CallableDefinitionId, ProductIdentity};
+use bray_symbols::{AnySymbolId, ProductIdentity};
 
 use crate::MirHelperReference;
 
@@ -13,7 +13,7 @@ pub enum MirSourceOrigin {
     /// A compiler-generated type-specialized lifecycle definition.
     GeneratedLifecycle(MirHelperReference),
     /// A checked executable template imported from a compiled dependency.
-    ImportedCallable(CallableDefinitionId),
+    ImportedExecutable(AnySymbolId),
 }
 
 /// Source-correlated provenance for a MIR element.
@@ -26,7 +26,7 @@ pub enum MirSourceAnchor {
     /// Provenance belonging to a compiler-generated type-specialized lifecycle definition.
     GeneratedLifecycle(MirHelperReference),
     /// Provenance retained by an imported checked executable template.
-    ImportedCallable(CallableDefinitionId),
+    ImportedExecutable(AnySymbolId),
 }
 
 impl MirSourceAnchor {
@@ -46,8 +46,8 @@ impl MirSourceAnchor {
     }
 
     /// Creates provenance for a checked body imported from a compiled dependency.
-    pub const fn imported_callable(callable: CallableDefinitionId) -> Self {
-        Self::ImportedCallable(callable)
+    pub const fn imported_executable(owner: AnySymbolId) -> Self {
+        Self::ImportedExecutable(owner)
     }
 
     pub(crate) fn belongs_to(&self, owner: &MirSourceOrigin) -> bool {
@@ -64,21 +64,21 @@ impl MirSourceAnchor {
             (Self::GeneratedLifecycle(anchor), MirSourceOrigin::GeneratedLifecycle(owner)) => {
                 anchor == owner
             }
-            (Self::ImportedCallable(anchor), MirSourceOrigin::ImportedCallable(owner)) => {
+            (Self::ImportedExecutable(anchor), MirSourceOrigin::ImportedExecutable(owner)) => {
                 anchor == owner
             }
             (Self::Source(_), MirSourceOrigin::ExecutableHost(_))
             | (Self::Source(_), MirSourceOrigin::GeneratedLifecycle(_))
-            | (Self::Source(_), MirSourceOrigin::ImportedCallable(_))
+            | (Self::Source(_), MirSourceOrigin::ImportedExecutable(_))
             | (Self::ExecutableHost(_), MirSourceOrigin::Source(_))
             | (Self::ExecutableHost(_), MirSourceOrigin::GeneratedLifecycle(_))
-            | (Self::ExecutableHost(_), MirSourceOrigin::ImportedCallable(_))
+            | (Self::ExecutableHost(_), MirSourceOrigin::ImportedExecutable(_))
             | (Self::GeneratedLifecycle(_), MirSourceOrigin::Source(_))
             | (Self::GeneratedLifecycle(_), MirSourceOrigin::ExecutableHost(_))
-            | (Self::GeneratedLifecycle(_), MirSourceOrigin::ImportedCallable(_))
-            | (Self::ImportedCallable(_), MirSourceOrigin::Source(_))
-            | (Self::ImportedCallable(_), MirSourceOrigin::ExecutableHost(_))
-            | (Self::ImportedCallable(_), MirSourceOrigin::GeneratedLifecycle(_)) => false,
+            | (Self::GeneratedLifecycle(_), MirSourceOrigin::ImportedExecutable(_))
+            | (Self::ImportedExecutable(_), MirSourceOrigin::Source(_))
+            | (Self::ImportedExecutable(_), MirSourceOrigin::ExecutableHost(_))
+            | (Self::ImportedExecutable(_), MirSourceOrigin::GeneratedLifecycle(_)) => false,
         }
     }
 }

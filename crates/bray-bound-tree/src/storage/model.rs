@@ -119,6 +119,25 @@ impl StorageIdentity {
         )
     }
 
+    /// Returns the bound node that introduces this storage, when one exists.
+    pub const fn definition_node(self) -> Option<AnyBoundNodeId> {
+        match self {
+            Self::LocalOwned(node) | Self::Result(node) => Some(node),
+            Self::Temporary(expression)
+            | Self::IterationCursor(expression)
+            | Self::IterationElement(expression)
+            | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
+            Self::Alternative { pattern, .. } => Some(AnyBoundNodeId::Pattern(pattern)),
+            Self::Parameter(_)
+            | Self::Receiver(_)
+            | Self::AnonymousParameter(_)
+            | Self::PredicateParameter(_)
+            | Self::PostconditionResult(_)
+            | Self::CompilerCreated(_)
+            | Self::Error(_) => None,
+        }
+    }
+
     pub(super) fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => node.unit() == unit,

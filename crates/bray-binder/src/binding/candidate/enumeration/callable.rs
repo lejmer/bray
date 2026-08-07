@@ -26,7 +26,9 @@ use crate::{
     TypeExpressionScope,
 };
 
-use super::constructor::{bind_primary_constructor_candidates, bind_type_member_candidates};
+use super::constructor::{
+    bind_primary_constructor_candidates, bind_type_member_candidates, type_member_subject,
+};
 
 #[derive(Clone, Copy)]
 pub(super) struct CallGenericContext<'syntax> {
@@ -127,16 +129,17 @@ where
 
             absence
         }
-        BoundExpression::MemberAccess(_) => bind_type_member_candidates(
-            context,
-            unit,
-            callee,
-            state_for_recovery(callee_expression.is_recovered()),
-            generic,
-            &mut diagnostics,
-            &mut candidates,
-        )?,
-        BoundExpression::TraitQualifiedMember(_) => CandidateAbsence::UnavailableDeclarationFacts,
+        BoundExpression::MemberAccess(_) if type_member_subject(unit, callee).is_some() => {
+            bind_type_member_candidates(
+                context,
+                unit,
+                callee,
+                state_for_recovery(callee_expression.is_recovered()),
+                generic,
+                &mut diagnostics,
+                &mut candidates,
+            )?
+        }
         _ => {
             bind_callable_value(
                 DeclaredValueTypeTerm::Expression(callee),

@@ -130,6 +130,7 @@ impl ImplementationHeader {
 #[derive(Debug)]
 pub(in crate::compilation) struct ImplementationHeaderIndex {
     buckets: BTreeMap<HeaderBucket, Arc<[ImplementationHeader]>>,
+    positions: BTreeMap<ImplementationSymbolId, (HeaderBucket, usize)>,
 }
 
 impl ImplementationHeaderIndex {
@@ -151,7 +152,7 @@ impl ImplementationHeaderIndex {
             buckets.entry(bucket).or_default().push(header);
         }
 
-        let buckets = buckets
+        let buckets: BTreeMap<_, Arc<[ImplementationHeader]>> = buckets
             .into_iter()
             .map(|(key, mut headers)| {
                 headers.sort_by(|left, right| left.key.cmp(&right.key));
@@ -160,7 +161,17 @@ impl ImplementationHeaderIndex {
             })
             .collect();
 
-        Ok(Self { buckets })
+        let positions = buckets
+            .iter()
+            .flat_map(|(bucket, headers)| {
+                headers
+                    .iter()
+                    .enumerate()
+                    .map(|(index, header)| (header.implementation(), (*bucket, index)))
+            })
+            .collect();
+
+        Ok(Self { buckets, positions })
     }
 
     pub(super) fn compatible_headers(
@@ -180,6 +191,15 @@ impl ImplementationHeaderIndex {
 
     pub(in crate::compilation) fn headers(&self) -> Vec<&ImplementationHeader> {
         merge_headers(self.buckets.values().map(Arc::as_ref))
+    }
+
+    pub(in crate::compilation) fn header(
+        &self,
+        implementation: ImplementationSymbolId,
+    ) -> Option<&ImplementationHeader> {
+        let (bucket, index) = self.positions.get(&implementation)?;
+
+        self.buckets.get(bucket)?.get(*index)
     }
 
     fn bucket(

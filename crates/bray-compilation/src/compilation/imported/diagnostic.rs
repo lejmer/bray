@@ -165,9 +165,7 @@ pub(super) fn implementation_body_diagnostics(input: &DependencyInterfaceInput) 
     )
 }
 
-pub(super) fn executable_template_diagnostics(
-    input: &DependencyInterfaceInput,
-) -> DiagnosticBag {
+pub(super) fn executable_template_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag {
     implementation_artifact_diagnostics(
         input,
         DiagnosticKind::InterfaceExecutableTemplateUnavailable,
@@ -197,11 +195,7 @@ fn implementation_artifact_diagnostics(
     input: &DependencyInterfaceInput,
     kind: DiagnosticKind,
 ) -> DiagnosticBag {
-    let diagnostic = Diagnostic::new(
-        DiagnosticId::new(0),
-        kind,
-        SeverityKind::Error,
-    );
+    let diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error);
 
     DiagnosticBag::single(with_dependency_context_path(
         diagnostic,

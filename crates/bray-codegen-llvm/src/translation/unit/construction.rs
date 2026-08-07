@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_element, aggregate_value_length, extract_value, insert_value, integer_constant, llvm,
-    next_helper, pointer_value,
+    aggregate_value_length, extract_value, insert_value, integer_constant, llvm, next_helper,
+    pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenResultMapping, CodegenTypeKind};
 use bray_ir::{
@@ -30,9 +30,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         // The mapping is immutable, but operand translation mutates task-local caches.
         let kind = self
-            .request
-            .mappings()
-            .ty(result)
+            .type_mapping(result)
             .map(|mapping| mapping.kind().clone())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -47,11 +45,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 for (index, operand) in aggregate.operands().iter().enumerate() {
                     let operand = self.operand(operand)?;
 
-                    let element = super::support::aggregate_value_element(
-                        self.request.mappings(),
-                        fields,
-                        index,
-                    )?;
+                    let element = self.aggregate_value_element(fields, index)?;
 
                     value = insert_value(&self.builder, value, operand, element)?;
                 }
@@ -225,9 +219,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         inputs: &[EvaluatedConstructionInput<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(result)
+            .type_mapping(result)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
@@ -267,7 +259,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 &self.builder,
                 value,
                 input_value,
-                usize::try_from(aggregate_element(self.request.mappings(), &fields, index)?)
+                usize::try_from(self.aggregate_element(&fields, index)?)
                     .map_err(|_| CodegenFailure::ResourceExhausted)?,
             )?;
         }
@@ -283,9 +275,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         inputs: &[EvaluatedConstructionInput<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(result)
+            .type_mapping(result)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Union { tag, variants } = mapping.kind() else {
@@ -376,17 +366,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let child_value = extract_value(
                         &self.builder,
                         value,
-                        aggregate_element(self.request.mappings(), &source_fields, index)?,
+                        self.aggregate_element(&source_fields, index)?,
                     )?;
 
                     let child_value =
                         self.translate_conversion_plan(child_value, child, helpers)?;
 
-                    let element = super::support::aggregate_value_element(
-                        self.request.mappings(),
-                        &target_fields,
-                        index,
-                    )?;
+                    let element = self.aggregate_value_element(&target_fields, index)?;
 
                     result = insert_value(&self.builder, result, child_value, element)?;
                 }
@@ -470,9 +456,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let mapping = self
-            .request
-            .mappings()
-            .ty(subject_type)
+            .type_mapping(subject_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
@@ -487,7 +471,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         extract_value(
             &self.builder,
             subject.into(),
-            aggregate_element(self.request.mappings(), fields, index)?,
+            self.aggregate_element(fields, index)?,
         )
     }
 
@@ -496,9 +480,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ty: bray_symbols::TypeId,
     ) -> Result<std::sync::Arc<[bray_codegen::CodegenFieldLayout]>, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(ty)
+            .type_mapping(ty)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
@@ -518,9 +500,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         result_type: bray_symbols::TypeId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(subject_type)
+            .type_mapping(subject_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Union { variants, .. } = mapping.kind() else {

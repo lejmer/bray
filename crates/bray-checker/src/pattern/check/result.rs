@@ -9,7 +9,7 @@ use bray_symbols::{
     TypeData, TypeId, UnionPayloadFieldTypeFact,
 };
 
-use super::state::{PatternChecker, PatternSubject};
+use super::state::{PatternChecker, PatternSubject, available_dependency};
 use crate::constant::check_constant_literal;
 use crate::diagnostic::{diagnostic_id, pattern_span};
 use crate::representation::type_representation;
@@ -30,12 +30,12 @@ where
         target: Option<BoundPatternTarget>,
         subject: &TypeData,
         compatible: bool,
-    ) -> bool {
+    ) -> Result<bool, CheckerInfrastructureError> {
         if !compatible {
-            return false;
+            return Ok(false);
         }
 
-        match (kind, subject) {
+        let is_total = match (kind, subject) {
             (BoundPatternKind::Product | BoundPatternKind::Tuple, _) => true,
             (BoundPatternKind::Array, TypeData::Array { .. }) => true,
             (BoundPatternKind::Array, TypeData::Slice(_)) => {
@@ -50,16 +50,17 @@ where
             ) => {
                 let Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))) = target
                 else {
-                    return false;
+                    return Ok(false);
                 };
 
-                self.request
-                    .symbols()
-                    .union(*union)
+                available_dependency(self.request.union(*union))?
+                    .flatten()
                     .is_some_and(|record| record.variants() == [variant])
             }
             _ => false,
-        }
+        };
+
+        Ok(is_total)
     }
 
     pub(super) fn pattern_predicate(

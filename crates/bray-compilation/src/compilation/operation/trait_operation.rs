@@ -430,21 +430,12 @@ impl Compilation {
                 })
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-            for (_, constraint) in constraints {
-                let CheckedConstraintKind::TypeEquality { left, right } = constraint.kind() else {
-                    continue;
-                };
-
-                if left == projection {
-                    return Ok(Some(right));
-                }
-
-                if right == projection {
-                    return Ok(Some(left));
-                }
-            }
-
-            return Ok(Some(projection));
+            return super::constraint::normalize_type_equalities(
+                facts.semantic_values(),
+                projection,
+                constraints,
+            )
+            .map(Some);
         }
 
         if let Some(definition) = contract.fixed_callable_result_type() {

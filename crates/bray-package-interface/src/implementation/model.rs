@@ -1,8 +1,10 @@
 use std::ops::Range;
+use std::str;
 use std::sync::Arc;
 
 use bray_bound_tree::CheckedTemplateKind;
-use bray_symbols::InterfaceSymbolId;
+use bray_runtime_interface::BinarySymbolName;
+use bray_symbols::{ForeignCallableDirection, InterfaceSymbolId};
 
 use crate::decode::{DecodeBudget, map_wire_error};
 use crate::semantic::{decode_template_payload, encode_template_payload};
@@ -24,6 +26,7 @@ const DIRECTORY_ENTRY_LENGTH: usize = 24;
 enum ImplementationPayloadKind {
     ConstantCallableBody = 0,
     ExecutableTemplate = 1,
+    NativeBoundary = 2,
 }
 
 impl ImplementationPayloadKind {
@@ -31,6 +34,7 @@ impl ImplementationPayloadKind {
         match raw {
             0 => Some(Self::ConstantCallableBody),
             1 => Some(Self::ExecutableTemplate),
+            2 => Some(Self::NativeBoundary),
             _ => None,
         }
     }
@@ -60,7 +64,7 @@ impl InterfaceConstantCallableBody {
     }
 }
 
-/// One source-independent generic executable body addressed by interface identity.
+/// One source-independent executable body addressed by interface identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InterfaceExecutableTemplate {
     owner: InterfaceSymbolId,
@@ -68,14 +72,14 @@ pub struct InterfaceExecutableTemplate {
 }
 
 impl InterfaceExecutableTemplate {
-    /// Creates one encoded executable template for a generic callable declaration.
+    /// Creates one encoded executable template for a declaration.
     pub fn new(owner: InterfaceSymbolId, payload: impl Into<Arc<[u8]>>) -> Option<Self> {
         let payload = payload.into();
 
         (!payload.is_empty()).then_some(Self { owner, payload })
     }
 
-    /// Returns the callable declaration that owns this template.
+    /// Returns the declaration that owns this template.
     pub const fn owner(&self) -> InterfaceSymbolId {
         self.owner
     }
@@ -83,6 +87,44 @@ impl InterfaceExecutableTemplate {
     /// Returns the canonical source-independent executable payload.
     pub fn payload(&self) -> &[u8] {
         &self.payload
+    }
+}
+
+/// One native symbol boundary retained by an executable package implementation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InterfaceNativeBoundary {
+    owner: InterfaceSymbolId,
+    direction: ForeignCallableDirection,
+    symbol: BinarySymbolName,
+}
+
+impl InterfaceNativeBoundary {
+    /// Creates the native boundary of one interface declaration.
+    pub const fn new(
+        owner: InterfaceSymbolId,
+        direction: ForeignCallableDirection,
+        symbol: BinarySymbolName,
+    ) -> Self {
+        Self {
+            owner,
+            direction,
+            symbol,
+        }
+    }
+
+    /// Returns the declaration that owns this boundary.
+    pub const fn owner(&self) -> InterfaceSymbolId {
+        self.owner
+    }
+
+    /// Returns whether the native symbol enters or leaves the package implementation.
+    pub const fn direction(&self) -> ForeignCallableDirection {
+        self.direction
+    }
+
+    /// Returns the exact native symbol spelling.
+    pub const fn symbol(&self) -> &BinarySymbolName {
+        &self.symbol
     }
 }
 
@@ -122,6 +164,7 @@ impl PackageImplementationArtifact {
             bundle.semantic_facts(),
             [],
             bundle.executable_templates().iter().cloned(),
+            bundle.native_boundaries().iter().cloned(),
             limits,
         )
     }
@@ -133,6 +176,7 @@ impl PackageImplementationArtifact {
         semantic_facts: &InterfaceSemanticFacts,
         constant_callable_bodies: impl IntoIterator<Item = InterfaceConstantCallableBody>,
         executable_templates: impl IntoIterator<Item = InterfaceExecutableTemplate>,
+        native_boundaries: impl IntoIterator<Item = InterfaceNativeBoundary>,
         limits: InterfaceValidationLimits,
     ) -> Result<Self, PackageImplementationArtifactBuildError> {
         let mut bodies = constant_callable_bodies.into_iter().collect::<Vec<_>>();
@@ -170,7 +214,25 @@ impl PackageImplementationArtifact {
         }
 
         for template in &templates {
-            validate_executable_owner(surface, semantic_facts, template.owner())?;
+            validate_executable_owner(surface, template.owner())?;
+        }
+
+        let mut boundaries = native_boundaries.into_iter().collect::<Vec<_>>();
+
+        boundaries.sort_by_key(InterfaceNativeBoundary::owner);
+
+        for pair in boundaries.windows(2) {
+            if pair[0].owner() == pair[1].owner() {
+                return Err(
+                    PackageImplementationArtifactBuildError::DuplicateNativeBoundary(
+                        pair[0].owner(),
+                    ),
+                );
+            }
+        }
+
+        for boundary in &boundaries {
+            validate_native_boundary_owner(surface, boundary.owner())?;
         }
 
         let bytes = encode_artifact(
@@ -178,6 +240,7 @@ impl PackageImplementationArtifact {
             interface.header().language_revision(),
             &bodies,
             &templates,
+            &boundaries,
         )?;
 
         Self::try_from_bytes(bytes, limits)
@@ -354,7 +417,7 @@ impl PackageImplementationArtifact {
         Ok(Some(InterfaceConstantCallableBody::new(owner, template)))
     }
 
-    /// Returns the independently encoded executable template for one generic callable.
+    /// Returns the independently encoded executable template for one declaration.
     pub fn executable_template(
         &self,
         owner: InterfaceSymbolId,
@@ -378,6 +441,23 @@ impl PackageImplementationArtifact {
             .ok_or(InterfaceValidationError::Malformed)
     }
 
+    /// Returns the native symbol boundary of one declaration, when present.
+    pub fn native_boundary(
+        &self,
+        owner: InterfaceSymbolId,
+    ) -> Result<Option<InterfaceNativeBoundary>, InterfaceValidationError> {
+        let Some(entry) = self.entry(owner, ImplementationPayloadKind::NativeBoundary) else {
+            return Ok(None);
+        };
+
+        let payload = self
+            .bytes
+            .get(entry.payload.clone())
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        decode_native_boundary(owner, payload, self.limits).map(Some)
+    }
+
     fn entry(
         &self,
         owner: InterfaceSymbolId,
@@ -392,24 +472,36 @@ impl PackageImplementationArtifact {
 
 fn validate_executable_owner(
     surface: &PackageInterfaceSurface,
-    semantic_facts: &InterfaceSemanticFacts,
     owner: InterfaceSymbolId,
 ) -> Result<(), PackageImplementationArtifactBuildError> {
     let Some(owner_symbol) = surface.symbols().symbol(owner) else {
-        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(owner));
+        return Err(PackageImplementationArtifactBuildError::InvalidExecutableOwner(owner));
     };
 
-    let generic = semantic_facts
-        .generic_declarations()
-        .iter()
-        .find(|declaration| {
-            matches!(declaration.owner(), crate::InterfaceSymbolReference::Local(id) if *id == owner)
-        });
-
     if !owner_symbol.kind().is_callable()
-        || generic.is_none_or(|generic| generic.parameters().is_empty())
+        && !matches!(
+            owner_symbol.kind(),
+            bray_symbols::SymbolKind::CallableParameterDefaultProvider
+                | bray_symbols::SymbolKind::StructFieldDefaultProvider
+                | bray_symbols::SymbolKind::UnionPayloadDefaultProvider
+        )
     {
-        return Err(PackageImplementationArtifactBuildError::InvalidCallableOwner(owner));
+        return Err(PackageImplementationArtifactBuildError::InvalidExecutableOwner(owner));
+    }
+
+    Ok(())
+}
+
+fn validate_native_boundary_owner(
+    surface: &PackageInterfaceSurface,
+    owner: InterfaceSymbolId,
+) -> Result<(), PackageImplementationArtifactBuildError> {
+    let Some(owner_symbol) = surface.symbols().symbol(owner) else {
+        return Err(PackageImplementationArtifactBuildError::InvalidNativeBoundaryOwner(owner));
+    };
+
+    if owner_symbol.kind() != bray_symbols::SymbolKind::Function {
+        return Err(PackageImplementationArtifactBuildError::InvalidNativeBoundaryOwner(owner));
     }
 
     Ok(())
@@ -438,6 +530,7 @@ fn encode_artifact(
     language_revision: InterfaceLanguageRevision,
     bodies: &[InterfaceConstantCallableBody],
     templates: &[InterfaceExecutableTemplate],
+    boundaries: &[InterfaceNativeBoundary],
 ) -> Result<Arc<[u8]>, PackageImplementationArtifactBuildError> {
     let mut payloads = bodies
         .iter()
@@ -455,6 +548,14 @@ fn encode_artifact(
             template.owner(),
             ImplementationPayloadKind::ExecutableTemplate,
             template.payload().to_vec(),
+        )
+    }));
+
+    payloads.extend(boundaries.iter().map(|boundary| {
+        (
+            boundary.owner(),
+            ImplementationPayloadKind::NativeBoundary,
+            encode_native_boundary(boundary),
         )
     }));
 
@@ -503,13 +604,61 @@ fn encode_artifact(
     Ok(encoder.into_bytes().into())
 }
 
+fn encode_native_boundary(boundary: &InterfaceNativeBoundary) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(boundary.symbol().as_str().len().saturating_add(1));
+
+    let direction = match boundary.direction() {
+        ForeignCallableDirection::Import => 0,
+        ForeignCallableDirection::Export => 1,
+    };
+
+    payload.push(direction);
+    payload.extend_from_slice(boundary.symbol().as_str().as_bytes());
+
+    payload
+}
+
+fn decode_native_boundary(
+    owner: InterfaceSymbolId,
+    payload: &[u8],
+    limits: InterfaceValidationLimits,
+) -> Result<InterfaceNativeBoundary, InterfaceValidationError> {
+    let Some((&direction, symbol)) = payload.split_first() else {
+        return Err(InterfaceValidationError::Malformed);
+    };
+
+    limits.check(
+        InterfaceLimit::StringLength,
+        u64::try_from(symbol.len()).unwrap_or(u64::MAX),
+    )?;
+
+    let direction = match direction {
+        0 => ForeignCallableDirection::Import,
+        1 => ForeignCallableDirection::Export,
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
+    let symbol = str::from_utf8(symbol).map_err(|_| InterfaceValidationError::Malformed)?;
+
+    let symbol =
+        BinarySymbolName::try_new(symbol.to_owned()).ok_or(InterfaceValidationError::Malformed)?;
+
+    Ok(InterfaceNativeBoundary::new(owner, direction, symbol))
+}
+
 /// Failure while assembling a package implementation artifact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackageImplementationArtifactBuildError {
     /// Two payloads claim the same callable identity.
     DuplicateCallableBody(InterfaceSymbolId),
-    /// Two executable templates claim the same callable identity.
+    /// Two executable templates claim the same declaration identity.
     DuplicateExecutableTemplate(InterfaceSymbolId),
+    /// Two native boundaries claim the same declaration identity.
+    DuplicateNativeBoundary(InterfaceSymbolId),
+    /// An executable template owner is missing or cannot own executable code.
+    InvalidExecutableOwner(InterfaceSymbolId),
+    /// A native boundary owner is missing or is not a function.
+    InvalidNativeBoundaryOwner(InterfaceSymbolId),
     /// A payload owner is missing, is not callable, or disagrees with the body category.
     InvalidCallableOwner(InterfaceSymbolId),
     /// A checked body does not form a valid source-independent template graph.
@@ -521,11 +670,12 @@ pub enum PackageImplementationArtifactBuildError {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::CheckedTemplateKind;
-    use bray_symbols::{InterfaceSymbolId, SymbolKind};
+    use bray_runtime_interface::BinarySymbolName;
+    use bray_symbols::{ForeignCallableDirection, InterfaceSymbolId, SymbolKind};
 
     use super::{
-        InterfaceConstantCallableBody, InterfaceExecutableTemplate, PackageImplementationArtifact,
-        PackageImplementationArtifactBuildError,
+        InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+        PackageImplementationArtifact, PackageImplementationArtifactBuildError,
     };
     use crate::{
         InterfaceCheckedTemplate, InterfaceLanguageRevision, InterfaceValidationError,
@@ -543,6 +693,7 @@ mod tests {
             fixture.bundle.semantic_facts(),
             [fixture.body.clone()],
             [],
+            [],
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("constant body artifact must validate: {error:?}"));
@@ -558,10 +709,7 @@ mod tests {
         );
 
         let body = artifact
-            .constant_callable_body(
-                fixture.body.owner(),
-                fixture.bundle.surface(),
-            )
+            .constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
             .unwrap_or_else(|error| panic!("requested body must decode: {error:?}"));
 
         assert_eq!(body, Some(fixture.body));
@@ -582,6 +730,7 @@ mod tests {
             fixture.interface.header().language_revision(),
             &[fixture.body.clone(), second],
             &[],
+            &[],
         )
         .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"))
         .to_vec();
@@ -598,19 +747,13 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("directory validation must remain lazy: {error:?}"));
 
-        let first = artifact.constant_callable_body(
-            fixture.body.owner(),
-            fixture.bundle.surface(),
-        );
+        let first = artifact.constant_callable_body(fixture.body.owner(), fixture.bundle.surface());
 
         assert_eq!(first.map(|body| body.is_some()), Ok(true));
 
         assert!(
             artifact
-                .constant_callable_body(
-                    second_owner,
-                    fixture.bundle.surface(),
-                )
+                .constant_callable_body(second_owner, fixture.bundle.surface(),)
                 .is_err()
         );
     }
@@ -624,6 +767,7 @@ mod tests {
             fixture.bundle.surface(),
             fixture.bundle.semantic_facts(),
             [fixture.body.clone(), fixture.body.clone()],
+            [],
             [],
             InterfaceValidationLimits::default(),
         );
@@ -652,6 +796,7 @@ mod tests {
             fixture.bundle.semantic_facts(),
             [],
             [template.clone()],
+            [],
             InterfaceValidationLimits::default(),
         )
         .unwrap_or_else(|error| panic!("executable template artifact must validate: {error:?}"));
@@ -673,6 +818,7 @@ mod tests {
             fixture.bundle.semantic_facts(),
             [],
             [template],
+            [],
             InterfaceValidationLimits::default().with_blob_length(2),
         );
 
@@ -686,6 +832,31 @@ mod tests {
                 }
             ))
         );
+    }
+
+    #[test]
+    fn artifacts_load_native_boundaries_by_declaration_owner() {
+        let fixture = artifact_fixture();
+        let owner = generic_callable_owner(&fixture.bundle);
+
+        let symbol = BinarySymbolName::try_new("native_operation")
+            .unwrap_or_else(|| panic!("test symbol must be nonempty"));
+
+        let boundary =
+            InterfaceNativeBoundary::new(owner, ForeignCallableDirection::Import, symbol);
+
+        let artifact = PackageImplementationArtifact::try_new(
+            &fixture.interface,
+            fixture.bundle.surface(),
+            fixture.bundle.semantic_facts(),
+            [],
+            [],
+            [boundary.clone()],
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("native boundary artifact must validate: {error:?}"));
+
+        assert_eq!(artifact.native_boundary(owner), Ok(Some(boundary)));
     }
 
     struct ArtifactFixture {

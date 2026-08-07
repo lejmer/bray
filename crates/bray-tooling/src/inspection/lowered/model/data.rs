@@ -3,9 +3,9 @@
 use std::fmt::Write;
 
 use bray_bound_tree::{
-    BoundCallResult, CheckedMemoryOperationKind, ConstructionDefaultProvider,
-    ConstructionInputId, ConstructionTarget, ConversionTarget, MemoryLayoutQueryKind,
-    PatternOperation, PatternProjection, SelectedConversion,
+    BoundCallResult, CheckedMemoryOperationKind, ConstructionDefaultProvider, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, MemoryLayoutQueryKind, PatternOperation,
+    PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
@@ -214,8 +214,8 @@ pub(crate) enum InspectionMirUnitKey {
         role: &'static str,
         type_identity: String,
     },
-    ImportedCallable {
-        callable: InspectionSymbolIdentity,
+    ImportedExecutable {
+        owner: InspectionSymbolIdentity,
     },
     ExternalCallable {
         callable: InspectionSymbolIdentity,
@@ -239,8 +239,8 @@ pub(crate) enum InspectionMirSource {
     GeneratedLifecycle {
         role: &'static str,
     },
-    ImportedCallable {
-        callable: InspectionSymbolIdentity,
+    ImportedExecutable {
+        owner: InspectionSymbolIdentity,
     },
 }
 
@@ -1453,6 +1453,7 @@ fn inspection_terminator(
             element_type,
             item,
             exhausted,
+            ..
         } => {
             parts.place("cursor", cursor, &context)?;
             parts.callable_reference("next", *next, &context);
@@ -1807,8 +1808,8 @@ fn inspection_unit_key(
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),
         }),
-        MirUnitKey::ImportedCallable(definition) => Ok(InspectionMirUnitKey::ImportedCallable {
-            callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
+        MirUnitKey::ImportedExecutable(owner) => Ok(InspectionMirUnitKey::ImportedExecutable {
+            owner: InspectionSymbolIdentity::from_symbol(symbols, *owner),
         }),
         MirUnitKey::ExternalCallable(definition) => Ok(InspectionMirUnitKey::ExternalCallable {
             callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
@@ -1841,11 +1842,9 @@ fn inspection_source_origin(
                     .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
             })
         }
-        MirSourceOrigin::ImportedCallable(callable) => {
-            Ok(InspectionMirSource::ImportedCallable {
-                callable: InspectionSymbolIdentity::from_symbol(symbols, callable.symbol()),
-            })
-        }
+        MirSourceOrigin::ImportedExecutable(owner) => Ok(InspectionMirSource::ImportedExecutable {
+            owner: InspectionSymbolIdentity::from_symbol(symbols, *owner),
+        }),
     }
 }
 
@@ -1874,11 +1873,9 @@ fn inspection_source_anchor(
                     .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
             })
         }
-        MirSourceAnchor::ImportedCallable(callable) => {
-            Ok(InspectionMirSource::ImportedCallable {
-                callable: InspectionSymbolIdentity::from_symbol(symbols, callable.symbol()),
-            })
-        }
+        MirSourceAnchor::ImportedExecutable(owner) => Ok(InspectionMirSource::ImportedExecutable {
+            owner: InspectionSymbolIdentity::from_symbol(symbols, *owner),
+        }),
     }
 }
 

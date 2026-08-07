@@ -8,9 +8,10 @@ use crate::record::{
 use crate::relationship::{ModuleRelationships, RelationshipIndex, callable_owner};
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbol, ExternalSymbolKeyData,
-    ImportedSymbolSkeleton, ImportedSymbolSkeletonBuildError, MemberVisibility, ModuleOwnerId,
-    ModuleSymbol, PackageSymbol, ReceiverParameterSymbol, StructFieldDefaultProviderSymbol,
-    SymbolKey, SymbolOrigin, SymbolRootKey, UnionPayloadDefaultProviderSymbol,
+    ImportedSymbolSkeleton, ImportedSymbolSkeletonBuildError, MemberEntry, MemberLookupIndex,
+    MemberValidity, MemberVisibility, ModuleOwnerId, ModuleSymbol, PackageSymbol,
+    ReceiverParameterSymbol, StructFieldDefaultProviderSymbol, SymbolKey, SymbolOrigin,
+    SymbolRootKey, UnionPayloadDefaultProviderSymbol,
 };
 
 use super::build::AssignedIdentity;
@@ -97,7 +98,7 @@ macro_rules! define_record_vectors {
                         .insert(module.path().clone(), module.id());
                 }
 
-                let member_names = external_index
+                let member_names: BTreeMap<AnySymbolId, crate::SymbolName> = external_index
                     .iter()
                     .filter_map(|(key, member)| match key.data() {
                         ExternalSymbolKeyData::Declaration {
@@ -108,6 +109,40 @@ macro_rules! define_record_vectors {
                             Some((*member, name.clone()))
                         }
                         _ => None,
+                    })
+                    .collect();
+
+                let member_indexes = external_index
+                    .values()
+                    .copied()
+                    .filter_map(|owner| {
+                        let entries = relationship_index
+                            .children(owner)
+                            .iter()
+                            .filter_map(|member| {
+                                member_names.get(member).cloned().map(|name| {
+                                    MemberEntry::new(
+                                        *member,
+                                        name,
+                                        MemberVisibility::Public,
+                                        MemberValidity::Valid,
+                                    )
+                                })
+                            })
+                            .collect::<Vec<_>>();
+
+                        if entries.is_empty() {
+                            return None;
+                        }
+
+                        let index = match MemberLookupIndex::new(entries) {
+                            Ok(index) => index,
+                            Err(_) => panic!(
+                                "validated imported relationships must contain distinct members"
+                            ),
+                        };
+
+                        Some((owner, index))
                     })
                     .collect();
 
@@ -132,6 +167,7 @@ macro_rules! define_record_vectors {
                     ),
                     external_index,
                     lookups,
+                    member_indexes,
                     member_names,
                     module_paths,
                     $($plural: TypedSymbolRecords::new(self.$plural, crate::$record::id),)+

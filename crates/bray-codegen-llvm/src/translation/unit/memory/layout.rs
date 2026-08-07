@@ -6,9 +6,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
-use super::super::support::{
-    aggregate_value_element, insert_value, int_value, integer_constant, llvm,
-};
+use super::super::support::{insert_value, int_value, integer_constant, llvm};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_layout_query(
@@ -47,6 +45,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(result.const_int(value, false).into())
     }
 
+    #[expect(
+        clippy::manual_checked_ops,
+        reason = "LLVM IR emits a runtime zero-stride guard before unsigned division"
+    )]
     fn translate_allocation_layout(
         &mut self,
         operation: &MirOperation,
@@ -142,9 +144,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         variant: usize,
     ) -> Result<bray_symbols::TypeId, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(ty)
+            .type_mapping(ty)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
@@ -168,9 +168,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         values: &[BasicValueEnum<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let fields = self
-            .request
-            .mappings()
-            .ty(ty)
+            .type_mapping(ty)
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Aggregate(fields) => Some(fields.clone()),
                 _ => None,
@@ -188,7 +186,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 &self.builder,
                 result,
                 value,
-                aggregate_value_element(self.request.mappings(), &fields, index)?,
+                self.aggregate_value_element(&fields, index)?,
             )?;
         }
 
@@ -202,9 +200,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         values: &[BasicValueEnum<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let (tag, variant) = self
-            .request
-            .mappings()
-            .ty(ty)
+            .type_mapping(ty)
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Union { tag, variants } => variants
                     .get(ordinal)

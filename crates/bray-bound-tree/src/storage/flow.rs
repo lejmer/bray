@@ -3,9 +3,9 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
-    BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId, BoundUnitKind,
-    CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision, StorageAccessId,
-    StorageAccessPurpose, StorageIdentityId,
+    AnyBoundNodeId, BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId,
+    BoundUnitKind, CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision,
+    StorageAccessId, StorageAccessPurpose, StorageIdentityId,
 };
 
 /// The checker result for one evaluated storage operation.
@@ -145,6 +145,7 @@ impl StorageSuspensionState {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageExitDecision {
     scope: BoundBlockId,
+    exit: AnyBoundNodeId,
     initialized: Arc<[StorageIdentityId]>,
     moved: Arc<[StorageAccessId]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
@@ -155,6 +156,7 @@ impl StorageExitDecision {
     /// Creates one normalized scope-exit decision.
     pub fn new(
         scope: BoundBlockId,
+        exit: AnyBoundNodeId,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
@@ -162,6 +164,7 @@ impl StorageExitDecision {
     ) -> Self {
         Self {
             scope,
+            exit,
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
@@ -172,6 +175,11 @@ impl StorageExitDecision {
     /// Returns the lexical scope being exited.
     pub const fn scope(&self) -> BoundBlockId {
         self.scope
+    }
+
+    /// Returns the bound node whose completion or transfer exits the scope.
+    pub const fn exit(&self) -> AnyBoundNodeId {
+        self.exit
     }
 
     /// Returns storage known to remain initialized.
@@ -259,6 +267,7 @@ impl StorageFlowFacts {
                     .any(|borrow| borrow.unit() != unit)
         }) || exits.iter().any(|exit| {
             exit.scope().unit() != unit
+                || exit.exit().unit() != unit
                 || exit
                     .initialized()
                     .iter()
@@ -409,7 +418,14 @@ mod tests {
             StorageOperationStatus::Valid,
         );
 
-        let exit = StorageExitDecision::new(scope, [storage, storage], [access, access], [], false);
+        let exit = StorageExitDecision::new(
+            scope,
+            scope.into(),
+            [storage, storage],
+            [access, access],
+            [],
+            false,
+        );
 
         let suspension =
             StorageSuspensionState::new(expression, [storage], [storage], [access], []);

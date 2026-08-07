@@ -391,8 +391,9 @@ mod tests {
     #[test]
     fn lowering_replaces_every_checked_memory_family_with_explicit_mir() {
         type Kind = CheckedMemoryOperationKind;
+        type MemoryCase = (usize, fn(bray_symbols::TypeId) -> Kind);
 
-        let cases: [(usize, fn(bray_symbols::TypeId) -> Kind); 19] = [
+        let cases: [MemoryCase; 19] = [
             (1, |ty| Kind::Address {
                 kind: MemoryAddressKind::Shared,
                 pointee: ty,

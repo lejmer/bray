@@ -393,6 +393,7 @@ impl Lowerer<'_> {
             MirTerminatorKind::Iterate {
                 cursor: Self::retained_place(&cursor),
                 next: MirCallableReference::new(selection.next(), CallableAbi::Bray),
+                witness: selection.iterator_witness(),
                 element_type: selection.element_type(),
                 item,
                 exhausted: MirEdge::new(exhausted, []),
@@ -539,7 +540,11 @@ impl Lowerer<'_> {
         self.finish_result_edge(completion, join, result_type)
     }
 
-    fn boolean_operand(&self, ty: bray_symbols::TypeId, value: bool) -> MirOperand {
+    pub(in crate::lowering) fn boolean_operand(
+        &self,
+        ty: bray_symbols::TypeId,
+        value: bool,
+    ) -> MirOperand {
         MirOperand::Immediate {
             value: bray_ir::MirImmediateValue::Boolean(value),
             ty,

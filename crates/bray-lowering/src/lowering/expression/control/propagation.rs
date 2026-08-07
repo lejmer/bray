@@ -114,7 +114,7 @@ impl Lowerer<'_> {
         let propagated =
             Self::immediate_operand(target.result_type, MirImmediateValue::NullableAbsent);
 
-        self.finish_propagation(absent, &source, target, propagated)?;
+        self.finish_propagation(id, absent, &source, target, propagated)?;
 
         Ok(LoweredExpression::continuing(present, Some(value), source))
     }
@@ -240,7 +240,7 @@ impl Lowerer<'_> {
         let propagated =
             self.construct_result(id, error, &source, target.result_type, false, error_value)?;
 
-        self.finish_propagation(error, &source, target, propagated)?;
+        self.finish_propagation(id, error, &source, target, propagated)?;
 
         Ok(LoweredExpression::continuing(success, Some(value), source))
     }
@@ -335,8 +335,8 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_panic_to_active_catch(panicked, &source, report, report_type)?;
-        self.finish_cancellation(cancelled, &source)?;
+        self.finish_panic_to_active_catch(id, panicked, &source, report, report_type)?;
+        self.finish_cancellation(cancelled, &source, id.into())?;
 
         Ok(LoweredExpression::continuing(
             completed,
@@ -408,6 +408,7 @@ impl Lowerer<'_> {
 
     fn finish_propagation(
         &mut self,
+        expression: BoundExpressionId,
         current: MirBlockId,
         source: &MirSourceAnchor,
         target: PropagationTarget,
@@ -420,10 +421,14 @@ impl Lowerer<'_> {
                 target.scope_depth,
                 block,
                 Some((value, target.result_type)),
+                expression.into(),
             ),
-            PropagationDestination::Return => {
-                self.finish_return(current, source, Some((value, target.result_type)))
-            }
+            PropagationDestination::Return => self.finish_return(
+                current,
+                source,
+                Some((value, target.result_type)),
+                expression.into(),
+            ),
         }
     }
 

@@ -95,7 +95,7 @@ where
                 let current = self.build_operands(expression.operands(), current)?;
 
                 self.push_bound(current, id.into());
-                self.push_exit(current, AnalysisExitKind::Panic);
+                self.push_exit(current, AnalysisExitKind::Panic, id.into());
 
                 Some(None)
             }
@@ -250,7 +250,7 @@ where
 
         let failure = self.build_operands(operands.get(1..).unwrap_or_default(), failure)?;
 
-        self.push_exit(failure, AnalysisExitKind::Panic);
+        self.push_exit(failure, AnalysisExitKind::Panic, id.into());
 
         Some(Some(success))
     }
@@ -572,7 +572,7 @@ where
         self.push_edge(current, header, AnalysisEdgeKind::Sequential, None);
         self.push_bound(header, id.into());
         self.push_edge(header, body_entry, AnalysisEdgeKind::LoopEntry, None);
-        self.push_exit(header, AnalysisExitKind::Divergence);
+        self.push_exit(header, AnalysisExitKind::Divergence, id.into());
 
         self.loops.push(LoopContext {
             target,

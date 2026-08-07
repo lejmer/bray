@@ -184,6 +184,8 @@ pub enum PackageInterfaceExportBuildError {
     Validation(InterfaceValidationError),
     /// Two executable templates claim the same callable owner.
     DuplicateExecutableTemplate(bray_symbols::InterfaceSymbolId),
+    /// Two native boundaries claim the same function owner.
+    DuplicateNativeBoundary(bray_symbols::InterfaceSymbolId),
 }
 
 /// One validated immutable library surface ready for deterministic interface encoding.
@@ -192,6 +194,7 @@ pub struct PackageInterfaceExportBundle {
     surface: PackageInterfaceSurface,
     semantic_facts: InterfaceSemanticFacts,
     executable_templates: Arc<[crate::InterfaceExecutableTemplate]>,
+    native_boundaries: Arc<[crate::InterfaceNativeBoundary]>,
     language_revision: InterfaceLanguageRevision,
 }
 
@@ -217,6 +220,7 @@ impl PackageInterfaceExportBundle {
             surface,
             semantic_facts,
             executable_templates: Arc::from([]),
+            native_boundaries: Arc::from([]),
             language_revision,
         })
     }
@@ -233,9 +237,7 @@ impl PackageInterfaceExportBundle {
         for pair in templates.windows(2) {
             if pair[0].owner() == pair[1].owner() {
                 return Err(
-                    PackageInterfaceExportBuildError::DuplicateExecutableTemplate(
-                        pair[0].owner(),
-                    ),
+                    PackageInterfaceExportBuildError::DuplicateExecutableTemplate(pair[0].owner()),
                 );
             }
         }
@@ -258,6 +260,33 @@ impl PackageInterfaceExportBundle {
     /// Returns executable templates in canonical owner order.
     pub fn executable_templates(&self) -> &[crate::InterfaceExecutableTemplate] {
         &self.executable_templates
+    }
+
+    /// Attaches native boundaries in canonical owner order.
+    pub fn with_native_boundaries(
+        mut self,
+        boundaries: impl IntoIterator<Item = crate::InterfaceNativeBoundary>,
+    ) -> Result<Self, PackageInterfaceExportBuildError> {
+        let mut boundaries = boundaries.into_iter().collect::<Vec<_>>();
+
+        boundaries.sort_by_key(crate::InterfaceNativeBoundary::owner);
+
+        for pair in boundaries.windows(2) {
+            if pair[0].owner() == pair[1].owner() {
+                return Err(PackageInterfaceExportBuildError::DuplicateNativeBoundary(
+                    pair[0].owner(),
+                ));
+            }
+        }
+
+        self.native_boundaries = boundaries.into();
+
+        Ok(self)
+    }
+
+    /// Returns native boundaries in canonical owner order.
+    pub fn native_boundaries(&self) -> &[crate::InterfaceNativeBoundary] {
+        &self.native_boundaries
     }
 
     /// Returns the language semantic revision used to interpret the surface.

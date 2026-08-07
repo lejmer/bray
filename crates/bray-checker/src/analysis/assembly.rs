@@ -4,7 +4,7 @@ use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPoi
 use super::model::{
     AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisExit, AnalysisExitKind,
     AnalysisOperation, AnalysisOperationKind, AnalysisRefinement, AnalysisScopeExitPhase,
-    AnalysisTaskOperationKind, ControlFlowGraph,
+    AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
 };
 
 pub(super) struct ControlFlowGraphAssembler {
@@ -44,12 +44,16 @@ impl ControlFlowGraphAssembler {
         self.push_operation(block, AnalysisOperationKind::Recovery(node));
     }
 
-    pub(super) fn push_direct_await(
+    pub(super) fn push_suspension(
         &mut self,
         block: AnalysisBlockId,
         expression: bray_bound_tree::BoundExpressionId,
+        kind: AnalysisSuspensionKind,
     ) {
-        self.push_operation(block, AnalysisOperationKind::DirectAwait(expression));
+        self.push_operation(
+            block,
+            AnalysisOperationKind::Suspension { expression, kind },
+        );
     }
 
     pub(super) fn push_task_operation(
@@ -68,6 +72,7 @@ impl ControlFlowGraphAssembler {
         &mut self,
         current: AnalysisBlockId,
         block: bray_bound_tree::BoundBlockId,
+        exit: bray_bound_tree::AnyBoundNodeId,
     ) -> AnalysisBlockId {
         let cancellation = self.push_block();
 
@@ -77,6 +82,7 @@ impl ControlFlowGraphAssembler {
             cancellation,
             AnalysisOperationKind::ScopeExit {
                 block,
+                exit,
                 phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
             },
         );
@@ -89,6 +95,7 @@ impl ControlFlowGraphAssembler {
             lifecycle,
             AnalysisOperationKind::ScopeExit {
                 block,
+                exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
             },
         );

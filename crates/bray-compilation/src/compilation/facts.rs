@@ -105,7 +105,9 @@ pub(super) struct CompilationState {
     pub(super) loaded_dependency_interfaces:
         Vec<FactCell<super::imported::LoadedDependencyInterface>>,
     pub(super) loaded_dependency_implementations: Vec<
-        FactCell<DiagnosticResult<Option<Arc<bray_package_interface::PackageImplementationArtifact>>>>,
+        FactCell<
+            DiagnosticResult<Option<Arc<bray_package_interface::PackageImplementationArtifact>>>,
+        >,
     >,
     pub(super) imported_symbol_skeleton:
         FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,

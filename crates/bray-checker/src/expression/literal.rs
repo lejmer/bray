@@ -1,11 +1,15 @@
+use std::collections::BTreeSet;
+
 use bray_bound_tree::{
-    BoundExpression, CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues,
+    BoundExpression, BoundExpressionId, BoundOperator, CheckedExpressionTypes,
+    CheckedLiteralValueEntry, CheckedLiteralValues,
 };
 use bray_diagnostics::{Diagnostic, DiagnosticBag, SeverityKind};
 use bray_symbols::{ConstantValueData, ConstantValueKind};
 
 use crate::constant::{
-    ConstantEvaluationLimits, ConstantLiteralError, check_constant_literal, literal_diagnostic_kind,
+    ConstantEvaluationLimits, ConstantLiteralError, check_constant_literal,
+    check_negated_integer_operand_literal, literal_diagnostic_kind,
 };
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
@@ -28,6 +32,7 @@ where
     let mut remaining_bytes = ConstantEvaluationLimits::default().literal_bytes();
     let mut entries = Vec::new();
     let mut diagnostics = Vec::new();
+    let negated_operands = negated_literal_operands(request);
 
     for (expression, node) in request.unit().tree().expressions() {
         if request.is_cancelled() {
@@ -71,7 +76,14 @@ where
                 Some(remaining) => {
                     remaining_bytes = remaining;
 
-                    match check_literal(request, *literal, spelling, result.ty(), target_width) {
+                    match check_literal(
+                        request,
+                        *literal,
+                        spelling,
+                        result.ty(),
+                        target_width,
+                        negated_operands.contains(&expression),
+                    ) {
                         Ok(checked) => checked,
                         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
                     }
@@ -144,6 +156,7 @@ fn check_literal<C>(
     spelling: &str,
     ty: bray_symbols::TypeId,
     target_width: std::num::NonZeroU16,
+    is_negated_operand: bool,
 ) -> Result<Result<ConstantValueKind, ConstantLiteralError>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -154,10 +167,35 @@ where
         return Ok(Err(ConstantLiteralError::Invalid));
     };
 
+    if is_negated_operand && literal.kind() == bray_bound_tree::BoundLiteralKind::Integer {
+        return Ok(check_negated_integer_operand_literal(
+            spelling,
+            representation,
+            || target_width,
+        ));
+    }
+
     Ok(check_constant_literal(
         literal.kind(),
         spelling,
         representation,
         || target_width,
     ))
+}
+
+fn negated_literal_operands<C>(request: CheckerUnitView<'_, C>) -> BTreeSet<BoundExpressionId>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    request
+        .unit()
+        .tree()
+        .expressions()
+        .filter_map(|(_, expression)| match expression {
+            BoundExpression::Unary(unary) if unary.operator() == BoundOperator::Subtract => {
+                unary.operands().first().copied()
+            }
+            _ => None,
+        })
+        .collect()
 }

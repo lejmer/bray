@@ -1,0 +1,43 @@
+module bray.standard_library_conformance.memory;
+
+using std.memory;
+
+@test
+trusted func layouts_and_raw_buffers() -> Result<unit, std.memory.MemoryLayoutError>
+    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
+{
+    let layout: std.memory.MemoryLayout = try std.memory.layout_of<u32>(count = 3);
+
+    assert(std.memory.size_of<u32>() == 4);
+    assert(std.memory.align_of<u32>() > 0);
+    assert(std.memory.stride_of<u32>() >= std.memory.size_of<u32>());
+    assert(layout.bytes == std.memory.stride_of<u32>() * 3);
+    assert(layout.align == std.memory.align_of<u32>());
+
+    let null_pointer: RawPointer<u32> = std.memory.null<u32>();
+
+    assert(std.memory.is_null<u32>(null_pointer));
+
+    let mut buffer: std.memory.RawBuffer<u32> = try trusted std.memory.RawBuffer<u32>(capacity = 2);
+    let first: RawPointer<u32> = trusted std.memory.spare_pointer<u32>(&mut buffer);
+    let second: RawPointer<u32> = std.memory.offset<u32>(first, elements = 1);
+
+    trusted std.memory.write<u32>(first, 10);
+    trusted std.memory.write<u32>(second, 20);
+    trusted std.memory.set_initialized_count<u32>(&mut buffer, count = 2);
+
+    let values: &[u32] = trusted std.memory.initialized_slice<u32>(&buffer);
+
+    assert(std.memory.capacity<u32>(&buffer) == 2);
+    assert(std.memory.initialized_count<u32>(&buffer) == 2);
+    assert(values[0] == 10);
+    assert(values[1] == 20);
+
+    let mutable: &mut [u32] = trusted std.memory.initialized_slice_mut<u32>(&mut buffer);
+
+    mutable[1] = 30;
+
+    assert(trusted std.memory.read<u32>(second) == 30);
+
+    return Ok(unit);
+}

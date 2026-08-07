@@ -435,12 +435,15 @@ fn publish_package_interface(
         publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData)
     })?;
 
-    let implementation = bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
-        &artifact,
-        bundle,
-        bray_package_interface::InterfaceValidationLimits::default(),
-    )
-    .map_err(|_| publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData))?;
+    let implementation =
+        bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
+            &artifact,
+            bundle,
+            bray_package_interface::InterfaceValidationLimits::default(),
+        )
+        .map_err(|_| {
+            publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData)
+        })?;
 
     publish_artifact(destination, artifact.bytes(), diagnostic_id)?;
 

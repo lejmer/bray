@@ -1,15 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_ir::{MirCallableReference, MirSourceAnchor};
+use bray_ir::MirSourceAnchor;
 use bray_runtime_interface::ProtectedFrameOperation;
 use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
 
 use crate::{
-    CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping,
-    CodegenDebugLocation, CodegenHelperMapping, CodegenInstanceKey, CodegenInstanceTypeMapping,
-    CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
-    CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
+    CodegenCallableMapping, CodegenCallableTarget, CodegenConstantMapping,
+    CodegenConstantTermMapping, CodegenDebugLocation, CodegenHelperMapping, CodegenInstanceKey,
+    CodegenInstanceTypeMapping, CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenTarget, CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
 };
 
 use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
@@ -356,14 +356,14 @@ impl CodegenMappings {
     pub fn callable(
         &self,
         owner: &CodegenInstanceKey,
-        reference: MirCallableReference,
+        site: crate::CodegenCallSite,
     ) -> Option<&CodegenCallableMapping> {
         self.callables
             .binary_search_by(|mapping| {
                 mapping
                     .owner()
                     .cmp(owner)
-                    .then_with(|| mapping.reference().cmp(&reference))
+                    .then_with(|| mapping.site().cmp(&site))
             })
             .ok()
             .map(|index| &self.callables[index])
@@ -486,7 +486,7 @@ fn compare_callables(
 ) -> std::cmp::Ordering {
     left.owner()
         .cmp(right.owner())
-        .then_with(|| left.reference().cmp(&right.reference()))
+        .then_with(|| left.site().cmp(&right.site()))
 }
 
 fn compare_operations(
@@ -517,21 +517,34 @@ fn validate_callable_mappings(
 
     let actual: BTreeSet<_> = mappings
         .iter()
-        .map(|mapping| (mapping.owner().clone(), mapping.reference()))
+        .map(|mapping| (mapping.owner().clone(), mapping.site(), mapping.reference()))
         .collect();
 
     if actual != expected
         || mappings.iter().any(|mapping| {
-            if !instances.contains(mapping.owner()) || !instances.contains(mapping.instance()) {
+            if !instances.contains(mapping.owner()) {
                 return true;
             }
 
-            let key = CodegenSymbolKey::Instance(mapping.instance().clone());
+            match mapping.target() {
+                CodegenCallableTarget::Instance(instance) => {
+                    if !instances.contains(instance) {
+                        return true;
+                    }
 
-            symbols
-                .binary_search_by(|symbol| symbol.key().cmp(&key))
-                .ok()
-                .is_none_or(|index| symbols[index].signature().abi() != mapping.reference().abi())
+                    let key = CodegenSymbolKey::Instance(instance.clone());
+
+                    symbols
+                        .binary_search_by(|symbol| symbol.key().cmp(&key))
+                        .ok()
+                        .is_none_or(|index| {
+                            symbols[index].signature().abi() != mapping.reference().abi()
+                        })
+                }
+                CodegenCallableTarget::Intrinsic(_) => {
+                    mapping.reference().abi() != bray_symbols::CallableAbi::Bray
+                }
+            }
         })
     {
         return Err(CodegenMappingsBuildError::CallableCoverageMismatch);

@@ -167,6 +167,42 @@ where
         self.context.symbols()
     }
 
+    pub(crate) fn lookup_member(
+        self,
+        owner: bray_symbols::AnySymbolId,
+        name: &str,
+    ) -> CheckerFactResult<bray_symbols::MemberLookupResult<bray_symbols::AnySymbolId>> {
+        self.context.lookup_member(owner, name)
+    }
+
+    pub(crate) fn member_name(
+        self,
+        member: bray_symbols::AnySymbolId,
+    ) -> CheckerFactResult<Option<&'view bray_symbols::SymbolName>> {
+        self.context.member_name(member)
+    }
+
+    pub(crate) fn structure(
+        self,
+        id: bray_symbols::StructSymbolId,
+    ) -> CheckerFactResult<Option<&'view bray_symbols::StructSymbol>> {
+        self.context.structure(id)
+    }
+
+    pub(crate) fn union(
+        self,
+        id: bray_symbols::UnionSymbolId,
+    ) -> CheckerFactResult<Option<&'view bray_symbols::UnionSymbol>> {
+        self.context.union(id)
+    }
+
+    pub(crate) fn union_variant(
+        self,
+        id: bray_symbols::UnionVariantSymbolId,
+    ) -> CheckerFactResult<Option<&'view bray_symbols::UnionVariantSymbol>> {
+        self.context.union_variant(id)
+    }
+
     /// Returns target-available compiler-known identities and behavior roles.
     pub fn available_compiler_known_symbols(self) -> &'view AvailableCompilerKnownSymbols {
         self.context.available_compiler_known_symbols()
@@ -201,14 +237,12 @@ where
         self.context.generic_constraints(obligation)
     }
 
-    pub(crate) fn selected_type_valued_member(
+    pub(crate) fn implementation_selection(
         self,
-        subject: bray_symbols::TypeId,
-        application: bray_symbols::TraitApplicationId,
-        member: bray_symbols::TraitTypeMemberSymbolId,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<Option<bray_symbols::TypeId>>> {
-        self.context
-            .selected_type_valued_member(subject, application, member)
+        requirement: bray_symbols::ImplementationRequirementKey,
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ImplementationSelection>>
+    {
+        self.context.implementation_selection(requirement)
     }
 
     /// Returns the checked representation contract for one declared type.

@@ -6,19 +6,19 @@ use bray_symbols::{
 
 use crate::compilation::binder::CompilationBinderFacts;
 
-pub(super) fn runtime_default_provider(
+pub(in crate::compilation) fn runtime_default_provider(
     context: &CompilationBinderFacts<'_>,
     owner: AnySymbolId,
-) -> BinderFactResult<AnySymbolId> {
+) -> BinderFactResult<Option<AnySymbolId>> {
     if let Some(provider) = context.symbols().runtime_default_provider(owner) {
-        return Ok(provider);
+        return Ok(Some(provider));
     }
 
-    let imported = context
-        .imported_symbols()?
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+    let Some(imported) = context.imported_symbols()? else {
+        return Ok(None);
+    };
 
-    match owner {
+    Ok(match owner {
         AnySymbolId::CallableParameter(owner) => imported
             .callable_parameter(owner)
             .and_then(|record| record.default_provider())
@@ -32,8 +32,7 @@ pub(super) fn runtime_default_provider(
             .and_then(|record| record.default_provider())
             .map(Into::into),
         _ => None,
-    }
-    .ok_or(BinderFactError::DependencyUnavailable)
+    })
 }
 
 pub(super) fn callable_parameter<'facts>(

@@ -40,9 +40,7 @@ impl From<bray_bound_tree::PatternPredicate> for MirPatternPredicate {
             bray_bound_tree::PatternPredicate::ActiveUnionVariant(variant) => {
                 Self::ActiveUnionVariant(variant)
             }
-            bray_bound_tree::PatternPredicate::ProductShape(product) => {
-                Self::ProductShape(product)
-            }
+            bray_bound_tree::PatternPredicate::ProductShape(product) => Self::ProductShape(product),
             bray_bound_tree::PatternPredicate::TupleShape(arity) => Self::TupleShape(arity),
             bray_bound_tree::PatternPredicate::ArrayShape(length) => Self::ArrayShape(length),
             bray_bound_tree::PatternPredicate::OwnedTarget => Self::OwnedTarget,
@@ -243,6 +241,8 @@ pub enum MirTerminatorKind {
         cursor: MirPlace,
         /// Exact selected cursor-advance callable.
         next: MirCallableReference,
+        /// Exact implementation supplying the cursor-advance callable.
+        witness: bray_symbols::ImplementationInstanceId,
         /// Checked element type produced on the item edge.
         element_type: TypeId,
         /// Item block receiving the produced element as its sole parameter.

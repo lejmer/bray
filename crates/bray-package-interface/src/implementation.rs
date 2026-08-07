@@ -6,6 +6,6 @@ pub use executable::{
     decode_executable_template, encode_executable_template,
 };
 pub use model::{
-    InterfaceConstantCallableBody, InterfaceExecutableTemplate, PackageImplementationArtifact,
-    PackageImplementationArtifactBuildError,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+    PackageImplementationArtifact, PackageImplementationArtifactBuildError,
 };

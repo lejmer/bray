@@ -64,9 +64,8 @@ impl DriverDependencyInterface {
         );
 
         if let Some(path) = &self.implementation_path {
-            let bytes = std::fs::read(path).map_err(|error| {
-                dependency_artifact_read_diagnostics(path, error.kind())
-            })?;
+            let bytes = std::fs::read(path)
+                .map_err(|error| dependency_artifact_read_diagnostics(path, error.kind()))?;
 
             let artifact = bray_package_interface::PackageImplementationArtifact::try_from_bytes(
                 bytes,
@@ -258,11 +257,7 @@ impl CliCompilationOptions {
             .map(|(index, (identity, path))| {
                 let implementation_path = self.dependency_implementations.get(index).cloned();
 
-                DriverDependencyInterface::try_from_arguments(
-                    identity,
-                    path,
-                    implementation_path,
-                )
+                DriverDependencyInterface::try_from_arguments(identity, path, implementation_path)
                     .ok_or_else(|| invalid_selection(identity))
             })
             .collect::<Result<Vec<_>, _>>()?;

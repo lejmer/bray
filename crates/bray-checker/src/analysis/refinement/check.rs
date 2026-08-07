@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, CheckedPatternFacts, CheckedRefinementFacts, RefinementOccurrence, StoragePlan,
+    AnyBoundNodeId, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
+    RefinementOccurrence, StoragePlan,
 };
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
@@ -22,6 +23,7 @@ use super::universe::{RefinementUniverse, RefinementUniverseError};
 pub(crate) fn check_refinements<C>(
     request: CheckerUnitView<'_, C>,
     patterns: &CheckedPatternFacts,
+    selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
 ) -> CheckerOutcome<CheckedRefinementFacts>
 where
@@ -29,6 +31,8 @@ where
 {
     if patterns.unit() != request.view().unit()
         || patterns.kind() != request.view().kind()
+        || selections.unit() != request.view().unit()
+        || selections.kind() != request.view().kind()
         || storage.unit() != request.view().unit()
         || storage.kind() != request.view().kind()
     {
@@ -37,7 +41,7 @@ where
         );
     }
 
-    let graph = match build_storage_control_flow_graph(request, storage) {
+    let graph = match build_storage_control_flow_graph(request, storage, selections) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
@@ -291,7 +295,7 @@ fn transfer_operation(
             universe.invalidate_for_operation(&mut state.facts, node, storage);
             universe.finish_operation(&mut state.facts, node);
         }
-        AnalysisOperationKind::DirectAwait(expression)
+        AnalysisOperationKind::Suspension { expression, .. }
         | AnalysisOperationKind::TaskOperation { expression, .. } => {
             let node = AnyBoundNodeId::Expression(expression);
 

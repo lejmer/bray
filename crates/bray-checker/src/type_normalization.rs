@@ -6,10 +6,10 @@ use bray_symbols::{
     GenericSubstitutionId, TraitApplicationData, TraitApplicationId, TypeData, TypeId,
 };
 
-use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext};
 
-pub(crate) fn normalize_type_valued_members<C>(
-    request: CheckerUnitView<'_, C>,
+pub fn normalize_type_valued_members<C>(
+    request: &C,
     ty: TypeId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<TypeId, CheckerFactError>
@@ -29,7 +29,7 @@ struct TypeNormalizer<'request, 'diagnostics, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request: CheckerUnitView<'request, C>,
+    request: &'request C,
     diagnostics: &'diagnostics mut DiagnosticBag,
     normalized: BTreeMap<TypeId, TypeId>,
     active: BTreeSet<TypeId>,

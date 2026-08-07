@@ -47,12 +47,11 @@ native_export! {
 
             let start = super::test::with_output(|| execute_root(frame, configuration));
 
-            if let Some(root) = start.root() {
-                if let Ok(cancellation) = with_runtime(|runtime| runtime.root_cancellation(root)) {
-                    if let Ok(cancellation) = cancellation {
-                        super::test::register_timeout(cancellation);
-                    }
-                }
+            if let Some(root) = start.root()
+                && let Ok(Ok(cancellation)) =
+                    with_runtime(|runtime| runtime.root_cancellation(root))
+            {
+                super::test::register_timeout(cancellation);
             }
 
             start

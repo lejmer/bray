@@ -25,16 +25,16 @@ use bray_package_interface::{
     InterfaceDeclarationTemplate, InterfaceDeclaredType, InterfaceDependencyContract,
     InterfaceDependencyContractId, InterfaceDependencyGuard, InterfaceDependencyProjection,
     InterfaceDependencyRequirement, InterfaceDependencyRequirementKind, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceGenericBinding,
-    InterfaceGenericDeclaration, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
-    InterfaceImplementationInstance, InterfaceImplementationInstanceId,
-    InterfaceImplementationRecord, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
-    InterfacePredicateSummary, InterfaceSemanticFacts, InterfaceStorageMember,
-    InterfaceExecutableTemplate, InterfaceStorageShape, InterfaceSupportEntity,
-    InterfaceSymbolReference,
-    InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement,
-    InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant,
-    InterfaceUnionTag, PackageInterfaceSurface,
+    InterfaceDependencySubjectRoot, InterfaceExecutableTemplate, InterfaceGenericArgument,
+    InterfaceGenericBinding, InterfaceGenericDeclaration, InterfaceGenericSubstitution,
+    InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
+    InterfaceImplementationInstanceId, InterfaceImplementationRecord, InterfaceNativeBoundary,
+    InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfacePredicateSummary,
+    InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceSupportEntity,
+    InterfaceSymbolReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
+    InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
+    PackageInterfaceSurface,
 };
 use bray_symbols::{
     AnySymbolId, CallableContractClauseValue, CallableContractTemplate,
@@ -70,7 +70,11 @@ pub(super) fn build_semantic_facts(
     selected: &BTreeSet<AnySymbolId>,
     keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
 ) -> Result<
-    (InterfaceSemanticFacts, Vec<InterfaceExecutableTemplate>),
+    (
+        InterfaceSemanticFacts,
+        Vec<InterfaceExecutableTemplate>,
+        Vec<InterfaceNativeBoundary>,
+    ),
     PackageInterfaceExportError,
 > {
     let values = compilation
@@ -117,8 +121,8 @@ pub(super) fn build_semantic_facts(
     declarations.generic_declarations.sort_unstable();
     declarations.declaration_templates.sort_unstable();
 
-    let executable_templates =
-        executable_templates(compilation, graph, &binder, selected, &mut export)?;
+    let executable_templates = executable_templates(compilation, graph, selected, &mut export)?;
+    let native_boundaries = native_boundaries(compilation, selected, &export)?;
 
     let facts = InterfaceSemanticFacts::new()
         .with_applications(
@@ -149,31 +153,60 @@ pub(super) fn build_semantic_facts(
         )
         .with_implementations(implementations, coherence);
 
-    Ok((facts, executable_templates))
+    Ok((facts, executable_templates, native_boundaries))
+}
+
+fn native_boundaries(
+    compilation: &Compilation,
+    selected: &BTreeSet<AnySymbolId>,
+    export: &SemanticExporter<'_>,
+) -> Result<Vec<InterfaceNativeBoundary>, PackageInterfaceExportError> {
+    let mut boundaries = Vec::new();
+
+    for symbol in selected.iter().copied() {
+        let AnySymbolId::Function(function) = symbol else {
+            continue;
+        };
+
+        let contract = compilation
+            .foreign_callable_contract(function)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        if contract.diagnostics().has_errors() {
+            return Err(PackageInterfaceExportError::InvalidCompilation);
+        }
+
+        let Some(contract) = contract.value() else {
+            continue;
+        };
+
+        let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
+            return Err(PackageInterfaceExportError::InvalidCompilation);
+        };
+
+        let native_symbol = bray_runtime_interface::BinarySymbolName::try_new(contract.symbol())
+            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+
+        boundaries.push(InterfaceNativeBoundary::new(
+            owner,
+            contract.direction(),
+            native_symbol,
+        ));
+    }
+
+    Ok(boundaries)
 }
 
 fn executable_templates(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
-    binder: &CompilationBinderFacts<'_>,
     selected: &BTreeSet<AnySymbolId>,
     export: &mut SemanticExporter<'_>,
 ) -> Result<Vec<InterfaceExecutableTemplate>, PackageInterfaceExportError> {
     let mut templates = Vec::new();
 
     for symbol in selected.iter().copied() {
-        let Some(definition) = bray_symbols::CallableDefinitionId::try_new(symbol) else {
-            continue;
-        };
-
-        if !callable_uses_generic_parameters(graph, binder, symbol)? {
-            continue;
-        }
-
-        let Some(key) = compilation
-            .callable_body_key(definition)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
-        else {
+        let Some(key) = executable_template_unit(compilation, graph, symbol)? else {
             continue;
         };
 
@@ -195,12 +228,14 @@ fn executable_templates(
             return Err(PackageInterfaceExportError::InvalidCompilation);
         };
 
-        let payload = bray_package_interface::encode_executable_template(mir, export)
-            .map_err(|error| match error {
-                bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
-                bray_package_interface::ExecutableTemplateEncodeError::NestedUnit
-                | bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
-                    PackageInterfaceExportError::InvalidCompilation
+        let payload =
+            bray_package_interface::encode_executable_template(mir, export).map_err(|error| {
+                match error {
+                    bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
+                    bray_package_interface::ExecutableTemplateEncodeError::NestedUnit
+                    | bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
+                        PackageInterfaceExportError::InvalidCompilation
+                    }
                 }
             })?;
 
@@ -213,22 +248,34 @@ fn executable_templates(
     Ok(templates)
 }
 
-fn callable_uses_generic_parameters(
+fn executable_template_unit(
+    compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
-    binder: &CompilationBinderFacts<'_>,
-    symbol: AnySymbolId,
-) -> Result<bool, PackageInterfaceExportError> {
-    let mut current = Some(symbol);
-
-    while let Some(symbol) = current {
-        if !generic_parameters(binder, symbol)?.is_empty() {
-            return Ok(true);
-        }
-
-        current = graph.containing_symbol(symbol);
+    owner: AnySymbolId,
+) -> Result<Option<BoundUnitKey>, PackageInterfaceExportError> {
+    if let Some(definition) = bray_symbols::CallableDefinitionId::try_new(owner) {
+        return compilation
+            .callable_body_key(definition)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation);
     }
 
-    Ok(false)
+    if graph.runtime_default_subject(owner).is_none() {
+        return Ok(None);
+    }
+
+    let owner = graph
+        .symbol_key(owner)
+        .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+
+    compilation
+        .declared_unit_keys()
+        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)
+        .map(|units| {
+            units.into_iter().find(|unit| {
+                unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
+                    && unit.declared_owner() == owner
+            })
+        })
 }
 
 #[derive(Default)]

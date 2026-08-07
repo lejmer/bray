@@ -1,11 +1,11 @@
 use super::core::UnitTranslator;
 use super::support::{
-    aggregate_element, extract_value, int_value, integer_constant, llvm, pointer_value, result_type,
+    extract_value, int_value, integer_constant, llvm, pointer_value, result_type,
 };
-use bray_codegen::{CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind};
-use bray_ir::{
-    MirBlockId, MirEdge, MirOperand, MirPatternPredicate, MirPlace, MirTerminatorKind,
+use bray_codegen::{
+    CodegenCallSite, CodegenFailure, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind,
 };
+use bray_ir::{MirBlockId, MirEdge, MirOperand, MirPatternPredicate, MirPlace, MirTerminatorKind};
 use inkwell::values::{BasicValueEnum, PointerValue};
 use inkwell::{FloatPredicate, IntPredicate};
 
@@ -148,12 +148,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirTerminatorKind::Iterate {
                 cursor,
-                next,
+                next: _,
                 element_type,
                 item,
                 exhausted,
+                ..
             } => {
-                self.translate_iteration(cursor, *next, *element_type, *item, exhausted)?;
+                self.translate_iteration(block, cursor, *element_type, *item, exhausted)?;
             }
             MirTerminatorKind::Suspend {
                 kind,
@@ -297,8 +298,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn translate_iteration(
         &mut self,
+        block: MirBlockId,
         cursor: &MirPlace,
-        next: bray_ir::MirCallableReference,
         element_type: bray_symbols::TypeId,
         item: MirBlockId,
         exhausted: &MirEdge,
@@ -306,13 +307,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mapping = self
             .request
             .mappings()
-            .callable(self.instance.key(), next)
+            .callable(self.instance.key(), CodegenCallSite::Terminator(block))
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let symbol = self
             .request
             .mappings()
-            .instance_symbol(mapping.instance())
+            .instance_symbol(
+                mapping
+                    .instance()
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+            )
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let function = self
@@ -497,9 +502,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         subject_type: bray_symbols::TypeId,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(subject_type)
+            .type_mapping(subject_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         match (mapping.kind(), subject) {
@@ -507,11 +510,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_is_not_null(pointer, "nullable.present"))
             }
             (CodegenTypeKind::Aggregate(fields), subject) if fields.len() > 1 => {
-                let tag = extract_value(
-                    &self.builder,
-                    subject,
-                    aggregate_element(self.request.mappings(), fields, 0)?,
-                )?;
+                let tag =
+                    extract_value(&self.builder, subject, self.aggregate_element(fields, 0)?)?;
 
                 let tag = int_value(tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -545,27 +545,48 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn union_tag(
         &mut self,
-        subject: BasicValueEnum<'context>,
-        subject_type: bray_symbols::TypeId,
+        mut subject: BasicValueEnum<'context>,
+        mut subject_type: bray_symbols::TypeId,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let mapping = self
-            .request
-            .mappings()
-            .ty(subject_type)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let (storage, tag_type) = loop {
+            let mapping = self
+                .type_mapping(subject_type)
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            match mapping.kind() {
+                CodegenTypeKind::Union { tag, .. } => {
+                    let storage = llvm(
+                        self.builder
+                            .build_alloca(subject.get_type(), "pattern.union.subject"),
+                    )?;
+
+                    llvm(self.builder.build_store(storage, subject))?;
+
+                    break (storage, *tag);
+                }
+                CodegenTypeKind::Pointer { target, .. } => {
+                    let storage =
+                        pointer_value(subject).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    let target_mapping = self
+                        .type_mapping(*target)
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    if let CodegenTypeKind::Union { tag, .. } = target_mapping.kind() {
+                        break (storage, *tag);
+                    }
+
+                    subject = llvm(self.builder.build_load(
+                        self.types.map(*target)?,
+                        storage,
+                        "pattern.union.borrow",
+                    ))?;
+
+                    subject_type = *target;
+                }
+                _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+            }
         };
-
-        let tag_type = *tag;
-
-        let storage = llvm(
-            self.builder
-                .build_alloca(subject.get_type(), "pattern.union.subject"),
-        )?;
-
-        llvm(self.builder.build_store(storage, subject))?;
 
         let mapped_tag = self.types.map(tag_type)?;
 
@@ -581,18 +602,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn union_variant_tag(
         &self,
-        subject_type: bray_symbols::TypeId,
+        mut subject_type: bray_symbols::TypeId,
         variant: bray_symbols::UnionVariantSymbolId,
         tag_type: inkwell::types::IntType<'context>,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let mapping = self
-            .request
-            .mappings()
-            .ty(subject_type)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let variants = loop {
+            let mapping = self
+                .type_mapping(subject_type)
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            match mapping.kind() {
+                CodegenTypeKind::Union { variants, .. } => break variants,
+                CodegenTypeKind::Pointer { target, .. } => subject_type = *target,
+                _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+            }
         };
 
         let tag = variants

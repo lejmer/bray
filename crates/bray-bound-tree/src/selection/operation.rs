@@ -368,7 +368,7 @@ impl SelectedConstruction {
 }
 
 /// The exact rule used by one level of an explicit conversion.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ConversionTarget {
     /// Source and target are the same semantic type.
     Identity,
@@ -399,7 +399,7 @@ pub enum ConversionTarget {
 }
 
 /// One exact source-to-target conversion plan.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SelectedConversion {
     source_type: TypeId,
     target_type: TypeId,

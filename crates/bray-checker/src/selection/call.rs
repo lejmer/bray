@@ -112,7 +112,9 @@ where
 
         match candidate {
             CandidateCheck::Applicable { key, call } => applicable.push((key, call)),
-            CandidateCheck::Incompatible => has_incompatible = true,
+            CandidateCheck::Incompatible => {
+                has_incompatible = true;
+            }
             CandidateCheck::Recovered => has_recovered = true,
         }
     }
@@ -355,9 +357,7 @@ where
                     .and_then(bray_bound_tree::MemberTarget::receiver)
             }),
     )? {
-        ReceiverApplicability::Incompatible => {
-            return Ok(CandidateApplicability::Incompatible);
-        }
+        ReceiverApplicability::Incompatible => return Ok(CandidateApplicability::Incompatible),
         ReceiverApplicability::Recovered => return Ok(CandidateApplicability::Recovered),
         ReceiverApplicability::Applicable(receiver) => on_receiver(receiver),
     }

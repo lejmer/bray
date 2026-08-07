@@ -270,8 +270,8 @@ fn source_text(source: &InspectionMirSource) -> String {
         InspectionMirSource::GeneratedLifecycle { role } => {
             format!("generated lifecycle {role}")
         }
-        InspectionMirSource::ImportedCallable { callable } => {
-            format!("imported {}", callable.text())
+        InspectionMirSource::ImportedExecutable { owner } => {
+            format!("imported {}", owner.text())
         }
     }
 }

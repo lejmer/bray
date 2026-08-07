@@ -12,8 +12,9 @@ use super::state::Parser;
 const GENERIC_PARAMETER_START_KINDS: [SyntaxKind; 2] =
     [SyntaxKind::ConstKeyword, SyntaxKind::IdentifierToken];
 
-const GENERIC_PARAMETER_LIST_TERMINATORS: [SyntaxKind; 9] = [
+const GENERIC_PARAMETER_LIST_TERMINATORS: [SyntaxKind; 10] = [
     SyntaxKind::GreaterToken,
+    SyntaxKind::GreaterGreaterToken,
     SyntaxKind::OpenParenToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::WithKeyword,
@@ -24,9 +25,10 @@ const GENERIC_PARAMETER_LIST_TERMINATORS: [SyntaxKind; 9] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 10] = [
+const GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 11] = [
     SyntaxKind::CommaToken,
     SyntaxKind::GreaterToken,
+    SyntaxKind::GreaterGreaterToken,
     SyntaxKind::OpenParenToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::WithKeyword,
@@ -64,8 +66,9 @@ const GENERIC_ARGUMENT_START_KINDS: [SyntaxKind; 24] = [
     SyntaxKind::ViewKeyword,
 ];
 
-const GENERIC_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 8] = [
+const GENERIC_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 9] = [
     SyntaxKind::GreaterToken,
+    SyntaxKind::GreaterGreaterToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::CloseBracketToken,
     SyntaxKind::EqualsToken,
@@ -75,9 +78,10 @@ const GENERIC_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 8] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const TYPE_FORM_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 8] = [
+const TYPE_FORM_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 9] = [
     SyntaxKind::CloseBracketToken,
     SyntaxKind::GreaterToken,
+    SyntaxKind::GreaterGreaterToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::EqualsToken,
     SyntaxKind::SemicolonToken,
@@ -111,8 +115,15 @@ impl Parser {
         let mut builder = GenericParameterListSyntax::builder(self.syntax_source(), start);
 
         builder.push_less_token(self.expect(SyntaxKind::LessToken));
-        self.parse_separated_list(&mut builder, spec, Parser::parse_generic_parameter);
-        builder.push_greater_token(self.expect(SyntaxKind::GreaterToken));
+
+        self.parse_separated_list_until(
+            &mut builder,
+            spec,
+            Parser::at_generic_parameter_list_end,
+            Parser::parse_generic_parameter,
+        );
+
+        builder.push_greater_token(self.expect_generic_close());
 
         builder.build()
     }
@@ -147,7 +158,11 @@ impl Parser {
     }
 
     fn at_generic_const_parameter_type_boundary(&mut self) -> bool {
-        self.at_any(&GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS)
+        self.at_generic_close() || self.at_any(&GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS)
+    }
+
+    fn at_generic_parameter_list_end(&mut self) -> bool {
+        self.at_generic_close() || self.at_any(&GENERIC_PARAMETER_LIST_TERMINATORS)
     }
 
     pub(super) fn parse_generic_argument_list(&mut self) -> GenericArgumentListSyntax {
@@ -169,8 +184,15 @@ impl Parser {
         let mut builder = GenericArgumentListSyntax::builder(self.syntax_source(), start);
 
         builder.push_less_token(self.expect(SyntaxKind::LessToken));
-        self.parse_separated_list(&mut builder, spec, Parser::parse_generic_argument);
-        builder.push_greater_token(self.expect(SyntaxKind::GreaterToken));
+
+        self.parse_separated_list_until(
+            &mut builder,
+            spec,
+            Parser::at_generic_argument_list_end,
+            Parser::parse_generic_argument,
+        );
+
+        builder.push_greater_token(self.expect_generic_close());
 
         builder.build()
     }
@@ -235,7 +257,13 @@ impl Parser {
     }
 
     fn at_generic_argument_boundary(&mut self) -> bool {
-        self.at(SyntaxKind::CommaToken) || self.at_any(&GENERIC_ARGUMENT_LIST_TERMINATORS)
+        self.at_generic_close()
+            || self.at(SyntaxKind::CommaToken)
+            || self.at_any(&GENERIC_ARGUMENT_LIST_TERMINATORS)
+    }
+
+    fn at_generic_argument_list_end(&mut self) -> bool {
+        self.at_generic_close() || self.at_any(&GENERIC_ARGUMENT_LIST_TERMINATORS)
     }
 
     fn at_type_form_argument_boundary(&mut self) -> bool {
@@ -258,7 +286,21 @@ impl Parser {
     ) -> bool {
         let mut depth = DelimiterDepth::default();
 
-        while !self.at(SyntaxKind::EndOfFileToken) {
+        loop {
+            if self.at_generic_close() {
+                if depth.is_at_root() {
+                    return false;
+                }
+
+                depth.observe_grouping_or_angle(self.consume_generic_close().kind());
+
+                continue;
+            }
+
+            if self.at(SyntaxKind::EndOfFileToken) {
+                return false;
+            }
+
             let kind = self.peek().kind();
 
             let at_outer_boundary = depth.is_at_root()
@@ -275,8 +317,6 @@ impl Parser {
             depth.observe_grouping_or_angle(kind);
             self.consume();
         }
-
-        false
     }
 }
 
@@ -450,6 +490,19 @@ mod tests {
         assert_eq!(type_argument.type_expressions().count(), 1);
         assert_eq!(constant_argument.expressions().count(), 1);
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_splits_adjacent_nested_generic_closes() {
+        let sources = source_store(["<Outer<Middle<Inner<T>>>>"]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+
+        let list = parser.parse_generic_argument_list();
+        let diagnostics = parser.finish();
+
+        assert_eq!(list.full_text(), "<Outer<Middle<Inner<T>>>>");
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     #[test]

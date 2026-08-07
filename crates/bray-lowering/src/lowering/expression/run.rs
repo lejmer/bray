@@ -1,4 +1,4 @@
-use bray_bound_tree::{BoundExpressionId, SelectedCall};
+use bray_bound_tree::{AsyncSuspensionKind, BoundExpressionId, SelectedCall};
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirEdge, MirFrameStateFacts, MirOperationKind,
@@ -37,7 +37,7 @@ impl Lowerer<'_> {
                 )))
             }
             Some(ImplementationHook::CurrentRunCancellationPropagation) => {
-                self.finish_cancellation(current, &source)?;
+                self.finish_cancellation(current, &source, expression.into())?;
 
                 Ok(Some(LoweredExpression::terminated(source)))
             }
@@ -50,8 +50,19 @@ impl Lowerer<'_> {
                     .builder
                     .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-                let cancellation = self.suspension_cleanup_edge(&source)?;
+                let cancellation = self.suspension_cleanup_edge(&source, expression.into())?;
                 let state = self.next_frame_state()?;
+
+                let suspension = self
+                    .input
+                    .async_facts()
+                    .suspensions()
+                    .iter()
+                    .find(|suspension| {
+                        suspension.expression() == expression
+                            && suspension.kind() == AsyncSuspensionKind::Yield
+                    })
+                    .ok_or(LoweringError::MissingSuspensionPoint(expression))?;
 
                 self.builder.set_terminator(
                     current,
@@ -67,11 +78,14 @@ impl Lowerer<'_> {
                     },
                 )?;
 
+                let initialized_storages =
+                    self.retained_storages(suspension.retained_subjects())?;
+
                 self.frame_states.push(MirFrameStateFacts::new(
                     state,
                     resume,
                     self.execution_lane_requirements(),
-                    [],
+                    initialized_storages,
                 ));
 
                 let ty = self.expression_type(expression)?;

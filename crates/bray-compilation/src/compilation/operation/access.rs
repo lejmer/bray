@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "member and index operation resolution share one constrained lookup algorithm")
+
 use std::collections::BTreeMap;
 
 use bray_binder::{BinderFactContext, SymbolFactProvider};
@@ -11,9 +13,9 @@ use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableParameterSignature,
     CallableSignature, CallableSignatureFact, CheckedConstraintKind, ExactSymbolId,
     ImplementationSelection, ImplementationSubjectFact, MemberLookupResult, NamedTypeSymbolId,
-    SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeData,
-    TypeExpressionTemplate, TypeId,
+    ReceiverParameterSignature, SelfTypeContext, StructFieldTypeFact, SymbolFactContract,
+    SymbolFactRequest, TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch,
+    TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TraitApplicationSyntax;
 
@@ -51,6 +53,21 @@ fn member_callable_signature(
     )
 }
 
+fn normalize_callable_type_equalities(
+    facts: &CompilationBinderFacts<'_>,
+    signature: CallableSignature,
+    constraints: &[(
+        bray_symbols::GenericOwnerId,
+        bray_symbols::CheckedConstraint,
+    )],
+) -> Result<CallableSignature, FactQueryError> {
+    let values = facts.semantic_values();
+
+    transform_callable_signature(signature, |ty| {
+        super::constraint::normalize_type_equalities(values, ty, constraints)
+    })
+}
+
 fn substitute_callable_self(
     facts: &CompilationBinderFacts<'_>,
     signature: CallableSignature,
@@ -59,21 +76,22 @@ fn substitute_callable_self(
 ) -> Result<CallableSignature, FactQueryError> {
     let values = facts.semantic_values();
 
-    let substitute = |ty| {
+    transform_callable_signature(signature, |ty| {
         values
             .substitute_contextual_self(ty, context, replacement)
             .map_err(|_| FactQueryError::InfrastructureFailure)
-    };
+    })
+}
 
+fn transform_callable_signature(
+    signature: CallableSignature,
+    mut transform: impl FnMut(TypeId) -> Result<TypeId, FactQueryError>,
+) -> Result<CallableSignature, FactQueryError> {
     let receiver = signature
         .receiver()
         .map(|receiver| {
-            substitute(receiver.ty()).map(|ty| {
-                bray_symbols::ReceiverParameterSignature::new(
-                    receiver.parameter(),
-                    ty,
-                    receiver.mode(),
-                )
+            transform(receiver.ty()).map(|ty| {
+                ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
             })
         })
         .transpose()?;
@@ -82,16 +100,16 @@ fn substitute_callable_self(
         .parameters()
         .iter()
         .map(|parameter| {
-            substitute(parameter.ty())
+            transform(parameter.ty())
                 .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(CallableSignature::new(
-        substitute(signature.callable_type())?,
+        transform(signature.callable_type())?,
         receiver,
         parameters,
-        substitute(signature.result())?,
+        transform(signature.result())?,
     ))
 }
 
@@ -172,13 +190,13 @@ impl Compilation {
             return Ok(None);
         };
 
-        let owner = match definition {
-            NamedTypeSymbolId::Struct(structure) => AnySymbolId::from(*structure),
-            NamedTypeSymbolId::Union(union) => AnySymbolId::from(*union),
-        };
+        let surface = facts
+            .type_associated_surface(*definition)
+            .map_err(binder_fact_error)?;
 
-        let MemberLookupResult::Found(member) = facts.symbols().lookup_member(owner, name.as_str())
-        else {
+        *diagnostics = diagnostics.merged(surface.diagnostics());
+
+        let MemberLookupResult::Found(member) = surface.value().lookup(name.as_str()) else {
             return Ok(None);
         };
 
@@ -247,8 +265,10 @@ impl Compilation {
             .symbol_for_key(unit.key().declared_owner())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let requirements =
-            self.trait_constraint_requirements(facts, owner, receiver_type, diagnostics)?;
+        let constraints =
+            super::constraint::enclosing_generic_constraints(facts, owner, diagnostics)?;
+
+        let requirements = Self::trait_constraint_requirements(&constraints, receiver_type);
 
         let mut matches = Vec::new();
 
@@ -259,8 +279,8 @@ impl Compilation {
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
             let MemberLookupResult::Found(member) = facts
-                .symbols()
                 .lookup_member(application_data.definition().into(), name)
+                .map_err(binder_fact_error)?
             else {
                 continue;
             };
@@ -269,16 +289,51 @@ impl Compilation {
                 continue;
             };
 
-            matches.push((dispatch, application_data, member));
+            matches.push((dispatch, application, member));
         }
 
         let [(dispatch, application, member)] = matches.as_slice() else {
             return Ok(None);
         };
 
+        self.resolve_constrained_trait_member_operation(
+            facts,
+            expression,
+            receiver_type,
+            *application,
+            *dispatch,
+            *member,
+            &constraints,
+            diagnostics,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the operation, receiver, trait application, dispatch, and member are distinct semantic inputs"
+    )]
+    fn resolve_constrained_trait_member_operation(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        expression: BoundExpressionId,
+        receiver_type: TypeId,
+        application: TraitApplicationId,
+        dispatch: TraitConstraintDispatch,
+        member: TraitCallableMemberSymbolId,
+        constraints: &[(
+            bray_symbols::GenericOwnerId,
+            bray_symbols::CheckedConstraint,
+        )],
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<OperationResolution>, FactQueryError> {
+        let application = facts
+            .semantic_values()
+            .trait_application_data(application)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
         let callable = self.resolve_callable_signature(
             facts,
-            (*member).into(),
+            member.into(),
             [application.substitution()],
             diagnostics,
         )?;
@@ -292,12 +347,14 @@ impl Compilation {
         let signature =
             substitute_callable_self(facts, callable.signature, trait_context, receiver_type)?;
 
+        let signature = normalize_callable_type_equalities(facts, signature, constraints)?;
+
         let result_type = signature.callable_type();
         let signature = member_callable_signature(signature, receiver_type);
 
-        let target = MemberTarget::new((*member).into(), result_type, [])
+        let target = MemberTarget::new(member.into(), result_type, [])
             .with_callable(callable.instance, signature)
-            .with_trait_dispatch(*dispatch);
+            .with_trait_dispatch(dispatch);
 
         Ok(Some(OperationResolution::new(
             expression,
@@ -308,17 +365,15 @@ impl Compilation {
     }
 
     fn trait_constraint_requirements(
-        &self,
-        facts: &CompilationBinderFacts<'_>,
-        owner: AnySymbolId,
+        constraints: &[(
+            bray_symbols::GenericOwnerId,
+            bray_symbols::CheckedConstraint,
+        )],
         receiver_type: TypeId,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<BTreeMap<TraitApplicationId, TraitConstraintDispatch>, FactQueryError> {
+    ) -> BTreeMap<TraitApplicationId, TraitConstraintDispatch> {
         let mut requirements = BTreeMap::new();
 
-        for (generic_owner, constraint) in
-            super::constraint::enclosing_generic_constraints(facts, owner, diagnostics)?
-        {
+        for (generic_owner, constraint) in constraints {
             let CheckedConstraintKind::TraitSatisfaction {
                 subject,
                 application,
@@ -329,12 +384,12 @@ impl Compilation {
 
             if subject == receiver_type {
                 requirements.entry(application).or_insert_with(|| {
-                    TraitConstraintDispatch::new(generic_owner, constraint.ordinal())
+                    TraitConstraintDispatch::new(*generic_owner, constraint.ordinal())
                 });
             }
         }
 
-        Ok(requirements)
+        requirements
     }
 
     fn resolve_access_subject_type(
@@ -433,16 +488,35 @@ impl Compilation {
             .trait_application_data(application)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let MemberLookupResult::Found(trait_member) = facts
-            .symbols()
+        let lookup = facts
             .lookup_member(application_data.definition().into(), name.as_str())
-        else {
+            .map_err(binder_fact_error)?;
+
+        let MemberLookupResult::Found(trait_member) = lookup else {
             return Ok(None);
         };
 
         let Some(trait_member) = TraitCallableMemberSymbolId::try_from_any(trait_member) else {
             return Ok(None);
         };
+
+        let constraints =
+            super::constraint::enclosing_generic_constraints(facts, owner, diagnostics)?;
+
+        let requirements = Self::trait_constraint_requirements(&constraints, receiver_type);
+
+        if let Some(dispatch) = requirements.get(&application).copied() {
+            return self.resolve_constrained_trait_member_operation(
+                facts,
+                expression,
+                receiver_type,
+                application,
+                dispatch,
+                trait_member,
+                &constraints,
+                diagnostics,
+            );
+        }
 
         let requirement =
             bray_symbols::ImplementationRequirementKey::new(receiver_type, application);

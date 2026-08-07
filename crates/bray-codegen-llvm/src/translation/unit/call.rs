@@ -4,8 +4,9 @@ use super::core::UnitTranslator;
 use super::support::{llvm, next_helper, parameter_type, pointer_value};
 use crate::mapping::type_attribute;
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFailure, CodegenHelperMapping, CodegenIndirectParameterKind,
-    CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey, CodegenTypeKind,
+    CodegenCallSite, CodegenCallableSignature, CodegenFailure, CodegenHelperMapping,
+    CodegenIndirectParameterKind, CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey,
+    CodegenTypeKind,
 };
 use bray_ir::{MirCall, MirCallArgument, MirCallTarget, MirHelperReference, MirTaskTerminalState};
 use inkwell::attributes::AttributeLoc;
@@ -29,17 +30,35 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let (function, signature) = match call.target() {
-            MirCallTarget::Direct(reference) => {
+            MirCallTarget::Direct(_) => {
                 let mapping = self
                     .request
                     .mappings()
-                    .callable(self.instance.key(), *reference)
+                    .callable(self.instance.key(), CodegenCallSite::Operation(operation))
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                if let Some(intrinsic) = mapping.intrinsic_operation() {
+                    let operand_type = call
+                        .arguments()
+                        .first()
+                        .and_then(bray_ir::MirCallArgument::value)
+                        .map(|operand| self.operand_type(operand))
+                        .transpose()?
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    return self
+                        .translate_intrinsic_call(intrinsic, operand_type, &semantic_arguments)
+                        .map(Some);
+                }
+
+                let instance = mapping
+                    .instance()
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 let symbol = self
                     .request
                     .mappings()
-                    .instance_symbol(mapping.instance())
+                    .instance_symbol(instance)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 let function = self
@@ -53,9 +72,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let callee_type = self.operand_type(callee)?;
 
                 let mapping = self
-                    .request
-                    .mappings()
-                    .ty(callee_type)
+                    .type_mapping(callee_type)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 let CodegenTypeKind::Callable(signature) = mapping.kind() else {
@@ -101,9 +118,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let mapping = self
-            .request
-            .mappings()
-            .ty(ty)
+            .type_mapping(ty)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         if mapping.layout().is_none_or(|layout| layout.size() != 0) {

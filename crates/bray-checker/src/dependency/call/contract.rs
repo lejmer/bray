@@ -15,7 +15,7 @@ use crate::{
     CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
 };
 
-pub(in crate::dependency) fn selected_call_contract<C>(
+pub(crate) fn selected_call_contract<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     expression: BoundExpressionId,

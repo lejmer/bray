@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_bound_tree::CheckedTemplate;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_package_interface::{ImportedInterfaceSymbolResolver, InterfaceSymbolResolver};
-use bray_symbols::{CallableDefinitionId, ImportedSymbolFactAddress};
+use bray_symbols::{AnySymbolId, ImportedSymbolFactAddress};
 
 use super::diagnostic::{
     executable_template_decode_diagnostics, executable_template_diagnostics,
@@ -12,12 +12,16 @@ use super::diagnostic::{
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl super::super::Compilation {
-    fn loaded_dependency_implementation_with_cancellation(
+    pub(in crate::compilation) fn loaded_dependency_implementation_with_cancellation(
         &self,
         interface: bray_symbols::ImportedInterfaceId,
         cancellation: &CancellationToken,
-    ) -> Result<Option<&DiagnosticResult<Option<Arc<bray_package_interface::PackageImplementationArtifact>>>>, FactQueryError>
-    {
+    ) -> Result<
+        Option<
+            &DiagnosticResult<Option<Arc<bray_package_interface::PackageImplementationArtifact>>>,
+        >,
+        FactQueryError,
+    > {
         let Some(index) = interface.to_index() else {
             return Ok(None);
         };
@@ -52,10 +56,11 @@ impl super::super::Compilation {
                     }
                 };
 
-                let artifact = bray_package_interface::PackageImplementationArtifact::try_from_bytes(
-                    bytes,
-                    input.validation_policy().limits(),
-                );
+                let artifact =
+                    bray_package_interface::PackageImplementationArtifact::try_from_bytes(
+                        bytes,
+                        input.validation_policy().limits(),
+                    );
 
                 match artifact {
                     Ok(artifact) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
@@ -71,12 +76,53 @@ impl super::super::Compilation {
         .map(Some)
     }
 
+    pub(in crate::compilation) fn imported_native_boundary_with_cancellation(
+        &self,
+        symbol: AnySymbolId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<bray_package_interface::InterfaceNativeBoundary>, FactQueryError> {
+        let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+        let Some(skeleton) = skeleton.value() else {
+            return Ok(None);
+        };
+
+        let Some(address) = skeleton.imported_fact_address(symbol) else {
+            return Ok(None);
+        };
+
+        let loaded = self
+            .loaded_dependency_interface_with_cancellation(address.interface(), cancellation)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let Some(interface) = loaded.validated() else {
+            return Ok(None);
+        };
+
+        let implementation = self
+            .loaded_dependency_implementation_with_cancellation(address.interface(), cancellation)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let Some(implementation) = implementation.value() else {
+            return Ok(None);
+        };
+
+        if implementation.interface_content_hash() != interface.header().content_hash()
+            || implementation.language_revision() != interface.header().language_revision()
+        {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
+
+        implementation
+            .native_boundary(address.symbol())
+            .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
     pub(in crate::compilation) fn imported_executable_template_with_cancellation(
         &self,
         address: ImportedSymbolFactAddress,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>>, FactQueryError>
-    {
+    ) -> Result<Arc<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>>, FactQueryError> {
         let cell = self.state.imported_executable_templates.cell(address)?;
 
         let result = cell.get_or_compute(
@@ -96,8 +142,7 @@ impl super::super::Compilation {
         &self,
         address: ImportedSymbolFactAddress,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>, FactQueryError>
-    {
+    ) -> Result<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>, FactQueryError> {
         let input = self
             .dependency_interface_input(address.interface())
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -181,7 +226,6 @@ impl super::super::Compilation {
             .resolve(&bray_package_interface::InterfaceSymbolReference::Local(
                 address.symbol(),
             ))
-            .and_then(CallableDefinitionId::try_new)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let selected_target = self.selected_target().target();
@@ -209,12 +253,14 @@ impl super::super::Compilation {
             }
         };
 
-        Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(template))))
+        Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
+            template,
+        ))))
     }
 
     pub(in crate::compilation) fn imported_executable_mir(
         &self,
-        definition: CallableDefinitionId,
+        owner: AnySymbolId,
         unit: bray_ir::MirUnitId,
         target: bray_ir::MirTargetFacts,
         cancellation: &CancellationToken,
@@ -225,20 +271,19 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        let Some(address) = skeleton.imported_fact_address(definition.callable_symbol().into_any())
-        else {
+        let Some(address) = skeleton.imported_fact_address(owner) else {
             return Ok(None);
         };
 
-        let template = self
-            .imported_executable_template_with_cancellation(address, cancellation)?;
+        let template =
+            self.imported_executable_template_with_cancellation(address, cancellation)?;
 
         let Some(template) = template.value() else {
             return Ok(None);
         };
 
         if template.unit() != unit
-            || template.key() != &bray_ir::MirUnitKey::ImportedCallable(definition)
+            || template.key() != &bray_ir::MirUnitKey::ImportedExecutable(owner)
             || template.target() != &target
         {
             return Err(FactQueryError::InfrastructureFailure);
@@ -491,6 +536,7 @@ mod tests {
             bundle.surface(),
             bundle.semantic_facts(),
             [InterfaceConstantCallableBody::new(owner, template)],
+            [],
             [],
             InterfaceValidationLimits::default(),
         )

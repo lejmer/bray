@@ -57,7 +57,7 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_panic(current, &source, report, report_type, None, 0)?;
+        self.finish_panic_to_active_catch(expression, current, &source, report, report_type)?;
 
         Ok(Some(LoweredExpression::terminated(source)))
     }

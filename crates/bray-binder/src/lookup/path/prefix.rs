@@ -28,9 +28,14 @@ pub(crate) fn lookup_surface_name_with_imports(
     }
 
     imported_symbols.map_or(MemberLookupResult::NotFound, |symbols| {
-        symbols
-            .lookup(owner, name)
-            .map(ResolvedName::Surface, ResolvedName::Surface)
+        combine_name_lookups(
+            symbols
+                .lookup(owner, name)
+                .map(ResolvedName::Surface, ResolvedName::Surface),
+            symbols
+                .lookup_member(owner, name)
+                .map(ResolvedName::Surface, ResolvedName::Surface),
+        )
     })
 }
 

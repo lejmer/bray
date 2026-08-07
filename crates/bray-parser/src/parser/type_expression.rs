@@ -131,6 +131,10 @@ impl Parser {
         let mut expression = self.parse_type_primary_expression(at_boundary);
 
         loop {
+            if at_boundary(self) {
+                break;
+            }
+
             if self.at(SyntaxKind::LessToken) {
                 expression = self.parse_generic_type_operation(expression);
                 continue;
@@ -205,9 +209,9 @@ impl Parser {
             SyntaxKind::OpenParenToken => self.parse_parenthesized_type_expression(at_boundary),
             SyntaxKind::OpenBracketToken => self.parse_bracketed_type_expression(at_boundary),
             kind if self.at_type_expression_boundary_kind(kind) || at_boundary(self) => {
-                self.parse_path_type_expression()
+                self.parse_path_type_expression(at_boundary)
             }
-            SyntaxKind::IdentifierToken => self.parse_path_type_expression(),
+            SyntaxKind::IdentifierToken => self.parse_path_type_expression(at_boundary),
             _ => self.parse_unknown_type_expression(at_boundary),
         }
     }
@@ -230,11 +234,14 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_path_type_expression(&mut self) -> TypeExpressionSyntax {
+    fn parse_path_type_expression(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> TypeExpressionSyntax {
         let start = self.peek().full_range().start();
         let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
 
-        builder.push_path(self.parse_path());
+        builder.push_path(self.parse_path_until(at_boundary));
 
         builder.build()
     }

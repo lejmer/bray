@@ -83,6 +83,10 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                let selections =
+                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
                 let context = self.checker_context_for(&key, cancellation)?;
@@ -94,6 +98,7 @@ impl Compilation {
                     bound.result().value(),
                     &semantic_context,
                     &context,
+                    selections.result().value(),
                     storage.result().value(),
                     memory.result().value(),
                 )?;
@@ -102,6 +107,7 @@ impl Compilation {
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
+                    selections.result().diagnostics(),
                     storage.result().diagnostics(),
                     memory.result().diagnostics(),
                     &liveness_diagnostics,
@@ -125,6 +131,10 @@ impl Compilation {
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
                 let patterns = self.pattern_facts_with_cancellation(key.clone(), cancellation)?;
+
+                let selections =
+                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let context = self.checker_context_for(&key, cancellation)?;
 
@@ -136,6 +146,7 @@ impl Compilation {
                     &semantic_context,
                     &context,
                     patterns.result().value(),
+                    selections.result().value(),
                     storage.result().value(),
                 )?;
 
@@ -144,6 +155,7 @@ impl Compilation {
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
                     patterns.result().diagnostics(),
+                    selections.result().diagnostics(),
                     storage.result().diagnostics(),
                     &refinement_diagnostics,
                 ]);
@@ -165,6 +177,10 @@ impl Compilation {
             cancellation,
             |cancellation| {
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                let selections =
+                    self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
+
                 let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
                 let liveness = self.liveness_with_cancellation(key.clone(), cancellation)?;
 
@@ -188,6 +204,7 @@ impl Compilation {
 
                 let result = checker_result(DefaultStorageFlowChecker.check_storage_flow(
                     unit,
+                    selections.result().value(),
                     storage.result().value(),
                     liveness.result().value(),
                     refinements.result().value(),
@@ -198,6 +215,7 @@ impl Compilation {
 
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
+                    selections.result().diagnostics(),
                     storage.result().diagnostics(),
                     liveness.result().diagnostics(),
                     refinements.result().diagnostics(),

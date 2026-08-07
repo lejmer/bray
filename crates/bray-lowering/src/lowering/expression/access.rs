@@ -89,6 +89,10 @@ impl Lowerer<'_> {
         .map(|lowered| (lowered, result_type))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "borrow lowering requires both source occurrences and the checked borrow types"
+    )]
     fn lower_storage_borrow(
         &mut self,
         access_expression: BoundExpressionId,

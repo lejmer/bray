@@ -23,24 +23,26 @@ pub(super) fn test() -> Result<(), BuildError> {
     crate::native_toolchain::build_compiler(&root)
         .map_err(|error| BuildError::conformance("native", error))?;
 
-    let directory = tempfile::Builder::new()
+    let temporary_directory = tempfile::Builder::new()
         .prefix("bray-standard-library-native-")
         .tempdir()
         .map_err(BuildError::TemporaryDirectory)?;
 
-    let runtime = directory.path().join("runtime");
+    let directory = temporary_directory.path();
+
+    let runtime = directory.join("runtime");
 
     fs::create_dir(&runtime).map_err(|error| BuildError::write(&runtime, error))?;
 
     let runtime = crate::runtime_artifact::build_for_readiness(target, &runtime)
         .map_err(|error| BuildError::conformance("native runtime", error))?;
 
-    let toolchain = directory.path().join("toolchain");
+    let toolchain = directory.join("toolchain");
 
     crate::native_toolchain::assemble(&root, target, &runtime, &toolchain)
         .map_err(|error| BuildError::conformance("native toolchain", error))?;
 
-    let workspace = directory.path().join("workspace");
+    let workspace = directory.join("workspace");
 
     copy_fixture(&root.join("standard-library/conformance"), &workspace)?;
     audit_api(&root, &workspace, &toolchain, target)?;
@@ -117,7 +119,7 @@ fn audit_api(
 
     let filtered_report = parse_report("filtered execution", &filtered)?;
 
-    require_selection(&filtered_report, 13, 3, 10)?;
+    require_selection(&filtered_report, 32, 3, 29)?;
 
     let tests = tests(&filtered_report);
 
@@ -232,12 +234,12 @@ fn audit_outcome(
 
 fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
     require_product(report, API_PRODUCT)?;
-    require_selection(report, 13, 13, 0)?;
+    require_selection(report, 32, 32, 0)?;
 
-    if report.summary.passed != 13 || report.summary.failed != 0 {
+    if report.summary.passed != 32 || report.summary.failed != 0 {
         return Err(BuildError::conformance(
             "native execution",
-            "the API product did not report thirteen passing tests",
+            "the API product did not report thirty-two passing tests",
         ));
     }
 

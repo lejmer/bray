@@ -179,6 +179,16 @@ impl BoundResolvedCall {
         self
     }
 
+    /// Returns this call with the exact implementation witnesses required by its target.
+    pub fn with_implementation_witnesses(
+        mut self,
+        witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+    ) -> Self {
+        self.implementation_witnesses = sorted_unique_shared_slice(witnesses);
+
+        self
+    }
+
     /// Returns the exact declared, anonymous, or indirect callable target.
     pub const fn target(&self) -> BoundCallableTarget {
         self.target

@@ -84,7 +84,7 @@ pub use target::{
     TargetValidityRequirement,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
-pub(crate) use type_normalization::normalize_type_valued_members;
+pub use type_normalization::normalize_type_valued_members;
 pub use type_representation::{
     DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
     DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,

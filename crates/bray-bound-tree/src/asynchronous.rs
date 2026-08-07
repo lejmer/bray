@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
-    BodyBehaviorCall, BoundBlockId, BoundDependencyContractId, BoundDependencySubject,
-    BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
+    AnyBoundNodeId, BodyBehaviorCall, BoundBlockId, BoundDependencyContractId,
+    BoundDependencySubject, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
 };
 
 /// A language-defined operation on an owned future or task.
@@ -42,11 +42,20 @@ impl AsyncTaskOperation {
     }
 }
 
-/// One direct-await suspension point and the semantic state it retains.
+/// The language operation that suspends one protected frame.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AsyncSuspensionKind {
+    /// Wait for one future expression to complete.
+    Await { operand: BoundExpressionId },
+    /// Yield execution so another ready task can run.
+    Yield,
+}
+
+/// One suspension point and the semantic state it retains.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AsyncSuspensionPoint {
     expression: BoundExpressionId,
-    operand: BoundExpressionId,
+    kind: AsyncSuspensionKind,
     dependency_contract: Option<BoundDependencyContractId>,
     deferred_calls: Arc<[BodyBehaviorCall]>,
     retained_subjects: Arc<[BoundDependencySubject]>,
@@ -54,10 +63,10 @@ pub struct AsyncSuspensionPoint {
 }
 
 impl AsyncSuspensionPoint {
-    /// Creates one normalized direct-await suspension point.
+    /// Creates one normalized suspension point.
     pub fn new(
         expression: BoundExpressionId,
-        operand: BoundExpressionId,
+        kind: AsyncSuspensionKind,
         dependency_contract: Option<BoundDependencyContractId>,
         deferred_calls: impl IntoIterator<Item = BodyBehaviorCall>,
         retained_subjects: impl IntoIterator<Item = BoundDependencySubject>,
@@ -65,7 +74,7 @@ impl AsyncSuspensionPoint {
     ) -> Self {
         Self {
             expression,
-            operand,
+            kind,
             dependency_contract,
             deferred_calls: sorted_unique_shared_slice(deferred_calls),
             retained_subjects: sorted_unique_shared_slice(retained_subjects),
@@ -73,14 +82,14 @@ impl AsyncSuspensionPoint {
         }
     }
 
-    /// Returns the direct-await expression.
+    /// Returns the expression that suspends execution.
     pub const fn expression(&self) -> BoundExpressionId {
         self.expression
     }
 
-    /// Returns the consumed future expression.
-    pub const fn operand(&self) -> BoundExpressionId {
-        self.operand
+    /// Returns the language operation that causes suspension.
+    pub const fn kind(&self) -> AsyncSuspensionKind {
+        self.kind
     }
 
     /// Returns the dependency contract carried by the future operand.
@@ -108,6 +117,7 @@ impl AsyncSuspensionPoint {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AsyncScopeExitPlan {
     scope: BoundBlockId,
+    exit: AnyBoundNodeId,
     cancellation_broadcast: Arc<[StorageAccessId]>,
     lifecycle_resolution: Arc<[StorageAccessId]>,
     moved: Arc<[StorageAccessId]>,
@@ -118,6 +128,7 @@ impl AsyncScopeExitPlan {
     /// Creates a two-phase scope-exit plan.
     pub fn new(
         scope: BoundBlockId,
+        exit: AnyBoundNodeId,
         cancellation_broadcast: impl IntoIterator<Item = StorageAccessId>,
         lifecycle_resolution: impl IntoIterator<Item = StorageAccessId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
@@ -125,6 +136,7 @@ impl AsyncScopeExitPlan {
     ) -> Self {
         Self {
             scope,
+            exit,
             cancellation_broadcast: shared_slice(cancellation_broadcast),
             lifecycle_resolution: shared_slice(lifecycle_resolution),
             moved: sorted_unique_shared_slice(moved),
@@ -135,6 +147,11 @@ impl AsyncScopeExitPlan {
     /// Returns the lexical scope being exited.
     pub const fn scope(&self) -> BoundBlockId {
         self.scope
+    }
+
+    /// Returns the bound node whose completion or transfer exits the scope.
+    pub const fn exit(&self) -> AnyBoundNodeId {
+        self.exit
     }
 
     /// Returns owned storage visited during cancellation broadcast.
@@ -198,7 +215,10 @@ impl CheckedAsyncFacts {
             .any(|subject| !subject.is_valid_for(unit))
             || suspensions.iter().any(|suspension| {
                 suspension.expression().unit() != unit
-                    || suspension.operand().unit() != unit
+                    || match suspension.kind() {
+                        AsyncSuspensionKind::Await { operand } => operand.unit() != unit,
+                        AsyncSuspensionKind::Yield => false,
+                    }
                     || suspension
                         .dependency_contract()
                         .is_some_and(|contract| contract.unit() != unit)
@@ -212,6 +232,7 @@ impl CheckedAsyncFacts {
                 .any(|operation| operation.expression().unit() != unit)
             || scope_exits.iter().any(|exit| {
                 exit.scope().unit() != unit
+                    || exit.exit().unit() != unit
                     || exit
                         .cancellation_broadcast()
                         .iter()
@@ -249,7 +270,7 @@ impl CheckedAsyncFacts {
         &self.frame_dependencies
     }
 
-    /// Returns direct-await suspension points in evaluation order.
+    /// Returns suspension points in evaluation order.
     pub fn suspensions(&self) -> &[AsyncSuspensionPoint] {
         &self.suspensions
     }
@@ -273,8 +294,8 @@ impl CheckedAsyncFacts {
 #[cfg(test)]
 mod tests {
     use super::{
-        AsyncScopeExitPlan, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
-        CheckedAsyncFacts,
+        AsyncScopeExitPlan, AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation,
+        AsyncTaskOperationKind, CheckedAsyncFacts,
     };
     use crate::{
         BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnitId, BoundUnitKind,
@@ -289,13 +310,20 @@ mod tests {
         let storage = StorageAccessId::from_slot(unit, 3);
         let dependency = BoundDependencySubject::StorageAccess(storage);
 
-        let suspension =
-            AsyncSuspensionPoint::new(await_expression, operand, None, [], [dependency], false);
+        let suspension = AsyncSuspensionPoint::new(
+            await_expression,
+            AsyncSuspensionKind::Await { operand },
+            None,
+            [],
+            [dependency],
+            false,
+        );
 
         let operation = AsyncTaskOperation::new(operand, AsyncTaskOperationKind::Start);
 
         let cleanup = AsyncScopeExitPlan::new(
             BoundBlockId::from_slot(unit, 4),
+            BoundBlockId::from_slot(unit, 4).into(),
             [storage],
             [storage],
             [storage],
