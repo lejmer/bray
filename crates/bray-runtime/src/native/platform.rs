@@ -1,5 +1,6 @@
 use std::env;
 use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread::ThreadId;
 
@@ -7,6 +8,9 @@ use bray_runtime_interface::NativePlatformStatus;
 
 use crate::RunOutputStream;
 use crate::output::{flush_current_run_output, write_current_run_output};
+
+use super::filesystem::{close_file, flush_file, is_file_handle, read_file, seek_file, write_file};
+use super::region::{MemoryRegion, disjoint};
 
 const CONTEXT_HEADER_BYTES: usize = 96;
 const STANDARD_INPUT_HANDLE: u64 = 1;
@@ -28,11 +32,16 @@ native_platform_export! {
     pub extern "C" fn bray_platform_context_measure_v1(
         required: *mut u64,
     ) -> NativePlatformStatus {
-        if required.is_null() {
+        if MemoryRegion::write(required).is_none() {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
-        let Some(length) = u64::try_from(process_context().len()).ok() else {
+        let context = match process_context() {
+            Ok(context) => context,
+            Err(status) => return status,
+        };
+
+        let Some(length) = u64::try_from(context.len()).ok() else {
             return NativePlatformStatus::EXHAUSTED;
         };
 
@@ -48,23 +57,35 @@ native_platform_export! {
         capacity: u64,
         written_or_required: *mut u64,
     ) -> NativePlatformStatus {
-        if written_or_required.is_null() {
+        let Ok(capacity) = usize::try_from(capacity) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let Some(destination_region) = MemoryRegion::read(destination, capacity) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let Some(required_region) = MemoryRegion::write(written_or_required) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        if !disjoint(&[destination_region, required_region]) {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
-        let context = process_context();
+        let context = match process_context() {
+            Ok(context) => context,
+            Err(status) => return status,
+        };
+
         let Some(required) = u64::try_from(context.len()).ok() else {
             return NativePlatformStatus::EXHAUSTED;
         };
 
         unsafe { written_or_required.write(required) };
 
-        if capacity < required {
+        if capacity < context.len() {
             return NativePlatformStatus::INSUFFICIENT_BUFFER;
-        }
-
-        if required != 0 && destination.is_null() {
-            return NativePlatformStatus::INVALID_INPUT;
         }
 
         unsafe { std::ptr::copy_nonoverlapping(context.as_ptr(), destination, context.len()) };
@@ -84,10 +105,6 @@ native_platform_export! {
             return NativePlatformStatus::INVALID_INPUT;
         };
 
-        if handle != STANDARD_INPUT_HANDLE {
-            return NativePlatformStatus::INVALID_INPUT;
-        }
-
         let initialized = publish_transfer(transferred, 0);
 
         if initialized != NativePlatformStatus::SUCCESS || length == 0 {
@@ -95,6 +112,13 @@ native_platform_export! {
         }
 
         let destination = unsafe { std::slice::from_raw_parts_mut(destination, length) };
+
+        if handle != STANDARD_INPUT_HANDLE {
+            return match read_file(handle, destination) {
+                Ok(count) => publish_transfer(transferred, count),
+                Err(status) => status,
+            };
+        }
 
         match io::stdin().lock().read(destination) {
             Ok(count) => publish_transfer(transferred, count),
@@ -123,7 +147,10 @@ native_platform_export! {
         let source = unsafe { std::slice::from_raw_parts(source, length) };
 
         let Some(stream) = run_output_stream(handle) else {
-            return NativePlatformStatus::INVALID_INPUT;
+            return match write_file(handle, source) {
+                Ok(count) => publish_transfer(transferred, count),
+                Err(status) => status,
+            };
         };
 
         if let Some(count) = write_current_run_output(stream, source) {
@@ -145,7 +172,10 @@ native_platform_export! {
 native_platform_export! {
     pub extern "C" fn bray_platform_stream_flush_v1(handle: u64) -> NativePlatformStatus {
         let Some(stream) = run_output_stream(handle) else {
-            return NativePlatformStatus::INVALID_INPUT;
+            return match flush_file(handle) {
+                Ok(()) => NativePlatformStatus::SUCCESS,
+                Err(status) => status,
+            };
         };
 
         if flush_current_run_output(stream).is_some() {
@@ -165,6 +195,34 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    pub extern "C" fn bray_platform_stream_seek_v1(
+        handle: u64,
+        offset_bits: u64,
+        origin: u32,
+        position: *mut u64,
+    ) -> NativePlatformStatus {
+        if MemoryRegion::write(position).is_none() {
+            return NativePlatformStatus::INVALID_INPUT;
+        }
+
+        match seek_file(handle, offset_bits, origin) {
+            Ok(value) => {
+                unsafe { position.write(value) };
+
+                NativePlatformStatus::SUCCESS
+            }
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_stream_close_v1(handle: u64) -> NativePlatformStatus {
+        close_file(handle)
+    }
+}
+
+native_platform_export! {
     pub extern "C" fn bray_platform_stream_lock_v1(handle: u64) -> NativePlatformStatus {
         lock_stream(handle)
     }
@@ -177,17 +235,11 @@ native_platform_export! {
 }
 
 fn transfer_arguments<T>(pointer: *const T, length: u64, transferred: *mut u64) -> Option<usize> {
-    if transferred.is_null() {
-        return None;
-    }
-
     let length = usize::try_from(length).ok()?;
+    let data = MemoryRegion::read(pointer, length)?;
+    let transferred = MemoryRegion::write(transferred)?;
 
-    if length != 0 && pointer.is_null() {
-        return None;
-    }
-
-    Some(length)
+    disjoint(&[data, transferred]).then_some(length)
 }
 
 #[expect(
@@ -204,7 +256,7 @@ fn publish_transfer(transferred: *mut u64, count: usize) -> NativePlatformStatus
     NativePlatformStatus::SUCCESS
 }
 
-fn platform_io_error(error: &io::Error) -> NativePlatformStatus {
+pub(super) fn platform_io_error(error: &io::Error) -> NativePlatformStatus {
     let category = match error.kind() {
         io::ErrorKind::Unsupported => 1,
         io::ErrorKind::PermissionDenied => 2,
@@ -310,24 +362,26 @@ fn unlock_stream(handle: u64) -> NativePlatformStatus {
     NativePlatformStatus::SUCCESS
 }
 
-const fn is_standard_stream(handle: u64) -> bool {
-    matches!(
-        handle,
-        STANDARD_INPUT_HANDLE | STANDARD_OUTPUT_HANDLE | STANDARD_ERROR_HANDLE
-    )
+fn is_standard_stream(handle: u64) -> bool {
+    matches!(handle, STANDARD_INPUT_HANDLE | STANDARD_OUTPUT_HANDLE | STANDARD_ERROR_HANDLE)
+        || is_file_handle(handle)
 }
 
-fn process_context() -> &'static [u8] {
-    static CONTEXT: OnceLock<Box<[u8]>> = OnceLock::new();
+fn process_context() -> Result<&'static [u8], NativePlatformStatus> {
+    static CONTEXT: OnceLock<Result<Box<[u8]>, NativePlatformStatus>> = OnceLock::new();
 
-    CONTEXT.get_or_init(build_process_context)
+    match CONTEXT.get_or_init(build_process_context) {
+        Ok(context) => Ok(context),
+        Err(status) => Err(*status),
+    }
 }
 
-fn build_process_context() -> Box<[u8]> {
-    let working_directory = env::current_dir()
-        .ok()
-        .map(|path| native_text(path.as_os_str()))
-        .unwrap_or_default();
+pub(super) fn initialize_process_context() -> Result<(), NativePlatformStatus> {
+    process_context().map(|_| ())
+}
+
+fn build_process_context() -> Result<Box<[u8]>, NativePlatformStatus> {
+    let working_directory = native_text(startup_working_directory()?.as_os_str());
 
     let arguments = env::args_os()
         .map(|argument| native_text(&argument))
@@ -387,7 +441,16 @@ fn build_process_context() -> Box<[u8]> {
         write_range(&mut block, offset + 16, value);
     }
 
-    block.into_boxed_slice()
+    Ok(block.into_boxed_slice())
+}
+
+pub(super) fn startup_working_directory() -> Result<&'static Path, NativePlatformStatus> {
+    static DIRECTORY: OnceLock<Result<PathBuf, NativePlatformStatus>> = OnceLock::new();
+
+    match DIRECTORY.get_or_init(|| env::current_dir().map_err(|error| platform_io_error(&error))) {
+        Ok(path) => Ok(path),
+        Err(status) => Err(*status),
+    }
 }
 
 fn push_payload(block: &mut Vec<u8>, payload: &[u8]) -> (u64, u64) {
@@ -470,7 +533,9 @@ mod tests {
 
     #[test]
     fn process_context_publishes_the_complete_header() {
-        let context = process_context();
+        let context = process_context()
+            .unwrap_or_else(|status| panic!("process context must be available: {status:?}"));
+
         let mut total = [0; 8];
 
         total.copy_from_slice(&context[88..96]);

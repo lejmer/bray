@@ -119,7 +119,7 @@ fn audit_api(
 
     let filtered_report = parse_report("filtered execution", &filtered)?;
 
-    require_selection(&filtered_report, 32, 3, 29)?;
+    require_selection(&filtered_report, 34, 3, 31)?;
 
     let tests = tests(&filtered_report);
 
@@ -234,12 +234,12 @@ fn audit_outcome(
 
 fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
     require_product(report, API_PRODUCT)?;
-    require_selection(report, 32, 32, 0)?;
+    require_selection(report, 34, 34, 0)?;
 
-    if report.summary.passed != 32 || report.summary.failed != 0 {
+    if report.summary.passed != 34 || report.summary.failed != 0 {
         return Err(BuildError::conformance(
             "native execution",
-            "the API product did not report thirty-two passing tests",
+            "the API product did not report thirty-four passing tests",
         ));
     }
 
@@ -409,9 +409,15 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
         .filter(|entry| entry.constraint() == TestExecutionConstraint::Serial)
         .collect();
 
-    if serial.len() != 1
-        || serial[0].identity().declaration().name().as_str() != "string_operations"
-    {
+    let names = serial
+        .iter()
+        .map(|entry| entry.identity().declaration().name().as_str())
+        .collect::<Vec<_>>();
+
+    if names != [
+        "files_and_directories_follow_the_portable_contract",
+        "string_operations",
+    ] {
         return Err(BuildError::conformance(
             "catalog metadata",
             "the native catalog did not retain the exact serial test constraint",

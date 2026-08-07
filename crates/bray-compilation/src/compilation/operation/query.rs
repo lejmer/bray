@@ -265,6 +265,10 @@ impl Compilation {
                 continue;
             }
 
+            if kind == bray_bound_tree::SelectionKind::Construction {
+                continue;
+            }
+
             if let Some(ty) = provisional_selections
                 .expression(operand)
                 .and_then(bray_bound_tree::SemanticSelection::result_type)

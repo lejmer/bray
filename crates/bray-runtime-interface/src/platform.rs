@@ -15,10 +15,34 @@ pub enum PlatformServiceRole {
     StreamWrite,
     /// Flushes a borrowed stream handle.
     StreamFlush,
+    /// Seeks a borrowed seekable stream handle.
+    StreamSeek,
+    /// Closes an owned stream handle.
+    StreamClose,
     /// Acquires product-wide serialization for a borrowed stream handle.
     StreamLock,
     /// Releases product-wide serialization for a borrowed stream handle.
     StreamUnlock,
+    /// Opens one file stream.
+    FileOpen,
+    /// Reads metadata from a borrowed file stream.
+    FileMetadata,
+    /// Reads metadata for one path.
+    PathMetadata,
+    /// Opens one directory traversal.
+    DirectoryOpen,
+    /// Reads the next directory traversal entry.
+    DirectoryNext,
+    /// Closes an owned directory traversal.
+    DirectoryClose,
+    /// Creates one directory.
+    PathCreateDirectory,
+    /// Removes one file.
+    PathRemoveFile,
+    /// Removes one empty directory.
+    PathRemoveDirectory,
+    /// Renames one filesystem entry.
+    PathRename,
 }
 
 impl PlatformServiceRole {
@@ -30,8 +54,20 @@ impl PlatformServiceRole {
             Self::StreamRead => 0x0101,
             Self::StreamWrite => 0x0102,
             Self::StreamFlush => 0x0103,
+            Self::StreamSeek => 0x0104,
+            Self::StreamClose => 0x0105,
             Self::StreamLock => 0x0106,
             Self::StreamUnlock => 0x0107,
+            Self::FileOpen => 0x0201,
+            Self::FileMetadata => 0x0202,
+            Self::PathMetadata => 0x0203,
+            Self::DirectoryOpen => 0x0204,
+            Self::DirectoryNext => 0x0205,
+            Self::DirectoryClose => 0x0206,
+            Self::PathCreateDirectory => 0x0210,
+            Self::PathRemoveFile => 0x0211,
+            Self::PathRemoveDirectory => 0x0212,
+            Self::PathRename => 0x0213,
         }
     }
 
@@ -43,8 +79,20 @@ impl PlatformServiceRole {
             Self::StreamRead => "platform.stream.read",
             Self::StreamWrite => "platform.stream.write",
             Self::StreamFlush => "platform.stream.flush",
+            Self::StreamSeek => "platform.stream.seek",
+            Self::StreamClose => "platform.stream.close",
             Self::StreamLock => "platform.stream.lock",
             Self::StreamUnlock => "platform.stream.unlock",
+            Self::FileOpen => "platform.file.open",
+            Self::FileMetadata => "platform.file.metadata",
+            Self::PathMetadata => "platform.path.metadata",
+            Self::DirectoryOpen => "platform.directory.open",
+            Self::DirectoryNext => "platform.directory.next",
+            Self::DirectoryClose => "platform.directory.close",
+            Self::PathCreateDirectory => "platform.path.create_directory",
+            Self::PathRemoveFile => "platform.path.remove_file",
+            Self::PathRemoveDirectory => "platform.path.remove_directory",
+            Self::PathRename => "platform.path.rename",
         }
     }
 
@@ -56,26 +104,70 @@ impl PlatformServiceRole {
             "platform.stream.read" => Some(Self::StreamRead),
             "platform.stream.write" => Some(Self::StreamWrite),
             "platform.stream.flush" => Some(Self::StreamFlush),
+            "platform.stream.seek" => Some(Self::StreamSeek),
+            "platform.stream.close" => Some(Self::StreamClose),
             "platform.stream.lock" => Some(Self::StreamLock),
             "platform.stream.unlock" => Some(Self::StreamUnlock),
+            "platform.file.open" => Some(Self::FileOpen),
+            "platform.file.metadata" => Some(Self::FileMetadata),
+            "platform.path.metadata" => Some(Self::PathMetadata),
+            "platform.directory.open" => Some(Self::DirectoryOpen),
+            "platform.directory.next" => Some(Self::DirectoryNext),
+            "platform.directory.close" => Some(Self::DirectoryClose),
+            "platform.path.create_directory" => Some(Self::PathCreateDirectory),
+            "platform.path.remove_file" => Some(Self::PathRemoveFile),
+            "platform.path.remove_directory" => Some(Self::PathRemoveDirectory),
+            "platform.path.rename" => Some(Self::PathRename),
             _ => None,
         }
     }
 
     /// Returns the exact private callable shape required by this role.
     pub const fn signature(self) -> PlatformServiceSignature {
-        use PlatformAbiType::{PointerU8, PointerU64, Status, U64};
+        use PlatformAbiType::{
+            FileMetadataPointer, FileOptions, Path, PointerU8, PointerU32, PointerU64, Status, U32,
+            U64,
+        };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
         const CONTEXT_COPY: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
         const STREAM_TRANSFER: &[PlatformAbiType] = &[U64, PointerU8, U64, PointerU64];
         const STREAM_HANDLE: &[PlatformAbiType] = &[U64];
+        const STREAM_SEEK: &[PlatformAbiType] = &[U64, U64, U32, PointerU64];
+        const FILE_OPEN: &[PlatformAbiType] = &[Path, FileOptions, PointerU64];
+        const FILE_METADATA: &[PlatformAbiType] = &[U64, FileMetadataPointer];
+        const PATH_METADATA: &[PlatformAbiType] = &[Path, FileMetadataPointer];
+        const DIRECTORY_OPEN: &[PlatformAbiType] = &[Path, PointerU64];
+
+        const DIRECTORY_NEXT: &[PlatformAbiType] = &[
+            U64,
+            PointerU8,
+            U64,
+            PointerU64,
+            PointerU32,
+            FileMetadataPointer,
+        ];
+
+        const PATH: &[PlatformAbiType] = &[Path];
+        const PATH_PAIR: &[PlatformAbiType] = &[Path, Path];
 
         let parameters = match self {
             Self::ContextMeasure => CONTEXT_MEASURE,
             Self::ContextCopy => CONTEXT_COPY,
             Self::StreamRead | Self::StreamWrite => STREAM_TRANSFER,
-            Self::StreamFlush | Self::StreamLock | Self::StreamUnlock => STREAM_HANDLE,
+            Self::StreamFlush
+            | Self::StreamClose
+            | Self::StreamLock
+            | Self::StreamUnlock
+            | Self::DirectoryClose => STREAM_HANDLE,
+            Self::StreamSeek => STREAM_SEEK,
+            Self::FileOpen => FILE_OPEN,
+            Self::FileMetadata => FILE_METADATA,
+            Self::PathMetadata => PATH_METADATA,
+            Self::DirectoryOpen => DIRECTORY_OPEN,
+            Self::DirectoryNext => DIRECTORY_NEXT,
+            Self::PathCreateDirectory | Self::PathRemoveFile | Self::PathRemoveDirectory => PATH,
+            Self::PathRename => PATH_PAIR,
         };
 
         PlatformServiceSignature::new(parameters, Status)
@@ -85,14 +177,148 @@ impl PlatformServiceRole {
 /// One ABI value kind used by the closed platform-service callable schema.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PlatformAbiType {
+    /// Fixed-width unsigned 32-bit scalar.
+    U32,
     /// Fixed-width unsigned 64-bit scalar.
     U64,
+    /// Fixed-width signed 64-bit scalar.
+    I64,
     /// Raw pointer to byte storage.
     PointerU8,
+    /// Raw pointer to unsigned 32-bit storage.
+    PointerU32,
     /// Raw pointer to unsigned 64-bit storage.
     PointerU64,
+    /// Call-only target-native path bytes.
+    Path,
+    /// The fixed-layout file-open options record.
+    FileOptions,
+    /// Raw pointer to a fixed-layout file metadata record.
+    FileMetadataPointer,
     /// The fixed-layout platform status record.
     Status,
+}
+
+/// Call-only target-native path bytes passed across the platform ABI.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformPath {
+    address: *const u8,
+    length: u64,
+}
+
+impl NativePlatformPath {
+    /// Creates one native path view.
+    pub const fn new(address: *const u8, length: u64) -> Self {
+        Self { address, length }
+    }
+
+    /// Returns the first native path byte.
+    pub const fn address(self) -> *const u8 {
+        self.address
+    }
+
+    /// Returns the native path byte length.
+    pub const fn length(self) -> u64 {
+        self.length
+    }
+}
+
+/// File access and creation policy passed across the platform ABI.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformFileOptions {
+    access: u32,
+    creation: u32,
+    reserved: u64,
+}
+
+impl NativePlatformFileOptions {
+    /// Creates one file-open policy record.
+    pub const fn new(access: u32, creation: u32) -> Self {
+        Self {
+            access,
+            creation,
+            reserved: 0,
+        }
+    }
+
+    /// Returns the encoded file access policy.
+    pub const fn access(self) -> u32 {
+        self.access
+    }
+
+    /// Returns the encoded file creation policy.
+    pub const fn creation(self) -> u32 {
+        self.creation
+    }
+
+    /// Returns the reserved field, which must be zero.
+    pub const fn reserved(self) -> u64 {
+        self.reserved
+    }
+}
+
+/// File metadata returned across the platform ABI.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformFileMetadata {
+    kind: u32,
+    present: u32,
+    bytes: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: u32,
+    reserved: u32,
+}
+
+impl NativePlatformFileMetadata {
+    /// Creates one validated native metadata record.
+    pub const fn new(
+        kind: u32,
+        present: u32,
+        bytes: u64,
+        modified_seconds: i64,
+        modified_nanoseconds: u32,
+    ) -> Self {
+        Self {
+            kind,
+            present,
+            bytes,
+            modified_seconds,
+            modified_nanoseconds,
+            reserved: 0,
+        }
+    }
+
+    /// Returns the encoded file kind.
+    pub const fn kind(self) -> u32 {
+        self.kind
+    }
+
+    /// Returns whether the modified timestamp is present.
+    pub const fn modified_is_present(self) -> bool {
+        self.present == 1
+    }
+
+    /// Returns the file byte length.
+    pub const fn bytes(self) -> u64 {
+        self.bytes
+    }
+
+    /// Returns the whole seconds of the modified timestamp.
+    pub const fn modified_seconds(self) -> i64 {
+        self.modified_seconds
+    }
+
+    /// Returns the fractional nanoseconds of the modified timestamp.
+    pub const fn modified_nanoseconds(self) -> u32 {
+        self.modified_nanoseconds
+    }
+
+    /// Returns the reserved field, which must be zero.
+    pub const fn reserved(self) -> u32 {
+        self.reserved
+    }
 }
 
 /// The exact parameter and result shape of one platform-service role.

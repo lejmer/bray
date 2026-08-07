@@ -92,30 +92,54 @@ func standard_error() -> StandardError
 trusted internal func process_context_stream_handle(offset: usize) -> u64
     uses(foreign_call)
 {
+    let context: std.memory.RawBuffer<u8>? = trusted process_context_buffer();
+
+    match consume context
+    {
+        case ?buffer { return read_context_u64(&buffer, offset = offset); }
+        case none { return 0; }
+    }
+}
+
+trusted internal func native_text_width() -> usize
+    uses(foreign_call)
+{
+    let context: std.memory.RawBuffer<u8>? = trusted process_context_buffer();
+
+    match consume context
+    {
+        case ?buffer { return read_context_u8(&buffer, offset = 4) as usize; }
+        case none { return 0; }
+    }
+}
+
+trusted internal func process_context_buffer() -> std.memory.RawBuffer<u8>?
+    uses(foreign_call)
+{
     let mut required: u64 = 0;
     let required_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut required);
     let measured: PlatformStatus = trusted platform_context_measure(required = required_pointer);
 
     if measured.category != 0
     {
-        return 0;
+        return none;
     }
 
     if measured.reserved != 0
     {
-        return 0;
+        return none;
     }
 
     if required < 96
     {
-        return 0;
+        return none;
     }
 
     let capacity: usize = required as usize;
 
     if capacity as u64 != required
     {
-        return 0;
+        return none;
     }
 
     let created: Result<std.memory.RawBuffer<u8>, std.memory.MemoryLayoutError> = trusted std.memory.RawBuffer<u8>(
@@ -136,30 +160,40 @@ trusted internal func process_context_stream_handle(offset: usize) -> u64
                 destination,
                 capacity = required,
                 written_or_required = written_pointer,
-
             );
 
             if copied.category != 0
             {
-                return 0;
+                return none;
             }
 
             if copied.reserved != 0
             {
-                return 0;
+                return none;
             }
 
             if written != required
             {
-                return 0;
+                return none;
             }
 
             trusted std.memory.set_initialized_count<u8>(&mut buffer, count = capacity);
 
-            return read_context_u64(&buffer, offset = offset);
+            let mut result: std.memory.RawBuffer<u8>? = none;
+
+            result = buffer;
+
+            return result;
         }
-        case Error(_) { return 0; }
+        case Error(_) { return none; }
     }
+}
+
+internal func read_context_u8(pos buffer: &std.memory.RawBuffer<u8>, offset: usize) -> u8
+{
+    let pointer: RawPointer<u8> = std.memory.pointer<u8>(buffer);
+
+    return trusted std.memory.byte_buffer_read(pointer, index = offset);
 }
 
 internal func read_context_u64(pos buffer: &std.memory.RawBuffer<u8>, offset: usize) -> u64
@@ -325,7 +359,6 @@ trusted internal func write_standard_stream_unlocked(pos source: &[u8], handle: 
         source = source_pointer,
         length = requested as u64,
         transferred = transferred_pointer,
-
     );
 
     return checked_transfer(status, transferred = transferred, maximum = requested, require_progress = true);
@@ -385,7 +418,6 @@ trusted internal func read_standard_stream(pos destination: &mut [u8], handle: u
         destination = destination_pointer,
         length = capacity as u64,
         transferred = transferred_pointer,
-
     );
 
     return checked_transfer(status, transferred = transferred, maximum = capacity, require_progress = false);

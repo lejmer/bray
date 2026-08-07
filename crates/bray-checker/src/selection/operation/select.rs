@@ -40,7 +40,9 @@ where
 
     let actual_types = expression_types(types, &operands)?;
 
-    if actual_types.iter().any(|result| result.is_recovered()) {
+    if kind != SelectionKind::Construction
+        && actual_types.iter().any(|result| result.is_recovered())
+    {
         return Ok(Some(CandidateSelection::Failed(
             SelectionFailure::Recovered,
         )));
@@ -628,6 +630,64 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn construction_selection_supplies_expected_types_to_provisional_inputs() {
+        let fixture = construction_fixture(BoundUnitId::new(90));
+
+        let types = CheckedExpressionTypes::new(
+            fixture.unit.unit(),
+            fixture.unit.key().kind(),
+            [
+                ExpressionTypeEntry::new(
+                    fixture.value,
+                    ExpressionTypeResult::new(
+                        fixture.value_type,
+                        ExpressionTypeStatus::Recovered,
+                    ),
+                ),
+                ExpressionTypeEntry::new(
+                    fixture.construction,
+                    ExpressionTypeResult::new(
+                        fixture.value_type,
+                        ExpressionTypeStatus::Valid,
+                    ),
+                ),
+            ],
+        );
+
+        let field = StructFieldSymbolId::from_symbol_id(SymbolId::new(10));
+        let structure = StructSymbolId::from_symbol_id(SymbolId::new(13));
+
+        let candidate = OperationCandidate::symbol_construction(
+            declaration_key(SymbolKind::Struct, 13),
+            ConstructionTarget::Struct(structure),
+            fixture.value_type,
+            [ConstructionInputSurface::new(
+                ConstructionInputId::StructField(field),
+                symbol_name("second"),
+                CallablePosition::NamedOnly,
+                fixture.value_type,
+                None,
+                0,
+            )],
+            OperationCandidateState::Available,
+        );
+
+        let input = OperationSelectionRequest::new(
+            fixture.construction,
+            SelectionKind::Construction,
+            [fixture.value],
+            [candidate],
+        );
+
+        let result = select_request(&fixture.unit, &types, input);
+
+        assert!(matches!(
+            result.value(),
+            CandidateSelection::Selected(SelectedOperation::Construction(_))
+        ));
     }
 
     #[test]

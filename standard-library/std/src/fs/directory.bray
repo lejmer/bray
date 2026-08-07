@@ -1,0 +1,188 @@
+trusted module std.fs;
+
+struct DirectoryEntry
+{
+    path: std.path.Path;
+    metadata: FileMetadata;
+}
+
+struct Directory
+{
+    internal handle: u64;
+    internal mut is_open: bool;
+
+    construct open(pos path: &std.path.Path) -> Result<Self, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted open_directory(path);
+    }
+
+    trusted finalize() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_directory(&mut self);
+    }
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        if self.is_open
+        {
+            let _: std.io.PlatformStatus = trusted platform_directory_close(handle = self.handle);
+        }
+    }
+
+    mut func next() -> Result<DirectoryEntry?, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted next_directory_entry(&mut self);
+    }
+
+    mut async func next_async() -> Result<DirectoryEntry?, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return self.next();
+    }
+
+    consume mut func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_directory(&mut self);
+    }
+
+    consume mut async func close_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return self.close();
+    }
+}
+
+trusted internal func open_directory(pos path: &std.path.Path) -> Result<Directory, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let mut handle: u64 = 0;
+    let handle_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut handle);
+    let status: std.io.PlatformStatus = trusted platform_directory_open(platform_path(path), opened = handle_pointer);
+
+    try checked_platform_status(status);
+
+    let directory: Directory =
+    {
+        handle = handle,
+        is_open = true,
+    };
+
+    return Ok(directory);
+}
+
+trusted internal func close_directory(pos directory: &mut Directory) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if !directory.is_open
+    {
+        return Ok(unit);
+    }
+
+    let result: Result<unit, std.io.IoError> = checked_platform_status(
+        trusted platform_directory_close(handle = directory.handle)
+    );
+
+    match consume result
+    {
+        case Ok(_)
+        {
+            directory.is_open = false;
+
+            return Ok(unit);
+        }
+        case Error(error) { return Error(error); }
+    }
+}
+
+trusted internal func next_directory_entry(pos directory: &mut Directory) -> Result<DirectoryEntry?, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let mut required: u64 = 0;
+    let required_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut required);
+    let mut end: u32 = 0;
+    let end_pointer: RawPointer<u32> = std.memory.address_of_mut(&mut end);
+    let mut platform_metadata_value: PlatformFileMetadata = empty_platform_metadata();
+    let metadata_pointer: RawPointer<PlatformFileMetadata> = std.memory.address_of_mut(&mut platform_metadata_value);
+
+    let measured: std.io.PlatformStatus = trusted platform_directory_next(
+        handle = directory.handle,
+        destination = std.memory.null<u8>(),
+        capacity = 0,
+        written_or_required = required_pointer,
+        end = end_pointer,
+        metadata = metadata_pointer,
+    );
+
+    if measured.category == 0 && measured.reserved == 0 && end == 1
+    {
+        let exhausted: DirectoryEntry? = none;
+
+        return Ok(exhausted);
+    }
+
+    if measured.category != 10 || measured.reserved != 0
+    {
+        try checked_platform_status(measured);
+
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    let capacity: usize = required as usize;
+
+    if capacity as u64 != required
+    {
+        return Error(internal std.io.buffer_allocation_error());
+    }
+
+    let mut buffer: std.bytes.Buffer = try internal std.io.allocate_fixed_buffer(capacity = capacity);
+    let destination: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(std.bytes.as_slice_mut(&mut buffer));
+
+    let copied: std.io.PlatformStatus = trusted platform_directory_next(
+        handle = directory.handle,
+        destination = destination,
+        capacity = required,
+        written_or_required = required_pointer,
+        end = end_pointer,
+        metadata = metadata_pointer,
+    );
+
+    try checked_platform_status(copied);
+
+    if end != 0 || required != capacity as u64
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    let native: std.path.NativeText =
+    {
+        bytes = buffer
+    };
+
+    let path: std.path.Path = match std.path.Path.from_native(native)
+    {
+        case Ok(path) { yield path; }
+        case Error(_) { return Error(internal std.io.invalid_transfer_error()); }
+    };
+
+    let entry_metadata: FileMetadata = try platform_metadata(platform_metadata_value);
+
+    let entry: DirectoryEntry =
+    {
+        path = path,
+        metadata = entry_metadata,
+    };
+
+    let mut result: DirectoryEntry? = none;
+
+    result = entry;
+
+    return Ok(result);
+}

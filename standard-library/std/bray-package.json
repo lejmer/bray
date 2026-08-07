@@ -51,6 +51,54 @@
         {
           "role": "platform.stream.unlock",
           "declaration": "std.io.platform_stream_unlock"
+        },
+        {
+          "role": "platform.stream.seek",
+          "declaration": "std.fs.platform_stream_seek"
+        },
+        {
+          "role": "platform.stream.close",
+          "declaration": "std.fs.platform_stream_close"
+        },
+        {
+          "role": "platform.file.open",
+          "declaration": "std.fs.platform_file_open"
+        },
+        {
+          "role": "platform.file.metadata",
+          "declaration": "std.fs.platform_file_metadata"
+        },
+        {
+          "role": "platform.path.metadata",
+          "declaration": "std.fs.platform_path_metadata"
+        },
+        {
+          "role": "platform.directory.open",
+          "declaration": "std.fs.platform_directory_open"
+        },
+        {
+          "role": "platform.directory.next",
+          "declaration": "std.fs.platform_directory_next"
+        },
+        {
+          "role": "platform.directory.close",
+          "declaration": "std.fs.platform_directory_close"
+        },
+        {
+          "role": "platform.path.create_directory",
+          "declaration": "std.fs.platform_path_create_directory"
+        },
+        {
+          "role": "platform.path.remove_file",
+          "declaration": "std.fs.platform_path_remove_file"
+        },
+        {
+          "role": "platform.path.remove_directory",
+          "declaration": "std.fs.platform_path_remove_directory"
+        },
+        {
+          "role": "platform.path.rename",
+          "declaration": "std.fs.platform_path_rename"
         }
       ]
     }

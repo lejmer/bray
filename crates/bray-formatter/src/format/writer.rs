@@ -56,6 +56,17 @@ impl FormatWriter {
         self.elements.push(LayoutElement::Indent(-1));
     }
 
+    pub(super) fn begin_block_item(&mut self, item: usize, previous: Option<usize>) {
+        self.flush_layout();
+
+        self.elements
+            .push(LayoutElement::BlockItemStart { item, previous });
+    }
+
+    pub(super) fn end_block_item(&mut self, item: usize) {
+        self.elements.push(LayoutElement::BlockItemEnd(item));
+    }
+
     pub(super) fn is_line_start(&self) -> bool {
         self.line_start || matches!(self.pending, PendingWhitespace::RequiredBreak(_))
     }

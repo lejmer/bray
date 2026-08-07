@@ -19,8 +19,9 @@ The public platform-facing modules are:
 | `std.time`    | Durations, monotonic instants, wall-clock values, deadlines, and timers        |
 | `std.random`  | System entropy and deterministic pseudorandom generation                       |
 
-These modules can use private trusted declarations to reach the selected target. Private declarations are not public `std`
-surface, are not available to user source, and do not change the semantics specified here.
+These modules can use internal trusted declarations to reach the selected target. Internal declarations are not public `std`
+surface, require explicit internal-use acknowledgement outside their intended scope, and do not change the semantics specified
+here.
 
 The compiler does not recognize these modules by spelling. Their declarations remain ordinary standard-library declarations unless
 another language rule explicitly identifies a particular declaration as compiler-known or recognized.

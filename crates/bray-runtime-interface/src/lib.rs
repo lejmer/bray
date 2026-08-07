@@ -66,6 +66,7 @@ pub use native::{
     native_platform_service_role_symbol, native_runtime_role_symbol,
 };
 pub use platform::{
+    NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath,
     NativePlatformStatus, PlatformAbiType, PlatformServiceBinding, PlatformServiceRole,
     PlatformServiceSignature,
 };

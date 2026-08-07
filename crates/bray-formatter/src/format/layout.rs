@@ -1,5 +1,7 @@
 use unicode_width::UnicodeWidthStr;
 
+use super::line_ending;
+
 const INDENT: &str = "    ";
 
 #[derive(Clone, Copy)]
@@ -22,6 +24,21 @@ pub(super) enum LayoutElement {
     Indent(i8),
     GroupStart,
     GroupEnd,
+    BlockItemStart {
+        item: usize,
+        previous: Option<usize>,
+    },
+    BlockItemEnd(usize),
+}
+
+struct ActiveBlockItem {
+    item: usize,
+    start_line: usize,
+    insertion_offset: usize,
+    started: bool,
+    separated: bool,
+    has_previous: bool,
+    previous_multiline: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -45,6 +62,10 @@ pub(super) fn render(
         indent: 0,
         groups: Vec::new(),
         final_newline,
+        line: 0,
+        line_start_offset: 0,
+        multiline_block_items: Vec::new(),
+        active_block_items: Vec::new(),
     };
 
     renderer.render();
@@ -61,6 +82,10 @@ struct Renderer<'layout> {
     indent: usize,
     groups: Vec<GroupMode>,
     final_newline: bool,
+    line: usize,
+    line_start_offset: usize,
+    multiline_block_items: Vec<bool>,
+    active_block_items: Vec<ActiveBlockItem>,
 }
 
 impl Renderer<'_> {
@@ -81,8 +106,88 @@ impl Renderer<'_> {
                 LayoutElement::GroupEnd => {
                     self.groups.pop();
                 }
+                LayoutElement::BlockItemStart { item, previous } => {
+                    self.begin_block_item(*item, *previous);
+                }
+                LayoutElement::BlockItemEnd(item) => self.end_block_item(*item),
             }
         }
+    }
+
+    fn begin_block_item(&mut self, item: usize, previous: Option<usize>) {
+        let previous_multiline = previous.is_some_and(|previous| {
+            self.multiline_block_items
+                .get(previous)
+                .copied()
+                .unwrap_or(false)
+        });
+
+        self.active_block_items.push(ActiveBlockItem {
+            item,
+            start_line: 0,
+            insertion_offset: 0,
+            started: false,
+            separated: false,
+            has_previous: previous.is_some(),
+            previous_multiline,
+        });
+    }
+
+    fn end_block_item(&mut self, item: usize) {
+        let active = self
+            .active_block_items
+            .pop()
+            .unwrap_or_else(|| panic!("block item layout must remain balanced"));
+
+        assert_eq!(active.item, item, "block item layout must remain balanced");
+
+        let multiline = active.started && self.line > active.start_line;
+
+        if self.multiline_block_items.len() <= item {
+            self.multiline_block_items.resize(item + 1, false);
+        }
+
+        self.multiline_block_items[item] = multiline;
+
+        if active.has_previous && multiline && !active.separated {
+            self.output
+                .insert_str(active.insertion_offset, self.line_ending);
+
+            self.line = self.line.saturating_add(1);
+            self.line_start_offset = self.line_start_offset.saturating_add(self.line_ending.len());
+        }
+    }
+
+    fn start_block_item(&mut self) {
+        let Some(index) = self.active_block_items.len().checked_sub(1) else {
+            return;
+        };
+
+        if self.active_block_items[index].started {
+            return;
+        }
+
+        let insertion_offset = self.line_start_offset;
+        let already_separated = trailing_line_breaks(&self.output[..insertion_offset]) >= 2;
+
+        let separate = self.active_block_items[index].has_previous
+            && self.active_block_items[index].previous_multiline
+            && !already_separated;
+
+        if separate {
+            self.output
+                .insert_str(insertion_offset, self.line_ending);
+
+            self.line = self.line.saturating_add(1);
+            self.line_start_offset = self.line_start_offset.saturating_add(self.line_ending.len());
+        }
+
+        let active = &mut self.active_block_items[index];
+
+        active.start_line = self.line;
+        active.insertion_offset = insertion_offset;
+        active.started = true;
+        active.separated = already_separated || separate;
     }
 
     fn begin_group(&mut self, index: usize) {
@@ -99,7 +204,19 @@ impl Renderer<'_> {
     }
 
     fn write_text(&mut self, text: &str) {
+        self.start_block_item();
         self.output.push_str(text);
+
+        let line_breaks = line_ending::count(text);
+
+        self.line = self.line.saturating_add(usize::from(line_breaks));
+
+        if line_breaks > 0 {
+            self.line_start_offset = self
+                .output
+                .rfind(['\r', '\n'])
+                .map_or(0, |index| index + 1);
+        }
 
         if let Some(last_line) = text.rsplit(['\r', '\n']).next()
             && text.contains(['\r', '\n'])
@@ -166,6 +283,9 @@ impl Renderer<'_> {
             self.output.push_str(self.line_ending);
         }
 
+        self.line = self.line.saturating_add(usize::from(count));
+        self.line_start_offset = self.output.len();
+
         let indent = self.indent.saturating_add(additional_indent);
 
         for _ in 0..indent {
@@ -200,6 +320,16 @@ impl Renderer<'_> {
     }
 }
 
+fn trailing_line_breaks(text: &str) -> u8 {
+    text.bytes()
+        .rev()
+        .take_while(|byte| matches!(byte, b'\r' | b'\n'))
+        .filter(|byte| *byte == b'\n')
+        .count()
+        .try_into()
+        .unwrap_or(u8::MAX)
+}
+
 fn flat_width_until_break(elements: &[LayoutElement]) -> Option<usize> {
     let mut width = 0_usize;
 
@@ -212,7 +342,11 @@ fn flat_width_until_break(elements: &[LayoutElement]) -> Option<usize> {
             LayoutElement::TrailingComma => {}
             LayoutElement::Space => width = width.saturating_add(1),
             LayoutElement::Break(_) => return Some(width),
-            LayoutElement::Indent(_) | LayoutElement::GroupStart | LayoutElement::GroupEnd => {}
+            LayoutElement::Indent(_)
+            | LayoutElement::GroupStart
+            | LayoutElement::GroupEnd
+            | LayoutElement::BlockItemStart { .. }
+            | LayoutElement::BlockItemEnd(_) => {}
         }
     }
 
@@ -242,6 +376,7 @@ fn flat_width(elements: &[LayoutElement]) -> Option<usize> {
             LayoutElement::GroupStart => depth = depth.saturating_add(1),
             LayoutElement::GroupEnd if depth == 0 => return Some(width),
             LayoutElement::GroupEnd => depth -= 1,
+            LayoutElement::BlockItemStart { .. } | LayoutElement::BlockItemEnd(_) => {}
         }
     }
 

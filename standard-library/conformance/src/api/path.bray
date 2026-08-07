@@ -1,0 +1,56 @@
+module bray.standard_library_conformance.path;
+
+using std.io;
+using std.path;
+using std.string;
+
+@test
+trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.path.PathError>
+    uses(foreign_call)
+{
+    let base: std.path.Path = try std.path.Path.from_string("alpha/./beta");
+    let child: std.path.Path = try std.path.Path.from_string("../gamma");
+    let joined: std.path.Path = try base.join(&child);
+    let normalized: std.path.Path = try joined.normalize();
+    let text: string = try normalized.to_string();
+
+    assert(std.string.equals(&text, &"alpha/gamma") || std.string.equals(&text, &"alpha\\gamma"));
+
+    let unresolved: std.path.Path = try std.path.Path.from_string("../../alpha");
+    let normalized_unresolved: std.path.Path = try unresolved.normalize();
+    let unresolved_text: string = try normalized_unresolved.to_string();
+
+    let slash_form: bool = std.string.equals(&unresolved_text, &"../../alpha");
+    let backslash_form: bool = std.string.equals(&unresolved_text, &"..\\..\\alpha");
+
+    assert(slash_form || backslash_form);
+
+    let unicode: std.path.Path = try std.path.Path.from_string("data/Bray-λ");
+    let unicode_text: string = try unicode.to_string();
+
+    assert(std.string.equals(&unicode_text, &"data/Bray-λ"));
+
+    if trusted internal std.io.native_text_width() == 16
+    {
+        let drive_base: std.path.Path = try std.path.Path.from_string("C:\\base");
+        let rooted_child: std.path.Path = try std.path.Path.from_string("\\child");
+        let rooted_join: std.path.Path = try drive_base.join(&rooted_child);
+        let rooted_text: string = try rooted_join.to_string();
+
+        assert(std.string.equals(&rooted_text, &"C:\\child"));
+
+        let drive_child: std.path.Path = try std.path.Path.from_string("D:child");
+        let drive_join: std.path.Path = try drive_base.join(&drive_child);
+        let drive_text: string = try drive_join.to_string();
+
+        assert(std.string.equals(&drive_text, &"D:child"));
+
+        let drive_relative: std.path.Path = try std.path.Path.from_string("C:base\\..\\child");
+        let normalized_drive_relative: std.path.Path = try drive_relative.normalize();
+        let normalized_drive_text: string = try normalized_drive_relative.to_string();
+
+        assert(std.string.equals(&normalized_drive_text, &"C:child"));
+    }
+
+    return Ok(unit);
+}
