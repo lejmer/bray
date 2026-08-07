@@ -384,11 +384,7 @@ where
                     ..
                 },
             ) if construction.head().is_none() => {
-                inference.add_evidence(
-                    variable,
-                    expectation.ty(),
-                    expectation.expression(),
-                );
+                inference.add_evidence(variable, expectation.ty(), expectation.expression());
             }
             (BoundExpression::Structured(structured), TypeData::Tuple(expected_elements))
                 if structured.kind() == BoundStructuredExpressionKind::Tuple

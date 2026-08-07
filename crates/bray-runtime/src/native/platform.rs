@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread::ThreadId;
 
-use bray_runtime_interface::NativePlatformStatus;
+use bray_runtime_interface::{NativePlatformStatus, NativePlatformText};
 
 use crate::RunOutputStream;
 use crate::output::{flush_current_run_output, write_current_run_output};
@@ -89,6 +89,53 @@ native_platform_export! {
         }
 
         unsafe { std::ptr::copy_nonoverlapping(context.as_ptr(), destination, context.len()) };
+
+        NativePlatformStatus::SUCCESS
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_context_environment_key_equals_v1(
+        left: NativePlatformText,
+        right: NativePlatformText,
+        equal: *mut u32,
+    ) -> NativePlatformStatus {
+        let (left_address, left_length, left_region) = match native_text_region(left) {
+            Ok(left) => left,
+            Err(status) => return status,
+        };
+
+        let (right_address, right_length, right_region) = match native_text_region(right) {
+            Ok(right) => right,
+            Err(status) => return status,
+        };
+
+        let Some(equal_region) = MemoryRegion::write(equal) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        if equal_region.overlaps(left_region) || equal_region.overlaps(right_region) {
+            return NativePlatformStatus::INVALID_INPUT;
+        }
+
+        let left = if left_length == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(left_address, left_length) }
+        };
+
+        let right = if right_length == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(right_address, right_length) }
+        };
+
+        let equal_value = match environment_keys_equal(left, right) {
+            Ok(equal) => u32::from(equal),
+            Err(status) => return status,
+        };
+
+        unsafe { equal.write(equal_value) };
 
         NativePlatformStatus::SUCCESS
     }
@@ -363,8 +410,10 @@ fn unlock_stream(handle: u64) -> NativePlatformStatus {
 }
 
 fn is_standard_stream(handle: u64) -> bool {
-    matches!(handle, STANDARD_INPUT_HANDLE | STANDARD_OUTPUT_HANDLE | STANDARD_ERROR_HANDLE)
-        || is_file_handle(handle)
+    matches!(
+        handle,
+        STANDARD_INPUT_HANDLE | STANDARD_OUTPUT_HANDLE | STANDARD_ERROR_HANDLE
+    ) || is_file_handle(handle)
 }
 
 fn process_context() -> Result<&'static [u8], NativePlatformStatus> {
@@ -374,6 +423,58 @@ fn process_context() -> Result<&'static [u8], NativePlatformStatus> {
         Ok(context) => Ok(context),
         Err(status) => Err(*status),
     }
+}
+
+fn native_text_region(
+    text: NativePlatformText,
+) -> Result<(*const u8, usize, MemoryRegion), NativePlatformStatus> {
+    let length = usize::try_from(text.length()).map_err(|_| NativePlatformStatus::INVALID_INPUT)?;
+
+    let region =
+        MemoryRegion::read(text.address(), length).ok_or(NativePlatformStatus::INVALID_INPUT)?;
+
+    Ok((text.address(), length, region))
+}
+
+#[cfg(not(windows))]
+fn environment_keys_equal(left: &[u8], right: &[u8]) -> Result<bool, NativePlatformStatus> {
+    Ok(left == right)
+}
+
+#[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "target-native environment comparison calls the Windows ordinal string ABI"
+)]
+fn environment_keys_equal(left: &[u8], right: &[u8]) -> Result<bool, NativePlatformStatus> {
+    use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
+
+    let left = native_utf16(left)?;
+    let right = native_utf16(right)?;
+    let left_length = i32::try_from(left.len()).map_err(|_| NativePlatformStatus::EXHAUSTED)?;
+    let right_length = i32::try_from(right.len()).map_err(|_| NativePlatformStatus::EXHAUSTED)?;
+
+    let comparison = unsafe {
+        CompareStringOrdinal(left.as_ptr(), left_length, right.as_ptr(), right_length, 1)
+    };
+
+    if comparison == 0 {
+        return Err(NativePlatformStatus::OTHER);
+    }
+
+    Ok(comparison == CSTR_EQUAL)
+}
+
+#[cfg(windows)]
+fn native_utf16(bytes: &[u8]) -> Result<Vec<u16>, NativePlatformStatus> {
+    if !bytes.len().is_multiple_of(2) {
+        return Err(NativePlatformStatus::INVALID_INPUT);
+    }
+
+    Ok(bytes
+        .chunks_exact(2)
+        .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
+        .collect())
 }
 
 pub(super) fn initialize_process_context() -> Result<(), NativePlatformStatus> {
@@ -513,16 +614,18 @@ const fn environment_comparison() -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
     use std::mem::size_of;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
 
-    use bray_runtime_interface::NativePlatformStatus;
+    use bray_runtime_interface::{NativePlatformStatus, NativePlatformText};
 
     use super::{
         CONTEXT_HEADER_BYTES, STANDARD_ERROR_HANDLE, STANDARD_OUTPUT_HANDLE,
-        bray_platform_stream_write_v1, lock_stream, process_context, unlock_stream,
+        bray_platform_context_environment_key_equals_v1, bray_platform_stream_write_v1,
+        lock_stream, native_text, process_context, unlock_stream,
     };
     use crate::{RunOutputContext, RunOutputStream, with_run_output_context};
 
@@ -545,6 +648,31 @@ mod tests {
         assert_eq!(context[16], 1);
         assert_eq!(context[24], 2);
         assert_eq!(context[32], 3);
+    }
+
+    #[test]
+    fn environment_key_comparison_uses_target_rules() {
+        let left = native_text(OsStr::new("Path"));
+        let right = native_text(OsStr::new("PATH"));
+        let left = NativePlatformText::new(left.as_ptr(), left.len() as u64);
+        let right = NativePlatformText::new(right.as_ptr(), right.len() as u64);
+        let mut equal = u32::MAX;
+
+        let status = bray_platform_context_environment_key_equals_v1(left, right, &raw mut equal);
+
+        assert_eq!(status, NativePlatformStatus::SUCCESS);
+        assert_eq!(equal, u32::from(cfg!(windows)));
+    }
+
+    #[test]
+    fn environment_key_comparison_accepts_empty_keys() {
+        let empty = NativePlatformText::new(std::ptr::null(), 0);
+        let mut equal = u32::MAX;
+
+        let status = bray_platform_context_environment_key_equals_v1(empty, empty, &raw mut equal);
+
+        assert_eq!(status, NativePlatformStatus::SUCCESS);
+        assert_eq!(equal, 1);
     }
 
     #[test]

@@ -642,17 +642,11 @@ mod tests {
             [
                 ExpressionTypeEntry::new(
                     fixture.value,
-                    ExpressionTypeResult::new(
-                        fixture.value_type,
-                        ExpressionTypeStatus::Recovered,
-                    ),
+                    ExpressionTypeResult::new(fixture.value_type, ExpressionTypeStatus::Recovered),
                 ),
                 ExpressionTypeEntry::new(
                     fixture.construction,
-                    ExpressionTypeResult::new(
-                        fixture.value_type,
-                        ExpressionTypeStatus::Valid,
-                    ),
+                    ExpressionTypeResult::new(fixture.value_type, ExpressionTypeStatus::Valid),
                 ),
             ],
         );

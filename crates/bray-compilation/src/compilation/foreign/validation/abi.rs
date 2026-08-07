@@ -1,8 +1,8 @@
 use bray_checker::{TargetAbiValue, TargetAggregateAbi};
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    DeclaredLayoutMode, GenericSubstitutionId, NamedTypeSymbolId, TypeData,
-    TypeExpressionTemplate, TypeId,
+    DeclaredLayoutMode, GenericSubstitutionId, NamedTypeSymbolId, TypeData, TypeExpressionTemplate,
+    TypeId,
 };
 use bray_target::TargetLayoutContract;
 
@@ -99,8 +99,9 @@ fn target_abi_value_from_named(
             return Ok(Some(TargetAbiValue::RawPointer));
         }
 
-        return Ok(super::super::super::representation::target_scalar(role)
-            .map(TargetAbiValue::Scalar));
+        return Ok(
+            super::super::super::representation::target_scalar(role).map(TargetAbiValue::Scalar)
+        );
     }
 
     let representation =

@@ -8,8 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 
 use bray_runtime_interface::{
-    NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath,
-    NativePlatformStatus,
+    NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath, NativePlatformStatus,
 };
 
 use super::platform::{platform_io_error, startup_working_directory};
@@ -128,9 +127,7 @@ fn remove_handle(id: u64, expected: HandleKind) -> Result<NativeHandle, NativePl
     };
 
     match Arc::try_unwrap(handle) {
-        Ok(handle) => handle
-            .into_inner()
-            .map_err(|_| NativePlatformStatus::OTHER),
+        Ok(handle) => handle.into_inner().map_err(|_| NativePlatformStatus::OTHER),
         Err(handle) => {
             handles.insert(id, handle);
 
@@ -149,8 +146,7 @@ impl HandleKind {
     const fn matches(self, handle: &NativeHandle) -> bool {
         matches!(
             (self, handle),
-            (Self::File, NativeHandle::File(_))
-                | (Self::Directory, NativeHandle::Directory(_))
+            (Self::File, NativeHandle::File(_)) | (Self::Directory, NativeHandle::Directory(_))
         )
     }
 }
@@ -193,9 +189,7 @@ pub(super) fn flush_file(id: u64) -> Result<(), NativePlatformStatus> {
             return Err(NativePlatformStatus::INVALID_INPUT);
         }
 
-        file.file
-            .flush()
-            .map_err(|error| platform_io_error(&error))
+        file.file.flush().map_err(|error| platform_io_error(&error))
     })
 }
 
@@ -616,7 +610,10 @@ fn file_metadata(metadata: &Metadata) -> NativePlatformFileMetadata {
 
 fn system_time_parts(time: std::time::SystemTime) -> Option<(i64, u32)> {
     match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => Some((i64::try_from(duration.as_secs()).ok()?, duration.subsec_nanos())),
+        Ok(duration) => Some((
+            i64::try_from(duration.as_secs()).ok()?,
+            duration.subsec_nanos(),
+        )),
         Err(error) => {
             let duration = error.duration();
             let seconds = i64::try_from(duration.as_secs()).ok()?;
@@ -625,7 +622,10 @@ fn system_time_parts(time: std::time::SystemTime) -> Option<(i64, u32)> {
             if nanoseconds == 0 {
                 Some((-seconds, 0))
             } else {
-                Some((seconds.checked_neg()?.checked_sub(1)?, 1_000_000_000 - nanoseconds))
+                Some((
+                    seconds.checked_neg()?.checked_sub(1)?,
+                    1_000_000_000 - nanoseconds,
+                ))
             }
         }
     }
@@ -754,8 +754,7 @@ mod tests {
     use bray_testing::unique_temporary_directory;
 
     use super::{
-        anchor_native_path,
-        bray_platform_directory_close_v1, bray_platform_directory_next_v1,
+        anchor_native_path, bray_platform_directory_close_v1, bray_platform_directory_next_v1,
         bray_platform_directory_open_v1, bray_platform_file_metadata_v1,
         bray_platform_file_open_v1, close_file, flush_file, native_text, read_file, seek_file,
         write_file,

@@ -65,6 +65,10 @@ pub const PLATFORM_CONTEXT_MEASURE_SYMBOL: &str = "bray_platform_context_measure
 /// Stable symbol copying the immutable process-context block.
 pub const PLATFORM_CONTEXT_COPY_SYMBOL: &str = "bray_platform_context_copy_v1";
 
+/// Stable symbol comparing environment keys with target-native rules.
+pub const PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL: &str =
+    "bray_platform_context_environment_key_equals_v1";
+
 /// Stable symbol reading from a borrowed platform stream handle.
 pub const PLATFORM_STREAM_READ_SYMBOL: &str = "bray_platform_stream_read_v1";
 
@@ -244,6 +248,7 @@ pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRol
     match role {
         Role::ContextMeasure => PLATFORM_CONTEXT_MEASURE_SYMBOL,
         Role::ContextCopy => PLATFORM_CONTEXT_COPY_SYMBOL,
+        Role::ContextEnvironmentKeyEquals => PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL,
         Role::StreamRead => PLATFORM_STREAM_READ_SYMBOL,
         Role::StreamWrite => PLATFORM_STREAM_WRITE_SYMBOL,
         Role::StreamFlush => PLATFORM_STREAM_FLUSH_SYMBOL,
@@ -392,6 +397,8 @@ pub struct NativeSourceAnchor {
 }
 
 impl NativeSourceAnchor {
+    const UNAVAILABLE_SOURCE: u32 = u32::MAX;
+
     /// Creates one source anchor from its stable scalar ABI fields.
     pub const fn new(source: u32, start: u32, end: u32, version: u64) -> Self {
         Self {
@@ -400,6 +407,16 @@ impl NativeSourceAnchor {
             end,
             version,
         }
+    }
+
+    /// Creates an anchor for generated or imported code without local source coordinates.
+    pub const fn unavailable() -> Self {
+        Self::new(Self::UNAVAILABLE_SOURCE, 0, 0, 0)
+    }
+
+    /// Returns whether this anchor carries local source coordinates.
+    pub const fn is_available(self) -> bool {
+        self.source != Self::UNAVAILABLE_SOURCE
     }
 
     /// Returns the source snapshot identity.

@@ -480,6 +480,7 @@ dependencies = [
  "bray-source",
  "bray-test-protocol",
  "bray-testing",
+ "windows-sys",
 ]
 
 [[package]]

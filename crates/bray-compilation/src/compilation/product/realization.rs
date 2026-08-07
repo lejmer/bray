@@ -4875,7 +4875,10 @@ mod tests {
             .expect("mutable receiver must resolve");
 
         assert_eq!(
-            values.type_data(shared).expect("shared type must resolve").as_ref(),
+            values
+                .type_data(shared)
+                .expect("shared type must resolve")
+                .as_ref(),
             &TypeData::Borrow {
                 kind: BorrowKind::Shared,
                 target: receiver,

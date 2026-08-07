@@ -17,7 +17,7 @@ struct NativeText
 
     construct from_string(pos value: string) -> Result<Self, PathError>
     {
-        let width: usize = trusted internal std.io.native_text_width();
+        let width: usize = trusted internal std.platform.native_text_width();
 
         if width == 8
         {
@@ -61,7 +61,7 @@ struct NativeText
 
     func to_string() -> Result<string, PathError>
     {
-        let width: usize = trusted internal std.io.native_text_width();
+        let width: usize = trusted internal std.platform.native_text_width();
 
         if width == 8
         {
@@ -242,6 +242,23 @@ struct Path
 internal func native_bytes(pos value: &NativeText) -> &[u8]
 {
     return std.bytes.as_slice(&value.bytes);
+}
+
+trusted internal func native_text_from_bytes(pos bytes: &[u8]) -> Result<NativeText, PathError>
+{
+    let buffer: std.bytes.Buffer = try buffer_from_utf8(bytes);
+
+    let native: NativeText =
+    {
+        bytes = buffer
+    };
+
+    if !valid_native_text(&native)
+    {
+        return Error(PathError.InvalidNativeValue);
+    }
+
+    return Ok(native);
 }
 
 internal func path_from_bytes(pos bytes: &[u8]) -> Result<Path, PathError>
@@ -431,7 +448,7 @@ internal func valid_native_text(pos value: &NativeText) -> bool
 
 internal func native_unit_bytes() -> usize
 {
-    return trusted internal std.io.native_text_width() / 8;
+    return trusted internal std.platform.native_text_width() / 8;
 }
 
 internal func native_unit(pos bytes: &[u8], index: usize) -> u32

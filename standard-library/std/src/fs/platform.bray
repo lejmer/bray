@@ -34,11 +34,11 @@ extern trusted internal func platform_stream_seek(
     pos offset_bits: u64,
     pos origin: u32,
     pos position: RawPointer<u64>,
-) -> std.io.PlatformStatus
+) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
-extern trusted internal func platform_stream_close(pos handle: u64) -> std.io.PlatformStatus
+extern trusted internal func platform_stream_close(pos handle: u64) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
@@ -46,28 +46,28 @@ extern trusted internal func platform_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
     pos opened: RawPointer<u64>,
-) -> std.io.PlatformStatus
+) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
 extern trusted internal func platform_file_metadata(
     pos handle: u64,
     pos metadata: RawPointer<PlatformFileMetadata>,
-) -> std.io.PlatformStatus
+) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
 extern trusted internal func platform_path_metadata(
     pos path: PlatformPath,
     pos metadata: RawPointer<PlatformFileMetadata>,
-) -> std.io.PlatformStatus
+) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
 extern trusted internal func platform_directory_open(
     pos path: PlatformPath,
     pos opened: RawPointer<u64>,
-) -> std.io.PlatformStatus
+) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
@@ -78,30 +78,30 @@ extern trusted internal func platform_directory_next(
     pos written_or_required: RawPointer<u64>,
     pos end: RawPointer<u32>,
     pos metadata: RawPointer<PlatformFileMetadata>,
-) -> std.io.PlatformStatus
+) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
-extern trusted internal func platform_directory_close(pos handle: u64) -> std.io.PlatformStatus
+extern trusted internal func platform_directory_close(pos handle: u64) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
-extern trusted internal func platform_path_create_directory(pos path: PlatformPath) -> std.io.PlatformStatus
+extern trusted internal func platform_path_create_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
-extern trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.io.PlatformStatus
+extern trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
-extern trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> std.io.PlatformStatus
+extern trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)
 extern trusted internal func platform_path_rename(
     pos source: PlatformPath,
     pos destination: PlatformPath,
-) -> std.io.PlatformStatus
+) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 internal func platform_path(pos path: &std.path.Path) -> PlatformPath
@@ -195,7 +195,7 @@ internal func platform_metadata(pos value: PlatformFileMetadata) -> Result<FileM
     );
 }
 
-internal func checked_platform_status(pos value: std.io.PlatformStatus) -> Result<unit, std.io.IoError>
+internal func checked_platform_status(pos value: std.platform.PlatformStatus) -> Result<unit, std.io.IoError>
 {
     return internal std.io.checked_status(value);
 }

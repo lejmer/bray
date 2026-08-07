@@ -8,7 +8,11 @@ pub(super) struct MemoryRegion {
 
 impl MemoryRegion {
     pub(super) fn read<T>(pointer: *const T, count: usize) -> Option<Self> {
-        Self::new(pointer.cast(), count.checked_mul(size_of::<T>())?, align_of::<T>())
+        Self::new(
+            pointer.cast(),
+            count.checked_mul(size_of::<T>())?,
+            align_of::<T>(),
+        )
     }
 
     pub(super) fn write<T>(pointer: *mut T) -> Option<Self> {
@@ -18,7 +22,8 @@ impl MemoryRegion {
     fn new(pointer: *const u8, bytes: usize, alignment: usize) -> Option<Self> {
         let start = pointer.addr();
 
-        if start % alignment != 0 || bytes != 0 && pointer.is_null() || bytes > isize::MAX as usize {
+        if start % alignment != 0 || bytes != 0 && pointer.is_null() || bytes > isize::MAX as usize
+        {
             return None;
         }
 

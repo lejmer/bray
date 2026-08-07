@@ -139,8 +139,16 @@ pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, 
 
         let source = test_source(source);
 
-        session.outcome = Some(match cause {
-            cause if cause == NativePanicCause::ASSERTION => {
+        let panic_cause = match cause {
+            cause if cause == NativePanicCause::ASSERTION => TestPanicCause::Assertion,
+            cause if cause == NativePanicCause::EXPLICIT_TEST_FAILURE => {
+                TestPanicCause::ExplicitFailure
+            }
+            _ => TestPanicCause::Message,
+        };
+
+        session.outcome = Some(match (cause, source) {
+            (cause, Some(source)) if cause == NativePanicCause::ASSERTION => {
                 let failure = if message.is_empty() {
                     AssertionFailure::without_message(source)
                 } else {
@@ -149,14 +157,10 @@ pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, 
 
                 TestOutcome::AssertionFailure(failure)
             }
-            cause if cause == NativePanicCause::EXPLICIT_TEST_FAILURE => {
+            (cause, Some(source)) if cause == NativePanicCause::EXPLICIT_TEST_FAILURE => {
                 TestOutcome::ExplicitFailure(ExplicitTestFailure::new(source, message))
             }
-            _ => TestOutcome::Panicked(TestPanicReport::new(
-                TestPanicCause::Message,
-                Some(source),
-                message,
-            )),
+            _ => TestOutcome::Panicked(TestPanicReport::new(panic_cause, source, message)),
         });
     });
 }
@@ -374,12 +378,14 @@ fn completed_stream(
     }
 }
 
-fn test_source(source: NativeSourceAnchor) -> TestSourceAnchor {
-    TestSourceAnchor::new(
-        SourceSpan::new(
-            SourceId::new(source.source()),
-            TextRange::new(TextSize::new(source.start()), TextSize::new(source.end())),
-        ),
-        SourceVersion::new(source.version()),
-    )
+fn test_source(source: NativeSourceAnchor) -> Option<TestSourceAnchor> {
+    source.is_available().then(|| {
+        TestSourceAnchor::new(
+            SourceSpan::new(
+                SourceId::new(source.source()),
+                TextRange::new(TextSize::new(source.start()), TextSize::new(source.end())),
+            ),
+            SourceVersion::new(source.version()),
+        )
+    })
 }

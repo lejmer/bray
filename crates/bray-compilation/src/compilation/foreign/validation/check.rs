@@ -12,9 +12,9 @@ use bray_symbols::{
 };
 use bray_syntax::FunctionDeclarationSyntax;
 
-use super::abi::{compiler_known_representation, target_abi_value};
 use super::super::super::Compilation;
 use super::super::diagnostic::{diagnostic_abi, source_diagnostic, template_diagnostic_type};
+use super::abi::{compiler_known_representation, target_abi_value};
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(in crate::compilation::foreign) struct CallableBoundarySurface {
@@ -240,7 +240,19 @@ fn platform_abi_type_matches(
         bray_runtime_interface::PlatformAbiType::Path => c_struct_matches(
             compilation,
             ty,
-            &[AbiField::Pointer(RepresentationRole::ScalarU8), AbiField::Scalar(RepresentationRole::ScalarU64)],
+            &[
+                AbiField::Pointer(RepresentationRole::ScalarU8),
+                AbiField::Scalar(RepresentationRole::ScalarU64),
+            ],
+            cancellation,
+        ),
+        bray_runtime_interface::PlatformAbiType::NativeText => c_struct_matches(
+            compilation,
+            ty,
+            &[
+                AbiField::Pointer(RepresentationRole::ScalarU8),
+                AbiField::Scalar(RepresentationRole::ScalarU64),
+            ],
             cancellation,
         ),
         bray_runtime_interface::PlatformAbiType::FileOptions => c_struct_matches(

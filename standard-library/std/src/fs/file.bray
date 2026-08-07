@@ -22,7 +22,7 @@ struct File
     {
         if self.is_open
         {
-            let _: std.io.PlatformStatus = trusted platform_stream_close(handle = self.handle);
+            let _: std.platform.PlatformStatus = trusted platform_stream_close(handle = self.handle);
         }
     }
 
@@ -115,7 +115,7 @@ trusted internal func open_file(pos path: &std.path.Path, options: OpenOptions) 
     let mut handle: u64 = 0;
     let handle_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut handle);
 
-    let status: std.io.PlatformStatus = trusted platform_file_open(
+    let status: std.platform.PlatformStatus = trusted platform_file_open(
         platform_path_value,
         options = platform_options,
         opened = handle_pointer,
@@ -138,7 +138,11 @@ trusted internal func file_metadata(handle: u64) -> Result<FileMetadata, std.io.
 {
     let mut output: PlatformFileMetadata = empty_platform_metadata();
     let output_pointer: RawPointer<PlatformFileMetadata> = std.memory.address_of_mut(&mut output);
-    let status: std.io.PlatformStatus = trusted platform_file_metadata(handle = handle, metadata = output_pointer);
+
+    let status: std.platform.PlatformStatus = trusted platform_file_metadata(
+        handle = handle,
+        metadata = output_pointer
+    );
 
     try checked_platform_status(status);
 
@@ -212,7 +216,7 @@ trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8])
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
 
-    let status: std.io.PlatformStatus = trusted std.io.platform_stream_read(
+    let status: std.platform.PlatformStatus = trusted std.io.platform_stream_read(
         handle = file.handle,
         destination = destination_pointer,
         length = maximum as u64,
@@ -236,7 +240,7 @@ trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Resu
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
 
-    let status: std.io.PlatformStatus = trusted std.io.platform_stream_write(
+    let status: std.platform.PlatformStatus = trusted std.io.platform_stream_write(
         handle = file.handle,
         source = source_pointer,
         length = maximum as u64,
@@ -255,7 +259,7 @@ trusted internal func flush_file(pos file: &mut File) -> Result<unit, std.io.IoE
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let status: std.io.PlatformStatus = trusted std.io.platform_stream_flush(handle = file.handle);
+    let status: std.platform.PlatformStatus = trusted std.io.platform_stream_flush(handle = file.handle);
 
     return checked_platform_status(status);
 }
@@ -271,7 +275,7 @@ trusted internal func seek_file(
     let mut position: u64 = 0;
     let position_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut position);
 
-    let status: std.io.PlatformStatus = trusted platform_stream_seek(
+    let status: std.platform.PlatformStatus = trusted platform_stream_seek(
         handle = file.handle,
         offset_bits = std.truncate_to<u64>(offset),
         origin = seek_origin_value(origin),

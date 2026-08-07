@@ -9,6 +9,8 @@ pub enum PlatformServiceRole {
     ContextMeasure,
     /// Copies the immutable process-context block into caller-owned storage.
     ContextCopy,
+    /// Compares environment keys using the target's process-environment rules.
+    ContextEnvironmentKeyEquals,
     /// Reads bytes from a borrowed stream handle.
     StreamRead,
     /// Writes bytes to a borrowed stream handle.
@@ -51,6 +53,7 @@ impl PlatformServiceRole {
         match self {
             Self::ContextMeasure => 0x0001,
             Self::ContextCopy => 0x0002,
+            Self::ContextEnvironmentKeyEquals => 0x0003,
             Self::StreamRead => 0x0101,
             Self::StreamWrite => 0x0102,
             Self::StreamFlush => 0x0103,
@@ -76,6 +79,7 @@ impl PlatformServiceRole {
         match self {
             Self::ContextMeasure => "platform.context.measure",
             Self::ContextCopy => "platform.context.copy",
+            Self::ContextEnvironmentKeyEquals => "platform.context.environment_key_equals",
             Self::StreamRead => "platform.stream.read",
             Self::StreamWrite => "platform.stream.write",
             Self::StreamFlush => "platform.stream.flush",
@@ -101,6 +105,7 @@ impl PlatformServiceRole {
         match name {
             "platform.context.measure" => Some(Self::ContextMeasure),
             "platform.context.copy" => Some(Self::ContextCopy),
+            "platform.context.environment_key_equals" => Some(Self::ContextEnvironmentKeyEquals),
             "platform.stream.read" => Some(Self::StreamRead),
             "platform.stream.write" => Some(Self::StreamWrite),
             "platform.stream.flush" => Some(Self::StreamFlush),
@@ -125,12 +130,16 @@ impl PlatformServiceRole {
     /// Returns the exact private callable shape required by this role.
     pub const fn signature(self) -> PlatformServiceSignature {
         use PlatformAbiType::{
-            FileMetadataPointer, FileOptions, Path, PointerU8, PointerU32, PointerU64, Status, U32,
-            U64,
+            FileMetadataPointer, FileOptions, NativeText, Path, PointerU8, PointerU32, PointerU64,
+            Status, U32, U64,
         };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
         const CONTEXT_COPY: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
+
+        const CONTEXT_ENVIRONMENT_KEY_EQUALS: &[PlatformAbiType] =
+            &[NativeText, NativeText, PointerU32];
+
         const STREAM_TRANSFER: &[PlatformAbiType] = &[U64, PointerU8, U64, PointerU64];
         const STREAM_HANDLE: &[PlatformAbiType] = &[U64];
         const STREAM_SEEK: &[PlatformAbiType] = &[U64, U64, U32, PointerU64];
@@ -154,6 +163,7 @@ impl PlatformServiceRole {
         let parameters = match self {
             Self::ContextMeasure => CONTEXT_MEASURE,
             Self::ContextCopy => CONTEXT_COPY,
+            Self::ContextEnvironmentKeyEquals => CONTEXT_ENVIRONMENT_KEY_EQUALS,
             Self::StreamRead | Self::StreamWrite => STREAM_TRANSFER,
             Self::StreamFlush
             | Self::StreamClose
@@ -191,6 +201,8 @@ pub enum PlatformAbiType {
     PointerU64,
     /// Call-only target-native path bytes.
     Path,
+    /// Call-only target-native text units.
+    NativeText,
     /// The fixed-layout file-open options record.
     FileOptions,
     /// Raw pointer to a fixed-layout file metadata record.
@@ -205,6 +217,31 @@ pub enum PlatformAbiType {
 pub struct NativePlatformPath {
     address: *const u8,
     length: u64,
+}
+
+/// Call-only target-native text units passed across the platform ABI.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformText {
+    address: *const u8,
+    length: u64,
+}
+
+impl NativePlatformText {
+    /// Creates one native-text view.
+    pub const fn new(address: *const u8, length: u64) -> Self {
+        Self { address, length }
+    }
+
+    /// Returns the first native-text byte.
+    pub const fn address(self) -> *const u8 {
+        self.address
+    }
+
+    /// Returns the native-text byte length.
+    pub const fn length(self) -> u64 {
+        self.length
+    }
 }
 
 impl NativePlatformPath {

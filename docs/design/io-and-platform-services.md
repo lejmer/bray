@@ -196,6 +196,7 @@ The ABI shape vocabulary is:
 | `const_bytes(operation)` | Pointer plus `u64` length retained read-only until operation completion |
 | `mut_bytes(operation)` | Pointer plus `u64` length retained writable until operation completion |
 | `path` | Call-only bytes in the target-native path encoding named by the target contract |
+| `native_text` | Call-only units in the target-native process-text encoding named by the target contract |
 | `span_list` | Call-only pointer plus count of call-only byte spans |
 | `environment_list` | Call-only pointer plus count of key and value byte-span pairs |
 | `handle_ref<K>` | Borrowed nonzero `u64` opaque handle of class `K` |
@@ -214,7 +215,7 @@ The canonical descriptor encoding uses these closed ordinal tables:
 | Descriptor field | Ordinals |
 | --- | --- |
 | Direction | `input = 0`, `output = 1` |
-| Shape | `u32 = 0`, `u64 = 1`, `i64 = 2`, `status = 3`, `bytes = 4`, `path = 5`, `span_list = 6`, `environment_list = 7`, `handle = 8`, `child_request = 9`, `file_options = 10`, `file_metadata = 11`, `exit_status = 12`, `start_result = 13`, `operation_result = 14` |
+| Shape | `u32 = 0`, `u64 = 1`, `i64 = 2`, `status = 3`, `bytes = 4`, `path = 5`, `span_list = 6`, `environment_list = 7`, `handle = 8`, `child_request = 9`, `file_options = 10`, `file_metadata = 11`, `exit_status = 12`, `start_result = 13`, `operation_result = 14`, `native_text = 15` |
 | Byte access | `not_applicable = 0`, `immutable = 1`, `mutable = 2` |
 | Lifetime | `not_applicable = 0`, `call = 1`, `operation = 2` |
 | Presence | `required = 0`, `optional = 1` |
@@ -333,6 +334,9 @@ payload retain product-start ordering; the public wrapper supplies target-aware 
 The platform host fixes the block before the executable root starts. `platform.context.measure` and `platform.context.copy` observe
 the same bytes for the product lifetime. A provider cannot use these roles to expose later host-global mutations.
 
+`platform.context.environment_key_equals` compares two call-only native-text values using the target process environment's key
+comparison rules. It writes `1` for equality and `0` otherwise. This role does not query mutable host environment state.
+
 ### Closed Initial Role Catalog
 
 All roles return `status`. Output storage is committed only for `Success`, except that byte-transfer counts are valid for every
@@ -359,6 +363,7 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 | ---: | --- | --- | --- | --- | --- |
 | `0x0001` | `platform.context.measure` | none | `out<u64> required` | `context` | `nonblocking`; no ownership change |
 | `0x0002` | `platform.context.copy` | `mut_bytes(call) destination` | `out<u64> written_or_required` | `context_buffer` | `nonblocking`; `InsufficientBuffer` commits only required length |
+| `0x0003` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal` | none | `nonblocking`; no ownership change |
 
 #### Streams and asynchronous operations
 

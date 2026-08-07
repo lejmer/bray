@@ -17,5 +17,8 @@ bray-test-protocol = { path = "../bray-test-protocol" }
 [dev-dependencies]
 bray-testing = { path = "../bray-testing" }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Globalization"] }
+
 [lints]
 workspace = true
