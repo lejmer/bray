@@ -1,14 +1,13 @@
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Output};
+use std::process::{Command, ExitCode};
 
 use crate::bundle::{
     DirectoryPublication, DirectoryPublicationError, NativeBuildOptions, NativeBuildOptionsBuilder,
     NativeBuildOptionsError,
 };
 use crate::{digest, workspace};
-use bray_base::NonEmptySharedStr;
 use bray_runtime_interface::{
     AWAITED_FRAME_COMPOSITION_SYMBOL, BinarySymbolName, CLEANUP_INCIDENT_REPORTING_SYMBOL,
     COMPATIBLE_LANE_SELECTION_SYMBOL, CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
@@ -24,7 +23,7 @@ use bray_runtime_interface::{
     TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL, TASK_START_SYMBOL,
     TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL, WAKE_SYMBOL,
 };
-use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
+use bray_symbols::NativeLinkRequirement;
 use bray_target::{NativeTarget, ObjectFormat};
 
 const USAGE: &str = "usage: cargo xtask runtime-artifact \
@@ -117,48 +116,25 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
 
 fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<(), CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
-    let target_directory = root.join("target");
-
-    let mut command = Command::new("cargo");
-
-    command.current_dir(&root).args([
-        "rustc",
-        "--color",
-        "never",
-        "--package",
-        "bray-runtime",
-        "--target",
-        target.as_str(),
-        "--profile",
-        profile,
-        "--target-dir",
-    ]);
-
-    command.arg(&target_directory);
-    command.args(["--", "--print", "native-static-libs"]);
-    configure_cross_c_toolchain(&mut command, &root, target);
-
-    let process_output = command.output().map_err(CommandError::Cargo)?;
-
-    if !process_output.status.success() {
-        return Err(CommandError::BuildFailed);
-    }
-
-    let native_links = native_link_requirements(&process_output)?;
     let archive_file_name = archive_file_name(target);
 
-    let source = target_directory
-        .join(target.as_str())
-        .join(profile_directory(profile))
-        .join(archive_file_name);
+    let built = crate::native_archive::build_rust_static_library(
+        &root,
+        target,
+        "bray-runtime",
+        profile,
+        archive_file_name,
+    )
+    .map_err(CommandError::NativeArchive)?;
 
     let archive = output.join(archive_file_name);
     let metadata_path = output.join(METADATA_FILE_NAME);
 
-    fs::copy(&source, &archive).map_err(|error| CommandError::copy(&source, &archive, error))?;
+    fs::copy(built.archive(), &archive)
+        .map_err(|error| CommandError::copy(built.archive(), &archive, error))?;
 
     let digest = digest_file(&archive)?;
-    let metadata_value = metadata(target, archive_file_name, digest, &native_links)?;
+    let metadata_value = metadata(target, archive_file_name, digest, built.native_links())?;
 
     let bytes = metadata_value
         .encode_json()
@@ -167,22 +143,6 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
     fs::write(&metadata_path, bytes).map_err(|error| CommandError::write(&metadata_path, error))?;
 
     Ok(())
-}
-
-fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: NativeTarget) {
-    if !cfg!(windows) || target != NativeTarget::X86_64LinuxGnu {
-        return;
-    }
-
-    command
-        .env(
-            "CC_x86_64_unknown_linux_gnu",
-            crate::llvm::tool_path(root, "clang"),
-        )
-        .env(
-            "AR_x86_64_unknown_linux_gnu",
-            crate::llvm::tool_path(root, "llvm-ar"),
-        );
 }
 
 fn metadata(
@@ -218,52 +178,9 @@ fn metadata(
     .map_err(|_| CommandError::MetadataContract)?;
 
     RuntimeArtifactMetadata::try_new(contract, archive_file_name, digest)
+        .map(RuntimeArtifactMetadata::with_embedded_platform_services)
         .map(|metadata| metadata.with_native_links(native_links.iter().cloned()))
         .map_err(|_| CommandError::MetadataContract)
-}
-
-fn native_link_requirements(output: &Output) -> Result<Vec<NativeLinkRequirement>, CommandError> {
-    let standard_output = String::from_utf8_lossy(&output.stdout);
-    let standard_error = String::from_utf8_lossy(&output.stderr);
-
-    let Some(arguments) = standard_output
-        .lines()
-        .chain(standard_error.lines())
-        .find_map(|line| line.trim().strip_prefix("note: native-static-libs:"))
-    else {
-        return Err(CommandError::MissingNativeLinks);
-    };
-
-    parse_native_link_arguments(arguments.split_whitespace())
-}
-
-fn parse_native_link_arguments<'a>(
-    mut arguments: impl Iterator<Item = &'a str>,
-) -> Result<Vec<NativeLinkRequirement>, CommandError> {
-    let mut requirements = Vec::new();
-
-    while let Some(argument) = arguments.next() {
-        let (name, kind) = if argument == "-framework" {
-            (
-                arguments.next().ok_or(CommandError::InvalidNativeLink)?,
-                NativeLinkKind::Framework,
-            )
-        } else if let Some(name) = argument.strip_prefix("-l") {
-            (name, NativeLinkKind::System)
-        } else if let Some(name) = argument.strip_prefix("/defaultlib:") {
-            (name, NativeLinkKind::System)
-        } else if let Some(name) = argument.strip_suffix(".lib") {
-            (name, NativeLinkKind::System)
-        } else {
-            return Err(CommandError::InvalidNativeLink);
-        };
-
-        let name = NonEmptySharedStr::try_new(name).ok_or(CommandError::InvalidNativeLink)?;
-
-        requirements.push(NativeLinkRequirement::new(name, kind));
-    }
-
-    Ok(requirements)
 }
 
 fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
@@ -435,10 +352,6 @@ const fn archive_file_name(target: NativeTarget) -> &'static str {
     }
 }
 
-fn profile_directory(profile: &str) -> &str {
-    if profile == "dev" { "debug" } else { profile }
-}
-
 struct BuildOptions {
     native: NativeBuildOptions,
     profile: String,
@@ -488,10 +401,7 @@ enum CommandError {
     BuildOptions(NativeBuildOptionsError),
     Publication(DirectoryPublicationError),
     Workspace(String),
-    Cargo(std::io::Error),
-    BuildFailed,
-    MissingNativeLinks,
-    InvalidNativeLink,
+    NativeArchive(crate::native_archive::BuildError),
     Read {
         path: PathBuf,
         error: std::io::Error,
@@ -557,14 +467,7 @@ impl fmt::Display for CommandError {
             Self::BuildOptions(error) => write!(formatter, "{error}"),
             Self::Publication(error) => write!(formatter, "{error}"),
             Self::Workspace(error) => formatter.write_str(error),
-            Self::Cargo(error) => write!(formatter, "could not run Cargo: {error}"),
-            Self::BuildFailed => formatter.write_str("runtime artifact build failed"),
-            Self::MissingNativeLinks => {
-                formatter.write_str("rustc did not report runtime native link requirements")
-            }
-            Self::InvalidNativeLink => {
-                formatter.write_str("rustc reported an unsupported runtime native link argument")
-            }
+            Self::NativeArchive(error) => write!(formatter, "{error}"),
             Self::Read { path, error } => {
                 write!(formatter, "could not read {}: {error}", path.display())
             }
@@ -619,13 +522,9 @@ const SMOKE_SOURCE: &str = include_str!("../fixtures/runtime-smoke.rs");
 #[cfg(test)]
 mod tests {
     use bray_runtime_interface::{RuntimeAbiRole, RuntimeArtifactDigest};
-    use bray_symbols::NativeLinkKind;
     use bray_target::NativeTarget;
 
-    use super::{
-        BuildOptions, CommandError, archive_file_name, metadata, parse_native_link_arguments,
-        runtime_role_bindings,
-    };
+    use super::{BuildOptions, CommandError, archive_file_name, metadata, runtime_role_bindings};
 
     #[test]
     fn build_options_require_output_and_accept_an_implicit_host_target() {
@@ -694,6 +593,7 @@ mod tests {
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
             assert_eq!(first.archive_file_name(), archive);
+            assert!(first.embeds_platform_services());
 
             assert_eq!(
                 first
@@ -702,54 +602,6 @@ mod tests {
                 second
                     .encode_json()
                     .unwrap_or_else(|_| panic!("runtime metadata must encode"))
-            );
-        }
-    }
-
-    #[test]
-    fn rustc_native_link_arguments_preserve_platform_requirements_in_order() {
-        let cases = [
-            (
-                "-lgcc_s -lutil -lrt -lpthread -lm -ldl -lc",
-                vec![
-                    ("gcc_s", NativeLinkKind::System),
-                    ("util", NativeLinkKind::System),
-                    ("rt", NativeLinkKind::System),
-                    ("pthread", NativeLinkKind::System),
-                    ("m", NativeLinkKind::System),
-                    ("dl", NativeLinkKind::System),
-                    ("c", NativeLinkKind::System),
-                ],
-            ),
-            (
-                "kernel32.lib ntdll.lib userenv.lib /defaultlib:msvcrt",
-                vec![
-                    ("kernel32", NativeLinkKind::System),
-                    ("ntdll", NativeLinkKind::System),
-                    ("userenv", NativeLinkKind::System),
-                    ("msvcrt", NativeLinkKind::System),
-                ],
-            ),
-            (
-                "-framework Security -framework CoreFoundation -lSystem",
-                vec![
-                    ("Security", NativeLinkKind::Framework),
-                    ("CoreFoundation", NativeLinkKind::Framework),
-                    ("System", NativeLinkKind::System),
-                ],
-            ),
-        ];
-
-        for (arguments, expected) in cases {
-            let requirements = parse_native_link_arguments(arguments.split_whitespace())
-                .unwrap_or_else(|error| panic!("native links must parse: {error}"));
-
-            assert_eq!(
-                requirements
-                    .iter()
-                    .map(|requirement| (requirement.name(), requirement.kind()))
-                    .collect::<Vec<_>>(),
-                expected
             );
         }
     }

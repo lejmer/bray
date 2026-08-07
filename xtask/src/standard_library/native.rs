@@ -13,7 +13,7 @@ use super::command::BuildError;
 const PACKAGE_IDENTITY: &str = "bray.standard_library_conformance";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
-const API_TEST_COUNT: usize = 35;
+const API_TEST_COUNT: usize = 41;
 const API_FILTERED_TEST_COUNT: usize = 3;
 
 pub(super) fn test() -> Result<(), BuildError> {

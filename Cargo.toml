@@ -23,6 +23,7 @@ members = [
     "crates/bray-package-interface",
     "crates/bray-parser",
     "crates/bray-platform",
+    "crates/bray-platform-abi",
     "crates/bray-project",
     "crates/bray-runtime",
     "crates/bray-source",

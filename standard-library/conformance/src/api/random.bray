@@ -1,0 +1,52 @@
+module bray.standard_library_conformance.random;
+
+using std.random;
+using std.bytes;
+
+@test
+func deterministic_generators_repeat_the_seeded_sequence()
+{
+    let seed: [u8; 32] = [1; 32];
+    let mut generator: std.random.Generator = std.random.Generator(seed = seed);
+
+    assert(generator.next_u64() == 10851025925711500946);
+    assert(generator.next_u64() == 10851025925711500946);
+    assert(generator.next_u64() == 3255307777710489645);
+    assert(generator.next_u64() == 14106333703421990591);
+}
+
+@test
+func deterministic_generators_fill_bytes_in_sequence_order()
+{
+    let seed: [u8; 32] = [1; 32];
+    let mut generator: std.random.Generator = std.random.Generator(seed = seed);
+    let mut bytes: [u8; 10] = [0; 10];
+    let expected: [u8; 10] = [146, 150, 150, 150, 150, 150, 150, 150, 146, 150];
+
+    generator.fill(&mut bytes[..]);
+
+    assert(std.bytes.equals(&bytes[..], &expected[..]));
+}
+
+@test
+func all_zero_seed_uses_the_specified_nonzero_state()
+{
+    let seed: [u8; 32] = [0; 32];
+    let mut generator: std.random.Generator = std.random.Generator(seed = seed);
+
+    assert(generator.next_u64() == 0);
+    assert(generator.next_u64() == 16155200969329072355);
+    assert(generator.next_u64() == 16155200969329072355);
+}
+
+@test
+func system_entropy_fills_caller_owned_storage()
+{
+    let mut bytes: [u8; 32] = [0; 32];
+
+    match std.random.fill_entropy(&mut bytes[..])
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+}

@@ -1,5 +1,5 @@
 [package]
-name = "bray-runtime"
+name = "bray-platform-abi"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
@@ -10,13 +10,13 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 bray-platform = { path = "../bray-platform" }
-bray-platform-abi = { path = "../bray-platform-abi" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
-bray-source = { path = "../bray-source" }
-bray-test-protocol = { path = "../bray-test-protocol" }
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Globalization"] }
 
 [lints]
 workspace = true

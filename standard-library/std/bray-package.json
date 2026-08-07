@@ -103,6 +103,22 @@
         {
           "role": "platform.path.rename",
           "declaration": "std.fs.platform_path_rename"
+        },
+        {
+          "role": "platform.clock.monotonic_now",
+          "declaration": "std.platform.clock_monotonic_now"
+        },
+        {
+          "role": "platform.clock.wall_now",
+          "declaration": "std.platform.clock_wall_now"
+        },
+        {
+          "role": "platform.clock.sleep",
+          "declaration": "std.platform.clock_sleep"
+        },
+        {
+          "role": "platform.entropy.fill",
+          "declaration": "std.platform.entropy_fill"
         }
       ]
     }

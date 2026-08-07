@@ -1,4 +1,5 @@
 use bray_runtime_interface::RuntimeAbiVersion;
+use bray_symbols::NativeLinkRequirement;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -52,6 +53,13 @@ struct TargetWire<'manifest> {
     target: &'manifest str,
     runtime_abi: RuntimeAbiWire,
     artifacts: Vec<ArtifactWire<'manifest>>,
+    native_links: Vec<NativeLinkWire<'manifest>>,
+}
+
+#[derive(Serialize)]
+struct NativeLinkWire<'manifest> {
+    name: &'manifest str,
+    kind: &'static str,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -83,6 +91,14 @@ pub(super) struct OwnedTargetWire {
     pub target: String,
     pub runtime_abi: RuntimeAbiWire,
     pub artifacts: Vec<OwnedArtifactWire>,
+    pub native_links: Vec<OwnedNativeLinkWire>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OwnedNativeLinkWire {
+    pub name: String,
+    pub kind: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -196,6 +212,14 @@ fn target_wire(target: &StandardLibraryTargetArtifacts) -> TargetWire<'_> {
             minor: runtime_abi.minor(),
         },
         artifacts: target.artifacts().iter().map(artifact_wire).collect(),
+        native_links: target.native_links().iter().map(native_link_wire).collect(),
+    }
+}
+
+fn native_link_wire(requirement: &NativeLinkRequirement) -> NativeLinkWire<'_> {
+    NativeLinkWire {
+        name: requirement.name(),
+        kind: requirement.kind().as_str(),
     }
 }
 

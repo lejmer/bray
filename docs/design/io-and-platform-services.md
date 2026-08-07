@@ -162,6 +162,7 @@ The minimum role families are:
 | Filesystems | Open files and directories, query metadata, enumerate entries, mutate filesystem state, and close handles |
 | Child processes | Spawn with explicit arguments, environment, working directory, and stream policy; wait, signal, terminate, and reap |
 | Clocks | Read monotonic and wall clocks and expose target resolution |
+| Temporal data | Interpret calendar values and named timezone rules through the pinned native provider |
 | Entropy | Fill caller-owned mutable bytes from the target entropy source |
 | Wait integration | Expose waitable completion sources that the runtime reactor can register and wake |
 
@@ -463,6 +464,11 @@ initial catalog before a trusted binding can use it.
 
 `platform.timer.start` always returns a pending operation. Its terminal `AbiOperationResult` leaves both values zero.
 
+Civil calendar and named-timezone operations form a separate `0x06xx` role family backed by the static temporal provider described
+in [Time library](time.md). Those roles exchange fixed-width calendar fields, timestamps, caller-owned text buffers, and opaque
+process-local timezone identities. They do not expose C++ layouts or depend on a host-installed timezone database. Exact UTC and
+fixed-offset operations remain available without loading named-zone data.
+
 Cancellation is a request, not a terminal result. Once requested, the provider eventually makes `operation.complete` terminal.
 Normal completion wins a race that became terminal before cancellation was accepted; otherwise accepted cancellation completes with
 `Cancelled`. No cancellation path releases an operation owner, retained handle borrow, or retained buffer before that terminal
@@ -570,6 +576,7 @@ target.platform.child_processes
 target.platform.monotonic_clock
 target.platform.wall_clock
 target.platform.entropy
+target.platform.time_zones
 ```
 
 These facts describe language-level availability. A true fact requires the selected target support artifacts to provide every
@@ -589,6 +596,12 @@ Each standard-library target artifact set records:
 - the implementing static archive, direct system binding, or narrow native shim for each role,
 - native dependency requirements,
 - and content digests for every supplied artifact.
+
+The reference native provider is packaged as a platform ABI archive independently of the protected-frame concurrency runtime.
+Standard-library target inventories carry that archive and its direct system-library requirements. A runtime artifact that embeds
+the same provider must declare that relationship so link planning selects exactly one provider archive. This separation ensures
+that a synchronous product can use native platform services without acquiring task scheduling, protected-frame storage, or other
+concurrency-runtime code.
 
 Direct platform bindings are preferred when the target exposes a stable representable ABI. A native shim is allowed only to
 normalize mechanisms that cannot be expressed safely through direct declarations, such as macro-only APIs, unstable native

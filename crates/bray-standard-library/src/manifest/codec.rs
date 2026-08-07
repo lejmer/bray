@@ -1,3 +1,5 @@
+use bray_base::NonEmptySharedStr;
+use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::TargetIdentity;
 
 use crate::{
@@ -11,8 +13,8 @@ use super::model::{
     StandardLibraryTargetArtifacts,
 };
 use super::wire::{
-    MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedPublishedWire, decode_digest,
-    encode_published, runtime_abi,
+    MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedNativeLinkWire, OwnedPublishedWire,
+    decode_digest, encode_published, runtime_abi,
 };
 
 /// Encodes a manifest using its canonical compact UTF-8 JSON representation.
@@ -53,11 +55,18 @@ pub fn decode_standard_library_manifest(
                 .map(decode_artifact)
                 .collect::<Result<Vec<_>, _>>()?;
 
+            let native_links = target
+                .native_links
+                .into_iter()
+                .map(decode_native_link)
+                .collect::<Result<Vec<_>, _>>()?;
+
             StandardLibraryTargetArtifacts::try_new(
                 identity,
                 runtime_abi(target.runtime_abi),
                 artifacts,
             )
+            .map(|target| target.with_native_links(native_links))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -100,9 +109,23 @@ fn decode_artifact(
     StandardLibraryArtifact::try_new(kind, wire.path, wire.byte_len, digest)
 }
 
+fn decode_native_link(
+    wire: OwnedNativeLinkWire,
+) -> Result<NativeLinkRequirement, StandardLibraryManifestError> {
+    let name = NonEmptySharedStr::try_new(wire.name)
+        .ok_or(StandardLibraryManifestError::InvalidNativeLink)?;
+
+    let kind = NativeLinkKind::for_name(&wire.kind)
+        .ok_or(StandardLibraryManifestError::InvalidNativeLink)?;
+
+    Ok(NativeLinkRequirement::new(name, kind))
+}
+
 #[cfg(test)]
 mod tests {
+    use bray_base::NonEmptySharedStr;
     use bray_runtime_interface::RuntimeAbiVersion;
+    use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
     use bray_target::TargetIdentity;
 
     use super::{decode_standard_library_manifest, encode_standard_library_manifest};
@@ -182,6 +205,13 @@ mod tests {
             RuntimeAbiVersion::new(1, 0),
             [archive],
         )
+        .map(|target| {
+            target.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("c")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
         .unwrap_or_else(|error| panic!("target artifacts must be valid: {error:?}"));
 
         StandardLibraryBundleManifest::try_new(interface, implementation, [target])

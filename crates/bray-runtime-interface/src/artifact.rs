@@ -68,6 +68,7 @@ pub struct RuntimeArtifactMetadata {
     contract: RuntimeContract,
     archive_file_name: NonEmptySharedStr,
     archive_digest: RuntimeArtifactDigest,
+    embedded_platform_services: bool,
     native_links: Arc<[NativeLinkRequirement]>,
 }
 
@@ -90,8 +91,16 @@ impl RuntimeArtifactMetadata {
             contract,
             archive_file_name,
             archive_digest,
+            embedded_platform_services: false,
             native_links: Arc::from([]),
         })
+    }
+
+    /// Returns metadata that declares the platform-service provider is contained in the archive.
+    pub const fn with_embedded_platform_services(mut self) -> Self {
+        self.embedded_platform_services = true;
+
+        self
     }
 
     /// Returns metadata with the native link requirements needed by the runtime archive.
@@ -143,6 +152,11 @@ impl RuntimeArtifactMetadata {
     /// Returns the archive content digest.
     pub const fn archive_digest(&self) -> RuntimeArtifactDigest {
         self.archive_digest
+    }
+
+    /// Returns whether the runtime archive also supplies the platform-service provider.
+    pub const fn embeds_platform_services(&self) -> bool {
+        self.embedded_platform_services
     }
 
     /// Returns native libraries and frameworks required by the runtime archive.
@@ -204,6 +218,13 @@ impl RuntimeArtifactMetadata {
             .ok_or(RuntimeArtifactMetadataDecodeError::InvalidArchiveDigest)?;
 
         Self::try_new(contract, wire.archive.file, digest)
+            .map(|metadata| {
+                if wire.embedded_platform_services {
+                    metadata.with_embedded_platform_services()
+                } else {
+                    metadata
+                }
+            })
             .map(|metadata| metadata.with_native_links(native_links))
             .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
     }
@@ -329,6 +350,7 @@ struct ArtifactWire {
     capabilities: Vec<String>,
     roles: Vec<RoleWire>,
     native_links: Vec<NativeLinkWire>,
+    embedded_platform_services: bool,
     archive: ArchiveWire,
 }
 
@@ -360,6 +382,7 @@ impl ArtifactWire {
                 .iter()
                 .map(NativeLinkWire::from_requirement)
                 .collect(),
+            embedded_platform_services: metadata.embeds_platform_services(),
             archive: ArchiveWire {
                 file: metadata.archive_file_name().to_owned(),
                 digest: metadata.archive_digest().to_hex(),

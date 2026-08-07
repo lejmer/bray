@@ -110,20 +110,37 @@ use an explicit exit representation and are not treated as Bray runs.
 
 ## Time
 
-`std.time` distinguishes durations, monotonic instants, and wall-clock timestamps.
+`std.time` distinguishes exact durations, monotonic instants, absolute timestamps, local calendar values, UTC offsets, and named
+time zones. These concepts do not convert implicitly.
 
 A monotonic instant is meaningful only within the process and clock domain that produced it. Readings from that domain do not
 precede earlier readings. Monotonic instants can measure elapsed time and establish deadlines, but they are not calendar timestamps
 and are not portable serialized values.
 
-A wall-clock value represents the target's civil-time source. It can move forward or backward when that source is adjusted.
-Algorithms requiring elapsed-time ordering use the monotonic clock instead.
+A wall-clock reading produces an absolute timestamp. It can move forward or backward when the host clock is adjusted. Algorithms
+requiring elapsed-time ordering use the monotonic clock instead.
+
+A date and local date-time use the proleptic Gregorian calendar without identifying an instant. Invalid fields are rejected rather
+than normalized. A UTC offset identifies one fixed displacement from UTC but is not a named timezone. A named timezone uses the
+IANA timezone rules shipped with the selected Bray toolchain.
+
+Converting an absolute timestamp through a timezone always produces one local date-time and offset. Converting a local date-time
+through a timezone explicitly reports whether it is unique, occurs twice during a backward transition, or does not occur during a
+forward transition. The general conversion never silently chooses an earlier or later interpretation.
+
+Exact durations and calendar periods are different types. Exact duration arithmetic changes an instant by a fixed elapsed amount.
+Calendar-period arithmetic changes calendar fields and can require an explicit invalid-date or timezone-transition policy. Adding
+24 hours is not assumed to be equivalent to adding one local calendar day.
+
+Strict RFC 3339 and ISO 8601 interchange is locale-independent. Named-zone behavior and timezone aliases use the toolchain's pinned
+timezone database, so compilation and execution do not depend on the host's database version or perform runtime downloads.
 
 Clock resolution is explicit target information. Arithmetic detects overflow and does not silently wrap. Reading either clock is
 an I/O effect and can return a typed failure when the selected service cannot provide a valid reading.
 
-Blocking waits require `blocking_execution()`. Async timers suspend through the selected runtime's wait integration and do not
-block a cooperative execution lane.
+Blocking waits require `blocking_execution()`. An async wait can defer that requirement into its future so that `start()` selects a
+compatible blocking lane. Directly awaiting such a future requires the current lane to permit blocking. An async wait implemented
+through runtime timer integration can instead suspend its current task without requiring a blocking lane.
 
 ## Entropy And Random Generation
 

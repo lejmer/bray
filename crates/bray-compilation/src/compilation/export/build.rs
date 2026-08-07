@@ -795,6 +795,22 @@ mod tests {
     }
 
     #[test]
+    fn callable_signatures_export_fixed_array_lengths() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "internal func first(pos values: &[u8; 32]) -> u8\n",
+            "{\n",
+            "    return values[0];\n",
+            "}\n",
+        ));
+
+        let bundle = export(&compilation);
+
+        assert_eq!(bundle.semantic_facts().callable_signatures().len(), 1);
+    }
+
+    #[test]
     fn generic_container_lifecycle_bodies_publish_executable_templates() {
         let compilation = compilation(concat!(
             "module app;\n",

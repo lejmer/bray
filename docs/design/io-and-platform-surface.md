@@ -542,60 +542,12 @@ The typed `Process<T>` declarations specified by the concurrency chapter remain 
 
 ### `std.time`
 
-```bray
-struct Duration
-{
-    internal state: DurationState;
-}
+`std.time` provides exact durations, process-local monotonic instants, absolute timestamps, validated civil dates and local
+date-times, fixed UTC offsets, named IANA time zones, zoned date-times, and calendar periods. It exposes local-time conversion as
+unique, ambiguous, or nonexistent rather than silently selecting one side of a timezone transition.
 
-impl Duration
-{
-    static func from_parts(seconds: u64, nanoseconds: u32) -> Result<Duration, ClockError>;
-    func seconds() -> u64;
-    func nanoseconds() -> u32;
-}
-
-struct Instant
-{
-    internal state: InstantState;
-}
-
-impl Instant
-{
-    func duration_since(pos earlier: &Instant) -> Result<Duration, ClockError>;
-}
-
-struct Timestamp
-{
-    internal state: TimestampState;
-}
-
-impl Timestamp
-{
-    func seconds() -> i64;
-    func nanoseconds() -> u32;
-}
-
-union ClockError
-{
-    Unavailable;
-    OutOfRange;
-    Platform(pos error: std.io.IoError);
-}
-
-func monotonic_now() -> Result<Instant, ClockError>;
-func wall_now() -> Result<Timestamp, ClockError>;
-
-func sleep(pos duration: Duration) -> Result<unit, ClockError>
-    requires(blocking_execution());
-
-async func sleep_async(pos duration: Duration) -> Result<unit, ClockError>;
-```
-
-`Duration.nanoseconds()` and `Timestamp.nanoseconds()` are less than one billion. Construction and arithmetic reject values outside
-their representable range. `Instant.duration_since` returns `ClockError.OutOfRange` when `earlier` is later or belongs to a different
-monotonic clock identity. `sleep_async` returns normally only after its monotonic deadline and forwards current-run cancellation only
-after its timer registration has been removed.
+The complete public model, arithmetic rules, parsing and formatting contracts, and native-provider architecture are defined by
+[Time library](time.md).
 
 ### `std.random`
 
@@ -609,7 +561,8 @@ union EntropyError
 func fill_entropy(pos destination: &mut [u8]) -> Result<unit, EntropyError>
     requires(blocking_execution());
 
-async func fill_entropy_async(pos destination: &mut [u8]) -> Result<unit, EntropyError>;
+async func fill_entropy_async(pos destination: &mut [u8]) -> Result<unit, EntropyError>
+    requires(blocking_execution());
 
 struct Generator
 {
@@ -618,12 +571,13 @@ struct Generator
 
 impl Generator
 {
-    static func seeded(pos seed: [u8; 32]) -> Generator;
+    construct(pos seed: [u8; 32]) -> Self;
 
     static func from_entropy() -> Result<Generator, EntropyError>
         requires(blocking_execution());
 
-    static async func from_entropy_async() -> Result<Generator, EntropyError>;
+    static async func from_entropy_async() -> Result<Generator, EntropyError>
+        requires(blocking_execution());
 
     mut func fill(pos destination: &mut [u8]);
     mut func next_u64() -> u64;
@@ -631,11 +585,18 @@ impl Generator
 ```
 
 `fill_entropy` and `fill_entropy_async` either initialize the entire destination or return an error whose nested
-`IoError.transferred` states the initialized prefix. `Generator` has one specification-defined deterministic algorithm. Equal seeds
-produce equal byte and `u64` sequences on every target. No generator method consults system entropy after construction.
+`IoError.transferred` states the initialized prefix. `Generator` uses xoshiro256**. Its 32-byte seed is decoded as four
+little-endian `u64` state words. The all-zero state is replaced with state words
+`[11400714819323198485, 0, 0, 0]`. `fill` emits each `next_u64` result in little-endian byte order. Equal seeds therefore produce
+equal byte and `u64` sequences on every target. No generator method consults system entropy after construction.
+
+The async entropy operations defer `blocking_execution()` into their futures. Starting one selects a compatible blocking lane;
+direct await requires the current lane to permit blocking. This keeps operating-system entropy acquisition off cooperative workers
+without duplicating the platform entropy provider.
 
 ## Navigation
 
 - [I/O and platform language semantics](../language/io-and-platform-services.md)
 - [I/O and platform implementation architecture](io-and-platform-services.md)
+- [Time library design](time.md)
 - [Standard library design](standard-library.md)

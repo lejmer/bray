@@ -16,6 +16,7 @@ pub(in crate::standard_library) enum BuildError {
     Publication(DirectoryPublicationError),
     Project(String),
     Source(String),
+    NativeArchive(String),
     TemporaryDirectory(std::io::Error),
     UnsupportedTarget(TargetIdentity),
     CompilerUnavailable,
@@ -95,6 +96,12 @@ impl fmt::Display for BuildError {
                 write!(
                     formatter,
                     "standard library source could not be read: {error}"
+                )
+            }
+            Self::NativeArchive(error) => {
+                write!(
+                    formatter,
+                    "platform ABI archive could not be built: {error}"
                 )
             }
             Self::TemporaryDirectory(error) => {

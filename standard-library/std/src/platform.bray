@@ -43,6 +43,33 @@ extern trusted internal func environment_key_equals(
 ) -> PlatformStatus
     uses(foreign_call);
 
+@abi(c)
+extern trusted internal func clock_monotonic_now(
+    pos ticks: RawPointer<u64>,
+    pos frequency: RawPointer<u64>,
+    pos clock_identity: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func clock_wall_now(
+    pos seconds: RawPointer<i64>,
+    pos nanoseconds: RawPointer<u32>,
+) -> PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func clock_sleep(pos seconds: u64, pos nanoseconds: u32) -> PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func entropy_fill(
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call);
+
 trusted internal func process_context() -> std.memory.RawBuffer<u8>?
     uses(foreign_call)
 {

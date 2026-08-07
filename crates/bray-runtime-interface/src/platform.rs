@@ -45,6 +45,14 @@ pub enum PlatformServiceRole {
     PathRemoveDirectory,
     /// Renames one filesystem entry.
     PathRename,
+    /// Observes the process-local monotonic clock.
+    ClockMonotonicNow,
+    /// Observes the host wall clock.
+    ClockWallNow,
+    /// Blocks the current native thread for a duration.
+    ClockSleep,
+    /// Fills caller-owned bytes from the host entropy source.
+    EntropyFill,
 }
 
 impl PlatformServiceRole {
@@ -71,6 +79,10 @@ impl PlatformServiceRole {
             Self::PathRemoveFile => 0x0211,
             Self::PathRemoveDirectory => 0x0212,
             Self::PathRename => 0x0213,
+            Self::ClockMonotonicNow => 0x0401,
+            Self::ClockWallNow => 0x0402,
+            Self::ClockSleep => 0x0403,
+            Self::EntropyFill => 0x0501,
         }
     }
 
@@ -97,6 +109,10 @@ impl PlatformServiceRole {
             Self::PathRemoveFile => "platform.path.remove_file",
             Self::PathRemoveDirectory => "platform.path.remove_directory",
             Self::PathRename => "platform.path.rename",
+            Self::ClockMonotonicNow => "platform.clock.monotonic_now",
+            Self::ClockWallNow => "platform.clock.wall_now",
+            Self::ClockSleep => "platform.clock.sleep",
+            Self::EntropyFill => "platform.entropy.fill",
         }
     }
 
@@ -123,6 +139,10 @@ impl PlatformServiceRole {
             "platform.path.remove_file" => Some(Self::PathRemoveFile),
             "platform.path.remove_directory" => Some(Self::PathRemoveDirectory),
             "platform.path.rename" => Some(Self::PathRename),
+            "platform.clock.monotonic_now" => Some(Self::ClockMonotonicNow),
+            "platform.clock.wall_now" => Some(Self::ClockWallNow),
+            "platform.clock.sleep" => Some(Self::ClockSleep),
+            "platform.entropy.fill" => Some(Self::EntropyFill),
             _ => None,
         }
     }
@@ -130,8 +150,8 @@ impl PlatformServiceRole {
     /// Returns the exact private callable shape required by this role.
     pub const fn signature(self) -> PlatformServiceSignature {
         use PlatformAbiType::{
-            FileMetadataPointer, FileOptions, NativeText, Path, PointerU8, PointerU32, PointerU64,
-            Status, U32, U64,
+            FileMetadataPointer, FileOptions, NativeText, Path, PointerI64, PointerU8, PointerU32,
+            PointerU64, Status, U32, U64,
         };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
@@ -159,6 +179,10 @@ impl PlatformServiceRole {
 
         const PATH: &[PlatformAbiType] = &[Path];
         const PATH_PAIR: &[PlatformAbiType] = &[Path, Path];
+        const CLOCK_MONOTONIC_NOW: &[PlatformAbiType] = &[PointerU64, PointerU64, PointerU64];
+        const CLOCK_WALL_NOW: &[PlatformAbiType] = &[PointerI64, PointerU32];
+        const CLOCK_SLEEP: &[PlatformAbiType] = &[U64, U32];
+        const ENTROPY_FILL: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
 
         let parameters = match self {
             Self::ContextMeasure => CONTEXT_MEASURE,
@@ -178,6 +202,10 @@ impl PlatformServiceRole {
             Self::DirectoryNext => DIRECTORY_NEXT,
             Self::PathCreateDirectory | Self::PathRemoveFile | Self::PathRemoveDirectory => PATH,
             Self::PathRename => PATH_PAIR,
+            Self::ClockMonotonicNow => CLOCK_MONOTONIC_NOW,
+            Self::ClockWallNow => CLOCK_WALL_NOW,
+            Self::ClockSleep => CLOCK_SLEEP,
+            Self::EntropyFill => ENTROPY_FILL,
         };
 
         PlatformServiceSignature::new(parameters, Status)
@@ -199,6 +227,8 @@ pub enum PlatformAbiType {
     PointerU32,
     /// Raw pointer to unsigned 64-bit storage.
     PointerU64,
+    /// Raw pointer to signed 64-bit storage.
+    PointerI64,
     /// Call-only target-native path bytes.
     Path,
     /// Call-only target-native text units.

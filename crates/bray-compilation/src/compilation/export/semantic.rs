@@ -8,8 +8,8 @@ use bray_bound_tree::{
     CheckedTemplateNodeId,
 };
 use bray_checker::{
-    CheckedConstantTerms, CheckerUnitView, ConstantChecker, ConstantEvaluationInput,
-    ConstantEvaluationLimits, DefaultConstantChecker, resolve_type_expression_template,
+    CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits,
+    DefaultConstantChecker, resolve_type_expression_template,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_package_interface::{
@@ -85,7 +85,7 @@ pub(super) fn build_semantic_facts(
         .binder_facts(&compilation.state.cancellation)
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
-    let mut export = SemanticExporter::new(graph, surface, keys, values);
+    let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
     let mut declarations = ExportedDeclarationFacts::default();
 
     for symbol in selected.iter().copied() {
@@ -1157,6 +1157,7 @@ struct CheckedConstantExpression {
 }
 
 pub(super) struct SemanticExporter<'a> {
+    compilation: &'a Compilation,
     graph: &'a bray_symbols::SymbolGraph,
     surface: &'a PackageInterfaceSurface,
     keys: &'a BTreeMap<AnySymbolId, ExternalSymbolKey>,
@@ -1183,12 +1184,14 @@ pub(super) struct SemanticExporter<'a> {
 
 impl<'a> SemanticExporter<'a> {
     fn new(
+        compilation: &'a Compilation,
         graph: &'a bray_symbols::SymbolGraph,
         surface: &'a PackageInterfaceSurface,
         keys: &'a BTreeMap<AnySymbolId, ExternalSymbolKey>,
         values: &'a SemanticValueStore,
     ) -> Self {
         Self {
+            compilation,
             graph,
             surface,
             keys,
@@ -1271,7 +1274,16 @@ impl<'a> SemanticExporter<'a> {
         owner: AnySymbolId,
         template: &TypeExpressionTemplate,
     ) -> Result<TypeId, PackageInterfaceExportError> {
-        resolve_type_expression_template(self.values, template, &CheckedConstantTerms::new())
+        let constants = self
+            .compilation
+            .checked_constant_terms(template)
+            .map_err(|_| incomplete(owner))?;
+
+        if constants.diagnostics().has_errors() {
+            return Err(incomplete(owner));
+        }
+
+        resolve_type_expression_template(self.values, template, constants.value())
             .map_err(|_| incomplete(owner))?
             .ok_or_else(|| incomplete(owner))
     }

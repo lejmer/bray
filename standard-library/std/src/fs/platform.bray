@@ -178,7 +178,7 @@ internal func platform_metadata(pos value: PlatformFileMetadata) -> Result<FileM
 
     if value.present == 1
     {
-        let timestamp: std.time.Timestamp = std.time.Timestamp(
+        let timestamp: std.time.Timestamp = internal std.time.timestamp_from_parts(
             seconds = value.modified_seconds,
             nanoseconds = value.modified_nanoseconds,
         );

@@ -237,6 +237,9 @@ fn platform_abi_type_matches(
         bray_runtime_interface::PlatformAbiType::PointerU64 => {
             raw_pointer_targets(compilation, ty, RepresentationRole::ScalarU64)
         }
+        bray_runtime_interface::PlatformAbiType::PointerI64 => {
+            raw_pointer_targets(compilation, ty, RepresentationRole::ScalarI64)
+        }
         bray_runtime_interface::PlatformAbiType::Path => c_struct_matches(
             compilation,
             ty,

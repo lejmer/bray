@@ -8,17 +8,12 @@ use bray_codegen::{
     CodegenReachabilityBuilder, CodegenTarget, DebugInformationMode, DebugInformationOutputMode,
     LinkableArtifactKind, partition_codegen_units,
 };
-use bray_emitter::{BackendEmissionPolicy, EmissionBackend, ProductLinkFacts};
+use bray_emitter::{BackendEmissionPolicy, EmissionBackend};
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
-use bray_linker::{
-    DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkInputProvenance,
-    LinkInputSource, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind, Linker,
-    SectionGarbageCollectionPolicy,
-};
-use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact, RuntimeCapability};
+use bray_linker::Linker;
+use bray_runtime_interface::{RuntimeArtifact, RuntimeCapability};
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, NativeLinkKind, NativeLinkRequirement,
-    ProductIdentity, ProductKind,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, ProductIdentity, ProductKind,
 };
 
 use super::super::super::Compilation;
@@ -570,219 +565,6 @@ impl Compilation {
 
         Ok(ConcreteCodegenReachability::new(graph, realizations))
     }
-
-    fn product_link_facts(
-        &self,
-        kind: ProductKind,
-        host: Option<&ExecutableHostContract>,
-        runtime: Option<RuntimeArtifact>,
-        linker: &Linker,
-        target: &CodegenTarget,
-        configuration: crate::BuildConfiguration,
-    ) -> Result<ProductLinkFacts, NativeProductFactError> {
-        let product = match kind {
-            ProductKind::Library => LinkedProductKind::StaticLibrary,
-            ProductKind::Executable | ProductKind::Test => LinkedProductKind::Executable,
-        };
-
-        let link_model = product_link_model(target.machine().object_format());
-
-        let link_target = LinkTarget::try_new(
-            target.identity().clone(),
-            target.triple(),
-            target.machine().architecture(),
-            target.machine().object_format(),
-            target.relocation_model(),
-            target.code_model(),
-            link_model,
-        )
-        .map_err(NativeProductFactError::InvalidLinkTarget)?;
-
-        let driver = linker
-            .select_identity(&link_target, product)
-            .map_err(NativeProductFactError::Linker)?;
-
-        let linked_debug = match configuration {
-            crate::BuildConfiguration::Development
-                if configuration
-                    .requires_linked_debug_companion(target.machine().object_format()) =>
-            {
-                DebugLinkPolicy::Companion
-            }
-            crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
-            crate::BuildConfiguration::Release => DebugLinkPolicy::None,
-        };
-
-        let preserve_unused = configuration.preserves_unused_link_content();
-
-        let policy = match product {
-            LinkedProductKind::StaticLibrary => LinkPolicy::new(
-                DeadStripPolicy::Preserve,
-                SectionGarbageCollectionPolicy::Preserve,
-                match configuration {
-                    crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
-                    crate::BuildConfiguration::Release => DebugLinkPolicy::None,
-                },
-                None,
-            ),
-            LinkedProductKind::Executable => LinkPolicy::new(
-                if preserve_unused {
-                    DeadStripPolicy::Preserve
-                } else {
-                    DeadStripPolicy::RemoveUnreachable
-                },
-                if preserve_unused {
-                    SectionGarbageCollectionPolicy::Preserve
-                } else {
-                    SectionGarbageCollectionPolicy::RemoveUnreferenced
-                },
-                linked_debug,
-                Some(bray_linker::LinkSubsystem::Console),
-            ),
-            LinkedProductKind::SharedLibrary => LinkPolicy::new(
-                if preserve_unused {
-                    DeadStripPolicy::Preserve
-                } else {
-                    DeadStripPolicy::RemoveUnreachable
-                },
-                if preserve_unused {
-                    SectionGarbageCollectionPolicy::Preserve
-                } else {
-                    SectionGarbageCollectionPolicy::RemoveUnreferenced
-                },
-                linked_debug,
-                None,
-            ),
-        };
-
-        let configured_inputs = self
-            .options()
-            .native_link_inputs()
-            .iter()
-            .map(|requirement| {
-                native_link_input(requirement, LinkInputProvenance::HostConfiguration)
-            });
-
-        let runtime_inputs = runtime.iter().flat_map(|runtime| {
-            let artifact = runtime.contract().artifact().clone();
-
-            runtime
-                .metadata()
-                .native_links()
-                .iter()
-                .map(move |requirement| {
-                    native_link_input(
-                        requirement,
-                        LinkInputProvenance::RuntimeDependency(artifact.clone()),
-                    )
-                })
-        });
-
-        let standard_library_inputs = self.standard_library_link_inputs(kind)?;
-
-        let native_inputs = configured_inputs
-            .chain(runtime_inputs)
-            .chain(standard_library_inputs)
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let mut facts = ProductLinkFacts::new(link_target, driver.clone(), policy)
-            .with_native_inputs(native_inputs);
-
-        if let Some(runtime) = runtime {
-            facts = facts.with_runtime(runtime);
-        }
-
-        if let Some(host) = host {
-            facts = facts.with_retained_symbols([host.native_entry().clone()]);
-        }
-
-        Ok(facts)
-    }
-
-    fn standard_library_link_inputs(
-        &self,
-        product_kind: ProductKind,
-    ) -> Result<Vec<Result<LinkInputSpec, NativeProductFactError>>, NativeProductFactError> {
-        if product_kind == ProductKind::Library {
-            return Ok(Vec::new());
-        }
-
-        let Some(resolver) = self.state.standard_library.as_ref() else {
-            return Ok(Vec::new());
-        };
-
-        let selected = self.options().selected_target();
-
-        let artifacts = resolver
-            .target_artifacts(selected.profile().identity(), selected.runtime_abi())
-            .map_err(NativeProductFactError::StandardLibrary)?;
-
-        let package = bray_symbols::PackageIdentity::try_new(
-            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
-        )
-        .unwrap_or_else(|| panic!("standard library package identity must be valid"));
-
-        let inputs = artifacts
-            .iter()
-            .filter_map(|artifact| {
-                let kind = match artifact.metadata().kind() {
-                    bray_standard_library::StandardLibraryArtifactKind::RelocatableObject => {
-                        LinkInputKind::RelocatableObject
-                    }
-                    bray_standard_library::StandardLibraryArtifactKind::StaticLibrary => {
-                        LinkInputKind::Archive
-                    }
-                    bray_standard_library::StandardLibraryArtifactKind::PackageInterface
-                    | bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
-                    | bray_standard_library::StandardLibraryArtifactKind::DependencyMetadata
-                    | bray_standard_library::StandardLibraryArtifactKind::RuntimeArtifact => {
-                        return None;
-                    }
-                    bray_standard_library::StandardLibraryArtifactKind::SharedLibrary => {
-                        return Some(Err(NativeProductFactError::InvalidNativeLinkInput));
-                    }
-                };
-
-                Some(
-                    LinkInputSpec::try_new(
-                        kind,
-                        LinkInputSource::file(artifact.path()),
-                        // Every immutable input retains the Arc-backed package provenance.
-                        LinkInputProvenance::Package(package.clone()),
-                        LinkInputMode::Ordinary,
-                    )
-                    .map_err(|_| NativeProductFactError::InvalidNativeLinkInput),
-                )
-            })
-            .collect();
-
-        Ok(inputs)
-    }
-}
-
-const fn product_link_model(object_format: bray_target::ObjectFormat) -> LinkModel {
-    match object_format {
-        bray_target::ObjectFormat::Coff
-        | bray_target::ObjectFormat::Elf
-        | bray_target::ObjectFormat::MachO => LinkModel::Dynamic,
-        bray_target::ObjectFormat::WebAssembly | bray_target::ObjectFormat::Xcoff => {
-            LinkModel::Static
-        }
-    }
-}
-
-fn native_link_input(
-    requirement: &NativeLinkRequirement,
-    provenance: LinkInputProvenance,
-) -> Result<LinkInputSpec, NativeProductFactError> {
-    let input = match requirement.kind() {
-        NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => {
-            LinkInputSpec::try_native_library(requirement.name(), provenance)
-        }
-        NativeLinkKind::Framework => LinkInputSpec::try_framework(requirement.name(), provenance),
-    };
-
-    input.ok_or(NativeProductFactError::InvalidNativeLinkInput)
 }
 
 fn bound_template(
@@ -801,6 +583,7 @@ mod tests {
     use std::fs;
     use std::sync::Arc;
 
+    use bray_base::NonEmptySharedStr;
     use bray_codegen::{
         BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
         BackendArtifactRequestEntry, BackendArtifactRequirement, BackendSerializationOptions,
@@ -839,8 +622,8 @@ mod tests {
         CallableDefinitionId, CallableInstanceData, ConstantTermData, ConstantValueData,
         ConstantValueKind, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
-        NamedTypeSymbolId, ProductIdentity, ProductKind, SymbolOrigin, TraitApplicationData,
-        TypeData,
+        NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, ProductIdentity, ProductKind,
+        SymbolOrigin, TraitApplicationData, TypeData,
     };
     use bray_target::NativeTarget;
     use bray_testing::TemporaryFile;
@@ -882,7 +665,7 @@ mod tests {
     fn native_products_allow_platform_runtime_dependencies() {
         for target in NativeTarget::ALL {
             assert_eq!(
-                super::product_link_model(target.object_format()),
+                super::super::link::product_link_model(target.object_format()),
                 LinkModel::Dynamic,
                 "{target:?}"
             );
@@ -890,7 +673,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_link_inputs_include_the_exact_standard_library_archive() {
+    fn executable_link_inputs_include_standard_library_archives_and_native_dependencies() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
 
@@ -898,6 +681,7 @@ mod tests {
         let target = selected.profile().identity().clone();
         let runtime_abi = selected.runtime_abi();
         let archive_bytes = b"standard library archive";
+        let platform_archive_bytes = b"platform ABI archive";
 
         let archive_path = format!(
             "targets/{}/{}.{}/libstd.a",
@@ -927,9 +711,33 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("archive metadata must be valid: {error:?}"));
 
-        let target_artifacts =
-            StandardLibraryTargetArtifacts::try_new(target, runtime_abi, [archive.clone()])
-                .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
+        let platform_archive_path = format!(
+            "targets/{}/{}.{}/libbray_platform_abi.a",
+            target.as_str(),
+            runtime_abi.major(),
+            runtime_abi.minor()
+        );
+
+        let platform_archive = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            platform_archive_path,
+            platform_archive_bytes,
+        )
+        .unwrap_or_else(|error| panic!("platform archive metadata must be valid: {error:?}"));
+
+        let target_artifacts = StandardLibraryTargetArtifacts::try_new(
+            target,
+            runtime_abi,
+            [archive.clone(), platform_archive.clone()],
+        )
+        .map(|target| {
+            target.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("c")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
+        .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
         let manifest =
             StandardLibraryBundleManifest::try_new(interface, implementation, [target_artifacts])
@@ -946,6 +754,11 @@ mod tests {
 
         fs::write(&archive_file, archive_bytes)
             .unwrap_or_else(|error| panic!("archive must be written: {error}"));
+
+        let platform_archive_file = platform_archive.beneath(directory.path());
+
+        fs::write(&platform_archive_file, platform_archive_bytes)
+            .unwrap_or_else(|error| panic!("platform archive must be written: {error}"));
 
         let manifest_bytes = encode_standard_library_manifest(&manifest)
             .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));
@@ -970,30 +783,50 @@ mod tests {
             .unwrap_or_else(|error| panic!("compilation must load: {error:?}"));
 
         let inputs = compilation
-            .standard_library_link_inputs(ProductKind::Executable)
+            .standard_library_link_inputs(ProductKind::Executable, true)
             .unwrap_or_else(|error| panic!("standard library inputs must resolve: {error:?}"));
 
-        let [input] = inputs.as_slice() else {
-            panic!("one standard library archive must be selected");
-        };
+        assert_eq!(inputs.len(), 3);
 
-        let input = input
-            .as_ref()
-            .unwrap_or_else(|error| panic!("archive input must be valid: {error:?}"));
+        for path in [&archive_file, &platform_archive_file] {
+            assert!(inputs.iter().any(|input| {
+                input.as_ref().is_ok_and(|input| {
+                    input.kind() == LinkInputKind::Archive
+                        && input.source() == &LinkInputSource::file(path)
+                        && matches!(
+                            input.provenance(),
+                            LinkInputProvenance::Package(package)
+                                if package.as_str()
+                                    == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+                        )
+                })
+            }));
+        }
 
-        assert_eq!(input.kind(), LinkInputKind::Archive);
-        assert_eq!(input.source(), &LinkInputSource::file(&archive_file));
+        assert!(inputs.iter().any(|input| {
+            input.as_ref().is_ok_and(|input| {
+                input.kind() == LinkInputKind::NativeLibrary
+                    && input.source()
+                        == &LinkInputSource::try_native_library("c")
+                            .unwrap_or_else(|| panic!("native library name must be valid"))
+            })
+        }));
 
-        assert!(matches!(
-            input.provenance(),
-            LinkInputProvenance::Package(package)
-                if package.as_str()
-                    == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
-        ));
+        let embedded_inputs = compilation
+            .standard_library_link_inputs(ProductKind::Executable, false)
+            .unwrap_or_else(|error| panic!("embedded platform inputs must resolve: {error:?}"));
+
+        assert_eq!(embedded_inputs.len(), 1);
+
+        assert!(embedded_inputs.iter().all(|input| {
+            input
+                .as_ref()
+                .is_ok_and(|input| input.source() != &LinkInputSource::file(&platform_archive_file))
+        }));
 
         assert!(
             compilation
-                .standard_library_link_inputs(ProductKind::Library)
+                .standard_library_link_inputs(ProductKind::Library, true)
                 .unwrap_or_else(|error| panic!("library inputs must resolve: {error:?}"))
                 .is_empty()
         );
