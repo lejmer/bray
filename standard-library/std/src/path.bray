@@ -1,0 +1,589 @@
+module std.path;
+
+using std.bytes;
+using std.collection;
+using std.memory;
+
+union PathError
+{
+    InvalidNativeValue;
+    NotUtf8;
+    MemoryLayout;
+}
+
+struct NativeText
+{
+    internal bytes: std.bytes.Buffer;
+
+    construct from_string(pos value: string) -> Result<Self, PathError>
+    {
+        let width: usize = trusted internal std.io.native_text_width();
+
+        if width == 8
+        {
+            let buffer: std.bytes.Buffer = try buffer_from_utf8(std.string.utf8(&value));
+
+            return Ok(
+                {
+                    bytes = buffer
+                }
+            );
+        }
+
+        if width != 16
+        {
+            return Error(PathError.InvalidNativeValue);
+        }
+
+        let mut buffer: std.bytes.Buffer = try empty_buffer();
+        let count: usize = std.string.scalar_count(&value);
+        let mut index: usize = 0;
+
+        while index < count
+        {
+            let scalar: char? = std.string.scalar_at(&value, index = index);
+
+            match scalar
+            {
+                case ?character { try append_utf16(&mut buffer, character); }
+                case none { return Error(PathError.InvalidNativeValue); }
+            }
+
+            index = index + 1;
+        }
+
+        return Ok(
+            {
+                bytes = buffer
+            }
+        );
+    }
+
+    func to_string() -> Result<string, PathError>
+    {
+        let width: usize = trusted internal std.io.native_text_width();
+
+        if width == 8
+        {
+            return decode_utf8(std.bytes.as_slice(&self.bytes));
+        }
+
+        if width != 16
+        {
+            return Error(PathError.InvalidNativeValue);
+        }
+
+        return decode_utf16(std.bytes.as_slice(&self.bytes));
+    }
+}
+
+struct Path
+{
+    internal native: NativeText;
+
+    construct from_native(pos value: NativeText) -> Result<Self, PathError>
+    {
+        if !valid_native_text(&value)
+        {
+            return Error(PathError.InvalidNativeValue);
+        }
+
+        return Ok(
+            {
+                native = value
+            }
+        );
+    }
+
+    construct from_string(pos value: string) -> Result<Self, PathError>
+    {
+        let native: NativeText = try NativeText.from_string(value);
+
+        return Path.from_native(native);
+    }
+
+    func to_native() -> &NativeText
+    {
+        return &self.native;
+    }
+
+    func to_string() -> Result<string, PathError>
+    {
+        return self.native.to_string();
+    }
+
+    func join(pos child: &Path) -> Result<Path, PathError>
+    {
+        let child_bytes: &[u8] = std.bytes.as_slice(&child.native.bytes);
+
+        if path_is_absolute(child_bytes)
+        {
+            return path_from_bytes(child_bytes);
+        }
+
+        let own_bytes: &[u8] = std.bytes.as_slice(&self.native.bytes);
+        let mut joined: std.bytes.Buffer = try buffer_from_utf8(own_bytes);
+
+        if std.bytes.length(&joined) > 0 && !ends_with_separator(std.bytes.as_slice(&joined))
+        {
+            try append_native_unit(&mut joined, separator_value());
+        }
+
+        try append_bytes(&mut joined, child_bytes);
+
+        return path_from_buffer(joined);
+    }
+
+    func normalize() -> Result<Path, PathError>
+    {
+        let source: &[u8] = std.bytes.as_slice(&self.native.bytes);
+        let width: usize = native_unit_bytes();
+        let absolute: bool = path_is_absolute(source);
+        let mut output: std.bytes.Buffer = try empty_buffer();
+        let mut segment_starts: std.collection.List<usize> = try empty_segment_starts();
+        let mut output_length: usize = 0;
+        let mut protected_segments: usize = 0;
+        let mut index: usize = 0;
+
+        if absolute
+        {
+            if path_is_drive_absolute(source)
+            {
+                try append_bytes(&mut output, &source[.. 2 * width]);
+                try append_native_unit(&mut output, separator_value());
+                output_length = 3 * width;
+                index = skip_separators(source, start = 3 * width);
+            }
+            else if path_is_unc(source)
+            {
+                try append_native_unit(&mut output, separator_value());
+                try append_native_unit(&mut output, separator_value());
+                output_length = 2 * width;
+                protected_segments = 2;
+                index = skip_separators(source, start = 2 * width);
+            }
+            else
+            {
+                try append_native_unit(&mut output, separator_value());
+                output_length = width;
+                index = skip_separators(source, start = 0);
+            }
+        }
+
+        while index < std.bytes.slice_length(source)
+        {
+            let end: usize = segment_end(source, start = index);
+
+            if protected_segments > 0
+            {
+                output_length = try append_segment(
+                    &mut output,
+                    source,
+                    current_length = output_length,
+                    start = index,
+                    end = end,
+                );
+                protected_segments = protected_segments - 1;
+            }
+            else if segment_is_dot(source, start = index, end = end)
+            {
+                index = skip_separators(source, start = end);
+
+                continue;
+            }
+
+            else if segment_is_dot_dot(source, start = index, end = end)
+            {
+                let previous: usize? = trusted std.collection.pop<usize>(&mut segment_starts);
+
+                match previous
+                {
+                    case ?start
+                    {
+                        trusted std.bytes.truncate(&mut output, new_length = start);
+                        output_length = start;
+                    }
+                    case none
+                    {
+                        if !absolute
+                        {
+                            output_length = try append_segment(
+                                &mut output,
+                                source,
+                                current_length = output_length,
+                                start = index,
+                                end = end,
+                            );
+                        }
+                    }
+                }
+            }
+            else
+            {
+                let rollback: usize = output_length;
+
+                output_length = try append_segment(
+                    &mut output,
+                    source,
+                    current_length = output_length,
+                    start = index,
+                    end = end,
+                );
+                try push_segment_start(&mut segment_starts, value = rollback);
+            }
+
+            index = skip_separators(source, start = end);
+        }
+
+        if output_length == 0 && std.bytes.slice_length(source) != 0
+        {
+            try append_native_unit(&mut output, 46);
+        }
+
+        return path_from_buffer(output);
+    }
+}
+
+internal func native_bytes(pos value: &NativeText) -> &[u8]
+{
+    return std.bytes.as_slice(&value.bytes);
+}
+
+internal func path_from_bytes(pos bytes: &[u8]) -> Result<Path, PathError>
+{
+    let buffer: std.bytes.Buffer = try buffer_from_utf8(bytes);
+
+    return path_from_buffer(buffer);
+}
+
+internal func path_from_buffer(pos buffer: std.bytes.Buffer) -> Result<Path, PathError>
+{
+    let native: NativeText =
+    {
+        bytes = buffer
+    };
+
+    return Path.from_native(native);
+}
+
+internal func empty_buffer() -> Result<std.bytes.Buffer, PathError>
+{
+    match trusted std.bytes.Buffer(capacity = 0)
+    {
+        case Ok(buffer) { return Ok(buffer); }
+        case Error(_) { return Error(PathError.MemoryLayout); }
+    }
+}
+
+internal func buffer_from_utf8(pos bytes: &[u8]) -> Result<std.bytes.Buffer, PathError>
+{
+    match trusted std.bytes.Buffer.from_slice(bytes)
+    {
+        case Ok(buffer) { return Ok(buffer); }
+        case Error(_) { return Error(PathError.MemoryLayout); }
+    }
+}
+
+internal func append_bytes(pos buffer: &mut std.bytes.Buffer, pos bytes: &[u8]) -> Result<unit, PathError>
+{
+    match trusted std.bytes.append(&mut buffer, bytes = bytes)
+    {
+        case Ok(_) { return Ok(unit); }
+        case Error(_) { return Error(PathError.MemoryLayout); }
+    }
+}
+
+internal func append_byte(pos buffer: &mut std.bytes.Buffer, pos value: u8) -> Result<unit, PathError>
+{
+    match trusted std.bytes.push(&mut buffer, value = value)
+    {
+        case Ok(_) { return Ok(unit); }
+        case Error(_) { return Error(PathError.MemoryLayout); }
+    }
+}
+
+internal func append_utf16(pos buffer: &mut std.bytes.Buffer, pos value: char) -> Result<unit, PathError>
+{
+    let scalar: u32 = std.character.scalar_value(value = value);
+
+    if scalar <= 65535
+    {
+        return append_native_unit(&mut buffer, scalar);
+    }
+
+    let adjusted: u32 = scalar - 65536;
+    let high: u32 = 55296 + adjusted / 1024;
+    let low: u32 = 56320 + adjusted % 1024;
+
+    try append_native_unit(&mut buffer, high);
+
+    return append_native_unit(&mut buffer, low);
+}
+
+internal func append_native_unit(pos buffer: &mut std.bytes.Buffer, pos value: u32) -> Result<unit, PathError>
+{
+    if native_unit_bytes() == 1
+    {
+        return append_byte(&mut buffer, std.truncate_to<u8>(value));
+    }
+
+    try append_byte(&mut buffer, std.truncate_to<u8>(value));
+
+    return append_byte(&mut buffer, std.truncate_to<u8>(value / 256));
+}
+
+internal func decode_utf8(pos bytes: &[u8]) -> Result<string, PathError>
+{
+    match std.string.from_utf8(bytes)
+    {
+        case Ok(value) { return Ok(value); }
+        case Error(_) { return Error(PathError.NotUtf8); }
+    }
+}
+
+internal func decode_utf16(pos bytes: &[u8]) -> Result<string, PathError>
+{
+    if std.bytes.slice_length(bytes) % 2 != 0
+    {
+        return Error(PathError.InvalidNativeValue);
+    }
+
+    let mut utf8: std.bytes.Buffer = try empty_buffer();
+    let mut index: usize = 0;
+
+    while index < std.bytes.slice_length(bytes)
+    {
+        let first: u32 = native_unit(bytes, index = index);
+        let mut scalar: u32 = first;
+
+        if first >= 55296 && first <= 56319
+        {
+            if index + 2 >= std.bytes.slice_length(bytes)
+            {
+                return Error(PathError.InvalidNativeValue);
+            }
+
+            let second: u32 = native_unit(bytes, index = index + 2);
+
+            if second < 56320 || second > 57343
+            {
+                return Error(PathError.InvalidNativeValue);
+            }
+
+            scalar = 65536 + (first - 55296) * 1024 + second - 56320;
+            index = index + 2;
+        }
+        else if first >= 56320 && first <= 57343
+        {
+            return Error(PathError.InvalidNativeValue);
+        }
+
+        let character: char? = std.character.from_scalar_value(value = scalar);
+
+        match character
+        {
+            case ?value { try append_utf8_scalar(&mut utf8, value); }
+            case none { return Error(PathError.InvalidNativeValue); }
+        }
+
+        index = index + 2;
+    }
+
+    return decode_utf8(std.bytes.as_slice(&utf8));
+}
+
+internal func append_utf8_scalar(pos buffer: &mut std.bytes.Buffer, pos value: char) -> Result<unit, PathError>
+{
+    let count: usize = std.character.utf8_length(value = value);
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let byte: u8 = std.character.utf8_byte(value = value, index = index);
+
+        try append_byte(&mut buffer, byte);
+
+        index = index + 1;
+    }
+
+    return Ok(unit);
+}
+
+internal func valid_native_text(pos value: &NativeText) -> bool
+{
+    let bytes: &[u8] = std.bytes.as_slice(&value.bytes);
+    let width: usize = native_unit_bytes();
+
+    if width == 2 && std.bytes.slice_length(bytes) % 2 != 0
+    {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < std.bytes.slice_length(bytes)
+    {
+        if native_unit(bytes, index = index) == 0
+        {
+            return false;
+        }
+
+        index = index + width;
+    }
+
+    return true;
+}
+
+internal func native_unit_bytes() -> usize
+{
+    return trusted internal std.io.native_text_width() / 8;
+}
+
+internal func native_unit(pos bytes: &[u8], index: usize) -> u32
+{
+    let first: u32 = bytes[index] as u32;
+
+    if native_unit_bytes() == 1
+    {
+        return first;
+    }
+
+    return first + (bytes[index + 1] as u32) * 256;
+}
+
+internal func separator_value() -> u32
+{
+    if native_unit_bytes() == 2
+    {
+        return 92;
+    }
+
+    return 47;
+}
+
+internal func is_separator(pos value: u32) -> bool
+{
+    if value == 47
+    {
+        return true;
+    }
+
+    return native_unit_bytes() == 2 && value == 92;
+}
+
+internal func path_is_absolute(pos bytes: &[u8]) -> bool
+{
+    let length: usize = std.bytes.slice_length(bytes);
+    let width: usize = native_unit_bytes();
+
+    if length >= width && is_separator(native_unit(bytes, index = 0))
+    {
+        return true;
+    }
+
+    return path_is_drive_absolute(bytes);
+}
+
+internal func path_is_drive_absolute(pos bytes: &[u8]) -> bool
+{
+    let width: usize = native_unit_bytes();
+
+    return width == 2 && std.bytes.slice_length(bytes) >= 3 * width && native_unit(bytes, index = width) == 58 &&
+        is_separator(native_unit(bytes, index = 2 * width));
+}
+
+internal func path_is_unc(pos bytes: &[u8]) -> bool
+{
+    let width: usize = native_unit_bytes();
+
+    return width == 2 && std.bytes.slice_length(bytes) >= 2 * width && is_separator(native_unit(bytes, index = 0)) &&
+        is_separator(native_unit(bytes, index = width));
+}
+
+internal func ends_with_separator(pos bytes: &[u8]) -> bool
+{
+    let length: usize = std.bytes.slice_length(bytes);
+    let width: usize = native_unit_bytes();
+
+    return length >= width && is_separator(native_unit(bytes, index = length - width));
+}
+
+internal func skip_separators(pos bytes: &[u8], start: usize) -> usize
+{
+    let width: usize = native_unit_bytes();
+    let mut index: usize = start;
+
+    while index < std.bytes.slice_length(bytes) && is_separator(native_unit(bytes, index = index))
+    {
+        index = index + width;
+    }
+
+    return index;
+}
+
+internal func segment_end(pos bytes: &[u8], start: usize) -> usize
+{
+    let width: usize = native_unit_bytes();
+    let mut index: usize = start;
+
+    while index < std.bytes.slice_length(bytes) && !is_separator(native_unit(bytes, index = index))
+    {
+        index = index + width;
+    }
+
+    return index;
+}
+
+internal func segment_is_dot(pos bytes: &[u8], start: usize, end: usize) -> bool
+{
+    return end - start == native_unit_bytes() && native_unit(bytes, index = start) == 46;
+}
+
+internal func segment_is_dot_dot(pos bytes: &[u8], start: usize, end: usize) -> bool
+{
+    let width: usize = native_unit_bytes();
+
+    return end - start == 2 * width && native_unit(bytes, index = start) == 46 && native_unit(
+        bytes,
+        index = start + width
+    ) == 46;
+}
+
+internal func append_segment(
+    pos output: &mut std.bytes.Buffer,
+    pos source: &[u8],
+    current_length: usize,
+    start: usize,
+    end: usize,
+) -> Result<usize, PathError>
+{
+    let mut next_length: usize = current_length;
+
+    if current_length > 0 && !ends_with_separator(std.bytes.as_slice(&output))
+    {
+        try append_native_unit(&mut output, separator_value());
+        next_length = next_length + native_unit_bytes();
+    }
+
+    try append_bytes(&mut output, &source[start.. end]);
+
+    return Ok(next_length + end - start);
+}
+
+internal func empty_segment_starts() -> Result<std.collection.List<usize>, PathError>
+{
+    match trusted std.collection.List<usize>(capacity = 0)
+    {
+        case Ok(list) { return Ok(list); }
+        case Error(_) { return Error(PathError.MemoryLayout); }
+    }
+}
+
+internal func push_segment_start(pos starts: &mut std.collection.List<usize>, value: usize) -> Result<unit, PathError>
+{
+    match trusted std.collection.push<usize>(&mut starts, value = value)
+    {
+        case Ok(_) { return Ok(unit); }
+        case Error(_) { return Error(PathError.MemoryLayout); }
+    }
+}

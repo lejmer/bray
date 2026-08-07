@@ -20,8 +20,9 @@ The public platform-facing modules are:
 | `std.time` | Durations, monotonic instants, wall-clock values, deadlines, and timers |
 | `std.random` | System entropy and deterministic pseudorandom generation |
 
-These modules can use private trusted declarations to reach the selected target. Private declarations are not public `std`
-surface, are not available to user source, and do not change the semantics specified here.
+These modules can use internal trusted declarations to reach the selected target. Internal declarations are not public `std`
+surface, require explicit internal-use acknowledgement outside their intended scope, and do not change the semantics specified
+here.
 
 The compiler does not recognize these modules by spelling. Their declarations remain ordinary standard-library declarations unless
 another language rule explicitly identifies a particular declaration as compiler-known or recognized.
@@ -89,22 +90,23 @@ trait AsyncWriter
         requires(blocking_execution());
 }
 
-union SeekFrom
+union SeekOrigin
 {
-    Start(pos offset: u64);
-    Current(pos offset: i64);
-    End(pos offset: i64);
+    Start;
+    Current;
+    End;
 }
 
 trait Seeker
 {
-    mut func seek(pos from: SeekFrom) -> Result<u64, IoError>
+    mut func seek(offset: i64, origin: SeekOrigin) -> Result<u64, IoError>
         requires(blocking_execution());
 }
 
 trait AsyncSeeker
 {
-    mut async func seek_async(pos from: SeekFrom) -> Result<u64, IoError>;
+    mut async func seek_async(offset: i64, origin: SeekOrigin) -> Result<u64, IoError>
+        requires(blocking_execution());
 }
 
 struct StandardInput
@@ -188,6 +190,7 @@ union PathError
 {
     InvalidNativeValue;
     NotUtf8;
+    MemoryLayout;
 }
 
 struct NativeText
@@ -197,7 +200,7 @@ struct NativeText
 
 impl NativeText
 {
-    static func from_string(pos value: string) -> Result<NativeText, PathError>;
+    construct from_string(pos value: string) -> Result<Self, PathError>;
     func to_string() -> Result<string, PathError>;
 }
 
@@ -208,12 +211,12 @@ struct Path
 
 impl Path
 {
-    static func from_native(pos value: NativeText) -> Result<Path, PathError>;
-    static func from_string(pos value: string) -> Result<Path, PathError>;
-    func to_native() -> NativeText;
+    construct from_native(pos value: NativeText) -> Result<Self, PathError>;
+    construct from_string(pos value: string) -> Result<Self, PathError>;
+    func to_native() -> &NativeText;
     func to_string() -> Result<string, PathError>;
-    func join(pos child: &Path) -> Path;
-    func normalize() -> Path;
+    func join(pos child: &Path) -> Result<Path, PathError>;
+    func normalize() -> Result<Path, PathError>;
 }
 
 union FileAccess
@@ -259,26 +262,47 @@ struct File
 
 impl File
 {
-    static func open(
+    construct open(
         pos path: &std.path.Path,
         options: OpenOptions,
-    ) -> Result<File, std.io.IoError>
+    ) -> Result<Self, std.io.IoError>
         requires(blocking_execution());
-
-    static async func open_async(
-        pos path: &std.path.Path,
-        options: OpenOptions,
-    ) -> Result<File, std.io.IoError>;
 
     func metadata() -> Result<FileMetadata, std.io.IoError>
         requires(blocking_execution());
 
-    async func metadata_async() -> Result<FileMetadata, std.io.IoError>;
-
-    consume func close() -> Result<unit, std.io.IoError>
+    async func metadata_async() -> Result<FileMetadata, std.io.IoError>
         requires(blocking_execution());
 
-    consume async func close_async() -> Result<unit, std.io.IoError>;
+    mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution());
+
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution());
+
+    mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
+
+    mut func seek(offset: i64, origin: std.io.SeekOrigin) -> Result<u64, std.io.IoError>
+        requires(blocking_execution());
+
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution());
+
+    mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution());
+
+    mut async func flush_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
+
+    mut async func seek_async(offset: i64, origin: std.io.SeekOrigin) -> Result<u64, std.io.IoError>
+        requires(blocking_execution());
+
+    consume mut func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
+
+    consume mut async func close_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
 }
 
 struct DirectoryEntry
@@ -294,41 +318,45 @@ struct Directory
 
 impl Directory
 {
-    static func open(pos path: &std.path.Path) -> Result<Directory, std.io.IoError>
+    construct open(pos path: &std.path.Path) -> Result<Self, std.io.IoError>
         requires(blocking_execution());
-
-    static async func open_async(pos path: &std.path.Path) -> Result<Directory, std.io.IoError>;
 
     mut func next() -> Result<DirectoryEntry?, std.io.IoError>
         requires(blocking_execution());
 
-    mut async func next_async() -> Result<DirectoryEntry?, std.io.IoError>;
-
-    consume func close() -> Result<unit, std.io.IoError>
+    mut async func next_async() -> Result<DirectoryEntry?, std.io.IoError>
         requires(blocking_execution());
 
-    consume async func close_async() -> Result<unit, std.io.IoError>;
+    consume mut func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
+
+    consume mut async func close_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
 }
 
 func metadata(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>
     requires(blocking_execution());
 
-async func metadata_async(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>;
+async func metadata_async(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>
+    requires(blocking_execution());
 
 func create_directory(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
     requires(blocking_execution());
 
-async func create_directory_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>;
+async func create_directory_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution());
 
 func remove_file(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
     requires(blocking_execution());
 
-async func remove_file_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>;
+async func remove_file_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution());
 
 func remove_directory(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
     requires(blocking_execution());
 
-async func remove_directory_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>;
+async func remove_directory_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution());
 
 func rename(pos source: &std.path.Path, pos destination: &std.path.Path) -> Result<unit, std.io.IoError>
     requires(blocking_execution());
@@ -336,7 +364,8 @@ func rename(pos source: &std.path.Path, pos destination: &std.path.Path) -> Resu
 async func rename_async(
     pos source: &std.path.Path,
     pos destination: &std.path.Path,
-) -> Result<unit, std.io.IoError>;
+) -> Result<unit, std.io.IoError>
+    requires(blocking_execution());
 ```
 
 `File` implements the blocking and asynchronous reader, writer, and seeker traits. A call disallowed by the file's `OpenOptions`

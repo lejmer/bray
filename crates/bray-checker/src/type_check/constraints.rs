@@ -8,7 +8,7 @@ use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
     BoundLiteralKind, BoundStructuredExpressionKind,
 };
-use bray_symbols::{TypeData, TypeId};
+use bray_symbols::{NamedTypeSymbolId, TypeData, TypeId};
 
 use super::ExpressionTypeExpectation;
 use super::dependencies::ExpressionTypeDependencies;
@@ -377,6 +377,19 @@ where
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
         match (expression, data.as_ref()) {
+            (
+                BoundExpression::StructConstruction(construction),
+                TypeData::Named {
+                    definition: NamedTypeSymbolId::Struct(_),
+                    ..
+                },
+            ) if construction.head().is_none() => {
+                inference.add_evidence(
+                    variable,
+                    expectation.ty(),
+                    expectation.expression(),
+                );
+            }
             (BoundExpression::Structured(structured), TypeData::Tuple(expected_elements))
                 if structured.kind() == BoundStructuredExpressionKind::Tuple
                     && structured.operands().len() == expected_elements.len() =>

@@ -1148,6 +1148,40 @@ mod tests {
     }
 
     #[test]
+    fn else_if_conditions_lower_to_short_circuit_branches() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main(pos first: bool, pos second: bool)\n",
+            "{\n",
+            "    if first\n",
+            "    {\n",
+            "    }\n",
+            "    else if second\n",
+            "    {\n",
+            "    }\n",
+            "    else\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let result = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("else-if MIR must be available: {error:?}"));
+
+        let branch_count = lowered_mir(&result)
+            .blocks()
+            .iter()
+            .filter(|block| {
+                matches!(block.terminator().kind(), MirTerminatorKind::Branch { .. })
+            })
+            .count();
+
+        assert_eq!(branch_count, 2);
+        assert!(result.diagnostics().is_empty(), "{result:?}");
+    }
+
+    #[test]
     fn contextual_variant_patterns_do_not_require_superseded_binding_candidates() {
         let compilation = compilation(concat!(
             "module app;\n",

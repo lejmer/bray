@@ -1,0 +1,291 @@
+trusted module std.fs;
+
+struct File
+{
+    internal handle: u64;
+    internal mut is_open: bool;
+
+    construct open(pos path: &std.path.Path, options: OpenOptions) -> Result<Self, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted open_file(path, options = options);
+    }
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        if self.is_open
+        {
+            let _: std.io.PlatformStatus = trusted platform_stream_close(handle = self.handle);
+        }
+    }
+
+    func metadata() -> Result<FileMetadata, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted file_metadata(handle = self.handle);
+    }
+
+    async func metadata_async() -> Result<FileMetadata, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return self.metadata();
+    }
+
+    mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted read_file(&mut self, destination);
+    }
+
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted write_file(&mut self, source);
+    }
+
+    mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted flush_file(&mut self);
+    }
+
+    mut func seek(offset: i64, origin: std.io.SeekOrigin) -> Result<u64, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted seek_file(&mut self, offset = offset, origin = origin);
+    }
+
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted read_file(&mut self, destination);
+    }
+
+    mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted write_file(&mut self, source);
+    }
+
+    mut async func flush_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted flush_file(&mut self);
+    }
+
+    mut async func seek_async(offset: i64, origin: std.io.SeekOrigin) -> Result<u64, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted seek_file(&mut self, offset = offset, origin = origin);
+    }
+
+    consume mut func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_file(&mut self);
+    }
+
+    consume mut async func close_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return self.close();
+    }
+}
+
+trusted internal func open_file(pos path: &std.path.Path, options: OpenOptions) -> Result<File, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let platform_path_value: PlatformPath = platform_path(path);
+    let platform_options: PlatformFileOptions =
+    {
+        access = file_access_value(options.access),
+        creation = file_creation_value(options.creation),
+        reserved = 0,
+    };
+    let mut handle: u64 = 0;
+    let handle_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut handle);
+    let status: std.io.PlatformStatus = trusted platform_file_open(
+        platform_path_value,
+        options = platform_options,
+        opened = handle_pointer,
+    );
+
+    try checked_platform_status(status);
+
+    let file: File =
+    {
+        handle = handle,
+        is_open = true,
+    };
+
+    return Ok(file);
+}
+
+trusted internal func file_metadata(handle: u64) -> Result<FileMetadata, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let mut output: PlatformFileMetadata = empty_platform_metadata();
+    let output_pointer: RawPointer<PlatformFileMetadata> = std.memory.address_of_mut(&mut output);
+    let status: std.io.PlatformStatus = trusted platform_file_metadata(handle = handle, metadata = output_pointer);
+
+    try checked_platform_status(status);
+
+    return platform_metadata(output);
+}
+
+trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let status: std.io.PlatformStatus = trusted platform_stream_close(handle = file.handle);
+
+    file.is_open = false;
+
+    return checked_platform_status(status);
+}
+
+impl FileReader = File(std.io.Reader)
+{
+    mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted read_file(&mut self, destination);
+    }
+}
+
+impl FileWriter = File(std.io.Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted write_file(&mut self, source);
+    }
+
+    mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted flush_file(&mut self);
+    }
+}
+
+impl FileSeeker = File(std.io.Seeker)
+{
+    mut func seek(offset: i64, origin: std.io.SeekOrigin) -> Result<u64, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted seek_file(&mut self, offset = offset, origin = origin);
+    }
+}
+
+trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let maximum: usize = internal std.memory.byte_slice_length(&destination);
+    let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
+    let mut transferred: u64 = 0;
+    let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
+    let status: std.io.PlatformStatus = trusted std.io.platform_stream_read(
+        handle = file.handle,
+        destination = destination_pointer,
+        length = maximum as u64,
+        transferred = transferred_pointer,
+    );
+
+    return internal std.io.checked_transfer(
+        status,
+        transferred = transferred,
+        maximum = maximum,
+        require_progress = false,
+    );
+}
+
+trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Result<usize, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let maximum: usize = internal std.memory.byte_slice_length(source);
+    let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
+    let mut transferred: u64 = 0;
+    let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
+    let status: std.io.PlatformStatus = trusted std.io.platform_stream_write(
+        handle = file.handle,
+        source = source_pointer,
+        length = maximum as u64,
+        transferred = transferred_pointer,
+    );
+
+    return internal std.io.checked_transfer(
+        status,
+        transferred = transferred,
+        maximum = maximum,
+        require_progress = true,
+    );
+}
+
+trusted internal func flush_file(pos file: &mut File) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let status: std.io.PlatformStatus = trusted std.io.platform_stream_flush(handle = file.handle);
+
+    return checked_platform_status(status);
+}
+
+trusted internal func seek_file(
+    pos file: &mut File,
+    offset: i64,
+    origin: std.io.SeekOrigin,
+) -> Result<u64, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let mut position: u64 = 0;
+    let position_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut position);
+    let status: std.io.PlatformStatus = trusted platform_stream_seek(
+        handle = file.handle,
+        offset = offset,
+        origin = seek_origin_value(origin),
+        position = position_pointer,
+    );
+
+    try checked_platform_status(status);
+
+    return Ok(position);
+}
+
+impl FileAsyncReader = File(std.io.AsyncReader)
+{
+    mut async func read_async(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted read_file(&mut self, destination);
+    }
+}
+
+impl FileAsyncWriter = File(std.io.AsyncWriter)
+{
+    mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted write_file(&mut self, source);
+    }
+
+    mut async func flush_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted flush_file(&mut self);
+    }
+}
+
+impl FileAsyncSeeker = File(std.io.AsyncSeeker)
+{
+    mut async func seek_async(offset: i64, origin: std.io.SeekOrigin) -> Result<u64, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted seek_file(&mut self, offset = offset, origin = origin);
+    }
+}

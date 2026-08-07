@@ -77,7 +77,7 @@ where
             .expression(input.expression)
             .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
-        recovered |= input.is_recovered || actual.is_recovered();
+        recovered |= input.is_recovered;
 
         let surface = surfaces[surface_index];
 

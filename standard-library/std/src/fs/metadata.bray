@@ -1,0 +1,155 @@
+trusted module std.fs;
+
+union FileAccess
+{
+    Read;
+    Write;
+    ReadWrite;
+    Append;
+}
+
+union FileCreation
+{
+    OpenExisting;
+    CreateIfMissing;
+    CreateNew;
+    Truncate;
+}
+
+struct OpenOptions
+{
+    access: FileAccess;
+    creation: FileCreation;
+
+    construct(access: FileAccess, creation: FileCreation) -> Self
+    {
+        return
+        {
+            access = access,
+            creation = creation,
+        };
+    }
+}
+
+union FileKind
+{
+    File;
+    Directory;
+    Other;
+}
+
+struct FileMetadata
+{
+    kind: FileKind;
+    bytes: u64;
+    modified: std.time.Timestamp?;
+}
+
+func metadata(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>
+    requires(blocking_execution())
+{
+    return trusted path_metadata(path);
+}
+
+trusted internal func path_metadata(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let native: PlatformPath = platform_path(path);
+    let mut output: PlatformFileMetadata = empty_platform_metadata();
+    let output_pointer: RawPointer<PlatformFileMetadata> = std.memory.address_of_mut(&mut output);
+    let status: std.io.PlatformStatus = trusted platform_path_metadata(native, metadata = output_pointer);
+
+    try checked_platform_status(status);
+
+    return platform_metadata(output);
+}
+
+async func metadata_async(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>
+    requires(blocking_execution())
+{
+    return metadata(path);
+}
+
+func create_directory(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    return trusted create_directory_path(path);
+}
+
+trusted internal func create_directory_path(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    return checked_platform_status(trusted platform_path_create_directory(platform_path(path)));
+}
+
+async func create_directory_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    return create_directory(path);
+}
+
+func remove_file(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    return trusted remove_file_path(path);
+}
+
+trusted internal func remove_file_path(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    return checked_platform_status(trusted platform_path_remove_file(platform_path(path)));
+}
+
+async func remove_file_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    return remove_file(path);
+}
+
+func remove_directory(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    return trusted remove_directory_path(path);
+}
+
+trusted internal func remove_directory_path(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    return checked_platform_status(trusted platform_path_remove_directory(platform_path(path)));
+}
+
+async func remove_directory_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    return remove_directory(path);
+}
+
+func rename(pos source: &std.path.Path, pos destination: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    return trusted rename_path(source, destination);
+}
+
+trusted internal func rename_path(
+    pos source: &std.path.Path,
+    pos destination: &std.path.Path,
+) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let native_source: PlatformPath = platform_path(source);
+    let native_destination: PlatformPath = platform_path(destination);
+    let status: std.io.PlatformStatus = trusted platform_path_rename(native_source, native_destination);
+
+    return checked_platform_status(status);
+}
+
+async func rename_async(pos source: &std.path.Path, pos destination: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    return rename(source, destination);
+}

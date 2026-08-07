@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "native ABI symbols and wire records form one flat contract catalog")
+
 /// Stable symbol executing one compiler-generated root frame.
 pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution_v1";
 
@@ -72,11 +74,47 @@ pub const PLATFORM_STREAM_WRITE_SYMBOL: &str = "bray_platform_stream_write_v1";
 /// Stable symbol flushing a borrowed platform stream handle.
 pub const PLATFORM_STREAM_FLUSH_SYMBOL: &str = "bray_platform_stream_flush_v1";
 
+/// Stable symbol seeking a borrowed platform stream handle.
+pub const PLATFORM_STREAM_SEEK_SYMBOL: &str = "bray_platform_stream_seek_v1";
+
+/// Stable symbol closing an owned platform stream handle.
+pub const PLATFORM_STREAM_CLOSE_SYMBOL: &str = "bray_platform_stream_close_v1";
+
 /// Stable symbol acquiring product-wide stream serialization.
 pub const PLATFORM_STREAM_LOCK_SYMBOL: &str = "bray_platform_stream_lock_v1";
 
 /// Stable symbol releasing product-wide stream serialization.
 pub const PLATFORM_STREAM_UNLOCK_SYMBOL: &str = "bray_platform_stream_unlock_v1";
+
+/// Stable symbol opening a platform file stream.
+pub const PLATFORM_FILE_OPEN_SYMBOL: &str = "bray_platform_file_open_v1";
+
+/// Stable symbol reading metadata from a platform file stream.
+pub const PLATFORM_FILE_METADATA_SYMBOL: &str = "bray_platform_file_metadata_v1";
+
+/// Stable symbol reading metadata for a platform path.
+pub const PLATFORM_PATH_METADATA_SYMBOL: &str = "bray_platform_path_metadata_v1";
+
+/// Stable symbol opening a platform directory traversal.
+pub const PLATFORM_DIRECTORY_OPEN_SYMBOL: &str = "bray_platform_directory_open_v1";
+
+/// Stable symbol reading a platform directory traversal entry.
+pub const PLATFORM_DIRECTORY_NEXT_SYMBOL: &str = "bray_platform_directory_next_v1";
+
+/// Stable symbol closing a platform directory traversal.
+pub const PLATFORM_DIRECTORY_CLOSE_SYMBOL: &str = "bray_platform_directory_close_v1";
+
+/// Stable symbol creating a platform directory.
+pub const PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL: &str = "bray_platform_path_create_directory_v1";
+
+/// Stable symbol removing a platform file.
+pub const PLATFORM_PATH_REMOVE_FILE_SYMBOL: &str = "bray_platform_path_remove_file_v1";
+
+/// Stable symbol removing a platform directory.
+pub const PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL: &str = "bray_platform_path_remove_directory_v1";
+
+/// Stable symbol renaming a platform filesystem entry.
+pub const PLATFORM_PATH_RENAME_SYMBOL: &str = "bray_platform_path_rename_v1";
 
 /// Stable symbol counting Unicode scalar values in UTF-8 text.
 pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count_v1";
@@ -209,8 +247,20 @@ pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRol
         Role::StreamRead => PLATFORM_STREAM_READ_SYMBOL,
         Role::StreamWrite => PLATFORM_STREAM_WRITE_SYMBOL,
         Role::StreamFlush => PLATFORM_STREAM_FLUSH_SYMBOL,
+        Role::StreamSeek => PLATFORM_STREAM_SEEK_SYMBOL,
+        Role::StreamClose => PLATFORM_STREAM_CLOSE_SYMBOL,
         Role::StreamLock => PLATFORM_STREAM_LOCK_SYMBOL,
         Role::StreamUnlock => PLATFORM_STREAM_UNLOCK_SYMBOL,
+        Role::FileOpen => PLATFORM_FILE_OPEN_SYMBOL,
+        Role::FileMetadata => PLATFORM_FILE_METADATA_SYMBOL,
+        Role::PathMetadata => PLATFORM_PATH_METADATA_SYMBOL,
+        Role::DirectoryOpen => PLATFORM_DIRECTORY_OPEN_SYMBOL,
+        Role::DirectoryNext => PLATFORM_DIRECTORY_NEXT_SYMBOL,
+        Role::DirectoryClose => PLATFORM_DIRECTORY_CLOSE_SYMBOL,
+        Role::PathCreateDirectory => PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL,
+        Role::PathRemoveFile => PLATFORM_PATH_REMOVE_FILE_SYMBOL,
+        Role::PathRemoveDirectory => PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL,
+        Role::PathRename => PLATFORM_PATH_RENAME_SYMBOL,
     }
 }
 

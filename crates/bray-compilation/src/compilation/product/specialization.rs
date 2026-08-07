@@ -220,7 +220,7 @@ impl Compilation {
         );
 
         ConcreteCodegenInstance::try_generated_lifecycle(key, reference)
-            .ok_or(FactQueryError::InfrastructureFailure.into())
+            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
     }
 
     pub(super) fn concrete_codegen_callable(
@@ -232,10 +232,8 @@ impl Compilation {
     ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
         cancellation.check()?;
 
-        let callable = CallableInstanceData::new(
-            callable.definition(),
-            self.realize_codegen_substitution(callable.substitution())?,
-        );
+        let substitution = self.realize_codegen_substitution(callable.substitution())?;
+        let callable = CallableInstanceData::new(callable.definition(), substitution);
 
         let template = self.codegen_callable_template(callable.definition(), cancellation)?;
 
@@ -253,7 +251,7 @@ impl Compilation {
         );
 
         ConcreteCodegenInstance::try_callable(key, callable, specialization, witnesses)
-            .ok_or(FactQueryError::InfrastructureFailure.into())
+            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
     }
 
     fn codegen_callable_template(

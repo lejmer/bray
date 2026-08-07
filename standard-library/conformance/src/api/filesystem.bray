@@ -1,0 +1,117 @@
+module bray.standard_library_conformance.filesystem;
+
+using std.fs;
+using std.io;
+using std.path;
+using std.string;
+
+@test(serial)
+func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io.IoError>
+{
+    let directory: std.path.Path = test_path("bray-filesystem-conformance");
+    let alpha: std.path.Path = test_path("bray-filesystem-conformance/alpha");
+    let zeta: std.path.Path = test_path("bray-filesystem-conformance/zeta");
+
+    discard_existing_file(&alpha);
+    discard_existing_file(&zeta);
+    discard_existing_directory(&directory);
+
+    try std.fs.create_directory(&directory);
+    try write_file(&zeta, value = 90);
+    try write_file(&alpha, value = 65);
+
+    let mut traversal: std.fs.Directory = try std.fs.Directory.open(&directory);
+    let first: std.fs.DirectoryEntry? = try traversal.next();
+    let second: std.fs.DirectoryEntry? = try traversal.next();
+    let exhausted: std.fs.DirectoryEntry? = try traversal.next();
+
+    assert(entry_name_equals(first, "alpha"));
+    assert(entry_name_equals(second, "zeta"));
+
+    match exhausted
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    try traversal.close();
+    try std.fs.remove_file(&alpha);
+    try std.fs.remove_file(&zeta);
+    try std.fs.remove_directory(&directory);
+
+    return Ok(unit);
+}
+
+func test_path(pos value: string) -> std.path.Path
+{
+    match std.path.Path.from_string(value)
+    {
+        case Ok(result) { return result; }
+        case Error(_) { panic("test path should be valid"); }
+    }
+}
+
+func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoError>
+{
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.ReadWrite,
+        creation = std.fs.FileCreation.CreateNew,
+    );
+    let mut file: std.fs.File = try std.fs.File.open(path, options = options);
+    let bytes: [u8; 1] = [value];
+    let written: usize = try file.write(&bytes[..]);
+
+    assert(written == 1);
+
+    let position: u64 = try file.seek(offset = 0, origin = std.io.SeekOrigin.Start);
+
+    assert(position == 0);
+
+    let mut destination: [u8; 1] = [0];
+    let read: usize = try file.read(&mut destination[..]);
+
+    assert(read == 1);
+    assert(destination[0] == value);
+
+    let metadata: std.fs.FileMetadata = try file.metadata();
+
+    assert(metadata.bytes == 1);
+
+    return file.close();
+}
+
+func entry_name_equals(pos candidate: std.fs.DirectoryEntry?, pos expected: string) -> bool
+{
+    match consume candidate
+    {
+        case ?entry
+        {
+            let text: Result<string, std.path.PathError> = entry.path.to_string();
+
+            match consume text
+            {
+                case Ok(actual) { return std.string.equals(&actual, &expected); }
+                case Error(_) { return false; }
+            }
+        }
+        case none { return false; }
+    }
+}
+
+func discard_existing_file(pos path: &std.path.Path)
+{
+    match std.fs.remove_file(path)
+    {
+        case Ok(_) {}
+        case Error(_) {}
+    }
+}
+
+func discard_existing_directory(pos path: &std.path.Path)
+{
+    match std.fs.remove_directory(path)
+    {
+        case Ok(_) {}
+        case Error(_) {}
+    }
+}

@@ -390,6 +390,56 @@ mod tests {
     }
 
     #[test]
+    fn union_payload_type_provides_context_for_nested_construction() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Payload\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+            "union Maybe\n",
+            "{\n",
+            "    Some(pos value: Payload);\n",
+            "    None;\n",
+            "}\n",
+            "func main() -> Maybe\n",
+            "{\n",
+            "    return Some({ value = 1 });\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let types = compilation
+            .expression_types(key.clone())
+            .unwrap_or_else(|error| panic!("nested construction types must publish: {error:?}"));
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("nested construction selections must publish: {error:?}"));
+
+        let constructions = selections
+            .value()
+            .entries()
+            .iter()
+            .filter(|entry| {
+                matches!(
+                    entry.selection(),
+                    SemanticSelection::Operation(SelectedOperation::Construction(_))
+                )
+            })
+            .count();
+
+        assert_eq!(
+            constructions,
+            2,
+            "types: {types:?}; selections: {selections:?}"
+        );
+
+        assert!(selections.diagnostics().is_empty(), "{selections:?}");
+    }
+
+    #[test]
     fn known_parameter_type_provides_context_for_unqualified_variants() {
         let compilation = compilation(&union_source(
             "func main()",

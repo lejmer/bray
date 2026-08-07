@@ -1,0 +1,20 @@
+trusted module std.io;
+
+union SeekOrigin
+{
+    Start;
+    Current;
+    End;
+}
+
+trait Seeker
+{
+    mut func seek(offset: i64, origin: SeekOrigin) -> Result<u64, IoError>
+        requires(blocking_execution());
+}
+
+trait AsyncSeeker
+{
+    mut async func seek_async(offset: i64, origin: SeekOrigin) -> Result<u64, IoError>
+        requires(blocking_execution());
+}

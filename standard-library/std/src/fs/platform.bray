@@ -1,0 +1,201 @@
+trusted module std.fs;
+
+using std.memory;
+
+@layout(c)
+internal struct PlatformPath
+{
+    address: RawPointer<u8>;
+    length: u64;
+}
+
+@layout(c)
+internal struct PlatformFileOptions
+{
+    access: u32;
+    creation: u32;
+    reserved: u64;
+}
+
+@layout(c)
+internal struct PlatformFileMetadata
+{
+    kind: u32;
+    present: u32;
+    bytes: u64;
+    modified_seconds: i64;
+    modified_nanoseconds: u32;
+    reserved: u32;
+}
+
+@abi(c)
+extern trusted internal func platform_stream_seek(
+    pos handle: u64,
+    pos offset: i64,
+    pos origin: u32,
+    pos position: RawPointer<u64>,
+) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_stream_close(pos handle: u64) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_file_open(
+    pos path: PlatformPath,
+    pos options: PlatformFileOptions,
+    pos opened: RawPointer<u64>,
+) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_file_metadata(
+    pos handle: u64,
+    pos metadata: RawPointer<PlatformFileMetadata>,
+) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_path_metadata(
+    pos path: PlatformPath,
+    pos metadata: RawPointer<PlatformFileMetadata>,
+) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_directory_open(
+    pos path: PlatformPath,
+    pos opened: RawPointer<u64>,
+) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_directory_next(
+    pos handle: u64,
+    pos destination: RawPointer<u8>,
+    pos capacity: u64,
+    pos written_or_required: RawPointer<u64>,
+    pos end: RawPointer<u32>,
+    pos metadata: RawPointer<PlatformFileMetadata>,
+) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_directory_close(pos handle: u64) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_path_create_directory(pos path: PlatformPath) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_path_rename(
+    pos source: PlatformPath,
+    pos destination: PlatformPath,
+) -> std.io.PlatformStatus
+    uses(foreign_call);
+
+internal func platform_path(pos path: &std.path.Path) -> PlatformPath
+{
+    let bytes: &[u8] = internal std.path.native_bytes(path.to_native());
+
+    return
+    {
+        address = internal std.memory.byte_slice_pointer(bytes),
+        length = internal std.memory.byte_slice_length(bytes) as u64,
+    };
+}
+
+internal func empty_platform_metadata() -> PlatformFileMetadata
+{
+    return
+    {
+        kind = 2,
+        present = 0,
+        bytes = 0,
+        modified_seconds = 0,
+        modified_nanoseconds = 0,
+        reserved = 0,
+    };
+}
+
+internal func file_access_value(pos value: FileAccess) -> u32
+{
+    return match value
+    {
+        case Read { yield 0; }
+        case Write { yield 1; }
+        case ReadWrite { yield 2; }
+        case Append { yield 3; }
+    };
+}
+
+internal func file_creation_value(pos value: FileCreation) -> u32
+{
+    return match value
+    {
+        case OpenExisting { yield 0; }
+        case CreateIfMissing { yield 1; }
+        case CreateNew { yield 2; }
+        case Truncate { yield 3; }
+    };
+}
+
+internal func seek_origin_value(pos value: std.io.SeekOrigin) -> u32
+{
+    return match value
+    {
+        case Start { yield 0; }
+        case Current { yield 1; }
+        case End { yield 2; }
+    };
+}
+
+internal func platform_metadata(pos value: PlatformFileMetadata) -> Result<FileMetadata, std.io.IoError>
+{
+    if value.reserved != 0 || value.present > 1 || value.kind > 2 || value.modified_nanoseconds >= 1000000000
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    let kind: FileKind = match value.kind
+    {
+        case 0 { yield FileKind.File; }
+        case 1 { yield FileKind.Directory; }
+        case _ { yield FileKind.Other; }
+    };
+
+    let mut modified: std.time.Timestamp? = none;
+
+    if value.present == 1
+    {
+        let timestamp: std.time.Timestamp = std.time.Timestamp(
+            seconds = value.modified_seconds,
+            nanoseconds = value.modified_nanoseconds,
+        );
+
+        modified = timestamp;
+    }
+
+    return Ok(
+        {
+            kind = kind,
+            bytes = value.bytes,
+            modified = modified,
+        }
+    );
+}
+
+internal func checked_platform_status(pos value: std.io.PlatformStatus) -> Result<unit, std.io.IoError>
+{
+    return internal std.io.checked_status(value);
+}

@@ -479,6 +479,7 @@ dependencies = [
  "bray-runtime-interface",
  "bray-source",
  "bray-test-protocol",
+ "bray-testing",
 ]
 
 [[package]]

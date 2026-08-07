@@ -93,55 +93,82 @@ impl Lowerer<'_> {
         expression: &BoundStructuredExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let [condition] = expression.operands() else {
+        let conditions = expression.operands();
+        let blocks = expression.blocks();
+
+        if conditions.is_empty()
+            || (blocks.len() != conditions.len() && blocks.len() != conditions.len() + 1)
+        {
             return Err(LoweringError::UnsupportedExpression(id));
+        }
+
+        let first_condition = self.lower_expression(conditions[0], current)?;
+
+        let Some(mut current) = first_condition.block else {
+            return Ok(first_condition);
         };
 
-        let condition = self.lower_expression(*condition, current)?;
-
-        let Some(current) = condition.block else {
-            return Ok(condition);
+        let Some(condition) = first_condition.value else {
+            return Err(LoweringError::MissingOperationResult(conditions[0]));
         };
 
-        let Some(condition) = condition.value else {
-            return Err(LoweringError::MissingOperationResult(
-                expression.operands()[0],
-            ));
-        };
-
-        let ([then_block] | [then_block, _]) = expression.blocks() else {
-            return Err(LoweringError::UnsupportedExpression(id));
-        };
+        let mut condition = Some(condition);
 
         let source = self.source(expression.origin());
 
-        let then_entry = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-        let else_entry = self
-            .builder
-            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
         let (join, result, ty) = self.push_result_join(id, expression.origin())?;
 
-        self.builder.set_terminator(
-            current,
-            Self::retained_source(&source),
-            MirTerminatorKind::Branch {
-                condition,
-                then_edge: MirEdge::new(then_entry, []),
-                else_edge: MirEdge::new(else_entry, []),
-            },
-        )?;
+        for (index, then_block) in blocks.iter().take(conditions.len()).enumerate() {
+            if index > 0 {
+                let lowered = self.lower_expression(conditions[index], current)?;
 
-        let then_completion = self.lower_yielding_block(*then_block, then_entry, join, ty)?;
-        self.finish_result_edge(then_completion, join, ty)?;
+                let Some(next) = lowered.block else {
+                    return Ok(LoweredExpression::continuing(
+                        join,
+                        Some(MirOperand::Value(result)),
+                        source,
+                    ));
+                };
 
-        let else_completion = match expression.blocks().get(1).copied() {
-            Some(block) => self.lower_yielding_block(block, else_entry, join, ty)?,
+                let Some(value) = lowered.value else {
+                    return Err(LoweringError::MissingOperationResult(conditions[index]));
+                };
+
+                current = next;
+                condition = Some(value);
+            }
+
+            let then_entry = self
+                .builder
+                .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+            let else_entry = self
+                .builder
+                .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+            self.builder.set_terminator(
+                current,
+                Self::retained_source(&source),
+                MirTerminatorKind::Branch {
+                    condition: condition
+                        .take()
+                        .ok_or(LoweringError::MissingOperationResult(conditions[index]))?,
+                    then_edge: MirEdge::new(then_entry, []),
+                    else_edge: MirEdge::new(else_entry, []),
+                },
+            )?;
+
+            let then_completion =
+                self.lower_yielding_block(*then_block, then_entry, join, ty)?;
+
+            self.finish_result_edge(then_completion, join, ty)?;
+            current = else_entry;
+        }
+
+        let else_completion = match blocks.get(conditions.len()).copied() {
+            Some(block) => self.lower_yielding_block(block, current, join, ty)?,
             None => LoweredExpression::continuing(
-                else_entry,
+                current,
                 Some(self.unit_operand(ty)),
                 Self::retained_source(&source),
             ),

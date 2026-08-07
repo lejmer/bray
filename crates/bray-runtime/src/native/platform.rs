@@ -8,6 +8,8 @@ use bray_runtime_interface::NativePlatformStatus;
 use crate::RunOutputStream;
 use crate::output::{flush_current_run_output, write_current_run_output};
 
+use super::filesystem::{close_file, flush_file, is_file_handle, read_file, seek_file, write_file};
+
 const CONTEXT_HEADER_BYTES: usize = 96;
 const STANDARD_INPUT_HANDLE: u64 = 1;
 const STANDARD_OUTPUT_HANDLE: u64 = 2;
@@ -84,10 +86,6 @@ native_platform_export! {
             return NativePlatformStatus::INVALID_INPUT;
         };
 
-        if handle != STANDARD_INPUT_HANDLE {
-            return NativePlatformStatus::INVALID_INPUT;
-        }
-
         let initialized = publish_transfer(transferred, 0);
 
         if initialized != NativePlatformStatus::SUCCESS || length == 0 {
@@ -95,6 +93,13 @@ native_platform_export! {
         }
 
         let destination = unsafe { std::slice::from_raw_parts_mut(destination, length) };
+
+        if handle != STANDARD_INPUT_HANDLE {
+            return match read_file(handle, destination) {
+                Ok(count) => publish_transfer(transferred, count),
+                Err(status) => status,
+            };
+        }
 
         match io::stdin().lock().read(destination) {
             Ok(count) => publish_transfer(transferred, count),
@@ -123,7 +128,10 @@ native_platform_export! {
         let source = unsafe { std::slice::from_raw_parts(source, length) };
 
         let Some(stream) = run_output_stream(handle) else {
-            return NativePlatformStatus::INVALID_INPUT;
+            return match write_file(handle, source) {
+                Ok(count) => publish_transfer(transferred, count),
+                Err(status) => status,
+            };
         };
 
         if let Some(count) = write_current_run_output(stream, source) {
@@ -145,7 +153,10 @@ native_platform_export! {
 native_platform_export! {
     pub extern "C" fn bray_platform_stream_flush_v1(handle: u64) -> NativePlatformStatus {
         let Some(stream) = run_output_stream(handle) else {
-            return NativePlatformStatus::INVALID_INPUT;
+            return match flush_file(handle) {
+                Ok(()) => NativePlatformStatus::SUCCESS,
+                Err(status) => status,
+            };
         };
 
         if flush_current_run_output(stream).is_some() {
@@ -161,6 +172,34 @@ native_platform_export! {
             Ok(()) => NativePlatformStatus::SUCCESS,
             Err(error) => platform_io_error(&error),
         }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_stream_seek_v1(
+        handle: u64,
+        offset: i64,
+        origin: u32,
+        position: *mut u64,
+    ) -> NativePlatformStatus {
+        if position.is_null() {
+            return NativePlatformStatus::INVALID_INPUT;
+        }
+
+        match seek_file(handle, offset, origin) {
+            Ok(value) => {
+                unsafe { position.write(value) };
+
+                NativePlatformStatus::SUCCESS
+            }
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_stream_close_v1(handle: u64) -> NativePlatformStatus {
+        close_file(handle)
     }
 }
 
@@ -204,7 +243,7 @@ fn publish_transfer(transferred: *mut u64, count: usize) -> NativePlatformStatus
     NativePlatformStatus::SUCCESS
 }
 
-fn platform_io_error(error: &io::Error) -> NativePlatformStatus {
+pub(super) fn platform_io_error(error: &io::Error) -> NativePlatformStatus {
     let category = match error.kind() {
         io::ErrorKind::Unsupported => 1,
         io::ErrorKind::PermissionDenied => 2,
@@ -310,11 +349,9 @@ fn unlock_stream(handle: u64) -> NativePlatformStatus {
     NativePlatformStatus::SUCCESS
 }
 
-const fn is_standard_stream(handle: u64) -> bool {
-    matches!(
-        handle,
-        STANDARD_INPUT_HANDLE | STANDARD_OUTPUT_HANDLE | STANDARD_ERROR_HANDLE
-    )
+fn is_standard_stream(handle: u64) -> bool {
+    matches!(handle, STANDARD_INPUT_HANDLE | STANDARD_OUTPUT_HANDLE | STANDARD_ERROR_HANDLE)
+        || is_file_handle(handle)
 }
 
 fn process_context() -> &'static [u8] {

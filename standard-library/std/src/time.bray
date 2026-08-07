@@ -1,0 +1,16 @@
+module std.time;
+
+struct Timestamp
+{
+    seconds: i64;
+    nanoseconds: u32;
+
+    construct(seconds: i64, nanoseconds: u32) -> Self
+    {
+        return
+        {
+            seconds = seconds,
+            nanoseconds = nanoseconds,
+        };
+    }
+}
