@@ -125,15 +125,15 @@ impl PlatformServiceRole {
     /// Returns the exact private callable shape required by this role.
     pub const fn signature(self) -> PlatformServiceSignature {
         use PlatformAbiType::{
-            FileMetadataPointer, FileOptions, I64, Path, PointerU8, PointerU32, PointerU64, Status,
-            U32, U64,
+            FileMetadataPointer, FileOptions, Path, PointerU8, PointerU32, PointerU64, Status, U32,
+            U64,
         };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
         const CONTEXT_COPY: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
         const STREAM_TRANSFER: &[PlatformAbiType] = &[U64, PointerU8, U64, PointerU64];
         const STREAM_HANDLE: &[PlatformAbiType] = &[U64];
-        const STREAM_SEEK: &[PlatformAbiType] = &[U64, I64, U32, PointerU64];
+        const STREAM_SEEK: &[PlatformAbiType] = &[U64, U64, U32, PointerU64];
         const FILE_OPEN: &[PlatformAbiType] = &[Path, FileOptions, PointerU64];
         const FILE_METADATA: &[PlatformAbiType] = &[U64, FileMetadataPointer];
         const PATH_METADATA: &[PlatformAbiType] = &[Path, FileMetadataPointer];

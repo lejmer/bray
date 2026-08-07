@@ -50,6 +50,7 @@ struct RawBuffer<T>
         {
             let empty_pointer: RawPointer<T> = null<T>();
             let empty_initialized: usize = 0;
+
             let buffer: RawBuffer<T> =
             {
                 pointer = empty_pointer,
@@ -61,11 +62,13 @@ struct RawBuffer<T>
         }
 
         let layout: MemoryLayout = try layout_of<T>(count = capacity);
+
         let allocation_pointer: RawPointer<u8> = trusted core.memory.allocate(
             bytes = layout.bytes,
             align = layout.align,
 
         );
+
         let storage_pointer: RawPointer<T> = trusted core.memory.reinterpret<T, u8>(allocation_pointer);
         let initialized: usize = 0;
 

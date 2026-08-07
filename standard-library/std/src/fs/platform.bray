@@ -31,7 +31,7 @@ internal struct PlatformFileMetadata
 @abi(c)
 extern trusted internal func platform_stream_seek(
     pos handle: u64,
-    pos offset: i64,
+    pos offset_bits: u64,
     pos origin: u32,
     pos position: RawPointer<u64>,
 ) -> std.io.PlatformStatus

@@ -8,6 +8,7 @@ use bray_syntax::{
     SyntaxToken, SyntaxTrivia, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
 };
 
+use super::block::BlockParagraphs;
 use super::context::{
     comma_layout_rule, is_callable_declaration, is_directive, is_generic_delimiter,
     is_line_comment, is_list_delimiter, is_operator, is_prefix_operator, leading_separation_rule,
@@ -126,6 +127,7 @@ struct Formatter<'source, 'configuration> {
     callable_header_group_indented: bool,
     callable_clause_indent_open: bool,
     compact_match_arms: Vec<CompactMatchArm>,
+    block_paragraphs: BlockParagraphs,
 }
 
 #[derive(Clone, Copy)]
@@ -159,6 +161,9 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             callable_header_group_indented: false,
             callable_clause_indent_open: false,
             compact_match_arms: Vec::new(),
+            block_paragraphs: BlockParagraphs::new(
+                configuration.is_enabled(FormatterRule::BlockParagraphSpacing),
+            ),
         }
     }
 
@@ -181,6 +186,13 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             .is_some_and(|rule| self.configuration.is_enabled(rule))
         {
             self.writer.request_newlines(2);
+        }
+
+        if let Some((item, previous)) = self
+            .block_paragraphs
+            .enter_node(node.kind(), self.nodes.len())
+        {
+            self.writer.begin_block_item(item, previous);
         }
 
         let compact_match_arm = (node.kind() == SyntaxKind::MatchArm)
@@ -214,6 +226,13 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
     fn exit_node(&mut self, node: SyntaxNodeView<'_>) -> SyntaxWalkControl {
         if node.kind() == SyntaxKind::SkippedSyntax {
             return SyntaxWalkControl::Continue;
+        }
+
+        if let Some(item) = self
+            .block_paragraphs
+            .leave_node(node.kind(), self.nodes.len())
+        {
+            self.writer.end_block_item(item);
         }
 
         let popped = self.nodes.pop();

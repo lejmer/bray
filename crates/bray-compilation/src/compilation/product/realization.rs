@@ -1816,10 +1816,10 @@ impl Compilation {
 
         let receiver = signature
             .receiver()
-            .map(|receiver| receiver.ty())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let receiver = replace_contextual_self(values, receiver, ty)?;
+        let receiver_ty = replace_contextual_self(values, receiver.ty(), ty)?;
+        let receiver = receiver_codegen_type(values, receiver_ty, receiver.mode())?;
 
         let callable_type = values
             .type_data(signature.callable_type())
@@ -3739,24 +3739,7 @@ impl Compilation {
                     receiver.ty(),
                 )?;
 
-                let data = match receiver.mode() {
-                    ReceiverMode::Shared => Some(TypeData::Borrow {
-                        kind: BorrowKind::Shared,
-                        target: receiver_ty,
-                    }),
-                    ReceiverMode::Mutable => Some(TypeData::Borrow {
-                        kind: BorrowKind::Mutable,
-                        target: receiver_ty,
-                    }),
-                    ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => None,
-                };
-
-                match data {
-                    Some(data) => values
-                        .intern_type(data)
-                        .map_err(|_| FactQueryError::InfrastructureFailure),
-                    None => Ok(receiver_ty),
-                }
+                receiver_codegen_type(values, receiver_ty, receiver.mode())
             })
             .transpose()?;
 
@@ -4337,6 +4320,31 @@ fn concrete_callable_receiver(
     replace_contextual_self(values, receiver, concrete_self)
 }
 
+fn receiver_codegen_type(
+    values: &bray_symbols::SemanticValueStore,
+    ty: TypeId,
+    mode: ReceiverMode,
+) -> Result<TypeId, FactQueryError> {
+    let data = match mode {
+        ReceiverMode::Shared => Some(TypeData::Borrow {
+            kind: BorrowKind::Shared,
+            target: ty,
+        }),
+        ReceiverMode::Mutable => Some(TypeData::Borrow {
+            kind: BorrowKind::Mutable,
+            target: ty,
+        }),
+        ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => None,
+    };
+
+    match data {
+        Some(data) => values
+            .intern_type(data)
+            .map_err(|_| FactQueryError::InfrastructureFailure),
+        None => Ok(ty),
+    }
+}
+
 fn replace_contextual_self(
     values: &bray_symbols::SemanticValueStore,
     receiver: TypeId,
@@ -4694,14 +4702,15 @@ mod tests {
     };
     use bray_symbols::testing::intern_type;
     use bray_symbols::{
-        BorrowKind, CallableAbi, NamedTypeSymbolId, SymbolOrigin, TraitApplicationData, TypeData,
-        TypeId,
+        BorrowKind, CallableAbi, NamedTypeSymbolId, ReceiverMode, SymbolOrigin,
+        TraitApplicationData, TypeData, TypeId,
     };
     use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use bray_testing::{test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration};
 
     use super::{
         dependency_symbol, direct_helper_symbol, indirect_abi_value, named_type, pointer_layout,
+        receiver_codegen_type,
     };
     use crate::compilation::CodegenFactError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
@@ -4845,6 +4854,54 @@ mod tests {
                 Ok(CodegenSymbolKey::Instance(dependency.key().clone()))
             );
         }
+    }
+
+    #[test]
+    fn codegen_receiver_types_preserve_receiver_authority() {
+        let compilation = compilation("module app; func main() {}");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("semantic values must resolve");
+
+        let receiver = values
+            .intern_type(TypeData::tuple([]))
+            .expect("receiver type must intern");
+
+        let shared = receiver_codegen_type(values, receiver, ReceiverMode::Shared)
+            .expect("shared receiver must resolve");
+
+        let mutable = receiver_codegen_type(values, receiver, ReceiverMode::Mutable)
+            .expect("mutable receiver must resolve");
+
+        assert_eq!(
+            values.type_data(shared).expect("shared type must resolve").as_ref(),
+            &TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target: receiver,
+            }
+        );
+
+        assert_eq!(
+            values
+                .type_data(mutable)
+                .expect("mutable type must resolve")
+                .as_ref(),
+            &TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target: receiver,
+            }
+        );
+
+        assert_eq!(
+            receiver_codegen_type(values, receiver, ReceiverMode::Consuming),
+            Ok(receiver)
+        );
+
+        assert_eq!(
+            receiver_codegen_type(values, receiver, ReceiverMode::ConsumingMutable),
+            Ok(receiver)
+        );
     }
 
     #[test]

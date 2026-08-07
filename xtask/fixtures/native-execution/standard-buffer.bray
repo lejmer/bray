@@ -8,6 +8,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         assert(length(&empty) == 0);
         assert(capacity(&empty) == 0);
     }
+
     {
         let allocated: Buffer = try Buffer(capacity = 5);
 

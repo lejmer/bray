@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::OsString;
 use std::fs::{self, File, Metadata, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
@@ -12,7 +12,11 @@ use bray_runtime_interface::{
     NativePlatformStatus,
 };
 
-use super::platform::platform_io_error;
+use super::platform::{platform_io_error, startup_working_directory};
+use super::region::{MemoryRegion, disjoint};
+
+#[cfg(windows)]
+use std::path::{Component, Prefix};
 
 const FIRST_OWNED_HANDLE: u64 = 4;
 
@@ -28,8 +32,31 @@ macro_rules! native_platform_export {
 }
 
 enum NativeHandle {
-    File(File),
+    File(NativeFile),
     Directory(DirectoryTraversal),
+}
+
+struct NativeFile {
+    file: File,
+    access: FileAccess,
+}
+
+#[derive(Clone, Copy)]
+enum FileAccess {
+    Read,
+    Write,
+    ReadWrite,
+    Append,
+}
+
+impl FileAccess {
+    const fn readable(self) -> bool {
+        matches!(self, Self::Read | Self::ReadWrite)
+    }
+
+    const fn writable(self) -> bool {
+        matches!(self, Self::Write | Self::ReadWrite | Self::Append)
+    }
 }
 
 struct DirectoryTraversal {
@@ -137,32 +164,58 @@ pub(super) fn is_file_handle(id: u64) -> bool {
 }
 
 pub(super) fn read_file(id: u64, destination: &mut [u8]) -> Result<usize, NativePlatformStatus> {
-    with_file(id, |file| file.read(destination))
+    with_file(id, |file| {
+        if !file.access.readable() {
+            return Err(NativePlatformStatus::INVALID_INPUT);
+        }
+
+        file.file
+            .read(destination)
+            .map_err(|error| platform_io_error(&error))
+    })
 }
 
 pub(super) fn write_file(id: u64, source: &[u8]) -> Result<usize, NativePlatformStatus> {
-    with_file(id, |file| file.write(source))
+    with_file(id, |file| {
+        if !file.access.writable() {
+            return Err(NativePlatformStatus::INVALID_INPUT);
+        }
+
+        file.file
+            .write(source)
+            .map_err(|error| platform_io_error(&error))
+    })
 }
 
 pub(super) fn flush_file(id: u64) -> Result<(), NativePlatformStatus> {
-    with_file(id, File::flush)
+    with_file(id, |file| {
+        if !file.access.writable() {
+            return Err(NativePlatformStatus::INVALID_INPUT);
+        }
+
+        file.file
+            .flush()
+            .map_err(|error| platform_io_error(&error))
+    })
 }
 
 pub(super) fn seek_file(
     id: u64,
-    offset: i64,
+    offset_bits: u64,
     origin: u32,
 ) -> Result<u64, NativePlatformStatus> {
     let position = match origin {
-        0 => SeekFrom::Start(
-            u64::try_from(offset).map_err(|_| NativePlatformStatus::INVALID_INPUT)?,
-        ),
-        1 => SeekFrom::Current(offset),
-        2 => SeekFrom::End(offset),
+        0 => SeekFrom::Start(offset_bits),
+        1 => SeekFrom::Current(i64::from_ne_bytes(offset_bits.to_ne_bytes())),
+        2 => SeekFrom::End(i64::from_ne_bytes(offset_bits.to_ne_bytes())),
         _ => return Err(NativePlatformStatus::INVALID_INPUT),
     };
 
-    with_file(id, |file| file.seek(position))
+    with_file(id, |file| {
+        file.file
+            .seek(position)
+            .map_err(|error| platform_io_error(&error))
+    })
 }
 
 pub(super) fn close_file(id: u64) -> NativePlatformStatus {
@@ -175,7 +228,7 @@ pub(super) fn close_file(id: u64) -> NativePlatformStatus {
 
 fn with_file<T>(
     id: u64,
-    operation: impl FnOnce(&mut File) -> io::Result<T>,
+    operation: impl FnOnce(&mut NativeFile) -> Result<T, NativePlatformStatus>,
 ) -> Result<T, NativePlatformStatus> {
     let handle = handle(id)?;
     let mut handle = handle.lock().map_err(|_| NativePlatformStatus::OTHER)?;
@@ -184,7 +237,7 @@ fn with_file<T>(
         return Err(NativePlatformStatus::INVALID_INPUT);
     };
 
-    operation(file).map_err(|error| platform_io_error(&error))
+    operation(file)
 }
 
 native_platform_export! {
@@ -193,7 +246,15 @@ native_platform_export! {
         options: NativePlatformFileOptions,
         opened: *mut u64,
     ) -> NativePlatformStatus {
-        if opened.is_null() || options.reserved() != 0 {
+        let Some(path_region) = native_path_region(path) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let Some(opened_region) = MemoryRegion::write(opened) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        if !disjoint(&[path_region, opened_region]) || options.reserved() != 0 {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
@@ -204,21 +265,29 @@ native_platform_export! {
 
         let mut open = OpenOptions::new();
 
-        match options.access() {
+        let access = match options.access() {
             0 => {
                 open.read(true);
+
+                FileAccess::Read
             }
             1 => {
                 open.write(true);
+
+                FileAccess::Write
             }
             2 => {
                 open.read(true).write(true);
+
+                FileAccess::ReadWrite
             }
             3 => {
                 open.append(true);
+
+                FileAccess::Append
             }
             _ => return NativePlatformStatus::INVALID_INPUT,
-        }
+        };
 
         match options.creation() {
             0 => {}
@@ -240,7 +309,7 @@ native_platform_export! {
             Err(error) => return platform_io_error(&error),
         };
 
-        let handle = match insert_handle(NativeHandle::File(file)) {
+        let handle = match insert_handle(NativeHandle::File(NativeFile { file, access })) {
             Ok(handle) => handle,
             Err(status) => return status,
         };
@@ -256,11 +325,15 @@ native_platform_export! {
         handle: u64,
         output: *mut NativePlatformFileMetadata,
     ) -> NativePlatformStatus {
-        if output.is_null() {
+        if MemoryRegion::write(output).is_none() {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
-        let metadata = match with_file(handle, |file| file.metadata()) {
+        let metadata = match with_file(handle, |file| {
+            file.file
+                .metadata()
+                .map_err(|error| platform_io_error(&error))
+        }) {
             Ok(metadata) => metadata,
             Err(status) => return status,
         };
@@ -276,7 +349,15 @@ native_platform_export! {
         path: NativePlatformPath,
         output: *mut NativePlatformFileMetadata,
     ) -> NativePlatformStatus {
-        if output.is_null() {
+        let Some(path_region) = native_path_region(path) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let Some(output_region) = MemoryRegion::write(output) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        if !disjoint(&[path_region, output_region]) {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
@@ -301,7 +382,15 @@ native_platform_export! {
         path: NativePlatformPath,
         opened: *mut u64,
     ) -> NativePlatformStatus {
-        if opened.is_null() {
+        let Some(path_region) = native_path_region(path) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let Some(opened_region) = MemoryRegion::write(opened) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        if !disjoint(&[path_region, opened_region]) {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
@@ -338,15 +427,32 @@ native_platform_export! {
         end: *mut u32,
         metadata: *mut NativePlatformFileMetadata,
     ) -> NativePlatformStatus {
-        if written_or_required.is_null() || end.is_null() || metadata.is_null() {
-            return NativePlatformStatus::INVALID_INPUT;
-        }
-
         let Ok(capacity) = usize::try_from(capacity) else {
             return NativePlatformStatus::INVALID_INPUT;
         };
 
-        if capacity != 0 && destination.is_null() {
+        let Some(destination_region) = MemoryRegion::read(destination, capacity) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let Some(required_region) = MemoryRegion::write(written_or_required) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let Some(end_region) = MemoryRegion::write(end) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let Some(metadata_region) = MemoryRegion::write(metadata) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        if !disjoint(&[
+            destination_region,
+            required_region,
+            end_region,
+            metadata_region,
+        ]) {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
@@ -534,7 +640,7 @@ fn native_path(path: NativePlatformPath) -> Result<PathBuf, NativePlatformStatus
         return Err(NativePlatformStatus::INVALID_INPUT);
     };
 
-    if length != 0 && path.address().is_null() {
+    if native_path_region(path).is_none() {
         return Err(NativePlatformStatus::INVALID_INPUT);
     }
 
@@ -544,7 +650,55 @@ fn native_path(path: NativePlatformPath) -> Result<PathBuf, NativePlatformStatus
         unsafe { std::slice::from_raw_parts(path.address(), length) }
     };
 
-    native_path_from_bytes(bytes)
+    let path = native_path_from_bytes(bytes)?;
+
+    anchor_native_path(path, startup_working_directory()?)
+}
+
+fn anchor_native_path(
+    path: PathBuf,
+    startup_directory: &Path,
+) -> Result<PathBuf, NativePlatformStatus> {
+    if path.is_absolute() {
+        return Ok(path);
+    }
+
+    #[cfg(windows)]
+    if let Some(Component::Prefix(path_prefix)) = path.components().next() {
+        let Some(Component::Prefix(startup_prefix)) = startup_directory.components().next() else {
+            return Err(NativePlatformStatus::INVALID_INPUT);
+        };
+
+        if !same_windows_drive(path_prefix.kind(), startup_prefix.kind()) {
+            return Err(NativePlatformStatus::INVALID_INPUT);
+        }
+
+        let mut components = path.components();
+        components.next();
+
+        return Ok(startup_directory.join(components.as_path()));
+    }
+
+    Ok(startup_directory.join(path))
+}
+
+#[cfg(windows)]
+fn same_windows_drive(path: Prefix<'_>, startup: Prefix<'_>) -> bool {
+    let (path, startup) = match (path, startup) {
+        (Prefix::Disk(path), Prefix::Disk(startup))
+        | (Prefix::Disk(path), Prefix::VerbatimDisk(startup))
+        | (Prefix::VerbatimDisk(path), Prefix::Disk(startup))
+        | (Prefix::VerbatimDisk(path), Prefix::VerbatimDisk(startup)) => (path, startup),
+        _ => return false,
+    };
+
+    path.eq_ignore_ascii_case(&startup)
+}
+
+fn native_path_region(path: NativePlatformPath) -> Option<MemoryRegion> {
+    let length = usize::try_from(path.length()).ok()?;
+
+    MemoryRegion::read(path.address(), length)
 }
 
 #[cfg(windows)]
@@ -591,7 +745,7 @@ fn native_text(value: OsString) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use bray_runtime_interface::{
         NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath,
@@ -600,9 +754,11 @@ mod tests {
     use bray_testing::unique_temporary_directory;
 
     use super::{
+        anchor_native_path,
         bray_platform_directory_close_v1, bray_platform_directory_next_v1,
         bray_platform_directory_open_v1, bray_platform_file_metadata_v1,
-        bray_platform_file_open_v1, close_file, native_text, read_file, seek_file, write_file,
+        bray_platform_file_open_v1, close_file, flush_file, native_text, read_file, seek_file,
+        write_file,
     };
 
     #[test]
@@ -644,6 +800,93 @@ mod tests {
     }
 
     #[test]
+    fn native_files_enforce_the_requested_access_policy() {
+        let directory = TestDirectory::new();
+        let readable_path = directory.path().join("readable.bin");
+
+        fs::write(&readable_path, b"bray").unwrap_or_else(|error| {
+            panic!("test file should be created: {error:?}");
+        });
+
+        let readable_path = NativePath::new(&readable_path);
+        let mut readable = 0;
+
+        assert_eq!(
+            bray_platform_file_open_v1(
+                readable_path.view(),
+                NativePlatformFileOptions::new(0, 0),
+                &mut readable,
+            ),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(
+            write_file(readable, b"changed"),
+            Err(NativePlatformStatus::INVALID_INPUT)
+        );
+
+        assert_eq!(
+            flush_file(readable),
+            Err(NativePlatformStatus::INVALID_INPUT)
+        );
+
+        assert_eq!(close_file(readable), NativePlatformStatus::SUCCESS);
+
+        let writable_path = NativePath::new(&directory.path().join("writable.bin"));
+        let mut writable = 0;
+
+        assert_eq!(
+            bray_platform_file_open_v1(
+                writable_path.view(),
+                NativePlatformFileOptions::new(1, 1),
+                &mut writable,
+            ),
+            NativePlatformStatus::SUCCESS
+        );
+
+        let mut byte = [0];
+
+        assert_eq!(
+            read_file(writable, &mut byte),
+            Err(NativePlatformStatus::INVALID_INPUT)
+        );
+
+        assert_eq!(close_file(writable), NativePlatformStatus::SUCCESS);
+    }
+
+    #[test]
+    fn relative_native_paths_are_anchored_to_the_startup_directory() {
+        let startup = Path::new("startup").join("directory");
+        let relative = PathBuf::from("child").join("file.bray");
+
+        assert_eq!(
+            anchor_native_path(relative.clone(), &startup),
+            Ok(startup.join(relative))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn drive_relative_native_paths_use_the_startup_drive_context() {
+        let startup = Path::new(r"C:\startup\directory");
+
+        assert_eq!(
+            anchor_native_path(PathBuf::from(r"C:child"), startup),
+            Ok(startup.join("child"))
+        );
+
+        assert_eq!(
+            anchor_native_path(PathBuf::from(r"\child"), startup),
+            Ok(PathBuf::from(r"C:\child"))
+        );
+
+        assert_eq!(
+            anchor_native_path(PathBuf::from(r"D:child"), startup),
+            Err(NativePlatformStatus::INVALID_INPUT)
+        );
+    }
+
+    #[test]
     fn native_directory_traversal_is_sorted_and_retries_short_buffers() {
         let directory = TestDirectory::new();
 
@@ -666,6 +909,39 @@ mod tests {
         assert_eq!(next_entry(handle), Some(native_name("alpha")));
         assert_eq!(next_entry(handle), Some(native_name("zeta")));
         assert_eq!(next_entry(handle), None);
+
+        assert_eq!(
+            bray_platform_directory_close_v1(handle),
+            NativePlatformStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn native_directory_outputs_must_not_overlap() {
+        let directory = TestDirectory::new();
+        let path = NativePath::new(directory.path());
+        let mut handle = 0;
+
+        assert_eq!(
+            bray_platform_directory_open_v1(path.view(), &mut handle),
+            NativePlatformStatus::SUCCESS
+        );
+
+        let mut shared = 0_u64;
+        let shared_pointer = &mut shared as *mut u64;
+        let mut metadata = NativePlatformFileMetadata::new(2, 0, 0, 0, 0);
+
+        assert_eq!(
+            bray_platform_directory_next_v1(
+                handle,
+                std::ptr::null_mut(),
+                0,
+                shared_pointer,
+                shared_pointer.cast(),
+                &mut metadata,
+            ),
+            NativePlatformStatus::INVALID_INPUT
+        );
 
         assert_eq!(
             bray_platform_directory_close_v1(handle),

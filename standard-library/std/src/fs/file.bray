@@ -11,6 +11,12 @@ struct File
         return trusted open_file(path, options = options);
     }
 
+    trusted finalize() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_file(&mut self);
+    }
+
     trusted destruct()
         uses(foreign_call)
     {
@@ -98,14 +104,17 @@ trusted internal func open_file(pos path: &std.path.Path, options: OpenOptions) 
     uses(foreign_call)
 {
     let platform_path_value: PlatformPath = platform_path(path);
+
     let platform_options: PlatformFileOptions =
     {
         access = file_access_value(options.access),
         creation = file_creation_value(options.creation),
         reserved = 0,
     };
+
     let mut handle: u64 = 0;
     let handle_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut handle);
+
     let status: std.io.PlatformStatus = trusted platform_file_open(
         platform_path_value,
         options = platform_options,
@@ -140,11 +149,25 @@ trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoE
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let status: std.io.PlatformStatus = trusted platform_stream_close(handle = file.handle);
+    if !file.is_open
+    {
+        return Ok(unit);
+    }
 
-    file.is_open = false;
+    let result: Result<unit, std.io.IoError> = checked_platform_status(
+        trusted platform_stream_close(handle = file.handle)
+    );
 
-    return checked_platform_status(status);
+    match consume result
+    {
+        case Ok(_)
+        {
+            file.is_open = false;
+
+            return Ok(unit);
+        }
+        case Error(error) { return Error(error); }
+    }
 }
 
 impl FileReader = File(std.io.Reader)
@@ -188,6 +211,7 @@ trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8])
     let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
+
     let status: std.io.PlatformStatus = trusted std.io.platform_stream_read(
         handle = file.handle,
         destination = destination_pointer,
@@ -211,6 +235,7 @@ trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Resu
     let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
+
     let status: std.io.PlatformStatus = trusted std.io.platform_stream_write(
         handle = file.handle,
         source = source_pointer,
@@ -245,9 +270,10 @@ trusted internal func seek_file(
 {
     let mut position: u64 = 0;
     let position_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut position);
+
     let status: std.io.PlatformStatus = trusted platform_stream_seek(
         handle = file.handle,
-        offset = offset,
+        offset_bits = std.truncate_to<u64>(offset),
         origin = seek_origin_value(origin),
         position = position_pointer,
     );

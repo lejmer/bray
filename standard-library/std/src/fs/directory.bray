@@ -17,6 +17,12 @@ struct Directory
         return trusted open_directory(path);
     }
 
+    trusted finalize() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_directory(&mut self);
+    }
+
     trusted destruct()
         uses(foreign_call)
     {
@@ -74,11 +80,25 @@ trusted internal func close_directory(pos directory: &mut Directory) -> Result<u
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let status: std.io.PlatformStatus = trusted platform_directory_close(handle = directory.handle);
+    if !directory.is_open
+    {
+        return Ok(unit);
+    }
 
-    directory.is_open = false;
+    let result: Result<unit, std.io.IoError> = checked_platform_status(
+        trusted platform_directory_close(handle = directory.handle)
+    );
 
-    return checked_platform_status(status);
+    match consume result
+    {
+        case Ok(_)
+        {
+            directory.is_open = false;
+
+            return Ok(unit);
+        }
+        case Error(error) { return Error(error); }
+    }
 }
 
 trusted internal func next_directory_entry(pos directory: &mut Directory) -> Result<DirectoryEntry?, std.io.IoError>
@@ -91,6 +111,7 @@ trusted internal func next_directory_entry(pos directory: &mut Directory) -> Res
     let end_pointer: RawPointer<u32> = std.memory.address_of_mut(&mut end);
     let mut platform_metadata_value: PlatformFileMetadata = empty_platform_metadata();
     let metadata_pointer: RawPointer<PlatformFileMetadata> = std.memory.address_of_mut(&mut platform_metadata_value);
+
     let measured: std.io.PlatformStatus = trusted platform_directory_next(
         handle = directory.handle,
         destination = std.memory.null<u8>(),
@@ -123,6 +144,7 @@ trusted internal func next_directory_entry(pos directory: &mut Directory) -> Res
 
     let mut buffer: std.bytes.Buffer = try internal std.io.allocate_fixed_buffer(capacity = capacity);
     let destination: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(std.bytes.as_slice_mut(&mut buffer));
+
     let copied: std.io.PlatformStatus = trusted platform_directory_next(
         handle = directory.handle,
         destination = destination,
@@ -143,17 +165,21 @@ trusted internal func next_directory_entry(pos directory: &mut Directory) -> Res
     {
         bytes = buffer
     };
+
     let path: std.path.Path = match std.path.Path.from_native(native)
     {
         case Ok(path) { yield path; }
         case Error(_) { return Error(internal std.io.invalid_transfer_error()); }
     };
+
     let entry_metadata: FileMetadata = try platform_metadata(platform_metadata_value);
+
     let entry: DirectoryEntry =
     {
         path = path,
         metadata = entry_metadata,
     };
+
     let mut result: DirectoryEntry? = none;
 
     result = entry;

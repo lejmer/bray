@@ -57,6 +57,7 @@ func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoEr
         access = std.fs.FileAccess.ReadWrite,
         creation = std.fs.FileCreation.CreateNew,
     );
+
     let mut file: std.fs.File = try std.fs.File.open(path, options = options);
     let bytes: [u8; 1] = [value];
     let written: usize = try file.write(&bytes[..]);

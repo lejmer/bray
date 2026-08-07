@@ -115,21 +115,34 @@ struct Path
     func join(pos child: &Path) -> Result<Path, PathError>
     {
         let child_bytes: &[u8] = std.bytes.as_slice(&child.native.bytes);
+        let own_bytes: &[u8] = std.bytes.as_slice(&self.native.bytes);
 
-        if path_is_absolute(child_bytes)
+        if path_replaces_base(child_bytes)
         {
             return path_from_bytes(child_bytes);
         }
 
-        let own_bytes: &[u8] = std.bytes.as_slice(&self.native.bytes);
+        let child_has_root: bool = path_has_root(child_bytes);
         let mut joined: std.bytes.Buffer = try buffer_from_utf8(own_bytes);
 
-        if std.bytes.length(&joined) > 0 && !ends_with_separator(std.bytes.as_slice(&joined))
+        if child_has_root
+        {
+            let prefix_length: usize = path_prefix_length(own_bytes);
+
+            trusted std.bytes.truncate(&mut joined, new_length = prefix_length);
+
+            try append_bytes(&mut joined, child_bytes);
+        }
+
+        if !child_has_root && join_requires_separator(std.bytes.as_slice(&joined))
         {
             try append_native_unit(&mut joined, separator_value());
         }
 
-        try append_bytes(&mut joined, child_bytes);
+        if !child_has_root
+        {
+            try append_bytes(&mut joined, child_bytes);
+        }
 
         return path_from_buffer(joined);
     }
@@ -138,54 +151,35 @@ struct Path
     {
         let source: &[u8] = std.bytes.as_slice(&self.native.bytes);
         let width: usize = native_unit_bytes();
-        let absolute: bool = path_is_absolute(source);
+        let prefix_length: usize = path_prefix_length(source);
+        let rooted: bool = path_has_root(source);
+        let anchored: bool = path_is_anchored(source);
         let mut output: std.bytes.Buffer = try empty_buffer();
         let mut segment_starts: std.collection.List<usize> = try empty_segment_starts();
-        let mut output_length: usize = 0;
-        let mut protected_segments: usize = 0;
-        let mut index: usize = 0;
+        let mut output_length: usize = prefix_length;
+        let mut index: usize = prefix_length;
 
-        if absolute
+        if prefix_length > 0
         {
-            if path_is_drive_absolute(source)
-            {
-                try append_bytes(&mut output, &source[.. 2 * width]);
-                try append_native_unit(&mut output, separator_value());
-                output_length = 3 * width;
-                index = skip_separators(source, start = 3 * width);
-            }
-            else if path_is_unc(source)
+            try append_bytes(&mut output, &source[0.. prefix_length]);
+        }
+
+        if rooted
+        {
+            if !ends_with_separator(std.bytes.as_slice(&output))
             {
                 try append_native_unit(&mut output, separator_value());
-                try append_native_unit(&mut output, separator_value());
-                output_length = 2 * width;
-                protected_segments = 2;
-                index = skip_separators(source, start = 2 * width);
+                output_length = output_length + width;
             }
-            else
-            {
-                try append_native_unit(&mut output, separator_value());
-                output_length = width;
-                index = skip_separators(source, start = 0);
-            }
+
+            index = skip_separators(source, start = prefix_length);
         }
 
         while index < std.bytes.slice_length(source)
         {
             let end: usize = segment_end(source, start = index);
 
-            if protected_segments > 0
-            {
-                output_length = try append_segment(
-                    &mut output,
-                    source,
-                    current_length = output_length,
-                    start = index,
-                    end = end,
-                );
-                protected_segments = protected_segments - 1;
-            }
-            else if segment_is_dot(source, start = index, end = end)
+            if segment_is_dot(source, start = index, end = end)
             {
                 index = skip_separators(source, start = end);
 
@@ -205,7 +199,7 @@ struct Path
                     }
                     case none
                     {
-                        if !absolute
+                        if !anchored
                         {
                             output_length = try append_segment(
                                 &mut output,
@@ -229,6 +223,7 @@ struct Path
                     start = index,
                     end = end,
                 );
+
                 try push_segment_start(&mut segment_starts, value = rollback);
             }
 
@@ -471,33 +466,168 @@ internal func is_separator(pos value: u32) -> bool
     return native_unit_bytes() == 2 && value == 92;
 }
 
-internal func path_is_absolute(pos bytes: &[u8]) -> bool
+internal func path_replaces_base(pos bytes: &[u8]) -> bool
+{
+    if native_unit_bytes() == 1
+    {
+        return path_has_root(bytes);
+    }
+
+    return path_prefix_length(bytes) > 0;
+}
+
+internal func path_is_anchored(pos bytes: &[u8]) -> bool
+{
+    if native_unit_bytes() == 1
+    {
+        return path_has_root(bytes);
+    }
+
+    let prefix_length: usize = path_prefix_length(bytes);
+
+    return path_has_root(bytes) && (prefix_length == 0 || prefix_length > 2 * native_unit_bytes() || is_separator(
+        native_unit(bytes, index = prefix_length)
+    ));
+}
+
+internal func path_has_root(pos bytes: &[u8]) -> bool
 {
     let length: usize = std.bytes.slice_length(bytes);
     let width: usize = native_unit_bytes();
 
-    if length >= width && is_separator(native_unit(bytes, index = 0))
+    if length < width
+    {
+        return false;
+    }
+
+    if width == 1
+    {
+        return is_separator(native_unit(bytes, index = 0));
+    }
+
+    let prefix_length: usize = path_prefix_length(bytes);
+
+    if prefix_length > 2 * width
     {
         return true;
     }
 
-    return path_is_drive_absolute(bytes);
+    return prefix_length < length && is_separator(native_unit(bytes, index = prefix_length));
 }
 
-internal func path_is_drive_absolute(pos bytes: &[u8]) -> bool
+internal func path_prefix_length(pos bytes: &[u8]) -> usize
+{
+    let length: usize = std.bytes.slice_length(bytes);
+    let width: usize = native_unit_bytes();
+
+    if width != 2
+    {
+        return 0;
+    }
+
+    if length >= 2 * width && is_ascii_letter(native_unit(bytes, index = 0)) && native_unit(bytes, index = width) == 58
+    {
+        return 2 * width;
+    }
+
+    if length < 2 * width || !is_separator(native_unit(bytes, index = 0)) || !is_separator(
+        native_unit(bytes, index = width)
+    )
+    {
+        return 0;
+    }
+
+    if length >= 4 * width && (native_unit(bytes, index = 2 * width) == 63 || native_unit(bytes, index = 2 * width) ==
+        46) && is_separator(native_unit(bytes, index = 3 * width))
+    {
+        let namespace_start: usize = 4 * width;
+
+        if native_unit(bytes, index = 2 * width) == 63 && native_ascii_sequence_equals(
+            bytes,
+            start = namespace_start,
+            text0 = 85,
+            text1 = 78,
+            text2 = 67,
+        ) && length > namespace_start + 3 * width && is_separator(
+            native_unit(bytes, index = namespace_start + 3 * width)
+        )
+        {
+            return network_prefix_length(bytes, start = namespace_start + 4 * width);
+        }
+
+        if length >= namespace_start + 2 * width && is_ascii_letter(native_unit(bytes, index = namespace_start)) &&
+            native_unit(bytes, index = namespace_start + width) == 58
+        {
+            return namespace_start + 2 * width;
+        }
+
+        return component_prefix_length(bytes, start = namespace_start);
+    }
+
+    return network_prefix_length(bytes, start = 2 * width);
+}
+
+internal func network_prefix_length(pos bytes: &[u8], start: usize) -> usize
+{
+    let length: usize = std.bytes.slice_length(bytes);
+    let server_end: usize = segment_end(bytes, start = start);
+
+    if server_end >= length
+    {
+        return server_end;
+    }
+
+    let share_start: usize = skip_separators(bytes, start = server_end);
+
+    return segment_end(bytes, start = share_start);
+}
+
+internal func component_prefix_length(pos bytes: &[u8], start: usize) -> usize
+{
+    return segment_end(bytes, start = start);
+}
+
+internal func native_ascii_sequence_equals(pos bytes: &[u8], start: usize, text0: u32, text1: u32, text2: u32) -> bool
 {
     let width: usize = native_unit_bytes();
 
-    return width == 2 && std.bytes.slice_length(bytes) >= 3 * width && native_unit(bytes, index = width) == 58 &&
-        is_separator(native_unit(bytes, index = 2 * width));
+    if std.bytes.slice_length(bytes) < start + 3 * width
+    {
+        return false;
+    }
+
+    return ascii_upper(native_unit(bytes, index = start)) == text0 && ascii_upper(
+        native_unit(bytes, index = start + width)
+    ) == text1 && ascii_upper(native_unit(bytes, index = start + 2 * width)) == text2;
 }
 
-internal func path_is_unc(pos bytes: &[u8]) -> bool
+internal func ascii_upper(pos value: u32) -> u32
 {
-    let width: usize = native_unit_bytes();
+    if value >= 97 && value <= 122
+    {
+        return value - 32;
+    }
 
-    return width == 2 && std.bytes.slice_length(bytes) >= 2 * width && is_separator(native_unit(bytes, index = 0)) &&
-        is_separator(native_unit(bytes, index = width));
+    return value;
+}
+
+internal func is_ascii_letter(pos value: u32) -> bool
+{
+    let upper: u32 = ascii_upper(value);
+
+    return upper >= 65 && upper <= 90;
+}
+
+internal func join_requires_separator(pos bytes: &[u8]) -> bool
+{
+    let length: usize = std.bytes.slice_length(bytes);
+
+    if length == 0 || ends_with_separator(bytes)
+    {
+        return false;
+    }
+
+    return native_unit_bytes() != 2 || path_prefix_length(bytes) != length || length != 2 * native_unit_bytes();
 }
 
 internal func ends_with_separator(pos bytes: &[u8]) -> bool
@@ -559,7 +689,7 @@ internal func append_segment(
 {
     let mut next_length: usize = current_length;
 
-    if current_length > 0 && !ends_with_separator(std.bytes.as_slice(&output))
+    if join_requires_separator(std.bytes.as_slice(&output))
     {
         try append_native_unit(&mut output, separator_value());
         next_length = next_length + native_unit_bytes();

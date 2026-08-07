@@ -70,7 +70,9 @@ fn formats_representative_declarations_and_expressions() {
             "        x = 1.0,\n",
             "        y = 2.0,\n",
             "    };\n",
+            "\n",
             "    let values: [i32; 3] = [1, 2, 3];\n",
+            "\n",
             "    match point\n",
             "    {\n",
             "        case _ { return; }\n",
@@ -78,6 +80,65 @@ fn formats_representative_declarations_and_expressions() {
             "}\n",
         )
     );
+}
+
+#[test]
+fn separates_multiline_block_items_from_adjacent_items() {
+    let source = concat!(
+        "module app;func main(){",
+        "let first=compute(first_argument,second_argument,third_argument);",
+        "let second=2;",
+        "assert(compare(first_argument,second_argument,third_argument));",
+        "let third=3;",
+        "let fourth=compute(first_argument,second_argument,third_argument);",
+        "}",
+    );
+
+    let output = formatted_with_width(source, 48);
+
+    assert!(
+        output.text().contains(
+            concat!(
+                "    let first = compute(\n",
+                "        first_argument,\n",
+                "        second_argument,\n",
+                "        third_argument\n",
+                "    );\n",
+                "\n",
+                "    let second = 2;\n",
+            )
+        ),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output
+            .text()
+            .contains("    let second = 2;\n\n    assert("),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output
+            .text()
+            .contains("    );\n\n    let third = 3;"),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output
+            .text()
+            .contains("    let third = 3;\n\n    let fourth = compute("),
+        "{}",
+        output.text()
+    );
+
+    let second = formatted_with_width(output.text(), 48);
+
+    assert_eq!(second.text(), output.text());
 }
 
 #[test]
@@ -447,6 +508,7 @@ fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
             "        second,\n",
             "        third,\n",
             "    ];\n",
+            "\n",
             "    collect(first, second, third);\n",
             "}\n",
         )

@@ -51,6 +51,7 @@ func formatting_options_control_output() -> Result<unit, std.memory.MemoryLayout
         sign = std.format.Sign.Always,
         escaping = std.format.Escaping.Raw,
     );
+
     let argument: std.format.Argument<u32> = std.format.Argument.with_options<u32>(42, options = options);
     let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 6);
 
@@ -74,6 +75,7 @@ func escaped_string_formatting() -> Result<unit, std.memory.MemoryLayoutError>
         sign = std.format.Sign.NegativeOnly,
         escaping = std.format.Escaping.Quoted,
     );
+
     let argument: std.format.Argument<string> = std.format.Argument.with_options<string>("A\n", options = options);
     let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 0);
 
