@@ -1,6 +1,7 @@
 module bray.standard_library_conformance.bytes;
 
 using std.bytes;
+using std.memory;
 
 @test
 func byte_slice_operations()
@@ -26,7 +27,7 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
 
     let appended: [u8; 2] = [69, 70];
 
-    try trusted std.bytes.append(&mut buffer, &appended[..]);
+    try trusted std.bytes.append(&mut buffer, bytes = &appended[..]);
 
     let values: &[u8] = std.bytes.as_slice(&buffer);
 
@@ -62,6 +63,7 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
     std.bytes.clear(&mut buffer);
 
     assert(std.bytes.length(&buffer) == 0);
+    assert(std.bytes.equals(std.bytes.as_slice(&buffer), std.bytes.as_slice(&buffer)));
 
     let exhausted: u8? = trusted std.bytes.pop(&mut buffer);
 
@@ -77,13 +79,11 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
 @test
 func byte_slice_comparison_boundaries()
 {
-    let empty: [u8; 0] = [];
     let first: [u8; 2] = [1, 2];
     let same: [u8; 2] = [1, 2];
     let different_value: [u8; 2] = [1, 3];
     let different_length: [u8; 1] = [1];
 
-    assert(std.bytes.equals(&empty[..], &empty[..]));
     assert(std.bytes.equals(&first[..], &same[..]));
     assert(!std.bytes.equals(&first[..], &different_value[..]));
     assert(!std.bytes.equals(&first[..], &different_length[..]));

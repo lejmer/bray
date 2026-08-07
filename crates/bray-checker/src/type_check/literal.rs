@@ -294,8 +294,8 @@ mod tests {
     use super::super::session::{ExpressionTypeSession, SessionProgress};
     use crate::representation::representation_type;
     use crate::test_support::{
-        TestCheckerContext, callable_entry, completed_expression_check, expression_unit,
-        literal_expression, push_expression, tuple_type,
+        TestCheckerContext, array_type, callable_entry, completed_expression_check,
+        expression_unit, literal_expression, push_expression, tuple_type,
     };
     use crate::{
         CheckerUnitView, ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput,
@@ -527,6 +527,47 @@ mod tests {
 
         assert!(result.diagnostics().is_empty());
         assert_expression_types(result.value(), &expressions, &[integer, real, tuple]);
+    }
+
+    #[test]
+    fn array_context_reaches_literals_before_defaults_are_applied() {
+        let (unit, expressions) = expression_unit(BoundUnitId::new(81), |tree, origin| {
+            let first = push_expression(
+                tree,
+                literal_expression(origin, BoundLiteralKind::Integer, None),
+            );
+
+            let second = push_expression(
+                tree,
+                literal_expression(origin, BoundLiteralKind::Integer, None),
+            );
+
+            let array = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::Array,
+                    [first, second],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![first, second, array]
+        });
+
+        let element = representation(&unit, RepresentationRole::ScalarU8);
+        let array = array_type(element, 2);
+
+        let input = ExpressionTypeInput::new()
+            .with_evidence([ExpressionTypeEvidence::new(expressions[2], array)]);
+
+        let result = completed_expression_check(&unit, &input);
+
+        assert!(result.diagnostics().is_empty());
+        assert_expression_types(result.value(), &expressions, &[element, element, array]);
     }
 
     #[test]

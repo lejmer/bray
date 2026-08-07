@@ -5,8 +5,8 @@ use crate::provider::symbol_key_from_provider;
 use crate::record::for_each_declaration_symbol;
 use crate::{
     AnySymbolId, CallableParameterDefaultProviderSymbol, CallableParameterDefaultProviderSymbolId,
-    ExternalSymbolKey, MemberLookupResult, ModuleSymbol, ModuleSymbolId, PackageSymbol,
-    PackageSymbolId, ReceiverParameterSymbol, ReceiverParameterSymbolId,
+    ExternalSymbolKey, MemberLookupIndex, MemberLookupResult, ModuleSymbol, ModuleSymbolId,
+    PackageSymbol, PackageSymbolId, ReceiverParameterSymbol, ReceiverParameterSymbolId,
     StructFieldDefaultProviderSymbol, StructFieldDefaultProviderSymbolId, SymbolName,
     SymbolProvider, UnionPayloadDefaultProviderSymbol, UnionPayloadDefaultProviderSymbolId,
 };
@@ -34,6 +34,7 @@ macro_rules! define_imported_symbol_skeleton {
             >,
             pub(crate) external_index: BTreeMap<ExternalSymbolKey, AnySymbolId>,
             pub(crate) lookups: BTreeMap<AnySymbolId, BTreeMap<SymbolName, AnySymbolId>>,
+            pub(crate) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
             pub(crate) member_names: BTreeMap<AnySymbolId, SymbolName>,
             pub(crate) module_paths:
                 BTreeMap<PackageSymbolId, BTreeMap<crate::ModulePathKey, ModuleSymbolId>>,
@@ -110,6 +111,15 @@ macro_rules! define_imported_symbol_skeleton {
                 symbol_key_from_provider(self, symbol)
             }
 
+            /// Returns an imported symbol's immediate semantic owner.
+            pub fn containing_symbol(&self, symbol: AnySymbolId) -> Option<AnySymbolId> {
+                let crate::SymbolKeyData::External(key) = self.symbol_key(symbol)?.data() else {
+                    return None;
+                };
+
+                self.symbol_by_external_key(key.owner()?)
+            }
+
             /// Returns whether recovery contributed to an imported symbol's public surface.
             ///
             /// Validated compiled interfaces cannot contain recovered public symbols.
@@ -154,6 +164,17 @@ macro_rules! define_imported_symbol_skeleton {
                     .and_then(|index| index.get(&name))
                     .copied()
                     .map_or(MemberLookupResult::NotFound, MemberLookupResult::Found)
+            }
+
+            /// Resolves one ordinary member contained by an imported declaration.
+            pub fn lookup_member(
+                &self,
+                owner: AnySymbolId,
+                name: &str,
+            ) -> MemberLookupResult<AnySymbolId> {
+                self.member_indexes
+                    .get(&owner)
+                    .map_or(MemberLookupResult::NotFound, |index| index.lookup(name))
             }
 
             /// Returns one imported member's ordinary name.

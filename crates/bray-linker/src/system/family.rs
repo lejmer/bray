@@ -35,10 +35,11 @@ impl SystemLinkerFamily {
 
     pub(super) const fn response_file_encoding(self) -> Option<ResponseFileEncoding> {
         match self {
-            Self::Gnu => Some(ResponseFileEncoding::Utf8),
-            Self::GnuCompiler | Self::WslGnuCompiler => None,
+            Self::Gnu | Self::GnuCompiler | Self::AppleCompiler => Some(ResponseFileEncoding::Utf8),
+            Self::WslGnuCompiler => None,
             Self::Microsoft => Some(ResponseFileEncoding::Utf16LittleEndian),
-            Self::Apple | Self::MicrosoftCompiler | Self::AppleCompiler => None,
+            Self::MicrosoftCompiler => Some(ResponseFileEncoding::Utf8),
+            Self::Apple => None,
         }
     }
 }

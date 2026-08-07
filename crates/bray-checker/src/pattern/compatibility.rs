@@ -7,7 +7,7 @@ use bray_symbols::{
     TypeData, UnionPayloadFieldTypeFact,
 };
 
-use super::check::PatternChecker;
+use super::check::{PatternChecker, available_dependency};
 use crate::constant::integer_to_usize;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider};
 
@@ -40,19 +40,22 @@ where
                         matches!(subject, TypeData::Error) || constant_type == subject_type
                     })
             }
-            BoundPatternKind::Literal => pattern
-                .literal()
-                .is_some_and(|literal| self.type_accepts_literal(subject, literal.kind())),
+            BoundPatternKind::Literal => match pattern.literal() {
+                Some(literal) => self.type_accepts_literal(subject, literal.kind())?,
+                None => false,
+            },
             BoundPatternKind::NullableAbsent | BoundPatternKind::NullablePresent => {
                 matches!(subject, TypeData::Nullable(_))
             }
             BoundPatternKind::Box => matches!(subject, TypeData::OwnedIndirection { .. }),
-            BoundPatternKind::Product => self.product_shape_is_compatible(pattern, subject),
+            BoundPatternKind::Product => self.product_shape_is_compatible(pattern, subject)?,
             BoundPatternKind::Tuple => {
                 matches!(subject, TypeData::Tuple(elements) if elements.len() == pattern.children().len())
             }
             BoundPatternKind::Array => self.array_shape_is_compatible(pattern, subject)?,
-            BoundPatternKind::Variant => self.variant_shape_is_compatible(pattern, target, subject),
+            BoundPatternKind::Variant => {
+                self.variant_shape_is_compatible(pattern, target, subject)?
+            }
         };
 
         Ok(compatible)
@@ -118,17 +121,22 @@ where
         Ok(matches!(value.kind(), ConstantValueKind::Error))
     }
 
-    fn product_shape_is_compatible(&self, pattern: &BoundPattern, subject: &TypeData) -> bool {
+    fn product_shape_is_compatible(
+        &self,
+        pattern: &BoundPattern,
+        subject: &TypeData,
+    ) -> Result<bool, CheckerInfrastructureError> {
         let TypeData::Named {
             definition: NamedTypeSymbolId::Struct(structure),
             ..
         } = subject
         else {
-            return false;
+            return Ok(false);
         };
 
-        let Some(structure) = self.request.symbols().structure(*structure) else {
-            return false;
+        let Some(structure) = available_dependency(self.request.structure(*structure))?.flatten()
+        else {
+            return Ok(false);
         };
 
         let mut selected = BTreeSet::new();
@@ -142,22 +150,32 @@ where
             }
 
             let Some(name) = entry.name() else {
-                return false;
+                return Ok(false);
             };
 
-            if !selected.insert(name.as_str())
-                || !structure.fields().iter().any(|field| {
-                    self.request
-                        .symbols()
-                        .member_name((*field).into())
-                        .is_some_and(|candidate| candidate == name)
-                })
-            {
-                return false;
+            if !selected.insert(name.as_str()) {
+                return Ok(false);
+            }
+
+            let mut found = false;
+
+            for field in structure.fields() {
+                let candidate =
+                    available_dependency(self.request.member_name((*field).into()))?.flatten();
+
+                if candidate.is_some_and(|candidate| candidate == name) {
+                    found = true;
+
+                    break;
+                }
+            }
+
+            if !found {
+                return Ok(false);
             }
         }
 
-        has_remaining || selected.len() == structure.fields().len()
+        Ok(has_remaining || selected.len() == structure.fields().len())
     }
 
     fn array_shape_is_compatible(
@@ -239,13 +257,13 @@ where
         &self,
         subject: &TypeData,
         literal: bray_bound_tree::BoundLiteralKind,
-    ) -> bool {
+    ) -> Result<bool, CheckerInfrastructureError> {
         let TypeData::Named {
             definition: NamedTypeSymbolId::Struct(structure),
             ..
         } = subject
         else {
-            return false;
+            return Ok(false);
         };
 
         let Some(role) = self
@@ -253,10 +271,10 @@ where
             .available_compiler_known_symbols()
             .symbol_representation(*structure)
         else {
-            return false;
+            return Ok(false);
         };
 
-        match literal {
+        let accepts = match literal {
             bray_bound_tree::BoundLiteralKind::Boolean => role == RepresentationRole::ScalarBool,
             bray_bound_tree::BoundLiteralKind::Character => role == RepresentationRole::ScalarChar,
             bray_bound_tree::BoundLiteralKind::String => role == RepresentationRole::String,
@@ -269,7 +287,9 @@ where
             bray_bound_tree::BoundLiteralKind::Imaginary => {
                 role.numeric_kind() == Some(NumericRepresentationKind::Complex)
             }
-        }
+        };
+
+        Ok(accepts)
     }
 
     fn variant_shape_is_compatible(
@@ -277,7 +297,7 @@ where
         pattern: &BoundPattern,
         target: Option<BoundPatternTarget>,
         subject: &TypeData,
-    ) -> bool {
+    ) -> Result<bool, CheckerInfrastructureError> {
         let (
             Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))),
             TypeData::Named {
@@ -286,16 +306,14 @@ where
             },
         ) = (target, subject)
         else {
-            return false;
+            return Ok(false);
         };
 
-        let Some(variant) = self
-            .request
-            .symbols()
-            .union_variant(variant)
+        let Some(variant) = available_dependency(self.request.union_variant(variant))?
+            .flatten()
             .filter(|record| record.union() == *union)
         else {
-            return false;
+            return Ok(false);
         };
 
         let mut selected = BTreeSet::new();
@@ -309,17 +327,17 @@ where
                 continue;
             }
 
-            let Some(field) = self.union_payload_field(variant.id(), entry, position) else {
-                return false;
+            let Some(field) = self.union_payload_field(variant.id(), entry, position)? else {
+                return Ok(false);
             };
 
             if !selected.insert(field) {
-                return false;
+                return Ok(false);
             }
 
             position += 1;
         }
 
-        has_remaining || selected.len() == variant.payload_fields().len()
+        Ok(has_remaining || selected.len() == variant.payload_fields().len())
     }
 }

@@ -133,6 +133,16 @@ impl LexerTokenSource {
         token
     }
 
+    pub(crate) fn consume_generic_close(&mut self) -> SyntaxToken {
+        self.cached_tokens.clear();
+
+        let token = self.scan_current_token(LexerScanMode::GenericClose);
+
+        self.advance_after_consuming_uncached(&token);
+
+        token
+    }
+
     fn cached_lookahead(&mut self, distance: usize) -> SyntaxToken {
         self.ensure_cached(distance);
 
@@ -588,6 +598,38 @@ mod tests {
                 SyntaxKind::EndOfFileToken,
             ]
         );
+    }
+
+    #[test]
+    fn generic_application_close_is_separate_from_member_access() {
+        let tokens = token_stream("Argument<u32>.with_options");
+
+        assert_eq!(
+            token_kinds(&*tokens),
+            [
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::LessToken,
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::GreaterToken,
+                SyntaxKind::DotToken,
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::EndOfFileToken,
+            ]
+        );
+    }
+
+    #[test]
+    fn generic_close_scan_splits_adjacent_closing_angles() {
+        let mut source = LexerTokenSource::new(snapshot(">>"));
+
+        assert_eq!(source.peek().kind(), SyntaxKind::GreaterGreaterToken);
+
+        assert_eq!(
+            source.consume_generic_close().kind(),
+            SyntaxKind::GreaterToken
+        );
+
+        assert_eq!(source.peek().kind(), SyntaxKind::GreaterToken);
     }
 
     #[test]

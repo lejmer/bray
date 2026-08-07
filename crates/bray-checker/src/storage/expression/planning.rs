@@ -4,7 +4,7 @@ use bray_bound_tree::{
     OperatorTarget, SelectedOperation, SemanticSelection, StorageAccessId, StorageAccessPurpose,
     StorageIdentity, StorageProjection,
 };
-use bray_symbols::{BorrowKind, ReceiverMode};
+use bray_symbols::{BorrowKind, ReceiverMode, TypeData};
 
 use super::super::plan::{PlanError, Planner, invalid_node, iteration_purpose};
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
@@ -73,6 +73,16 @@ where
             }
             BoundExpression::Structured(structured) => {
                 self.plan_structured(id, structured.kind(), structured.operands())?
+            }
+            BoundExpression::StructConstruction(construction) => {
+                for field in construction.fields() {
+                    self.plan_expression(
+                        field.expression(),
+                        Some(StorageAccessPurpose::ValueTransfer),
+                    )?;
+                }
+
+                self.temporary_access(id)?
             }
             BoundExpression::Call(call) => self.plan_call(
                 id,
@@ -221,7 +231,9 @@ where
         callee: BoundExpressionId,
         arguments: impl IntoIterator<Item = BoundExpressionId>,
     ) -> Result<StorageAccessId, PlanError> {
-        let selection = self.selections.expression(id).and_then(|selection| {
+        let semantic_selection = self.selections.expression(id);
+
+        let selection = semantic_selection.and_then(|selection| {
             let SemanticSelection::Call(call) = selection else {
                 return None;
             };
@@ -230,7 +242,13 @@ where
         });
 
         let direct = selection
-            .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Declaration(_)));
+            .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Declaration(_)))
+            || matches!(
+                semantic_selection,
+                Some(SemanticSelection::Operation(
+                    SelectedOperation::Construction(_)
+                ))
+            );
 
         if !direct {
             self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;
@@ -291,6 +309,9 @@ where
 
         let destination_access = self.plan_expression(*destination, None)?;
 
+        let destination_access =
+            self.assignment_destination_access(*destination, destination_access)?;
+
         self.record_purpose(
             *destination,
             Some(StorageAccessPurpose::Write),
@@ -308,6 +329,28 @@ where
         }
 
         self.temporary_access(id)
+    }
+
+    fn assignment_destination_access(
+        &mut self,
+        destination: BoundExpressionId,
+        access: StorageAccessId,
+    ) -> Result<StorageAccessId, PlanError> {
+        let destination_type = self.expression_type(destination)?;
+
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(destination_type.ty())
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        match data.as_ref() {
+            TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target,
+            } => self.access_with_reached_type(destination, access, *target),
+            _ => Ok(access),
+        }
     }
 
     fn plan_structured(
@@ -366,6 +409,15 @@ where
                 )?;
 
                 self.plan_iteration_storage(id)?;
+
+                self.temporary_access(id)
+            }
+            BoundStructuredExpressionKind::Tuple
+            | BoundStructuredExpressionKind::Array
+            | BoundStructuredExpressionKind::RepeatedArray => {
+                for operand in operands {
+                    self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
+                }
 
                 self.temporary_access(id)
             }
@@ -431,15 +483,37 @@ where
             return self.recovery_access(id);
         };
 
-        let receiver_access = self.plan_expression(receiver, None)?;
+        let target = match kind {
+            BoundStructuredExpressionKind::ElementIndex
+            | BoundStructuredExpressionKind::SliceIndex => self.selected_index_target(id)?,
+            _ => None,
+        };
+
+        let custom = matches!(
+            target,
+            Some(IndexTarget::Custom { .. } | IndexTarget::TraitConstraint { .. })
+        );
+
+        let receiver_purpose = custom.then_some(StorageAccessPurpose::Borrow(BorrowKind::Shared));
+        let receiver_access = self.plan_expression(receiver, receiver_purpose)?;
 
         for selector in &operands[1..] {
-            self.plan_expression(*selector, Some(StorageAccessPurpose::Read))?;
+            let purpose = match (kind, custom) {
+                (BoundStructuredExpressionKind::ElementIndex, true) => {
+                    StorageAccessPurpose::Borrow(BorrowKind::Shared)
+                }
+                (BoundStructuredExpressionKind::SliceIndex, true) => {
+                    StorageAccessPurpose::ValueTransfer
+                }
+                _ => StorageAccessPurpose::Read,
+            };
+
+            self.plan_expression(*selector, Some(purpose))?;
         }
 
         let (projection, purpose) = match kind {
             BoundStructuredExpressionKind::ElementIndex => {
-                match self.selected_index_target(id)? {
+                match target {
                     Some(
                         IndexTarget::ArrayElement
                         | IndexTarget::SliceElement
@@ -468,7 +542,7 @@ where
                 )
             }
             BoundStructuredExpressionKind::SliceIndex => {
-                match self.selected_index_target(id)? {
+                match target {
                     Some(
                         IndexTarget::ArraySlice
                         | IndexTarget::Slice

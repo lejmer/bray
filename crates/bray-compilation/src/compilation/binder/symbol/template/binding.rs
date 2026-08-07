@@ -487,6 +487,40 @@ fn bind_default_template(
         }
     }
 
+    if context.imported_fact_address(owner)?.is_some()
+        && matches!(
+            owner,
+            AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_)
+        )
+    {
+        let provider = super::super::declaration_body::runtime_default_provider(context, owner)?;
+
+        let Some(provider) = provider else {
+            return Ok(DiagnosticResult::without_diagnostics(
+                UnevaluatedDefaultTemplate::Absent,
+            ));
+        };
+
+        let address = context
+            .imported_fact_address(provider)?
+            .ok_or(BinderFactError::DependencyUnavailable)?;
+
+        let imported = super::super::imported::imported_declaration_template(
+            context,
+            address,
+            bray_bound_tree::CheckedTemplateKind::RuntimeDefault,
+        )?;
+
+        if imported.value().is_none() {
+            return Err(BinderFactError::DependencyUnavailable);
+        }
+
+        return Ok(DiagnosticResult::new(
+            UnevaluatedDefaultTemplate::Resolved,
+            imported.diagnostics().clone(),
+        ));
+    }
+
     with_declaration_root(context, owner, |root| {
         let default = direct_children::<ExpressionSyntax>(&root)?
             .into_iter()

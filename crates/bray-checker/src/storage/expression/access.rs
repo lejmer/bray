@@ -5,6 +5,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     AnyLocalSymbolId, AnySymbolId, MemberLookupResult, NamedTypeSymbolId, SymbolOrdinal, TypeData,
+    TypeId,
 };
 
 use super::super::plan::{PlanError, Planner, invalid_node};
@@ -301,6 +302,29 @@ where
         )
     }
 
+    pub(super) fn access_with_reached_type(
+        &mut self,
+        expression: BoundExpressionId,
+        access: StorageAccessId,
+        reached_type: TypeId,
+    ) -> Result<StorageAccessId, PlanError> {
+        let access = self
+            .builder()?
+            .access(access)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let root = access.root();
+        let projections = access.projections().to_vec();
+        let expression_type = self.expression_type(expression)?;
+
+        self.push_expression_access(
+            expression,
+            root,
+            projections,
+            bray_bound_tree::ExpressionTypeResult::new(reached_type, expression_type.status()),
+        )
+    }
+
     pub(in crate::storage) fn borrow_access(
         &mut self,
         expression: BoundExpressionId,
@@ -385,9 +409,15 @@ where
         &mut self,
         expression: BoundExpressionId,
     ) -> Result<StorageAccessId, PlanError> {
+        let ty = self.expression_type(expression)?.ty();
+
         let storage = self
             .builder_mut()?
             .push_identity(StorageIdentity::Temporary(expression))
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        self.builder_mut()?
+            .set_identity_type(storage, ty)
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
 
         self.direct_access(expression, storage)

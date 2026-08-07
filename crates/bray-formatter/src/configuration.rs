@@ -235,7 +235,6 @@ mod tests {
         assert!(!defaults.is_enabled(FormatterRule::SimplifyNestedIf));
 
         let configured = defaults
-            .clone()
             .with_rule(FormatterRule::Indentation, false)
             .with_rule(FormatterRule::SimplifyNestedIf, true)
             .with_maximum_line_width(NonZeroU16::new(96).unwrap_or_else(|| unreachable!()));

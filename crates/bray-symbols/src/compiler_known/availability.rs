@@ -10,8 +10,8 @@ use bray_compiler_known::{
 use super::role::RepresentationTarget;
 use super::{
     CompilerKnownIterationProtocol, CompilerKnownOperationContract,
-    CompilerKnownResultRepresentation, CompilerKnownRunResultRepresentation,
-    CompilerKnownSymbolProvider,
+    CompilerKnownOrderingRepresentation, CompilerKnownResultRepresentation,
+    CompilerKnownRunResultRepresentation, CompilerKnownSymbolProvider,
 };
 use crate::availability::resolve_owned_availability;
 use crate::provider::SymbolProvider;
@@ -277,6 +277,16 @@ impl AvailableCompilerKnownSymbols {
             .into_iter()
             .all(|symbol| self.contains(symbol))
             .then_some(protocol)
+    }
+
+    /// Returns the available declarations defining the `Ordering` representation.
+    pub fn ordering_representation(&self) -> Option<CompilerKnownOrderingRepresentation> {
+        Some(CompilerKnownOrderingRepresentation::new(
+            self.declaration_by_key("Ordering")?,
+            self.declaration_by_key("OrderingLess")?,
+            self.declaration_by_key("OrderingEqual")?,
+            self.declaration_by_key("OrderingGreater")?,
+        ))
     }
 
     /// Returns the available declarations defining the `Result` representation.

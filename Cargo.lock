@@ -210,6 +210,7 @@ name = "bray-codegen"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+ "bray-bound-tree",
  "bray-diagnostics",
  "bray-ir",
  "bray-runtime-interface",

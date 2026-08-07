@@ -57,9 +57,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let layout = self
-            .request
-            .mappings()
-            .ty(element)
+            .type_mapping(element)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?
             .layout()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -114,9 +112,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let element = self.operand_type(value)?;
 
         let layout = self
-            .request
-            .mappings()
-            .ty(element)
+            .type_mapping(element)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?
             .layout()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;

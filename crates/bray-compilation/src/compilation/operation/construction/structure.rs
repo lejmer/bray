@@ -32,8 +32,8 @@ impl Compilation {
         };
 
         let record = facts
-            .symbols()
             .structure(*structure)
+            .map_err(binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let inputs = record
@@ -77,11 +77,15 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<(ConstructionInputSurface, bool)>, FactQueryError> {
         let record = facts
-            .symbols()
             .struct_field(field)
+            .map_err(binder_fact_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let Some(name) = facts.symbols().member_name(field.into()).cloned() else {
+        let Some(name) = facts
+            .member_name(field.into())
+            .map_err(binder_fact_error)?
+            .cloned()
+        else {
             return Ok(None);
         };
 

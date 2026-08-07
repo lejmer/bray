@@ -252,6 +252,38 @@ mod tests {
     }
 
     #[test]
+    fn microsoft_compiler_driver_uses_utf8_response_files() {
+        let input = TemporaryFile::write("main.o", b"object");
+        let output = TestOutput::new("application.stage");
+        let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
+        let identity = driver_identity(LinkerDriverKind::System);
+        let target = target(TargetArchitecture::X86_64, ObjectFormat::Coff);
+        let plan = executable_plan(&identity, target, input.path(), output.path());
+
+        let driver = system_driver(
+            identity,
+            SystemLinkerFamily::MicrosoftCompiler,
+            Arc::clone(&host) as Arc<dyn ExternalToolHost>,
+        );
+
+        assert!(matches!(
+            driver.link(&plan, &|| false).status(),
+            LinkStatus::Complete(_)
+        ));
+
+        let invocation = host.only_invocation();
+
+        assert_eq!(invocation.arguments().len(), 1);
+        assert_eq!(invocation.response_files().len(), 1);
+
+        assert!(
+            !invocation.response_files()[0]
+                .contents()
+                .starts_with(&[0xff, 0xfe])
+        );
+    }
+
+    #[test]
     fn apple_driver_uses_direct_arguments_without_an_undocumented_response_format() {
         let input = TemporaryFile::write("main.o", b"object");
         let output = TestOutput::new("application.stage");

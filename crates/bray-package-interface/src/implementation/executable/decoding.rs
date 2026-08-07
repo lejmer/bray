@@ -21,11 +21,11 @@ use bray_runtime_interface::{
     ProtectedFrameAbiVersions, RuntimeAbiRole, RuntimeAbiVersion,
 };
 use bray_symbols::{
-    AnySymbolId, CallableCapabilityRequirement, CallableDefinitionId,
-    CallableEffectRequirement, CallableExecutionRequirement, CallableInstanceData,
-    CallablePhaseBehavior, CallablePhaseBehaviors, CurrentRunCancellation, ExactSymbolId,
-    GenericOwnerId, ImplementationRequirementKey, LifecycleObligationKind, SymbolOrdinal,
-    TraitConstraintDispatch, TrustedCapabilityRequirement,
+    AnySymbolId, CallableCapabilityRequirement, CallableDefinitionId, CallableEffectRequirement,
+    CallableExecutionRequirement, CallableInstanceData, CallablePhaseBehavior,
+    CallablePhaseBehaviors, CurrentRunCancellation, ExactSymbolId, GenericOwnerId,
+    ImplementationRequirementKey, LifecycleObligationKind, SymbolOrdinal, TraitConstraintDispatch,
+    TrustedCapabilityRequirement,
 };
 
 use crate::decode::map_wire_error;
@@ -54,7 +54,7 @@ pub enum ExecutableTemplateDecodeError {
 /// Reconstructs one source-independent executable template for a consumer target.
 pub fn decode_executable_template(
     template: &InterfaceExecutableTemplate,
-    owner: CallableDefinitionId,
+    owner: AnySymbolId,
     unit: MirUnitId,
     target: MirTargetFacts,
     facts: &ImportedSemanticFacts,
@@ -77,8 +77,8 @@ pub fn decode_executable_template(
 
     let kind = decoder.unit_kind()?;
     let entry_slot = read_u32(&mut decoder.reader)?;
-    let source = MirSourceAnchor::imported_callable(owner);
-    let mut builder = MirUnitBuilder::for_imported_callable(unit, owner, kind, target);
+    let source = MirSourceAnchor::imported_executable(owner);
+    let mut builder = MirUnitBuilder::for_imported_executable(unit, owner, kind, target);
 
     let block_count = decoder.count()?;
     let mut block_records = decoder.items(block_count)?;
@@ -204,9 +204,10 @@ pub fn decode_executable_template(
                     || operations
                         .get(operation_index)
                         .and_then(|operation| operation.result)
-                        != Some(u32::try_from(value_slot).map_err(|_| {
-                            ExecutableTemplateDecodeError::Malformed
-                        })?)
+                        != Some(
+                            u32::try_from(value_slot)
+                                .map_err(|_| ExecutableTemplateDecodeError::Malformed)?,
+                        )
                 {
                     return Err(ExecutableTemplateDecodeError::Malformed);
                 }
@@ -248,11 +249,7 @@ pub fn decode_executable_template(
         next_operation += 1;
     }
 
-    for ((block, terminator), record) in blocks
-        .iter()
-        .copied()
-        .zip(terminators)
-        .zip(&block_records)
+    for ((block, terminator), record) in blocks.iter().copied().zip(terminators).zip(&block_records)
     {
         validate_block_record(record)?;
 
@@ -351,9 +348,11 @@ fn validate_block_parameters(
         }
     }
 
-    if values.iter().zip(seen).any(|(value, seen)| {
-        matches!(value.origin, ValueRecordOrigin::Block(_)) != seen
-    }) {
+    if values
+        .iter()
+        .zip(seen)
+        .any(|(value, seen)| matches!(value.origin, ValueRecordOrigin::Block(_)) != seen)
+    {
         return Err(ExecutableTemplateDecodeError::Malformed);
     }
 
@@ -420,10 +419,7 @@ fn item<T: Copy>(items: &[T], slot: u32) -> Result<T, ExecutableTemplateDecodeEr
         .ok_or(ExecutableTemplateDecodeError::Malformed)
 }
 
-fn require_slot(
-    actual: u32,
-    expected: usize,
-) -> Result<(), ExecutableTemplateDecodeError> {
+fn require_slot(actual: u32, expected: usize) -> Result<(), ExecutableTemplateDecodeError> {
     if usize::try_from(actual).ok() == Some(expected) {
         Ok(())
     } else {
@@ -462,10 +458,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         &mut self,
         target: &MirTargetFacts,
     ) -> Result<(), ExecutableTemplateDecodeError> {
-        let digest = self
-            .reader
-            .read_array::<32>()
-            .map_err(map_wire_error)?;
+        let digest = self.reader.read_array::<32>().map_err(map_wire_error)?;
 
         if digest != target.compatibility_digest() {
             return Err(ExecutableTemplateDecodeError::TargetMismatch);
@@ -744,6 +737,14 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
+        let intrinsic = match read_u32(&mut self.reader)? {
+            0 => None,
+            1 => Some(bray_ir::MirCallIntrinsic::Unary(self.unary_operator()?)),
+            2 => Some(bray_ir::MirCallIntrinsic::Binary(self.binary_operator()?)),
+            3 => Some(bray_ir::MirCallIntrinsic::Conversion(self.ty()?)),
+            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+        };
+
         let witness_count = self.count()?;
         let mut witnesses = self.items(witness_count)?;
 
@@ -761,6 +762,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             phase_behaviors,
             dispatch_witnesses,
             trait_dispatch,
+            intrinsic,
             witnesses,
         ))
     }
@@ -775,10 +777,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
                 let behaviors = match read_u32(&mut self.reader)? {
                     0 => CallablePhaseBehaviors::synchronous(invocation),
-                    1 => CallablePhaseBehaviors::asynchronous(
-                        invocation,
-                        self.phase_behavior()?,
-                    ),
+                    1 => CallablePhaseBehaviors::asynchronous(invocation, self.phase_behavior()?),
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
@@ -788,9 +787,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
     }
 
-    fn phase_behavior(
-        &mut self,
-    ) -> Result<CallablePhaseBehavior, ExecutableTemplateDecodeError> {
+    fn phase_behavior(&mut self) -> Result<CallablePhaseBehavior, ExecutableTemplateDecodeError> {
         let effect_count = self.count()?;
         let mut effects = self.items(effect_count)?;
 
@@ -909,9 +906,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
     }
 
-    fn construction_target(
-        &mut self,
-    ) -> Result<ConstructionTarget, ExecutableTemplateDecodeError> {
+    fn construction_target(&mut self) -> Result<ConstructionTarget, ExecutableTemplateDecodeError> {
         match read_u32(&mut self.reader)? {
             0 => Ok(ConstructionTarget::Struct(self.exact_symbol()?)),
             1 => Ok(ConstructionTarget::UnionVariant(self.exact_symbol()?)),
@@ -966,12 +961,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     ) -> Result<ConstructionInputId, ExecutableTemplateDecodeError> {
         match read_u32(&mut self.reader)? {
             0 => Ok(ConstructionInputId::StructField(self.exact_symbol()?)),
-            1 => Ok(ConstructionInputId::UnionPayloadField(
-                self.exact_symbol()?,
-            )),
-            2 => Ok(ConstructionInputId::CallableParameter(
-                self.exact_symbol()?,
-            )),
+            1 => Ok(ConstructionInputId::UnionPayloadField(self.exact_symbol()?)),
+            2 => Ok(ConstructionInputId::CallableParameter(self.exact_symbol()?)),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1119,9 +1110,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         ))
     }
 
-    fn memory_kind(
-        &mut self,
-    ) -> Result<CheckedMemoryOperationKind, ExecutableTemplateDecodeError> {
+    fn memory_kind(&mut self) -> Result<CheckedMemoryOperationKind, ExecutableTemplateDecodeError> {
         use bray_bound_tree::CheckedMemoryOperationKind as Kind;
 
         match read_u32(&mut self.reader)? {
@@ -1374,10 +1363,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             3 => Ok(MirTerminatorKind::Iterate {
                 cursor: self.place()?,
-                next: MirCallableReference::new(
-                    self.callable_instance()?,
-                    self.callable_abi()?,
-                ),
+                next: MirCallableReference::new(self.callable_instance()?, self.callable_abi()?),
+                witness: self.implementation()?,
                 element_type: self.ty()?,
                 item: self.block_id()?,
                 exhausted: self.edge()?,
@@ -1462,9 +1449,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
     }
 
-    fn pattern_predicate(
-        &mut self,
-    ) -> Result<MirPatternPredicate, ExecutableTemplateDecodeError> {
+    fn pattern_predicate(&mut self) -> Result<MirPatternPredicate, ExecutableTemplateDecodeError> {
         match read_u32(&mut self.reader)? {
             0 => Ok(MirPatternPredicate::Literal(self.constant_value()?)),
             1 => Ok(MirPatternPredicate::Constant(self.constant_term()?)),
@@ -1474,12 +1459,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 self.exact_symbol()?,
             )),
             5 => Ok(MirPatternPredicate::ProductShape(self.exact_symbol()?)),
-            6 => Ok(MirPatternPredicate::TupleShape(read_u32(
-                &mut self.reader,
-            )?)),
-            7 => Ok(MirPatternPredicate::ArrayShape(read_u32(
-                &mut self.reader,
-            )?)),
+            6 => Ok(MirPatternPredicate::TupleShape(read_u32(&mut self.reader)?)),
+            7 => Ok(MirPatternPredicate::ArrayShape(read_u32(&mut self.reader)?)),
             8 => Ok(MirPatternPredicate::OwnedTarget),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
@@ -1567,15 +1548,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     states.push(MirFrameStateFacts::new(state, entry, lanes, storages));
                 }
 
-                MirFrameDescriptor::try_new(
-                    frame,
-                    abi_version,
-                    frame_abi,
-                    result_type,
-                    states,
-                )
-                .map(Some)
-                .map_err(|_| ExecutableTemplateDecodeError::Malformed)
+                MirFrameDescriptor::try_new(frame, abi_version, frame_abi, result_type, states)
+                    .map(Some)
+                    .map_err(|_| ExecutableTemplateDecodeError::Malformed)
             }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
@@ -1707,12 +1682,11 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn callable_definition(
         &mut self,
     ) -> Result<CallableDefinitionId, ExecutableTemplateDecodeError> {
-        CallableDefinitionId::try_new(self.symbol()?).ok_or(ExecutableTemplateDecodeError::Malformed)
+        CallableDefinitionId::try_new(self.symbol()?)
+            .ok_or(ExecutableTemplateDecodeError::Malformed)
     }
 
-    fn callable_instance(
-        &mut self,
-    ) -> Result<CallableInstanceData, ExecutableTemplateDecodeError> {
+    fn callable_instance(&mut self) -> Result<CallableInstanceData, ExecutableTemplateDecodeError> {
         Ok(CallableInstanceData::new(
             self.callable_definition()?,
             self.substitution()?,
@@ -1728,9 +1702,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         ))
     }
 
-    fn trait_dispatch(
-        &mut self,
-    ) -> Result<TraitConstraintDispatch, ExecutableTemplateDecodeError> {
+    fn trait_dispatch(&mut self) -> Result<TraitConstraintDispatch, ExecutableTemplateDecodeError> {
         let owner = GenericOwnerId::try_new(self.symbol()?)
             .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 

@@ -18,8 +18,8 @@ use super::result::{
 };
 use crate::pattern::input::{PatternCheckInput, PatternConstantEvidence};
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
-    CheckerUnitView,
+    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
+    CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_patterns<C>(
@@ -88,6 +88,16 @@ pub(super) struct PatternChildren {
     pub(super) patterns: BTreeMap<BoundPatternId, (PatternSubject, Option<PatternProjection>)>,
     pub(super) entries: Vec<(PatternSubject, Option<PatternProjection>)>,
     pub(super) is_recovered: bool,
+}
+
+pub(in crate::pattern) fn available_dependency<T>(
+    result: CheckerFactResult<T>,
+) -> Result<Option<T>, CheckerInfrastructureError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(CheckerFactError::Cancelled) => Ok(None),
+        Err(CheckerFactError::Infrastructure(error)) => Err(error),
+    }
 }
 
 pub(in crate::pattern) struct PatternChecker<'view, 'input, C>
@@ -323,7 +333,7 @@ where
 
         let (matched_subject, type_data) = self.matched_subject(subject)?;
 
-        let (target, is_ambiguous) = self.pattern_target(pattern, type_data.as_ref());
+        let (target, is_ambiguous) = self.pattern_target(pattern, type_data.as_ref())?;
 
         let kind = effective_pattern_kind(pattern, target);
 
@@ -385,7 +395,7 @@ where
         self.record_entry_bindings(pattern, operation, &children.entries);
 
         let shape_is_total =
-            self.pattern_shape_is_total(pattern, kind, target, type_data.as_ref(), compatible);
+            self.pattern_shape_is_total(pattern, kind, target, type_data.as_ref(), compatible)?;
 
         let refutability = pattern_refutability(
             kind,
@@ -453,39 +463,39 @@ where
         &self,
         pattern: &BoundPattern,
         subject: &TypeData,
-    ) -> (Option<BoundPatternTarget>, bool) {
+    ) -> Result<(Option<BoundPatternTarget>, bool), CheckerInfrastructureError> {
         let expected = self
-            .expected_subject_variant(pattern, subject)
+            .expected_subject_variant(pattern, subject)?
             .map(|variant| BoundPatternTarget::Surface(variant.into()));
 
         if pattern.is_contextual_name() {
-            return match (pattern.target(), expected) {
+            return Ok(match (pattern.target(), expected) {
                 (Some(first), Some(second)) if first != second => (None, true),
                 (Some(target), Some(_)) | (Some(target), None) | (None, Some(target)) => {
                     (Some(target), false)
                 }
                 (None, None) => (None, false),
-            };
+            });
         }
 
         if let Some(target) = pattern.target()
-            && !self.variant_target_conflicts_with_subject(target, subject)
+            && !self.variant_target_conflicts_with_subject(target, subject)?
         {
-            return (Some(target), false);
+            return Ok((Some(target), false));
         }
 
         if pattern.kind() != BoundPatternKind::Variant {
-            return (None, false);
+            return Ok((None, false));
         }
 
-        (expected, false)
+        Ok((expected, false))
     }
 
     fn expected_subject_variant(
         &self,
         pattern: &BoundPattern,
         subject: &TypeData,
-    ) -> Option<UnionVariantSymbolId> {
+    ) -> Result<Option<UnionVariantSymbolId>, CheckerInfrastructureError> {
         let (
             TypeData::Named {
                 definition: NamedTypeSymbolId::Union(union),
@@ -494,25 +504,25 @@ where
             Some(name),
         ) = (subject, pattern.name())
         else {
-            return None;
+            return Ok(None);
         };
 
-        let MemberLookupResult::Found(AnySymbolId::UnionVariant(variant)) = self
-            .request
-            .symbols()
-            .lookup_member((*union).into(), name.as_str())
-        else {
-            return None;
+        let lookup =
+            available_dependency(self.request.lookup_member((*union).into(), name.as_str()))?
+                .unwrap_or(MemberLookupResult::NotFound);
+
+        let MemberLookupResult::Found(AnySymbolId::UnionVariant(variant)) = lookup else {
+            return Ok(None);
         };
 
-        Some(variant)
+        Ok(Some(variant))
     }
 
     fn variant_target_conflicts_with_subject(
         &self,
         target: BoundPatternTarget,
         subject: &TypeData,
-    ) -> bool {
+    ) -> Result<bool, CheckerInfrastructureError> {
         let (
             BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant)),
             TypeData::Named {
@@ -521,12 +531,11 @@ where
             },
         ) = (target, subject)
         else {
-            return false;
+            return Ok(false);
         };
 
-        self.request
-            .symbols()
-            .union_variant(variant)
-            .is_none_or(|record| record.union() != *union)
+        Ok(available_dependency(self.request.union_variant(variant))?
+            .flatten()
+            .is_none_or(|record| record.union() != *union))
     }
 }

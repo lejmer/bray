@@ -1,12 +1,15 @@
+// rust-style: allow(module-too-large, reason = "core expression lowering keeps one exhaustive bound-to-MIR operation dispatch")
+
 use bray_bound_tree::{
     BoundCallResult, BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator,
     OperatorTarget, SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose,
     StorageIdentity, StorageIdentityId,
 };
 use bray_ir::{
-    MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirCall, MirCallArgument,
-    MirCallTarget, MirCallableReference, MirImmediateValue, MirOperand, MirOperationKind, MirPlace,
-    MirSourceAnchor, MirStorageKind, MirStoreKind, MirUnaryOperator,
+    MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirBlockKind, MirCall,
+    MirCallArgument, MirCallIntrinsic, MirCallTarget, MirCallableReference, MirEdge,
+    MirImmediateValue, MirOperand, MirOperationKind, MirPatternPredicate, MirPlace,
+    MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnaryOperator,
 };
 use bray_symbols::{CallableAbi, TypeId};
 
@@ -32,7 +35,9 @@ impl Lowerer<'_> {
         }
 
         let lowered = match expression {
-            BoundExpression::Block(expression) => self.lower_block(expression.block(), current),
+            BoundExpression::Block(expression) => {
+                self.lower_block_expression(id, expression, current)
+            }
             BoundExpression::Literal(expression) => {
                 let source = self.source(expression.origin());
 
@@ -234,20 +239,30 @@ impl Lowerer<'_> {
             )?,
             OperatorTarget::TraitConstraint {
                 member, dispatch, ..
-            } => self.push_value_operation(
-                id,
-                current,
-                Self::retained_source(&source),
-                MirOperationKind::Call(
-                    MirCall::protocol(
-                        MirCallTarget::Direct(MirCallableReference::new(member, CallableAbi::Bray)),
-                        BoundCallResult::Immediate(self.expression_type(id)?),
-                        [operand],
-                        [],
-                    )
-                    .with_trait_dispatch(dispatch),
-                ),
-            )?,
+            } => {
+                let intrinsic = unary_operator(operator)
+                    .map(MirCallIntrinsic::Unary)
+                    .ok_or(LoweringError::UnsupportedOperator(operator))?;
+
+                self.push_value_operation(
+                    id,
+                    current,
+                    Self::retained_source(&source),
+                    MirOperationKind::Call(
+                        MirCall::protocol(
+                            MirCallTarget::Direct(MirCallableReference::new(
+                                member,
+                                CallableAbi::Bray,
+                            )),
+                            BoundCallResult::Immediate(self.expression_type(id)?),
+                            [operand],
+                            [],
+                        )
+                        .with_trait_dispatch(dispatch)
+                        .with_intrinsic(intrinsic),
+                    ),
+                )?
+            }
         };
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
@@ -294,12 +309,12 @@ impl Lowerer<'_> {
 
         let source = self.expression_source(id)?;
 
-        let value = match selection {
+        let (current, value) = match selection {
             OperatorTarget::BuiltIn(_) => {
                 let operator = binary_operator(operator)
                     .ok_or(LoweringError::UnsupportedOperator(operator))?;
 
-                self.push_value_operation(
+                let value = self.push_value_operation(
                     id,
                     current,
                     Self::retained_source(&source),
@@ -308,49 +323,160 @@ impl Lowerer<'_> {
                         left,
                         right,
                     },
-                )?
+                )?;
+
+                (current, value)
             }
             OperatorTarget::Trait {
                 fulfillment,
                 requirement,
                 witness,
                 ..
-            } => self.push_value_operation(
-                id,
-                current,
-                Self::retained_source(&source),
-                MirOperationKind::Call(MirCall::protocol(
-                    MirCallTarget::Direct(MirCallableReference::new(
-                        fulfillment,
-                        CallableAbi::Bray,
+            } => {
+                let call_result_type = self.trait_binary_result_type(id, operator)?;
+
+                let value = self.push_typed_value_operation(
+                    id,
+                    current,
+                    Self::retained_source(&source),
+                    MirOperationKind::Call(MirCall::protocol(
+                        MirCallTarget::Direct(MirCallableReference::new(
+                            fulfillment,
+                            CallableAbi::Bray,
+                        )),
+                        BoundCallResult::Immediate(call_result_type),
+                        [left, right],
+                        [bray_bound_tree::SelectedImplementationWitness::new(
+                            requirement,
+                            witness,
+                        )],
                     )),
-                    BoundCallResult::Immediate(self.expression_type(id)?),
-                    [left, right],
-                    [bray_bound_tree::SelectedImplementationWitness::new(
-                        requirement,
-                        witness,
-                    )],
-                )),
-            )?,
+                    call_result_type,
+                )?;
+
+                self.lower_trait_binary_result(id, operator, current, source.clone(), value)?
+            }
             OperatorTarget::TraitConstraint {
                 member, dispatch, ..
-            } => self.push_value_operation(
-                id,
-                current,
-                Self::retained_source(&source),
-                MirOperationKind::Call(
-                    MirCall::protocol(
-                        MirCallTarget::Direct(MirCallableReference::new(member, CallableAbi::Bray)),
-                        BoundCallResult::Immediate(self.expression_type(id)?),
-                        [left, right],
-                        [],
-                    )
-                    .with_trait_dispatch(dispatch),
-                ),
-            )?,
+            } => {
+                let intrinsic_operator = match operator {
+                    BoundOperator::NotEqual => BoundOperator::Equal,
+                    _ => operator,
+                };
+
+                let intrinsic = binary_operator(intrinsic_operator)
+                    .map(MirCallIntrinsic::Binary)
+                    .ok_or(LoweringError::UnsupportedOperator(operator))?;
+
+                let value = self.push_value_operation(
+                    id,
+                    current,
+                    Self::retained_source(&source),
+                    MirOperationKind::Call(
+                        MirCall::protocol(
+                            MirCallTarget::Direct(MirCallableReference::new(
+                                member,
+                                CallableAbi::Bray,
+                            )),
+                            BoundCallResult::Immediate(self.expression_type(id)?),
+                            [left, right],
+                            [],
+                        )
+                        .with_trait_dispatch(dispatch)
+                        .with_intrinsic(intrinsic),
+                    ),
+                )?;
+
+                if operator == BoundOperator::NotEqual {
+                    let value = self.push_value_operation(
+                        id,
+                        current,
+                        Self::retained_source(&source),
+                        MirOperationKind::Unary {
+                            operator: MirUnaryOperator::Not,
+                            operand: value,
+                        },
+                    )?;
+
+                    (current, value)
+                } else {
+                    (current, value)
+                }
+            }
         };
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    fn trait_binary_result_type(
+        &self,
+        expression: BoundExpressionId,
+        operator: BoundOperator,
+    ) -> Result<TypeId, LoweringError> {
+        if is_relational_operator(operator) {
+            return Ok(self.ordering_representation()?.ty);
+        }
+
+        self.expression_type(expression)
+    }
+
+    fn lower_trait_binary_result(
+        &mut self,
+        expression: BoundExpressionId,
+        operator: BoundOperator,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        value: MirOperand,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        if operator == BoundOperator::NotEqual {
+            let value = self.push_value_operation(
+                expression,
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Unary {
+                    operator: MirUnaryOperator::Not,
+                    operand: value,
+                },
+            )?;
+
+            return Ok((current, value));
+        }
+
+        if !is_relational_operator(operator) {
+            return Ok((current, value));
+        }
+
+        let representation = self.ordering_representation()?;
+        let result_type = self.expression_type(expression)?;
+
+        let join = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let result =
+            self.builder
+                .push_block_parameter(join, Self::retained_source(&source), result_type)?;
+
+        let (variant, matched_result) = match operator {
+            BoundOperator::Less => (representation.less_variant, true),
+            BoundOperator::LessEqual => (representation.greater_variant, false),
+            BoundOperator::Greater => (representation.greater_variant, true),
+            BoundOperator::GreaterEqual => (representation.less_variant, false),
+            _ => return Err(LoweringError::UnsupportedOperator(operator)),
+        };
+
+        self.builder.set_terminator(
+            current,
+            source,
+            MirTerminatorKind::PatternBranch {
+                subject: value,
+                predicate: MirPatternPredicate::ActiveUnionVariant(variant),
+                matched: MirEdge::new(join, [self.boolean_operand(result_type, matched_result)]),
+                unmatched: MirEdge::new(join, [self.boolean_operand(result_type, !matched_result)]),
+            },
+        )?;
+
+        Ok((join, MirOperand::Value(result)))
     }
 
     fn lower_assignment(
@@ -658,6 +784,17 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         let result_type = self.expression_type(expression)?;
 
+        self.push_typed_value_operation(expression, current, source, operation, result_type)
+    }
+
+    fn push_typed_value_operation(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        operation: MirOperationKind,
+        result_type: TypeId,
+    ) -> Result<MirOperand, LoweringError> {
         let commit = self
             .builder
             .push_operation(current, source, operation, Some(result_type))?;
@@ -731,6 +868,16 @@ impl Lowerer<'_> {
     }
 }
 
+fn is_relational_operator(operator: BoundOperator) -> bool {
+    matches!(
+        operator,
+        BoundOperator::Less
+            | BoundOperator::LessEqual
+            | BoundOperator::Greater
+            | BoundOperator::GreaterEqual
+    )
+}
+
 fn binary_operator(operator: BoundOperator) -> Option<MirBinaryOperator> {
     match operator {
         BoundOperator::Equal => Some(MirBinaryOperator::Equal),
@@ -756,6 +903,15 @@ fn binary_operator(operator: BoundOperator) -> Option<MirBinaryOperator> {
         | BoundOperator::Exponentiate
         | BoundOperator::BitwiseNot
         | BoundOperator::LogicalNot => None,
+    }
+}
+
+fn unary_operator(operator: BoundOperator) -> Option<MirUnaryOperator> {
+    match operator {
+        BoundOperator::Subtract => Some(MirUnaryOperator::Negate),
+        BoundOperator::LogicalNot => Some(MirUnaryOperator::Not),
+        BoundOperator::BitwiseNot => Some(MirUnaryOperator::BitwiseNot),
+        _ => None,
     }
 }
 

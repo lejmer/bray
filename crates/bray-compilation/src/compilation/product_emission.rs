@@ -329,13 +329,13 @@ impl Compilation {
             .state
             .fact_runtime
             .map_indexed(2, |index| match index {
-                0 => ProductEmissionPlanningFact::PackageInterface(
-                    self.product_interface_artifacts(
+                0 => {
+                    ProductEmissionPlanningFact::PackageInterface(self.product_interface_artifacts(
                         requires_interface,
                         requires_implementation,
                         cancellation,
-                    ),
-                ),
+                    ))
+                }
                 1 => ProductEmissionPlanningFact::Diagnostics(
                     cancellation
                         .check()
@@ -545,9 +545,7 @@ struct ProductInterfaceArtifacts {
 }
 
 enum ProductEmissionPlanningFact {
-    PackageInterface(
-        Result<ProductInterfaceArtifacts, ProductEmissionErrorKind>,
-    ),
+    PackageInterface(Result<ProductInterfaceArtifacts, ProductEmissionErrorKind>),
     Diagnostics(Result<DiagnosticBag, ProductEmissionErrorKind>),
 }
 

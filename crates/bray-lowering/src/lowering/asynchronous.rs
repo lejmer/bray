@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    AsyncTaskOperationKind, BoundAwaitExpression, BoundCallResult, BoundDependencySubject,
-    BoundExpressionId,
+    AsyncSuspensionKind, AsyncTaskOperationKind, BoundAwaitExpression, BoundCallResult,
+    BoundDependencySubject, BoundExpressionId,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{
@@ -35,6 +35,14 @@ impl Lowerer<'_> {
             .cloned()
             .ok_or(LoweringError::MissingSuspensionPoint(id))?;
 
+        if suspension.kind()
+            != (AsyncSuspensionKind::Await {
+                operand: expression.operand(),
+            })
+        {
+            return Err(LoweringError::MissingSuspensionPoint(id));
+        }
+
         let lowered = self.lower_expression(expression.operand(), current)?;
 
         let Some(current) = lowered.block else {
@@ -63,7 +71,7 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        let cancellation = self.suspension_cleanup_edge(&source)?;
+        let cancellation = self.suspension_cleanup_edge(&source, id.into())?;
         let state = self.next_frame_state()?;
 
         self.builder.set_terminator(
@@ -192,7 +200,7 @@ impl Lowerer<'_> {
         Ok(MirFrameStateId::new(state))
     }
 
-    fn retained_storages(
+    pub(super) fn retained_storages(
         &mut self,
         subjects: &[BoundDependencySubject],
     ) -> Result<Vec<bray_ir::MirStorageId>, LoweringError> {
@@ -209,7 +217,18 @@ impl Lowerer<'_> {
                     Some(self.place_for_identity(*identity, ty, origin)?.storage())
                 }
                 BoundDependencySubject::StorageAccess(access) => {
-                    Some(self.place_for_access(*access, false)?.storage())
+                    let identity = self
+                        .input
+                        .storage_plan()
+                        .root_identity(*access)
+                        .ok_or(LoweringError::MissingStorageIdentity(*access))?;
+
+                    let ty = self.storage_identity_type(identity)?;
+
+                    let origin =
+                        bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source());
+
+                    Some(self.place_for_identity(identity, ty, origin)?.storage())
                 }
                 BoundDependencySubject::BorrowCapability(_)
                 | BoundDependencySubject::ScopedCapability(_)

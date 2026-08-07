@@ -24,6 +24,13 @@ pub(super) struct RunResultRepresentation {
     pub(super) cancelled_variant: UnionVariantSymbolId,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct OrderingRepresentation {
+    pub(super) ty: TypeId,
+    pub(super) less_variant: UnionVariantSymbolId,
+    pub(super) greater_variant: UnionVariantSymbolId,
+}
+
 impl Lowerer<'_> {
     pub(super) fn type_representation(
         &self,
@@ -106,6 +113,26 @@ impl Lowerer<'_> {
             success_field: representation.success_field(),
             error_variant: representation.error_variant(),
             error_field: representation.error_field(),
+        })
+    }
+
+    pub(super) fn ordering_representation(&self) -> Result<OrderingRepresentation, LoweringError> {
+        let representation = self
+            .input
+            .available_compiler_known_symbols()
+            .ordering_representation()
+            .ok_or(LoweringError::SemanticValueUnavailable)?;
+
+        let ty = self
+            .input
+            .semantic_values()
+            .intern_non_generic_named_type(NamedTypeSymbolId::Union(representation.definition()))
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        Ok(OrderingRepresentation {
+            ty,
+            less_variant: representation.less_variant(),
+            greater_variant: representation.greater_variant(),
         })
     }
 

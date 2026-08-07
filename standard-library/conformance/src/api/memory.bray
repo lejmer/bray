@@ -4,6 +4,7 @@ using std.memory;
 
 @test
 trusted func layouts_and_raw_buffers() -> Result<unit, std.memory.MemoryLayoutError>
+    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let layout: std.memory.MemoryLayout = try std.memory.layout_of<u32>(count = 3);
 

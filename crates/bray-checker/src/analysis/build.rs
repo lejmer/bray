@@ -8,7 +8,10 @@ use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement, ControlFlowGraph};
+use super::model::{
+    AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement, AnalysisSuspensionKind,
+    ControlFlowGraph,
+};
 
 pub(crate) enum ControlFlowGraphBuildOutcome {
     Complete(ControlFlowGraph),
@@ -21,27 +24,29 @@ pub(crate) fn build_control_flow_graph<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    build_control_flow_graph_with_storage(request, None)
+    build_control_flow_graph_with_storage(request, None, None)
 }
 
 pub(crate) fn build_storage_control_flow_graph<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
+    selections: &bray_bound_tree::CheckedSemanticSelections,
 ) -> ControlFlowGraphBuildOutcome
 where
     C: CheckerRequestContext + ?Sized,
 {
-    build_control_flow_graph_with_storage(request, Some(storage))
+    build_control_flow_graph_with_storage(request, Some(storage), Some(selections))
 }
 
 fn build_control_flow_graph_with_storage<C>(
     request: CheckerUnitView<'_, C>,
     checked_storage: Option<&StoragePlan>,
+    selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
 ) -> ControlFlowGraphBuildOutcome
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut builder = ControlFlowGraphBuilder::new(request, checked_storage);
+    let mut builder = ControlFlowGraphBuilder::new(request, checked_storage, selections);
 
     let entry = builder.push_block();
 
@@ -56,7 +61,13 @@ where
     };
 
     if let Some(completion) = completion {
-        builder.push_exit(completion, AnalysisExitKind::NormalFallthrough);
+        let exit = match request.root() {
+            CheckerUnitRoot::CallableBody(root) => root.into(),
+            CheckerUnitRoot::Expression(root) => root.into(),
+            CheckerUnitRoot::ExpressionSequence(root) => root.into(),
+        };
+
+        builder.push_exit(completion, AnalysisExitKind::NormalFallthrough, exit);
     }
 
     ControlFlowGraphBuildOutcome::Complete(builder.finish(entry))
@@ -72,8 +83,10 @@ where
     pub(super) loops: Vec<LoopContext>,
     pub(super) catches: Vec<CatchContext>,
     pub(super) yield_regions: Vec<SyntaxAnchor>,
+    result_yields: Vec<ResultYieldContext>,
     scopes: Vec<BoundBlockId>,
     checked_storage: Option<&'view StoragePlan>,
+    selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
 }
 
 #[derive(Clone, Copy)]
@@ -90,6 +103,13 @@ pub(super) struct CatchContext {
     pub(super) scope_depth: usize,
 }
 
+#[derive(Clone, Copy)]
+struct ResultYieldContext {
+    target: SyntaxAnchor,
+    completion: AnalysisBlockId,
+    scope_depth: usize,
+}
+
 impl<'view, C> ControlFlowGraphBuilder<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
@@ -97,6 +117,7 @@ where
     fn new(
         request: CheckerUnitView<'view, C>,
         checked_storage: Option<&'view StoragePlan>,
+        selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
     ) -> Self {
         Self {
             request,
@@ -105,8 +126,10 @@ where
             loops: Vec::new(),
             catches: Vec::new(),
             yield_regions: Vec::new(),
+            result_yields: Vec::new(),
             scopes: Vec::new(),
             checked_storage,
+            selections,
         }
     }
 
@@ -121,7 +144,7 @@ where
 
         let Some(body) = self.view.callable_body(root) else {
             self.push_recovery(block, root.into());
-            self.push_exit(block, AnalysisExitKind::Recovery);
+            self.push_exit(block, AnalysisExitKind::Recovery, root.into());
 
             return Some(None);
         };
@@ -133,7 +156,7 @@ where
             bray_bound_tree::BoundCallableBodyKind::Error(error) => match error.body() {
                 Some(body) => self.build_block(body, block),
                 None => {
-                    self.push_exit(block, AnalysisExitKind::Recovery);
+                    self.push_exit(block, AnalysisExitKind::Recovery, root.into());
 
                     Some(None)
                 }
@@ -173,7 +196,7 @@ where
             panic!("checker scope stack lost the active lexical block");
         };
 
-        Some(Some(self.push_scope_exit(current, scope)))
+        Some(Some(self.push_scope_exit(current, scope, id.into())))
     }
 
     fn build_block_item(
@@ -211,6 +234,9 @@ where
         };
 
         match expression {
+            BoundExpression::Block(expression) => {
+                self.build_block_expression(id, *expression, current)
+            }
             BoundExpression::Binary(expression)
                 if matches!(
                     expression.operator(),
@@ -245,10 +271,47 @@ where
 
                 self.push_bound(current, id.into());
 
-                Some(self.push_control_transfer(current, expression.kind(), expression.target()))
+                Some(self.push_control_transfer(
+                    id,
+                    current,
+                    expression.kind(),
+                    expression.target(),
+                ))
             }
             _ => self.build_sequential_expression(id, expression, current),
         }
+    }
+
+    fn build_block_expression(
+        &mut self,
+        id: BoundExpressionId,
+        expression: bray_bound_tree::BoundBlockExpression,
+        current: AnalysisBlockId,
+    ) -> Option<Option<AnalysisBlockId>> {
+        let completion = self.push_block();
+
+        self.result_yields.push(ResultYieldContext {
+            target: expression.origin().source_anchor().syntax(),
+            completion,
+            scope_depth: self.scope_depth(),
+        });
+
+        let block_completion = self.build_block(expression.block(), current);
+
+        self.result_yields.pop();
+
+        if let Some(block_completion) = block_completion? {
+            self.push_edge(
+                block_completion,
+                completion,
+                AnalysisEdgeKind::Sequential,
+                None,
+            );
+        }
+
+        self.push_bound(completion, id.into());
+
+        Some(Some(completion))
     }
 
     fn build_sequential_expression(
@@ -337,6 +400,7 @@ where
 
     fn push_control_transfer(
         &mut self,
+        id: BoundExpressionId,
         block: AnalysisBlockId,
         kind: BoundControlTransferKind,
         target: Option<SyntaxAnchor>,
@@ -352,35 +416,50 @@ where
         .copied();
 
         match kind {
-            BoundControlTransferKind::Yield
-                if target.is_some_and(|target| self.yield_regions.contains(&target)) =>
-            {
-                let continuation = self.push_block();
-
-                self.push_edge(block, continuation, AnalysisEdgeKind::Yield, None);
-
-                Some(continuation)
-            }
             BoundControlTransferKind::Yield => {
-                self.push_exit(block, AnalysisExitKind::Yield);
+                let target_result = target.and_then(|target| {
+                    self.result_yields
+                        .iter()
+                        .rev()
+                        .find(|context| context.target == target)
+                        .copied()
+                });
+
+                if let Some(context) = target_result {
+                    let block = self.resolve_scopes(block, context.scope_depth, id.into());
+
+                    self.push_edge(block, context.completion, AnalysisEdgeKind::Yield, None);
+
+                    return None;
+                }
+
+                if target.is_some_and(|target| self.yield_regions.contains(&target)) {
+                    let continuation = self.push_block();
+
+                    self.push_edge(block, continuation, AnalysisEdgeKind::Yield, None);
+
+                    return Some(continuation);
+                }
+
+                self.push_exit(block, AnalysisExitKind::Yield, id.into());
 
                 None
             }
             BoundControlTransferKind::Return => {
-                self.push_exit(block, AnalysisExitKind::Return);
+                self.push_exit(block, AnalysisExitKind::Return, id.into());
 
                 None
             }
             BoundControlTransferKind::Break => match target_loop {
                 Some(context) => {
-                    let block = self.resolve_scopes(block, context.scope_depth);
+                    let block = self.resolve_scopes(block, context.scope_depth, id.into());
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::LoopBreak, None);
 
                     None
                 }
                 None => {
-                    self.push_exit(block, AnalysisExitKind::Recovery);
+                    self.push_exit(block, AnalysisExitKind::Recovery, id.into());
 
                     None
                 }
@@ -388,20 +467,20 @@ where
             BoundControlTransferKind::Continue => match target_loop {
                 Some(context) => match context.continue_target {
                     Some(header) => {
-                        let block = self.resolve_scopes(block, context.scope_depth);
+                        let block = self.resolve_scopes(block, context.scope_depth, id.into());
 
                         self.push_edge(block, header, AnalysisEdgeKind::LoopContinue, None);
 
                         None
                     }
                     None => {
-                        self.push_exit(block, AnalysisExitKind::Recovery);
+                        self.push_exit(block, AnalysisExitKind::Recovery, id.into());
 
                         None
                     }
                 },
                 None => {
-                    self.push_exit(block, AnalysisExitKind::Recovery);
+                    self.push_exit(block, AnalysisExitKind::Recovery, id.into());
 
                     None
                 }
@@ -424,13 +503,14 @@ where
         self.storage.push_recovery(block, node);
     }
 
-    pub(super) fn push_direct_await(
+    pub(super) fn push_suspension(
         &mut self,
         block: AnalysisBlockId,
         expression: BoundExpressionId,
+        kind: AnalysisSuspensionKind,
     ) {
         match self.view.node_is_recovered(expression.into()) {
-            Some(false) => self.storage.push_direct_await(block, expression),
+            Some(false) => self.storage.push_suspension(block, expression, kind),
             Some(true) | None => self.storage.push_recovery(block, expression.into()),
         }
     }
@@ -451,8 +531,9 @@ where
         &mut self,
         current: AnalysisBlockId,
         block: BoundBlockId,
+        exit: AnyBoundNodeId,
     ) -> AnalysisBlockId {
-        self.storage.push_scope_exit(current, block)
+        self.storage.push_scope_exit(current, block, exit)
     }
 
     pub(super) fn push_edge(
@@ -465,11 +546,16 @@ where
         self.storage.push_edge(source, target, kind, refinement);
     }
 
-    pub(super) fn push_exit(&mut self, block: AnalysisBlockId, kind: AnalysisExitKind) {
+    pub(super) fn push_exit(
+        &mut self,
+        block: AnalysisBlockId,
+        kind: AnalysisExitKind,
+        exit: AnyBoundNodeId,
+    ) {
         if kind == AnalysisExitKind::Panic
             && let Some(catch) = self.catches.last().copied()
         {
-            let block = self.resolve_scopes(block, catch.scope_depth);
+            let block = self.resolve_scopes(block, catch.scope_depth, exit);
 
             self.push_edge(block, catch.target, AnalysisEdgeKind::Catch, None);
 
@@ -478,7 +564,7 @@ where
 
         let block = match kind {
             AnalysisExitKind::Divergence => block,
-            _ => self.resolve_scopes(block, 0),
+            _ => self.resolve_scopes(block, 0, exit),
         };
 
         self.storage.push_exit(block, kind);
@@ -488,11 +574,12 @@ where
         &mut self,
         mut current: AnalysisBlockId,
         retained_depth: usize,
+        exit: AnyBoundNodeId,
     ) -> AnalysisBlockId {
         for index in (retained_depth..self.scopes.len()).rev() {
             let scope = self.scopes[index];
 
-            current = self.push_scope_exit(current, scope);
+            current = self.push_scope_exit(current, scope, exit);
         }
 
         current
@@ -512,6 +599,10 @@ where
 
     pub(super) const fn checked_storage(&self) -> Option<&StoragePlan> {
         self.checked_storage
+    }
+
+    pub(super) const fn selections(&self) -> Option<&bray_bound_tree::CheckedSemanticSelections> {
+        self.selections
     }
 
     fn cancelled(&self) -> bool {
@@ -547,7 +638,7 @@ mod tests {
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
         AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
-        AnalysisTaskOperationKind,
+        AnalysisSuspensionKind, AnalysisTaskOperationKind,
     };
     use crate::test_support::{
         TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
@@ -731,8 +822,8 @@ mod tests {
         let graph = graph(&tree, &key, root);
 
         for edge in [
-            AnalysisEdgeKind::AwaitSuspend,
-            AnalysisEdgeKind::AwaitResume,
+            AnalysisEdgeKind::Suspension,
+            AnalysisEdgeKind::Resume,
             AnalysisEdgeKind::RunCancellation,
         ] {
             assert!(
@@ -752,7 +843,10 @@ mod tests {
 
         assert!(graph.operations().iter().any(|operation| matches!(
             operation.kind(),
-            AnalysisOperationKind::DirectAwait(expression) if expression == await_expression
+            AnalysisOperationKind::Suspension {
+                expression,
+                kind: AnalysisSuspensionKind::Await,
+            } if expression == await_expression
         )));
     }
 
@@ -1110,7 +1204,7 @@ mod tests {
                     continue;
                 };
 
-                if let AnalysisOperationKind::ScopeExit { block, phase } = operation.kind() {
+                if let AnalysisOperationKind::ScopeExit { block, phase, .. } = operation.kind() {
                     phases.push((block, phase));
                 }
             }

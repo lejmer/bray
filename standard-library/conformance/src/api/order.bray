@@ -1,10 +1,11 @@
 module bray.standard_library_conformance.order;
 
 using std.order;
+using std.order.OrderingEquatable;
 
 struct NumberSequence
 {
-    values: [i32; 4];
+    mut values: [i32; 4];
 }
 
 impl NumberSequenceOrdering = NumberSequence(std.order.OrderedSequence)

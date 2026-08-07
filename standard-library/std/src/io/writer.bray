@@ -221,7 +221,7 @@ impl BufferedWriter<Sink>
 
 impl BufferedWriter<Sink>
 {
-    consume func into_sink() -> Result<Sink, IoError>
+    consume mut func into_sink() -> Result<Sink, IoError>
         with(Sink: Writer)
         requires(blocking_execution())
     {

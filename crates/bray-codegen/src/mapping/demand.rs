@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_ir::{
     MirAsyncOperation, MirCall, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
-    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirPlace,
-    MirPatternPredicate, MirProjectionKind, MirTaskTerminalState, MirTerminatorKind, MirUnit,
+    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause,
+    MirPatternPredicate, MirPlace, MirProjectionKind, MirTaskTerminalState, MirTerminatorKind,
+    MirUnit,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId, ConstantValueKind, TypeId};
 

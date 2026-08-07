@@ -15,7 +15,7 @@ mod storage_flow;
 pub(crate) use build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 pub(crate) use check::check_control_flow;
 pub(crate) use liveness::analyze_storage_liveness;
-pub(crate) use model::{AnalysisOperationKind, AnalysisTaskOperationKind};
+pub(crate) use model::{AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind};
 pub(crate) use refinement::check_refinements;
 pub(crate) use storage_flow::check_storage_flow;
 pub use storage_flow::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};

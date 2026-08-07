@@ -334,6 +334,10 @@ fn validate_operation_result(
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::items_after_test_module,
+    reason = "operation tests stay adjacent to the validation entry points they exercise"
+)]
 mod tests {
     use bray_bound_tree::{
         CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,

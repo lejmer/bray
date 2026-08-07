@@ -250,7 +250,30 @@ impl CallableCandidate {
     ) -> Self {
         let mut selections = selections.into_iter().collect::<Vec<_>>();
 
+        let witnesses = self
+            .resolution
+            .implementation_witnesses()
+            .iter()
+            .copied()
+            .chain(
+                selections
+                    .iter()
+                    .filter_map(|selection| match selection.selection() {
+                        ImplementationSelection::Selected(witness) => Some(*witness),
+                        ImplementationSelection::Deferred
+                        | ImplementationSelection::Unavailable
+                        | ImplementationSelection::Ambiguous(_) => None,
+                    }),
+            )
+            .collect::<Vec<_>>();
+
         selections.sort_unstable_by_key(ImplementationSelectionEvidence::requirement);
+
+        self.resolution = self
+            .resolution
+            .clone()
+            .with_implementation_witnesses(witnesses);
+
         self.implementation_selections = selections.into();
 
         self

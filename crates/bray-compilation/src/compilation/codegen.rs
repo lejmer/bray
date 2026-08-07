@@ -10,10 +10,10 @@ use bray_codegen::{
     CodegenCallableSignature, CodegenLinkage, CodegenResultMapping, CodegenSymbolKey,
     CodegenSymbolMapping, demanded_runtime_references,
 };
+use bray_diagnostics::DiagnosticBag;
 #[cfg(test)]
 use bray_ir::MirUnitKind;
 use bray_ir::{MirHelperReference, MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey};
-use bray_diagnostics::DiagnosticBag;
 use bray_runtime_interface::ExecutableHostContract;
 #[cfg(test)]
 use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation};
@@ -182,13 +182,8 @@ impl Compilation {
             MirUnitKey::GeneratedLifecycle(_) => Err(CodegenFactError::MirUnavailable(
                 instance.template().clone(),
             )),
-            MirUnitKey::ImportedCallable(definition) => self
-                .imported_executable_mir(
-                    *definition,
-                    mir_unit,
-                    instance.target().clone(),
-                    cancellation,
-                )?
+            MirUnitKey::ImportedExecutable(owner) => self
+                .imported_executable_mir(*owner, mir_unit, instance.target().clone(), cancellation)?
                 .ok_or_else(|| CodegenFactError::MirUnavailable(instance.template().clone())),
             MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
                 CodegenFactError::MirUnavailable(instance.template().clone()),

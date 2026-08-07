@@ -191,20 +191,24 @@ impl<C> StoragePlanner<C> for DefaultStoragePlanner where
 /// Storage, access, capability, and obligation liveness over one checked bound unit.
 pub trait LivenessAnalyzer<C>: Sync
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
     /// Computes durable last-use and lexical scope-boundary decisions.
     fn analyze_liveness(
         &self,
         request: CheckerUnitView<'_, C>,
+        selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
     ) -> CheckerOutcome<LivenessFacts> {
-        analyze_storage_liveness(request, storage, memory)
+        analyze_storage_liveness(request, selections, storage, memory)
     }
 }
 
-impl<C> LivenessAnalyzer<C> for DefaultLivenessAnalyzer where C: CheckerRequestContext + ?Sized {}
+impl<C> LivenessAnalyzer<C> for DefaultLivenessAnalyzer where
+    C: CheckerRequestContext + crate::CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized
+{
+}
 
 /// Flow-sensitive semantic facts over one checked bound unit.
 pub trait RefinementAnalyzer<C>: Sync
@@ -216,9 +220,10 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         patterns: &CheckedPatternFacts,
+        selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
     ) -> CheckerOutcome<CheckedRefinementFacts> {
-        check_refinements(request, patterns, storage)
+        check_refinements(request, patterns, selections, storage)
     }
 }
 
@@ -233,12 +238,13 @@ where
     fn check_storage_flow(
         &self,
         request: CheckerUnitView<'_, C>,
+        selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         liveness: &LivenessFacts,
         refinements: &CheckedRefinementFacts,
         memory: &CheckedMemoryOperations,
     ) -> CheckerOutcome<StorageFlowFacts> {
-        check_storage_flow(request, storage, liveness, refinements, memory)
+        check_storage_flow(request, selections, storage, liveness, refinements, memory)
     }
 }
 

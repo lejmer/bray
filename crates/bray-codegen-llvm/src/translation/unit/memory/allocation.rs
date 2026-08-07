@@ -6,10 +6,8 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use super::super::core::UnitTranslator;
-use super::super::support::{
-    aggregate_element, aggregate_value_element, extract_value, insert_value, int_value, llvm,
-    pointer_value,
-};
+use super::super::support::{extract_value, insert_value, int_value, llvm, pointer_value};
+use super::support::LoadedMemoryAggregate;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_raw_memory_allocation(
@@ -113,7 +111,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .into_iter()
             .enumerate()
         {
-            let element = aggregate_value_element(self.request.mappings(), &result_fields, index)?;
+            let element = self.aggregate_value_element(&result_fields, index)?;
 
             allocation = insert_value(&self.builder, allocation, value, element)?;
         }
@@ -173,13 +171,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         fields: &[CodegenFieldLayout],
         index: usize,
     ) -> Result<IntValue<'context>, CodegenFailure> {
-        extract_value(
-            &self.builder,
-            value,
-            aggregate_element(self.request.mappings(), fields, index)?,
-        )
-        .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
-        .and_then(|value| self.pointer_sized_integer(value.into()))
+        extract_value(&self.builder, value, self.aggregate_element(fields, index)?)
+            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
+            .and_then(|value| self.pointer_sized_integer(value.into()))
     }
 
     pub(super) fn memory_aggregate_pointer(
@@ -188,12 +182,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         fields: &[CodegenFieldLayout],
         index: usize,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        extract_value(
-            &self.builder,
-            value,
-            aggregate_element(self.request.mappings(), fields, index)?,
-        )
-        .and_then(|value| pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
+        extract_value(&self.builder, value, self.aggregate_element(fields, index)?)
+            .and_then(|value| pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
     }
 
     pub(super) fn load_owned_memory(
@@ -202,21 +192,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         owner_type: bray_symbols::TypeId,
         field_count: usize,
         name: &str,
-    ) -> Result<
-        (
-            PointerValue<'context>,
-            BasicTypeEnum<'context>,
-            BasicValueEnum<'context>,
-            Arc<[CodegenFieldLayout]>,
-        ),
-        CodegenFailure,
-    > {
+    ) -> Result<LoadedMemoryAggregate<'context>, CodegenFailure> {
         let owner = self.memory_pointer(owner)?;
 
         let value_type = self
-            .request
-            .mappings()
-            .ty(owner_type)
+            .type_mapping(owner_type)
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Pointer { target, .. } => Some(*target),
                 _ => None,
@@ -224,9 +204,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let fields = self
-            .request
-            .mappings()
-            .ty(value_type)
+            .type_mapping(value_type)
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Aggregate(fields) => Some(fields),
                 _ => None,
@@ -320,9 +298,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         ty: bray_symbols::TypeId,
     ) -> Result<bray_target::TargetValueLayout, CodegenFailure> {
-        self.request
-            .mappings()
-            .ty(ty)
+        self.type_mapping(ty)
             .and_then(bray_codegen::CodegenTypeMapping::layout)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }

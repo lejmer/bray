@@ -1,6 +1,11 @@
 module bray.standard_library_conformance.format;
 
 using std.format;
+using std.format.BooleanFormat;
+using std.format.CharacterFormat;
+using std.format.I32Format;
+using std.format.StringFormat;
+using std.format.U32Format;
 using std.bytes;
 using std.memory;
 
@@ -9,7 +14,12 @@ func formatting_options_are_available()
 {
     let options: std.format.Options = std.format.Options.default();
 
-    assert(options.radix == std.format.Radix.Decimal);
+    match options.radix
+    {
+        case std.format.Radix.Decimal {}
+        case _ { assert(false); }
+    }
+
     assert(options.width == 0);
     assert(options.precision == 0);
 }
@@ -41,7 +51,7 @@ func formatting_options_control_output() -> Result<unit, std.memory.MemoryLayout
         sign = std.format.Sign.Always,
         escaping = std.format.Escaping.Raw,
     );
-    let argument: std.format.Argument<u32> = std.format.Argument<u32>.with_options(42, options = options);
+    let argument: std.format.Argument<u32> = std.format.Argument.with_options<u32>(42, options = options);
     let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 6);
 
     try std.format.write<u32>(&mut sink, argument);
@@ -64,7 +74,7 @@ func escaped_string_formatting() -> Result<unit, std.memory.MemoryLayoutError>
         sign = std.format.Sign.NegativeOnly,
         escaping = std.format.Escaping.Quoted,
     );
-    let argument: std.format.Argument<string> = std.format.Argument<string>.with_options("A\n", options = options);
+    let argument: std.format.Argument<string> = std.format.Argument.with_options<string>("A\n", options = options);
     let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 0);
 
     try std.format.write<string>(&mut sink, argument);

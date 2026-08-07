@@ -12,8 +12,9 @@ use super::state::Parser;
 const GENERIC_PARAMETER_START_KINDS: [SyntaxKind; 2] =
     [SyntaxKind::ConstKeyword, SyntaxKind::IdentifierToken];
 
-const GENERIC_PARAMETER_LIST_TERMINATORS: [SyntaxKind; 9] = [
+const GENERIC_PARAMETER_LIST_TERMINATORS: [SyntaxKind; 10] = [
     SyntaxKind::GreaterToken,
+    SyntaxKind::GreaterGreaterToken,
     SyntaxKind::OpenParenToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::WithKeyword,
@@ -24,9 +25,10 @@ const GENERIC_PARAMETER_LIST_TERMINATORS: [SyntaxKind; 9] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 10] = [
+const GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 11] = [
     SyntaxKind::CommaToken,
     SyntaxKind::GreaterToken,
+    SyntaxKind::GreaterGreaterToken,
     SyntaxKind::OpenParenToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::WithKeyword,
@@ -64,8 +66,9 @@ const GENERIC_ARGUMENT_START_KINDS: [SyntaxKind; 24] = [
     SyntaxKind::ViewKeyword,
 ];
 
-const GENERIC_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 8] = [
+const GENERIC_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 9] = [
     SyntaxKind::GreaterToken,
+    SyntaxKind::GreaterGreaterToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::CloseBracketToken,
     SyntaxKind::EqualsToken,
@@ -75,9 +78,10 @@ const GENERIC_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 8] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const TYPE_FORM_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 8] = [
+const TYPE_FORM_ARGUMENT_LIST_TERMINATORS: [SyntaxKind; 9] = [
     SyntaxKind::CloseBracketToken,
     SyntaxKind::GreaterToken,
+    SyntaxKind::GreaterGreaterToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::EqualsToken,
     SyntaxKind::SemicolonToken,
@@ -112,7 +116,7 @@ impl Parser {
 
         builder.push_less_token(self.expect(SyntaxKind::LessToken));
         self.parse_separated_list(&mut builder, spec, Parser::parse_generic_parameter);
-        builder.push_greater_token(self.expect(SyntaxKind::GreaterToken));
+        builder.push_greater_token(self.expect_generic_close());
 
         builder.build()
     }
@@ -170,7 +174,7 @@ impl Parser {
 
         builder.push_less_token(self.expect(SyntaxKind::LessToken));
         self.parse_separated_list(&mut builder, spec, Parser::parse_generic_argument);
-        builder.push_greater_token(self.expect(SyntaxKind::GreaterToken));
+        builder.push_greater_token(self.expect_generic_close());
 
         builder.build()
     }
@@ -449,6 +453,19 @@ mod tests {
         assert_eq!(list.separator_tokens().count(), 2);
         assert_eq!(type_argument.type_expressions().count(), 1);
         assert_eq!(constant_argument.expressions().count(), 1);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_splits_adjacent_nested_generic_closes() {
+        let sources = source_store(["<MoveCursor<i32>>"]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+
+        let list = parser.parse_generic_argument_list();
+        let diagnostics = parser.finish();
+
+        assert_eq!(list.full_text(), "<MoveCursor<i32>>");
         assert!(diagnostics.is_empty());
     }
 

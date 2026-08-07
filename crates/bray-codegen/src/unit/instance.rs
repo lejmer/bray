@@ -88,14 +88,17 @@ impl CodegenImplementationWitness {
     }
 }
 
-/// Stable identity of one concrete MIR definition generated for one target.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CodegenInstanceKey {
+struct CodegenInstanceData {
     template: MirUnitKey,
     specialization: CodegenSpecialization,
     witnesses: Arc<[CodegenImplementationWitness]>,
     target: MirTargetFacts,
 }
+
+/// Stable identity of one concrete MIR definition generated for one target.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CodegenInstanceKey(Arc<CodegenInstanceData>);
 
 impl CodegenInstanceKey {
     /// Creates a concrete identity from its template, specialization, witnesses, and target.
@@ -105,12 +108,12 @@ impl CodegenInstanceKey {
         witnesses: impl IntoIterator<Item = CodegenImplementationWitness>,
         target: MirTargetFacts,
     ) -> Self {
-        Self {
+        Self(Arc::new(CodegenInstanceData {
             template,
             specialization,
             witnesses: sorted_unique_shared_slice(witnesses),
             target,
-        }
+        }))
     }
 
     /// Creates the identity of a non-generic MIR definition without implementation witnesses.
@@ -124,23 +127,23 @@ impl CodegenInstanceKey {
     }
 
     /// Returns the MIR template identity.
-    pub const fn template(&self) -> &MirUnitKey {
-        &self.template
+    pub fn template(&self) -> &MirUnitKey {
+        &self.0.template
     }
 
     /// Returns the exact generic specialization.
-    pub const fn specialization(&self) -> &CodegenSpecialization {
-        &self.specialization
+    pub fn specialization(&self) -> &CodegenSpecialization {
+        &self.0.specialization
     }
 
     /// Returns selected implementation witnesses in canonical order.
     pub fn witnesses(&self) -> &[CodegenImplementationWitness] {
-        &self.witnesses
+        &self.0.witnesses
     }
 
     /// Returns the target affecting this generated definition.
-    pub const fn target(&self) -> &MirTargetFacts {
-        &self.target
+    pub fn target(&self) -> &MirTargetFacts {
+        &self.0.target
     }
 }
 

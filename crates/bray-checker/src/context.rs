@@ -7,9 +7,11 @@ use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
-    GenericConstraintObligationKey, NamedTypeSymbolId, ProofOutcome, SemanticValueStore,
-    SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult, SymbolGraph,
-    TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
+    GenericConstraintObligationKey, ImplementationRequirementKey, ImplementationSelection,
+    MemberLookupResult, NamedTypeSymbolId, ProofOutcome, SemanticValueStore, StructSymbol,
+    StructSymbolId, SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult,
+    SymbolGraph, SymbolName, TraitApplicationId, TraitTypeMemberSymbolId, TypeId, UnionSymbol,
+    UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_target::TargetProfile;
 
@@ -176,6 +178,38 @@ pub trait CheckerRequestContext: Sync {
     /// Returns the compilation-wide symbol graph.
     fn symbols(&self) -> &SymbolGraph;
 
+    /// Resolves one ordinary member from a source or imported declaration.
+    fn lookup_member(
+        &self,
+        owner: AnySymbolId,
+        name: &str,
+    ) -> CheckerFactResult<MemberLookupResult<AnySymbolId>> {
+        Ok(self.symbols().lookup_member(owner, name))
+    }
+
+    /// Returns the ordinary name of a source or imported declaration member.
+    fn member_name(&self, member: AnySymbolId) -> CheckerFactResult<Option<&SymbolName>> {
+        Ok(self.symbols().member_name(member))
+    }
+
+    /// Returns a source or imported structure declaration.
+    fn structure(&self, id: StructSymbolId) -> CheckerFactResult<Option<&StructSymbol>> {
+        Ok(self.symbols().structure(id))
+    }
+
+    /// Returns a source or imported union declaration.
+    fn union(&self, id: UnionSymbolId) -> CheckerFactResult<Option<&UnionSymbol>> {
+        Ok(self.symbols().union(id))
+    }
+
+    /// Returns a source or imported union variant declaration.
+    fn union_variant(
+        &self,
+        id: UnionVariantSymbolId,
+    ) -> CheckerFactResult<Option<&UnionVariantSymbol>> {
+        Ok(self.symbols().union_variant(id))
+    }
+
     /// Returns compiler-known symbols available for the current target.
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;
 
@@ -222,6 +256,16 @@ pub trait CheckerRequestContext: Sync {
         &self,
         obligation: GenericConstraintObligationKey,
     ) -> CheckerFactResult<DiagnosticResult<ProofOutcome>>;
+
+    /// Selects the implementation satisfying one exact subject and trait application.
+    fn implementation_selection(
+        &self,
+        _requirement: ImplementationRequirementKey,
+    ) -> CheckerFactResult<DiagnosticResult<ImplementationSelection>> {
+        Ok(DiagnosticResult::without_diagnostics(
+            ImplementationSelection::Unavailable,
+        ))
+    }
 
     /// Resolves one selected type-valued member projection when its witness is available.
     fn selected_type_valued_member(

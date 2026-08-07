@@ -38,16 +38,16 @@ pub struct MirUnitBuilder {
 
 impl MirUnitBuilder {
     /// Starts MIR reconstruction for one checked executable template from a dependency.
-    pub fn for_imported_callable(
+    pub fn for_imported_executable(
         unit: MirUnitId,
-        callable: bray_symbols::CallableDefinitionId,
+        owner: bray_symbols::AnySymbolId,
         kind: MirUnitKind,
         target: MirTargetFacts,
     ) -> Self {
         Self {
-            key: MirUnitKey::ImportedCallable(callable),
+            key: MirUnitKey::ImportedExecutable(owner),
             unit,
-            source: MirSourceOrigin::ImportedCallable(callable),
+            source: MirSourceOrigin::ImportedExecutable(owner),
             target,
             kind,
             frame_descriptor: None,

@@ -407,10 +407,6 @@ struct PreparedArtifact<'plan, 'link> {
     content: PreparedContent<'plan, 'link>,
 }
 
-#[expect(
-    clippy::large_enum_variant,
-    reason = "publication keeps contributions inline to avoid one allocation per artifact"
-)]
 enum PreparedContent<'plan, 'link> {
     Contribution(ArtifactContribution),
     Linked(PreparedLinkedArtifact<'plan, 'link>),

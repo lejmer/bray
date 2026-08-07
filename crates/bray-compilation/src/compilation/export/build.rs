@@ -96,16 +96,18 @@ impl Compilation {
         )
         .map_err(PackageInterfaceExportError::Surface)?;
 
-        let (semantic_facts, executable_templates) = super::semantic::build_semantic_facts(
-            self,
-            symbols,
-            &surface,
-            &identity.selected,
-            &identity.keys,
-        )?;
+        let (semantic_facts, executable_templates, native_boundaries) =
+            super::semantic::build_semantic_facts(
+                self,
+                symbols,
+                &surface,
+                &identity.selected,
+                &identity.keys,
+            )?;
 
         PackageInterfaceExportBundle::try_new(surface, semantic_facts, request.language_revision())
             .and_then(|bundle| bundle.with_executable_templates(executable_templates))
+            .and_then(|bundle| bundle.with_native_boundaries(native_boundaries))
             .map(Arc::new)
             .map_err(PackageInterfaceExportError::Bundle)
     }
@@ -972,7 +974,12 @@ mod tests {
                 "    construct(capacity: usize = 0)\n",
                 "        -> Result<Self, std.memory.MemoryLayoutError>\n",
                 "    {\n",
-                "        return Ok({ value = false, });\n",
+                "        let buffer: Buffer =\n",
+                "        {\n",
+                "            value = false,\n",
+                "        };\n",
+                "\n",
+                "        return Ok(buffer);\n",
                 "    }\n",
                 "}\n",
                 "extern func as_slice(pos buffer: &Buffer) -> &[u8];\n",

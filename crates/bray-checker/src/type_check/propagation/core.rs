@@ -5,7 +5,7 @@ use bray_bound_tree::{
     BoundStructuredExpressionKind, BoundUnitView,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_symbols::{GenericArgument, TypeData};
+use bray_symbols::{BorrowKind, GenericArgument, TypeData};
 
 use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
@@ -554,6 +554,14 @@ where
         .semantic_values()
         .type_data(expected)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let expected = match expected_data.as_ref() {
+        TypeData::Borrow {
+            kind: BorrowKind::Mutable,
+            target,
+        } => *target,
+        _ => expected,
+    };
 
     if matches!(expected_data.as_ref(), TypeData::Nullable(element) if Some(*element) == actual) {
         return Ok(());

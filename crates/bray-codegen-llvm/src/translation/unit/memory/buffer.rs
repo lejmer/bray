@@ -1,16 +1,13 @@
-use std::sync::Arc;
-
 use bray_bound_tree::CheckedMemoryOperationKind;
-use bray_codegen::{CodegenFailure, CodegenFieldLayout};
+use bray_codegen::CodegenFailure;
 use bray_ir::{MirMemoryOperation, MirOperation, MirOperationId};
 use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use super::super::core::UnitTranslator;
-use super::super::support::{
-    aggregate_element, aggregate_value_element, extract_value, insert_value, llvm,
-};
+use super::super::support::{extract_value, insert_value, llvm};
+use super::support::LoadedMemoryAggregate;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_raw_buffer_field(
@@ -28,7 +25,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (_, _, value, fields) = self.load_raw_buffer(buffer, *buffer_type)?;
 
-        let element = aggregate_element(self.request.mappings(), &fields, field)?;
+        let element = self.aggregate_element(&fields, field)?;
 
         extract_value(&self.builder, value, element)
     }
@@ -95,7 +92,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let initialized = aggregate_element(self.request.mappings(), &fields, 2)?;
+        let initialized = self.aggregate_element(&fields, 2)?;
         let count = self.operand(count)?;
 
         let initialized = llvm(self.builder.build_struct_gep(
@@ -210,7 +207,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (source, llvm_type, value, fields) = self.load_raw_buffer(source, *source_type)?;
 
-        let initialized_field = aggregate_value_element(self.request.mappings(), &fields, 2)?;
+        let initialized_field = self.aggregate_value_element(&fields, 2)?;
         let initialized = self.operand(initialized)?;
         let value = insert_value(&self.builder, value, initialized, initialized_field)?;
 
@@ -306,15 +303,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         buffer: &bray_ir::MirOperand,
         buffer_type: bray_symbols::TypeId,
-    ) -> Result<
-        (
-            PointerValue<'context>,
-            BasicTypeEnum<'context>,
-            BasicValueEnum<'context>,
-            Arc<[CodegenFieldLayout]>,
-        ),
-        CodegenFailure,
-    > {
+    ) -> Result<LoadedMemoryAggregate<'context>, CodegenFailure> {
         self.load_owned_memory(buffer, buffer_type, 3, "memory.buffer")
     }
 }

@@ -657,7 +657,12 @@ fn validate_async_facts(
 
     let valid_suspensions = facts.suspensions().iter().all(|suspension| {
         unit.view().expression(suspension.expression()).is_some()
-            && unit.view().expression(suspension.operand()).is_some()
+            && match suspension.kind() {
+                bray_bound_tree::AsyncSuspensionKind::Await { operand } => {
+                    unit.view().expression(operand).is_some()
+                }
+                bray_bound_tree::AsyncSuspensionKind::Yield => true,
+            }
             && suspension
                 .dependency_contract()
                 .is_none_or(|contract| dependencies.contract(contract).is_some())
@@ -1343,7 +1348,9 @@ mod tests {
             [],
             [bray_bound_tree::AsyncSuspensionPoint::new(
                 expression,
-                expression,
+                bray_bound_tree::AsyncSuspensionKind::Await {
+                    operand: expression,
+                },
                 Some(contract),
                 [],
                 [],

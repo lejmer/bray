@@ -584,6 +584,44 @@ mod tests {
     }
 
     #[test]
+    fn value_producing_blocks_lower_through_a_result_join() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main() -> bool\n",
+            "{\n",
+            "    return\n",
+            "    {\n",
+            "        yield true;\n",
+            "    };\n",
+            "}\n",
+        ));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .unwrap_or_else(|error| panic!("value-producing block must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        let mir = lowered_mir(&lowered);
+
+        assert_eq!(mir.blocks().len(), 2);
+
+        assert!(matches!(
+            mir.blocks()[0].terminator().kind(),
+            MirTerminatorKind::Goto(_)
+        ));
+
+        assert!(matches!(
+            mir.blocks()[1].terminator().kind(),
+            MirTerminatorKind::Return(Some(MirOperand::Value(_)))
+        ));
+    }
+
+    #[test]
     fn lowering_is_deterministic_across_worker_widths() {
         let parallel_budget = WorkerBudget::new(4)
             .unwrap_or_else(|error| panic!("parallel worker budget must build: {error:?}"));

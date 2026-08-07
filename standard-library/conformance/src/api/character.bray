@@ -38,11 +38,11 @@ func character_boundaries()
     let ascii: char = 'A';
     let supplementary: char = '😀';
 
-    assert(std.character.utf8_length(ascii) == 1);
-    assert(std.character.utf8_byte(ascii, index = 0) == 65);
-    assert(std.character.utf8_length(supplementary) == 4);
-    assert(std.character.is_numeric('7'));
-    assert(std.character.is_whitespace(' '));
+    assert(std.character.utf8_length(value = ascii) == 1);
+    assert(std.character.utf8_byte(value = ascii, index = 0) == 65);
+    assert(std.character.utf8_length(value = supplementary) == 4);
+    assert(std.character.is_numeric(value = '7'));
+    assert(std.character.is_whitespace(value = ' '));
 
     let invalid: char? = std.character.from_scalar_value(value = 1114112);
 

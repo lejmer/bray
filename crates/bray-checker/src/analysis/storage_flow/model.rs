@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundBlockItem, BoundExpressionId, CheckedMemoryOperations,
+    AnyBoundNodeId, BorrowCapabilityId, BoundExpressionId, CheckedMemoryOperations,
     CheckedRefinementFacts, LivenessFacts, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
-    StorageIdentityId, StoragePlan,
+    StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::TypeId;
 
+use crate::storage::{StorageScopeOwners, local_initialization_destinations};
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::fixed_point::{FixedPointDomain, FlowDirection};
@@ -129,41 +129,6 @@ impl StorageFlowInput {
     pub(super) fn storage_is_mutable(&self, storage: StorageIdentityId) -> bool {
         self.mutable_storage.contains(&storage)
     }
-}
-
-fn local_initialization_destinations<C>(
-    request: CheckerUnitView<'_, C>,
-    storage: &StoragePlan,
-) -> BTreeMap<BoundExpressionId, StorageIdentityId>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let mut result = BTreeMap::new();
-
-    for (_, block) in request.unit().tree().blocks() {
-        for item in block.items() {
-            let BoundBlockItem::LocalBinding(binding) = item else {
-                continue;
-            };
-
-            let destinations = binding
-                .bindings()
-                .iter()
-                .filter_map(|binding| {
-                    match storage.binding(StorageBindingTarget::Local(*binding)) {
-                        Some(StorageBinding::Identity(destination)) => Some(destination),
-                        Some(StorageBinding::Access(_)) | None => None,
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            if let [destination] = destinations.as_slice() {
-                result.insert(binding.initializer(), *destination);
-            }
-        }
-    }
-
-    result
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -295,6 +260,7 @@ where
     refinements: &'analysis CheckedRefinementFacts,
     memory: &'analysis CheckedMemoryOperations,
     input: &'analysis StorageFlowInput,
+    owners: &'analysis StorageScopeOwners,
     request: CheckerUnitView<'analysis, C>,
 }
 
@@ -302,6 +268,10 @@ impl<'analysis, C> StorageFlowDomain<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the domain borrows each independently validated analysis input"
+    )]
     pub(super) fn new(
         graph: &'analysis ControlFlowGraph,
         reachability: &'analysis ReachabilityResult,
@@ -310,6 +280,7 @@ where
         refinements: &'analysis CheckedRefinementFacts,
         memory: &'analysis CheckedMemoryOperations,
         input: &'analysis StorageFlowInput,
+        owners: &'analysis StorageScopeOwners,
         request: CheckerUnitView<'analysis, C>,
     ) -> Self {
         Self {
@@ -320,6 +291,7 @@ where
             refinements,
             memory,
             input,
+            owners,
             request,
         }
     }
@@ -335,6 +307,7 @@ where
             self.refinements,
             self.memory,
             self.input,
+            self.owners,
         );
 
         for operation in block.operations() {
@@ -411,19 +384,7 @@ where
 
 fn identity_definition_node(identity: StorageIdentity) -> Option<AnyBoundNodeId> {
     match identity {
-        StorageIdentity::LocalOwned(definition) => Some(definition),
-        StorageIdentity::Temporary(expression)
-        | StorageIdentity::IterationCursor(expression)
-        | StorageIdentity::IterationElement(expression)
-        | StorageIdentity::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
-        StorageIdentity::Alternative { pattern, .. } => Some(AnyBoundNodeId::Pattern(pattern)),
-        StorageIdentity::Parameter(_)
-        | StorageIdentity::Receiver(_)
-        | StorageIdentity::AnonymousParameter(_)
-        | StorageIdentity::PredicateParameter(_)
-        | StorageIdentity::PostconditionResult(_)
-        | StorageIdentity::Result(_)
-        | StorageIdentity::CompilerCreated(_)
-        | StorageIdentity::Error(_) => None,
+        StorageIdentity::Result(_) => None,
+        _ => identity.definition_node(),
     }
 }

@@ -7,7 +7,7 @@ use super::super::super::block::LoweredExpression;
 use super::super::super::lowerer::Lowerer;
 
 impl Lowerer<'_> {
-    pub(in crate::lowering::expression) fn push_result_join(
+    pub(in crate::lowering) fn push_result_join(
         &mut self,
         expression: BoundExpressionId,
         origin: BoundNodeOrigin,
@@ -26,7 +26,7 @@ impl Lowerer<'_> {
         Ok((join, result, result_type))
     }
 
-    pub(in crate::lowering::expression) fn finish_result_edge(
+    pub(in crate::lowering) fn finish_result_edge(
         &mut self,
         completion: LoweredExpression,
         join: MirBlockId,

@@ -45,7 +45,12 @@ where
 
         self.push_edge(current, success, success_kind, success_refinement);
         self.push_edge(current, failure, failure_kind, failure_refinement);
-        self.push_exit(failure, AnalysisExitKind::ResultErrorPropagation);
+
+        self.push_exit(
+            failure,
+            AnalysisExitKind::ResultErrorPropagation,
+            expression.into(),
+        );
 
         Some(Some(success))
     }
@@ -59,7 +64,7 @@ where
         match self.propagation_operand_role(expression) {
             Some(RepresentationRole::Result) => self.build_propagation(id, current, false),
             Some(RepresentationRole::RunResult) => {
-                Some(Some(self.build_run_result_propagation(current)))
+                Some(Some(self.build_run_result_propagation(id, current)))
             }
             _ => {
                 self.push_recovery(current, id.into());
@@ -88,7 +93,11 @@ where
         type_representation(self.request(), operand_type).ok()?
     }
 
-    fn build_run_result_propagation(&mut self, current: AnalysisBlockId) -> AnalysisBlockId {
+    fn build_run_result_propagation(
+        &mut self,
+        expression: BoundExpressionId,
+        current: AnalysisBlockId,
+    ) -> AnalysisBlockId {
         let completed = self.push_block();
         let panicked = self.push_block();
         let cancelled = self.push_block();
@@ -109,8 +118,9 @@ where
             None,
         );
 
-        self.push_exit(panicked, AnalysisExitKind::Panic);
-        self.push_exit(cancelled, AnalysisExitKind::Cancellation);
+        self.push_exit(panicked, AnalysisExitKind::Panic, expression.into());
+
+        self.push_exit(cancelled, AnalysisExitKind::Cancellation, expression.into());
 
         completed
     }

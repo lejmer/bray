@@ -133,6 +133,14 @@ impl Parser {
         self.cursor.consume_tuple_element_index_after_dot()
     }
 
+    pub(super) fn expect_generic_close(&mut self) -> SyntaxToken {
+        if self.at(SyntaxKind::GreaterGreaterToken) {
+            return self.cursor.consume_generic_close();
+        }
+
+        self.expect(SyntaxKind::GreaterToken)
+    }
+
     pub(super) fn expect(&mut self, kind: SyntaxKind) -> SyntaxToken {
         self.cursor.expect(kind)
     }

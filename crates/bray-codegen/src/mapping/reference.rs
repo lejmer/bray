@@ -6,25 +6,72 @@ use bray_symbols::ConstantValueId;
 
 use crate::{CodegenInstanceKey, CodegenSymbolKey};
 
+/// A compiler-defined call realized directly by a code generator.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum IntrinsicCall {
+    /// A scalar unary operation.
+    Unary(bray_ir::MirUnaryOperator),
+    /// A scalar binary operation.
+    Binary(bray_ir::MirBinaryOperator),
+    /// An exact compiler-defined conversion plan.
+    Conversion(bray_bound_tree::SelectedConversion),
+}
+
 /// Maps one semantic callable reference in MIR to its concrete generated definition.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenCallableMapping {
     owner: CodegenInstanceKey,
+    site: CodegenCallSite,
     reference: MirCallableReference,
-    instance: CodegenInstanceKey,
+    target: CodegenCallableTarget,
+}
+
+/// One direct-call occurrence within a concrete MIR instance.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CodegenCallSite {
+    /// A call stored as one MIR operation.
+    Operation(MirOperationId),
+    /// An iterator call stored by one block terminator.
+    Terminator(MirBlockId),
+}
+
+/// The concrete realization selected for one direct MIR call.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CodegenCallableTarget {
+    /// A generated or imported callable definition.
+    Instance(CodegenInstanceKey),
+    /// A compiler-defined operation emitted directly by the backend.
+    Intrinsic(IntrinsicCall),
 }
 
 impl CodegenCallableMapping {
     /// Creates an exact callable-reference mapping.
     pub const fn new(
         owner: CodegenInstanceKey,
+        site: CodegenCallSite,
         reference: MirCallableReference,
         instance: CodegenInstanceKey,
     ) -> Self {
         Self {
             owner,
+            site,
             reference,
-            instance,
+            target: CodegenCallableTarget::Instance(instance),
+        }
+    }
+
+    /// Creates a mapping to a compiler-defined operation emitted directly by the backend.
+    pub const fn intrinsic(
+        owner: CodegenInstanceKey,
+        site: CodegenCallSite,
+        reference: MirCallableReference,
+        intrinsic: IntrinsicCall,
+    ) -> Self {
+        Self {
+            owner,
+            site,
+            reference,
+            target: CodegenCallableTarget::Intrinsic(intrinsic),
         }
     }
 
@@ -33,14 +80,35 @@ impl CodegenCallableMapping {
         &self.owner
     }
 
+    /// Returns the exact MIR occurrence containing the call.
+    pub const fn site(&self) -> CodegenCallSite {
+        self.site
+    }
+
     /// Returns the callable reference retained by MIR.
     pub const fn reference(&self) -> MirCallableReference {
         self.reference
     }
 
     /// Returns the concrete generated definition selected for the reference.
-    pub const fn instance(&self) -> &CodegenInstanceKey {
-        &self.instance
+    pub const fn target(&self) -> &CodegenCallableTarget {
+        &self.target
+    }
+
+    /// Returns the generated callable definition when this call is not intrinsic.
+    pub const fn instance(&self) -> Option<&CodegenInstanceKey> {
+        match &self.target {
+            CodegenCallableTarget::Instance(instance) => Some(instance),
+            CodegenCallableTarget::Intrinsic(_) => None,
+        }
+    }
+
+    /// Returns the compiler-defined operation emitted for an intrinsic call.
+    pub const fn intrinsic_operation(&self) -> Option<&IntrinsicCall> {
+        match &self.target {
+            CodegenCallableTarget::Intrinsic(intrinsic) => Some(intrinsic),
+            CodegenCallableTarget::Instance(_) => None,
+        }
     }
 }
 

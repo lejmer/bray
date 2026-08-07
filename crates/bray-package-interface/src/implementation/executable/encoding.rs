@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundCallResult, CheckedMemoryOperationKind, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, PatternOperation, PatternProjection, SelectedConversion,
+    BoundCallResult, CheckedMemoryOperationKind, ConstructionInputId, ConstructionTarget,
+    ConversionTarget, PatternOperation, PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirBinaryOperator, MirBlockKind, MirCall, MirCallArgument, MirCallTarget,
@@ -246,10 +246,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         Ok(())
     }
 
-    fn symbol(
-        &mut self,
-        id: AnySymbolId,
-    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+    fn symbol(&mut self, id: AnySymbolId) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let reference = Self::semantic(self.context.symbol_reference(id))?;
 
         write_symbol_reference(&mut self.wire, &reference);
@@ -467,10 +464,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         Ok(())
     }
 
-    fn place(
-        &mut self,
-        place: &MirPlace,
-    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+    fn place(&mut self, place: &MirPlace) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         self.wire.write_u32(place.storage().slot());
         self.ty(place.ty())?;
         write_count(&mut self.wire, place.projections().len());
@@ -588,6 +582,22 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             None => self.wire.write_u32(0),
         }
 
+        match call.intrinsic() {
+            Some(bray_ir::MirCallIntrinsic::Unary(operator)) => {
+                self.wire.write_u32(1);
+                self.unary_operator(operator);
+            }
+            Some(bray_ir::MirCallIntrinsic::Binary(operator)) => {
+                self.wire.write_u32(2);
+                self.binary_operator(operator);
+            }
+            Some(bray_ir::MirCallIntrinsic::Conversion(target)) => {
+                self.wire.write_u32(3);
+                self.ty(target)?;
+            }
+            None => self.wire.write_u32(0),
+        }
+
         write_count(&mut self.wire, call.witnesses().len());
 
         for witness in call.witnesses() {
@@ -669,10 +679,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
         self.wire.write_u32(dependency.raw());
 
-        self.wire.write_u32(match behavior.current_run_cancellation() {
-            bray_symbols::CurrentRunCancellation::NotEntered => 0,
-            bray_symbols::CurrentRunCancellation::MayEnter => 1,
-        });
+        self.wire
+            .write_u32(match behavior.current_run_cancellation() {
+                bray_symbols::CurrentRunCancellation::NotEntered => 0,
+                bray_symbols::CurrentRunCancellation::MayEnter => 1,
+            });
 
         Ok(())
     }
@@ -791,6 +802,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirTerminatorKind::Iterate {
                 cursor,
                 next,
+                witness,
                 element_type,
                 item,
                 exhausted,
@@ -799,6 +811,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.place(cursor)?;
                 self.callable_instance(next.instance())?;
                 self.callable_abi(next.abi());
+                self.implementation(*witness)?;
                 self.ty(*element_type)?;
                 self.wire.write_u32(item.slot());
                 self.edge(exhausted)?;

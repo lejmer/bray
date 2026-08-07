@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundCallResult, BoundExpressionId, ConversionTarget, SelectedConversion};
 use bray_ir::{
-    MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirOperand, MirOperationKind,
-    MirSourceAnchor,
+    MirBlockId, MirCall, MirCallIntrinsic, MirCallTarget, MirCallableReference, MirOperand,
+    MirOperationKind, MirSourceAnchor,
 };
 use bray_symbols::{CallableAbi, TypeId};
 
@@ -69,7 +69,8 @@ impl Lowerer<'_> {
                         [operand],
                         [],
                     )
-                    .with_trait_dispatch(*dispatch),
+                    .with_trait_dispatch(*dispatch)
+                    .with_intrinsic(MirCallIntrinsic::Conversion(conversion.target_type())),
                 ),
                 conversion.target_type(),
             ),

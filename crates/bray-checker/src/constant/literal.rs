@@ -52,6 +52,35 @@ pub fn check_constant_literal(
     }
 }
 
+pub(crate) fn check_negated_integer_operand_literal(
+    text: &str,
+    representation: RepresentationRole,
+    target_integer_width_bits: impl FnOnce() -> NonZeroU16,
+) -> Result<ConstantValueKind, ConstantLiteralError> {
+    if text.len() > MAX_INTEGER_LITERAL_BYTES {
+        return Err(ConstantLiteralError::SizeLimitExceeded);
+    }
+
+    let Some(integer_representation) = representation.integer_representation() else {
+        return Err(ConstantLiteralError::Invalid);
+    };
+
+    let (radix, digits) = integer_digits(text)?;
+
+    let magnitude = parse_unsigned_magnitude(digits, radix)?;
+
+    let negated = IntegerConstant::new(IntegerSign::Negative, magnitude.clone());
+
+    if !fits_integer_representation(&negated, integer_representation, target_integer_width_bits) {
+        return Err(ConstantLiteralError::NotRepresentable);
+    }
+
+    Ok(ConstantValueKind::Integer(IntegerConstant::new(
+        IntegerSign::NonNegative,
+        magnitude,
+    )))
+}
+
 pub(super) fn parse_literal(
     kind: BoundLiteralKind,
     text: &str,

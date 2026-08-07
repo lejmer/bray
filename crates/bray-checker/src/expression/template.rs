@@ -63,7 +63,7 @@ where
     match resolve_predicate_candidate_with_arguments(request, template, arguments, diagnostics)? {
         TemplateResolution::Resolved(candidate) => Ok(candidate),
         TemplateResolution::Unsupported => {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
         }
     }
 }
@@ -189,7 +189,7 @@ where
     C: crate::CheckerRequestContext + ?Sized,
 {
     let Some(remaining) = parameters.get(explicit.len()..) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
     let mut arguments = Vec::with_capacity(parameters.len());
@@ -386,12 +386,12 @@ where
     };
 
     let callable_type =
-        normalize_type_valued_members(request, signature.callable_type(), diagnostics)?;
+        normalize_type_valued_members(request.context(), signature.callable_type(), diagnostics)?;
 
     let receiver = signature
         .receiver()
         .map(|receiver| {
-            normalize_type_valued_members(request, receiver.ty(), diagnostics).map(|ty| {
+            normalize_type_valued_members(request.context(), receiver.ty(), diagnostics).map(|ty| {
                 ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
             })
         })
@@ -402,12 +402,12 @@ where
         .iter()
         .copied()
         .map(|parameter| {
-            normalize_type_valued_members(request, parameter.ty(), diagnostics)
+            normalize_type_valued_members(request.context(), parameter.ty(), diagnostics)
                 .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let result = normalize_type_valued_members(request, signature.result(), diagnostics)?;
+    let result = normalize_type_valued_members(request.context(), signature.result(), diagnostics)?;
 
     Ok(TemplateResolution::Resolved(CallableSignature::new(
         callable_type,

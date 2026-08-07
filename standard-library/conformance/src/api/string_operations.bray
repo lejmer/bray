@@ -1,6 +1,7 @@
 module bray.standard_library_conformance.string_operations;
 
 using std.string;
+using std.string.ScalarCursorIterator;
 using std.bytes;
 using std.iteration;
 

@@ -70,9 +70,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ))?;
 
                 let mapping = self
-                    .request
-                    .mappings()
-                    .ty(ty)
+                    .type_mapping(ty)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 let bray_codegen::CodegenTypeKind::Union { variants, .. } = mapping.kind() else {

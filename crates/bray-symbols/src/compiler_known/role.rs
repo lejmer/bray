@@ -49,6 +49,51 @@ pub struct CompilerKnownResultRepresentation {
     error_field: UnionPayloadFieldSymbolId,
 }
 
+/// Exact compiler-known declarations defining the `Ordering` union representation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CompilerKnownOrderingRepresentation {
+    definition: crate::UnionSymbolId,
+    less_variant: UnionVariantSymbolId,
+    equal_variant: UnionVariantSymbolId,
+    greater_variant: UnionVariantSymbolId,
+}
+
+impl CompilerKnownOrderingRepresentation {
+    pub(super) const fn new(
+        definition: crate::UnionSymbolId,
+        less_variant: UnionVariantSymbolId,
+        equal_variant: UnionVariantSymbolId,
+        greater_variant: UnionVariantSymbolId,
+    ) -> Self {
+        Self {
+            definition,
+            less_variant,
+            equal_variant,
+            greater_variant,
+        }
+    }
+
+    /// Returns the `Ordering` union definition.
+    pub const fn definition(self) -> crate::UnionSymbolId {
+        self.definition
+    }
+
+    /// Returns the `Ordering.Less` variant.
+    pub const fn less_variant(self) -> UnionVariantSymbolId {
+        self.less_variant
+    }
+
+    /// Returns the `Ordering.Equal` variant.
+    pub const fn equal_variant(self) -> UnionVariantSymbolId {
+        self.equal_variant
+    }
+
+    /// Returns the `Ordering.Greater` variant.
+    pub const fn greater_variant(self) -> UnionVariantSymbolId {
+        self.greater_variant
+    }
+}
+
 impl CompilerKnownResultRepresentation {
     pub(super) const fn new(
         success_variant: UnionVariantSymbolId,

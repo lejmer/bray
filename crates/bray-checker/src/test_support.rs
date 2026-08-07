@@ -18,11 +18,12 @@ use bray_source::{
 };
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableDependencyContracts, CallableInstanceData,
-    CallablePhaseBehaviors, DependencyContractTemplateData, ExactSymbolId, FunctionSymbolId,
-    GenericOwnerId, GenericSubstitutionData, LocalScopeBoundary, LocalSymbolRegionId,
-    LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
-    PackageIdentity, SemanticValueStore, SymbolGraph, SymbolId, SymbolKey, SymbolKind, SymbolName,
-    SymbolRootKey, TraitCallableMemberSymbolId, TypeData, TypeId,
+    CallablePhaseBehaviors, ConstantTermData, DependencyContractTemplateData, ExactSymbolId,
+    FunctionSymbolId, GenericOwnerId, GenericSubstitutionData, IntegerConstant, IntegerSign,
+    LocalScopeBoundary, LocalSymbolRegionId, LocalSymbolRegionKey, LocalSymbolRegionRole,
+    LocalSymbolSnapshotBuilder, ModulePathKey, PackageIdentity, SemanticValueStore, SymbolGraph,
+    SymbolId, SymbolKey, SymbolKind, SymbolName, SymbolRootKey, TargetSizedIntegerType,
+    TraitCallableMemberSymbolId, TypeData, TypeId,
 };
 use bray_target::TargetProfile;
 
@@ -492,6 +493,25 @@ pub(crate) fn tuple_type(elements: impl IntoIterator<Item = TypeId>) -> TypeId {
         Ok(ty) => ty,
         Err(error) => panic!("test tuple type must be valid: {error:?}"),
     }
+}
+
+pub(crate) fn array_type(element: TypeId, length: usize) -> TypeId {
+    let magnitude = u64::try_from(length)
+        .unwrap_or_else(|_| panic!("test array length must fit in u64"))
+        .to_be_bytes();
+
+    let value = IntegerConstant::new(IntegerSign::NonNegative, magnitude);
+
+    let length = semantic_values()
+        .intern_constant_term(ConstantTermData::IntegerLiteral {
+            ty: TargetSizedIntegerType::Usize,
+            value,
+        })
+        .unwrap_or_else(|error| panic!("test array length must be valid: {error:?}"));
+
+    semantic_values()
+        .intern_type(TypeData::Array { element, length })
+        .unwrap_or_else(|error| panic!("test array type must be valid: {error:?}"))
 }
 
 pub(crate) fn symbol_name(name: &str) -> SymbolName {

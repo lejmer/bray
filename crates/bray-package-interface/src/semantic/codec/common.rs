@@ -19,7 +19,7 @@ use crate::{
 pub(in crate::semantic) const DECLARATION_FACT_FORMAT_VERSION: u32 = 1;
 pub(in crate::semantic) const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
 
-pub(in crate) fn write_symbol_reference(
+pub(crate) fn write_symbol_reference(
     encoder: &mut WireEncoder,
     reference: &InterfaceSymbolReference,
 ) {
@@ -41,7 +41,7 @@ pub(in crate) fn write_symbol_reference(
     }
 }
 
-pub(in crate) fn read_symbol_reference(
+pub(crate) fn read_symbol_reference(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceSymbolReference, InterfaceValidationError> {
@@ -321,22 +321,22 @@ pub(super) fn read_external_key(
     key.ok_or(InterfaceValidationError::Malformed)
 }
 
-pub(in crate) struct SemanticDecodeContext {
+pub(crate) struct SemanticDecodeContext {
     budget: DecodeBudget,
 }
 
 impl SemanticDecodeContext {
-    pub(in crate) const fn new(limits: InterfaceValidationLimits) -> Self {
+    pub(crate) const fn new(limits: InterfaceValidationLimits) -> Self {
         Self {
             budget: DecodeBudget::new(limits),
         }
     }
 
-    pub(in crate) const fn limits(&self) -> InterfaceValidationLimits {
+    pub(crate) const fn limits(&self) -> InterfaceValidationLimits {
         self.budget.limits()
     }
 
-    pub(in crate) fn allocate_items<T>(
+    pub(crate) fn allocate_items<T>(
         &mut self,
         reader: &WireReader<'_>,
         count: usize,
@@ -344,17 +344,14 @@ impl SemanticDecodeContext {
         self.budget.allocate_items(reader, count)
     }
 
-    pub(in crate) fn allocate_derived_items<T>(
+    pub(crate) fn allocate_derived_items<T>(
         &mut self,
         count: usize,
     ) -> Result<Vec<T>, InterfaceValidationError> {
         self.budget.allocate_derived_items(count)
     }
 
-    pub(in crate) fn charge_items<T>(
-        &mut self,
-        count: usize,
-    ) -> Result<(), InterfaceValidationError> {
+    pub(crate) fn charge_items<T>(&mut self, count: usize) -> Result<(), InterfaceValidationError> {
         self.budget.charge_items::<T>(count)
     }
 

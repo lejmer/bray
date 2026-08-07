@@ -16,8 +16,8 @@ pub use fact::{CompilerKnownDeclarationFact, CompilerKnownSymbolFactKey};
 pub use provider::{CompilerKnownScopeSymbolId, CompilerKnownSymbolProvider};
 pub use role::{
     CompilerKnownIterationProtocol, CompilerKnownOperationContract,
-    CompilerKnownResultRepresentation, CompilerKnownRunResultRepresentation,
-    CompilerKnownSymbolRoleRegistry,
+    CompilerKnownOrderingRepresentation, CompilerKnownResultRepresentation,
+    CompilerKnownRunResultRepresentation, CompilerKnownSymbolRoleRegistry,
 };
 
 #[cfg(test)]

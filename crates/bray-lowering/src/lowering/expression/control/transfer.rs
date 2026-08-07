@@ -56,7 +56,7 @@ impl Lowerer<'_> {
                     _ => return Err(LoweringError::UnsupportedExpression(id)),
                 };
 
-                self.finish_return(current, &source, value)?;
+                self.finish_return(current, &source, value, id.into())?;
             }
             BoundControlTransferKind::Break => {
                 let (target, result_type, scope_depth) = {
@@ -73,6 +73,7 @@ impl Lowerer<'_> {
                     scope_depth,
                     target,
                     Some((value, result_type)),
+                    id.into(),
                 )?;
             }
             BoundControlTransferKind::Continue => {
@@ -82,7 +83,7 @@ impl Lowerer<'_> {
                     (target.continue_block, target.scope_depth)
                 };
 
-                self.finish_exit_to_block(current, &source, scope_depth, target, None)?;
+                self.finish_exit_to_block(current, &source, scope_depth, target, None, id.into())?;
             }
             BoundControlTransferKind::Yield => {
                 return Err(LoweringError::UnsupportedExpression(id));
@@ -127,6 +128,7 @@ impl Lowerer<'_> {
                     scope_depth,
                     block,
                     Some((value, result_type)),
+                    id.into(),
                 )?;
 
                 Ok(LoweredExpression::terminated(source))

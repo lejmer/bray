@@ -84,7 +84,7 @@ impl Lowerer<'_> {
                 report_type,
             )?;
 
-            self.finish_panic_to_active_catch(failure, &source, report, report_type)?;
+            self.finish_panic_to_active_catch(id, failure, &source, report, report_type)?;
         }
 
         let result_type = self.expression_type(id)?;
@@ -127,7 +127,7 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_panic_to_active_catch(current, &source, report, report_type)?;
+        self.finish_panic_to_active_catch(id, current, &source, report, report_type)?;
 
         Ok(LoweredExpression::terminated(source))
     }
@@ -274,6 +274,7 @@ impl Lowerer<'_> {
 
     pub(in crate::lowering::expression) fn finish_panic_to_active_catch(
         &mut self,
+        expression: BoundExpressionId,
         current: MirBlockId,
         source: &bray_ir::MirSourceAnchor,
         report: MirOperand,
@@ -293,7 +294,15 @@ impl Lowerer<'_> {
             return Err(LoweringError::SemanticValueUnavailable);
         }
 
-        self.finish_panic(current, source, report, report_type, catch, scope_depth)
+        self.finish_panic(
+            current,
+            source,
+            report,
+            report_type,
+            catch,
+            scope_depth,
+            expression.into(),
+        )
     }
 
     pub(super) fn construct_result(

@@ -108,6 +108,11 @@ pub trait BinderFactContext: Send + Sync {
         Ok(self.symbols().symbol_is_recovered(symbol))
     }
 
+    /// Returns one exact symbol's immediate semantic owner across supported origins.
+    fn containing_symbol(&self, symbol: AnySymbolId) -> BinderFactResult<Option<AnySymbolId>> {
+        Ok(self.symbols().containing_symbol(symbol))
+    }
+
     /// Returns one callable parameter's default provider across supported origins.
     fn callable_parameter_default_provider(
         &self,
@@ -125,6 +130,15 @@ pub trait BinderFactContext: Send + Sync {
         provider: AnySymbolId,
     ) -> BinderFactResult<Option<AnySymbolId>> {
         Ok(self.symbols().runtime_default_subject(provider))
+    }
+
+    /// Resolves one ordinary declaration member across supported symbol origins.
+    fn lookup_member(
+        &self,
+        owner: AnySymbolId,
+        name: &str,
+    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+        Ok(self.symbols().lookup_member(owner, name))
     }
 
     /// Resolves the longest selected dependency package prefix of a qualified source path.

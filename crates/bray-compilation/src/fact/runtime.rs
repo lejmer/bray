@@ -175,6 +175,7 @@ impl FactRuntime {
         T: Send,
     {
         let evaluations = capture_evaluations()?;
+
         let priority = self.current_priority()?.unwrap_or(QueryPriority::Normal);
 
         let results = self.scheduler.map_indexed(priority, len, |index| {

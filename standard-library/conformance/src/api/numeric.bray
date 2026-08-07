@@ -1,6 +1,8 @@
 module bray.standard_library_conformance.numeric;
 
 using std.numeric;
+using std.numeric.I32Integer;
+using std.numeric.U8Integer;
 
 @test
 func integer_limits_and_checked_arithmetic()

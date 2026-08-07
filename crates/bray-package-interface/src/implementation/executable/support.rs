@@ -56,9 +56,7 @@ pub(super) fn read_count(
     usize::try_from(count).map_err(|_| InterfaceValidationError::Malformed)
 }
 
-pub(super) fn read_u32(
-    reader: &mut WireReader<'_>,
-) -> Result<u32, InterfaceValidationError> {
+pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceValidationError> {
     reader.read_u32().map_err(map_wire_error)
 }
 

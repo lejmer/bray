@@ -10,7 +10,7 @@ use bray_symbols::{
 };
 
 use super::result::{effective_pattern_kind, symbol_ordinal};
-use super::state::{PatternChecker, PatternChildren, PatternSubject};
+use super::state::{PatternChecker, PatternChildren, PatternSubject, available_dependency};
 use crate::{
     CheckerFactError, CheckerInfrastructureError, CheckerRequestContext,
     CheckerSemanticFactProvider, resolve_type_expression_template,
@@ -128,10 +128,11 @@ where
                         continue;
                     };
 
-                    let field = match self
-                        .request
-                        .symbols()
-                        .lookup_member((*structure).into(), name.as_str())
+                    let field = match available_dependency(
+                        self.request
+                            .lookup_member((*structure).into(), name.as_str()),
+                    )?
+                    .unwrap_or(MemberLookupResult::NotFound)
                     {
                         MemberLookupResult::Found(AnySymbolId::StructField(field)) => field,
                         MemberLookupResult::Found(_)
@@ -179,7 +180,7 @@ where
                         continue;
                     }
 
-                    let Some(field) = self.union_payload_field(variant, entry, position) else {
+                    let Some(field) = self.union_payload_field(variant, entry, position)? else {
                         self.push_recovered_entry(entry, &mut children);
                         position += 1;
 
@@ -259,25 +260,22 @@ where
         variant: UnionVariantSymbolId,
         entry: &BoundPatternEntry,
         position: usize,
-    ) -> Option<UnionPayloadFieldSymbolId> {
+    ) -> Result<Option<UnionPayloadFieldSymbolId>, CheckerInfrastructureError> {
         if let Some(name) = entry.name() {
-            let MemberLookupResult::Found(AnySymbolId::UnionPayloadField(field)) = self
-                .request
-                .symbols()
-                .lookup_member(variant.into(), name.as_str())
-            else {
-                return None;
+            let lookup =
+                available_dependency(self.request.lookup_member(variant.into(), name.as_str()))?
+                    .unwrap_or(MemberLookupResult::NotFound);
+
+            let MemberLookupResult::Found(AnySymbolId::UnionPayloadField(field)) = lookup else {
+                return Ok(None);
             };
 
-            return Some(field);
+            return Ok(Some(field));
         }
 
-        self.request
-            .symbols()
-            .union_variant(variant)?
-            .payload_fields()
-            .get(position)
-            .copied()
+        Ok(available_dependency(self.request.union_variant(variant))?
+            .flatten()
+            .and_then(|variant| variant.payload_fields().get(position).copied()))
     }
 
     fn field_subject<F>(

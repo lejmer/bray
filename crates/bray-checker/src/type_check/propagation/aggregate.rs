@@ -55,6 +55,20 @@ pub(super) fn infer_array<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let expected = contextual_container_element(request, variable, inference, array_element)?;
+
+    if let Some((_, element)) = expected {
+        for operand in operands {
+            if let Some(operand) = variables.get(operand).copied() {
+                inference.add_expectation(operand, element, expression_id);
+            }
+        }
+    }
+
     let Some(elements) = aggregate_elements(operands, variables, inference) else {
         return Ok(());
     };
@@ -113,7 +127,7 @@ where
     };
 
     if let Some((_, element)) =
-        expected_container_element(request, variable, inference, generator_element)?
+        contextual_container_element(request, variable, inference, generator_element)?
     {
         inference.add_expectation(result_variable, element, expression_id);
     }
@@ -248,7 +262,7 @@ where
     };
 
     if let Some((ty, element)) =
-        expected_container_element(request, variable, inference, array_element)?
+        contextual_container_element(request, variable, inference, array_element)?
     {
         inference.add_expectation(result_variable, element, expression_id);
         inference.add_evidence(variable, ty, expression_id);
@@ -285,7 +299,7 @@ where
     Ok(())
 }
 
-fn expected_container_element<C>(
+fn contextual_container_element<C>(
     request: CheckerUnitView<'_, C>,
     variable: InferenceTypeId,
     inference: &mut TypeInferenceContext,
@@ -301,6 +315,8 @@ where
             .map(|data| element(data.as_ref()).is_some())
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
     })?;
+
+    let expected = expected.or_else(|| inference.evidence(variable));
 
     let Some(expected) = expected else {
         return Ok(None);

@@ -9,9 +9,7 @@ use inkwell::values::{
 };
 
 use super::super::core::UnitTranslator;
-use super::super::support::{
-    aggregate_value_element, extract_value, insert_value, integer_constant, llvm,
-};
+use super::super::support::{extract_value, insert_value, integer_constant, llvm};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(in super::super) fn translate_text(
@@ -117,14 +115,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &self.builder,
             value,
             data.into(),
-            aggregate_value_element(self.request.mappings(), &fields, 0)?,
+            self.aggregate_value_element(&fields, 0)?,
         )?;
 
         insert_value(
             &self.builder,
             value,
             length.into(),
-            aggregate_value_element(self.request.mappings(), &fields, 1)?,
+            self.aggregate_value_element(&fields, 1)?,
         )
     }
 
@@ -315,9 +313,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         CodegenFailure,
     > {
         let target = self
-            .request
-            .mappings()
-            .ty(borrow)
+            .type_mapping(borrow)
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Pointer { target, .. } => Some(*target),
                 _ => None,
@@ -352,36 +348,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let data = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(
-                self.request.mappings(),
-                &fields,
-                0,
-            )?)
-            .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(self.aggregate_value_element(&fields, 0)?)
+                .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_pointer_value();
 
         let owner = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(
-                self.request.mappings(),
-                &fields,
-                1,
-            )?)
-            .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(self.aggregate_value_element(&fields, 1)?)
+                .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_pointer_value();
 
         let length = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(
-                self.request.mappings(),
-                &fields,
-                2,
-            )?)
-            .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(self.aggregate_value_element(&fields, 2)?)
+                .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_int_value();
 
@@ -398,24 +382,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let data = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(
-                self.request.mappings(),
-                &fields,
-                0,
-            )?)
-            .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(self.aggregate_value_element(&fields, 0)?)
+                .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_pointer_value();
 
         let length = extract_value(
             &self.builder,
             value,
-            u32::try_from(aggregate_value_element(
-                self.request.mappings(),
-                &fields,
-                1,
-            )?)
-            .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            u32::try_from(self.aggregate_value_element(&fields, 1)?)
+                .map_err(|_| CodegenFailure::ResourceExhausted)?,
         )?
         .into_int_value();
 
@@ -513,7 +489,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 &self.builder,
                 value,
                 field,
-                aggregate_value_element(self.request.mappings(), &fields, index)?,
+                self.aggregate_value_element(&fields, index)?,
             )?;
         }
 
@@ -534,14 +510,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &self.builder,
             value,
             present.into(),
-            aggregate_value_element(self.request.mappings(), &fields, 0)?,
+            self.aggregate_value_element(&fields, 0)?,
         )?;
 
         value = insert_value(
             &self.builder,
             value,
             scalar,
-            aggregate_value_element(self.request.mappings(), &fields, 1)?,
+            self.aggregate_value_element(&fields, 1)?,
         )?;
 
         Ok(value)
@@ -556,9 +532,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let result = result.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let mapping = self
-            .request
-            .mappings()
-            .ty(result)
+            .type_mapping(result)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Union { tag, variants } = mapping.kind() else {
@@ -636,9 +610,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         result: bray_symbols::TypeId,
     ) -> Result<bray_symbols::TypeId, CodegenFailure> {
         let mapping = self
-            .request
-            .mappings()
-            .ty(result)
+            .type_mapping(result)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
@@ -654,9 +626,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     fn string_type(&self, ty: bray_symbols::TypeId) -> bool {
-        self.request
-            .mappings()
-            .ty(ty)
+        self.type_mapping(ty)
             .is_some_and(|mapping| mapping.behavior() == Some(CodegenTypeBehavior::String))
     }
 
@@ -665,9 +635,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ty: bray_symbols::TypeId,
         count: usize,
     ) -> Result<std::sync::Arc<[bray_codegen::CodegenFieldLayout]>, CodegenFailure> {
-        self.request
-            .mappings()
-            .ty(ty)
+        self.type_mapping(ty)
             .and_then(|mapping| match mapping.kind() {
                 CodegenTypeKind::Aggregate(fields) if fields.len() == count => Some(fields.clone()),
                 _ => None,

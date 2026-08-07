@@ -1,6 +1,6 @@
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFailure, CodegenFieldLayout, CodegenHelperMapping,
-    CodegenMappings, CodegenParameterMapping, CodegenResultMapping, CodegenTypeKind,
+    CodegenCallableSignature, CodegenFailure, CodegenHelperMapping, CodegenParameterMapping,
+    CodegenResultMapping,
 };
 use bray_ir::{MirBinaryOperator, MirHelperReference};
 use bray_symbols::{IntegerConstant, IntegerSign, RealConstantBits};
@@ -98,41 +98,7 @@ pub(super) fn aggregate_value_length(value: BasicValueEnum<'_>) -> Result<u32, C
     }
 }
 
-pub(super) fn aggregate_element(
-    mappings: &bray_codegen::CodegenMappings,
-    fields: &[bray_codegen::CodegenFieldLayout],
-    semantic_index: usize,
-) -> Result<u32, CodegenFailure> {
-    physical_aggregate_element(fields, semantic_index, |field| {
-        mapped_type_size(mappings, field.ty())
-    })
-}
-
-pub(super) fn mapped_type_size(
-    mappings: &CodegenMappings,
-    ty: bray_symbols::TypeId,
-) -> Result<u64, CodegenFailure> {
-    mappings
-        .ty(ty)
-        .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
-}
-
-pub(super) fn pointer_field_index(
-    mappings: &CodegenMappings,
-    fields: &[CodegenFieldLayout],
-) -> Result<usize, CodegenFailure> {
-    fields
-        .iter()
-        .position(|field| {
-            mappings
-                .ty(field.ty())
-                .is_some_and(|mapping| matches!(mapping.kind(), CodegenTypeKind::Pointer { .. }))
-        })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
-}
-
-fn physical_aggregate_element(
+pub(super) fn physical_aggregate_element(
     fields: &[bray_codegen::CodegenFieldLayout],
     semantic_index: usize,
     field_size: impl Fn(&bray_codegen::CodegenFieldLayout) -> Result<u64, CodegenFailure>,
@@ -168,15 +134,6 @@ fn physical_aggregate_element(
     }
 
     Err(CodegenFailure::GeneratedModuleInvariant)
-}
-
-pub(super) fn aggregate_value_element(
-    mappings: &bray_codegen::CodegenMappings,
-    fields: &[bray_codegen::CodegenFieldLayout],
-    semantic_index: usize,
-) -> Result<usize, CodegenFailure> {
-    usize::try_from(aggregate_element(mappings, fields, semantic_index)?)
-        .map_err(|_| CodegenFailure::ResourceExhausted)
 }
 
 pub(super) fn integer_words(magnitude: &[u8]) -> Vec<u64> {

@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind, BodyBehaviorCall,
-    BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult, BoundCallableTarget,
-    BoundExpression, BoundExpressionId, CheckedAsyncFacts, CheckedDependencyContracts,
-    CheckedExpressionTypes, CheckedRefinementFacts, CheckedSemanticSelections, LivenessFacts,
-    SemanticSelection, StorageFlowFacts, StoragePlan,
+    AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
+    BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult,
+    BoundCallableTarget, BoundExpression, BoundExpressionId, CheckedAsyncFacts,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinementFacts,
+    CheckedSemanticSelections, LivenessFacts, SemanticSelection, StorageFlowFacts, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, SeverityKind};
@@ -17,8 +17,8 @@ use super::cleanup::scope_exit_plans;
 use super::dependency::{dependency_contract_is_satisfied, retained_suspension_subjects};
 
 use crate::analysis::{
-    AnalysisOperationKind, AnalysisTaskOperationKind, ControlFlowGraphBuildOutcome,
-    build_storage_control_flow_graph,
+    AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind,
+    ControlFlowGraphBuildOutcome, build_storage_control_flow_graph,
 };
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{
@@ -62,7 +62,7 @@ where
         );
     }
 
-    let graph = match build_storage_control_flow_graph(request, storage) {
+    let graph = match build_storage_control_flow_graph(request, storage, selections) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
     };
@@ -94,42 +94,61 @@ where
         }
 
         match operation.kind() {
-            AnalysisOperationKind::DirectAwait(expression) => {
-                let Some(BoundExpression::Await(await_expression)) =
-                    request.view().expression(expression)
-                else {
-                    is_recovered = true;
+            AnalysisOperationKind::Suspension { expression, kind } => {
+                let (kind, dependency_contract, calls, syntax_recovered) = match kind {
+                    AnalysisSuspensionKind::Await => {
+                        let Some(BoundExpression::Await(await_expression)) =
+                            request.view().expression(expression)
+                        else {
+                            is_recovered = true;
 
-                    continue;
-                };
+                            continue;
+                        };
 
-                if execution == Some(CallableExecution::Synchronous) {
-                    let span = match expression_span(request, expression) {
-                        Ok(span) => span,
-                        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-                    };
+                        if execution == Some(CallableExecution::Synchronous) {
+                            let span = match expression_span(request, expression) {
+                                Ok(span) => span,
+                                Err(error) => {
+                                    return CheckerOutcome::InfrastructureFailure(error);
+                                }
+                            };
 
-                    diagnostics.add(
-                        Diagnostic::new(
-                            diagnostic_id(diagnostics.len()),
-                            DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
-                            SeverityKind::Error,
+                            diagnostics.add(
+                                Diagnostic::new(
+                                    diagnostic_id(diagnostics.len()),
+                                    DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
+                                    SeverityKind::Error,
+                                )
+                                .with_primary_span(span),
+                            );
+                        }
+
+                        let operand = await_expression.operand();
+
+                        let calls = expression_deferred_calls(
+                            request,
+                            selections,
+                            types,
+                            &local_initializers,
+                            operand,
+                            &mut deferred_calls,
+                            &mut active,
+                        );
+
+                        (
+                            AsyncSuspensionKind::Await { operand },
+                            dependencies.expression(operand),
+                            calls,
+                            request
+                                .view()
+                                .expression(operand)
+                                .is_none_or(BoundExpression::is_recovered),
                         )
-                        .with_primary_span(span),
-                    );
-                }
-
-                let calls = expression_deferred_calls(
-                    request,
-                    selections,
-                    types,
-                    &local_initializers,
-                    await_expression.operand(),
-                    &mut deferred_calls,
-                    &mut active,
-                );
-
-                let dependency_contract = dependencies.expression(await_expression.operand());
+                    }
+                    AnalysisSuspensionKind::Yield => {
+                        (AsyncSuspensionKind::Yield, None, BTreeSet::new(), false)
+                    }
+                };
 
                 let retained = retained_suspension_subjects(
                     liveness,
@@ -157,27 +176,23 @@ where
                         })
                     });
 
-                if !dependency_satisfied {
-                    if let Err(error) = add_unavailable_await_dependency_diagnostic(
+                if !dependency_satisfied
+                    && let Err(error) = add_unavailable_await_dependency_diagnostic(
                         request,
                         expression,
                         &mut diagnostics,
-                    ) {
-                        return CheckerOutcome::InfrastructureFailure(error);
-                    }
+                    )
+                {
+                    return CheckerOutcome::InfrastructureFailure(error);
                 }
 
-                let suspension_recovered = request
-                    .view()
-                    .expression(await_expression.operand())
-                    .is_none_or(BoundExpression::is_recovered)
-                    || suspension_state.is_none();
+                let suspension_recovered = syntax_recovered || suspension_state.is_none();
 
                 is_recovered |= suspension_recovered;
 
                 suspensions.push(AsyncSuspensionPoint::new(
                     expression,
-                    await_expression.operand(),
+                    kind,
                     dependency_contract,
                     calls,
                     retained,

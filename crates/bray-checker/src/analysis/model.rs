@@ -6,13 +6,17 @@ use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPoi
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
-    DirectAwait(BoundExpressionId),
+    Suspension {
+        expression: BoundExpressionId,
+        kind: AnalysisSuspensionKind,
+    },
     TaskOperation {
         expression: BoundExpressionId,
         kind: AnalysisTaskOperationKind,
     },
     ScopeExit {
         block: bray_bound_tree::BoundBlockId,
+        exit: AnyBoundNodeId,
         phase: AnalysisScopeExitPhase,
     },
     Recovery(AnyBoundNodeId),
@@ -22,12 +26,18 @@ impl AnalysisOperationKind {
     pub(crate) const fn node(self) -> AnyBoundNodeId {
         match self {
             Self::Bound(node) | Self::Recovery(node) => node,
-            Self::DirectAwait(expression) | Self::TaskOperation { expression, .. } => {
+            Self::Suspension { expression, .. } | Self::TaskOperation { expression, .. } => {
                 AnyBoundNodeId::Expression(expression)
             }
             Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum AnalysisSuspensionKind {
+    Await,
+    Yield,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -121,8 +131,8 @@ pub(crate) enum AnalysisEdgeKind {
     NullableAbsent,
     Catch,
     Panic,
-    AwaitSuspend,
-    AwaitResume,
+    Suspension,
+    Resume,
     RunCancellation,
     ScopeExit,
     Yield,
