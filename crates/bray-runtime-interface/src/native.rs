@@ -390,6 +390,7 @@ impl NativePanicCause {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NativeSourceAnchor {
+    present: u32,
     source: u32,
     start: u32,
     end: u32,
@@ -397,11 +398,10 @@ pub struct NativeSourceAnchor {
 }
 
 impl NativeSourceAnchor {
-    const UNAVAILABLE_SOURCE: u32 = u32::MAX;
-
     /// Creates one source anchor from its stable scalar ABI fields.
     pub const fn new(source: u32, start: u32, end: u32, version: u64) -> Self {
         Self {
+            present: 1,
             source,
             start,
             end,
@@ -411,12 +411,18 @@ impl NativeSourceAnchor {
 
     /// Creates an anchor for generated or imported code without local source coordinates.
     pub const fn unavailable() -> Self {
-        Self::new(Self::UNAVAILABLE_SOURCE, 0, 0, 0)
+        Self {
+            present: 0,
+            source: 0,
+            start: 0,
+            end: 0,
+            version: 0,
+        }
     }
 
     /// Returns whether this anchor carries local source coordinates.
     pub const fn is_available(self) -> bool {
-        self.source != Self::UNAVAILABLE_SOURCE
+        self.present == 1
     }
 
     /// Returns the source snapshot identity.
@@ -441,7 +447,11 @@ impl NativeSourceAnchor {
 
     /// Returns whether the half-open source range is ordered.
     pub const fn is_valid(&self) -> bool {
-        self.start <= self.end
+        match self.present {
+            0 => self.source == 0 && self.start == 0 && self.end == 0 && self.version == 0,
+            1 => self.start <= self.end,
+            _ => false,
+        }
     }
 }
 

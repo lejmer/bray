@@ -328,6 +328,7 @@ pub(crate) fn source_anchor_type(context: &Context) -> StructType<'_> {
             context.i32_type().into(),
             context.i32_type().into(),
             context.i32_type().into(),
+            context.i32_type().into(),
             context.i64_type().into(),
         ],
         false,

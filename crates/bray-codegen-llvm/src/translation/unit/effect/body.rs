@@ -250,6 +250,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .const_named_struct(&[
                 context
                     .i32_type()
+                    .const_int(u64::from(source.is_available()), false)
+                    .into(),
+                context
+                    .i32_type()
                     .const_int(u64::from(source.source()), false)
                     .into(),
                 context

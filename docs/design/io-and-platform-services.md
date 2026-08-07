@@ -363,7 +363,7 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 | ---: | --- | --- | --- | --- | --- |
 | `0x0001` | `platform.context.measure` | none | `out<u64> required` | `context` | `nonblocking`; no ownership change |
 | `0x0002` | `platform.context.copy` | `mut_bytes(call) destination` | `out<u64> written_or_required` | `context_buffer` | `nonblocking`; `InsufficientBuffer` commits only required length |
-| `0x0003` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal` | none | `nonblocking`; no ownership change |
+| `0x0003` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal` | `context` | `nonblocking`; no ownership change |
 
 #### Streams and asynchronous operations
 
