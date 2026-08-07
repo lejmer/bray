@@ -81,6 +81,9 @@ documents.
     - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other mechanisms used by compiler-host
       tooling and trusted runtime or standard-library layers.
 
+- `bray-platform-abi`
+    - Native adapters that implement the platform-service ABI over `bray-platform` without requiring the concurrency runtime.
+
 - `bray-runtime`
     - Target-independent protected-frame execution, task storage, scheduling, cancellation, observation, and executable-root
       services over `bray-platform` mechanisms.

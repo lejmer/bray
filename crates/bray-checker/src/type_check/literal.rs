@@ -571,6 +571,48 @@ mod tests {
     }
 
     #[test]
+    fn repeated_array_context_reaches_the_value_and_count_literals() {
+        let (unit, expressions) = expression_unit(BoundUnitId::new(82), |tree, origin| {
+            let value = push_expression(
+                tree,
+                literal_expression(origin, BoundLiteralKind::Integer, None),
+            );
+
+            let count = push_expression(
+                tree,
+                literal_expression(origin, BoundLiteralKind::Integer, None),
+            );
+
+            let array = push_expression(
+                tree,
+                BoundExpression::Structured(BoundStructuredExpression::new(
+                    origin,
+                    BoundStructuredExpressionKind::RepeatedArray,
+                    [value, count],
+                    [],
+                    [],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![value, count, array]
+        });
+
+        let element = representation(&unit, RepresentationRole::ScalarU8);
+        let count = representation(&unit, RepresentationRole::ScalarUsize);
+        let array = array_type(element, 2);
+
+        let input = ExpressionTypeInput::new()
+            .with_evidence([ExpressionTypeEvidence::new(expressions[2], array)]);
+
+        let result = completed_expression_check(&unit, &input);
+
+        assert!(result.diagnostics().is_empty());
+        assert_expression_types(result.value(), &expressions, &[element, count, array]);
+    }
+
+    #[test]
     fn conflicting_matching_expectations_do_not_select_an_arbitrary_literal_type() {
         let (unit, expressions) = literal_unit(BoundUnitId::new(74), [BoundLiteralKind::Integer]);
 

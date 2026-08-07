@@ -5,16 +5,16 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use bray_platform::{RunOutputContext, current_run_output_context};
 use bray_runtime_interface::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::context::current_task_start_site;
 use crate::frame::suspension_state;
-use crate::output::current_run_output_context;
 use crate::{
     CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext,
     FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind,
-    RunOutputContext, RuntimePanic, SendableProtectedFrame, TaskSnapshot, TaskStartSite,
-    erase_protected_frame, erase_sendable_protected_frame,
+    RuntimePanic, SendableProtectedFrame, TaskSnapshot, TaskStartSite, erase_protected_frame,
+    erase_sendable_protected_frame,
 };
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);

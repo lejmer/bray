@@ -8,7 +8,10 @@ use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
     BoundLiteralKind, BoundStructuredExpressionKind,
 };
+use bray_compiler_known::RepresentationRole;
 use bray_symbols::{NamedTypeSymbolId, TypeData, TypeId};
+
+use crate::representation::representation_type;
 
 use super::ExpressionTypeExpectation;
 use super::dependencies::ExpressionTypeDependencies;
@@ -400,15 +403,30 @@ where
                 );
             }
             (BoundExpression::Structured(structured), TypeData::Array { element, .. })
-                if structured.kind() == BoundStructuredExpressionKind::Array =>
+                if matches!(
+                    structured.kind(),
+                    BoundStructuredExpressionKind::Array
+                        | BoundStructuredExpressionKind::RepeatedArray
+                ) =>
             {
-                pending.extend(
-                    structured
-                        .operands()
-                        .iter()
-                        .copied()
-                        .map(|expression| ExpressionTypeExpectation::new(expression, *element)),
-                );
+                if structured.kind() == BoundStructuredExpressionKind::RepeatedArray {
+                    let [value, count] = structured.operands() else {
+                        continue;
+                    };
+
+                    let usize = representation_type(request, RepresentationRole::ScalarUsize)?;
+
+                    pending.push(ExpressionTypeExpectation::new(*value, *element));
+                    pending.push(ExpressionTypeExpectation::new(*count, usize));
+                } else {
+                    pending.extend(
+                        structured
+                            .operands()
+                            .iter()
+                            .copied()
+                            .map(|expression| ExpressionTypeExpectation::new(expression, *element)),
+                    );
+                }
             }
             (BoundExpression::Structured(structured), _)
                 if structured.kind() == BoundStructuredExpressionKind::TrustBoundary =>

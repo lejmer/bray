@@ -1,0 +1,48 @@
+module bray.standard_library_conformance.random;
+
+using std.random;
+using std.bytes;
+
+@test
+func deterministic_generators_repeat_the_seeded_sequence()
+{
+    let first_seed: [u8; 32] = [1; 32];
+    let repeated_seed: [u8; 32] = [1; 32];
+    let mut first: std.random.Generator = std.random.Generator(seed = first_seed);
+    let mut repeated: std.random.Generator = std.random.Generator(seed = repeated_seed);
+
+    let first_value: u64 = first.next_u64();
+    let repeated_value: u64 = repeated.next_u64();
+
+    assert(first_value == repeated_value);
+    assert(first.next_u64() == repeated.next_u64());
+    assert(first.next_u64() == repeated.next_u64());
+}
+
+@test
+func deterministic_generators_fill_bytes_in_sequence_order()
+{
+    let seed: [u8; 32] = [1; 32];
+    let repeated_seed: [u8; 32] = [1; 32];
+    let mut generator: std.random.Generator = std.random.Generator(seed = seed);
+    let mut repeated: std.random.Generator = std.random.Generator(seed = repeated_seed);
+    let mut bytes: [u8; 10] = [0; 10];
+    let mut repeated_bytes: [u8; 10] = [0; 10];
+
+    generator.fill(&mut bytes[..]);
+    repeated.fill(&mut repeated_bytes[..]);
+
+    assert(std.bytes.equals(&bytes[..], &repeated_bytes[..]));
+}
+
+@test
+func system_entropy_fills_caller_owned_storage()
+{
+    let mut bytes: [u8; 32] = [0; 32];
+
+    match std.random.fill_entropy(&mut bytes[..])
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+}

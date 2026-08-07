@@ -3,8 +3,9 @@ use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::{StableDigestHasher, is_canonical_relative_path};
+use bray_base::{StableDigestHasher, is_canonical_relative_path, shared_slice};
 use bray_runtime_interface::RuntimeAbiVersion;
+use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
 
 use super::wire::encode_payload;
@@ -82,6 +83,8 @@ pub enum StandardLibraryArtifactKind {
     RelocatableObject,
     /// Native static library.
     StaticLibrary,
+    /// Native platform-service provider archive.
+    PlatformServiceLibrary,
     /// Native shared library.
     SharedLibrary,
     /// Private runtime artifact metadata.
@@ -96,6 +99,7 @@ impl StandardLibraryArtifactKind {
             Self::DependencyMetadata => "dependency_metadata",
             Self::RelocatableObject => "relocatable_object",
             Self::StaticLibrary => "static_library",
+            Self::PlatformServiceLibrary => "platform_service_library",
             Self::SharedLibrary => "shared_library",
             Self::RuntimeArtifact => "runtime_artifact",
         }
@@ -108,6 +112,7 @@ impl StandardLibraryArtifactKind {
             "dependency_metadata" => Some(Self::DependencyMetadata),
             "relocatable_object" => Some(Self::RelocatableObject),
             "static_library" => Some(Self::StaticLibrary),
+            "platform_service_library" => Some(Self::PlatformServiceLibrary),
             "shared_library" => Some(Self::SharedLibrary),
             "runtime_artifact" => Some(Self::RuntimeArtifact),
             _ => None,
@@ -197,6 +202,7 @@ pub struct StandardLibraryTargetArtifacts {
     target: TargetIdentity,
     runtime_abi: RuntimeAbiVersion,
     artifacts: Arc<[StandardLibraryArtifact]>,
+    native_links: Arc<[NativeLinkRequirement]>,
 }
 
 impl StandardLibraryTargetArtifacts {
@@ -242,7 +248,18 @@ impl StandardLibraryTargetArtifacts {
             target,
             runtime_abi,
             artifacts: artifacts.into(),
+            native_links: Arc::from([]),
         })
+    }
+
+    /// Returns this target inventory with its required native libraries and frameworks.
+    pub fn with_native_links(
+        mut self,
+        native_links: impl IntoIterator<Item = NativeLinkRequirement>,
+    ) -> Self {
+        self.native_links = shared_slice(native_links);
+
+        self
     }
 
     /// Returns the exact target identity.
@@ -258,6 +275,11 @@ impl StandardLibraryTargetArtifacts {
     /// Returns target artifacts in canonical order.
     pub fn artifacts(&self) -> &[StandardLibraryArtifact] {
         &self.artifacts
+    }
+
+    /// Returns native libraries and frameworks required by this target inventory.
+    pub fn native_links(&self) -> &[NativeLinkRequirement] {
+        &self.native_links
     }
 }
 
@@ -384,6 +406,8 @@ pub enum StandardLibraryManifestError {
     DuplicateTarget,
     /// An identity in the serialized manifest is not the canonical standard library identity.
     InvalidIdentity,
+    /// A target-native link requirement is malformed.
+    InvalidNativeLink,
     /// The published bundle digest does not match the canonical payload.
     BundleDigestMismatch,
     /// A platform length cannot fit the manifest contract.

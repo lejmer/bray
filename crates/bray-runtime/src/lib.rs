@@ -12,7 +12,6 @@ mod lane;
 mod native;
 mod observation;
 mod outcome;
-mod output;
 mod root;
 mod scheduler;
 mod shutdown;
@@ -44,7 +43,6 @@ pub use observation::{
     TaskSnapshot, TaskStartSite, TaskWakeCause,
 };
 pub use outcome::{RunOutcome, RunOutcomeKind};
-pub use output::{CapturedRunStream, RunOutputContext, RunOutputStream, with_run_output_context};
 pub use root::{
     RootCancellationHandle, RootCancellationSource, RootExecutionError, execute_async_root,
     execute_synchronous_root,

@@ -15,7 +15,8 @@ use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::super::region::ExpressionTypeRegions;
 use super::aggregate::{
-    infer_array, infer_array_generator, infer_catch, infer_general_generator, infer_tuple,
+    infer_array, infer_array_generator, infer_catch, infer_general_generator, infer_repeated_array,
+    infer_tuple,
 };
 
 pub(crate) fn propagate_dynamic_constraints<C>(
@@ -104,6 +105,13 @@ where
                 expression.operands(),
                 variables,
                 types,
+                inference,
+            )?,
+            BoundStructuredExpressionKind::RepeatedArray => infer_repeated_array(
+                request,
+                expression_id,
+                expression.operands(),
+                variables,
                 inference,
             )?,
             BoundStructuredExpressionKind::ArrayGenerator => infer_array_generator(

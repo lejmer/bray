@@ -4,10 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread::ThreadId;
 
+use bray_platform::{RunOutputStream, flush_current_run_output, write_current_run_output};
 use bray_runtime_interface::{NativePlatformStatus, NativePlatformText};
-
-use crate::RunOutputStream;
-use crate::output::{flush_current_run_output, write_current_run_output};
 
 use super::filesystem::{close_file, flush_file, is_file_handle, read_file, seek_file, write_file};
 use super::region::{MemoryRegion, disjoint};
@@ -16,17 +14,6 @@ const CONTEXT_HEADER_BYTES: usize = 96;
 const STANDARD_INPUT_HANDLE: u64 = 1;
 const STANDARD_OUTPUT_HANDLE: u64 = 2;
 const STANDARD_ERROR_HANDLE: u64 = 3;
-
-macro_rules! native_platform_export {
-    ($item:item) => {
-        #[expect(
-            unsafe_code,
-            reason = "the native platform provider requires a stable exported ABI and checked raw buffer access"
-        )]
-        #[unsafe(no_mangle)]
-        $item
-    };
-}
 
 native_platform_export! {
     pub extern "C" fn bray_platform_context_measure(
@@ -477,7 +464,8 @@ fn native_utf16(bytes: &[u8]) -> Result<Vec<u16>, NativePlatformStatus> {
         .collect())
 }
 
-pub(super) fn initialize_process_context() -> Result<(), NativePlatformStatus> {
+/// Materializes the immutable process context used by platform-service calls.
+pub fn initialize_process_context() -> Result<(), NativePlatformStatus> {
     process_context().map(|_| ())
 }
 
@@ -627,7 +615,7 @@ mod tests {
         bray_platform_context_environment_key_equals, bray_platform_stream_write, lock_stream,
         native_text, process_context, unlock_stream,
     };
-    use crate::{RunOutputContext, RunOutputStream, with_run_output_context};
+    use bray_platform::{RunOutputContext, RunOutputStream, with_run_output_context};
 
     #[test]
     fn native_platform_status_has_the_specified_layout() {
@@ -701,7 +689,7 @@ mod tests {
             output
                 .captured_stream(RunOutputStream::StandardOutput)
                 .as_ref()
-                .map(crate::CapturedRunStream::bytes),
+                .map(bray_platform::CapturedRunStream::bytes),
             Some(&bytes[..])
         );
     }

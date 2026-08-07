@@ -1,10 +1,9 @@
 use std::cell::RefCell;
 
+use bray_platform::{RunOutputContext, with_optional_run_output_context};
 use bray_runtime_interface::ProtectedFrameStateId;
 
-use crate::{
-    CancellationContext, ExecutionLane, RunOutputContext, TaskId, TaskStartSite, TaskWakeHandle,
-};
+use crate::{CancellationContext, ExecutionLane, TaskId, TaskStartSite, TaskWakeHandle};
 
 thread_local! {
     static CURRENT_CONTEXT: RefCell<Option<TaskExecutionContext>> =
@@ -121,7 +120,7 @@ pub(crate) fn with_task_execution_context<T>(
         cancellation: previous_cancellation,
     };
 
-    crate::output::with_optional_run_output_context(output, callback)
+    with_optional_run_output_context(output, callback)
 }
 
 pub(crate) fn with_run_cancellation_context<T>(
@@ -172,6 +171,10 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use bray_platform::RuntimeThreadScope;
+    use bray_platform::{
+        CapturedRunStream, RunOutputContext, RunOutputStream, with_run_output_context,
+        write_current_run_output,
+    };
     use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
@@ -181,9 +184,8 @@ mod tests {
     };
     use crate::test_support::TestFrame;
     use crate::{
-        CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-        RunOutputContext, RunOutputStream, Scheduler, SchedulerLimits, TaskControlBlock,
-        with_run_output_context,
+        CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, Scheduler,
+        SchedulerLimits, TaskControlBlock,
     };
 
     #[test]
@@ -297,10 +299,7 @@ mod tests {
 
         with_task_execution_context(context, || {
             assert_eq!(
-                crate::output::write_current_run_output(
-                    RunOutputStream::StandardOutput,
-                    b"child output",
-                ),
+                write_current_run_output(RunOutputStream::StandardOutput, b"child output"),
                 Some(12)
             );
         });
@@ -309,7 +308,7 @@ mod tests {
             output
                 .captured_stream(RunOutputStream::StandardOutput)
                 .as_ref()
-                .map(crate::CapturedRunStream::bytes),
+                .map(CapturedRunStream::bytes),
             Some(&b"child output"[..])
         );
     }

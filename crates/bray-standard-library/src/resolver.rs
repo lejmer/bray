@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_runtime_interface::RuntimeAbiVersion;
+use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
 
 use crate::{
@@ -110,20 +111,7 @@ impl StandardLibraryResolver {
     ) -> Result<Arc<[ResolvedStandardLibraryArtifact]>, StandardLibraryLoadError> {
         let manifest = self.manifest()?;
 
-        let selected = manifest
-            .targets()
-            .binary_search_by(|candidate| candidate.target().cmp(target))
-            .ok()
-            .map(|index| &manifest.targets()[index])
-            .ok_or_else(|| StandardLibraryLoadError::TargetUnavailable(target.clone()))?;
-
-        if selected.runtime_abi() != runtime_abi {
-            return Err(StandardLibraryLoadError::RuntimeAbiMismatch {
-                target: target.clone(),
-                expected: runtime_abi,
-                actual: selected.runtime_abi(),
-            });
-        }
+        let selected = target_inventory(&manifest, target, runtime_abi)?;
 
         selected
             .artifacts()
@@ -131,6 +119,18 @@ impl StandardLibraryResolver {
             .map(|artifact| self.resolve(artifact))
             .collect::<Result<Vec<_>, _>>()
             .map(Arc::from)
+    }
+
+    /// Returns the native libraries and frameworks required by a target inventory.
+    pub fn target_native_links(
+        &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<Arc<[NativeLinkRequirement]>, StandardLibraryLoadError> {
+        let manifest = self.manifest()?;
+        let selected = target_inventory(&manifest, target, runtime_abi)?;
+
+        Ok(Arc::from(selected.native_links()))
     }
 
     fn resolve(
@@ -153,6 +153,29 @@ impl StandardLibraryResolver {
         cell.get_or_init(|| load_artifact(&self.root, artifact))
             .clone()
     }
+}
+
+fn target_inventory<'manifest>(
+    manifest: &'manifest StandardLibraryBundleManifest,
+    target: &TargetIdentity,
+    runtime_abi: RuntimeAbiVersion,
+) -> Result<&'manifest crate::StandardLibraryTargetArtifacts, StandardLibraryLoadError> {
+    let selected = manifest
+        .targets()
+        .binary_search_by(|candidate| candidate.target().cmp(target))
+        .ok()
+        .map(|index| &manifest.targets()[index])
+        .ok_or_else(|| StandardLibraryLoadError::TargetUnavailable(target.clone()))?;
+
+    if selected.runtime_abi() != runtime_abi {
+        return Err(StandardLibraryLoadError::RuntimeAbiMismatch {
+            target: target.clone(),
+            expected: runtime_abi,
+            actual: selected.runtime_abi(),
+        });
+    }
+
+    Ok(selected)
 }
 
 fn load_manifest(
@@ -258,7 +281,9 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    use bray_base::NonEmptySharedStr;
     use bray_runtime_interface::RuntimeAbiVersion;
+    use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
     use bray_target::TargetIdentity;
     use tempfile::TempDir;
 
@@ -309,6 +334,19 @@ mod tests {
         };
 
         assert_eq!(archive.bytes(), b"archive");
+
+        let native_links = resolver
+            .target_native_links(&target, RuntimeAbiVersion::new(1, 0))
+            .unwrap_or_else(|error| panic!("target native links must resolve: {error:?}"));
+
+        assert_eq!(
+            native_links.as_ref(),
+            [NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("c")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )]
+        );
 
         assert!(matches!(
             resolver.target_artifacts(&target, RuntimeAbiVersion::new(2, 0)),
@@ -380,6 +418,13 @@ mod tests {
                 bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
                 [archive],
             )
+            .map(|target| {
+                target.with_native_links([NativeLinkRequirement::new(
+                    NonEmptySharedStr::try_new("c")
+                        .unwrap_or_else(|| panic!("native library name must be valid")),
+                    NativeLinkKind::System,
+                )])
+            })
             .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
             let manifest =

@@ -117,6 +117,18 @@ pub const PLATFORM_PATH_REMOVE_FILE_SYMBOL: &str = "bray_platform_path_remove_fi
 /// Stable symbol removing a platform directory.
 pub const PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL: &str = "bray_platform_path_remove_directory";
 
+/// Stable symbol observing the process-local monotonic clock.
+pub const PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL: &str = "bray_platform_clock_monotonic_now";
+
+/// Stable symbol observing the host wall clock.
+pub const PLATFORM_CLOCK_WALL_NOW_SYMBOL: &str = "bray_platform_clock_wall_now";
+
+/// Stable symbol blocking the current native thread for a duration.
+pub const PLATFORM_CLOCK_SLEEP_SYMBOL: &str = "bray_platform_clock_sleep";
+
+/// Stable symbol filling bytes from the host entropy source.
+pub const PLATFORM_ENTROPY_FILL_SYMBOL: &str = "bray_platform_entropy_fill";
+
 /// Stable symbol renaming a platform filesystem entry.
 pub const PLATFORM_PATH_RENAME_SYMBOL: &str = "bray_platform_path_rename";
 
@@ -266,6 +278,10 @@ pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRol
         Role::PathRemoveFile => PLATFORM_PATH_REMOVE_FILE_SYMBOL,
         Role::PathRemoveDirectory => PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL,
         Role::PathRename => PLATFORM_PATH_RENAME_SYMBOL,
+        Role::ClockMonotonicNow => PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL,
+        Role::ClockWallNow => PLATFORM_CLOCK_WALL_NOW_SYMBOL,
+        Role::ClockSleep => PLATFORM_CLOCK_SLEEP_SYMBOL,
+        Role::EntropyFill => PLATFORM_ENTROPY_FILL_SYMBOL,
     }
 }
 

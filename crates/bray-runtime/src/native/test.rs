@@ -4,6 +4,7 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use bray_platform::{RunOutputContext, RunOutputStream, with_run_output_context};
 use bray_runtime_interface::{
     NativePanicCause, NativeRunOutcome, NativeRunState, NativeSourceAnchor,
 };
@@ -16,8 +17,7 @@ use bray_test_protocol::{
 };
 
 use crate::{
-    RootCancellationHandle, RootCancellationSource, RunCancellationTimer, RunOutputContext,
-    RunOutputStream, RunTimeoutScheduler, with_run_output_context,
+    RootCancellationHandle, RootCancellationSource, RunCancellationTimer, RunTimeoutScheduler,
 };
 
 const RESULT_PATH_VARIABLE: &str = "BRAY_TEST_RESULT_PATH";

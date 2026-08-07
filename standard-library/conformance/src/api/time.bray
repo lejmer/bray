@@ -1,0 +1,40 @@
+module bray.standard_library_conformance.time;
+
+using std.time;
+
+@test
+func clock_readings_obey_their_value_contracts() -> Result<unit, std.time.ClockError>
+{
+    let first: std.time.Instant = try std.time.monotonic_now();
+    let zero: std.time.Duration = try std.time.Duration(seconds = 0, nanoseconds = 0);
+
+    try std.time.sleep(zero);
+
+    let second: std.time.Instant = try std.time.monotonic_now();
+    let elapsed: std.time.Duration = try second.duration_since(&first);
+    let wall: std.time.Timestamp = try std.time.wall_now();
+
+    assert(elapsed.seconds() >= 0);
+    assert(elapsed.nanoseconds() < 1000000000);
+    assert(wall.nanoseconds() < 1000000000);
+
+    return Ok(unit);
+}
+
+@test
+func negative_durations_are_values_but_not_sleep_intervals() -> Result<unit, std.time.ClockError>
+{
+    let negative: std.time.Duration = try std.time.Duration(seconds = -1, nanoseconds = 500000000);
+
+    assert(negative.seconds() == -1);
+    assert(negative.nanoseconds() == 500000000);
+
+    match std.time.sleep(negative)
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.ClockError.OutOfRange) {}
+        case Error(_) { assert(false); }
+    }
+
+    return Ok(unit);
+}

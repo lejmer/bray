@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use bray_platform::RuntimeThreadScope;
+use bray_platform_abi::initialize_process_context;
 use bray_runtime_interface::{
     NativeExecutionLane, NativeExecutionLaneResult, NativeInactiveFrame, NativeProtectedFrame,
     NativeRootHandle, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
@@ -22,8 +23,6 @@ use crate::{
 };
 
 use super::frame::{NativeFrame, NativeTerminalPayload, NativeTerminalState};
-use super::platform::initialize_process_context;
-
 thread_local! {
     static NATIVE_RUNTIME: RefCell<Option<Rc<NativeRuntime>>> =
         const { RefCell::new(None) };

@@ -192,11 +192,13 @@ pub fn with_run_output_context<T>(output: RunOutputContext, callback: impl FnOnc
     with_optional_run_output_context(Some(output), callback)
 }
 
-pub(crate) fn current_run_output_context() -> Option<RunOutputContext> {
+/// Returns the standard-stream routing active on the current thread.
+pub fn current_run_output_context() -> Option<RunOutputContext> {
     CURRENT_RUN_OUTPUT.with(|current| current.borrow().clone())
 }
 
-pub(crate) fn with_optional_run_output_context<T>(
+/// Installs optional standard-stream routing for the duration of a callback.
+pub fn with_optional_run_output_context<T>(
     output: Option<RunOutputContext>,
     callback: impl FnOnce() -> T,
 ) -> T {
@@ -206,7 +208,8 @@ pub(crate) fn with_optional_run_output_context<T>(
     callback()
 }
 
-pub(crate) fn write_current_run_output(stream: RunOutputStream, bytes: &[u8]) -> Option<usize> {
+/// Writes bytes through the standard-stream routing active on the current thread.
+pub fn write_current_run_output(stream: RunOutputStream, bytes: &[u8]) -> Option<usize> {
     CURRENT_RUN_OUTPUT.with(|current| {
         current
             .borrow()
@@ -215,7 +218,8 @@ pub(crate) fn write_current_run_output(stream: RunOutputStream, bytes: &[u8]) ->
     })
 }
 
-pub(crate) fn flush_current_run_output(stream: RunOutputStream) -> Option<()> {
+/// Flushes the current run destination when output is redirected by the host.
+pub fn flush_current_run_output(stream: RunOutputStream) -> Option<()> {
     CURRENT_RUN_OUTPUT.with(|current| {
         current
             .borrow()

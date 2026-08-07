@@ -306,6 +306,8 @@ fn build_bundle(
             interface_bytes,
             implementation_bytes,
             archive_bytes,
+            platform_archive_bytes,
+            platform_native_links,
         } = built;
 
         match interface.as_ref() {
@@ -366,8 +368,29 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        let target = StandardLibraryTargetArtifacts::try_new(target.clone(), abi, [archive])
-            .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+        let platform_file_name = platform_abi_archive_name(native)?;
+
+        let platform_path = format!(
+            "targets/{}/{abi_path}/{platform_file_name}",
+            target.as_str()
+        );
+
+        write_bundle_artifact(bundle, &platform_path, &platform_archive_bytes)?;
+
+        let platform_archive = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            platform_path,
+            &platform_archive_bytes,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
+        let target = StandardLibraryTargetArtifacts::try_new(
+            target.clone(),
+            abi,
+            [archive, platform_archive],
+        )
+        .map(|target| target.with_native_links(platform_native_links))
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         built_targets.push(target);
     }
@@ -386,11 +409,19 @@ struct BuiltTarget {
     interface_bytes: Vec<u8>,
     implementation_bytes: Vec<u8>,
     archive_bytes: Vec<u8>,
+    platform_archive_bytes: Vec<u8>,
+    platform_native_links: Vec<bray_symbols::NativeLinkRequirement>,
 }
 
 fn standard_library_archive_name(target: NativeTarget) -> Result<String, BuildError> {
     TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
         .file_name(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
+        .ok_or(BuildError::InvalidIdentity)
+}
+
+fn platform_abi_archive_name(target: NativeTarget) -> Result<String, BuildError> {
+    TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+        .file_name("bray_platform_abi")
         .ok_or(BuildError::InvalidIdentity)
 }
 
@@ -407,6 +438,23 @@ fn build_target(
     let native = selected
         .native_target()
         .ok_or_else(|| BuildError::UnsupportedTarget(target.clone()))?;
+
+    let root = workspace::root().map_err(BuildError::Workspace)?;
+    let platform_archive_name = platform_abi_archive_name(native)?;
+
+    let platform = crate::native_archive::build_rust_static_library(
+        &root,
+        native,
+        "bray-platform-abi",
+        "release",
+        &platform_archive_name,
+    )
+    .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
+
+    let platform_archive_bytes = fs::read(platform.archive())
+        .map_err(|error| BuildError::read(platform.archive(), error))?;
+
+    let platform_native_links = platform.native_links().to_vec();
 
     let output = work.join(target.as_str());
 
@@ -519,6 +567,8 @@ fn build_target(
         interface_bytes,
         implementation_bytes,
         archive_bytes,
+        platform_archive_bytes,
+        platform_native_links,
     })
 }
 
@@ -613,7 +663,7 @@ mod tests {
     use bray_target::NativeTarget;
 
     use super::{
-        BuildError, BuildOptions, build, compare_bundles, read_manifest,
+        BuildError, BuildOptions, build, compare_bundles, platform_abi_archive_name, read_manifest,
         standard_library_archive_name,
     };
 
@@ -687,6 +737,18 @@ mod tests {
             standard_library_archive_name(NativeTarget::Aarch64MacOs)
                 .unwrap_or_else(|error| panic!("macOS archive name must be valid: {error}")),
             "libstd.a"
+        );
+
+        assert_eq!(
+            platform_abi_archive_name(NativeTarget::X86_64WindowsMsvc)
+                .unwrap_or_else(|error| panic!("Windows platform archive must be valid: {error}")),
+            "bray_platform_abi.lib"
+        );
+
+        assert_eq!(
+            platform_abi_archive_name(NativeTarget::X86_64LinuxGnu)
+                .unwrap_or_else(|error| panic!("Linux platform archive must be valid: {error}")),
+            "libbray_platform_abi.a"
         );
     }
 

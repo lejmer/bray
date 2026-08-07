@@ -5,8 +5,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::UNIX_EPOCH;
 
+use bray_platform::WallClockTimestamp;
 use bray_runtime_interface::{
     NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath, NativePlatformStatus,
 };
@@ -18,17 +18,6 @@ use super::region::{MemoryRegion, disjoint};
 use std::path::{Component, Prefix};
 
 const FIRST_OWNED_HANDLE: u64 = 4;
-
-macro_rules! native_platform_export {
-    ($item:item) => {
-        #[expect(
-            unsafe_code,
-            reason = "the native filesystem provider requires a stable exported ABI and checked raw storage access"
-        )]
-        #[unsafe(no_mangle)]
-        $item
-    };
-}
 
 enum NativeHandle {
     File(NativeFile),
@@ -593,10 +582,13 @@ fn file_metadata(metadata: &Metadata) -> NativePlatformFileMetadata {
         2
     };
 
-    let modified = metadata.modified().ok().and_then(system_time_parts);
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(WallClockTimestamp::from_system_time);
 
     let (present, modified_seconds, modified_nanoseconds) = modified
-        .map(|(seconds, nanoseconds)| (1, seconds, nanoseconds))
+        .map(|timestamp| (1, timestamp.seconds(), timestamp.nanoseconds()))
         .unwrap_or((0, 0, 0));
 
     NativePlatformFileMetadata::new(
@@ -606,29 +598,6 @@ fn file_metadata(metadata: &Metadata) -> NativePlatformFileMetadata {
         modified_seconds,
         modified_nanoseconds,
     )
-}
-
-fn system_time_parts(time: std::time::SystemTime) -> Option<(i64, u32)> {
-    match time.duration_since(UNIX_EPOCH) {
-        Ok(duration) => Some((
-            i64::try_from(duration.as_secs()).ok()?,
-            duration.subsec_nanos(),
-        )),
-        Err(error) => {
-            let duration = error.duration();
-            let seconds = i64::try_from(duration.as_secs()).ok()?;
-            let nanoseconds = duration.subsec_nanos();
-
-            if nanoseconds == 0 {
-                Some((-seconds, 0))
-            } else {
-                Some((
-                    seconds.checked_neg()?.checked_sub(1)?,
-                    1_000_000_000 - nanoseconds,
-                ))
-            }
-        }
-    }
 }
 
 #[expect(

@@ -453,8 +453,19 @@ name = "bray-platform"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+ "getrandom",
  "memmap2",
  "mio",
+]
+
+[[package]]
+name = "bray-platform-abi"
+version = "0.0.0"
+dependencies = [
+ "bray-platform",
+ "bray-runtime-interface",
+ "bray-testing",
+ "windows-sys",
 ]
 
 [[package]]
@@ -476,11 +487,11 @@ name = "bray-runtime"
 version = "0.0.0"
 dependencies = [
  "bray-platform",
+ "bray-platform-abi",
  "bray-runtime-interface",
  "bray-source",
  "bray-test-protocol",
  "bray-testing",
- "windows-sys",
 ]
 
 [[package]]

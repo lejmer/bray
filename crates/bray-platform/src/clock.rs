@@ -1,8 +1,88 @@
-use std::time::{Duration, Instant};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
+const PROCESS_CLOCK_IDENTITY: u64 = 1;
+
+static PROCESS_CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 /// Monotonic process-local instant.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct MonotonicInstant(Instant);
+
+/// Portable scalar reading from the process-local monotonic clock domain.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MonotonicReading {
+    ticks: u64,
+    frequency: u64,
+    clock_identity: u64,
+}
+
+impl MonotonicReading {
+    /// Returns elapsed ticks since the process-local clock origin.
+    pub const fn ticks(self) -> u64 {
+        self.ticks
+    }
+
+    /// Returns ticks per second for this clock domain.
+    pub const fn frequency(self) -> u64 {
+        self.frequency
+    }
+
+    /// Returns the process-local clock-domain identity.
+    pub const fn clock_identity(self) -> u64 {
+        self.clock_identity
+    }
+}
+
+/// Wall-clock timestamp relative to the Unix epoch.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct WallClockTimestamp {
+    seconds: i64,
+    nanoseconds: u32,
+}
+
+impl WallClockTimestamp {
+    /// Converts a host wall-clock value when its whole seconds fit the platform ABI.
+    pub fn from_system_time(time: SystemTime) -> Option<Self> {
+        let (seconds, nanoseconds) = match time.duration_since(UNIX_EPOCH) {
+            Ok(duration) => (
+                i64::try_from(duration.as_secs()).ok()?,
+                duration.subsec_nanos(),
+            ),
+            Err(error) => timestamp_before_epoch(error.duration())?,
+        };
+
+        Some(Self {
+            seconds,
+            nanoseconds,
+        })
+    }
+
+    /// Returns whole seconds relative to the Unix epoch.
+    pub const fn seconds(self) -> i64 {
+        self.seconds
+    }
+
+    /// Returns fractional nanoseconds within the current second.
+    pub const fn nanoseconds(self) -> u32 {
+        self.nanoseconds
+    }
+}
+
+fn timestamp_before_epoch(duration: Duration) -> Option<(i64, u32)> {
+    let seconds = i64::try_from(duration.as_secs()).ok()?;
+    let nanoseconds = duration.subsec_nanos();
+
+    if nanoseconds == 0 {
+        Some((-seconds, 0))
+    } else {
+        Some((
+            seconds.checked_neg()?.checked_sub(1)?,
+            1_000_000_000 - nanoseconds,
+        ))
+    }
+}
 
 impl MonotonicInstant {
     /// Returns elapsed monotonic time, saturating at zero.
@@ -42,9 +122,37 @@ impl MonotonicClock {
         MonotonicInstant(Instant::now())
     }
 
+    /// Observes the process-local monotonic clock as stable scalar ABI fields.
+    pub fn reading(self) -> Option<MonotonicReading> {
+        let origin = PROCESS_CLOCK_ORIGIN.get_or_init(Instant::now);
+        let ticks = u64::try_from(origin.elapsed().as_nanos()).ok()?;
+
+        Some(MonotonicReading {
+            ticks,
+            frequency: NANOSECONDS_PER_SECOND,
+            clock_identity: PROCESS_CLOCK_IDENTITY,
+        })
+    }
+
     /// Creates a deadline relative to the current instant when representable.
     pub fn deadline_after(self, duration: Duration) -> Option<MonotonicDeadline> {
         Instant::now().checked_add(duration).map(MonotonicDeadline)
+    }
+
+    /// Blocks the current native thread for at least the requested duration.
+    pub fn sleep(self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+}
+
+/// Access to the host wall clock.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct WallClock;
+
+impl WallClock {
+    /// Observes the current wall-clock timestamp when representable by the platform ABI.
+    pub fn now(self) -> Option<WallClockTimestamp> {
+        WallClockTimestamp::from_system_time(SystemTime::now())
     }
 }
 
@@ -52,7 +160,7 @@ impl MonotonicClock {
 mod tests {
     use std::time::Duration;
 
-    use super::MonotonicClock;
+    use super::{MonotonicClock, WallClock, timestamp_before_epoch};
 
     #[test]
     fn monotonic_deadlines_do_not_report_negative_remaining_time() {
@@ -66,5 +174,34 @@ mod tests {
         assert!(deadline.has_elapsed());
         assert_eq!(deadline.remaining(), Duration::ZERO);
         assert!(clock.now().elapsed_since(start) >= Duration::ZERO);
+    }
+
+    #[test]
+    fn scalar_clock_readings_preserve_clock_contracts() {
+        let first = MonotonicClock
+            .reading()
+            .unwrap_or_else(|| panic!("reading must fit"));
+
+        let second = MonotonicClock
+            .reading()
+            .unwrap_or_else(|| panic!("reading must fit"));
+
+        assert!(second.ticks() >= first.ticks());
+        assert_eq!(first.frequency(), 1_000_000_000);
+        assert_eq!(first.clock_identity(), second.clock_identity());
+
+        let wall = WallClock
+            .now()
+            .unwrap_or_else(|| panic!("wall time must fit"));
+
+        assert!(wall.nanoseconds() < 1_000_000_000);
+    }
+
+    #[test]
+    fn wall_clock_conversion_normalizes_pre_epoch_values() {
+        assert_eq!(
+            timestamp_before_epoch(Duration::from_nanos(1)),
+            Some((-1, 999_999_999))
+        );
     }
 }

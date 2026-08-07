@@ -13,7 +13,7 @@ struct Id
     internal state: ProcessIdState;
 }
 
-internal struct ArgumentsState
+internal struct ProcessContextTable
 {
     context: std.memory.RawBuffer<u8>;
     length: usize;
@@ -22,7 +22,7 @@ internal struct ArgumentsState
 
 struct Arguments
 {
-    internal state: ArgumentsState;
+    internal state: ProcessContextTable;
 
     func length() -> usize
     {
@@ -53,16 +53,9 @@ struct EnvironmentEntry
     value: std.path.NativeText;
 }
 
-internal struct EnvironmentState
-{
-    context: std.memory.RawBuffer<u8>;
-    length: usize;
-    table: usize;
-}
-
 struct Environment
 {
-    internal state: EnvironmentState;
+    internal state: ProcessContextTable;
 
     func length() -> usize
     {
@@ -148,35 +141,31 @@ func current_id() -> Id
 
 func arguments() -> Arguments
 {
-    let context: std.memory.RawBuffer<u8> = trusted internal std.platform.required_process_context();
-    let length: usize = internal std.platform.context_u64(&context, offset = 56) as usize;
-    let table: usize = internal std.platform.context_u64(&context, offset = 64) as usize;
-
     return
     {
-        state =
-        {
-            context = context,
-            length = length,
-            table = table,
-        }
+        state = process_context_table(length_offset = 56, table_offset = 64),
     };
 }
 
 func environment() -> Environment
 {
+    return
+    {
+        state = process_context_table(length_offset = 72, table_offset = 80),
+    };
+}
+
+internal func process_context_table(length_offset: usize, table_offset: usize) -> ProcessContextTable
+{
     let context: std.memory.RawBuffer<u8> = trusted internal std.platform.required_process_context();
-    let length: usize = internal std.platform.context_u64(&context, offset = 72) as usize;
-    let table: usize = internal std.platform.context_u64(&context, offset = 80) as usize;
+    let length: usize = internal std.platform.context_u64(&context, offset = length_offset) as usize;
+    let table: usize = internal std.platform.context_u64(&context, offset = table_offset) as usize;
 
     return
     {
-        state =
-        {
-            context = context,
-            length = length,
-            table = table,
-        }
+        context = context,
+        length = length,
+        table = table,
     };
 }
 

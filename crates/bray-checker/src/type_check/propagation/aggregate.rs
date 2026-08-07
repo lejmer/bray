@@ -105,6 +105,45 @@ where
     Ok(())
 }
 
+pub(super) fn infer_repeated_array<C>(
+    request: CheckerUnitView<'_, C>,
+    expression_id: BoundExpressionId,
+    operands: &[BoundExpressionId],
+    variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    inference: &mut TypeInferenceContext,
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let [value, count] = operands else {
+        return Ok(());
+    };
+
+    let Some(variable) = variables.get(&expression_id).copied() else {
+        return Ok(());
+    };
+
+    let usize = representation_type(request, RepresentationRole::ScalarUsize)?;
+
+    if let Some(count) = variables.get(count).copied() {
+        inference.add_expectation(count, usize, expression_id);
+    }
+
+    let Some((ty, element)) =
+        contextual_container_element(request, variable, inference, array_element)?
+    else {
+        return Ok(());
+    };
+
+    if let Some(value) = variables.get(value).copied() {
+        inference.add_expectation(value, element, expression_id);
+    }
+
+    inference.add_evidence(variable, ty, expression_id);
+
+    Ok(())
+}
+
 pub(super) fn infer_general_generator<C>(
     request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
