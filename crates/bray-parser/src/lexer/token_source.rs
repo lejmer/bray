@@ -143,6 +143,13 @@ impl LexerTokenSource {
         token
     }
 
+    pub(crate) fn at_generic_close(&self) -> bool {
+        scan_token_at(&self.snapshot, self.cursor, LexerScanMode::GenericClose)
+            .into_token()
+            .kind()
+            == bray_syntax::SyntaxKind::GreaterToken
+    }
+
     fn cached_lookahead(&mut self, distance: usize) -> SyntaxToken {
         self.ensure_cached(distance);
 

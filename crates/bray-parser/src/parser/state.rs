@@ -134,11 +134,19 @@ impl Parser {
     }
 
     pub(super) fn expect_generic_close(&mut self) -> SyntaxToken {
-        if self.at(SyntaxKind::GreaterGreaterToken) {
-            return self.cursor.consume_generic_close();
+        if self.at_generic_close() {
+            return self.consume_generic_close();
         }
 
         self.expect(SyntaxKind::GreaterToken)
+    }
+
+    pub(super) fn at_generic_close(&self) -> bool {
+        self.cursor.at_generic_close()
+    }
+
+    pub(super) fn consume_generic_close(&mut self) -> SyntaxToken {
+        self.cursor.consume_generic_close()
     }
 
     pub(super) fn expect(&mut self, kind: SyntaxKind) -> SyntaxToken {

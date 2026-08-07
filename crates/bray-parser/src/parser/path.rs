@@ -4,11 +4,18 @@ use super::state::Parser;
 
 impl Parser {
     pub(super) fn parse_path(&mut self) -> PathSyntax {
+        self.parse_path_until(&mut |_| false)
+    }
+
+    pub(super) fn parse_path_until(
+        &mut self,
+        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
+    ) -> PathSyntax {
         let mut builder = PathSyntax::builder(self.syntax_source());
 
         builder.push_identifier_token(self.parse_identifier());
 
-        while self.at(SyntaxKind::DotToken) {
+        while !at_boundary(self) && self.at(SyntaxKind::DotToken) {
             builder.push_dot_token(self.expect(SyntaxKind::DotToken));
             builder.push_identifier_token(self.parse_identifier());
         }

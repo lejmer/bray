@@ -23,6 +23,7 @@ use super::model::{
     AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use super::reachability::{ReachabilityResult, analyze_reachability};
+use super::storage_index::index_storage_roots;
 
 pub(crate) fn analyze_storage_liveness<C>(
     request: CheckerUnitView<'_, C>,
@@ -310,13 +311,15 @@ impl OperationEffects {
     where
         C: CheckerRequestContext + ?Sized,
     {
+        let (accesses_by_root, types_by_root) = index_storage_roots(storage);
+
         for (initializer, bindings) in local_initialization_bindings(request, storage) {
             let subjects = self.subtree_subjects(request.unit(), initializer);
 
             for binding in bindings {
                 let (root, ty) = match binding {
                     StorageBinding::Identity(identity) => {
-                        (Some(identity), storage.storage_type(identity))
+                        (Some(identity), types_by_root.get(&identity).copied())
                     }
                     StorageBinding::Access(access) => (
                         storage.root_identity(access),
@@ -336,15 +339,8 @@ impl OperationEffects {
                     continue;
                 }
 
-                let uses = storage
-                    .access_plans()
-                    .iter()
-                    .filter(|plan| storage.root_identity(plan.access()) == Some(root))
-                    .map(|plan| plan.expression())
-                    .collect::<Vec<_>>();
-
-                for expression in uses {
-                    self.extend_uses(expression, subjects.iter().copied());
+                for expression in accesses_by_root.get(&root).into_iter().flatten() {
+                    self.extend_uses(*expression, subjects.iter().copied());
                 }
             }
         }

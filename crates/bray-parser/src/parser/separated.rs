@@ -158,7 +158,7 @@ impl Parser {
 
         builder.push_item(item);
 
-        if self.peek().start() != item_start || self.at_list_boundary_until(spec, at_end) {
+        if self.at_list_boundary_until(spec, at_end) || self.peek().start() != item_start {
             return;
         }
 
@@ -176,7 +176,7 @@ impl Parser {
         spec: SeparatedListSpec<'_>,
         at_end: &mut impl FnMut(&mut Parser) -> bool,
     ) -> bool {
-        self.at(spec.separator_kind) || at_end(self)
+        at_end(self) || self.at(spec.separator_kind)
     }
 }
 

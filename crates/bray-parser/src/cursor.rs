@@ -100,6 +100,10 @@ impl ParserCursor {
         self.token_source.consume_generic_close()
     }
 
+    pub(crate) fn at_generic_close(&self) -> bool {
+        self.token_source.at_generic_close()
+    }
+
     pub(crate) fn consume_if(&mut self, kind: SyntaxKind) -> Option<SyntaxToken> {
         if !self.at(kind) {
             return None;

@@ -11,6 +11,7 @@ mod propagation;
 mod reachability;
 mod refinement;
 mod storage_flow;
+mod storage_index;
 
 pub(crate) use build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 pub(crate) use check::check_control_flow;
