@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "the native standard-library audit keeps one end-to-end build and execution contract")
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -10,10 +12,11 @@ use serde::Deserialize;
 
 use super::command::BuildError;
 
-const PACKAGE_IDENTITY: &str = "bray.standard_library_conformance";
+const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
-const API_TEST_COUNT: usize = 47;
+const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
+const API_TEST_COUNT: usize = 52;
 const API_FILTERED_TEST_COUNT: usize = 3;
 
 pub(super) fn test() -> Result<(), BuildError> {
@@ -46,7 +49,7 @@ pub(super) fn test() -> Result<(), BuildError> {
 
     let workspace = directory.join("workspace");
 
-    copy_fixture(&root.join("standard-library/conformance"), &workspace)?;
+    copy_standard_library_workspace(&root, &workspace)?;
     audit_api(&root, &workspace, &toolchain, target)?;
 
     audit_outcomes(&root, &workspace, &toolchain, target)
@@ -271,24 +274,26 @@ fn validate_api_report(report: &NativeTestReport) -> Result<(), BuildError> {
             ));
         }
 
-        let expected_output = if test
+        let (expected_output, expected_error) = if test
             .identity
             .ends_with("asynchronous_standard_output_is_captured")
         {
-            b"captured-async-output".as_slice()
+            (b"captured-async-output".as_slice(), &[][..])
         } else if test
             .identity
             .ends_with("repeated_standard_output_locks_are_released")
         {
-            b"first-lock|second-lock".as_slice()
+            (b"first-lock|second-lock".as_slice(), &[][..])
         } else if test.identity.ends_with("standard_output_is_captured") {
-            b"captured-standard-output".as_slice()
+            (b"captured-standard-output".as_slice(), &[][..])
+        } else if test.identity.ends_with("standard_error_is_captured") {
+            (&[][..], b"captured-standard-error".as_slice())
         } else {
-            &[]
+            (&[][..], &[][..])
         };
 
         require_stream(&test.identity, "stdout", &test.stdout, expected_output)?;
-        require_stream(&test.identity, "stderr", &test.stderr, &[])?;
+        require_stream(&test.identity, "stderr", &test.stderr, expected_error)?;
     }
 
     Ok(())
@@ -423,13 +428,19 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
 
     if names
         != [
+            "asynchronous_file_operations_preserve_data_and_metadata",
+            "buffered_file_io_preserves_order_and_flushes",
             "files_and_directories_follow_the_portable_contract",
+            "missing_files_report_the_portable_error_kind",
+            "child_processes_capture_output_and_reap_cleanly",
             "string_operations",
         ]
     {
         return Err(BuildError::conformance(
             "catalog metadata",
-            "the native catalog did not retain the exact serial test constraint",
+            format!(
+                "the native catalog retained unexpected serial test constraints: {names:?}"
+            ),
         ));
     }
 
@@ -449,14 +460,16 @@ fn run_tests(
         .join("debug")
         .join(crate::native_toolchain::executable_name("bray"));
 
-    let mut command = Command::new(executable);
+    let mut command = Command::new(&executable);
 
     command
         .current_dir(root)
+        .env(CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE, executable)
         .arg("--workspace")
         .arg(workspace)
         .arg("--toolchain-root")
         .arg(toolchain)
+        .arg("--standard-library-source")
         .args([
             "--format",
             "json",
@@ -555,7 +568,7 @@ fn copy_fixture(source: &Path, destination: &Path) -> Result<(), BuildError> {
         .map(|entry| entry.map_err(|error| BuildError::read(source, error)))
         .collect::<Result<Vec<_>, _>>()?;
 
-    entries.sort_by_key(std::fs::DirEntry::file_name);
+    entries.sort_by_key(fs::DirEntry::file_name);
 
     for entry in entries {
         if entry.file_name() == "build" {
@@ -578,6 +591,19 @@ fn copy_fixture(source: &Path, destination: &Path) -> Result<(), BuildError> {
     }
 
     Ok(())
+}
+
+fn copy_standard_library_workspace(root: &Path, destination: &Path) -> Result<(), BuildError> {
+    fs::create_dir_all(destination).map_err(|error| BuildError::write(destination, error))?;
+
+    let source = root.join("standard-library");
+    let manifest = source.join("bray-workspace.json");
+    let destination_manifest = destination.join("bray-workspace.json");
+
+    fs::copy(&manifest, &destination_manifest)
+        .map_err(|error| BuildError::write(&destination_manifest, error))?;
+
+    copy_fixture(&source.join("std"), &destination.join("std"))
 }
 
 const fn target_name(target: NativeTarget) -> &'static str {

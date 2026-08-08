@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.outcomes;
+module bray.standard_library_tests.outcomes;
 
 using std.run;
 using std.string;

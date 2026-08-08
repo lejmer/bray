@@ -175,6 +175,7 @@ impl TackCommand {
 pub struct TackInvocation {
     workspace_root: PathBuf,
     toolchain_root: Option<PathBuf>,
+    standard_library_source: bool,
     worker_count: usize,
     output_format: OutputFormat,
     verbose: bool,
@@ -185,6 +186,7 @@ impl TackInvocation {
     pub(crate) const fn new(
         workspace_root: PathBuf,
         toolchain_root: Option<PathBuf>,
+        standard_library_source: bool,
         worker_count: usize,
         output_format: OutputFormat,
         verbose: bool,
@@ -193,6 +195,7 @@ impl TackInvocation {
         Self {
             workspace_root,
             toolchain_root,
+            standard_library_source,
             worker_count,
             output_format,
             verbose,
@@ -230,10 +233,20 @@ impl TackInvocation {
         self.command.kind()
     }
 
-    pub(crate) fn into_parts(self) -> (PathBuf, Option<PathBuf>, usize, OutputFormat, TackCommand) {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        PathBuf,
+        Option<PathBuf>,
+        bool,
+        usize,
+        OutputFormat,
+        TackCommand,
+    ) {
         (
             self.workspace_root,
             self.toolchain_root,
+            self.standard_library_source,
             self.worker_count,
             self.output_format,
             self.command,

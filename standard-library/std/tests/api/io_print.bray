@@ -1,0 +1,25 @@
+module bray.standard_library_tests.io_print;
+
+using std.bytes;
+using std.io;
+using internal std.io.StandardErrorWriter;
+using std.string;
+
+@test
+func standard_output_is_captured() -> Result<unit, std.io.IoError>
+{
+    return std.io.print("captured-standard-output");
+}
+
+@test
+func standard_error_is_captured() -> Result<unit, std.io.IoError>
+{
+    let text: string = "captured-standard-error";
+    let bytes: &[u8] = std.string.utf8(&text);
+    let mut error: std.io.StandardError = std.io.standard_error();
+    let written: usize = try error(std.io.Writer).write(bytes);
+
+    assert(written == std.bytes.slice_length(bytes));
+
+    return error(std.io.Writer).flush();
+}

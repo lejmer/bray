@@ -392,10 +392,14 @@ pub(super) fn compilation_request(
     let configuration = options.compilation();
 
     let mut request = compilation_request_from_file_arguments(
-        configuration.product().package().clone(),
+        configuration.source_package().clone(),
         files,
         options.compilation_options(),
     )?;
+
+    if options.package_source_authority().is_standard_library() {
+        request = request.with_standard_library_source_authority();
+    }
 
     let dependencies = configuration
         .dependencies()

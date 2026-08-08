@@ -88,6 +88,8 @@ pub(crate) struct DependencyManifest {
 pub(crate) struct ProductManifest {
     pub name: String,
     pub kind: ProductKindManifest,
+    #[serde(default)]
+    pub tested_library: Option<String>,
     pub source_roots: Vec<String>,
     pub targets: Vec<String>,
     pub outputs: Vec<OutputKindManifest>,

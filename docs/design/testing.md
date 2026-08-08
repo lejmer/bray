@@ -11,6 +11,8 @@ The language rules for test products and test declarations are defined by the
 
 - Test discovery consumes checked compiler facts and never reparses source.
 - A test product is compiled once into a native host and an immutable test catalog.
+- Package integration-test products consume the emitted public contract of their declared sibling library product rather than
+  compiling that library's source roots again.
 - Test output uses dedicated capture streams. The runner protocol never shares stdout or stderr with test code.
 - Sequential and parallel execution use the same invocation and outcome contracts.
 - Scheduling can be concurrent while discovery and final report order remain deterministic.

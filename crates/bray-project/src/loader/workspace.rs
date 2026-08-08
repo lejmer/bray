@@ -67,6 +67,7 @@ fn load_project_graph_with_authority(
     )?;
 
     Ok(ProjectGraph::new(
+        source_authority,
         formatter_configuration,
         output_root,
         targets,

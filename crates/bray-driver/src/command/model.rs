@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use bray_compilation::{CompilationOptions, WorkerBudget};
+use bray_compilation::{CompilationOptions, PackageSourceAuthority, WorkerBudget};
 use bray_standard_library::StandardLibraryRoot;
 use bray_tooling::{InspectionTarget, OutputFormat};
 
@@ -13,6 +13,7 @@ pub struct DriverOptions {
     output_format: OutputFormat,
     compilation: DriverCompilationConfiguration,
     standard_library_root: Option<StandardLibraryRoot>,
+    package_source_authority: PackageSourceAuthority,
 }
 
 impl DriverOptions {
@@ -22,12 +23,14 @@ impl DriverOptions {
         output_format: OutputFormat,
         compilation: DriverCompilationConfiguration,
         standard_library_root: Option<StandardLibraryRoot>,
+        package_source_authority: PackageSourceAuthority,
     ) -> Self {
         Self {
             worker_budget,
             output_format,
             compilation,
             standard_library_root,
+            package_source_authority,
         }
     }
 
@@ -58,6 +61,11 @@ impl DriverOptions {
     /// Returns the explicitly selected standard-library bundle root.
     pub const fn standard_library_root(&self) -> Option<&StandardLibraryRoot> {
         self.standard_library_root.as_ref()
+    }
+
+    /// Returns the authority governing source package identities.
+    pub const fn package_source_authority(&self) -> PackageSourceAuthority {
+        self.package_source_authority
     }
 }
 

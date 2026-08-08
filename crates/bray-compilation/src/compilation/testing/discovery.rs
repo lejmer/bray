@@ -77,7 +77,9 @@ impl Compilation {
         product: ProductIdentity,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<TestDiscovery>, FactQueryError> {
-        if product.package() != self.package_identity() {
+        if product.package() != self.package_identity()
+            && self.options().product_kind() != ProductKind::Test
+        {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
@@ -284,6 +286,32 @@ mod tests {
         assert_eq!(first.entries().len() + second.entries().len(), 3);
         assert_eq!(first.discovered_count(), 3);
         assert_eq!(second.discovered_count(), 3);
+    }
+
+    #[test]
+    fn test_catalog_identity_can_differ_from_the_source_package() {
+        let compilation = compilation_with_sources_product_and_worker_budget(
+            &["module tests;\n\n@test\nfunc works()\n{\n}\n"],
+            ProductKind::Test,
+            parallel_worker_budget(),
+        );
+
+        let package = bray_symbols::PackageIdentity::try_new("public.package")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package, "tests")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let discovery = discovery(&compilation, product.clone());
+
+        assert_eq!(discovery.value().catalog().product(), &product);
+
+        assert_eq!(
+            discovery.value().catalog().entries()[0]
+                .identity()
+                .product(),
+            &product,
+        );
     }
 
     fn discovery(

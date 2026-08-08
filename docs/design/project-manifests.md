@@ -177,6 +177,11 @@ never starts a search.
 Package dependencies must be acyclic. A dependency package is built before its dependents. Independent packages are ordered by
 canonical package identity, so manifest ordering and parallel scheduling cannot affect the published build order.
 
+A test product may select one sibling library product through `tested_library`. The selected library is built first and its emitted
+public interface and implementation are supplied to the test compilation as an external dependency. The test product does not
+compile the library's source roots into its own source graph. This keeps integration tests inside the package they test while
+ensuring they exercise the same public contract consumed by dependent packages.
+
 The toolchain-selected `std` package is not acquired or located through a package manifest. The package layer supplies its exact
 configured standard-library root as a separate immutable build input under the
 [standard-library artifact contract](standard-library.md). When selected, `std` still enters the ordinary dependency graph and

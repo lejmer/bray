@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.path;
+module bray.standard_library_tests.path;
 
 using std.io;
 using std.path;
@@ -20,7 +20,6 @@ trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.pa
     let unresolved: std.path.Path = try std.path.Path.from_string("../../alpha");
     let normalized_unresolved: std.path.Path = try unresolved.normalize();
     let unresolved_text: string = try normalized_unresolved.to_string();
-
     let slash_form: bool = std.string.equals(&unresolved_text, &"../../alpha");
     let backslash_form: bool = std.string.equals(&unresolved_text, &"..\\..\\alpha");
 

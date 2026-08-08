@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.memory;
+module bray.standard_library_tests.memory;
 
 using std.memory;
 
@@ -11,6 +11,7 @@ trusted func layouts_and_raw_buffers() -> Result<unit, std.memory.MemoryLayoutEr
     assert(std.memory.size_of<u32>() == 4);
     assert(std.memory.align_of<u32>() > 0);
     assert(std.memory.stride_of<u32>() >= std.memory.size_of<u32>());
+
     assert(layout.bytes == std.memory.stride_of<u32>() * 3);
     assert(layout.align == std.memory.align_of<u32>());
 

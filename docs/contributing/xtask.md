@@ -22,7 +22,7 @@ rules.
 
 ## Bray source formatting
 
-Format maintained Bray source in the standard library, conformance suites, examples, readiness fixtures, and recovery corpus:
+Format maintained Bray source in the standard library, its tests, examples, readiness fixtures, and recovery corpus:
 
 ```text
 cargo xtask format
@@ -165,7 +165,7 @@ To produce the installed layout expected by Bray Tack beside release binaries in
 cargo xtask standard-library build --output target/release/lib/bray/standard-library
 ```
 
-Run native standard-library conformance tests with:
+Run native standard-library integration tests with:
 
 ```text
 cargo xtask standard-library test

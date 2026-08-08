@@ -14,6 +14,31 @@ union IoErrorKind
     Other;
 }
 
+impl IoErrorKindEquatable = IoErrorKind(Equatable<IoErrorKind>)
+{
+    func equals(pos rhs: &IoErrorKind) -> bool
+    {
+        return error_kind_tag(&self) == error_kind_tag(rhs);
+    }
+}
+
+internal func error_kind_tag(pos kind: &IoErrorKind) -> u8
+{
+    return match kind
+    {
+        case IoErrorKind.Unsupported { yield 0; }
+        case IoErrorKind.PermissionDenied { yield 1; }
+        case IoErrorKind.NotFound { yield 2; }
+        case IoErrorKind.AlreadyExists { yield 3; }
+        case IoErrorKind.InvalidInput { yield 4; }
+        case IoErrorKind.Interrupted { yield 5; }
+        case IoErrorKind.Exhausted { yield 6; }
+        case IoErrorKind.BrokenStream { yield 7; }
+        case IoErrorKind.TimedOut { yield 8; }
+        case IoErrorKind.Other { yield 9; }
+    };
+}
+
 struct IoError
 {
     kind: IoErrorKind;

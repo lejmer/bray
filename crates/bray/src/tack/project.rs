@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use bray_diagnostics::{DiagnosticBag, DiagnosticId};
 use bray_project::{
     PackageRole, ProjectGraph, ProjectPackage, ProjectProduct, ProjectTarget, load_project_graph,
+    load_standard_library_project_graph,
 };
 use bray_symbols::{PackageIdentity, ProductKind};
 use bray_target::TargetIdentity;
@@ -44,9 +45,17 @@ impl PlannedProduct {
     }
 }
 
-pub(crate) fn load_graph(workspace_root: &Path) -> Result<ProjectGraph, DiagnosticBag> {
-    load_project_graph(workspace_root)
-        .map_err(|error| DiagnosticBag::single(error.into_diagnostic(DiagnosticId::new(0))))
+pub(crate) fn load_graph(
+    workspace_root: &Path,
+    standard_library_source: bool,
+) -> Result<ProjectGraph, DiagnosticBag> {
+    let graph = if standard_library_source {
+        load_standard_library_project_graph(workspace_root)
+    } else {
+        load_project_graph(workspace_root)
+    };
+
+    graph.map_err(|error| DiagnosticBag::single(error.into_diagnostic(DiagnosticId::new(0))))
 }
 
 pub(crate) fn select_products(

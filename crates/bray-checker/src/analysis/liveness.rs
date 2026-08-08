@@ -9,7 +9,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{CallableSignatureFact, TypeData};
 
-use crate::dependency::selected_call_contract;
+use crate::dependency::selected_call_contracts;
 use crate::storage::local_initialization_bindings;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
@@ -277,24 +277,30 @@ impl OperationEffects {
                 continue;
             };
 
-            let contract = match selected_call_contract(request, storage, entry.expression(), call)
-            {
-                Ok(contract) => contract,
-                Err(DependencyContractInstantiationError::Resolution(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                )) => {
-                    self.recovered_nodes
-                        .insert(AnyBoundNodeId::Expression(entry.expression()));
+            let contracts =
+                match selected_call_contracts(request, storage, entry.expression(), call) {
+                    Ok(contracts) => contracts,
+                    Err(DependencyContractInstantiationError::Resolution(
+                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                    )) => {
+                        self.recovered_nodes
+                            .insert(AnyBoundNodeId::Expression(entry.expression()));
 
-                    continue;
-                }
-                Err(DependencyContractInstantiationError::Resolution(error)) => return Err(error),
-                Err(DependencyContractInstantiationError::ForeignUnit) => {
-                    return Err(CheckerInfrastructureError::InvalidLivenessFacts);
-                }
-            };
+                        continue;
+                    }
+                    Err(DependencyContractInstantiationError::Resolution(error)) => {
+                        return Err(error);
+                    }
+                    Err(DependencyContractInstantiationError::ForeignUnit) => {
+                        return Err(CheckerInfrastructureError::InvalidLivenessFacts);
+                    }
+                };
 
-            let subjects = dependency_subjects(contract.requirements(), storage);
+            let mut subjects = dependency_subjects(contracts.invocation().requirements(), storage);
+
+            if let Some(deferred) = contracts.deferred() {
+                collect_dependency_subjects(deferred.requirements(), storage, &mut subjects);
+            }
 
             self.universe.extend(subjects.iter().copied());
             self.extend_uses(entry.expression(), subjects);

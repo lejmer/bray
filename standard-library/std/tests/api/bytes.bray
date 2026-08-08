@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.bytes;
+module bray.standard_library_tests.bytes;
 
 using std.bytes;
 using std.memory;
@@ -33,6 +33,7 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
 
     assert(std.bytes.length(&buffer) == 7);
     assert(std.bytes.capacity(&buffer) >= 7);
+
     assert(values[0] == 65);
     assert(values[2] == 67);
     assert(values[4] == 68);

@@ -90,25 +90,7 @@ where
             });
         };
 
-        let binding_id = match bound {
-            BoundExpression::Name(name) => {
-                let BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) =
-                    name.target()
-                else {
-                    return Err(CheckerInfrastructureError::InvalidBoundNode {
-                        node: (*expression).into(),
-                    });
-                };
-
-                binding
-            }
-            BoundExpression::PatternReference(reference) => reference.binding(),
-            _ => {
-                return Err(CheckerInfrastructureError::InvalidBoundNode {
-                    node: (*expression).into(),
-                });
-            }
-        };
+        let binding_id = pattern_binding_id(*expression, bound)?;
 
         if let Some(binding_type) = facts.binding_type(binding_id) {
             evidence.push(ExpressionTypeEvidence::new(*expression, binding_type.ty()));
@@ -171,6 +153,60 @@ where
         selections,
         diagnostics: DiagnosticBag::from(diagnostics),
     })
+}
+
+pub(super) fn resolved_pattern_binding_evidence<C>(
+    request: CheckerUnitView<'_, C>,
+    facts: &CheckedPatternFacts,
+    expressions: &BTreeSet<bray_bound_tree::BoundExpressionId>,
+) -> Result<Vec<ExpressionTypeEvidence>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut evidence = Vec::new();
+
+    for expression in expressions {
+        let Some(bound) = request.view().expression(*expression) else {
+            return Err(CheckerInfrastructureError::InvalidBoundNode {
+                node: (*expression).into(),
+            });
+        };
+
+        let binding = pattern_binding_id(*expression, bound)?;
+
+        let Some(binding_type) = facts.binding_type(binding) else {
+            continue;
+        };
+
+        if !binding_type.is_recovered() {
+            evidence.push(ExpressionTypeEvidence::new(*expression, binding_type.ty()));
+        }
+    }
+
+    Ok(evidence)
+}
+
+fn pattern_binding_id(
+    expression: bray_bound_tree::BoundExpressionId,
+    bound: &BoundExpression,
+) -> Result<bray_symbols::LocalBindingSymbolId, CheckerInfrastructureError> {
+    match bound {
+        BoundExpression::Name(name) => {
+            let BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) =
+                name.target()
+            else {
+                return Err(CheckerInfrastructureError::InvalidBoundNode {
+                    node: expression.into(),
+                });
+            };
+
+            Ok(binding)
+        }
+        BoundExpression::PatternReference(reference) => Ok(reference.binding()),
+        _ => Err(CheckerInfrastructureError::InvalidBoundNode {
+            node: expression.into(),
+        }),
+    }
 }
 
 fn expression_uses_pattern_binding<C>(

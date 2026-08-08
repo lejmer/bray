@@ -73,7 +73,7 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::RuntimeAbi(version) => {
             format!("{}.{}", version.major(), version.minor())
         }
-        DiagnosticArgValue::Type(ty) => format_english_type(*ty),
+        DiagnosticArgValue::Type(ty) => format_english_type(ty),
         DiagnosticArgValue::SelectionKind(kind) => format_english_selection_kind(*kind).to_owned(),
     }
 }
@@ -147,8 +147,8 @@ const fn format_english_selection_kind(
     }
 }
 
-fn format_english_type(ty: bray_diagnostics::DiagnosticType) -> String {
-    use bray_diagnostics::DiagnosticType;
+fn format_english_type(ty: &bray_diagnostics::DiagnosticType) -> String {
+    use bray_diagnostics::{DiagnosticType, DiagnosticTypeArgument};
 
     match ty {
         DiagnosticType::Error => "error type".to_owned(),
@@ -177,7 +177,26 @@ fn format_english_type(ty: bray_diagnostics::DiagnosticType) -> String {
         DiagnosticType::C64 => "c64".to_owned(),
         DiagnosticType::C128 => "c128".to_owned(),
         DiagnosticType::C256 => "c256".to_owned(),
-        DiagnosticType::Named => "named type".to_owned(),
+        DiagnosticType::Named(named) => {
+            let path = named.path().join(".");
+
+            if named.arguments().is_empty() {
+                return path;
+            }
+
+            let arguments = named
+                .arguments()
+                .iter()
+                .map(|argument| match argument {
+                    DiagnosticTypeArgument::Type(ty) => format_english_type(ty),
+                    DiagnosticTypeArgument::Constant => String::from("<const>"),
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            format!("{path}<{arguments}>")
+        }
+        DiagnosticType::Unknown => "unknown type".to_owned(),
         DiagnosticType::TypeParameter => "type parameter".to_owned(),
         DiagnosticType::ContextualSelf => "Self".to_owned(),
         DiagnosticType::TypeValuedMember => "type-valued member".to_owned(),

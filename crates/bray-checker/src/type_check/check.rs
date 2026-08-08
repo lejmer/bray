@@ -16,7 +16,7 @@ use super::ExpressionTypeInput;
 use super::cardinality::unproven_array_generators;
 use super::session::{ExpressionTypeSession, SessionProgress};
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
 struct DiagnosticConflict {
     expression: BoundExpressionId,
     expected: DiagnosticType,
@@ -212,11 +212,7 @@ pub(crate) fn diagnostic_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    crate::diagnostic::diagnostic_type(
-        request.semantic_values(),
-        request.available_compiler_known_symbols(),
-        ty,
-    )
+    crate::diagnostic::diagnostic_type(request.context(), ty)
 }
 
 #[cfg(test)]
@@ -1459,11 +1455,9 @@ mod tests {
         let request = CheckerUnitView::new(&fixture.unit, &entry, &context)
             .unwrap_or_else(|error| panic!("test checker view must be valid: {error:?}"));
 
-        let unit_type = crate::representation::representation_type(
-            request,
-            bray_compiler_known::RepresentationRole::Unit,
-        )
-        .unwrap_or_else(|error| panic!("unit type must be available: {error:?}"));
+        let unit_type =
+            crate::representation::representation_type(request, RepresentationRole::Unit)
+                .unwrap_or_else(|error| panic!("unit type must be available: {error:?}"));
 
         assert_eq!(
             result
@@ -1588,11 +1582,9 @@ mod tests {
         let request = CheckerUnitView::new(&unit, &entry, &context)
             .unwrap_or_else(|error| panic!("test checker view must be valid: {error:?}"));
 
-        let panic_report = crate::representation::representation_type(
-            request,
-            bray_compiler_known::RepresentationRole::PanicReport,
-        )
-        .unwrap_or_else(|error| panic!("PanicReport must be available: {error:?}"));
+        let panic_report =
+            crate::representation::representation_type(request, RepresentationRole::PanicReport)
+                .unwrap_or_else(|error| panic!("PanicReport must be available: {error:?}"));
 
         assert_eq!(error, panic_report);
     }

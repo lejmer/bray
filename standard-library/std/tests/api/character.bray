@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.character;
+module bray.standard_library_tests.character;
 
 using std.character;
 
@@ -6,7 +6,6 @@ using std.character;
 func character_operations()
 {
     let value: char = 'é';
-
     let scalar: u32 = std.character.scalar_value(value = value);
     let encoded_length: usize = std.character.utf8_length(value = value);
     let first_byte: u8 = std.character.utf8_byte(value = value, index = 0);

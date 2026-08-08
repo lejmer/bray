@@ -1,9 +1,0 @@
-module bray.standard_library_conformance.io_print;
-
-using std.io;
-
-@test
-func standard_output_is_captured() -> Result<unit, std.io.IoError>
-{
-    return std.io.print("captured-standard-output");
-}

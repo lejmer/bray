@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.numeric;
+module bray.standard_library_tests.numeric;
 
 using std.numeric;
 using std.numeric.I32Integer;

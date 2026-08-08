@@ -140,8 +140,9 @@ mod tests {
         DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
         DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
         DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind,
-        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticRuntimeAbiVersion,
-        DiagnosticSelectionKind, DiagnosticVisibility, SeverityKind,
+        DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
+        DiagnosticRuntimeAbiVersion, DiagnosticSelectionKind, DiagnosticType,
+        DiagnosticTypeArgument, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -274,11 +275,45 @@ mod tests {
             SeverityKind::Error,
         );
 
+        let named_type_mismatch = Diagnostic::new(
+            DiagnosticId::new(8),
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::expected_type(
+            DiagnosticType::Named(DiagnosticNamedType::new(
+                [String::from("collection"), String::from("MoveCursor")],
+                [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
+            )),
+        ))
+        .with_arg(DiagnosticArg::actual_type(
+            DiagnosticType::Named(DiagnosticNamedType::new(
+                [String::from("collection"), String::from("ReadCursor")],
+                [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
+            )),
+        ));
+
+        let unavailable_await_dependency = Diagnostic::new(
+            DiagnosticId::new(9),
+            DiagnosticKind::CheckingUnavailableAwaitDependency,
+            SeverityKind::Error,
+        );
+
         let renderer = DiagnosticRenderer::english();
 
         assert_eq!(
             renderer.render(&incompatible).message(),
             "expected bool, but found tuple type with 2 elements"
+        );
+
+        assert_eq!(
+            renderer.render(&named_type_mismatch).message(),
+            "expected collection.MoveCursor<i32>, but found collection.ReadCursor<i32>"
+        );
+
+        assert_eq!(
+            renderer.render(&unavailable_await_dependency).message(),
+            "awaited computation depends on a value or borrow that is no longer available"
         );
 
         assert_eq!(

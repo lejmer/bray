@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.lifecycle;
+module bray.standard_library_tests.lifecycle;
 
 using std.bytes;
 using std.format;

@@ -7,6 +7,7 @@ use bray_project::{
     PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblem, load_project_graph,
     load_standard_library_project_graph,
 };
+use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::PackageIdentity;
 use bray_target::TargetOutputKind;
 
@@ -31,12 +32,56 @@ fn repository_standard_library_workspace_uses_the_reserved_source_boundary() {
 
     assert_eq!(graph.packages().len(), 1);
 
+    assert_eq!(
+        graph.source_authority(),
+        PackageSourceAuthority::StandardLibrary
+    );
+
     let package = &graph.packages()[0];
 
     assert_eq!(package.identity().as_str(), "std");
     assert_eq!(package.version().to_string(), "0.1.0");
-    assert_eq!(package.products()[0].identity().name(), "library");
-    assert_eq!(package.products()[0].targets().len(), 6);
+
+    assert_eq!(
+        package
+            .products()
+            .iter()
+            .map(|product| product.identity().name())
+            .collect::<Vec<_>>(),
+        vec!["api", "library", "outcomes"]
+    );
+
+    let api = &package.products()[0];
+    let library = &package.products()[1];
+
+    assert_eq!(api.tested_library(), Some(library.identity()));
+    assert_eq!(library.targets().len(), 6);
+}
+
+#[test]
+fn tested_libraries_must_name_sibling_library_products() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    let manifest = workspace.path().join("app").join("bray-package.json");
+
+    replace(
+        manifest.clone(),
+        r#""kind": "executable","#,
+        r#""kind": "test", "tested_library": "missing","#,
+    );
+
+    let Err(error) = load_project_graph(workspace.path()) else {
+        panic!("a missing tested library must reject the graph");
+    };
+
+    assert!(matches!(
+        error,
+        ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::UnknownDependencyProduct,
+            ..
+        }
+    ));
 }
 
 #[test]

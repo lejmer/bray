@@ -188,11 +188,8 @@ impl<'unit> Lowerer<'unit> {
         self.builder.finish(entry).map_err(Into::into)
     }
 
-    pub(super) fn source(
-        &self,
-        origin: bray_bound_tree::BoundNodeOrigin,
-    ) -> bray_ir::MirSourceAnchor {
-        bray_ir::MirSourceAnchor::source(origin)
+    pub(super) fn source(&self, origin: BoundNodeOrigin) -> MirSourceAnchor {
+        MirSourceAnchor::source(origin)
     }
 
     pub(super) fn retained_source(source: &MirSourceAnchor) -> MirSourceAnchor {
@@ -1101,6 +1098,7 @@ mod tests {
                 .iter()
                 .copied()
                 .map(|expression| (expression, BoundDependencyContract::new([]))),
+            [],
             [],
             [],
             false,

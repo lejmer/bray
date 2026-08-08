@@ -656,7 +656,7 @@ localized compiler diagnostics.
 
 ## Conformance
 
-The conformance suite must cover:
+The standard-library test suite must cover:
 
 - public package identity and normal visibility behavior,
 - lossless path, argument, and environment round trips,

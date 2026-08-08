@@ -204,12 +204,7 @@ impl<'project> ProjectCompiler<'project> {
         outputs: &mut Vec<ToolOutput>,
         progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<bool, DiagnosticBag> {
-        let dependencies = self
-            .project_package(product.identity().package())?
-            .dependencies()
-            .iter()
-            .map(|dependency| dependency.product().clone())
-            .collect::<Vec<_>>();
+        let dependencies = self.direct_dependencies(product)?;
 
         for dependency in dependencies {
             if !self.ensure_dependency(&dependency, target, outputs, progress)? {
@@ -303,6 +298,8 @@ impl<'project> ProjectCompiler<'project> {
             .arg(self.output_format.as_str())
             .arg("--package")
             .arg(product.identity().package().as_str())
+            .arg("--source-package")
+            .arg(source_package(product)?.as_str())
             .arg("--package-version")
             .arg(
                 self.project_package(product.identity().package())?
@@ -314,9 +311,17 @@ impl<'project> ProjectCompiler<'project> {
             .arg("--product-kind")
             .arg(product_kind_text(product.kind()))
             .arg("--target")
-            .arg(target.as_str())
-            .arg("--standard-library-root")
-            .arg(self.toolchain.standard_library_root().into_os_string());
+            .arg(target.as_str());
+
+        if consumes_standard_library(product) {
+            request
+                .arg("--standard-library-root")
+                .arg(self.toolchain.standard_library_root().into_os_string());
+        }
+
+        if self.graph.source_authority().is_standard_library() {
+            request.arg("--standard-library-source");
+        }
 
         for dependency in self.dependencies(product, target)? {
             request
@@ -363,12 +368,7 @@ impl<'project> ProjectCompiler<'project> {
     ) -> Result<BTreeSet<ProductIdentity>, DiagnosticBag> {
         let mut dependencies = BTreeSet::new();
 
-        let mut pending = self
-            .project_package(product.identity().package())?
-            .dependencies()
-            .iter()
-            .map(|dependency| dependency.product().clone())
-            .collect::<Vec<_>>();
+        let mut pending = self.direct_dependencies(product)?;
 
         while let Some(identity) = pending.pop() {
             if !dependencies.insert(identity.clone()) {
@@ -377,12 +377,13 @@ impl<'project> ProjectCompiler<'project> {
 
             let package = self.project_package(identity.package())?;
 
-            pending.extend(
-                package
-                    .dependencies()
-                    .iter()
-                    .map(|dependency| dependency.product().clone()),
-            );
+            let product = package
+                .products()
+                .iter()
+                .find(|product| product.identity() == &identity)
+                .ok_or_else(|| selection_diagnostics(identity.name()))?;
+
+            pending.extend(self.direct_dependencies(product)?);
         }
 
         Ok(dependencies)
@@ -441,13 +442,9 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProjectProduct,
         target: &TargetIdentity,
     ) -> Result<Vec<DependencyArtifact>, DiagnosticBag> {
-        let package = self.project_package(product.identity().package())?;
-
-        package
-            .dependencies()
-            .iter()
-            .map(|dependency| {
-                let identity = dependency.product();
+        self.direct_dependencies(product)?
+            .into_iter()
+            .map(|identity| {
                 let key = (identity.clone(), target.clone());
 
                 let path = self
@@ -456,12 +453,34 @@ impl<'project> ProjectCompiler<'project> {
                     .ok_or_else(|| operation_diagnostics("dependency_interface"))?;
 
                 Ok(DependencyArtifact {
-                    identity: identity.clone(),
+                    identity,
                     interface: path.clone(),
                     implementation: path.with_extension("brayimpl"),
                 })
             })
             .collect()
+    }
+
+    fn direct_dependencies(
+        &self,
+        product: &ProjectProduct,
+    ) -> Result<Vec<ProductIdentity>, DiagnosticBag> {
+        let package = self.project_package(product.identity().package())?;
+
+        let mut dependencies = package
+            .dependencies()
+            .iter()
+            .map(|dependency| dependency.product().clone())
+            .collect::<BTreeSet<_>>();
+
+        dependencies.extend(
+            product
+                .tested_library()
+                .filter(|library| !is_public_standard_library(library))
+                .cloned(),
+        );
+
+        Ok(dependencies.into_iter().collect())
     }
 
     fn project_product(&self, planned: &PlannedProduct) -> Result<&ProjectProduct, DiagnosticBag> {
@@ -546,6 +565,28 @@ impl<'project> ProjectCompiler<'project> {
     fn test_catalog_path(&self, output_directory: &Path, product: &ProjectProduct) -> PathBuf {
         output_directory.join(format!("{}.braytests", product.identity().name()))
     }
+}
+
+fn source_package(product: &ProjectProduct) -> Result<PackageIdentity, DiagnosticBag> {
+    if product.tested_library().is_none() {
+        return Ok(product.identity().package().clone());
+    }
+
+    PackageIdentity::try_new(format!(
+        "{}.tests.{}",
+        product.identity().package().as_str(),
+        product.identity().name()
+    ))
+    .ok_or_else(|| operation_diagnostics("test_source_package_identity"))
+}
+
+fn consumes_standard_library(product: &ProjectProduct) -> bool {
+    !is_public_standard_library(product.identity())
+}
+
+fn is_public_standard_library(product: &ProductIdentity) -> bool {
+    product.package().as_str() == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+        && product.name() == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY
 }
 
 fn display_path(path: &Path, workspace_root: &Path) -> String {

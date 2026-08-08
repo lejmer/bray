@@ -1829,8 +1829,17 @@ impl Compilation {
             .receiver()
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let receiver_ty = replace_contextual_self(values, receiver.ty(), ty)?;
+        let receiver_ty =
+            self.concrete_codegen_type(receiver.ty(), Some(*substitution), None, cancellation)?;
+
         let receiver = receiver_codegen_type(values, receiver_ty, receiver.mode())?;
+
+        let result = self.concrete_codegen_type(
+            signature.result(),
+            Some(*substitution),
+            None,
+            cancellation,
+        )?;
 
         let callable_type = values
             .type_data(signature.callable_type())
@@ -1843,7 +1852,7 @@ impl Compilation {
         Ok(Some((
             MirCallableReference::new(callable, callable_type.abi()),
             receiver,
-            signature.result(),
+            result,
         )))
     }
 
@@ -3679,10 +3688,6 @@ impl Compilation {
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let receiver_container = facts
-            .containing_symbol(definition.callable_symbol().into_any())
-            .map_err(super::super::binder::binder_fact_error)?;
-
         let checker = CompilationCheckerContext::new(facts)
             .with_implementation_witnesses(instance.implementation_witnesses().iter().copied());
 
@@ -3749,38 +3754,54 @@ impl Compilation {
         let receiver = signature
             .receiver()
             .map(|receiver| {
-                let receiver_ty = concrete_callable_receiver(
-                    values,
-                    receiver_container,
-                    substitution,
+                let receiver_ty = self.concrete_codegen_type(
                     receiver.ty(),
+                    Some(substitution),
+                    Some(instance),
+                    cancellation,
                 )?;
 
                 receiver_codegen_type(values, receiver_ty, receiver.mode())
+                    .map_err(CodegenFactError::from)
             })
             .transpose()?;
 
+        let parameter_types = signature
+            .parameters()
+            .iter()
+            .map(|parameter| {
+                self.concrete_codegen_type(
+                    parameter.ty(),
+                    Some(substitution),
+                    Some(instance),
+                    cancellation,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         let parameters = receiver
             .into_iter()
-            .chain(
-                signature
-                    .parameters()
-                    .iter()
-                    .map(|parameter| parameter.ty()),
-            )
+            .chain(parameter_types)
             .map(|ty| CodegenParameterMapping::direct(ty, None, []));
+
+        let result_type = self.concrete_codegen_type(
+            signature.result(),
+            Some(substitution),
+            Some(instance),
+            cancellation,
+        )?;
 
         let result = if callable.execution() == CallableExecution::Asynchronous {
             let future = self
                 .available_compiler_known_symbols()
-                .unary_representation_type(values, RepresentationRole::Future, signature.result())
+                .unary_representation_type(values, RepresentationRole::Future, result_type)
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             CodegenResultMapping::direct(future, None, [])
-        } else if is_unit(self, signature.result())? {
+        } else if is_unit(self, result_type)? {
             CodegenResultMapping::Void
         } else {
-            CodegenResultMapping::direct(signature.result(), None, [])
+            CodegenResultMapping::direct(result_type, None, [])
         };
 
         Ok(CodegenCallableSignature::new(
@@ -3926,24 +3947,20 @@ impl Compilation {
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let receiver_container = facts
-            .containing_symbol(owner.into_any())
-            .map_err(super::super::binder::binder_fact_error)?;
-
         let values = self.semantic_value_store()?;
 
         let receiver = signature
             .receiver()
             .filter(|receiver| AnySymbolId::ReceiverParameter(receiver.parameter()) == parameter)
             .map(|receiver| {
-                let ty = concrete_callable_receiver(
-                    values,
-                    receiver_container,
-                    substitution,
+                let ty = self.concrete_codegen_type(
                     receiver.ty(),
+                    Some(substitution),
+                    Some(instance),
+                    cancellation,
                 )?;
 
-                receiver_codegen_type(values, ty, receiver.mode())
+                receiver_codegen_type(values, ty, receiver.mode()).map_err(CodegenFactError::from)
             })
             .transpose()?;
 
@@ -3959,7 +3976,7 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?,
         };
 
-        self.concrete_codegen_type(ty, None, Some(instance), cancellation)
+        self.concrete_codegen_type(ty, Some(substitution), Some(instance), cancellation)
     }
 
     fn codegen_callable_definition(
@@ -4331,32 +4348,6 @@ fn lifecycle_operation_block_kind(
     }
 }
 
-fn concrete_callable_receiver(
-    values: &bray_symbols::SemanticValueStore,
-    container: Option<AnySymbolId>,
-    substitution: GenericSubstitutionId,
-    receiver: TypeId,
-) -> Result<TypeId, FactQueryError> {
-    let Some(container) = container else {
-        return Ok(receiver);
-    };
-
-    let Some(definition) = NamedTypeSymbolId::try_from_any(container) else {
-        return Ok(receiver);
-    };
-
-    let substitution = substitution_for_owner(values, container, [substitution])?;
-
-    let concrete_self = values
-        .intern_type(TypeData::Named {
-            definition,
-            substitution,
-        })
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    replace_contextual_self(values, receiver, concrete_self)
-}
-
 fn receiver_codegen_type(
     values: &bray_symbols::SemanticValueStore,
     ty: TypeId,
@@ -4379,31 +4370,6 @@ fn receiver_codegen_type(
             .intern_type(data)
             .map_err(|_| FactQueryError::InfrastructureFailure),
         None => Ok(ty),
-    }
-}
-
-fn replace_contextual_self(
-    values: &bray_symbols::SemanticValueStore,
-    receiver: TypeId,
-    concrete_self: TypeId,
-) -> Result<TypeId, FactQueryError> {
-    let receiver_data = values
-        .type_data(receiver)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    match receiver_data.as_ref() {
-        TypeData::ContextualSelf(_) => Ok(concrete_self),
-        TypeData::Borrow { kind, target } => {
-            let target = replace_contextual_self(values, *target, concrete_self)?;
-
-            values
-                .intern_type(TypeData::Borrow {
-                    kind: *kind,
-                    target,
-                })
-                .map_err(|_| FactQueryError::InfrastructureFailure)
-        }
-        _ => Ok(receiver),
     }
 }
 

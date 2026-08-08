@@ -124,6 +124,7 @@ fn dependency_implementation_diagnostics(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DriverCompilationConfiguration {
     product: ProductIdentity,
+    source_package: PackageIdentity,
     package_version: PackageVersion,
     product_kind: ProductKind,
     target: NativeTarget,
@@ -134,6 +135,7 @@ impl DriverCompilationConfiguration {
     /// Creates an exact compiler-facing product context.
     pub fn new(
         product: ProductIdentity,
+        source_package: PackageIdentity,
         package_version: PackageVersion,
         product_kind: ProductKind,
         target: NativeTarget,
@@ -147,6 +149,7 @@ impl DriverCompilationConfiguration {
 
         Self {
             product,
+            source_package,
             package_version,
             product_kind,
             target,
@@ -157,6 +160,11 @@ impl DriverCompilationConfiguration {
     /// Returns the exact package-product identity.
     pub const fn product(&self) -> &ProductIdentity {
         &self.product
+    }
+
+    /// Returns the package identity assigned to declarations in the source inputs.
+    pub const fn source_package(&self) -> &PackageIdentity {
+        &self.source_package
     }
 
     /// Returns the semantic version of the selected package.
@@ -189,6 +197,8 @@ pub(crate) struct CliCompilationOptions {
         default_value = "command.line"
     )]
     package: String,
+    #[arg(long = "source-package", global = true, value_name = "IDENTITY")]
+    source_package: Option<String>,
     #[arg(
         long = "package-version",
         global = true,
@@ -232,6 +242,15 @@ impl CliCompilationOptions {
         let package = PackageIdentity::try_new(self.package.clone())
             .ok_or_else(|| invalid_selection(&self.package))?;
 
+        let source_package = self
+            .source_package
+            .map(|identity| {
+                PackageIdentity::try_new(identity.clone())
+                    .ok_or_else(|| invalid_selection(identity))
+            })
+            .transpose()?
+            .unwrap_or_else(|| package.clone());
+
         let package_version = PackageVersion::try_new(&self.package_version)
             .ok_or_else(|| invalid_selection(&self.package_version))?;
 
@@ -264,6 +283,7 @@ impl CliCompilationOptions {
 
         Ok(DriverCompilationConfiguration::new(
             product,
+            source_package,
             package_version,
             self.product_kind.into(),
             self.target.into(),

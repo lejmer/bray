@@ -56,15 +56,16 @@ pub(super) fn diagnostic_abi(abi: CallableAbi) -> DiagnosticCallableAbi {
 pub(super) fn template_diagnostic_type(
     compilation: &Compilation,
     template: &TypeExpressionTemplate,
+    cancellation: &crate::fact::CancellationToken,
 ) -> Result<DiagnosticType, FactQueryError> {
     let diagnostic = match template {
-        TypeExpressionTemplate::Resolved(ty) => bray_checker::diagnostic_type(
-            compilation.semantic_value_store()?,
-            compilation.available_compiler_known_symbols(),
-            *ty,
-        )
-        .map_err(FactQueryError::CheckerInfrastructure)?,
-        TypeExpressionTemplate::Named { .. } => DiagnosticType::Named,
+        TypeExpressionTemplate::Resolved(ty) => {
+            let context = compilation.checker_context(cancellation)?;
+
+            bray_checker::diagnostic_type(&context, *ty)
+                .map_err(FactQueryError::CheckerInfrastructure)?
+        }
+        TypeExpressionTemplate::Named { .. } => DiagnosticType::Unknown,
         TypeExpressionTemplate::TypeValuedMemberProjection { .. } => {
             DiagnosticType::TypeValuedMember
         }

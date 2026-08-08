@@ -5439,10 +5439,13 @@ func other()
             SemanticSelection::Operation(SelectedOperation::Member(_))
         )));
 
-        assert!(selections.value().entries().iter().any(|entry| matches!(
-            entry.selection(),
-            SemanticSelection::Call(_)
-        )));
+        assert!(
+            selections
+                .value()
+                .entries()
+                .iter()
+                .any(|entry| matches!(entry.selection(), SemanticSelection::Call(_)))
+        );
     }
 
     #[test]
@@ -5495,10 +5498,13 @@ func other()
             SemanticSelection::Operation(SelectedOperation::Member(_))
         )));
 
-        assert!(selections.value().entries().iter().any(|entry| matches!(
-            entry.selection(),
-            SemanticSelection::Call(_)
-        )));
+        assert!(
+            selections
+                .value()
+                .entries()
+                .iter()
+                .any(|entry| matches!(entry.selection(), SemanticSelection::Call(_)))
+        );
     }
 
     #[test]

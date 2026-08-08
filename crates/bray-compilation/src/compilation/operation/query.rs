@@ -246,7 +246,7 @@ impl Compilation {
     fn operation_input_types(
         &self,
         key: &OperationSelectionFactKey,
-        unit: &bray_bound_tree::BoundUnit,
+        unit: &BoundUnit,
         expression: &BoundExpression,
         kind: bray_bound_tree::SelectionKind,
         provisional: &bray_bound_tree::CheckedExpressionTypes,
@@ -322,7 +322,7 @@ impl Compilation {
         &self,
         key: &OperationSelectionFactKey,
         facts: &CompilationBinderFacts<'_>,
-        unit: &bray_bound_tree::BoundUnit,
+        unit: &BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         operands: impl IntoIterator<Item = BoundExpressionId>,
         candidates: impl IntoIterator<Item = OperationCandidate>,

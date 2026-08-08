@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.format;
+module bray.standard_library_tests.format;
 
 using std.format;
 using std.format.BooleanFormat;
@@ -45,8 +45,10 @@ func formatting_options_control_output() -> Result<unit, std.memory.MemoryLayout
 {
     let options: std.format.Options = std.format.Options(
         radix = std.format.Radix.HexadecimalUppercase,
+
         precision = 4,
         width = 6,
+
         alignment = std.format.Alignment.Right,
         sign = std.format.Sign.Always,
         escaping = std.format.Escaping.Raw,
@@ -69,8 +71,10 @@ func escaped_string_formatting() -> Result<unit, std.memory.MemoryLayoutError>
 {
     let options: std.format.Options = std.format.Options(
         radix = std.format.Radix.Decimal,
+
         precision = 0,
         width = 0,
+
         alignment = std.format.Alignment.Left,
         sign = std.format.Sign.NegativeOnly,
         escaping = std.format.Escaping.Quoted,

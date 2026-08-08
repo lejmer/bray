@@ -44,9 +44,9 @@ internal struct ChildCommandState
     mut argument_values: std.collection.List<std.path.NativeText>;
     mut environment_values: std.collection.List<EnvironmentEntry>;
     mut working_directory: std.path.Path?;
-    mut standard_input: ChildStreamPolicy;
-    mut standard_output: ChildStreamPolicy;
-    mut standard_error: ChildStreamPolicy;
+    mut input_policy: ChildStreamPolicy;
+    mut output_policy: ChildStreamPolicy;
+    mut error_policy: ChildStreamPolicy;
 }
 
 struct ChildCommand
@@ -69,9 +69,9 @@ struct ChildCommand
                     argument_values = initial_arguments,
                     environment_values = initial_environment,
                     working_directory = none,
-                    standard_input = ChildStreamPolicy.Inherit,
-                    standard_output = ChildStreamPolicy.Inherit,
-                    standard_error = ChildStreamPolicy.Inherit,
+                    input_policy = ChildStreamPolicy.Inherit,
+                    output_policy = ChildStreamPolicy.Inherit,
+                    error_policy = ChildStreamPolicy.Inherit,
                 }
             }
         );
@@ -124,17 +124,17 @@ struct ChildCommand
 
     mut func standard_input(policy: ChildStreamPolicy) -> unit
     {
-        self.state.standard_input = policy;
+        self.state.input_policy = policy;
     }
 
     mut func standard_output(policy: ChildStreamPolicy) -> unit
     {
-        self.state.standard_output = policy;
+        self.state.output_policy = policy;
     }
 
     mut func standard_error(policy: ChildStreamPolicy) -> unit
     {
-        self.state.standard_error = policy;
+        self.state.error_policy = policy;
     }
 
     consume func spawn() -> Result<ChildProcess, ChildError>
@@ -345,9 +345,9 @@ trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildP
                 working_directory = internal std.process.path_span(path = &directory),
                 arguments = &argument_views,
                 environment = &environment_views,
-                standard_input = state.standard_input,
-                standard_output = state.standard_output,
-                standard_error = state.standard_error,
+                standard_input = state.input_policy,
+                standard_output = state.output_policy,
+                standard_error = state.error_policy,
             );
         }
         case none
@@ -357,9 +357,9 @@ trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildP
                 working_directory = internal std.process.empty_span(),
                 arguments = &argument_views,
                 environment = &environment_views,
-                standard_input = state.standard_input,
-                standard_output = state.standard_output,
-                standard_error = state.standard_error,
+                standard_input = state.input_policy,
+                standard_output = state.output_policy,
+                standard_error = state.error_policy,
             );
         }
     }

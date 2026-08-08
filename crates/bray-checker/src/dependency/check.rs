@@ -8,7 +8,7 @@ use bray_bound_tree::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CallableSignatureFact;
 
-use super::call::{selected_call_contract, selected_iteration_contract};
+use super::call::{selected_call_contracts, selected_iteration_contract};
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
@@ -41,6 +41,7 @@ where
     }
 
     let mut expression_requirements = BTreeMap::new();
+    let mut deferred_expression_requirements = BTreeMap::new();
     let mut access_requirements = BTreeMap::new();
     let mut is_recovered = flow.is_recovered();
 
@@ -75,7 +76,19 @@ where
     for entry in selections.entries() {
         let contract = match entry.selection() {
             SemanticSelection::Call(call) => {
-                selected_call_contract(request, storage, entry.expression(), call)
+                match selected_call_contracts(request, storage, entry.expression(), call) {
+                    Ok(contracts) => {
+                        if let Some(deferred) = contracts.deferred() {
+                            deferred_expression_requirements
+                                .entry(entry.expression())
+                                .or_insert_with(Vec::new)
+                                .extend(deferred.requirements().iter().cloned());
+                        }
+
+                        Ok(contracts.invocation().clone())
+                    }
+                    Err(error) => Err(error),
+                }
             }
             SemanticSelection::Iteration(iteration) => {
                 selected_iteration_contract(request, storage, iteration)
@@ -121,6 +134,22 @@ where
             .entry(expression)
             .or_default()
             .extend(child_requirements);
+
+        let child_deferred_requirements = node
+            .child_expressions()
+            .flat_map(|child| {
+                deferred_expression_requirements
+                    .get(&child)
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+            })
+            .collect::<Vec<_>>();
+
+        deferred_expression_requirements
+            .entry(expression)
+            .or_default()
+            .extend(child_deferred_requirements);
     }
 
     let expressions = request.unit().tree().expressions().map(|(expression, _)| {
@@ -131,6 +160,14 @@ where
 
         (expression, BoundDependencyContract::new(requirements))
     });
+
+    let deferred_expressions =
+        deferred_expression_requirements
+            .into_iter()
+            .filter_map(|(expression, requirements)| {
+                (!requirements.is_empty())
+                    .then(|| (expression, BoundDependencyContract::new(requirements)))
+            });
 
     let borrows = storage
         .borrow_capability_entries()
@@ -159,6 +196,7 @@ where
         request.unit(),
         storage,
         expressions,
+        deferred_expressions,
         accesses,
         borrows,
         is_recovered,

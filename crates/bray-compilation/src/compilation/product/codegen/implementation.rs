@@ -1138,7 +1138,7 @@ mod tests {
         assert!(
             matches!(
                 error.as_ref(),
-                super::NativeProductFactError::InvalidExecutableHost(
+                NativeProductFactError::InvalidExecutableHost(
                     ExecutableHostContractBuildError::IncompatibleRuntime(
                         RuntimeCompatibilityError::MissingRole(RuntimeAbiRole::PanicPropagation)
                     )

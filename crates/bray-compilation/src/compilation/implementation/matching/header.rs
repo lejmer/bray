@@ -2,14 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_symbols::{
     CallableTypeData, GenericArgument, GenericParameterSymbolId, GenericSubstitutionData,
-    GenericSubstitutionId, SemanticValueStore, SemanticValueStoreError, TraitApplicationId,
-    TypeData, TypeId,
+    GenericSubstitutionId, ImplementationSymbolId, SemanticValueStore, SemanticValueStoreError,
+    TraitApplicationId, TypeData, TypeId,
 };
 
 use super::super::index::ImplementationHeader;
 
 #[derive(Debug)]
-pub(in crate::compilation::implementation) enum ImplementationMatchError {
+pub(in crate::compilation) enum ImplementationMatchError {
     InvalidSubstitution,
     SemanticValue,
 }
@@ -34,7 +34,23 @@ pub(in crate::compilation::implementation) fn match_implementation_header(
         return Ok(None);
     }
 
-    matcher.finish(header)
+    matcher.finish(header.implementation(), header.parameters())
+}
+
+pub(in crate::compilation) fn match_implementation_subject(
+    implementation: ImplementationSymbolId,
+    parameters: &[GenericParameterSymbolId],
+    pattern: TypeId,
+    actual: TypeId,
+    values: &SemanticValueStore,
+) -> Result<Option<GenericSubstitutionId>, ImplementationMatchError> {
+    let mut matcher = HeaderMatcher::new(parameters, values);
+
+    if !matcher.match_type(pattern, actual)? {
+        return Ok(None);
+    }
+
+    matcher.finish(implementation, parameters)
 }
 
 pub(super) struct HeaderMatcher<'values> {
@@ -56,11 +72,24 @@ impl<'values> HeaderMatcher<'values> {
     }
 
     fn finish(
-        self,
-        header: &ImplementationHeader,
+        mut self,
+        implementation: ImplementationSymbolId,
+        parameters: &[GenericParameterSymbolId],
     ) -> Result<Option<GenericSubstitutionId>, ImplementationMatchError> {
-        let Some(arguments) = header
-            .parameters()
+        for parameter in parameters {
+            if self.arguments.contains_key(parameter) {
+                continue;
+            }
+
+            let argument = self
+                .values
+                .intern_generic_parameter_argument(*parameter)
+                .map_err(|_| ImplementationMatchError::SemanticValue)?;
+
+            self.arguments.insert(*parameter, argument);
+        }
+
+        let Some(arguments) = parameters
             .iter()
             .map(|parameter| self.arguments.get(parameter).copied())
             .collect::<Option<Vec<_>>>()
@@ -68,13 +97,12 @@ impl<'values> HeaderMatcher<'values> {
             return Ok(None);
         };
 
-        let Some(owner) = bray_symbols::GenericOwnerId::try_new(header.implementation().into_any())
-        else {
+        let Some(owner) = bray_symbols::GenericOwnerId::try_new(implementation.into_any()) else {
             return Ok(None);
         };
 
         let substitution =
-            GenericSubstitutionData::try_new(owner, header.parameters().iter().copied(), arguments)
+            GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
                 .map_err(|_| ImplementationMatchError::InvalidSubstitution)?;
 
         self.values
@@ -351,7 +379,8 @@ impl<'values> HeaderMatcher<'values> {
 mod tests {
     use bray_symbols::{
         ConstantTermData, GenericArgument, GenericConstParameterSymbolId, GenericParameterSymbolId,
-        GenericTypeParameterSymbolId, SemanticValueStore, SymbolId, TypeData,
+        GenericTypeParameterSymbolId, ImplementationSymbolId, InherentImplementationSymbolId,
+        SemanticValueStore, SymbolId, TypeData,
     };
 
     use super::HeaderMatcher;
@@ -392,5 +421,37 @@ mod tests {
             const_matcher.arguments.get(&const_parameter_id),
             Some(&GenericArgument::Constant(term))
         );
+    }
+
+    #[test]
+    fn equal_open_subjects_produce_identity_substitutions() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic value store must build: {error:?}"));
+
+        let implementation = ImplementationSymbolId::Inherent(
+            InherentImplementationSymbolId::from_symbol_id(SymbolId::new(1)),
+        );
+
+        let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
+        let parameter = GenericParameterSymbolId::Type(parameter);
+
+        let argument = values
+            .intern_generic_parameter_argument(parameter)
+            .unwrap_or_else(|error| panic!("parameter argument must be valid: {error:?}"));
+
+        let matcher = HeaderMatcher::new(&[parameter], &values);
+
+        assert_eq!(matcher.arguments.get(&parameter), None);
+
+        let substitution = matcher
+            .finish(implementation, &[parameter])
+            .unwrap_or_else(|error| panic!("identity substitution must build: {error:?}"))
+            .unwrap_or_else(|| panic!("identity substitution must be present"));
+
+        let substitution = values
+            .generic_substitution_data(substitution)
+            .unwrap_or_else(|error| panic!("identity substitution must be stored: {error:?}"));
+
+        assert_eq!(substitution.bindings()[0].argument(), argument);
     }
 }

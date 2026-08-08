@@ -15,7 +15,7 @@ use super::candidate::{PreparedExpressions, converge, final_selections, prepare_
 use super::declared::{PreparedDeclaredTypes, defer_return_operands, prepare_declared_types};
 use super::pattern_reference::{
     PreparedPatternReferences, pattern_binding_reference_expressions,
-    prepare_pattern_binding_references,
+    prepare_pattern_binding_references, resolved_pattern_binding_evidence,
 };
 use crate::expression::check_literal_values;
 use crate::type_check::{
@@ -71,29 +71,48 @@ where
         );
     }
 
-    let first_types = match check_provisional_expression_types(
-        request,
-        declared_types,
-        nested_callables,
-        candidate_sets,
-        &pending,
-        operation_input,
-    ) {
-        CheckerOutcome::Complete(result) => result.into_parts().0,
-        CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-    };
+    let mut evidence = Vec::new();
+    let mut deferred = pending.clone();
 
-    let provisional_patterns =
-        match crate::pattern::check_patterns(request, &first_types, pattern_input) {
+    let provisional_patterns = loop {
+        let types = match check_provisional_expression_types(
+            request,
+            declared_types,
+            nested_callables,
+            candidate_sets,
+            &evidence,
+            &deferred,
+            operation_input,
+        ) {
             CheckerOutcome::Complete(result) => result.into_parts().0,
             CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
             CheckerOutcome::InfrastructureFailure(error) => {
                 return CheckerOutcome::InfrastructureFailure(error);
             }
         };
+
+        let patterns = match crate::pattern::check_patterns(request, &types, pattern_input) {
+            CheckerOutcome::Complete(result) => result.into_parts().0,
+            CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
+            CheckerOutcome::InfrastructureFailure(error) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+        };
+
+        let resolved = match resolved_pattern_binding_evidence(request, &patterns, &deferred) {
+            Ok(resolved) => resolved,
+            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        };
+
+        if resolved.is_empty() {
+            break patterns;
+        }
+
+        for entry in resolved {
+            deferred.remove(&entry.expression());
+            evidence.push(entry);
+        }
+    };
 
     let prepared = match prepare_pattern_binding_references(request, &provisional_patterns, pending)
     {
@@ -116,6 +135,7 @@ fn check_provisional_expression_types<C>(
     declared_types: &DeclaredValueTypeTemplates,
     nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
+    evidence: &[ExpressionTypeEvidence],
     deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
     operation_input: &crate::ExpressionTypeInput,
 ) -> CheckerOutcome<bray_bound_tree::CheckedExpressionTypes>
@@ -130,7 +150,7 @@ where
         declared_types,
         nested_callables,
         candidate_sets,
-        &[],
+        evidence,
         deferred,
         operation_input,
     ) {
