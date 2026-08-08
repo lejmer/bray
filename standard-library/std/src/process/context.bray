@@ -1,4 +1,4 @@
-module std.process;
+trusted module std.process;
 
 using std.memory;
 using std.path;

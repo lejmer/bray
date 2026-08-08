@@ -1,4 +1,4 @@
-module std.process;
+trusted module std.process;
 
 using std.io;
 using std.memory;
@@ -30,7 +30,7 @@ struct ChildInput
         }
     }
 
-    consume trusted mut func close() -> Result<unit, std.io.IoError>
+    consume mut func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
     {
         return trusted close_child_input(&mut self);
@@ -64,7 +64,7 @@ struct ChildOutput
         }
     }
 
-    consume trusted mut func close() -> Result<unit, std.io.IoError>
+    consume mut func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
     {
         return trusted close_child_output(&mut self);
@@ -73,13 +73,13 @@ struct ChildOutput
 
 impl ChildInputWriter = ChildInput(std.io.Writer)
 {
-    trusted mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
         return trusted child_input_write(&mut self, source);
     }
 
-    trusted mut func flush() -> Result<unit, std.io.IoError>
+    mut func flush() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
     {
         return trusted child_input_flush(&mut self);
@@ -88,7 +88,7 @@ impl ChildInputWriter = ChildInput(std.io.Writer)
 
 impl ChildOutputReader = ChildOutput(std.io.Reader)
 {
-    trusted mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+    mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
         return trusted child_output_read(&mut self, destination);
@@ -102,9 +102,7 @@ internal func child_input(handle: u64) -> ChildInput?
         return none;
     }
 
-    let mut value: ChildInput? = none;
-
-    value =
+    let input: ChildInput = ChildInput
     {
         state =
         {
@@ -112,6 +110,10 @@ internal func child_input(handle: u64) -> ChildInput?
             is_open = true,
         }
     };
+
+    let mut value: ChildInput? = none;
+
+    value = input;
 
     return value;
 }
@@ -123,9 +125,7 @@ internal func child_output(handle: u64) -> ChildOutput?
         return none;
     }
 
-    let mut value: ChildOutput? = none;
-
-    value =
+    let output: ChildOutput = ChildOutput
     {
         state =
         {
@@ -133,6 +133,10 @@ internal func child_output(handle: u64) -> ChildOutput?
             is_open = true,
         }
     };
+
+    let mut value: ChildOutput? = none;
+
+    value = output;
 
     return value;
 }
@@ -155,9 +159,12 @@ trusted internal func child_input_write(pos input: &mut ChildInput, pos source: 
         transferred = std.memory.address_of_mut(&mut transferred),
     );
 
-    try internal std.io.checked_transfer_status(status, transferred = transferred);
-
-    return Ok(transferred as usize);
+    return internal std.io.checked_transfer(
+        status,
+        transferred = transferred,
+        maximum = internal std.memory.byte_slice_length(source),
+        require_progress = true,
+    );
 }
 
 trusted internal func child_input_flush(pos input: &mut ChildInput) -> Result<unit, std.io.IoError>
@@ -185,17 +192,21 @@ trusted internal func child_output_read(
     }
 
     let mut transferred: u64 = 0;
+    let maximum: usize = internal std.memory.byte_slice_length(&destination);
 
     let status: std.platform.PlatformStatus = trusted internal std.io.platform_stream_read(
         handle = output.state.handle,
         destination = internal std.memory.byte_slice_pointer_mut(destination),
-        length = internal std.memory.byte_slice_length(destination) as u64,
+        length = maximum as u64,
         transferred = std.memory.address_of_mut(&mut transferred),
     );
 
-    try internal std.io.checked_transfer_status(status, transferred = transferred);
-
-    return Ok(transferred as usize);
+    return internal std.io.checked_transfer(
+        status,
+        transferred = transferred,
+        maximum = maximum,
+        require_progress = false,
+    );
 }
 
 trusted internal func close_child_input(pos input: &mut ChildInput) -> Result<unit, std.io.IoError>

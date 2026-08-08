@@ -1,4 +1,4 @@
-module std.process;
+trusted module std.process;
 
 using std.collection;
 using std.io;
@@ -41,72 +41,69 @@ union ExitStatus
 internal struct ChildCommandState
 {
     executable: std.path.Path;
-    arguments: std.collection.List<std.path.NativeText>;
-    environment: std.collection.List<EnvironmentEntry>;
-    working_directory: std.path.Path?;
-    standard_input: ChildStreamPolicy;
-    standard_output: ChildStreamPolicy;
-    standard_error: ChildStreamPolicy;
+    mut argument_values: std.collection.List<std.path.NativeText>;
+    mut environment_values: std.collection.List<EnvironmentEntry>;
+    mut working_directory: std.path.Path?;
+    mut standard_input: ChildStreamPolicy;
+    mut standard_output: ChildStreamPolicy;
+    mut standard_error: ChildStreamPolicy;
 }
 
 struct ChildCommand
 {
     internal mut state: ChildCommandState;
 
-    trusted construct(pos executable: std.path.Path) -> Result<Self, ChildError>
+    construct(pos executable: std.path.Path) -> Result<Self, ChildError>
     {
-        let arguments: std.collection.List<std.path.NativeText> = try empty_list<std.path.NativeText>(
+        let initial_arguments: std.collection.List<std.path.NativeText> = try trusted empty_list<std.path.NativeText>(
             kind = Creation
         );
 
-        let environment: std.collection.List<EnvironmentEntry> = try inherited_environment();
+        let initial_environment: std.collection.List<EnvironmentEntry> = try trusted inherited_environment();
 
         return Ok(
             {
                 state =
                 {
                     executable = executable,
-                    arguments = arguments,
-                    environment = environment,
+                    argument_values = initial_arguments,
+                    environment_values = initial_environment,
                     working_directory = none,
-                    standard_input = Inherit,
-                    standard_output = Inherit,
-                    standard_error = Inherit,
+                    standard_input = ChildStreamPolicy.Inherit,
+                    standard_output = ChildStreamPolicy.Inherit,
+                    standard_error = ChildStreamPolicy.Inherit,
                 }
             }
         );
     }
 
-    trusted mut func argument(pos value: std.path.NativeText) -> Result<unit, ChildError>
+    mut func argument(pos value: std.path.NativeText) -> Result<unit, ChildError>
     {
-        return push_value<std.path.NativeText>(&mut self.state.arguments, value, kind = Creation);
+        return trusted push_value<std.path.NativeText>(&mut self.state.argument_values, value, kind = Creation);
     }
 
-    trusted mut func environment_policy(policy: EnvironmentPolicy) -> Result<unit, ChildError>
+    mut func environment_policy(policy: EnvironmentPolicy) -> Result<unit, ChildError>
     {
-        std.collection.clear<EnvironmentEntry>(&mut self.state.environment);
+        trusted std.collection.clear<EnvironmentEntry>(&mut self.state.environment_values);
 
         match policy
         {
             case Empty { return Ok(unit); }
             case InheritSnapshot
             {
-                self.state.environment = try inherited_environment();
+                try trusted append_inherited_environment(&mut self.state.environment_values);
 
                 return Ok(unit);
             }
         }
     }
 
-    trusted mut func set_environment(
-        pos key: std.path.NativeText,
-        pos value: std.path.NativeText,
-    ) -> Result<unit, ChildError>
+    mut func set_environment(pos key: std.path.NativeText, pos value: std.path.NativeText) -> Result<unit, ChildError>
     {
-        remove_environment_entry(&mut self.state.environment, key = &key);
+        trusted remove_environment_entry(&mut self.state.environment_values, key = &key);
 
-        return push_value<EnvironmentEntry>(
-            &mut self.state.environment,
+        return trusted push_value<EnvironmentEntry>(
+            &mut self.state.environment_values,
             {
                 key = key,
                 value = value,
@@ -115,9 +112,9 @@ struct ChildCommand
         );
     }
 
-    trusted mut func remove_environment(pos key: &std.path.NativeText) -> unit
+    mut func remove_environment(pos key: &std.path.NativeText) -> unit
     {
-        remove_environment_entry(&mut self.state.environment, key = key);
+        trusted remove_environment_entry(&mut self.state.environment_values, key = key);
     }
 
     mut func working_directory(pos path: std.path.Path) -> unit
@@ -140,22 +137,20 @@ struct ChildCommand
         self.state.standard_error = policy;
     }
 
-    consume trusted func spawn() -> Result<ChildProcess, ChildError>
+    consume func spawn() -> Result<ChildProcess, ChildError>
         requires(blocking_execution())
-        uses(foreign_call)
     {
-        return trusted spawn_child(consume self.state);
+        return trusted spawn_child(self.state);
     }
-
 }
 
 internal struct ChildProcessState
 {
     handle: u64;
     mut is_open: bool;
-    mut standard_input: ChildInput?;
-    mut standard_output: ChildOutput?;
-    mut standard_error: ChildOutput?;
+    mut standard_input: u64;
+    mut standard_output: u64;
+    mut standard_error: u64;
 }
 
 struct ChildProcess
@@ -171,7 +166,6 @@ struct ChildProcess
     }
 
     trusted destruct()
-        uses(foreign_call)
     {
         if self.state.is_open
         {
@@ -181,75 +175,80 @@ struct ChildProcess
 
     mut func take_standard_input() -> ChildInput?
     {
-        let value: ChildInput? = consume self.state.standard_input;
+        let handle: u64 = self.state.standard_input;
 
-        self.state.standard_input = none;
+        self.state.standard_input = 0;
 
-        return value;
+        return internal std.process.child_input(handle = handle);
     }
 
     mut func take_standard_output() -> ChildOutput?
     {
-        let value: ChildOutput? = consume self.state.standard_output;
+        let handle: u64 = self.state.standard_output;
 
-        self.state.standard_output = none;
+        self.state.standard_output = 0;
 
-        return value;
+        return internal std.process.child_output(handle = handle);
     }
 
     mut func take_standard_error() -> ChildOutput?
     {
-        let value: ChildOutput? = consume self.state.standard_error;
+        let handle: u64 = self.state.standard_error;
 
-        self.state.standard_error = none;
+        self.state.standard_error = 0;
 
-        return value;
+        return internal std.process.child_output(handle = handle);
     }
 
-    trusted mut func request_termination() -> Result<unit, ChildError>
+    mut func request_termination() -> Result<unit, ChildError>
         requires(blocking_execution())
-        uses(foreign_call)
     {
-        let status: std.platform.PlatformStatus = trusted platform_child_terminate(
-            child = self.state.handle,
-            mode = 0,
-        );
-
-        return child_status(status, kind = Termination);
+        return trusted request_child_termination(&mut self);
     }
 
-    consume trusted mut func wait() -> Result<ExitStatus, ChildError>
+    consume mut func wait() -> Result<ExitStatus, ChildError>
         requires(blocking_execution())
     {
         return trusted wait_for_child(&mut self);
     }
 
-    consume trusted mut func force_termination() -> Result<ExitStatus, ChildError>
+    consume mut func force_termination() -> Result<ExitStatus, ChildError>
         requires(blocking_execution())
     {
         return trusted force_child_termination(&mut self);
     }
-
 }
 
 trusted internal func inherited_environment() -> Result<std.collection.List<EnvironmentEntry>, ChildError>
 {
-    let mut values: std.collection.List<EnvironmentEntry> = try empty_list<EnvironmentEntry>(kind = Creation);
+    let mut values: std.collection.List<EnvironmentEntry> = try trusted empty_list<EnvironmentEntry>(kind = Creation);
+
+    try trusted append_inherited_environment(&mut values);
+
+    return Ok(values);
+}
+
+trusted internal func append_inherited_environment(
+    pos values: &mut std.collection.List<EnvironmentEntry>
+) -> Result<unit, ChildError>
+{
     let snapshot: Environment = environment();
     let mut index: usize = 0;
 
     while index < snapshot.length()
     {
-        match snapshot.entry_at(index)
+        let next_entry: EnvironmentEntry? = snapshot.entry_at(index);
+
+        match consume next_entry
         {
-            case ?entry { try push_value<EnvironmentEntry>(&mut values, entry, kind = Creation); }
-            case none { return Error(allocation_child_error(kind = Creation)); }
+            case ?value { try trusted push_value<EnvironmentEntry>(&mut values, value, kind = Creation); }
+            case none { return Error(internal std.process.allocation_child_error(kind = Creation)); }
         }
 
         index += 1;
     }
 
-    return Ok(values);
+    return Ok(unit);
 }
 
 trusted internal func empty_list<T>(kind: ChildErrorKind) -> Result<std.collection.List<T>, ChildError>
@@ -258,8 +257,8 @@ trusted internal func empty_list<T>(kind: ChildErrorKind) -> Result<std.collecti
 
     match consume created
     {
-        case Ok(values) { return Ok(values); }
-        case Error(_) { return Error(allocation_child_error(kind)); }
+        case Ok(created_values) { return Ok(created_values); }
+        case Error(_) { return Error(internal std.process.allocation_child_error(kind = kind)); }
     }
 }
 
@@ -274,7 +273,7 @@ trusted internal func push_value<T>(
     match consume pushed
     {
         case Ok(_) { return Ok(unit); }
-        case Error(_) { return Error(allocation_child_error(kind)); }
+        case Error(_) { return Error(internal std.process.allocation_child_error(kind = kind)); }
     }
 }
 
@@ -283,43 +282,69 @@ trusted internal func remove_environment_entry(
     pos key: &std.path.NativeText,
 ) -> unit
 {
+    match environment_entry_index(&values, key)
+    {
+        case ?index
+        {
+            let _: EnvironmentEntry? = trusted std.collection.remove<EnvironmentEntry>(&mut values, index = index);
+        }
+        case none {}
+    }
+}
+
+internal func environment_entry_index(
+    pos values: &std.collection.List<EnvironmentEntry>,
+    pos key: &std.path.NativeText,
+) -> usize?
+{
     let mut index: usize = 0;
 
     while index < std.collection.length<EnvironmentEntry>(values)
     {
         let entries: &[EnvironmentEntry] = std.collection.as_slice<EnvironmentEntry>(values);
 
-        if trusted internal std.platform.environment_keys_equal(
+        let equal: bool = trusted internal std.platform.environment_keys_equal(
             internal std.path.native_bytes(&entries[index].key),
             internal std.path.native_bytes(key),
-        )
-        {
-            let _: EnvironmentEntry? = trusted std.collection.remove<EnvironmentEntry>(&mut values, index = index);
+        );
 
-            return unit;
+        if equal
+        {
+            let mut result: usize? = none;
+
+            result = index;
+
+            return result;
         }
 
         index += 1;
     }
+
+    return none;
 }
 
 trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildProcess, ChildError>
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let arguments: std.collection.List<PlatformNativeText> = try argument_spans(&state.arguments);
-    let environment: std.collection.List<PlatformEnvironmentEntry> = try environment_spans(&state.environment);
-    let executable: PlatformNativeText = path_span(&state.executable);
+    let argument_views: std.collection.List<PlatformNativeText> = try argument_spans(&state.argument_values);
 
-    match consume state.working_directory
+    let environment_views: std.collection.List<PlatformEnvironmentEntry> = try environment_spans(
+        &state.environment_values
+    );
+
+    let executable: PlatformNativeText = internal std.process.path_span(&state.executable);
+    let working_directory: std.path.Path? = state.working_directory;
+
+    match consume working_directory
     {
         case ?directory
         {
             return trusted spawn_child_request(
                 executable,
-                working_directory = path_span(&directory),
-                arguments = &arguments,
-                environment = &environment,
+                working_directory = internal std.process.path_span(path = &directory),
+                arguments = &argument_views,
+                environment = &environment_views,
                 standard_input = state.standard_input,
                 standard_output = state.standard_output,
                 standard_error = state.standard_error,
@@ -329,9 +354,9 @@ trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildP
         {
             return trusted spawn_child_request(
                 executable,
-                working_directory = empty_span(),
-                arguments = &arguments,
-                environment = &environment,
+                working_directory = internal std.process.empty_span(),
+                arguments = &argument_views,
+                environment = &environment_views,
                 standard_input = state.standard_input,
                 standard_output = state.standard_output,
                 standard_error = state.standard_error,
@@ -342,9 +367,9 @@ trusted internal func spawn_child(pos state: ChildCommandState) -> Result<ChildP
 
 trusted internal func spawn_child_request(
     pos executable: PlatformNativeText,
-    working_directory: PlatformNativeText,
     pos arguments: &std.collection.List<PlatformNativeText>,
     pos environment: &std.collection.List<PlatformEnvironmentEntry>,
+    working_directory: PlatformNativeText,
     standard_input: ChildStreamPolicy,
     standard_output: ChildStreamPolicy,
     standard_error: ChildStreamPolicy,
@@ -358,17 +383,17 @@ trusted internal func spawn_child_request(
         working_directory = working_directory,
         arguments =
         {
-            entries = list_pointer<PlatformNativeText>(arguments),
+            entries = internal std.process.list_pointer<PlatformNativeText>(arguments),
             count = std.collection.length<PlatformNativeText>(arguments) as u64,
         },
         environment =
         {
-            entries = list_pointer<PlatformEnvironmentEntry>(environment),
+            entries = internal std.process.list_pointer<PlatformEnvironmentEntry>(environment),
             count = std.collection.length<PlatformEnvironmentEntry>(environment) as u64,
         },
-        standard_input = stream_policy_value(standard_input),
-        standard_output = stream_policy_value(standard_output),
-        standard_error = stream_policy_value(standard_error),
+        standard_input = internal std.process.stream_policy_value(policy = standard_input),
+        standard_output = internal std.process.stream_policy_value(policy = standard_output),
+        standard_error = internal std.process.stream_policy_value(policy = standard_error),
         reserved = 0,
     };
 
@@ -377,7 +402,7 @@ trusted internal func spawn_child_request(
     let mut output: u64 = 0;
     let mut error: u64 = 0;
 
-    let status: std.platform.PlatformStatus = trusted platform_child_spawn(
+    let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_spawn(
         request,
         child = std.memory.address_of_mut(&mut child),
         standard_input = std.memory.address_of_mut(&mut input),
@@ -385,7 +410,7 @@ trusted internal func spawn_child_request(
         standard_error = std.memory.address_of_mut(&mut error),
     );
 
-    try child_status(status, kind = Creation);
+    try internal std.process.child_status(status, kind = Creation);
 
     return Ok(
         {
@@ -393,9 +418,9 @@ trusted internal func spawn_child_request(
             {
                 handle = child,
                 is_open = true,
-                standard_input = child_input(input),
-                standard_output = child_output(output),
-                standard_error = child_output(error),
+                standard_input = input,
+                standard_output = output,
+                standard_error = error,
             }
         }
     );
@@ -405,13 +430,20 @@ trusted internal func argument_spans(
     pos values: &std.collection.List<std.path.NativeText>
 ) -> Result<std.collection.List<PlatformNativeText>, ChildError>
 {
-    let mut spans: std.collection.List<PlatformNativeText> = try empty_list<PlatformNativeText>(kind = Creation);
-    let values: &[std.path.NativeText] = std.collection.as_slice<std.path.NativeText>(values);
+    let mut spans: std.collection.List<PlatformNativeText> = try trusted empty_list<PlatformNativeText>(
+        kind = Creation
+    );
+
+    let entries: &[std.path.NativeText] = std.collection.as_slice<std.path.NativeText>(values);
     let mut index: usize = 0;
 
-    while index < internal std.memory.slice_length<std.path.NativeText>(values)
+    while index < std.collection.length<std.path.NativeText>(values)
     {
-        try push_value<PlatformNativeText>(&mut spans, native_text_span(&values[index]), kind = Creation);
+        try trusted push_value<PlatformNativeText>(
+            &mut spans,
+            internal std.process.native_text_span(&entries[index]),
+            kind = Creation,
+        );
 
         index += 1;
     }
@@ -423,20 +455,20 @@ trusted internal func environment_spans(
     pos values: &std.collection.List<EnvironmentEntry>
 ) -> Result<std.collection.List<PlatformEnvironmentEntry>, ChildError>
 {
-    let mut spans: std.collection.List<PlatformEnvironmentEntry> = try empty_list<PlatformEnvironmentEntry>(
+    let mut spans: std.collection.List<PlatformEnvironmentEntry> = try trusted empty_list<PlatformEnvironmentEntry>(
         kind = Creation
     );
 
-    let values: &[EnvironmentEntry] = std.collection.as_slice<EnvironmentEntry>(values);
+    let entries: &[EnvironmentEntry] = std.collection.as_slice<EnvironmentEntry>(values);
     let mut index: usize = 0;
 
-    while index < internal std.memory.slice_length<EnvironmentEntry>(values)
+    while index < std.collection.length<EnvironmentEntry>(&values)
     {
-        try push_value<PlatformEnvironmentEntry>(
+        try trusted push_value<PlatformEnvironmentEntry>(
             &mut spans,
             {
-                key = native_text_span(&values[index].key),
-                value = native_text_span(&values[index].value),
+                key = internal std.process.native_text_span(&entries[index].key),
+                value = internal std.process.native_text_span(&entries[index].value),
             },
             kind = Creation,
         );
@@ -454,11 +486,11 @@ trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<Exi
     trusted close_retained_pipes(&mut child);
 
     let mut terminal: u32 = 0;
-    let mut status: PlatformExitStatus = empty_exit_status();
+    let mut status: PlatformExitStatus = internal std.process.empty_exit_status();
     let terminal_pointer: RawPointer<u32> = std.memory.address_of_mut(&mut terminal);
     let status_pointer: RawPointer<PlatformExitStatus> = std.memory.address_of_mut(&mut status);
 
-    let waited: std.platform.PlatformStatus = trusted platform_child_wait(
+    let waited: std.platform.PlatformStatus = trusted internal std.process.platform_child_wait(
         child = child.state.handle,
         terminal = terminal_pointer,
         status = status_pointer,
@@ -468,13 +500,13 @@ trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<Exi
 
     if terminal != 1
     {
-        let error: ChildError = invalid_child_error(kind = Waiting);
+        let error: ChildError = internal std.process.invalid_child_error(kind = Waiting);
         let _: Result<unit, ChildError> = trusted dispose_child(&mut child);
 
         return Error(error);
     }
 
-    let reaped: std.platform.PlatformStatus = trusted platform_child_reap(
+    let reaped: std.platform.PlatformStatus = trusted internal std.process.platform_child_reap(
         child = child.state.handle,
         status = status_pointer,
     );
@@ -483,14 +515,26 @@ trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<Exi
 
     child.state.is_open = false;
 
-    return exit_status(status);
+    return internal std.process.exit_status(status);
+}
+
+trusted internal func request_child_termination(pos child: &mut ChildProcess) -> Result<unit, ChildError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_terminate(
+        child = child.state.handle,
+        mode = 0,
+    );
+
+    return internal std.process.child_status(status, kind = Termination);
 }
 
 trusted internal func force_child_termination(pos child: &mut ChildProcess) -> Result<ExitStatus, ChildError>
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let terminated: std.platform.PlatformStatus = trusted platform_child_terminate(
+    let terminated: std.platform.PlatformStatus = trusted internal std.process.platform_child_terminate(
         child = child.state.handle,
         mode = 1,
     );
@@ -506,9 +550,8 @@ trusted internal func checked_child_status_or_dispose(
     kind: ChildErrorKind,
 ) -> Result<unit, ChildError>
     requires(blocking_execution())
-    uses(foreign_call)
 {
-    match child_status(status, kind = kind)
+    match internal std.process.child_status(status, kind = kind)
     {
         case Ok(_) { return Ok(unit); }
         case Error(error)
@@ -526,36 +569,49 @@ trusted internal func dispose_child(pos child: &mut ChildProcess) -> Result<unit
 {
     trusted close_retained_pipes(&mut child);
 
-    let status: std.platform.PlatformStatus = trusted platform_child_dispose(child = child.state.handle);
+    let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_dispose(
+        child = child.state.handle
+    );
 
     child.state.is_open = false;
 
-    return child_status(status, kind = Reaping);
+    return internal std.process.child_status(status, kind = Reaping);
 }
 
 trusted internal func close_retained_pipes(pos child: &mut ChildProcess) -> unit
 {
-    match consume child.state.standard_input
+    let input_handle: u64 = child.state.standard_input;
+    let output_handle: u64 = child.state.standard_output;
+    let error_handle: u64 = child.state.standard_error;
+
+    child.state.standard_input = 0;
+    child.state.standard_output = 0;
+    child.state.standard_error = 0;
+
+    match internal std.process.child_input(handle = input_handle)
     {
-        case ?mut input { let _: Result<unit, std.io.IoError> = trusted close_child_input(&mut input); }
+        case ?mut input
+        {
+            let _: Result<unit, std.io.IoError> = trusted internal std.process.close_child_input(&mut input);
+        }
         case none {}
     }
 
-    child.state.standard_input = none;
-
-    match consume child.state.standard_output
+    match internal std.process.child_output(handle = output_handle)
     {
-        case ?mut output { let _: Result<unit, std.io.IoError> = trusted close_child_output(&mut output); }
+        case ?mut output
+        {
+            let _: Result<unit, std.io.IoError> = trusted internal std.process.close_child_output(&mut output);
+        }
         case none {}
     }
 
-    child.state.standard_output = none;
-
-    match consume child.state.standard_error
+    match internal std.process.child_output(handle = error_handle)
     {
-        case ?mut error { let _: Result<unit, std.io.IoError> = trusted close_child_output(&mut error); }
+        case ?mut error
+        {
+            let _: Result<unit, std.io.IoError> = trusted internal std.process.close_child_output(&mut error);
+        }
         case none {}
     }
-
-    child.state.standard_error = none;
 }

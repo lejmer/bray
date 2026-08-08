@@ -1,4 +1,4 @@
-module std.process;
+trusted module std.process;
 
 using std.collection;
 using std.io;
@@ -107,30 +107,30 @@ internal func empty_span() -> PlatformNativeText
 {
     return
     {
-        address = null<u8>(),
+        address = std.memory.null<u8>(),
         length = 0,
     };
 }
 
 internal func list_pointer<T>(pos values: &std.collection.List<T>) -> RawPointer<T>
 {
-    let values: &[T] = std.collection.as_slice<T>(values);
-
-    if internal std.memory.slice_length<T>(values) == 0
+    if std.collection.length<T>(values) == 0
     {
-        return null<T>();
+        return std.memory.null<T>();
     }
 
-    return std.memory.address_of<T>(&values[0]);
+    let entries: &[T] = std.collection.as_slice<T>(values);
+
+    return std.memory.address_of<T>(&entries[0]);
 }
 
 internal func stream_policy_value(policy: ChildStreamPolicy) -> u32
 {
     return match policy
     {
-        case Inherit { yield 0; }
-        case Null { yield 1; }
-        case Piped { yield 2; }
+        case ChildStreamPolicy.Inherit { yield 0; }
+        case ChildStreamPolicy.Null { yield 1; }
+        case ChildStreamPolicy.Piped { yield 2; }
     };
 }
 
@@ -190,16 +190,16 @@ internal func exit_status(pos status: PlatformExitStatus) -> Result<ExitStatus, 
     {
         case 0
         {
-            let code: i32 = status.payload as i32;
-
-            if code as i64 != status.payload
+            if status.payload < -2147483648 || status.payload > 2147483647
             {
                 return Error(invalid_child_error(kind = Reaping));
             }
 
-            return Ok(Code(code));
+            let code: i32 = std.truncate_to<i32>(status.payload);
+
+            return Ok(ExitStatus.Code(code));
         }
-        case 1 { return Ok(TargetTermination(status.payload)); }
+        case 1 { return Ok(ExitStatus.TargetTermination(status.payload)); }
         case _ { return Error(invalid_child_error(kind = Reaping)); }
     }
 }
