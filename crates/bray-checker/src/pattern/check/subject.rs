@@ -4,9 +4,10 @@ use bray_bound_tree::{
     BoundPattern, BoundPatternEntry, BoundPatternKind, BoundPatternTarget, PatternProjection,
 };
 use bray_symbols::{
-    AnySymbolId, GenericSubstitutionId, MemberLookupResult, NamedTypeSymbolId, StructFieldTypeFact,
-    SymbolFactContract, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
-    UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
+    AnySymbolId, CallablePosition, GenericSubstitutionId, MemberLookupResult, NamedTypeSymbolId,
+    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, TypeData,
+    TypeExpressionTemplate, TypeId, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
+    UnionVariantSymbolId,
 };
 
 use super::result::{effective_pattern_kind, symbol_ordinal};
@@ -180,9 +181,14 @@ where
                         continue;
                     }
 
-                    let Some(field) = self.union_payload_field(variant, entry, position)? else {
+                    let Some((field, consumes_position)) =
+                        self.union_payload_field(variant, entry, position)?
+                    else {
                         self.push_recovered_entry(entry, &mut children);
-                        position += 1;
+
+                        if entry.name().is_none() || entry.binding().is_some() {
+                            position += 1;
+                        }
 
                         continue;
                     };
@@ -196,7 +202,9 @@ where
 
                     self.push_entry(entry, subject, projection, &mut children);
 
-                    position += 1;
+                    if consumes_position {
+                        position += 1;
+                    }
                 }
             }
             _ => {
@@ -260,7 +268,23 @@ where
         variant: UnionVariantSymbolId,
         entry: &BoundPatternEntry,
         position: usize,
-    ) -> Result<Option<UnionPayloadFieldSymbolId>, CheckerInfrastructureError> {
+    ) -> Result<Option<(UnionPayloadFieldSymbolId, bool)>, CheckerInfrastructureError> {
+        let positional = available_dependency(self.request.union_variant(variant))?
+            .flatten()
+            .and_then(|variant| variant.payload_fields().get(position).copied());
+
+        let positional = match positional {
+            Some(field) => available_dependency(self.request.union_payload_field(field))?
+                .flatten()
+                .filter(|field| field.position() == CallablePosition::PositionalOrNamed)
+                .map(|_| field),
+            None => None,
+        };
+
+        if entry.name().is_none() || entry.binding().is_some() && positional.is_some() {
+            return Ok(positional.map(|field| (field, true)));
+        }
+
         if let Some(name) = entry.name() {
             let lookup =
                 available_dependency(self.request.lookup_member(variant.into(), name.as_str()))?
@@ -270,12 +294,10 @@ where
                 return Ok(None);
             };
 
-            return Ok(Some(field));
+            return Ok(Some((field, false)));
         }
 
-        Ok(available_dependency(self.request.union_variant(variant))?
-            .flatten()
-            .and_then(|variant| variant.payload_fields().get(position).copied()))
+        Ok(None)
     }
 
     fn field_subject<F>(

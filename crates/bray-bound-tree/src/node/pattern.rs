@@ -148,7 +148,7 @@ pub struct BoundPatternEntry {
 pub enum BoundPatternEntryKind {
     /// A nested source pattern.
     Pattern(BoundPatternId),
-    /// A shorthand binding whose name also selects the field.
+    /// A binding introduced by a positional entry or named-field shorthand.
     Binding(LocalBindingSymbolId),
     /// The `..` marker accounting for remaining fields or elements.
     Remaining,

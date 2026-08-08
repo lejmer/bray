@@ -152,12 +152,14 @@ pub(crate) fn run_build_command(
 
             driver_result_from_compilation(compilation, diagnostics, output_format, exit_code)
         }
-        Err(error) => driver_result_from_compilation(
-            compilation,
-            error.diagnostics().clone(),
-            output_format,
-            ExitCode::FAILURE,
-        ),
+        Err(error) => {
+            driver_result_from_compilation(
+                compilation,
+                error.diagnostics().clone(),
+                output_format,
+                ExitCode::FAILURE,
+            )
+        }
     }
 }
 

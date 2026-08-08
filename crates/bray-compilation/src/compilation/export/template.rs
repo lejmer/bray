@@ -4,8 +4,8 @@ use bray_bound_tree::{
     BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator, BoundReferenceTarget,
     BoundStructuredExpressionKind, BoundUnit, BoundUnitKey, CheckedExpressionTypes,
     CheckedLiteralValues, CheckedSemanticSelections, CheckedTemplateInputId, CheckedTemplateKind,
-    CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, SelectedArgument, SelectedOperation,
-    SemanticSelection,
+    CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, ConstructionTarget, SelectedArgument,
+    SelectedOperation, SemanticSelection,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_package_interface::{
@@ -277,6 +277,9 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         match expression {
             BoundExpression::Literal(_) => self.literal(expression_id),
             BoundExpression::Name(reference) => self.reference(reference.target(), ty),
+            BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_) => {
+                self.payloadless_variant(expression_id)
+            }
             BoundExpression::PatternReference(_) => {
                 let Some(SemanticSelection::Reference(target)) =
                     self.selections.expression(expression_id)
@@ -360,6 +363,29 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             term: self.export.constant_value_term_id(value)?,
             usage: Default::default(),
         })
+    }
+
+    fn payloadless_variant(
+        &mut self,
+        expression: BoundExpressionId,
+    ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
+        let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
+            self.selections.expression(expression)
+        else {
+            return Err(incomplete());
+        };
+
+        let ConstructionTarget::UnionVariant(variant) = construction.target() else {
+            return Err(incomplete());
+        };
+
+        if !construction.inputs().is_empty() {
+            return Err(incomplete());
+        }
+
+        Ok(InterfaceCheckedTemplateOperation::Declaration(
+            InterfaceTemplateReference::Symbol(self.export.symbol_reference(variant.into())?),
+        ))
     }
 
     fn reference(

@@ -1,0 +1,224 @@
+trusted module std.time;
+
+using std.memory;
+
+const TEMPORAL_SUCCESS: u32 = 0;
+
+const TEMPORAL_UNAVAILABLE: u32 = 1;
+
+const TEMPORAL_INVALID_VALUE: u32 = 2;
+
+const TEMPORAL_UNKNOWN_ZONE: u32 = 3;
+
+const TEMPORAL_OUT_OF_RANGE: u32 = 4;
+
+const TEMPORAL_INVALID_FORMAT: u32 = 5;
+
+const TEMPORAL_INSUFFICIENT_BUFFER: u32 = 6;
+
+@layout(c)
+internal struct PlatformDateTime
+{
+    year: i32;
+    month: u32;
+    day: u32;
+    hour: u32;
+    minute: u32;
+    second: u32;
+    nanosecond: u32;
+}
+
+@layout(c)
+internal struct PlatformTemporalObservation
+{
+    local: PlatformDateTime;
+    offset_seconds: i32;
+    daylight: u32;
+}
+
+@layout(c)
+internal struct PlatformTemporalResolution
+{
+    kind: u32;
+    reserved: u32;
+    first_seconds: i64;
+    first_nanoseconds: u32;
+    first_reserved: u32;
+    second_seconds: i64;
+    second_nanoseconds: u32;
+    second_reserved: u32;
+}
+
+@layout(c)
+internal struct PlatformTemporalValue
+{
+    local: PlatformDateTime;
+    timestamp_seconds: i64;
+    offset_seconds: i32;
+    reserved: u32;
+}
+
+@abi(c)
+extern trusted internal func platform_time_date_validate(
+    pos year: i32,
+    pos month: u32,
+    pos day: u32,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_date_add(
+    pos value: PlatformDateTime,
+    pos years: i32,
+    pos months: i32,
+    pos days: i32,
+    pos adjustment: u32,
+    pos result: RawPointer<PlatformDateTime>,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_zone_load(
+    pos name: std.platform.NativeTextSpan,
+    pos handle: RawPointer<u64>,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_zone_local(
+    pos handle: RawPointer<u64>,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_zone_retain(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_zone_close(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_zone_name(
+    pos handle: u64,
+    pos destination: RawPointer<u8>,
+    pos capacity: u64,
+    pos written_or_required: RawPointer<u64>,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_observe(
+    pos zone: u64,
+    pos fixed_offset_seconds: i32,
+    pos seconds: i64,
+    pos nanoseconds: u32,
+    pos observation: RawPointer<PlatformTemporalObservation>,
+    pos abbreviation: RawPointer<u8>,
+    pos capacity: u64,
+    pos written_or_required: RawPointer<u64>,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_resolve(
+    pos zone: u64,
+    pos fixed_offset_seconds: i32,
+    pos local: PlatformDateTime,
+    pos resolution: RawPointer<PlatformTemporalResolution>,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_parse(
+    pos kind: u32,
+    pos text: std.platform.NativeTextSpan,
+    pos value: RawPointer<PlatformTemporalValue>,
+    pos invalid_offset: RawPointer<u64>,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_time_format(
+    pos kind: u32,
+    pos value: PlatformTemporalValue,
+    pos destination: RawPointer<u8>,
+    pos capacity: u64,
+    pos written_or_required: RawPointer<u64>,
+    pos outcome: RawPointer<u32>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+internal func platform_date_time(
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32 = 0,
+    minute: u32 = 0,
+    second: u32 = 0,
+    nanosecond: u32 = 0,
+) -> PlatformDateTime
+{
+    return
+    {
+        year = year,
+        month = month,
+        day = day,
+        hour = hour,
+        minute = minute,
+        second = second,
+        nanosecond = nanosecond,
+    };
+}
+
+internal func native_text_span(pos text: &string) -> std.platform.NativeTextSpan
+{
+    let bytes: &[u8] = std.string.utf8(text);
+
+    return
+    {
+        address = internal std.memory.byte_slice_pointer(bytes),
+        length = internal std.memory.byte_slice_length(bytes) as u64,
+    };
+}
+
+internal func temporal_error(pos outcome: u32, invalid_offset: usize = 0) -> TimeError
+{
+    return match outcome
+    {
+        case TEMPORAL_UNAVAILABLE { yield TimeError.Unavailable; }
+        case TEMPORAL_INVALID_VALUE { yield TimeError.InvalidValue; }
+        case TEMPORAL_UNKNOWN_ZONE { yield TimeError.UnknownTimeZone; }
+        case TEMPORAL_OUT_OF_RANGE { yield TimeError.OutOfRange; }
+        case TEMPORAL_INVALID_FORMAT { yield TimeError.InvalidFormat(offset = invalid_offset); }
+        case _ { yield TimeError.Platform(error = internal std.io.invalid_transfer_error()); }
+    };
+}
+
+internal func checked_temporal_call(
+    pos status: std.platform.PlatformStatus,
+    pos outcome: u32,
+    invalid_offset: usize = 0,
+) -> Result<unit, TimeError>
+{
+    match internal std.io.checked_status(status)
+    {
+        case Error(error) { return Error(TimeError.Platform(error = error)); }
+        case Ok(_) {}
+    }
+
+    if outcome != TEMPORAL_SUCCESS
+    {
+        return Error(temporal_error(outcome, invalid_offset = invalid_offset));
+    }
+
+    return Ok(unit);
+}

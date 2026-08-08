@@ -327,7 +327,9 @@ where
                 continue;
             }
 
-            let Some(field) = self.union_payload_field(variant.id(), entry, position)? else {
+            let Some((field, consumes_position)) =
+                self.union_payload_field(variant.id(), entry, position)?
+            else {
                 return Ok(false);
             };
 
@@ -335,7 +337,9 @@ where
                 return Ok(false);
             }
 
-            position += 1;
+            if consumes_position {
+                position += 1;
+            }
         }
 
         Ok(has_remaining || selected.len() == variant.payload_fields().len())

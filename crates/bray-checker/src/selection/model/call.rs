@@ -180,14 +180,27 @@ impl CallableCandidate {
         }
     }
 
-    /// Retains declaration parameter identities for a callable member value.
-    pub(crate) fn with_declaration_signature(mut self, signature: CallableSignature) -> Self {
+    /// Retains the declaration facts available for a directly selected callable member.
+    pub(crate) fn with_declaration(
+        mut self,
+        signature: CallableSignature,
+        defaults: impl IntoIterator<
+            Item = (
+                CallableParameterSymbolId,
+                CallableParameterDefaultProviderSymbolId,
+            ),
+        >,
+    ) -> Self {
         let substitution = match self.resolution.target() {
             bray_bound_tree::BoundCallableTarget::Declaration(instance) => instance.substitution(),
-            _ => unreachable!("declaration signatures require declaration targets"),
+            _ => unreachable!("declaration facts require a declaration target"),
         };
 
+        let mut defaults = defaults.into_iter().collect::<Vec<_>>();
+        defaults.sort_unstable_by_key(|(parameter, _)| *parameter);
+
         self.declaration_signature = Some(signature);
+        self.defaults = defaults.into();
         self.generic_substitution = Some(substitution);
 
         self

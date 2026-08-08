@@ -465,6 +465,8 @@ dependencies = [
  "bray-platform",
  "bray-runtime-interface",
  "bray-testing",
+ "cc",
+ "sha2",
  "windows-sys",
 ]
 

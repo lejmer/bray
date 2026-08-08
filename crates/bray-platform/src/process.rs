@@ -67,6 +67,13 @@ impl NativeProcessCommand {
         self
     }
 
+    /// Removes one inherited environment variable from the child environment.
+    pub fn env_remove(&mut self, name: impl AsRef<OsStr>) -> &mut Self {
+        self.command.env_remove(name);
+
+        self
+    }
+
     /// Removes inherited environment variables from the child environment.
     pub fn env_clear(&mut self) -> &mut Self {
         self.command.env_clear();
@@ -260,6 +267,20 @@ impl NativeExitStatus {
     /// Returns the portable numeric exit code when available.
     pub fn code(self) -> Option<i32> {
         self.0.code()
+    }
+
+    /// Returns the target termination value when no portable exit code exists.
+    #[cfg(unix)]
+    pub fn target_termination(self) -> Option<i64> {
+        use std::os::unix::process::ExitStatusExt;
+
+        self.0.signal().map(i64::from)
+    }
+
+    /// Returns the target termination value when no portable exit code exists.
+    #[cfg(not(unix))]
+    pub const fn target_termination(self) -> Option<i64> {
+        None
     }
 }
 

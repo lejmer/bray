@@ -105,6 +105,26 @@
           "declaration": "std.fs.platform_path_rename"
         },
         {
+          "role": "platform.child.spawn",
+          "declaration": "std.process.platform_child_spawn"
+        },
+        {
+          "role": "platform.child.wait",
+          "declaration": "std.process.platform_child_wait"
+        },
+        {
+          "role": "platform.child.terminate",
+          "declaration": "std.process.platform_child_terminate"
+        },
+        {
+          "role": "platform.child.reap",
+          "declaration": "std.process.platform_child_reap"
+        },
+        {
+          "role": "platform.child.dispose",
+          "declaration": "std.process.platform_child_dispose"
+        },
+        {
           "role": "platform.clock.monotonic_now",
           "declaration": "std.platform.clock_monotonic_now"
         },
@@ -119,6 +139,50 @@
         {
           "role": "platform.entropy.fill",
           "declaration": "std.platform.entropy_fill"
+        },
+        {
+          "role": "platform.time.date_validate",
+          "declaration": "std.time.platform_time_date_validate"
+        },
+        {
+          "role": "platform.time.date_add",
+          "declaration": "std.time.platform_time_date_add"
+        },
+        {
+          "role": "platform.time.zone_load",
+          "declaration": "std.time.platform_time_zone_load"
+        },
+        {
+          "role": "platform.time.zone_local",
+          "declaration": "std.time.platform_time_zone_local"
+        },
+        {
+          "role": "platform.time.zone_retain",
+          "declaration": "std.time.platform_time_zone_retain"
+        },
+        {
+          "role": "platform.time.zone_close",
+          "declaration": "std.time.platform_time_zone_close"
+        },
+        {
+          "role": "platform.time.zone_name",
+          "declaration": "std.time.platform_time_zone_name"
+        },
+        {
+          "role": "platform.time.observe",
+          "declaration": "std.time.platform_time_observe"
+        },
+        {
+          "role": "platform.time.resolve",
+          "declaration": "std.time.platform_time_resolve"
+        },
+        {
+          "role": "platform.time.parse",
+          "declaration": "std.time.platform_time_parse"
+        },
+        {
+          "role": "platform.time.format",
+          "declaration": "std.time.platform_time_format"
         }
       ]
     }

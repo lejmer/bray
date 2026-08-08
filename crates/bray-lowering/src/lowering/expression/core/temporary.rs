@@ -11,6 +11,23 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         lowered: LoweredExpression,
     ) -> Result<LoweredExpression, LoweringError> {
+        self.materialize_temporary_when(expression, lowered, false)
+    }
+
+    pub(in crate::lowering) fn materialize_for_later_evaluation(
+        &mut self,
+        expression: BoundExpressionId,
+        lowered: LoweredExpression,
+    ) -> Result<LoweredExpression, LoweringError> {
+        self.materialize_temporary_when(expression, lowered, true)
+    }
+
+    fn materialize_temporary_when(
+        &mut self,
+        expression: BoundExpressionId,
+        lowered: LoweredExpression,
+        required: bool,
+    ) -> Result<LoweredExpression, LoweringError> {
         let Some(current) = lowered.block else {
             return Ok(lowered);
         };
@@ -44,7 +61,7 @@ impl Lowerer<'_> {
             .flat_map(bray_bound_tree::AsyncScopeExitPlan::lifecycle_resolution)
             .any(|access| self.input.storage_plan().root_identity(*access) == Some(temporary));
 
-        if !requires_lifecycle_storage {
+        if !required && !requires_lifecycle_storage {
             return Ok(LoweredExpression::continuing(
                 current,
                 Some(value),

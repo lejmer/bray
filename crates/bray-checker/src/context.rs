@@ -10,8 +10,9 @@ use bray_symbols::{
     GenericConstraintObligationKey, ImplementationRequirementKey, ImplementationSelection,
     MemberLookupResult, NamedTypeSymbolId, ProofOutcome, SemanticValueStore, StructSymbol,
     StructSymbolId, SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult,
-    SymbolGraph, SymbolName, TraitApplicationId, TraitTypeMemberSymbolId, TypeId, UnionSymbol,
-    UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
+    SymbolGraph, SymbolName, TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
+    UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId,
+    UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_target::TargetProfile;
 
@@ -208,6 +209,14 @@ pub trait CheckerRequestContext: Sync {
         id: UnionVariantSymbolId,
     ) -> CheckerFactResult<Option<&UnionVariantSymbol>> {
         Ok(self.symbols().union_variant(id))
+    }
+
+    /// Returns a source or imported union payload field declaration.
+    fn union_payload_field(
+        &self,
+        id: UnionPayloadFieldSymbolId,
+    ) -> CheckerFactResult<Option<&UnionPayloadFieldSymbol>> {
+        Ok(self.symbols().union_payload_field(id))
     }
 
     /// Returns compiler-known symbols available for the current target.

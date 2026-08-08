@@ -920,7 +920,13 @@ where
                 callable.result(),
                 state,
             )
-            .with_declaration_signature(signature.clone()),
+            .with_declaration(
+                signature.clone(),
+                member
+                    .into_iter()
+                    .flat_map(bray_bound_tree::MemberTarget::callable_defaults)
+                    .copied(),
+            ),
             None => CallableCandidate::value(
                 template.value(),
                 resolution.clone(),

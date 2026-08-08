@@ -5,7 +5,7 @@ use bray_declarations::SyntaxAnchor;
 
 use crate::CheckerRequestContext;
 
-use super::build::{CatchContext, ControlFlowGraphBuilder, LoopContext};
+use super::build::{CatchContext, ControlFlowGraphBuilder, LoopContext, ResultYieldContext};
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
@@ -468,7 +468,19 @@ where
                 }),
             );
 
-            if let Some(completion) = self.build_block(branch, entry)? {
+            let target = self.view().block(branch)?.origin().source_anchor().syntax();
+
+            self.result_yields.push(ResultYieldContext {
+                target,
+                completion: join,
+                scope_depth: self.scope_depth(),
+            });
+
+            let completion = self.build_block(branch, entry)?;
+
+            self.result_yields.pop();
+
+            if let Some(completion) = completion {
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
             }
         }

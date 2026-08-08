@@ -82,6 +82,10 @@ fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: Nativ
             crate::llvm::tool_path(root, "clang"),
         )
         .env(
+            "CXX_x86_64_unknown_linux_gnu",
+            crate::llvm::tool_path(root, "clang++"),
+        )
+        .env(
             "AR_x86_64_unknown_linux_gnu",
             crate::llvm::tool_path(root, "llvm-ar"),
         );

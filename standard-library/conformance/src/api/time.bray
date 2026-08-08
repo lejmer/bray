@@ -1,5 +1,6 @@
 module bray.standard_library_conformance.time;
 
+using std.string;
 using std.time;
 
 @test
@@ -33,6 +34,184 @@ func negative_durations_are_values_but_not_sleep_intervals() -> Result<unit, std
     {
         case Ok(_) { assert(false); }
         case Error(std.time.ClockError.OutOfRange) {}
+        case Error(_) { assert(false); }
+    }
+
+    return Ok(unit);
+}
+
+@test
+func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.time.TimeError>
+{
+    let leap: std.time.Date = try std.time.Date(year = 2000, month = 2, day = 29);
+    let period: std.time.CalendarPeriod = std.time.CalendarPeriod(months = 1);
+    let january: std.time.Date = try std.time.Date(year = 2024, month = 1, day = 31);
+    let clamped: std.time.Date = try january.add(period, adjustment = std.time.DateAdjustment.Clamp);
+
+    assert(leap.year() == 2000);
+    assert(leap.month() == 2);
+    assert(leap.day() == 29);
+    assert(clamped.year() == 2024);
+    assert(clamped.month() == 2);
+    assert(clamped.day() == 29);
+
+    match std.time.Date(year = 1900, month = 2, day = 29)
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.TimeError.InvalidValue) {}
+        case Error(_) { assert(false); }
+    }
+
+    let rejected: std.time.Date = try std.time.Date(year = 2024, month = 1, day = 31);
+
+    match rejected.add(std.time.CalendarPeriod(months = 1))
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.TimeError.InvalidValue) {}
+        case Error(_) { assert(false); }
+    }
+
+    match std.time.Date(year = 65536, month = 1, day = 1)
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.TimeError.OutOfRange) {}
+        case Error(_) { assert(false); }
+    }
+
+    let maximum: std.time.Date = try std.time.Date(year = 32767, month = 12, day = 31);
+
+    match maximum.add(std.time.CalendarPeriod(years = 1))
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.TimeError.OutOfRange) {}
+        case Error(_) { assert(false); }
+    }
+
+    return Ok(unit);
+}
+
+@test
+func civil_and_timestamp_text_round_trip() -> Result<unit, std.time.TimeError>
+{
+    let date: std.time.Date = try std.time.Date.parse(&"2024-02-29");
+    let date_text: string = try date.iso8601();
+    let time: std.time.TimeOfDay = try std.time.TimeOfDay.parse(&"12:34:56.125");
+    let time_text: string = try time.iso8601();
+    let local: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-02-29T12:34:56.125");
+    let local_text: string = try local.iso8601();
+    let timestamp: std.time.Timestamp = try std.time.Timestamp.parse(&"2024-02-29T12:34:56.125+05:30");
+    let offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
+    let timestamp_text: string = try timestamp.rfc3339(offset);
+    let expanded: std.time.Date = try std.time.Date(year = 10000, month = 1, day = 2);
+    let expanded_text: string = try expanded.iso8601();
+    let expanded_round_trip: std.time.Date = try std.time.Date.parse(&expanded_text);
+
+    assert(std.string.equals(&date_text, &"2024-02-29"));
+    assert(std.string.equals(&time_text, &"12:34:56.125"));
+    assert(std.string.equals(&local_text, &"2024-02-29T12:34:56.125"));
+    assert(std.string.equals(&timestamp_text, &"2024-02-29T12:34:56.125+05:30"));
+    assert(std.string.equals(&expanded_text, &"+010000-01-02"));
+    assert(expanded_round_trip.year() == 10000);
+
+    return Ok(unit);
+}
+
+@test
+func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.time.TimeError>
+{
+    let local: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-02-29T12:34:56.125");
+    let offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
+    let timestamp: std.time.Timestamp = try local.at_offset(offset);
+    let round_trip_offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
+    let round_trip: std.time.LocalDateTime = try timestamp.local_at(round_trip_offset);
+    let text: string = try round_trip.iso8601();
+
+    assert(std.string.equals(&text, &"2024-02-29T12:34:56.125"));
+
+    match std.time.Timestamp(seconds = 9223372036854775807, nanoseconds = 0)
+    {
+        case Ok(extreme)
+        {
+            match extreme.rfc3339()
+            {
+                case Ok(_) { assert(false); }
+                case Error(std.time.TimeError.OutOfRange) {}
+                case Error(_) { assert(false); }
+            }
+        }
+        case Error(_) { assert(false); }
+    }
+
+    return Ok(unit);
+}
+
+@test
+func named_time_zones_use_pinned_aliases_and_rules() -> Result<unit, std.time.TimeError>
+{
+    let zone: std.time.TimeZone = try std.time.TimeZone.load(&"US/Eastern");
+    let summer: std.time.Timestamp = try std.time.Timestamp.parse(&"2024-07-01T12:00:00Z");
+    let winter: std.time.Timestamp = try std.time.Timestamp.parse(&"2040-01-01T12:00:00Z");
+
+    assert(summer.seconds() == 1719835200);
+
+    let summer_local: std.time.ZonedDateTime = try zone.at(summer);
+    let winter_local: std.time.ZonedDateTime = try zone.at(winter);
+
+    assert(std.string.equals(zone.name(), &"America/New_York"));
+    assert(std.string.equals(&zone.database_version(), &"2026c"));
+    assert(summer_local.offset().seconds() == -14400);
+    assert(summer_local.is_daylight_saving());
+    assert(std.string.equals(summer_local.abbreviation(), &"EDT"));
+    assert(summer_local.local().time().hour() == 8);
+    assert(winter_local.offset().seconds() == -18000);
+    assert(!winter_local.is_daylight_saving());
+
+    return Ok(unit);
+}
+
+@test
+func named_time_zones_expose_repeated_and_skipped_local_times() -> Result<unit, std.time.TimeError>
+{
+    let zone: std.time.TimeZone = try std.time.TimeZone.load(&"America/New_York");
+    let repeated: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-11-03T01:30:00");
+    let skipped: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-03-10T02:30:00");
+
+    match try zone.resolve(&repeated)
+    {
+        case Unique(_) { assert(false); }
+        case Ambiguous(earlier, later)
+        {
+            let earlier_timestamp: std.time.Timestamp = earlier.timestamp();
+            let later_timestamp: std.time.Timestamp = later.timestamp();
+
+            assert(earlier_timestamp.seconds() < later_timestamp.seconds());
+        }
+        case Nonexistent(_, _) { assert(false); }
+    }
+
+    match try zone.resolve(&skipped)
+    {
+        case Unique(_) { assert(false); }
+        case Ambiguous(_, _) { assert(false); }
+        case Nonexistent(before, after)
+        {
+            let before_timestamp: std.time.Timestamp = before.timestamp();
+            let after_timestamp: std.time.Timestamp = after.timestamp();
+
+            assert(before_timestamp.seconds() < after_timestamp.seconds());
+        }
+    }
+
+    return Ok(unit);
+}
+
+@test
+func unknown_named_time_zones_are_reported() -> Result<unit, std.time.TimeError>
+{
+    match std.time.TimeZone.load(&"Bray/Unknown")
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.TimeError.UnknownTimeZone) {}
         case Error(_) { assert(false); }
     }
 

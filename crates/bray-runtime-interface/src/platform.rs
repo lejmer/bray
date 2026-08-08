@@ -45,6 +45,16 @@ pub enum PlatformServiceRole {
     PathRemoveDirectory,
     /// Renames one filesystem entry.
     PathRename,
+    /// Creates one child process and its requested pipe owners.
+    ChildSpawn,
+    /// Waits for a child to terminate without consuming its owner.
+    ChildWait,
+    /// Requests child-process termination without consuming its owner.
+    ChildTerminate,
+    /// Consumes one terminal child-process owner.
+    ChildReap,
+    /// Forcefully resolves and consumes one child-process owner.
+    ChildDispose,
     /// Observes the process-local monotonic clock.
     ClockMonotonicNow,
     /// Observes the host wall clock.
@@ -53,6 +63,28 @@ pub enum PlatformServiceRole {
     ClockSleep,
     /// Fills caller-owned bytes from the host entropy source.
     EntropyFill,
+    /// Validates one proleptic Gregorian date.
+    TimeDateValidate,
+    /// Applies a checked calendar period to one date.
+    TimeDateAdd,
+    /// Loads one named timezone from the pinned database.
+    TimeZoneLoad,
+    /// Discovers and loads the host's local timezone when available.
+    TimeZoneLocal,
+    /// Retains one immutable timezone owner.
+    TimeZoneRetain,
+    /// Releases one immutable timezone owner.
+    TimeZoneClose,
+    /// Copies one timezone's canonical IANA name.
+    TimeZoneName,
+    /// Observes one timestamp through a named zone or fixed offset.
+    TimeObserve,
+    /// Resolves one local date-time through a named zone or fixed offset.
+    TimeResolve,
+    /// Parses one strict standard temporal representation.
+    TimeParse,
+    /// Formats one strict standard temporal representation.
+    TimeFormat,
 }
 
 impl PlatformServiceRole {
@@ -79,10 +111,26 @@ impl PlatformServiceRole {
             Self::PathRemoveFile => 0x0211,
             Self::PathRemoveDirectory => 0x0212,
             Self::PathRename => 0x0213,
+            Self::ChildSpawn => 0x0301,
+            Self::ChildWait => 0x0302,
+            Self::ChildTerminate => 0x0303,
+            Self::ChildReap => 0x0304,
+            Self::ChildDispose => 0x0305,
             Self::ClockMonotonicNow => 0x0401,
             Self::ClockWallNow => 0x0402,
             Self::ClockSleep => 0x0403,
             Self::EntropyFill => 0x0501,
+            Self::TimeDateValidate => 0x0701,
+            Self::TimeDateAdd => 0x0702,
+            Self::TimeZoneLoad => 0x0710,
+            Self::TimeZoneLocal => 0x0711,
+            Self::TimeZoneRetain => 0x0712,
+            Self::TimeZoneClose => 0x0713,
+            Self::TimeZoneName => 0x0714,
+            Self::TimeObserve => 0x0720,
+            Self::TimeResolve => 0x0721,
+            Self::TimeParse => 0x0730,
+            Self::TimeFormat => 0x0731,
         }
     }
 
@@ -109,10 +157,26 @@ impl PlatformServiceRole {
             Self::PathRemoveFile => "platform.path.remove_file",
             Self::PathRemoveDirectory => "platform.path.remove_directory",
             Self::PathRename => "platform.path.rename",
+            Self::ChildSpawn => "platform.child.spawn",
+            Self::ChildWait => "platform.child.wait",
+            Self::ChildTerminate => "platform.child.terminate",
+            Self::ChildReap => "platform.child.reap",
+            Self::ChildDispose => "platform.child.dispose",
             Self::ClockMonotonicNow => "platform.clock.monotonic_now",
             Self::ClockWallNow => "platform.clock.wall_now",
             Self::ClockSleep => "platform.clock.sleep",
             Self::EntropyFill => "platform.entropy.fill",
+            Self::TimeDateValidate => "platform.time.date_validate",
+            Self::TimeDateAdd => "platform.time.date_add",
+            Self::TimeZoneLoad => "platform.time.zone_load",
+            Self::TimeZoneLocal => "platform.time.zone_local",
+            Self::TimeZoneRetain => "platform.time.zone_retain",
+            Self::TimeZoneClose => "platform.time.zone_close",
+            Self::TimeZoneName => "platform.time.zone_name",
+            Self::TimeObserve => "platform.time.observe",
+            Self::TimeResolve => "platform.time.resolve",
+            Self::TimeParse => "platform.time.parse",
+            Self::TimeFormat => "platform.time.format",
         }
     }
 
@@ -139,10 +203,26 @@ impl PlatformServiceRole {
             "platform.path.remove_file" => Some(Self::PathRemoveFile),
             "platform.path.remove_directory" => Some(Self::PathRemoveDirectory),
             "platform.path.rename" => Some(Self::PathRename),
+            "platform.child.spawn" => Some(Self::ChildSpawn),
+            "platform.child.wait" => Some(Self::ChildWait),
+            "platform.child.terminate" => Some(Self::ChildTerminate),
+            "platform.child.reap" => Some(Self::ChildReap),
+            "platform.child.dispose" => Some(Self::ChildDispose),
             "platform.clock.monotonic_now" => Some(Self::ClockMonotonicNow),
             "platform.clock.wall_now" => Some(Self::ClockWallNow),
             "platform.clock.sleep" => Some(Self::ClockSleep),
             "platform.entropy.fill" => Some(Self::EntropyFill),
+            "platform.time.date_validate" => Some(Self::TimeDateValidate),
+            "platform.time.date_add" => Some(Self::TimeDateAdd),
+            "platform.time.zone_load" => Some(Self::TimeZoneLoad),
+            "platform.time.zone_local" => Some(Self::TimeZoneLocal),
+            "platform.time.zone_retain" => Some(Self::TimeZoneRetain),
+            "platform.time.zone_close" => Some(Self::TimeZoneClose),
+            "platform.time.zone_name" => Some(Self::TimeZoneName),
+            "platform.time.observe" => Some(Self::TimeObserve),
+            "platform.time.resolve" => Some(Self::TimeResolve),
+            "platform.time.parse" => Some(Self::TimeParse),
+            "platform.time.format" => Some(Self::TimeFormat),
             _ => None,
         }
     }
@@ -150,8 +230,10 @@ impl PlatformServiceRole {
     /// Returns the exact private callable shape required by this role.
     pub const fn signature(self) -> PlatformServiceSignature {
         use PlatformAbiType::{
-            FileMetadataPointer, FileOptions, NativeText, Path, PointerI64, PointerU8, PointerU32,
-            PointerU64, Status, U32, U64,
+            ChildRequest, ExitStatusPointer, FileMetadataPointer, FileOptions, I32, I64,
+            NativeText, Path, PointerI64, PointerU8, PointerU32, PointerU64, Status,
+            TemporalDateTime, TemporalDateTimePointer, TemporalObservationPointer,
+            TemporalResolutionPointer, TemporalValue, TemporalValuePointer, U32, U64,
         };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
@@ -183,6 +265,60 @@ impl PlatformServiceRole {
         const CLOCK_WALL_NOW: &[PlatformAbiType] = &[PointerI64, PointerU32];
         const CLOCK_SLEEP: &[PlatformAbiType] = &[U64, U32];
         const ENTROPY_FILL: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
+        const TIME_DATE_VALIDATE: &[PlatformAbiType] = &[I32, U32, U32, PointerU32];
+
+        const TIME_DATE_ADD: &[PlatformAbiType] = &[
+            TemporalDateTime,
+            I32,
+            I32,
+            I32,
+            U32,
+            TemporalDateTimePointer,
+            PointerU32,
+        ];
+
+        const TIME_ZONE_LOAD: &[PlatformAbiType] = &[NativeText, PointerU64, PointerU32];
+        const TIME_ZONE_LOCAL: &[PlatformAbiType] = &[PointerU64, PointerU32];
+        const TIME_ZONE_HANDLE: &[PlatformAbiType] = &[U64];
+        const TIME_ZONE_NAME: &[PlatformAbiType] = &[U64, PointerU8, U64, PointerU64, PointerU32];
+
+        const TIME_OBSERVE: &[PlatformAbiType] = &[
+            U64,
+            I32,
+            I64,
+            U32,
+            TemporalObservationPointer,
+            PointerU8,
+            U64,
+            PointerU64,
+            PointerU32,
+        ];
+
+        const TIME_RESOLVE: &[PlatformAbiType] = &[
+            U64,
+            I32,
+            TemporalDateTime,
+            TemporalResolutionPointer,
+            PointerU32,
+        ];
+
+        const TIME_PARSE: &[PlatformAbiType] = &[
+            U32,
+            NativeText,
+            TemporalValuePointer,
+            PointerU64,
+            PointerU32,
+        ];
+
+        const TIME_FORMAT: &[PlatformAbiType] =
+            &[U32, TemporalValue, PointerU8, U64, PointerU64, PointerU32];
+
+        const CHILD_SPAWN: &[PlatformAbiType] =
+            &[ChildRequest, PointerU64, PointerU64, PointerU64, PointerU64];
+
+        const CHILD_WAIT: &[PlatformAbiType] = &[U64, PointerU32, ExitStatusPointer];
+        const CHILD_TERMINATE: &[PlatformAbiType] = &[U64, U32];
+        const CHILD_REAP: &[PlatformAbiType] = &[U64, ExitStatusPointer];
 
         let parameters = match self {
             Self::ContextMeasure => CONTEXT_MEASURE,
@@ -202,10 +338,25 @@ impl PlatformServiceRole {
             Self::DirectoryNext => DIRECTORY_NEXT,
             Self::PathCreateDirectory | Self::PathRemoveFile | Self::PathRemoveDirectory => PATH,
             Self::PathRename => PATH_PAIR,
+            Self::ChildSpawn => CHILD_SPAWN,
+            Self::ChildWait => CHILD_WAIT,
+            Self::ChildTerminate => CHILD_TERMINATE,
+            Self::ChildReap => CHILD_REAP,
+            Self::ChildDispose => STREAM_HANDLE,
             Self::ClockMonotonicNow => CLOCK_MONOTONIC_NOW,
             Self::ClockWallNow => CLOCK_WALL_NOW,
             Self::ClockSleep => CLOCK_SLEEP,
             Self::EntropyFill => ENTROPY_FILL,
+            Self::TimeDateValidate => TIME_DATE_VALIDATE,
+            Self::TimeDateAdd => TIME_DATE_ADD,
+            Self::TimeZoneLoad => TIME_ZONE_LOAD,
+            Self::TimeZoneLocal => TIME_ZONE_LOCAL,
+            Self::TimeZoneRetain | Self::TimeZoneClose => TIME_ZONE_HANDLE,
+            Self::TimeZoneName => TIME_ZONE_NAME,
+            Self::TimeObserve => TIME_OBSERVE,
+            Self::TimeResolve => TIME_RESOLVE,
+            Self::TimeParse => TIME_PARSE,
+            Self::TimeFormat => TIME_FORMAT,
         };
 
         PlatformServiceSignature::new(parameters, Status)
@@ -215,6 +366,8 @@ impl PlatformServiceRole {
 /// One ABI value kind used by the closed platform-service callable schema.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PlatformAbiType {
+    /// Fixed-width signed 32-bit scalar.
+    I32,
     /// Fixed-width unsigned 32-bit scalar.
     U32,
     /// Fixed-width unsigned 64-bit scalar.
@@ -237,6 +390,22 @@ pub enum PlatformAbiType {
     FileOptions,
     /// Raw pointer to a fixed-layout file metadata record.
     FileMetadataPointer,
+    /// The fixed-layout child-process construction record.
+    ChildRequest,
+    /// Raw pointer to a fixed-layout child exit-status record.
+    ExitStatusPointer,
+    /// The fixed-layout civil date-time record.
+    TemporalDateTime,
+    /// Raw pointer to a civil date-time record.
+    TemporalDateTimePointer,
+    /// Raw pointer to a timezone observation record.
+    TemporalObservationPointer,
+    /// Raw pointer to a local-time resolution record.
+    TemporalResolutionPointer,
+    /// The fixed-layout parsing and formatting value record.
+    TemporalValue,
+    /// Raw pointer to a parsing and formatting value record.
+    TemporalValuePointer,
     /// The fixed-layout platform status record.
     Status,
 }
@@ -336,6 +505,81 @@ pub struct NativePlatformFileMetadata {
     modified_seconds: i64,
     modified_nanoseconds: u32,
     reserved: u32,
+}
+
+/// Call-only contiguous native byte spans.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformSpanList {
+    entries: *const NativePlatformText,
+    count: u64,
+}
+
+impl NativePlatformSpanList {
+    /// Creates one call-only span list.
+    pub const fn new(entries: *const NativePlatformText, count: u64) -> Self {
+        Self { entries, count }
+    }
+
+    /// Returns the first entry address.
+    pub const fn entries(self) -> *const NativePlatformText {
+        self.entries
+    }
+
+    /// Returns the entry count.
+    pub const fn count(self) -> u64 {
+        self.count
+    }
+}
+
+/// One complete child-process environment entry.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformEnvironmentEntry {
+    key: NativePlatformText,
+    value: NativePlatformText,
+}
+
+impl NativePlatformEnvironmentEntry {
+    /// Creates one native environment entry.
+    pub const fn new(key: NativePlatformText, value: NativePlatformText) -> Self {
+        Self { key, value }
+    }
+
+    /// Returns the key span.
+    pub const fn key(self) -> NativePlatformText {
+        self.key
+    }
+
+    /// Returns the value span.
+    pub const fn value(self) -> NativePlatformText {
+        self.value
+    }
+}
+
+/// Call-only contiguous child-process environment entries.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformEnvironmentList {
+    entries: *const NativePlatformEnvironmentEntry,
+    count: u64,
+}
+
+impl NativePlatformEnvironmentList {
+    /// Creates one call-only environment list.
+    pub const fn new(entries: *const NativePlatformEnvironmentEntry, count: u64) -> Self {
+        Self { entries, count }
+    }
+
+    /// Returns the first entry address.
+    pub const fn entries(self) -> *const NativePlatformEnvironmentEntry {
+        self.entries
+    }
+
+    /// Returns the entry count.
+    pub const fn count(self) -> u64 {
+        self.count
+    }
 }
 
 impl NativePlatformFileMetadata {
@@ -524,6 +768,28 @@ mod tests {
                 PlatformAbiType::U64,
                 PlatformAbiType::PointerU8,
                 PlatformAbiType::U64,
+                PlatformAbiType::PointerU64,
+            ]
+        );
+
+        assert_eq!(role.signature().result(), PlatformAbiType::Status);
+    }
+
+    #[test]
+    fn child_spawn_role_has_closed_request_and_owner_outputs() {
+        let role = PlatformServiceRole::ChildSpawn;
+
+        assert_eq!(role.id(), 0x0301);
+        assert_eq!(role.as_str(), "platform.child.spawn");
+        assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
+
+        assert_eq!(
+            role.signature().parameters(),
+            [
+                PlatformAbiType::ChildRequest,
+                PlatformAbiType::PointerU64,
+                PlatformAbiType::PointerU64,
+                PlatformAbiType::PointerU64,
                 PlatformAbiType::PointerU64,
             ]
         );

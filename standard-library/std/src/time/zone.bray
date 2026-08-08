@@ -1,0 +1,431 @@
+trusted module std.time;
+
+const MAXIMUM_UTC_OFFSET_SECONDS: i32 = 86399;
+
+const TIME_ZONE_DATABASE_VERSION: string = "2026c";
+
+internal struct UtcOffsetState
+{
+    seconds: i32;
+}
+
+struct UtcOffset
+{
+    internal state: UtcOffsetState;
+
+    construct(seconds: i32) -> Result<Self, TimeError>
+    {
+        if seconds < -MAXIMUM_UTC_OFFSET_SECONDS || seconds > MAXIMUM_UTC_OFFSET_SECONDS
+        {
+            return Error(TimeError.InvalidValue);
+        }
+
+        return Ok(offset_from_seconds(seconds));
+    }
+
+    construct utc() -> Self
+    {
+        return offset_from_seconds(0);
+    }
+
+    func seconds() -> i32
+    {
+        return self.state.seconds;
+    }
+}
+
+internal struct TimeZoneState
+{
+    handle: u64;
+    name: string;
+}
+
+struct TimeZone
+{
+    internal state: TimeZoneState;
+
+    construct load(pos name: &string) -> Result<Self, TimeError>
+    {
+        return trusted load_zone(name);
+    }
+
+    construct local() -> Result<Self, TimeError>
+    {
+        return trusted local_zone();
+    }
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        let _: std.platform.PlatformStatus = trusted platform_time_zone_close(self.state.handle);
+    }
+
+    func name() -> &string
+    {
+        return &self.state.name;
+    }
+
+    func database_version() -> string
+    {
+        return TIME_ZONE_DATABASE_VERSION;
+    }
+
+    func at(pos timestamp: Timestamp) -> Result<ZonedDateTime, TimeError>
+    {
+        return trusted zoned_from_timestamp(&self, timestamp);
+    }
+
+    func resolve(pos local: &LocalDateTime) -> Result<LocalTimeResolution, TimeError>
+    {
+        let resolution: PlatformTemporalResolution = try trusted resolve_local_platform(
+            zone = self.state.handle,
+            fixed_offset_seconds = 0,
+            local = local_to_platform(local),
+        );
+
+        let first: Timestamp = timestamp_from_parts(
+            seconds = resolution.first_seconds,
+            nanoseconds = resolution.first_nanoseconds,
+        );
+
+        if resolution.kind == 0
+        {
+            return Ok(LocalTimeResolution.Unique(value = try trusted zoned_from_timestamp(&self, first)));
+        }
+
+        let second: Timestamp = timestamp_from_parts(
+            seconds = resolution.second_seconds,
+            nanoseconds = resolution.second_nanoseconds,
+        );
+
+        if resolution.kind == 1
+        {
+            return Ok(
+                LocalTimeResolution.Ambiguous(
+                    earlier = try trusted zoned_from_timestamp(&self, first),
+                    later = try trusted zoned_from_timestamp(&self, second),
+                )
+            );
+        }
+
+        if resolution.kind == 2
+        {
+            return Ok(
+                LocalTimeResolution.Nonexistent(
+                    before = try trusted zoned_from_timestamp(&self, first),
+                    after = try trusted zoned_from_timestamp(&self, second),
+                )
+            );
+        }
+
+        return Error(TimeError.InvalidValue);
+    }
+}
+
+internal struct ZonedDateTimeState
+{
+    timestamp: Timestamp;
+    zone: TimeZone;
+    local: LocalDateTime;
+    offset: UtcOffset;
+    is_daylight_saving: bool;
+    abbreviation: string;
+}
+
+struct ZonedDateTime
+{
+    internal state: ZonedDateTimeState;
+
+    func timestamp() -> Timestamp
+    {
+        return timestamp_from_parts(
+            seconds = self.state.timestamp.seconds(),
+            nanoseconds = self.state.timestamp.nanoseconds(),
+        );
+    }
+
+    func zone() -> &TimeZone
+    {
+        return &self.state.zone;
+    }
+
+    func local() -> &LocalDateTime
+    {
+        return &self.state.local;
+    }
+
+    func offset() -> UtcOffset
+    {
+        return offset_from_seconds(self.state.offset.seconds());
+    }
+
+    func is_daylight_saving() -> bool
+    {
+        return self.state.is_daylight_saving;
+    }
+
+    func abbreviation() -> &string
+    {
+        return &self.state.abbreviation;
+    }
+
+    func add(pos period: CalendarPeriod, adjustment: DateAdjustment = Reject) -> Result<LocalTimeResolution, TimeError>
+    {
+        let local: LocalDateTime = try self.state.local.add(period, adjustment = adjustment);
+
+        return self.state.zone.resolve(&local);
+    }
+}
+
+union LocalTimeResolution
+{
+    Unique(pos value: ZonedDateTime);
+    Ambiguous(pos earlier: ZonedDateTime, pos later: ZonedDateTime);
+    Nonexistent(pos before: ZonedDateTime, pos after: ZonedDateTime);
+}
+
+trusted internal func load_zone(pos name: &string) -> Result<TimeZone, TimeError>
+    uses(foreign_call)
+{
+    let mut handle: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_zone_load(
+        native_text_span(name),
+        handle = std.memory.address_of_mut<u64>(&mut handle),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_temporal_call(status, outcome);
+
+    return trusted zone_from_owned_handle(handle);
+}
+
+trusted internal func local_zone() -> Result<TimeZone, TimeError>
+    uses(foreign_call)
+{
+    let mut handle: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_zone_local(
+        handle = std.memory.address_of_mut<u64>(&mut handle),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_temporal_call(status, outcome);
+
+    return trusted zone_from_owned_handle(handle);
+}
+
+trusted internal func zone_from_owned_handle(pos handle: u64) -> Result<TimeZone, TimeError>
+    uses(foreign_call)
+{
+    match trusted zone_name(handle)
+    {
+        case Ok(name)
+        {
+            return Ok(
+                {
+                    state =
+                    {
+                        handle = handle,
+                        name = name,
+                    }
+                }
+            );
+        }
+        case Error(error)
+        {
+            let _: std.platform.PlatformStatus = trusted platform_time_zone_close(handle);
+
+            return Error(error);
+        }
+    }
+}
+
+trusted internal func retained_zone(pos zone: &TimeZone) -> Result<TimeZone, TimeError>
+    uses(foreign_call)
+{
+    let name: string = try trusted zone_name(zone.state.handle);
+    let status: std.platform.PlatformStatus = trusted platform_time_zone_retain(zone.state.handle);
+
+    try checked_platform_status(status);
+
+    return Ok(
+        {
+            state =
+            {
+                handle = zone.state.handle,
+                name = name,
+            }
+        }
+    );
+}
+
+trusted internal func zone_name(pos handle: u64) -> Result<string, TimeError>
+    uses(foreign_call)
+{
+    let mut required: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let measured: std.platform.PlatformStatus = trusted platform_time_zone_name(
+        handle,
+        destination = std.memory.null<u8>(),
+        capacity = 0,
+        written_or_required = std.memory.address_of_mut<u64>(&mut required),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_variable_text_measure(measured, outcome, required);
+
+    let mut buffer: std.memory.RawBuffer<u8> = try trusted temporal_text_buffer(required);
+
+    outcome = TEMPORAL_SUCCESS;
+
+    let copied: std.platform.PlatformStatus = trusted platform_time_zone_name(
+        handle,
+        destination = std.memory.pointer<u8>(&buffer),
+        capacity = required,
+        written_or_required = std.memory.address_of_mut<u64>(&mut required),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_temporal_call(copied, outcome);
+
+    return trusted temporal_text(buffer, required);
+}
+
+trusted internal func zoned_from_timestamp(
+    pos zone: &TimeZone,
+    pos timestamp: Timestamp,
+) -> Result<ZonedDateTime, TimeError>
+{
+    let observation: TemporalObservation = try trusted observe_timestamp(
+        zone = zone.state.handle,
+        fixed_offset_seconds = 0,
+        timestamp = &timestamp,
+    );
+
+    let retained: TimeZone = try trusted retained_zone(zone);
+
+    return Ok(
+        {
+            state =
+            {
+                timestamp = timestamp,
+                zone = retained,
+                local = local_from_platform(&observation.value.local),
+                offset = offset_from_seconds(observation.value.offset_seconds),
+                is_daylight_saving = observation.value.daylight != 0,
+                abbreviation = observation.abbreviation,
+            }
+        }
+    );
+}
+
+internal struct TemporalObservation
+{
+    value: PlatformTemporalObservation;
+    abbreviation: string;
+}
+
+trusted internal func observe_timestamp(
+    pos zone: u64,
+    pos fixed_offset_seconds: i32,
+    pos timestamp: &Timestamp,
+) -> Result<TemporalObservation, TimeError>
+    uses(foreign_call)
+{
+    let mut value: PlatformTemporalObservation =
+    {
+        local = platform_date_time(year = 1970, month = 1, day = 1),
+        offset_seconds = 0,
+        daylight = 0,
+    };
+
+    let mut required: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let measured: std.platform.PlatformStatus = trusted platform_time_observe(
+        zone,
+        fixed_offset_seconds,
+        timestamp.seconds(),
+        timestamp.nanoseconds(),
+        observation = std.memory.address_of_mut<PlatformTemporalObservation>(&mut value),
+        abbreviation = std.memory.null<u8>(),
+        capacity = 0,
+        written_or_required = std.memory.address_of_mut<u64>(&mut required),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_variable_text_measure(measured, outcome, required);
+
+    let mut buffer: std.memory.RawBuffer<u8> = try trusted temporal_text_buffer(required);
+    outcome = TEMPORAL_SUCCESS;
+
+    let observed: std.platform.PlatformStatus = trusted platform_time_observe(
+        zone,
+        fixed_offset_seconds,
+        timestamp.seconds(),
+        timestamp.nanoseconds(),
+        observation = std.memory.address_of_mut<PlatformTemporalObservation>(&mut value),
+        abbreviation = std.memory.pointer<u8>(&buffer),
+        capacity = required,
+        written_or_required = std.memory.address_of_mut<u64>(&mut required),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_temporal_call(observed, outcome);
+
+    return Ok(
+        {
+            value = value,
+            abbreviation = try trusted temporal_text(buffer, required),
+        }
+    );
+}
+
+trusted internal func resolve_local_platform(
+    pos zone: u64,
+    pos fixed_offset_seconds: i32,
+    pos local: PlatformDateTime,
+) -> Result<PlatformTemporalResolution, TimeError>
+    uses(foreign_call)
+{
+    let mut resolution: PlatformTemporalResolution =
+    {
+        kind = 0,
+        reserved = 0,
+        first_seconds = 0,
+        first_nanoseconds = 0,
+        first_reserved = 0,
+        second_seconds = 0,
+        second_nanoseconds = 0,
+        second_reserved = 0,
+    };
+
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_resolve(
+        zone,
+        fixed_offset_seconds,
+        local,
+        resolution = std.memory.address_of_mut<PlatformTemporalResolution>(&mut resolution),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_temporal_call(status, outcome);
+
+    return Ok(resolution);
+}
+
+internal func offset_from_seconds(pos seconds: i32) -> UtcOffset
+{
+    return
+    {
+        state =
+        {
+            seconds = seconds,
+        }
+    };
+}

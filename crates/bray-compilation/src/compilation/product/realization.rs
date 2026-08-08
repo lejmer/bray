@@ -126,9 +126,20 @@ impl Compilation {
 
         let callables = self.codegen_callables(unit, target, reachability, cancellation)?;
 
-        let constants = self.codegen_constants(unit)?;
-
         let (constant_terms, terminators) = self.codegen_constant_terms(unit, reachability)?;
+
+        let constants = self.codegen_constants(
+            unit,
+            constant_terms
+                .iter()
+                .map(CodegenConstantTermMapping::value)
+                .chain(
+                    terminators
+                        .iter()
+                        .flat_map(CodegenTerminatorMapping::constants)
+                        .copied(),
+                ),
+        )?;
 
         let mut type_mappings = BTreeMap::new();
         let mut instance_type_mappings = Vec::new();
@@ -2339,10 +2350,13 @@ impl Compilation {
     fn codegen_constants(
         &self,
         unit: &CodegenUnit,
+        additional: impl IntoIterator<Item = bray_symbols::ConstantValueId>,
     ) -> Result<Vec<CodegenConstantMapping>, CodegenFactError> {
         let values = self.semantic_value_store()?;
         let mut pending: Vec<_> = demanded_constants(unit).values().iter().copied().collect();
         let mut mapped = BTreeMap::new();
+
+        pending.extend(additional);
 
         while let Some(value) = pending.pop() {
             if mapped.contains_key(&value) {
@@ -3665,6 +3679,10 @@ impl Compilation {
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
+        let receiver_container = facts
+            .containing_symbol(definition.callable_symbol().into_any())
+            .map_err(super::super::binder::binder_fact_error)?;
+
         let checker = CompilationCheckerContext::new(facts)
             .with_implementation_witnesses(instance.implementation_witnesses().iter().copied());
 
@@ -3733,8 +3751,7 @@ impl Compilation {
             .map(|receiver| {
                 let receiver_ty = concrete_callable_receiver(
                     values,
-                    self.symbol_graph()?,
-                    definition.callable_symbol(),
+                    receiver_container,
                     substitution,
                     receiver.ty(),
                 )?;
@@ -3909,17 +3926,38 @@ impl Compilation {
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let ty = signature
+        let receiver_container = facts
+            .containing_symbol(owner.into_any())
+            .map_err(super::super::binder::binder_fact_error)?;
+
+        let values = self.semantic_value_store()?;
+
+        let receiver = signature
             .receiver()
             .filter(|receiver| AnySymbolId::ReceiverParameter(receiver.parameter()) == parameter)
-            .map(|receiver| receiver.ty())
-            .or_else(|| {
-                signature.parameters().iter().find_map(|candidate| {
+            .map(|receiver| {
+                let ty = concrete_callable_receiver(
+                    values,
+                    receiver_container,
+                    substitution,
+                    receiver.ty(),
+                )?;
+
+                receiver_codegen_type(values, ty, receiver.mode())
+            })
+            .transpose()?;
+
+        let ty = match receiver {
+            Some(receiver) => receiver,
+            None => signature
+                .parameters()
+                .iter()
+                .find_map(|candidate| {
                     (AnySymbolId::CallableParameter(candidate.parameter()) == parameter)
                         .then_some(candidate.ty())
                 })
-            })
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or(FactQueryError::InfrastructureFailure)?,
+        };
 
         self.concrete_codegen_type(ty, None, Some(instance), cancellation)
     }
@@ -4295,12 +4333,11 @@ fn lifecycle_operation_block_kind(
 
 fn concrete_callable_receiver(
     values: &bray_symbols::SemanticValueStore,
-    symbols: &bray_symbols::SymbolGraph,
-    callable: bray_symbols::CallableSymbolId,
+    container: Option<AnySymbolId>,
     substitution: GenericSubstitutionId,
     receiver: TypeId,
 ) -> Result<TypeId, FactQueryError> {
-    let Some(container) = symbols.containing_symbol(callable.into_any()) else {
+    let Some(container) = container else {
         return Ok(receiver);
     };
 

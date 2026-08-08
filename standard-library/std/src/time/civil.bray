@@ -1,0 +1,363 @@
+trusted module std.time;
+
+union TimeError
+{
+    Unavailable;
+    InvalidValue;
+    UnknownTimeZone;
+    OutOfRange;
+    InvalidFormat(pos offset: usize);
+    Platform(pos error: std.io.IoError);
+}
+
+union DateAdjustment
+{
+    Reject;
+    Clamp;
+}
+
+internal struct DateState
+{
+    year: i32;
+    month: u32;
+    day: u32;
+}
+
+struct Date
+{
+    internal state: DateState;
+
+    construct(year: i32, month: u32, day: u32) -> Result<Self, TimeError>
+    {
+        return trusted validate_date(year, month, day);
+    }
+
+    construct parse(pos text: &string) -> Result<Self, TimeError>
+    {
+        let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 0, text = text);
+
+        return Ok(date_from_platform(&value.local));
+    }
+
+    func year() -> i32
+    {
+        return self.state.year;
+    }
+
+    func month() -> u32
+    {
+        return self.state.month;
+    }
+
+    func day() -> u32
+    {
+        return self.state.day;
+    }
+
+    func add(pos period: CalendarPeriod, adjustment: DateAdjustment = Reject) -> Result<Date, TimeError>
+    {
+        return trusted add_date(&self, period, adjustment = adjustment);
+    }
+
+    func iso8601() -> Result<string, TimeError>
+    {
+        return trusted format_temporal_value(kind = 0, value = temporal_value(local = date_to_platform(&self)));
+    }
+}
+
+trusted internal func validate_date(pos year: i32, pos month: u32, pos day: u32) -> Result<Date, TimeError>
+    uses(foreign_call)
+{
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_date_validate(
+        year,
+        month,
+        day,
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_temporal_call(status, outcome);
+
+    return Ok(date_from_parts(year, month, day));
+}
+
+trusted internal func add_date(
+    pos value: &Date,
+    pos period: CalendarPeriod,
+    adjustment: DateAdjustment,
+) -> Result<Date, TimeError>
+    uses(foreign_call)
+{
+    let mut result: PlatformDateTime = platform_date_time(year = 0, month = 1, day = 1);
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_date_add(
+        date_to_platform(value),
+        period.years(),
+        period.months(),
+        period.days(),
+        adjustment_value(adjustment),
+        result = std.memory.address_of_mut<PlatformDateTime>(&mut result),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_temporal_call(status, outcome);
+
+    return Ok(date_from_platform(&result));
+}
+
+internal struct TimeOfDayState
+{
+    hour: u32;
+    minute: u32;
+    second: u32;
+    nanosecond: u32;
+}
+
+struct TimeOfDay
+{
+    internal state: TimeOfDayState;
+
+    construct(hour: u32, minute: u32, second: u32, nanosecond: u32 = 0) -> Result<Self, TimeError>
+    {
+        if hour >= 24 || minute >= 60 || second >= 60 || nanosecond >= NANOSECONDS_PER_SECOND
+        {
+            return Error(TimeError.InvalidValue);
+        }
+
+        return Ok(time_from_parts(hour, minute, second, nanosecond));
+    }
+
+    construct parse(pos text: &string) -> Result<Self, TimeError>
+    {
+        let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 1, text = text);
+
+        return Ok(time_from_platform(&value.local));
+    }
+
+    func hour() -> u32
+    {
+        return self.state.hour;
+    }
+
+    func minute() -> u32
+    {
+        return self.state.minute;
+    }
+
+    func second() -> u32
+    {
+        return self.state.second;
+    }
+
+    func nanosecond() -> u32
+    {
+        return self.state.nanosecond;
+    }
+
+    func iso8601() -> Result<string, TimeError>
+    {
+        return trusted format_temporal_value(kind = 1, value = temporal_value(local = time_to_platform(&self)));
+    }
+}
+
+internal struct LocalDateTimeState
+{
+    date: Date;
+    time: TimeOfDay;
+}
+
+struct LocalDateTime
+{
+    internal state: LocalDateTimeState;
+
+    construct(pos date: Date, pos time: TimeOfDay) -> Self
+    {
+        return
+        {
+            state =
+            {
+                date = date,
+                time = time,
+            }
+        };
+    }
+
+    construct parse(pos text: &string) -> Result<Self, TimeError>
+    {
+        let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 2, text = text);
+
+        return Ok(local_from_platform(&value.local));
+    }
+
+    func date() -> &Date
+    {
+        return &self.state.date;
+    }
+
+    func time() -> &TimeOfDay
+    {
+        return &self.state.time;
+    }
+
+    func at_offset(pos offset: UtcOffset) -> Result<Timestamp, TimeError>
+    {
+        let resolution: PlatformTemporalResolution = try trusted resolve_local_platform(
+            zone = 0,
+            fixed_offset_seconds = offset.seconds(),
+            local = local_to_platform(&self),
+        );
+
+        if resolution.kind != 0
+        {
+            return Error(TimeError.InvalidValue);
+        }
+
+        return Ok(timestamp_from_parts(seconds = resolution.first_seconds, nanoseconds = resolution.first_nanoseconds));
+    }
+
+    func add(pos period: CalendarPeriod, adjustment: DateAdjustment = Reject) -> Result<LocalDateTime, TimeError>
+    {
+        let date: Date = try self.state.date.add(period, adjustment = adjustment);
+
+        let time: TimeOfDay = time_from_parts(
+            self.state.time.hour(),
+            self.state.time.minute(),
+            self.state.time.second(),
+            self.state.time.nanosecond(),
+        );
+
+        return Ok(LocalDateTime(date, time));
+    }
+
+    func iso8601() -> Result<string, TimeError>
+    {
+        return trusted format_temporal_value(kind = 2, value = temporal_value(local = local_to_platform(&self)));
+    }
+}
+
+internal struct CalendarPeriodState
+{
+    years: i32;
+    months: i32;
+    days: i32;
+}
+
+struct CalendarPeriod
+{
+    internal state: CalendarPeriodState;
+
+    construct(years: i32 = 0, months: i32 = 0, days: i32 = 0) -> Self
+    {
+        return
+        {
+            state =
+            {
+                years = years,
+                months = months,
+                days = days,
+            }
+        };
+    }
+
+    func years() -> i32
+    {
+        return self.state.years;
+    }
+
+    func months() -> i32
+    {
+        return self.state.months;
+    }
+
+    func days() -> i32
+    {
+        return self.state.days;
+    }
+}
+
+internal func date_from_parts(pos year: i32, pos month: u32, pos day: u32) -> Date
+{
+    return
+    {
+        state =
+        {
+            year = year,
+            month = month,
+            day = day,
+        }
+    };
+}
+
+internal func time_from_parts(pos hour: u32, pos minute: u32, pos second: u32, pos nanosecond: u32) -> TimeOfDay
+{
+    return
+    {
+        state =
+        {
+            hour = hour,
+            minute = minute,
+            second = second,
+            nanosecond = nanosecond,
+        }
+    };
+}
+
+internal func date_from_platform(pos value: &PlatformDateTime) -> Date
+{
+    return date_from_parts(value.year, value.month, value.day);
+}
+
+internal func time_from_platform(pos value: &PlatformDateTime) -> TimeOfDay
+{
+    return time_from_parts(value.hour, value.minute, value.second, value.nanosecond);
+}
+
+internal func local_from_platform(pos value: &PlatformDateTime) -> LocalDateTime
+{
+    return LocalDateTime(date = date_from_platform(value), time = time_from_platform(value));
+}
+
+internal func date_to_platform(pos value: &Date) -> PlatformDateTime
+{
+    return platform_date_time(year = value.year(), month = value.month(), day = value.day());
+}
+
+internal func time_to_platform(pos value: &TimeOfDay) -> PlatformDateTime
+{
+    return platform_date_time(
+        year = 1970,
+        month = 1,
+        day = 1,
+        hour = value.hour(),
+        minute = value.minute(),
+        second = value.second(),
+        nanosecond = value.nanosecond(),
+    );
+}
+
+internal func local_to_platform(pos value: &LocalDateTime) -> PlatformDateTime
+{
+    let date: &Date = value.date();
+    let time: &TimeOfDay = value.time();
+
+    return platform_date_time(
+        year = date.year(),
+        month = date.month(),
+        day = date.day(),
+        hour = time.hour(),
+        minute = time.minute(),
+        second = time.second(),
+        nanosecond = time.nanosecond(),
+    );
+}
+
+internal func adjustment_value(pos adjustment: DateAdjustment) -> u32
+{
+    return match adjustment
+    {
+        case Reject { yield 0; }
+        case Clamp { yield 1; }
+    };
+}

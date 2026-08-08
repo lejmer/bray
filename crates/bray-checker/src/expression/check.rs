@@ -77,6 +77,7 @@ where
         nested_callables,
         candidate_sets,
         &pending,
+        operation_input,
     ) {
         CheckerOutcome::Complete(result) => result.into_parts().0,
         CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
@@ -116,6 +117,7 @@ fn check_provisional_expression_types<C>(
     nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
     deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
+    operation_input: &crate::ExpressionTypeInput,
 ) -> CheckerOutcome<bray_bound_tree::CheckedExpressionTypes>
 where
     C: CheckerRequestContext
@@ -130,7 +132,7 @@ where
         candidate_sets,
         &[],
         deferred,
-        &crate::ExpressionTypeInput::new(),
+        operation_input,
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,

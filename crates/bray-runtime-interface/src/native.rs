@@ -132,6 +132,54 @@ pub const PLATFORM_ENTROPY_FILL_SYMBOL: &str = "bray_platform_entropy_fill";
 /// Stable symbol renaming a platform filesystem entry.
 pub const PLATFORM_PATH_RENAME_SYMBOL: &str = "bray_platform_path_rename";
 
+/// Stable symbol creating one native child process.
+pub const PLATFORM_CHILD_SPAWN_SYMBOL: &str = "bray_platform_child_spawn";
+
+/// Stable symbol waiting for one native child process.
+pub const PLATFORM_CHILD_WAIT_SYMBOL: &str = "bray_platform_child_wait";
+
+/// Stable symbol requesting native child-process termination.
+pub const PLATFORM_CHILD_TERMINATE_SYMBOL: &str = "bray_platform_child_terminate";
+
+/// Stable symbol consuming one terminal native child-process owner.
+pub const PLATFORM_CHILD_REAP_SYMBOL: &str = "bray_platform_child_reap";
+
+/// Stable symbol forcefully resolving and consuming one native child-process owner.
+pub const PLATFORM_CHILD_DISPOSE_SYMBOL: &str = "bray_platform_child_dispose";
+
+/// Stable symbol validating one civil date.
+pub const PLATFORM_TIME_DATE_VALIDATE_SYMBOL: &str = "bray_platform_time_date_validate";
+
+/// Stable symbol applying one checked calendar period.
+pub const PLATFORM_TIME_DATE_ADD_SYMBOL: &str = "bray_platform_time_date_add";
+
+/// Stable symbol loading one named timezone.
+pub const PLATFORM_TIME_ZONE_LOAD_SYMBOL: &str = "bray_platform_time_zone_load";
+
+/// Stable symbol discovering the host's local timezone.
+pub const PLATFORM_TIME_ZONE_LOCAL_SYMBOL: &str = "bray_platform_time_zone_local";
+
+/// Stable symbol retaining one timezone owner.
+pub const PLATFORM_TIME_ZONE_RETAIN_SYMBOL: &str = "bray_platform_time_zone_retain";
+
+/// Stable symbol releasing one timezone owner.
+pub const PLATFORM_TIME_ZONE_CLOSE_SYMBOL: &str = "bray_platform_time_zone_close";
+
+/// Stable symbol copying one timezone's canonical name.
+pub const PLATFORM_TIME_ZONE_NAME_SYMBOL: &str = "bray_platform_time_zone_name";
+
+/// Stable symbol observing an absolute timestamp through timezone rules.
+pub const PLATFORM_TIME_OBSERVE_SYMBOL: &str = "bray_platform_time_observe";
+
+/// Stable symbol resolving one local date-time through timezone rules.
+pub const PLATFORM_TIME_RESOLVE_SYMBOL: &str = "bray_platform_time_resolve";
+
+/// Stable symbol parsing one strict temporal representation.
+pub const PLATFORM_TIME_PARSE_SYMBOL: &str = "bray_platform_time_parse";
+
+/// Stable symbol formatting one strict temporal representation.
+pub const PLATFORM_TIME_FORMAT_SYMBOL: &str = "bray_platform_time_format";
+
 /// Stable symbol counting Unicode scalar values in UTF-8 text.
 pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count_v1";
 
@@ -278,10 +326,26 @@ pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRol
         Role::PathRemoveFile => PLATFORM_PATH_REMOVE_FILE_SYMBOL,
         Role::PathRemoveDirectory => PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL,
         Role::PathRename => PLATFORM_PATH_RENAME_SYMBOL,
+        Role::ChildSpawn => PLATFORM_CHILD_SPAWN_SYMBOL,
+        Role::ChildWait => PLATFORM_CHILD_WAIT_SYMBOL,
+        Role::ChildTerminate => PLATFORM_CHILD_TERMINATE_SYMBOL,
+        Role::ChildReap => PLATFORM_CHILD_REAP_SYMBOL,
+        Role::ChildDispose => PLATFORM_CHILD_DISPOSE_SYMBOL,
         Role::ClockMonotonicNow => PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL,
         Role::ClockWallNow => PLATFORM_CLOCK_WALL_NOW_SYMBOL,
         Role::ClockSleep => PLATFORM_CLOCK_SLEEP_SYMBOL,
         Role::EntropyFill => PLATFORM_ENTROPY_FILL_SYMBOL,
+        Role::TimeDateValidate => PLATFORM_TIME_DATE_VALIDATE_SYMBOL,
+        Role::TimeDateAdd => PLATFORM_TIME_DATE_ADD_SYMBOL,
+        Role::TimeZoneLoad => PLATFORM_TIME_ZONE_LOAD_SYMBOL,
+        Role::TimeZoneLocal => PLATFORM_TIME_ZONE_LOCAL_SYMBOL,
+        Role::TimeZoneRetain => PLATFORM_TIME_ZONE_RETAIN_SYMBOL,
+        Role::TimeZoneClose => PLATFORM_TIME_ZONE_CLOSE_SYMBOL,
+        Role::TimeZoneName => PLATFORM_TIME_ZONE_NAME_SYMBOL,
+        Role::TimeObserve => PLATFORM_TIME_OBSERVE_SYMBOL,
+        Role::TimeResolve => PLATFORM_TIME_RESOLVE_SYMBOL,
+        Role::TimeParse => PLATFORM_TIME_PARSE_SYMBOL,
+        Role::TimeFormat => PLATFORM_TIME_FORMAT_SYMBOL,
     }
 }
 

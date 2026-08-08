@@ -464,10 +464,26 @@ initial catalog before a trusted binding can use it.
 
 `platform.timer.start` always returns a pending operation. Its terminal `AbiOperationResult` leaves both values zero.
 
-Civil calendar and named-timezone operations form a separate `0x06xx` role family backed by the static temporal provider described
-in [Time library](time.md). Those roles exchange fixed-width calendar fields, timestamps, caller-owned text buffers, and opaque
-process-local timezone identities. They do not expose C++ layouts or depend on a host-installed timezone database. Exact UTC and
-fixed-offset operations remain available without loading named-zone data.
+#### Civil time and time zones
+
+| ID | Role | Parameters | Results | Mode and effects |
+| ---: | --- | --- | --- | --- |
+| `0x0701` | `platform.time.date_validate` | `i32 year`, `u32 month`, `u32 day` | `out<u32> outcome` | `nonblocking`; no ownership change |
+| `0x0702` | `platform.time.date_add` | `date_time`, `i32 years`, `i32 months`, `i32 days`, `u32 adjustment` | `out<date_time>`, `out<u32> outcome` | `nonblocking`; no ownership change |
+| `0x0710` | `platform.time.zone_load` | `native_text(call)` | `out<handle_owner<time_zone>>`, `out<u32> outcome` | `may_block`; creates an owner on success |
+| `0x0711` | `platform.time.zone_local` | none | `out<handle_owner<time_zone>>`, `out<u32> outcome` | `may_block`; creates an owner on success |
+| `0x0712` | `platform.time.zone_retain` | `handle_ref<time_zone>` | none | `nonblocking`; creates one additional owner |
+| `0x0713` | `platform.time.zone_close` | `handle_owner<time_zone>` | none | `nonblocking`; consumes one owner |
+| `0x0714` | `platform.time.zone_name` | `handle_ref<time_zone>`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`; initializes the reported prefix |
+| `0x0720` | `platform.time.observe` | `handle_ref<time_zone> or zero`, fixed offset, timestamp, `mut_bytes(call)` | `out<temporal_observation>`, `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`; initializes the reported prefix |
+| `0x0721` | `platform.time.resolve` | `handle_ref<time_zone> or zero`, fixed offset, `date_time` | `out<temporal_resolution>`, `out<u32> outcome` | `nonblocking`; no ownership change |
+| `0x0730` | `platform.time.parse` | `u32 kind`, `native_text(call)` | `out<temporal_value>`, `out<u64> invalid_offset`, `out<u32> outcome` | `nonblocking`; no ownership change |
+| `0x0731` | `platform.time.format` | `u32 kind`, `temporal_value`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`; initializes the reported prefix |
+
+The `0x07xx` role family is backed by the static temporal provider described in [Time library](time.md). The roles exchange
+fixed-width calendar fields, timestamps, caller-owned text buffers, and opaque process-local timezone identities. They do not
+expose C++ layouts or depend on a host-installed timezone database. Exact UTC and fixed-offset operations remain available without
+loading named-zone data.
 
 Cancellation is a request, not a terminal result. Once requested, the provider eventually makes `operation.complete` terminal.
 Normal completion wins a race that became terminal before cancellation was accepted; otherwise accepted cancellation completes with

@@ -341,6 +341,10 @@ where
             return Err(TemplateEvaluationFailure::invalid_input());
         };
 
+        if let AnySymbolId::UnionVariant(variant) = symbol {
+            return self.intern_value(ty, ConstantValueKind::union(variant, []));
+        }
+
         let Some(definition) = constant_definition(symbol) else {
             return Err(TemplateEvaluationFailure::invalid_input());
         };

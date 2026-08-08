@@ -203,6 +203,13 @@ where
         self.context.union_variant(id)
     }
 
+    pub(crate) fn union_payload_field(
+        self,
+        id: bray_symbols::UnionPayloadFieldSymbolId,
+    ) -> CheckerFactResult<Option<&'view bray_symbols::UnionPayloadFieldSymbol>> {
+        self.context.union_payload_field(id)
+    }
+
     /// Returns target-available compiler-known identities and behavior roles.
     pub fn available_compiler_known_symbols(self) -> &'view AvailableCompilerKnownSymbols {
         self.context.available_compiler_known_symbols()

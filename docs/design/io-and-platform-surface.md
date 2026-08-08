@@ -449,59 +449,46 @@ union ExitStatus
 struct ChildInput
 {
     internal state: ChildInputState;
+
+    consume func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
 }
 
 struct ChildOutput
 {
     internal state: ChildOutputState;
-}
 
-impl ChildInput
-{
     consume func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution());
-
-    consume async func close_async() -> Result<unit, std.io.IoError>;
-}
-
-impl ChildOutput
-{
-    consume func close() -> Result<unit, std.io.IoError>
-        requires(blocking_execution());
-
-    consume async func close_async() -> Result<unit, std.io.IoError>;
 }
 
 struct ChildCommand
 {
     internal state: ChildCommandState;
-}
 
-impl ChildCommand
-{
-    static func create(pos executable: std.path.Path) -> ChildCommand;
-    mut func argument(pos value: std.path.NativeText);
-    mut func environment_policy(policy: EnvironmentPolicy);
-    mut func set_environment(pos key: std.path.NativeText, pos value: std.path.NativeText);
-    mut func remove_environment(pos key: std.path.NativeText);
-    mut func working_directory(pos path: std.path.Path);
-    mut func standard_input(policy: ChildStreamPolicy);
-    mut func standard_output(policy: ChildStreamPolicy);
-    mut func standard_error(policy: ChildStreamPolicy);
+    trusted construct(pos executable: std.path.Path) -> Result<Self, ChildError>;
+    trusted mut func argument(pos value: std.path.NativeText) -> Result<unit, ChildError>;
+    trusted mut func environment_policy(policy: EnvironmentPolicy) -> Result<unit, ChildError>;
 
-    consume func spawn() -> Result<ChildProcess, ChildError>
+    trusted mut func set_environment(
+        pos key: std.path.NativeText,
+        pos value: std.path.NativeText,
+    ) -> Result<unit, ChildError>;
+
+    trusted mut func remove_environment(pos key: &std.path.NativeText) -> unit;
+    mut func working_directory(pos path: std.path.Path) -> unit;
+    mut func standard_input(policy: ChildStreamPolicy) -> unit;
+    mut func standard_output(policy: ChildStreamPolicy) -> unit;
+    mut func standard_error(policy: ChildStreamPolicy) -> unit;
+
+    consume trusted func spawn() -> Result<ChildProcess, ChildError>
         requires(blocking_execution());
-
-    consume async func spawn_async() -> Result<ChildProcess, ChildError>;
 }
 
 struct ChildProcess
 {
     internal state: ChildProcessState;
-}
 
-impl ChildProcess
-{
     mut func take_standard_input() -> ChildInput?;
     mut func take_standard_output() -> ChildOutput?;
     mut func take_standard_error() -> ChildOutput?;
@@ -509,36 +496,26 @@ impl ChildProcess
     mut func request_termination() -> Result<unit, ChildError>
         requires(blocking_execution());
 
-    mut async func request_termination_async() -> Result<unit, ChildError>;
-
     consume func wait() -> Result<ExitStatus, ChildError>
         requires(blocking_execution());
 
-    consume async func wait_async() -> Result<ExitStatus, ChildError>;
-
     consume func force_termination() -> Result<ExitStatus, ChildError>
         requires(blocking_execution());
-
-    consume async func force_termination_async() -> Result<ExitStatus, ChildError>;
 }
 ```
 
-`ChildInput` implements `Writer` and `AsyncWriter`. `ChildOutput` implements `Reader` and `AsyncReader`. A piped handle can be taken
-at most once. Inherited and null policies produce no public pipe owner. Their consuming `close` operations resolve the pipe owner on
-both result variants.
+`ChildInput` implements `Writer`. `ChildOutput` implements `Reader`. A piped handle can be taken at most once. Inherited and null
+policies produce no public pipe owner. Their consuming `close` operations resolve the pipe owner on both result variants.
 
-`request_termination` and `request_termination_async` request the target's cooperative termination mechanism without consuming the
-owner, waiting, or reaping. Every returning `ChildProcess.wait`, `wait_async`, `force_termination`, or `force_termination_async` path
-has reaped the child and resolved the owner, including `Result.Error`. An infrastructure failure detected before reaping is retained
-while cleanup continues and is returned only after ownership has been resolved. An unresolved owner has fallible asynchronous
-finalization, so normal scope exit requires an explicit consuming completion operation.
-
-Cancellation of a raw async consuming completion requests forced termination, waits and reaps under cancellation shielding, resolves
-all pipe owners retained by the child owner, and then forwards cancellation to the current run. It never returns a `ChildError`
-after cancellation propagation and never leaves a child detached implicitly.
+`request_termination` requests the target's cooperative termination mechanism without consuming the owner, waiting, or reaping.
+Every returning `ChildProcess.wait` or `force_termination` path has reaped the child and resolved the owner, including
+`Result.Error`. An infrastructure failure detected before reaping is retained while cleanup continues and is returned only after
+ownership has been resolved. Normal scope exit requires an explicit consuming completion operation.
 
 The typed `Process<T>` declarations specified by the concurrency chapter remain separate from `ChildProcess`. They use
-`ChildProcess` internally and add the authenticated Bray protocol and `RunResult<T>` contract.
+`ChildProcess` internally and add the authenticated Bray protocol, asynchronous transport and completion, cancellation-safe forced
+termination and reaping, and the `RunResult<T>` contract. The raw child and pipe owners remain blocking-only so their APIs do not
+claim asynchronous behavior that merely blocks a cooperative worker.
 
 ### `std.time`
 

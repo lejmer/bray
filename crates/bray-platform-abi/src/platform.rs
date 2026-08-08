@@ -8,6 +8,10 @@ use bray_platform::{RunOutputStream, flush_current_run_output, write_current_run
 use bray_runtime_interface::{NativePlatformStatus, NativePlatformText};
 
 use super::filesystem::{close_file, flush_file, is_file_handle, read_file, seek_file, write_file};
+use super::process::{
+    close_process_stream, flush_process_stream, is_process_handle, is_process_stream,
+    read_process_stream, write_process_stream,
+};
 use super::region::{MemoryRegion, disjoint};
 
 const CONTEXT_HEADER_BYTES: usize = 96;
@@ -148,7 +152,13 @@ native_platform_export! {
         let destination = unsafe { std::slice::from_raw_parts_mut(destination, length) };
 
         if handle != STANDARD_INPUT_HANDLE {
-            return match read_file(handle, destination) {
+            let result = if is_process_handle(handle) {
+                read_process_stream(handle, destination)
+            } else {
+                read_file(handle, destination)
+            };
+
+            return match result {
                 Ok(count) => publish_transfer(transferred, count),
                 Err(status) => status,
             };
@@ -181,7 +191,13 @@ native_platform_export! {
         let source = unsafe { std::slice::from_raw_parts(source, length) };
 
         let Some(stream) = run_output_stream(handle) else {
-            return match write_file(handle, source) {
+            let result = if is_process_handle(handle) {
+                write_process_stream(handle, source)
+            } else {
+                write_file(handle, source)
+            };
+
+            return match result {
                 Ok(count) => publish_transfer(transferred, count),
                 Err(status) => status,
             };
@@ -206,7 +222,13 @@ native_platform_export! {
 native_platform_export! {
     pub extern "C" fn bray_platform_stream_flush(handle: u64) -> NativePlatformStatus {
         let Some(stream) = run_output_stream(handle) else {
-            return match flush_file(handle) {
+            let result = if is_process_handle(handle) {
+                flush_process_stream(handle)
+            } else {
+                flush_file(handle)
+            };
+
+            return match result {
                 Ok(()) => NativePlatformStatus::SUCCESS,
                 Err(status) => status,
             };
@@ -252,7 +274,11 @@ native_platform_export! {
 
 native_platform_export! {
     pub extern "C" fn bray_platform_stream_close(handle: u64) -> NativePlatformStatus {
-        close_file(handle)
+        if is_process_handle(handle) {
+            close_process_stream(handle)
+        } else {
+            close_file(handle)
+        }
     }
 }
 
@@ -401,6 +427,7 @@ fn is_standard_stream(handle: u64) -> bool {
         handle,
         STANDARD_INPUT_HANDLE | STANDARD_OUTPUT_HANDLE | STANDARD_ERROR_HANDLE
     ) || is_file_handle(handle)
+        || is_process_stream(handle)
 }
 
 fn process_context() -> Result<&'static [u8], NativePlatformStatus> {
