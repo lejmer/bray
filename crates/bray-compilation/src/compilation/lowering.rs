@@ -1221,7 +1221,7 @@ mod tests {
             "module app;\n",
             "union Outcome\n",
             "{\n",
-            "    Value(value: usize);\n",
+            "    Value(pos value: usize);\n",
             "    Error;\n",
             "}\n",
             "func main(input: Outcome) -> usize\n",

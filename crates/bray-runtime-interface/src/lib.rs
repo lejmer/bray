@@ -9,8 +9,10 @@ mod frame;
 mod identity;
 mod native;
 mod platform;
+mod process;
 mod role;
 mod runtime;
+mod temporal;
 
 pub use artifact::{
     RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactDigest, RuntimeArtifactMetadata,
@@ -75,15 +77,18 @@ pub use native::{
     native_runtime_role_symbol,
 };
 pub use platform::{
-    NativePlatformChildRequest, NativePlatformDateTime, NativePlatformEnvironmentEntry,
-    NativePlatformEnvironmentList, NativePlatformExitStatus, NativePlatformFileMetadata,
+    NativePlatformEnvironmentEntry, NativePlatformEnvironmentList, NativePlatformFileMetadata,
     NativePlatformFileOptions, NativePlatformPath, NativePlatformSpanList, NativePlatformStatus,
-    NativePlatformTemporalObservation, NativePlatformTemporalResolution,
-    NativePlatformTemporalValue, NativePlatformText, PlatformAbiType, PlatformServiceBinding,
-    PlatformServiceRole, PlatformServiceSignature,
+    NativePlatformText, PlatformAbiType, PlatformServiceBinding, PlatformServiceRole,
+    PlatformServiceSignature,
 };
+pub use process::{NativePlatformChildRequest, NativePlatformExitStatus};
 pub use role::{
     RuntimeAbiRole, RuntimeRoleBinding, RuntimeRoleContract, RuntimeRoleContractEffect,
     RuntimeRoleImplementation,
 };
 pub use runtime::{RuntimeCompatibilityError, RuntimeContract, RuntimeContractBuildError};
+pub use temporal::{
+    NativePlatformDateTime, NativePlatformTemporalObservation, NativePlatformTemporalResolution,
+    NativePlatformTemporalValue,
+};

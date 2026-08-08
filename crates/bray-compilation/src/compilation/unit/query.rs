@@ -5346,6 +5346,162 @@ func other()
     }
 
     #[test]
+    fn pattern_facts_bind_positional_generic_union_payload_fields() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "union Maybe<T>\n",
+            "{\n",
+            "    Some(pos value: T);\n",
+            "    None;\n",
+            "}\n",
+            "func main(input: Maybe<bool>)\n",
+            "{\n",
+            "    match input\n",
+            "    {\n",
+            "        case Some(value)\n",
+            "        {\n",
+            "            assert(value);\n",
+            "        }\n",
+            "\n",
+            "        case None {}\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = match compilation.pattern_facts(key) {
+            Ok(facts) => facts,
+            Err(error) => panic!("positional payload-pattern facts must be available: {error:?}"),
+        };
+
+        let [binding] = facts.value().binding_types() else {
+            panic!("positional payload pattern must publish one binding type");
+        };
+
+        assert_type_representation(&compilation, binding.ty(), RepresentationRole::ScalarBool);
+
+        assert_ne!(binding.operation(), PatternOperation::Recovered);
+
+        assert!(matches!(
+            binding.projection(),
+            Some(PatternProjection::ActiveUnionPayloadField { .. })
+        ));
+
+        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
+    }
+
+    #[test]
+    fn positional_payload_bindings_support_member_calls() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Item\n",
+            "{\n",
+            "    func value() -> i32\n",
+            "    {\n",
+            "        return 1;\n",
+            "    }\n",
+            "}\n",
+            "union Choice\n",
+            "{\n",
+            "    Pair(pos first: Item, pos second: Item);\n",
+            "    Empty;\n",
+            "}\n",
+            "func main(input: Choice)\n",
+            "{\n",
+            "    match input\n",
+            "    {\n",
+            "        case Pair(first, second)\n",
+            "        {\n",
+            "            let value: i32 = first.value();\n",
+            "        }\n",
+            "\n",
+            "        case Empty {}\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = match compilation.semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("member-call selections must be available: {error:?}"),
+        };
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+
+        assert!(selections.value().entries().iter().any(|entry| matches!(
+            entry.selection(),
+            SemanticSelection::Operation(SelectedOperation::Member(_))
+        )));
+
+        assert!(selections.value().entries().iter().any(|entry| matches!(
+            entry.selection(),
+            SemanticSelection::Call(_)
+        )));
+    }
+
+    #[test]
+    fn operation_resolved_match_subjects_support_payload_member_calls() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Item\n",
+            "{\n",
+            "    func value() -> i32\n",
+            "    {\n",
+            "        return 1;\n",
+            "    }\n",
+            "}\n",
+            "union Choice\n",
+            "{\n",
+            "    Present(pos value: Item);\n",
+            "    Empty;\n",
+            "}\n",
+            "func main(input: Result<Choice, bool>) -> Result<unit, bool>\n",
+            "{\n",
+            "    match try input\n",
+            "    {\n",
+            "        case Present(value)\n",
+            "        {\n",
+            "            let number: i32 = value.value();\n",
+            "        }\n",
+            "\n",
+            "        case Empty {}\n",
+            "    }\n",
+            "\n",
+            "    return Ok(unit);\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = match compilation.semantic_selections(key) {
+            Ok(selections) => selections,
+            Err(error) => panic!("operation-resolved pattern selections must exist: {error:?}"),
+        };
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+
+        assert!(selections.value().entries().iter().any(|entry| matches!(
+            entry.selection(),
+            SemanticSelection::Operation(SelectedOperation::Member(_))
+        )));
+
+        assert!(selections.value().entries().iter().any(|entry| matches!(
+            entry.selection(),
+            SemanticSelection::Call(_)
+        )));
+    }
+
+    #[test]
     fn pattern_facts_do_not_treat_unknown_named_payload_fields_as_positional() {
         let compilation = compilation(concat!(
             "module app;\n",

@@ -361,7 +361,6 @@ trusted internal func observe_timestamp(
     try checked_variable_text_measure(measured, outcome, required);
 
     let mut buffer: std.memory.RawBuffer<u8> = try trusted temporal_text_buffer(required);
-
     outcome = TEMPORAL_SUCCESS;
 
     let observed: std.platform.PlatformStatus = trusted platform_time_observe(

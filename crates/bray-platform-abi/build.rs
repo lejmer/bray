@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::env;
 use std::fmt::Write;
 use std::fs;
@@ -35,6 +36,7 @@ fn main() {
         env::var_os("CARGO_MANIFEST_DIR")
             .unwrap_or_else(|| panic!("Cargo must provide CARGO_MANIFEST_DIR")),
     );
+
     let provider = manifest.join("../../third-party/temporal");
     let date = provider.join("date");
     let tzdata = provider.join("tzdata");
@@ -45,6 +47,7 @@ fn main() {
     let out = PathBuf::from(
         env::var_os("OUT_DIR").unwrap_or_else(|| panic!("Cargo must provide OUT_DIR")),
     );
+
     let embedded = out.join("bray_tzdata.inc");
 
     write_embedded_tzdata(&tzdata, &embedded);
@@ -72,6 +75,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", date.display());
     println!("cargo:rerun-if-changed={}", tzdata.display());
+
     println!(
         "cargo:rerun-if-changed={}",
         provider.join("provider").display()
@@ -83,18 +87,23 @@ fn verify_files(root: &Path, files: &[&str], expected: &str, name: &str) {
 
     for file in files {
         let path = root.join(file);
+
         let bytes = fs::read(&path).unwrap_or_else(|error| {
             panic!("could not read pinned {name} {}: {error}", path.display())
         });
 
+        let bytes = canonical_text(&bytes);
+
         hasher.update(file.as_bytes());
         hasher.update([0]);
+
         hasher.update(
             u64::try_from(bytes.len())
                 .unwrap_or_else(|_| panic!("pinned {name} file is too large"))
                 .to_le_bytes(),
         );
-        hasher.update(&bytes);
+
+        hasher.update(bytes);
     }
 
     let actual = format!("{:x}", hasher.finalize());
@@ -114,13 +123,15 @@ fn write_embedded_tzdata(root: &Path, destination: &Path) {
         let bytes = fs::read(root.join(file))
             .unwrap_or_else(|error| panic!("could not embed timezone data {file}: {error}"));
 
+        let bytes = canonical_text(&bytes);
+
         write!(
             source,
             "static constexpr unsigned char BRAY_TZDATA_{index}[] = {{"
         )
         .unwrap_or_else(|_| panic!("generated timezone source must be writable"));
 
-        for byte in bytes {
+        for &byte in bytes.iter() {
             write!(source, "{byte},")
                 .unwrap_or_else(|_| panic!("generated timezone source must be writable"));
         }
@@ -142,4 +153,25 @@ fn write_embedded_tzdata(root: &Path, destination: &Path) {
 
     fs::write(destination, source)
         .unwrap_or_else(|error| panic!("could not write embedded timezone source: {error}"));
+}
+
+fn canonical_text(bytes: &[u8]) -> Cow<'_, [u8]> {
+    if !bytes.windows(2).any(|pair| pair == b"\r\n") {
+        return Cow::Borrowed(bytes);
+    }
+
+    let mut normalized = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index..].starts_with(b"\r\n") {
+            normalized.push(b'\n');
+            index += 2;
+        } else {
+            normalized.push(bytes[index]);
+            index += 1;
+        }
+    }
+
+    Cow::Owned(normalized)
 }

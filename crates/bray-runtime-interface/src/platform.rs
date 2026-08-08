@@ -266,6 +266,7 @@ impl PlatformServiceRole {
         const CLOCK_SLEEP: &[PlatformAbiType] = &[U64, U32];
         const ENTROPY_FILL: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
         const TIME_DATE_VALIDATE: &[PlatformAbiType] = &[I32, U32, U32, PointerU32];
+
         const TIME_DATE_ADD: &[PlatformAbiType] = &[
             TemporalDateTime,
             I32,
@@ -275,10 +276,12 @@ impl PlatformServiceRole {
             TemporalDateTimePointer,
             PointerU32,
         ];
+
         const TIME_ZONE_LOAD: &[PlatformAbiType] = &[NativeText, PointerU64, PointerU32];
         const TIME_ZONE_LOCAL: &[PlatformAbiType] = &[PointerU64, PointerU32];
         const TIME_ZONE_HANDLE: &[PlatformAbiType] = &[U64];
         const TIME_ZONE_NAME: &[PlatformAbiType] = &[U64, PointerU8, U64, PointerU64, PointerU32];
+
         const TIME_OBSERVE: &[PlatformAbiType] = &[
             U64,
             I32,
@@ -290,6 +293,7 @@ impl PlatformServiceRole {
             PointerU64,
             PointerU32,
         ];
+
         const TIME_RESOLVE: &[PlatformAbiType] = &[
             U64,
             I32,
@@ -297,6 +301,7 @@ impl PlatformServiceRole {
             TemporalResolutionPointer,
             PointerU32,
         ];
+
         const TIME_PARSE: &[PlatformAbiType] = &[
             U32,
             NativeText,
@@ -304,6 +309,7 @@ impl PlatformServiceRole {
             PointerU64,
             PointerU32,
         ];
+
         const TIME_FORMAT: &[PlatformAbiType] =
             &[U32, TemporalValue, PointerU8, U64, PointerU64, PointerU32];
 
@@ -402,171 +408,6 @@ pub enum PlatformAbiType {
     TemporalValuePointer,
     /// The fixed-layout platform status record.
     Status,
-}
-
-/// Fixed-layout proleptic Gregorian date and wall-time fields.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct NativePlatformDateTime {
-    year: i32,
-    month: u32,
-    day: u32,
-    hour: u32,
-    minute: u32,
-    second: u32,
-    nanosecond: u32,
-}
-
-impl NativePlatformDateTime {
-    /// Creates one fixed-layout civil date-time record.
-    pub const fn new(
-        year: i32,
-        month: u32,
-        day: u32,
-        hour: u32,
-        minute: u32,
-        second: u32,
-        nanosecond: u32,
-    ) -> Self {
-        Self {
-            year,
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            nanosecond,
-        }
-    }
-
-    /// Returns the proleptic Gregorian year.
-    pub const fn year(self) -> i32 {
-        self.year
-    }
-
-    /// Returns the one-based month.
-    pub const fn month(self) -> u32 {
-        self.month
-    }
-
-    /// Returns the one-based day of month.
-    pub const fn day(self) -> u32 {
-        self.day
-    }
-
-    /// Returns the zero-based hour of day.
-    pub const fn hour(self) -> u32 {
-        self.hour
-    }
-
-    /// Returns the minute within the hour.
-    pub const fn minute(self) -> u32 {
-        self.minute
-    }
-
-    /// Returns the second within the minute.
-    pub const fn second(self) -> u32 {
-        self.second
-    }
-
-    /// Returns the nanosecond within the second.
-    pub const fn nanosecond(self) -> u32 {
-        self.nanosecond
-    }
-}
-
-/// Fixed-layout result of observing one absolute timestamp.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct NativePlatformTemporalObservation {
-    local: NativePlatformDateTime,
-    offset_seconds: i32,
-    daylight: u32,
-}
-
-impl NativePlatformTemporalObservation {
-    /// Returns the observed local date and time.
-    pub const fn local(self) -> NativePlatformDateTime {
-        self.local
-    }
-
-    /// Returns the observed UTC offset in seconds.
-    pub const fn offset_seconds(self) -> i32 {
-        self.offset_seconds
-    }
-
-    /// Returns whether daylight-saving time applies.
-    pub const fn is_daylight_saving(self) -> bool {
-        self.daylight == 1
-    }
-}
-
-/// Fixed-layout result of resolving one local date-time.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct NativePlatformTemporalResolution {
-    kind: u32,
-    reserved: u32,
-    first_seconds: i64,
-    first_nanoseconds: u32,
-    first_reserved: u32,
-    second_seconds: i64,
-    second_nanoseconds: u32,
-    second_reserved: u32,
-}
-
-impl NativePlatformTemporalResolution {
-    /// Returns the encoded local-time resolution kind.
-    pub const fn kind(self) -> u32 {
-        self.kind
-    }
-
-    /// Returns the first candidate's whole Unix seconds.
-    pub const fn first_seconds(self) -> i64 {
-        self.first_seconds
-    }
-
-    /// Returns the first candidate's nanosecond remainder.
-    pub const fn first_nanoseconds(self) -> u32 {
-        self.first_nanoseconds
-    }
-
-    /// Returns the second candidate's whole Unix seconds.
-    pub const fn second_seconds(self) -> i64 {
-        self.second_seconds
-    }
-
-    /// Returns the second candidate's nanosecond remainder.
-    pub const fn second_nanoseconds(self) -> u32 {
-        self.second_nanoseconds
-    }
-}
-
-/// Fixed-layout value used by strict temporal parsing and formatting.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct NativePlatformTemporalValue {
-    local: NativePlatformDateTime,
-    timestamp_seconds: i64,
-    offset_seconds: i32,
-    reserved: u32,
-}
-
-impl NativePlatformTemporalValue {
-    /// Returns the civil date-time component.
-    pub const fn local(self) -> NativePlatformDateTime {
-        self.local
-    }
-
-    /// Returns the absolute whole Unix seconds.
-    pub const fn timestamp_seconds(self) -> i64 {
-        self.timestamp_seconds
-    }
-
-    /// Returns the fixed UTC offset in seconds.
-    pub const fn offset_seconds(self) -> i32 {
-        self.offset_seconds
-    }
 }
 
 /// Call-only target-native path bytes passed across the platform ABI.
@@ -741,20 +582,6 @@ impl NativePlatformEnvironmentList {
     }
 }
 
-/// Complete call-only child-process construction request.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativePlatformChildRequest {
-    executable: NativePlatformText,
-    working_directory: NativePlatformText,
-    arguments: NativePlatformSpanList,
-    environment: NativePlatformEnvironmentList,
-    standard_input: u32,
-    standard_output: u32,
-    standard_error: u32,
-    reserved: u32,
-}
-
 impl NativePlatformFileMetadata {
     /// Creates one validated native metadata record.
     pub const fn new(
@@ -802,113 +629,6 @@ impl NativePlatformFileMetadata {
     /// Returns the reserved field, which must be zero.
     pub const fn reserved(self) -> u32 {
         self.reserved
-    }
-}
-
-impl NativePlatformChildRequest {
-    /// Creates one complete child-process request.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the constructor mirrors the fixed native ABI record"
-    )]
-    pub const fn new(
-        executable: NativePlatformText,
-        working_directory: NativePlatformText,
-        arguments: NativePlatformSpanList,
-        environment: NativePlatformEnvironmentList,
-        standard_input: u32,
-        standard_output: u32,
-        standard_error: u32,
-    ) -> Self {
-        Self {
-            executable,
-            working_directory,
-            arguments,
-            environment,
-            standard_input,
-            standard_output,
-            standard_error,
-            reserved: 0,
-        }
-    }
-
-    /// Returns the executable path span.
-    pub const fn executable(self) -> NativePlatformText {
-        self.executable
-    }
-
-    /// Returns the optional working-directory path span.
-    pub const fn working_directory(self) -> NativePlatformText {
-        self.working_directory
-    }
-
-    /// Returns the ordered argument spans.
-    pub const fn arguments(self) -> NativePlatformSpanList {
-        self.arguments
-    }
-
-    /// Returns the complete environment entries.
-    pub const fn environment(self) -> NativePlatformEnvironmentList {
-        self.environment
-    }
-
-    /// Returns the standard-input policy ordinal.
-    pub const fn standard_input(self) -> u32 {
-        self.standard_input
-    }
-
-    /// Returns the standard-output policy ordinal.
-    pub const fn standard_output(self) -> u32 {
-        self.standard_output
-    }
-
-    /// Returns the standard-error policy ordinal.
-    pub const fn standard_error(self) -> u32 {
-        self.standard_error
-    }
-
-    /// Returns the reserved field, which must be zero.
-    pub const fn reserved(self) -> u32 {
-        self.reserved
-    }
-}
-
-/// Native child-process exit status.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativePlatformExitStatus {
-    tag: u32,
-    reserved: u32,
-    payload: i64,
-}
-
-impl NativePlatformExitStatus {
-    /// Creates one portable exit-code status.
-    pub const fn code(code: i32) -> Self {
-        Self {
-            tag: 0,
-            reserved: 0,
-            payload: code as i64,
-        }
-    }
-
-    /// Creates one target termination status.
-    pub const fn target_termination(code: i64) -> Self {
-        Self {
-            tag: 1,
-            reserved: 0,
-            payload: code,
-        }
-    }
-
-    /// Returns the status variant ordinal.
-    pub const fn tag(self) -> u32 {
-        self.tag
-    }
-
-    /// Returns the variant payload.
-    pub const fn payload(self) -> i64 {
-        self.payload
     }
 }
 

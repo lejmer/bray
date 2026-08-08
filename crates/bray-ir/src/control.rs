@@ -397,12 +397,12 @@ impl MirTerminatorKind {
         }
     }
 
-    /// Returns whether a source literal pattern requires an externally materialized value.
-    pub const fn requires_pattern_literal_mapping(&self) -> bool {
+    /// Returns whether a pattern requires an externally materialized value.
+    pub const fn requires_pattern_value_mapping(&self) -> bool {
         matches!(
             self,
             Self::PatternBranch {
-                predicate: MirPatternPredicate::Literal(_),
+                predicate: MirPatternPredicate::Literal(_) | MirPatternPredicate::Constant(_),
                 ..
             }
         )

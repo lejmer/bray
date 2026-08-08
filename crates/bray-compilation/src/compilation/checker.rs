@@ -426,6 +426,15 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         self.facts.union_variant(id).map_err(checker_binder_error)
     }
 
+    fn union_payload_field(
+        &self,
+        id: bray_symbols::UnionPayloadFieldSymbolId,
+    ) -> CheckerFactResult<Option<&bray_symbols::UnionPayloadFieldSymbol>> {
+        self.facts
+            .union_payload_field(id)
+            .map_err(checker_binder_error)
+    }
+
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
         self.facts
             .compilation()

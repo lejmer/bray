@@ -298,6 +298,7 @@ fn build_bundle(
     let mut built_targets = Vec::new();
     let root = workspace::root().map_err(BuildError::Workspace)?;
     let temporal_provenance_path = root.join("third-party/temporal/provenance.json");
+
     let temporal_provenance = fs::read(&temporal_provenance_path)
         .map_err(|error| BuildError::read(&temporal_provenance_path, error))?;
 

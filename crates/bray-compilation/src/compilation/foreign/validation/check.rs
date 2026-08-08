@@ -15,6 +15,7 @@ use bray_syntax::FunctionDeclarationSyntax;
 use super::super::super::Compilation;
 use super::super::diagnostic::{diagnostic_abi, source_diagnostic, template_diagnostic_type};
 use super::abi::{compiler_known_representation, target_abi_value};
+use super::temporal::{DATE_TIME_FIELDS, OBSERVATION_FIELDS, RESOLUTION_FIELDS, VALUE_FIELDS};
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(in crate::compilation::foreign) struct CallableBoundarySurface {
@@ -295,22 +296,22 @@ fn platform_abi_type_matches(
             c_struct_matches(compilation, status, EXIT_STATUS_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::TemporalDateTime => {
-            c_struct_matches(compilation, ty, TEMPORAL_DATE_TIME_FIELDS, cancellation)
+            c_struct_matches(compilation, ty, DATE_TIME_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::TemporalDateTimePointer => {
-            pointer_struct_matches(compilation, ty, TEMPORAL_DATE_TIME_FIELDS, cancellation)
+            pointer_struct_matches(compilation, ty, DATE_TIME_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::TemporalObservationPointer => {
-            pointer_struct_matches(compilation, ty, TEMPORAL_OBSERVATION_FIELDS, cancellation)
+            pointer_struct_matches(compilation, ty, OBSERVATION_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::TemporalResolutionPointer => {
-            pointer_struct_matches(compilation, ty, TEMPORAL_RESOLUTION_FIELDS, cancellation)
+            pointer_struct_matches(compilation, ty, RESOLUTION_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::TemporalValue => {
-            c_struct_matches(compilation, ty, TEMPORAL_VALUE_FIELDS, cancellation)
+            c_struct_matches(compilation, ty, VALUE_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::TemporalValuePointer => {
-            pointer_struct_matches(compilation, ty, TEMPORAL_VALUE_FIELDS, cancellation)
+            pointer_struct_matches(compilation, ty, VALUE_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::Status => {
             platform_status_matches(compilation, ty, cancellation)
@@ -404,7 +405,7 @@ fn raw_pointer_target(
 }
 
 #[derive(Clone, Copy)]
-enum AbiField {
+pub(super) enum AbiField {
     Scalar(RepresentationRole),
     Pointer(RepresentationRole),
     Struct(&'static [AbiField]),
@@ -446,40 +447,6 @@ const EXIT_STATUS_FIELDS: &[AbiField] = &[
     AbiField::Scalar(RepresentationRole::ScalarU32),
     AbiField::Scalar(RepresentationRole::ScalarU32),
     AbiField::Scalar(RepresentationRole::ScalarI64),
-];
-
-const TEMPORAL_DATE_TIME_FIELDS: &[AbiField] = &[
-    AbiField::Scalar(RepresentationRole::ScalarI32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-];
-
-const TEMPORAL_OBSERVATION_FIELDS: &[AbiField] = &[
-    AbiField::Struct(TEMPORAL_DATE_TIME_FIELDS),
-    AbiField::Scalar(RepresentationRole::ScalarI32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-];
-
-const TEMPORAL_RESOLUTION_FIELDS: &[AbiField] = &[
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarI64),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarI64),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
-];
-
-const TEMPORAL_VALUE_FIELDS: &[AbiField] = &[
-    AbiField::Struct(TEMPORAL_DATE_TIME_FIELDS),
-    AbiField::Scalar(RepresentationRole::ScalarI64),
-    AbiField::Scalar(RepresentationRole::ScalarI32),
-    AbiField::Scalar(RepresentationRole::ScalarU32),
 ];
 
 fn pointer_struct_matches(

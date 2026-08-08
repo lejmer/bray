@@ -10,12 +10,13 @@ use bray_bound_tree::{
 use bray_checker::{resolve_callable_signature_template, resolve_type_expression_template};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableParameterSignature,
-    CallableSignature, CallableSignatureFact, CheckedConstraintKind, ExactSymbolId,
-    ImplementationSelection, ImplementationSubjectFact, MemberLookupResult, NamedTypeSymbolId,
-    ReceiverParameterSignature, SelfTypeContext, StructFieldTypeFact, SymbolFactContract,
-    SymbolFactRequest, TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch,
-    TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData,
+    CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateFact,
+    CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
+    CallableSignatureFact, CheckedConstraintKind, ExactSymbolId, ImplementationSelection,
+    ImplementationSubjectFact, MemberLookupResult, NamedTypeSymbolId, ReceiverParameterSignature,
+    SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, TraitApplicationId,
+    TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TraitApplicationSyntax;
 
@@ -230,10 +231,17 @@ impl Compilation {
                 };
 
                 let result_type = callable.signature.callable_type();
+
+                let defaults = self.resolve_callable_defaults(
+                    facts,
+                    &callable.signature,
+                    diagnostics,
+                )?;
+
                 let signature = member_callable_signature(callable.signature, receiver_type);
 
                 let target = MemberTarget::new(member, result_type, [])
-                    .with_callable(callable.instance, signature);
+                    .with_callable(callable.instance, signature, defaults);
 
                 let operation = SelectedOperation::Member(target);
 
@@ -350,10 +358,11 @@ impl Compilation {
         let signature = normalize_callable_type_equalities(facts, signature, constraints)?;
 
         let result_type = signature.callable_type();
+        let defaults = self.resolve_callable_defaults(facts, &signature, diagnostics)?;
         let signature = member_callable_signature(signature, receiver_type);
 
         let target = MemberTarget::new(member.into(), result_type, [])
-            .with_callable(callable.instance, signature)
+            .with_callable(callable.instance, signature, defaults)
             .with_trait_dispatch(dispatch);
 
         Ok(Some(OperationResolution::new(
@@ -554,6 +563,13 @@ impl Compilation {
         };
 
         let result_type = callable.signature.callable_type();
+
+        let defaults = self.resolve_callable_defaults(
+            facts,
+            &callable.signature,
+            diagnostics,
+        )?;
+
         let signature = member_callable_signature(callable.signature, receiver_type);
 
         let target = MemberTarget::new(
@@ -561,7 +577,7 @@ impl Compilation {
             result_type,
             [SelectedImplementationWitness::new(requirement, *witness)],
         )
-        .with_callable(callable.instance, signature);
+        .with_callable(callable.instance, signature, defaults);
 
         Ok(Some(OperationResolution::new(
             expression,
@@ -579,6 +595,41 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
         self.resolve_callable_signature(facts, member, [receiver_substitution], diagnostics)
+    }
+
+    fn resolve_callable_defaults(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        signature: &CallableSignature,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Vec<(CallableParameterSymbolId, CallableParameterDefaultProviderSymbolId)>, FactQueryError>
+    {
+        let mut defaults = Vec::new();
+
+        for parameter in signature.parameters() {
+            let parameter = parameter.parameter();
+
+            let result = facts
+                .symbol_fact(SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(
+                    parameter,
+                ))
+                .map_err(binder_fact_error)?;
+
+            *diagnostics = diagnostics.merged(result.diagnostics());
+
+            if !result.value().is_present() {
+                continue;
+            }
+
+            let provider = facts
+                .callable_parameter_default_provider(parameter)
+                .map_err(binder_fact_error)?
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            defaults.push((parameter, provider));
+        }
+
+        Ok(defaults)
     }
 
     fn resolve_callable_signature(

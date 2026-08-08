@@ -83,7 +83,7 @@ where
     pub(super) loops: Vec<LoopContext>,
     pub(super) catches: Vec<CatchContext>,
     pub(super) yield_regions: Vec<SyntaxAnchor>,
-    result_yields: Vec<ResultYieldContext>,
+    pub(super) result_yields: Vec<ResultYieldContext>,
     scopes: Vec<BoundBlockId>,
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
@@ -104,10 +104,10 @@ pub(super) struct CatchContext {
 }
 
 #[derive(Clone, Copy)]
-struct ResultYieldContext {
-    target: SyntaxAnchor,
-    completion: AnalysisBlockId,
-    scope_depth: usize,
+pub(super) struct ResultYieldContext {
+    pub(super) target: SyntaxAnchor,
+    pub(super) completion: AnalysisBlockId,
+    pub(super) scope_depth: usize,
 }
 
 impl<'view, C> ControlFlowGraphBuilder<'view, C>
@@ -721,6 +721,77 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(predecessor_kinds, [AnalysisEdgeKind::ConditionalTrue]);
+    }
+
+    #[test]
+    fn conditional_yields_rejoin_before_the_following_expression() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(8);
+        let origin = BoundNodeOrigin::source(key.source());
+
+        let mut builder = BoundTreeBuilder::new(unit);
+
+        let condition = push_error_expression(&mut builder, origin);
+        let target = Some(origin.source_anchor().syntax());
+        let first_value = push_error_expression(&mut builder, origin);
+
+        let first_yield = push_expression(
+            &mut builder,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Yield,
+                Some(first_value),
+                target,
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let second_value = push_error_expression(&mut builder, origin);
+
+        let second_yield = push_expression(
+            &mut builder,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Yield,
+                Some(second_value),
+                target,
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let first = push_block(&mut builder, origin, [first_yield]);
+        let second = push_block(&mut builder, origin, [second_yield]);
+
+        let conditional = push_expression(
+            &mut builder,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Conditional,
+                [condition],
+                [first, second],
+                [],
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let following = push_error_expression(&mut builder, origin);
+        let root = push_callable_root(&mut builder, origin, [conditional, following]);
+        let tree = builder.finish();
+        let graph = graph(&tree, &key, root);
+
+        let following_block = block_containing(&graph, following.into());
+
+        assert!(!following_block.predecessors().is_empty());
+
+        assert!(
+            !graph
+                .exits()
+                .iter()
+                .any(|exit| exit.kind() == AnalysisExitKind::Yield)
+        );
     }
 
     #[test]

@@ -107,6 +107,38 @@ impl Lowerer<'_> {
             purpose == StorageAccessPurpose::Borrow(kind)
         })?;
 
+        let temporary = self
+            .input
+            .storage_plan()
+            .root_identity(decision.access())
+            .filter(|identity| !self.storages.contains_key(identity))
+            .and_then(|identity| {
+                self.input
+                    .storage_plan()
+                    .identity(identity)
+                    .and_then(|model| match model {
+                        StorageIdentity::Temporary(owner)
+                            if owner == initialization_expression =>
+                        {
+                            Some(owner)
+                        }
+                        _ => None,
+                    })
+            });
+
+        let current = if let Some(temporary) = temporary {
+            let lowered = self.lower_expression(temporary, current)?;
+            let lowered = self.materialize_for_later_evaluation(temporary, lowered)?;
+
+            let Some(current) = lowered.block else {
+                return Ok(lowered);
+            };
+
+            current
+        } else {
+            current
+        };
+
         let (current, place) =
             match self.lower_access_place(initialization_expression, decision.access(), current)? {
                 LoweredPlace::Continuing { block, place } => (block, place),

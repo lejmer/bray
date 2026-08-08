@@ -696,14 +696,12 @@ fn map_arguments(
             return Ok(None);
         }
 
-        let Ok(default_index) =
-            defaults.binary_search_by_key(&signature.parameter(), |(parameter, _)| *parameter)
+        let Some((_, provider)) = defaults
+            .iter()
+            .find(|(parameter, _)| *parameter == signature.parameter())
+            .copied()
         else {
             return Ok(None);
-        };
-
-        let Some((_, provider)) = defaults.get(default_index).copied() else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
         let Ok(ordinal) = u32::try_from(index) else {

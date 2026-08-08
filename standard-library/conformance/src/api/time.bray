@@ -62,7 +62,9 @@ func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.ti
         case Error(_) { assert(false); }
     }
 
-    match january.add(std.time.CalendarPeriod(months = 1))
+    let rejected: std.time.Date = try std.time.Date(year = 2024, month = 1, day = 31);
+
+    match rejected.add(std.time.CalendarPeriod(months = 1))
     {
         case Ok(_) { assert(false); }
         case Error(std.time.TimeError.InvalidValue) {}
@@ -99,7 +101,8 @@ func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.ti
     let local: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-02-29T12:34:56.125");
     let offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
     let timestamp: std.time.Timestamp = try local.at_offset(offset);
-    let round_trip: std.time.LocalDateTime = try timestamp.local_at(offset);
+    let round_trip_offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
+    let round_trip: std.time.LocalDateTime = try timestamp.local_at(round_trip_offset);
     let text: string = try round_trip.iso8601();
 
     assert(std.string.equals(&text, &"2024-02-29T12:34:56.125"));
@@ -113,6 +116,9 @@ func named_time_zones_use_pinned_aliases_and_rules() -> Result<unit, std.time.Ti
     let zone: std.time.TimeZone = try std.time.TimeZone.load(&"US/Eastern");
     let summer: std.time.Timestamp = try std.time.Timestamp.parse(&"2024-07-01T12:00:00Z");
     let winter: std.time.Timestamp = try std.time.Timestamp.parse(&"2040-01-01T12:00:00Z");
+
+    assert(summer.seconds() == 1719835200);
+
     let summer_local: std.time.ZonedDateTime = try zone.at(summer);
     let winter_local: std.time.ZonedDateTime = try zone.at(winter);
 
@@ -120,6 +126,8 @@ func named_time_zones_use_pinned_aliases_and_rules() -> Result<unit, std.time.Ti
     assert(std.string.equals(&zone.database_version(), &"2026c"));
     assert(summer_local.offset().seconds() == -14400);
     assert(summer_local.is_daylight_saving());
+    assert(std.string.equals(summer_local.abbreviation(), &"EDT"));
+    assert(summer_local.local().time().hour() == 8);
     assert(winter_local.offset().seconds() == -18000);
     assert(!winter_local.is_daylight_saving());
 
@@ -136,7 +144,13 @@ func named_time_zones_expose_repeated_and_skipped_local_times() -> Result<unit, 
     match try zone.resolve(&repeated)
     {
         case Unique(_) { assert(false); }
-        case Ambiguous(earlier, later) { assert(earlier.timestamp().seconds() < later.timestamp().seconds()); }
+        case Ambiguous(earlier, later)
+        {
+            let earlier_timestamp: std.time.Timestamp = earlier.timestamp();
+            let later_timestamp: std.time.Timestamp = later.timestamp();
+
+            assert(earlier_timestamp.seconds() < later_timestamp.seconds());
+        }
         case Nonexistent(_, _) { assert(false); }
     }
 
@@ -144,7 +158,13 @@ func named_time_zones_expose_repeated_and_skipped_local_times() -> Result<unit, 
     {
         case Unique(_) { assert(false); }
         case Ambiguous(_, _) { assert(false); }
-        case Nonexistent(before, after) { assert(before.timestamp().seconds() < after.timestamp().seconds()); }
+        case Nonexistent(before, after)
+        {
+            let before_timestamp: std.time.Timestamp = before.timestamp();
+            let after_timestamp: std.time.Timestamp = after.timestamp();
+
+            assert(before_timestamp.seconds() < after_timestamp.seconds());
+        }
     }
 
     return Ok(unit);

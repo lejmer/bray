@@ -612,7 +612,7 @@ fn validate_terminator_mappings(
                     block
                         .terminator()
                         .kind()
-                        .requires_pattern_literal_mapping()
+                        .requires_pattern_value_mapping()
                         .then_some(((instance.key().clone(), id), 1_usize))
                 })
         })

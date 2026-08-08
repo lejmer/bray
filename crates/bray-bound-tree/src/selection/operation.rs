@@ -55,6 +55,12 @@ pub struct MemberTarget {
     result_type: TypeId,
     callable_instance: Option<CallableInstanceData>,
     callable_signature: Option<CallableSignature>,
+    callable_defaults: Arc<
+        [(
+            CallableParameterSymbolId,
+            CallableParameterDefaultProviderSymbolId,
+        )],
+    >,
     trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
@@ -71,6 +77,7 @@ impl MemberTarget {
             result_type,
             callable_instance: None,
             callable_signature: None,
+            callable_defaults: Arc::new([]),
             trait_dispatch: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
@@ -81,9 +88,16 @@ impl MemberTarget {
         mut self,
         callable: CallableInstanceData,
         signature: CallableSignature,
+        defaults: impl IntoIterator<
+            Item = (
+                CallableParameterSymbolId,
+                CallableParameterDefaultProviderSymbolId,
+            ),
+        >,
     ) -> Self {
         self.callable_instance = Some(callable);
         self.callable_signature = Some(signature);
+        self.callable_defaults = sorted_unique_shared_slice(defaults);
 
         self
     }
@@ -116,6 +130,16 @@ impl MemberTarget {
     /// Returns the resolved callable signature when this target is callable.
     pub const fn callable_signature(&self) -> Option<&CallableSignature> {
         self.callable_signature.as_ref()
+    }
+
+    /// Returns the declaration defaults available when this member is invoked directly.
+    pub fn callable_defaults(
+        &self,
+    ) -> &[(
+        CallableParameterSymbolId,
+        CallableParameterDefaultProviderSymbolId,
+    )] {
+        &self.callable_defaults
     }
 
     /// Returns the resolved implicit receiver when this target is callable.

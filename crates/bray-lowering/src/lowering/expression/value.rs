@@ -65,7 +65,7 @@ impl Lowerer<'_> {
                 let mut block = current;
                 let mut inputs = Vec::with_capacity(selection.inputs().len());
 
-                for input in selection.inputs() {
+                for (index, input) in selection.inputs().iter().enumerate() {
                     match *input {
                         SelectedConstructionInput::Explicit {
                             expression,
@@ -74,6 +74,17 @@ impl Lowerer<'_> {
                             ..
                         } => {
                             let lowered = self.lower_expression(expression, block)?;
+
+                            let has_later_expression =
+                                selection.inputs()[index + 1..].iter().any(|input| {
+                                    matches!(input, SelectedConstructionInput::Explicit { .. })
+                                });
+
+                            let lowered = if has_later_expression {
+                                self.materialize_for_later_evaluation(expression, lowered)?
+                            } else {
+                                lowered
+                            };
 
                             let Some(continuation) = lowered.block else {
                                 return Ok(lowered);
