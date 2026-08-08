@@ -8,8 +8,10 @@ See [Repository tasks](xtask.md) for the complete development-command reference.
 Provision the supported package for the active Rust host:
 
 ```text
-cargo xtask llvm fetch
+cargo llvm fetch
 ```
+
+The LLVM command is dependency-light, so it remains available before LLVM-dependent compiler crates can be built.
 
 The command downloads the official LLVM development archive with `curl`, verifies its exact byte length and SHA-256 digest, extracts
 it with `tar`, and validates the LLVM version, C headers, and static core and target libraries. Provisioned files remain under
@@ -21,7 +23,7 @@ name. Set both variables before invoking Cargo to use a separately managed LLVM 
 before building:
 
 ```text
-cargo xtask llvm validate --root <directory>
+cargo llvm validate --root <directory>
 ```
 
 An external installation must provide the exact pinned version and the same development surface. The build does not search `PATH`

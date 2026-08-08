@@ -1,4 +1,28 @@
+use std::fs;
 use std::hash::Hasher;
+use std::io::{self, Read};
+use std::path::Path;
+
+use sha2::{Digest as _, Sha256};
+
+/// Computes the SHA-256 digest of one file without loading it into memory.
+pub fn sha256_file(path: &Path) -> io::Result<[u8; 32]> {
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 64 * 1024];
+
+    loop {
+        let length = file.read(&mut buffer)?;
+
+        if length == 0 {
+            break;
+        }
+
+        hasher.update(&buffer[..length]);
+    }
+
+    Ok(hasher.finalize().into())
+}
 
 /// Incremental BLAKE3 state with platform-independent primitive encoding.
 pub struct StableDigestHasher(blake3::Hasher);
@@ -92,9 +116,36 @@ impl Hasher for StableDigestHasher {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::hash::Hasher;
 
-    use super::StableDigestHasher;
+    use super::{StableDigestHasher, sha256_file};
+
+    #[test]
+    fn file_sha256_is_computed_incrementally() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("temporary directory must be available");
+        };
+
+        let path = directory.path().join("input");
+
+        if let Err(error) = fs::write(&path, b"bray") {
+            panic!("test input must be written: {error}");
+        }
+
+        let Ok(digest) = sha256_file(&path) else {
+            panic!("test input must be readable");
+        };
+
+        assert_eq!(
+            digest,
+            [
+                0x87, 0x7f, 0xba, 0x91, 0x41, 0xff, 0x29, 0x30, 0xdb, 0x14, 0xe9, 0x78, 0x16,
+                0xa1, 0xf9, 0xac, 0x5e, 0x57, 0x88, 0xb7, 0x7a, 0x13, 0xda, 0xf3, 0x30, 0xa4,
+                0x56, 0xf8, 0x68, 0x12, 0x79, 0xb9,
+            ]
+        );
+    }
 
     #[test]
     fn primitive_encoding_is_explicitly_little_endian() {

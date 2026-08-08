@@ -79,15 +79,15 @@ fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: Nativ
     command
         .env(
             "CC_x86_64_unknown_linux_gnu",
-            crate::llvm::tool_path(root, "clang"),
+            bray_llvm_toolchain::tool_path(root, "clang"),
         )
         .env(
             "CXX_x86_64_unknown_linux_gnu",
-            crate::llvm::tool_path(root, "clang++"),
+            bray_llvm_toolchain::tool_path(root, "clang++"),
         )
         .env(
             "AR_x86_64_unknown_linux_gnu",
-            crate::llvm::tool_path(root, "llvm-ar"),
+            bray_llvm_toolchain::tool_path(root, "llvm-ar"),
         );
 }
 

@@ -1,7 +1,8 @@
 # Repository Tasks
 
-Bray keeps repository-specific development automation in the `xtask` crate. Run these commands from the repository root with
-`cargo xtask`. They are contributor and release-engineering tools rather than user-facing Bray Tack commands.
+Bray keeps repository-specific development automation in the `xtask` crate. Run most commands from the repository root with
+`cargo xtask`. LLVM provisioning uses the dependency-light `cargo llvm` command because it must work before compiler crates can be
+built. These commands are contributor and release-engineering tools rather than user-facing Bray Tack commands.
 
 ## Style
 
@@ -61,20 +62,20 @@ cargo xtask compiler-known check
 Download and validate the pinned LLVM toolchain for the active Rust host:
 
 ```text
-cargo xtask llvm fetch
+cargo llvm fetch
 ```
 
 Validate the provisioned toolchain, or validate an explicitly managed installation:
 
 ```text
-cargo xtask llvm validate
-cargo xtask llvm validate --root <directory>
+cargo llvm validate
+cargo llvm validate --root <directory>
 ```
 
 Print the supported Rust host identity selected by the LLVM manifest:
 
 ```text
-cargo xtask llvm host
+cargo llvm host
 ```
 
 See [LLVM toolchain](llvm.md) for provisioning policy and supported hosts.
