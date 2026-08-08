@@ -83,6 +83,10 @@ extern trusted internal func platform_child_reap(
 ) -> std.platform.PlatformStatus
     uses(foreign_call);
 
+@abi(c)
+extern trusted internal func platform_child_dispose(pos child: u64) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
 internal func path_span(pos path: &std.path.Path) -> PlatformNativeText
 {
     return native_text_span(path.to_native());

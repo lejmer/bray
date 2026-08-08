@@ -35,12 +35,6 @@ struct ChildInput
     {
         return trusted close_child_input(&mut self);
     }
-
-    consume trusted mut async func close_async() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
-    {
-        return trusted self.close();
-    }
 }
 
 internal struct ChildOutputState
@@ -75,12 +69,6 @@ struct ChildOutput
     {
         return trusted close_child_output(&mut self);
     }
-
-    consume trusted mut async func close_async() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
-    {
-        return trusted self.close();
-    }
 }
 
 impl ChildInputWriter = ChildInput(std.io.Writer)
@@ -98,33 +86,9 @@ impl ChildInputWriter = ChildInput(std.io.Writer)
     }
 }
 
-impl ChildInputAsyncWriter = ChildInput(std.io.AsyncWriter)
-{
-    trusted mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
-        requires(blocking_execution())
-    {
-        return trusted child_input_write(&mut self, source);
-    }
-
-    trusted mut async func flush_async() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
-    {
-        return trusted child_input_flush(&mut self);
-    }
-}
-
 impl ChildOutputReader = ChildOutput(std.io.Reader)
 {
     trusted mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
-        requires(blocking_execution())
-    {
-        return trusted child_output_read(&mut self, destination);
-    }
-}
-
-impl ChildOutputAsyncReader = ChildOutput(std.io.AsyncReader)
-{
-    trusted mut async func read_async(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
         return trusted child_output_read(&mut self, destination);

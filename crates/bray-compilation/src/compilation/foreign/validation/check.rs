@@ -249,12 +249,9 @@ fn platform_abi_type_matches(
             ],
             cancellation,
         ),
-        bray_runtime_interface::PlatformAbiType::NativeText => c_struct_matches(
-            compilation,
-            ty,
-            BYTE_SPAN_FIELDS,
-            cancellation,
-        ),
+        bray_runtime_interface::PlatformAbiType::NativeText => {
+            c_struct_matches(compilation, ty, BYTE_SPAN_FIELDS, cancellation)
+        }
         bray_runtime_interface::PlatformAbiType::FileOptions => c_struct_matches(
             compilation,
             ty,
@@ -284,12 +281,9 @@ fn platform_abi_type_matches(
                 cancellation,
             )
         }
-        bray_runtime_interface::PlatformAbiType::ChildRequest => c_struct_matches(
-            compilation,
-            ty,
-            CHILD_REQUEST_FIELDS,
-            cancellation,
-        ),
+        bray_runtime_interface::PlatformAbiType::ChildRequest => {
+            c_struct_matches(compilation, ty, CHILD_REQUEST_FIELDS, cancellation)
+        }
         bray_runtime_interface::PlatformAbiType::ExitStatusPointer => {
             let Some(status) = raw_pointer_target(compilation, ty)? else {
                 return Ok(false);

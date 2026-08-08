@@ -121,6 +121,10 @@
           "declaration": "std.process.platform_child_reap"
         },
         {
+          "role": "platform.child.dispose",
+          "declaration": "std.process.platform_child_dispose"
+        },
+        {
           "role": "platform.clock.monotonic_now",
           "declaration": "std.platform.clock_monotonic_now"
         },

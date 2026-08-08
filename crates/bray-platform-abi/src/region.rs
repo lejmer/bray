@@ -46,9 +46,14 @@ pub(super) fn disjoint(regions: &[MemoryRegion]) -> bool {
     })
 }
 
+pub(super) fn mutually_disjoint(left: &[MemoryRegion], right: &[MemoryRegion]) -> bool {
+    left.iter()
+        .all(|left| right.iter().all(|right| !left.overlaps(*right)))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{MemoryRegion, disjoint};
+    use super::{MemoryRegion, disjoint, mutually_disjoint};
 
     #[test]
     fn regions_validate_alignment_bounds_and_overlap() {
@@ -62,6 +67,8 @@ mod tests {
 
         assert!(disjoint(&[first, second]));
         assert!(!disjoint(&[first, first]));
+        assert!(mutually_disjoint(&[first], &[second]));
+        assert!(!mutually_disjoint(&[first], &[first]));
 
         assert!(
             MemoryRegion::write(

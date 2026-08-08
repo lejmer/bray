@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 
 use bray_platform::{
     NativeChildProcess, NativeExitStatus, NativePipeReader, NativePipeWriter, NativeProcessCommand,
@@ -15,7 +16,7 @@ use bray_runtime_interface::{
 };
 
 use super::platform::platform_io_error;
-use super::region::{MemoryRegion, disjoint};
+use super::region::{MemoryRegion, disjoint, mutually_disjoint};
 
 const FIRST_PROCESS_HANDLE: u64 = 1 << 63;
 
@@ -23,6 +24,7 @@ enum ProcessHandle {
     Child(ChildState),
     Reader(NativePipeReader),
     Writer(NativePipeWriter),
+    Closed,
 }
 
 struct ChildState {
@@ -43,9 +45,9 @@ fn insert_handles(
 
     let mut ids = Vec::with_capacity(values.len());
 
-    let Ok(mut handles) = handles().lock() else {
-        return Err((NativePlatformStatus::OTHER, values));
-    };
+    let mut handles = handles()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     for _ in 0..values.len() {
         let id = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
@@ -67,27 +69,26 @@ fn insert_handles(
 fn handle(id: u64) -> Result<Arc<Mutex<ProcessHandle>>, NativePlatformStatus> {
     handles()
         .lock()
-        .map_err(|_| NativePlatformStatus::OTHER)?
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&id)
         .cloned()
         .ok_or(NativePlatformStatus::INVALID_INPUT)
 }
 
 fn remove_handle(id: u64) -> Result<ProcessHandle, NativePlatformStatus> {
-    let mut handles = handles().lock().map_err(|_| NativePlatformStatus::OTHER)?;
+    let mut handles = handles()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let Some(handle) = handles.remove(&id) else {
         return Err(NativePlatformStatus::INVALID_INPUT);
     };
 
-    match Arc::try_unwrap(handle) {
-        Ok(handle) => handle.into_inner().map_err(|_| NativePlatformStatus::OTHER),
-        Err(handle) => {
-            handles.insert(id, handle);
+    let mut handle = handle
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-            Err(NativePlatformStatus::INVALID_INPUT)
-        }
-    }
+    Ok(std::mem::replace(&mut *handle, ProcessHandle::Closed))
 }
 
 fn with_child<T>(
@@ -95,7 +96,10 @@ fn with_child<T>(
     operation: impl FnOnce(&mut ChildState) -> Result<T, NativePlatformStatus>,
 ) -> Result<T, NativePlatformStatus> {
     let handle = handle(id)?;
-    let mut handle = handle.lock().map_err(|_| NativePlatformStatus::OTHER)?;
+
+    let mut handle = handle
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let ProcessHandle::Child(child) = &mut *handle else {
         return Err(NativePlatformStatus::INVALID_INPUT);
@@ -125,10 +129,6 @@ native_platform_export! {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
-        for output in outputs {
-            unsafe { output.write(0) };
-        }
-
         let mut input_regions = Vec::new();
 
         let executable = match native_value(request.executable(), &mut input_regions) {
@@ -155,13 +155,7 @@ native_platform_export! {
             Err(status) => return status,
         };
 
-        if !disjoint(
-            &input_regions
-                .iter()
-                .copied()
-                .chain(output_regions.iter().copied())
-                .collect::<Vec<_>>(),
-        ) {
+        if !mutually_disjoint(&input_regions, &output_regions) {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
@@ -176,6 +170,10 @@ native_platform_export! {
         else {
             return NativePlatformStatus::INVALID_INPUT;
         };
+
+        for output in outputs {
+            unsafe { output.write(0) };
+        }
 
         let mut command = match NativeProcessCommand::new(executable) {
             Ok(command) => command,
@@ -257,19 +255,29 @@ native_platform_export! {
             return NativePlatformStatus::INVALID_INPUT;
         }
 
-        let exit = match with_child(child, |child| {
-            if let Some(status) = child.terminal {
-                return Ok(status);
+        let exit = loop {
+            let observed = match with_child(child, |child| {
+                if let Some(status) = child.terminal {
+                    return Ok(Some(status));
+                }
+
+                let status = child.child.try_wait().map_err(platform_error)?;
+
+                if let Some(status) = status {
+                    child.terminal = Some(status);
+                }
+
+                Ok(status)
+            }) {
+                Ok(status) => status,
+                Err(status) => return status,
+            };
+
+            if let Some(status) = observed {
+                break status;
             }
 
-            let status = child.child.wait().map_err(platform_error)?;
-
-            child.terminal = Some(status);
-
-            Ok(status)
-        }) {
-            Ok(status) => status,
-            Err(status) => return status,
+            std::thread::sleep(Duration::from_millis(1));
         };
 
         unsafe {
@@ -308,6 +316,25 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    pub extern "C" fn bray_platform_child_dispose(child_handle: u64) -> NativePlatformStatus {
+        if let Err(status) = with_child(child_handle, |_| Ok(())) {
+            return status;
+        }
+
+        let handle = match remove_handle(child_handle) {
+            Ok(handle) => handle,
+            Err(status) => return status,
+        };
+
+        let ProcessHandle::Child(mut child) = handle else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        dispose_child(&mut child)
+    }
+}
+
+native_platform_export! {
     pub extern "C" fn bray_platform_child_reap(
         child_handle: u64,
         status: *mut NativePlatformExitStatus,
@@ -339,9 +366,11 @@ pub(super) const fn is_process_handle(id: u64) -> bool {
 
 pub(super) fn is_process_stream(id: u64) -> bool {
     handle(id).is_ok_and(|handle| {
-        handle.lock().is_ok_and(|handle| {
-            matches!(*handle, ProcessHandle::Reader(_) | ProcessHandle::Writer(_))
-        })
+        let handle = handle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        matches!(*handle, ProcessHandle::Reader(_) | ProcessHandle::Writer(_))
     })
 }
 
@@ -350,7 +379,10 @@ pub(super) fn read_process_stream(
     destination: &mut [u8],
 ) -> Result<usize, NativePlatformStatus> {
     let handle = handle(id)?;
-    let mut handle = handle.lock().map_err(|_| NativePlatformStatus::OTHER)?;
+
+    let mut handle = handle
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let ProcessHandle::Reader(reader) = &mut *handle else {
         return Err(NativePlatformStatus::INVALID_INPUT);
@@ -361,23 +393,28 @@ pub(super) fn read_process_stream(
         .map_err(|error| platform_io_error(&error))
 }
 
-pub(super) fn write_process_stream(
-    id: u64,
-    source: &[u8],
-) -> Result<usize, NativePlatformStatus> {
+pub(super) fn write_process_stream(id: u64, source: &[u8]) -> Result<usize, NativePlatformStatus> {
     let handle = handle(id)?;
-    let mut handle = handle.lock().map_err(|_| NativePlatformStatus::OTHER)?;
+
+    let mut handle = handle
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let ProcessHandle::Writer(writer) = &mut *handle else {
         return Err(NativePlatformStatus::INVALID_INPUT);
     };
 
-    writer.write(source).map_err(|error| platform_io_error(&error))
+    writer
+        .write(source)
+        .map_err(|error| platform_io_error(&error))
 }
 
 pub(super) fn flush_process_stream(id: u64) -> Result<(), NativePlatformStatus> {
     let handle = handle(id)?;
-    let mut handle = handle.lock().map_err(|_| NativePlatformStatus::OTHER)?;
+
+    let mut handle = handle
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let ProcessHandle::Writer(writer) = &mut *handle else {
         return Err(NativePlatformStatus::INVALID_INPUT);
@@ -393,7 +430,7 @@ pub(super) fn close_process_stream(id: u64) -> NativePlatformStatus {
 
     match remove_handle(id) {
         Ok(ProcessHandle::Reader(_) | ProcessHandle::Writer(_)) => NativePlatformStatus::SUCCESS,
-        Ok(ProcessHandle::Child(_)) => NativePlatformStatus::INVALID_INPUT,
+        Ok(ProcessHandle::Child(_) | ProcessHandle::Closed) => NativePlatformStatus::INVALID_INPUT,
         Err(status) => status,
     }
 }
@@ -401,13 +438,44 @@ pub(super) fn close_process_stream(id: u64) -> NativePlatformStatus {
 fn dispose_process_handles(values: Vec<ProcessHandle>) {
     for value in values {
         if let ProcessHandle::Child(mut child) = value {
-            let _ = child.child.terminate();
-            let _ = child.child.wait();
+            let _ = dispose_child(&mut child);
         }
     }
 }
 
-fn push_optional_handle(values: &mut Vec<ProcessHandle>, value: Option<ProcessHandle>) -> Option<usize> {
+fn dispose_child(child: &mut ChildState) -> NativePlatformStatus {
+    if child.terminal.is_some() {
+        return NativePlatformStatus::SUCCESS;
+    }
+
+    let mut first_error = match child.child.try_wait() {
+        Ok(Some(status)) => {
+            child.terminal = Some(status);
+
+            return NativePlatformStatus::SUCCESS;
+        }
+        Ok(None) => None,
+        Err(error) => Some(platform_error(error)),
+    };
+
+    if let Err(error) = child.child.terminate() {
+        first_error.get_or_insert_with(|| platform_error(error));
+    }
+
+    match child.child.wait() {
+        Ok(status) => child.terminal = Some(status),
+        Err(error) => {
+            first_error.get_or_insert_with(|| platform_error(error));
+        }
+    }
+
+    first_error.unwrap_or(NativePlatformStatus::SUCCESS)
+}
+
+fn push_optional_handle(
+    values: &mut Vec<ProcessHandle>,
+    value: Option<ProcessHandle>,
+) -> Option<usize> {
     let value = value?;
     let index = values.len();
 
@@ -439,8 +507,12 @@ fn native_values(
 ) -> Result<Vec<OsString>, NativePlatformStatus> {
     let count = usize::try_from(list.count()).map_err(|_| NativePlatformStatus::INVALID_INPUT)?;
 
-    let region = MemoryRegion::read(list.entries(), count)
-        .ok_or(NativePlatformStatus::INVALID_INPUT)?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let region =
+        MemoryRegion::read(list.entries(), count).ok_or(NativePlatformStatus::INVALID_INPUT)?;
 
     regions.push(region);
 
@@ -463,8 +535,12 @@ fn native_environment(
 ) -> Result<Vec<(OsString, OsString)>, NativePlatformStatus> {
     let count = usize::try_from(list.count()).map_err(|_| NativePlatformStatus::INVALID_INPUT)?;
 
-    let region = MemoryRegion::read(list.entries(), count)
-        .ok_or(NativePlatformStatus::INVALID_INPUT)?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let region =
+        MemoryRegion::read(list.entries(), count).ok_or(NativePlatformStatus::INVALID_INPUT)?;
 
     regions.push(region);
 
@@ -508,10 +584,11 @@ fn native_value(
     value: NativePlatformText,
     regions: &mut Vec<MemoryRegion>,
 ) -> Result<OsString, NativePlatformStatus> {
-    let length = usize::try_from(value.length()).map_err(|_| NativePlatformStatus::INVALID_INPUT)?;
+    let length =
+        usize::try_from(value.length()).map_err(|_| NativePlatformStatus::INVALID_INPUT)?;
 
-    let region = MemoryRegion::read(value.address(), length)
-        .ok_or(NativePlatformStatus::INVALID_INPUT)?;
+    let region =
+        MemoryRegion::read(value.address(), length).ok_or(NativePlatformStatus::INVALID_INPUT)?;
 
     regions.push(region);
 
@@ -558,9 +635,8 @@ fn platform_error(error: PlatformError) -> NativePlatformStatus {
         PlatformErrorKind::InvalidSize | PlatformErrorKind::InvalidEventIdentity => {
             NativePlatformStatus::INVALID_INPUT
         }
-        PlatformErrorKind::ThreadIdentityExhausted | PlatformErrorKind::EventGenerationExhausted => {
-            NativePlatformStatus::EXHAUSTED
-        }
+        PlatformErrorKind::ThreadIdentityExhausted
+        | PlatformErrorKind::EventGenerationExhausted => NativePlatformStatus::EXHAUSTED,
         PlatformErrorKind::Unsupported => NativePlatformStatus::UNSUPPORTED,
         PlatformErrorKind::SynchronizationPoisoned
         | PlatformErrorKind::RuntimeThreadAlreadyInitialized => NativePlatformStatus::OTHER,
@@ -572,13 +648,13 @@ mod tests {
     use std::ffi::{OsStr, OsString};
 
     use bray_runtime_interface::{
-        NativePlatformChildRequest, NativePlatformEnvironmentEntry,
-        NativePlatformEnvironmentList, NativePlatformExitStatus, NativePlatformSpanList,
-        NativePlatformStatus, NativePlatformText,
+        NativePlatformChildRequest, NativePlatformEnvironmentEntry, NativePlatformEnvironmentList,
+        NativePlatformExitStatus, NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
     };
 
     use super::{
-        bray_platform_child_reap, bray_platform_child_spawn, bray_platform_child_wait,
+        bray_platform_child_dispose, bray_platform_child_reap, bray_platform_child_spawn,
+        bray_platform_child_wait,
     };
     use crate::platform::{bray_platform_stream_close, bray_platform_stream_read};
 
@@ -642,13 +718,7 @@ mod tests {
         let mut error = 0;
 
         assert_eq!(
-            bray_platform_child_spawn(
-                request,
-                &mut child,
-                &mut input,
-                &mut output,
-                &mut error,
-            ),
+            bray_platform_child_spawn(request, &mut child, &mut input, &mut output, &mut error,),
             NativePlatformStatus::SUCCESS,
         );
 
@@ -709,6 +779,81 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&bytes).trim(), "child-value");
     }
 
+    #[test]
+    fn child_spawn_allows_read_only_input_aliasing() {
+        let (program, arguments) = aliased_input_command();
+
+        let program = NativeText::new(program);
+        let argument = NativeText::new(arguments.0);
+        let trailing_argument = NativeText::new(arguments.1);
+
+        let argument_spans = [
+            argument.span(),
+            trailing_argument.span(),
+            trailing_argument.span(),
+        ];
+
+        let request = NativePlatformChildRequest::new(
+            program.span(),
+            NativePlatformText::new(std::ptr::null(), 0),
+            NativePlatformSpanList::new(argument_spans.as_ptr(), argument_spans.len() as u64),
+            NativePlatformEnvironmentList::new(std::ptr::null(), 0),
+            0,
+            0,
+            0,
+        );
+
+        let mut child = 0;
+        let mut input = 0;
+        let mut output = 0;
+        let mut error = 0;
+
+        assert_eq!(
+            bray_platform_child_spawn(request, &mut child, &mut input, &mut output, &mut error,),
+            NativePlatformStatus::SUCCESS,
+        );
+
+        assert_ne!(child, 0);
+
+        assert_eq!(
+            bray_platform_child_dispose(child),
+            NativePlatformStatus::SUCCESS,
+        );
+    }
+
+    #[test]
+    fn child_spawn_rejects_overlapping_outputs_before_mutation() {
+        let (program, _) = output_command();
+
+        let program = NativeText::new(program);
+
+        let request = NativePlatformChildRequest::new(
+            program.span(),
+            NativePlatformText::new(std::ptr::null(), 0),
+            NativePlatformSpanList::new(std::ptr::null(), 0),
+            NativePlatformEnvironmentList::new(std::ptr::null(), 0),
+            0,
+            0,
+            0,
+        );
+
+        let mut output = 7_u64;
+        let output_pointer = &mut output as *mut u64;
+
+        assert_eq!(
+            bray_platform_child_spawn(
+                request,
+                output_pointer,
+                output_pointer,
+                output_pointer,
+                output_pointer,
+            ),
+            NativePlatformStatus::INVALID_INPUT,
+        );
+
+        assert_eq!(output, 7);
+    }
+
     #[cfg(windows)]
     fn output_command() -> (OsString, Vec<OsString>) {
         let program = std::env::var_os("COMSPEC")
@@ -724,6 +869,14 @@ mod tests {
         )
     }
 
+    #[cfg(windows)]
+    fn aliased_input_command() -> (OsString, (OsString, OsString)) {
+        let program = std::env::var_os("COMSPEC")
+            .unwrap_or_else(|| OsString::from(r"C:\Windows\System32\cmd.exe"));
+
+        (program, (OsString::from("/C"), OsString::from("exit")))
+    }
+
     #[cfg(unix)]
     fn output_command() -> (OsString, Vec<OsString>) {
         (
@@ -732,6 +885,14 @@ mod tests {
                 OsString::from("-c"),
                 OsString::from("printf '%s' \"$BRAY_CHILD_VALUE\""),
             ],
+        )
+    }
+
+    #[cfg(unix)]
+    fn aliased_input_command() -> (OsString, (OsString, OsString)) {
+        (
+            OsString::from("/bin/true"),
+            (OsString::from("first"), OsString::from("repeated")),
         )
     }
 

@@ -54,8 +54,10 @@ pub use native::{
     NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
     NativeSourceAnchor, NativeStringView, NativeSynchronousRootCallback, NativeTaskAllocation,
     NativeTaskHandle, NativeWakeCallback, PANIC_PROPAGATION_SYMBOL,
-    PANIC_REPORT_CONSTRUCTION_SYMBOL, PANIC_REPORTING_SYMBOL, PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL,
-    PLATFORM_CLOCK_SLEEP_SYMBOL, PLATFORM_CLOCK_WALL_NOW_SYMBOL, PLATFORM_CONTEXT_COPY_SYMBOL,
+    PANIC_REPORT_CONSTRUCTION_SYMBOL, PANIC_REPORTING_SYMBOL, PLATFORM_CHILD_DISPOSE_SYMBOL,
+    PLATFORM_CHILD_REAP_SYMBOL, PLATFORM_CHILD_SPAWN_SYMBOL, PLATFORM_CHILD_TERMINATE_SYMBOL,
+    PLATFORM_CHILD_WAIT_SYMBOL, PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL, PLATFORM_CLOCK_SLEEP_SYMBOL,
+    PLATFORM_CLOCK_WALL_NOW_SYMBOL, PLATFORM_CONTEXT_COPY_SYMBOL,
     PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL, PLATFORM_CONTEXT_MEASURE_SYMBOL,
     PLATFORM_ENTROPY_FILL_SYMBOL, PLATFORM_STREAM_FLUSH_SYMBOL, PLATFORM_STREAM_LOCK_SYMBOL,
     PLATFORM_STREAM_READ_SYMBOL, PLATFORM_STREAM_UNLOCK_SYMBOL, PLATFORM_STREAM_WRITE_SYMBOL,
@@ -71,8 +73,7 @@ pub use platform::{
     NativePlatformChildRequest, NativePlatformEnvironmentEntry, NativePlatformEnvironmentList,
     NativePlatformExitStatus, NativePlatformFileMetadata, NativePlatformFileOptions,
     NativePlatformPath, NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
-    PlatformAbiType, PlatformServiceBinding, PlatformServiceRole,
-    PlatformServiceSignature,
+    PlatformAbiType, PlatformServiceBinding, PlatformServiceRole, PlatformServiceSignature,
 };
 pub use role::{
     RuntimeAbiRole, RuntimeRoleBinding, RuntimeRoleContract, RuntimeRoleContractEffect,
