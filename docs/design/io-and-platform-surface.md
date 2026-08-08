@@ -449,23 +449,17 @@ union ExitStatus
 struct ChildInput
 {
     internal state: ChildInputState;
-}
 
-struct ChildOutput
-{
-    internal state: ChildOutputState;
-}
-
-impl ChildInput
-{
     consume func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution());
 
     consume async func close_async() -> Result<unit, std.io.IoError>;
 }
 
-impl ChildOutput
+struct ChildOutput
 {
+    internal state: ChildOutputState;
+
     consume func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution());
 
@@ -475,33 +469,32 @@ impl ChildOutput
 struct ChildCommand
 {
     internal state: ChildCommandState;
-}
 
-impl ChildCommand
-{
-    static func create(pos executable: std.path.Path) -> ChildCommand;
-    mut func argument(pos value: std.path.NativeText);
-    mut func environment_policy(policy: EnvironmentPolicy);
-    mut func set_environment(pos key: std.path.NativeText, pos value: std.path.NativeText);
-    mut func remove_environment(pos key: std.path.NativeText);
-    mut func working_directory(pos path: std.path.Path);
-    mut func standard_input(policy: ChildStreamPolicy);
-    mut func standard_output(policy: ChildStreamPolicy);
-    mut func standard_error(policy: ChildStreamPolicy);
+    trusted construct(pos executable: std.path.Path) -> Result<Self, ChildError>;
+    trusted mut func argument(pos value: std.path.NativeText) -> Result<unit, ChildError>;
+    trusted mut func environment_policy(policy: EnvironmentPolicy) -> Result<unit, ChildError>;
 
-    consume func spawn() -> Result<ChildProcess, ChildError>
+    trusted mut func set_environment(
+        pos key: std.path.NativeText,
+        pos value: std.path.NativeText,
+    ) -> Result<unit, ChildError>;
+
+    trusted mut func remove_environment(pos key: &std.path.NativeText) -> unit;
+    mut func working_directory(pos path: std.path.Path) -> unit;
+    mut func standard_input(policy: ChildStreamPolicy) -> unit;
+    mut func standard_output(policy: ChildStreamPolicy) -> unit;
+    mut func standard_error(policy: ChildStreamPolicy) -> unit;
+
+    consume trusted func spawn() -> Result<ChildProcess, ChildError>
         requires(blocking_execution());
 
-    consume async func spawn_async() -> Result<ChildProcess, ChildError>;
+    consume trusted async func spawn_async() -> Result<ChildProcess, ChildError>;
 }
 
 struct ChildProcess
 {
     internal state: ChildProcessState;
-}
 
-impl ChildProcess
-{
     mut func take_standard_input() -> ChildInput?;
     mut func take_standard_output() -> ChildOutput?;
     mut func take_standard_error() -> ChildOutput?;

@@ -1,0 +1,196 @@
+module std.process;
+
+using std.memory;
+using std.path;
+
+internal struct ProcessIdState
+{
+    value: u64;
+}
+
+struct Id
+{
+    internal state: ProcessIdState;
+}
+
+internal struct ProcessContextTable
+{
+    context: std.memory.RawBuffer<u8>;
+    length: usize;
+    table: usize;
+}
+
+struct Arguments
+{
+    internal state: ProcessContextTable;
+
+    func length() -> usize
+    {
+        return self.state.length;
+    }
+
+    func value_at(pos index: usize) -> std.path.NativeText?
+    {
+        if index >= self.state.length
+        {
+            return none;
+        }
+
+        let descriptor: usize = self.state.table + index * 16;
+        let bytes: &[u8] = internal std.platform.context_range(&self.state.context, descriptor_offset = descriptor);
+        let value: std.path.NativeText = trusted internal required_native_text(bytes);
+        let mut result: std.path.NativeText? = none;
+
+        result = value;
+
+        return result;
+    }
+}
+
+struct EnvironmentEntry
+{
+    key: std.path.NativeText;
+    value: std.path.NativeText;
+}
+
+struct Environment
+{
+    internal state: ProcessContextTable;
+
+    func length() -> usize
+    {
+        return self.state.length;
+    }
+
+    func value(pos key: &std.path.NativeText) -> std.path.NativeText?
+    {
+        let expected: &[u8] = internal std.path.native_bytes(key);
+        let mut index: usize = 0;
+
+        while index < self.state.length
+        {
+            let descriptor: usize = self.state.table + index * 32;
+
+            let candidate: &[u8] = internal std.platform.context_range(
+                &self.state.context,
+                descriptor_offset = descriptor,
+            );
+
+            if trusted internal std.platform.environment_keys_equal(expected, candidate)
+            {
+                let value: &[u8] = internal std.platform.context_range(
+                    &self.state.context,
+                    descriptor_offset = descriptor + 16,
+                );
+
+                let native: std.path.NativeText = trusted internal required_native_text(value);
+                let mut result: std.path.NativeText? = none;
+
+                result = native;
+
+                return result;
+            }
+
+            index += 1;
+        }
+
+        return none;
+    }
+
+    func entry_at(pos index: usize) -> EnvironmentEntry?
+    {
+        if index >= self.state.length
+        {
+            return none;
+        }
+
+        let descriptor: usize = self.state.table + index * 32;
+        let key_bytes: &[u8] = internal std.platform.context_range(&self.state.context, descriptor_offset = descriptor);
+
+        let value_bytes: &[u8] = internal std.platform.context_range(
+            &self.state.context,
+            descriptor_offset = descriptor + 16,
+        );
+
+        let entry: EnvironmentEntry =
+        {
+            key = trusted internal required_native_text(key_bytes),
+            value = trusted internal required_native_text(value_bytes),
+        };
+
+        let mut result: EnvironmentEntry? = none;
+
+        result = entry;
+
+        return result;
+    }
+}
+
+func current_id() -> Id
+{
+    let context: std.memory.RawBuffer<u8> = trusted internal std.platform.required_process_context();
+
+    return
+    {
+        state =
+        {
+            value = internal std.platform.context_u64(&context, offset = 8)
+        }
+    };
+}
+
+func arguments() -> Arguments
+{
+    return
+    {
+        state = process_context_table(length_offset = 56, table_offset = 64),
+    };
+}
+
+func environment() -> Environment
+{
+    return
+    {
+        state = process_context_table(length_offset = 72, table_offset = 80),
+    };
+}
+
+internal func process_context_table(length_offset: usize, table_offset: usize) -> ProcessContextTable
+{
+    let context: std.memory.RawBuffer<u8> = trusted internal std.platform.required_process_context();
+    let length: usize = internal std.platform.context_u64(&context, offset = length_offset) as usize;
+    let table: usize = internal std.platform.context_u64(&context, offset = table_offset) as usize;
+
+    return
+    {
+        context = context,
+        length = length,
+        table = table,
+    };
+}
+
+func current_directory() -> std.path.Path
+{
+    let context: std.memory.RawBuffer<u8> = trusted internal std.platform.required_process_context();
+    let bytes: &[u8] = internal std.platform.context_range(&context, descriptor_offset = 40);
+    let path: Result<std.path.Path, std.path.PathError> = trusted internal std.path.path_from_bytes(bytes);
+
+    match consume path
+    {
+        case Ok(value) { return value; }
+        case Error(_) { panic("the platform startup working directory is invalid"); }
+    }
+}
+
+trusted internal func required_native_text(pos bytes: &[u8]) -> std.path.NativeText
+{
+    let value: Result<std.path.NativeText, std.path.PathError> = trusted internal std.path.native_text_from_bytes(
+        bytes
+    );
+
+    match consume value
+    {
+        case Ok(native) { return native; }
+        case Error(_) { panic("the platform process context contains invalid native text"); }
+    }
+}

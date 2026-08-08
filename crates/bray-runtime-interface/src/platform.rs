@@ -45,6 +45,14 @@ pub enum PlatformServiceRole {
     PathRemoveDirectory,
     /// Renames one filesystem entry.
     PathRename,
+    /// Creates one child process and its requested pipe owners.
+    ChildSpawn,
+    /// Waits for a child to terminate without consuming its owner.
+    ChildWait,
+    /// Requests child-process termination without consuming its owner.
+    ChildTerminate,
+    /// Consumes one terminal child-process owner.
+    ChildReap,
     /// Observes the process-local monotonic clock.
     ClockMonotonicNow,
     /// Observes the host wall clock.
@@ -79,6 +87,10 @@ impl PlatformServiceRole {
             Self::PathRemoveFile => 0x0211,
             Self::PathRemoveDirectory => 0x0212,
             Self::PathRename => 0x0213,
+            Self::ChildSpawn => 0x0301,
+            Self::ChildWait => 0x0302,
+            Self::ChildTerminate => 0x0303,
+            Self::ChildReap => 0x0304,
             Self::ClockMonotonicNow => 0x0401,
             Self::ClockWallNow => 0x0402,
             Self::ClockSleep => 0x0403,
@@ -109,6 +121,10 @@ impl PlatformServiceRole {
             Self::PathRemoveFile => "platform.path.remove_file",
             Self::PathRemoveDirectory => "platform.path.remove_directory",
             Self::PathRename => "platform.path.rename",
+            Self::ChildSpawn => "platform.child.spawn",
+            Self::ChildWait => "platform.child.wait",
+            Self::ChildTerminate => "platform.child.terminate",
+            Self::ChildReap => "platform.child.reap",
             Self::ClockMonotonicNow => "platform.clock.monotonic_now",
             Self::ClockWallNow => "platform.clock.wall_now",
             Self::ClockSleep => "platform.clock.sleep",
@@ -139,6 +155,10 @@ impl PlatformServiceRole {
             "platform.path.remove_file" => Some(Self::PathRemoveFile),
             "platform.path.remove_directory" => Some(Self::PathRemoveDirectory),
             "platform.path.rename" => Some(Self::PathRename),
+            "platform.child.spawn" => Some(Self::ChildSpawn),
+            "platform.child.wait" => Some(Self::ChildWait),
+            "platform.child.terminate" => Some(Self::ChildTerminate),
+            "platform.child.reap" => Some(Self::ChildReap),
             "platform.clock.monotonic_now" => Some(Self::ClockMonotonicNow),
             "platform.clock.wall_now" => Some(Self::ClockWallNow),
             "platform.clock.sleep" => Some(Self::ClockSleep),
@@ -150,8 +170,8 @@ impl PlatformServiceRole {
     /// Returns the exact private callable shape required by this role.
     pub const fn signature(self) -> PlatformServiceSignature {
         use PlatformAbiType::{
-            FileMetadataPointer, FileOptions, NativeText, Path, PointerI64, PointerU8, PointerU32,
-            PointerU64, Status, U32, U64,
+            ChildRequest, ExitStatusPointer, FileMetadataPointer, FileOptions, NativeText, Path,
+            PointerI64, PointerU8, PointerU32, PointerU64, Status, U32, U64,
         };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
@@ -184,6 +204,18 @@ impl PlatformServiceRole {
         const CLOCK_SLEEP: &[PlatformAbiType] = &[U64, U32];
         const ENTROPY_FILL: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
 
+        const CHILD_SPAWN: &[PlatformAbiType] = &[
+            ChildRequest,
+            PointerU64,
+            PointerU64,
+            PointerU64,
+            PointerU64,
+        ];
+
+        const CHILD_WAIT: &[PlatformAbiType] = &[U64, PointerU32, ExitStatusPointer];
+        const CHILD_TERMINATE: &[PlatformAbiType] = &[U64, U32];
+        const CHILD_REAP: &[PlatformAbiType] = &[U64, ExitStatusPointer];
+
         let parameters = match self {
             Self::ContextMeasure => CONTEXT_MEASURE,
             Self::ContextCopy => CONTEXT_COPY,
@@ -202,6 +234,10 @@ impl PlatformServiceRole {
             Self::DirectoryNext => DIRECTORY_NEXT,
             Self::PathCreateDirectory | Self::PathRemoveFile | Self::PathRemoveDirectory => PATH,
             Self::PathRename => PATH_PAIR,
+            Self::ChildSpawn => CHILD_SPAWN,
+            Self::ChildWait => CHILD_WAIT,
+            Self::ChildTerminate => CHILD_TERMINATE,
+            Self::ChildReap => CHILD_REAP,
             Self::ClockMonotonicNow => CLOCK_MONOTONIC_NOW,
             Self::ClockWallNow => CLOCK_WALL_NOW,
             Self::ClockSleep => CLOCK_SLEEP,
@@ -237,6 +273,10 @@ pub enum PlatformAbiType {
     FileOptions,
     /// Raw pointer to a fixed-layout file metadata record.
     FileMetadataPointer,
+    /// The fixed-layout child-process construction record.
+    ChildRequest,
+    /// Raw pointer to a fixed-layout child exit-status record.
+    ExitStatusPointer,
     /// The fixed-layout platform status record.
     Status,
 }
@@ -338,6 +378,95 @@ pub struct NativePlatformFileMetadata {
     reserved: u32,
 }
 
+/// Call-only contiguous native byte spans.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformSpanList {
+    entries: *const NativePlatformText,
+    count: u64,
+}
+
+impl NativePlatformSpanList {
+    /// Creates one call-only span list.
+    pub const fn new(entries: *const NativePlatformText, count: u64) -> Self {
+        Self { entries, count }
+    }
+
+    /// Returns the first entry address.
+    pub const fn entries(self) -> *const NativePlatformText {
+        self.entries
+    }
+
+    /// Returns the entry count.
+    pub const fn count(self) -> u64 {
+        self.count
+    }
+}
+
+/// One complete child-process environment entry.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformEnvironmentEntry {
+    key: NativePlatformText,
+    value: NativePlatformText,
+}
+
+impl NativePlatformEnvironmentEntry {
+    /// Creates one native environment entry.
+    pub const fn new(key: NativePlatformText, value: NativePlatformText) -> Self {
+        Self { key, value }
+    }
+
+    /// Returns the key span.
+    pub const fn key(self) -> NativePlatformText {
+        self.key
+    }
+
+    /// Returns the value span.
+    pub const fn value(self) -> NativePlatformText {
+        self.value
+    }
+}
+
+/// Call-only contiguous child-process environment entries.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformEnvironmentList {
+    entries: *const NativePlatformEnvironmentEntry,
+    count: u64,
+}
+
+impl NativePlatformEnvironmentList {
+    /// Creates one call-only environment list.
+    pub const fn new(entries: *const NativePlatformEnvironmentEntry, count: u64) -> Self {
+        Self { entries, count }
+    }
+
+    /// Returns the first entry address.
+    pub const fn entries(self) -> *const NativePlatformEnvironmentEntry {
+        self.entries
+    }
+
+    /// Returns the entry count.
+    pub const fn count(self) -> u64 {
+        self.count
+    }
+}
+
+/// Complete call-only child-process construction request.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformChildRequest {
+    executable: NativePlatformText,
+    working_directory: NativePlatformText,
+    arguments: NativePlatformSpanList,
+    environment: NativePlatformEnvironmentList,
+    standard_input: u32,
+    standard_output: u32,
+    standard_error: u32,
+    reserved: u32,
+}
+
 impl NativePlatformFileMetadata {
     /// Creates one validated native metadata record.
     pub const fn new(
@@ -385,6 +514,113 @@ impl NativePlatformFileMetadata {
     /// Returns the reserved field, which must be zero.
     pub const fn reserved(self) -> u32 {
         self.reserved
+    }
+}
+
+impl NativePlatformChildRequest {
+    /// Creates one complete child-process request.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the constructor mirrors the fixed native ABI record"
+    )]
+    pub const fn new(
+        executable: NativePlatformText,
+        working_directory: NativePlatformText,
+        arguments: NativePlatformSpanList,
+        environment: NativePlatformEnvironmentList,
+        standard_input: u32,
+        standard_output: u32,
+        standard_error: u32,
+    ) -> Self {
+        Self {
+            executable,
+            working_directory,
+            arguments,
+            environment,
+            standard_input,
+            standard_output,
+            standard_error,
+            reserved: 0,
+        }
+    }
+
+    /// Returns the executable path span.
+    pub const fn executable(self) -> NativePlatformText {
+        self.executable
+    }
+
+    /// Returns the optional working-directory path span.
+    pub const fn working_directory(self) -> NativePlatformText {
+        self.working_directory
+    }
+
+    /// Returns the ordered argument spans.
+    pub const fn arguments(self) -> NativePlatformSpanList {
+        self.arguments
+    }
+
+    /// Returns the complete environment entries.
+    pub const fn environment(self) -> NativePlatformEnvironmentList {
+        self.environment
+    }
+
+    /// Returns the standard-input policy ordinal.
+    pub const fn standard_input(self) -> u32 {
+        self.standard_input
+    }
+
+    /// Returns the standard-output policy ordinal.
+    pub const fn standard_output(self) -> u32 {
+        self.standard_output
+    }
+
+    /// Returns the standard-error policy ordinal.
+    pub const fn standard_error(self) -> u32 {
+        self.standard_error
+    }
+
+    /// Returns the reserved field, which must be zero.
+    pub const fn reserved(self) -> u32 {
+        self.reserved
+    }
+}
+
+/// Native child-process exit status.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct NativePlatformExitStatus {
+    tag: u32,
+    reserved: u32,
+    payload: i64,
+}
+
+impl NativePlatformExitStatus {
+    /// Creates one portable exit-code status.
+    pub const fn code(code: i32) -> Self {
+        Self {
+            tag: 0,
+            reserved: 0,
+            payload: code as i64,
+        }
+    }
+
+    /// Creates one target termination status.
+    pub const fn target_termination(code: i64) -> Self {
+        Self {
+            tag: 1,
+            reserved: 0,
+            payload: code,
+        }
+    }
+
+    /// Returns the status variant ordinal.
+    pub const fn tag(self) -> u32 {
+        self.tag
+    }
+
+    /// Returns the variant payload.
+    pub const fn payload(self) -> i64 {
+        self.payload
     }
 }
 
@@ -524,6 +760,28 @@ mod tests {
                 PlatformAbiType::U64,
                 PlatformAbiType::PointerU8,
                 PlatformAbiType::U64,
+                PlatformAbiType::PointerU64,
+            ]
+        );
+
+        assert_eq!(role.signature().result(), PlatformAbiType::Status);
+    }
+
+    #[test]
+    fn child_spawn_role_has_closed_request_and_owner_outputs() {
+        let role = PlatformServiceRole::ChildSpawn;
+
+        assert_eq!(role.id(), 0x0301);
+        assert_eq!(role.as_str(), "platform.child.spawn");
+        assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
+
+        assert_eq!(
+            role.signature().parameters(),
+            [
+                PlatformAbiType::ChildRequest,
+                PlatformAbiType::PointerU64,
+                PlatformAbiType::PointerU64,
+                PlatformAbiType::PointerU64,
                 PlatformAbiType::PointerU64,
             ]
         );

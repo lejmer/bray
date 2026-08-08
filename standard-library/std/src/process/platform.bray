@@ -1,0 +1,201 @@
+module std.process;
+
+using std.collection;
+using std.io;
+using std.memory;
+using std.path;
+
+@layout(c)
+internal struct PlatformNativeText
+{
+    address: RawPointer<u8>;
+    length: u64;
+}
+
+@layout(c)
+internal struct PlatformSpanList
+{
+    entries: RawPointer<PlatformNativeText>;
+    count: u64;
+}
+
+@layout(c)
+internal struct PlatformEnvironmentEntry
+{
+    key: PlatformNativeText;
+    value: PlatformNativeText;
+}
+
+@layout(c)
+internal struct PlatformEnvironmentList
+{
+    entries: RawPointer<PlatformEnvironmentEntry>;
+    count: u64;
+}
+
+@layout(c)
+internal struct PlatformChildRequest
+{
+    executable: PlatformNativeText;
+    working_directory: PlatformNativeText;
+    arguments: PlatformSpanList;
+    environment: PlatformEnvironmentList;
+    standard_input: u32;
+    standard_output: u32;
+    standard_error: u32;
+    reserved: u32;
+}
+
+@layout(c)
+internal struct PlatformExitStatus
+{
+    tag: u32;
+    reserved: u32;
+    payload: i64;
+}
+
+@abi(c)
+extern trusted internal func platform_child_spawn(
+    pos request: PlatformChildRequest,
+    pos child: RawPointer<u64>,
+    pos standard_input: RawPointer<u64>,
+    pos standard_output: RawPointer<u64>,
+    pos standard_error: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_child_wait(
+    pos child: u64,
+    pos terminal: RawPointer<u32>,
+    pos status: RawPointer<PlatformExitStatus>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_child_terminate(pos child: u64, pos mode: u32) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_child_reap(
+    pos child: u64,
+    pos status: RawPointer<PlatformExitStatus>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+internal func path_span(pos path: &std.path.Path) -> PlatformNativeText
+{
+    return native_text_span(path.to_native());
+}
+
+internal func native_text_span(pos value: &std.path.NativeText) -> PlatformNativeText
+{
+    let bytes: &[u8] = internal std.path.native_bytes(value);
+
+    return
+    {
+        address = internal std.memory.byte_slice_pointer(bytes),
+        length = internal std.memory.byte_slice_length(bytes) as u64,
+    };
+}
+
+internal func empty_span() -> PlatformNativeText
+{
+    return
+    {
+        address = null<u8>(),
+        length = 0,
+    };
+}
+
+internal func list_pointer<T>(pos values: &std.collection.List<T>) -> RawPointer<T>
+{
+    let values: &[T] = std.collection.as_slice<T>(values);
+
+    if internal std.memory.slice_length<T>(values) == 0
+    {
+        return null<T>();
+    }
+
+    return std.memory.address_of<T>(&values[0]);
+}
+
+internal func stream_policy_value(policy: ChildStreamPolicy) -> u32
+{
+    return match policy
+    {
+        case Inherit { yield 0; }
+        case Null { yield 1; }
+        case Piped { yield 2; }
+    };
+}
+
+internal func child_status(pos status: std.platform.PlatformStatus, kind: ChildErrorKind) -> Result<unit, ChildError>
+{
+    match internal std.io.checked_status(status)
+    {
+        case Ok(_) { return Ok(unit); }
+        case Error(io)
+        {
+            return Error(
+                {
+                    kind = kind,
+                    io = io,
+                }
+            );
+        }
+    }
+}
+
+internal func allocation_child_error(kind: ChildErrorKind) -> ChildError
+{
+    return
+    {
+        kind = kind,
+        io = internal std.io.io_error(kind = Exhausted, native_code = 0, transferred = 0),
+    };
+}
+
+internal func invalid_child_error(kind: ChildErrorKind) -> ChildError
+{
+    return
+    {
+        kind = kind,
+        io = internal std.io.io_error(kind = InvalidInput, native_code = 0, transferred = 0),
+    };
+}
+
+internal func empty_exit_status() -> PlatformExitStatus
+{
+    return
+    {
+        tag = 0,
+        reserved = 0,
+        payload = 0,
+    };
+}
+
+internal func exit_status(pos status: PlatformExitStatus) -> Result<ExitStatus, ChildError>
+{
+    if status.reserved != 0
+    {
+        return Error(invalid_child_error(kind = Reaping));
+    }
+
+    match status.tag
+    {
+        case 0
+        {
+            let code: i32 = status.payload as i32;
+
+            if code as i64 != status.payload
+            {
+                return Error(invalid_child_error(kind = Reaping));
+            }
+
+            return Ok(Code(code));
+        }
+        case 1 { return Ok(TargetTermination(status.payload)); }
+        case _ { return Error(invalid_child_error(kind = Reaping)); }
+    }
+}

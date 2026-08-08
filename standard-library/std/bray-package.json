@@ -105,6 +105,22 @@
           "declaration": "std.fs.platform_path_rename"
         },
         {
+          "role": "platform.child.spawn",
+          "declaration": "std.process.platform_child_spawn"
+        },
+        {
+          "role": "platform.child.wait",
+          "declaration": "std.process.platform_child_wait"
+        },
+        {
+          "role": "platform.child.terminate",
+          "declaration": "std.process.platform_child_terminate"
+        },
+        {
+          "role": "platform.child.reap",
+          "declaration": "std.process.platform_child_reap"
+        },
+        {
           "role": "platform.clock.monotonic_now",
           "declaration": "std.platform.clock_monotonic_now"
         },

@@ -1,0 +1,271 @@
+module std.process;
+
+using std.io;
+using std.memory;
+
+internal struct ChildInputState
+{
+    handle: u64;
+    mut is_open: bool;
+}
+
+struct ChildInput
+{
+    internal mut state: ChildInputState;
+
+    trusted finalize() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_child_input(&mut self);
+    }
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        if self.state.is_open
+        {
+            let _: std.platform.PlatformStatus = trusted internal std.fs.platform_stream_close(
+                handle = self.state.handle
+            );
+        }
+    }
+
+    consume trusted mut func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_child_input(&mut self);
+    }
+
+    consume trusted mut async func close_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted self.close();
+    }
+}
+
+internal struct ChildOutputState
+{
+    handle: u64;
+    mut is_open: bool;
+}
+
+struct ChildOutput
+{
+    internal mut state: ChildOutputState;
+
+    trusted finalize() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_child_output(&mut self);
+    }
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        if self.state.is_open
+        {
+            let _: std.platform.PlatformStatus = trusted internal std.fs.platform_stream_close(
+                handle = self.state.handle
+            );
+        }
+    }
+
+    consume trusted mut func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted close_child_output(&mut self);
+    }
+
+    consume trusted mut async func close_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted self.close();
+    }
+}
+
+impl ChildInputWriter = ChildInput(std.io.Writer)
+{
+    trusted mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted child_input_write(&mut self, source);
+    }
+
+    trusted mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted child_input_flush(&mut self);
+    }
+}
+
+impl ChildInputAsyncWriter = ChildInput(std.io.AsyncWriter)
+{
+    trusted mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted child_input_write(&mut self, source);
+    }
+
+    trusted mut async func flush_async() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted child_input_flush(&mut self);
+    }
+}
+
+impl ChildOutputReader = ChildOutput(std.io.Reader)
+{
+    trusted mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted child_output_read(&mut self, destination);
+    }
+}
+
+impl ChildOutputAsyncReader = ChildOutput(std.io.AsyncReader)
+{
+    trusted mut async func read_async(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return trusted child_output_read(&mut self, destination);
+    }
+}
+
+internal func child_input(handle: u64) -> ChildInput?
+{
+    if handle == 0
+    {
+        return none;
+    }
+
+    let mut value: ChildInput? = none;
+
+    value =
+    {
+        state =
+        {
+            handle = handle,
+            is_open = true,
+        }
+    };
+
+    return value;
+}
+
+internal func child_output(handle: u64) -> ChildOutput?
+{
+    if handle == 0
+    {
+        return none;
+    }
+
+    let mut value: ChildOutput? = none;
+
+    value =
+    {
+        state =
+        {
+            handle = handle,
+            is_open = true,
+        }
+    };
+
+    return value;
+}
+
+trusted internal func child_input_write(pos input: &mut ChildInput, pos source: &[u8]) -> Result<usize, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if !input.state.is_open
+    {
+        return Error(internal std.io.unavailable_stream_error());
+    }
+
+    let mut transferred: u64 = 0;
+
+    let status: std.platform.PlatformStatus = trusted internal std.io.platform_stream_write(
+        handle = input.state.handle,
+        source = internal std.memory.byte_slice_pointer(source),
+        length = internal std.memory.byte_slice_length(source) as u64,
+        transferred = std.memory.address_of_mut(&mut transferred),
+    );
+
+    try internal std.io.checked_transfer_status(status, transferred = transferred);
+
+    return Ok(transferred as usize);
+}
+
+trusted internal func child_input_flush(pos input: &mut ChildInput) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if !input.state.is_open
+    {
+        return Error(internal std.io.unavailable_stream_error());
+    }
+
+    return internal std.io.checked_status(trusted internal std.io.platform_stream_flush(handle = input.state.handle));
+}
+
+trusted internal func child_output_read(
+    pos output: &mut ChildOutput,
+    pos destination: &mut [u8],
+) -> Result<usize, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if !output.state.is_open
+    {
+        return Error(internal std.io.unavailable_stream_error());
+    }
+
+    let mut transferred: u64 = 0;
+
+    let status: std.platform.PlatformStatus = trusted internal std.io.platform_stream_read(
+        handle = output.state.handle,
+        destination = internal std.memory.byte_slice_pointer_mut(destination),
+        length = internal std.memory.byte_slice_length(destination) as u64,
+        transferred = std.memory.address_of_mut(&mut transferred),
+    );
+
+    try internal std.io.checked_transfer_status(status, transferred = transferred);
+
+    return Ok(transferred as usize);
+}
+
+trusted internal func close_child_input(pos input: &mut ChildInput) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if !input.state.is_open
+    {
+        return Ok(unit);
+    }
+
+    let result: Result<unit, std.io.IoError> = internal std.io.checked_status(
+        trusted internal std.fs.platform_stream_close(handle = input.state.handle)
+    );
+
+    input.state.is_open = false;
+
+    return result;
+}
+
+trusted internal func close_child_output(pos output: &mut ChildOutput) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if !output.state.is_open
+    {
+        return Ok(unit);
+    }
+
+    let result: Result<unit, std.io.IoError> = internal std.io.checked_status(
+        trusted internal std.fs.platform_stream_close(handle = output.state.handle)
+    );
+
+    output.state.is_open = false;
+
+    return result;
+}

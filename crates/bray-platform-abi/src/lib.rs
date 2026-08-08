@@ -8,6 +8,7 @@ mod clock;
 mod entropy;
 mod filesystem;
 mod platform;
+mod process;
 mod region;
 
 pub use platform::initialize_process_context;

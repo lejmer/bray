@@ -252,10 +252,7 @@ fn platform_abi_type_matches(
         bray_runtime_interface::PlatformAbiType::NativeText => c_struct_matches(
             compilation,
             ty,
-            &[
-                AbiField::Pointer(RepresentationRole::ScalarU8),
-                AbiField::Scalar(RepresentationRole::ScalarU64),
-            ],
+            BYTE_SPAN_FIELDS,
             cancellation,
         ),
         bray_runtime_interface::PlatformAbiType::FileOptions => c_struct_matches(
@@ -286,6 +283,19 @@ fn platform_abi_type_matches(
                 ],
                 cancellation,
             )
+        }
+        bray_runtime_interface::PlatformAbiType::ChildRequest => c_struct_matches(
+            compilation,
+            ty,
+            CHILD_REQUEST_FIELDS,
+            cancellation,
+        ),
+        bray_runtime_interface::PlatformAbiType::ExitStatusPointer => {
+            let Some(status) = raw_pointer_target(compilation, ty)? else {
+                return Ok(false);
+            };
+
+            c_struct_matches(compilation, status, EXIT_STATUS_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::Status => {
             platform_status_matches(compilation, ty, cancellation)
@@ -382,7 +392,46 @@ fn raw_pointer_target(
 enum AbiField {
     Scalar(RepresentationRole),
     Pointer(RepresentationRole),
+    Struct(&'static [AbiField]),
+    PointerStruct(&'static [AbiField]),
 }
+
+const BYTE_SPAN_FIELDS: &[AbiField] = &[
+    AbiField::Pointer(RepresentationRole::ScalarU8),
+    AbiField::Scalar(RepresentationRole::ScalarU64),
+];
+
+const SPAN_LIST_FIELDS: &[AbiField] = &[
+    AbiField::PointerStruct(BYTE_SPAN_FIELDS),
+    AbiField::Scalar(RepresentationRole::ScalarU64),
+];
+
+const ENVIRONMENT_ENTRY_FIELDS: &[AbiField] = &[
+    AbiField::Struct(BYTE_SPAN_FIELDS),
+    AbiField::Struct(BYTE_SPAN_FIELDS),
+];
+
+const ENVIRONMENT_LIST_FIELDS: &[AbiField] = &[
+    AbiField::PointerStruct(ENVIRONMENT_ENTRY_FIELDS),
+    AbiField::Scalar(RepresentationRole::ScalarU64),
+];
+
+const CHILD_REQUEST_FIELDS: &[AbiField] = &[
+    AbiField::Struct(BYTE_SPAN_FIELDS),
+    AbiField::Struct(BYTE_SPAN_FIELDS),
+    AbiField::Struct(SPAN_LIST_FIELDS),
+    AbiField::Struct(ENVIRONMENT_LIST_FIELDS),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+];
+
+const EXIT_STATUS_FIELDS: &[AbiField] = &[
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarI64),
+];
 
 fn c_struct_matches(
     compilation: &Compilation,
@@ -446,6 +495,16 @@ fn c_struct_matches(
         let matches = match expected {
             AbiField::Scalar(role) => type_has_representation(compilation, field_ty, *role)?,
             AbiField::Pointer(role) => raw_pointer_targets(compilation, field_ty, *role)?,
+            AbiField::Struct(fields) => {
+                c_struct_matches(compilation, field_ty, fields, cancellation)?
+            }
+            AbiField::PointerStruct(fields) => {
+                let Some(target) = raw_pointer_target(compilation, field_ty)? else {
+                    return Ok(false);
+                };
+
+                c_struct_matches(compilation, target, fields, cancellation)?
+            }
         };
 
         if !matches {

@@ -132,6 +132,18 @@ pub const PLATFORM_ENTROPY_FILL_SYMBOL: &str = "bray_platform_entropy_fill";
 /// Stable symbol renaming a platform filesystem entry.
 pub const PLATFORM_PATH_RENAME_SYMBOL: &str = "bray_platform_path_rename";
 
+/// Stable symbol creating one native child process.
+pub const PLATFORM_CHILD_SPAWN_SYMBOL: &str = "bray_platform_child_spawn";
+
+/// Stable symbol waiting for one native child process.
+pub const PLATFORM_CHILD_WAIT_SYMBOL: &str = "bray_platform_child_wait";
+
+/// Stable symbol requesting native child-process termination.
+pub const PLATFORM_CHILD_TERMINATE_SYMBOL: &str = "bray_platform_child_terminate";
+
+/// Stable symbol consuming one terminal native child-process owner.
+pub const PLATFORM_CHILD_REAP_SYMBOL: &str = "bray_platform_child_reap";
+
 /// Stable symbol counting Unicode scalar values in UTF-8 text.
 pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count_v1";
 
@@ -278,6 +290,10 @@ pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRol
         Role::PathRemoveFile => PLATFORM_PATH_REMOVE_FILE_SYMBOL,
         Role::PathRemoveDirectory => PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL,
         Role::PathRename => PLATFORM_PATH_RENAME_SYMBOL,
+        Role::ChildSpawn => PLATFORM_CHILD_SPAWN_SYMBOL,
+        Role::ChildWait => PLATFORM_CHILD_WAIT_SYMBOL,
+        Role::ChildTerminate => PLATFORM_CHILD_TERMINATE_SYMBOL,
+        Role::ChildReap => PLATFORM_CHILD_REAP_SYMBOL,
         Role::ClockMonotonicNow => PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL,
         Role::ClockWallNow => PLATFORM_CLOCK_WALL_NOW_SYMBOL,
         Role::ClockSleep => PLATFORM_CLOCK_SLEEP_SYMBOL,
