@@ -15,14 +15,17 @@ use bray_symbols::{
     CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
     CallableSignatureFact, CheckedConstraintKind, ExactSymbolId, ImplementationSelection,
     ImplementationSubjectFact, MemberLookupResult, NamedTypeSymbolId, ReceiverParameterSignature,
-    SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, TraitApplicationId,
-    TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeData, TypeExpressionTemplate, TypeId,
+    SelfTypeContext, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
+    TraitApplicationId, TraitCallableMemberSymbolId, TraitConstraintDispatch,
+    TypeAssociatedMemberOrigin, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::TraitApplicationSyntax;
 
 use super::super::Compilation;
 use super::super::binder::{CompilationBinderFacts, binder_fact_error, type_binder};
-use super::super::implementation::{implementation_fulfillments, selected_callable};
+use super::super::implementation::{
+    implementation_fulfillments, match_implementation_subject, selected_callable,
+};
 use super::super::substitution::{contextual_self_type, substitution_for_owner};
 use crate::fact::{CancellationToken, FactQueryError, OperationSelectionFactKey};
 
@@ -39,11 +42,7 @@ fn member_callable_signature(
     receiver_type: TypeId,
 ) -> CallableSignature {
     let receiver = signature.receiver().map(|receiver| {
-        bray_symbols::ReceiverParameterSignature::new(
-            receiver.parameter(),
-            receiver_type,
-            receiver.mode(),
-        )
+        ReceiverParameterSignature::new(receiver.parameter(), receiver_type, receiver.mode())
     });
 
     CallableSignature::new(
@@ -141,11 +140,10 @@ impl Compilation {
             _ => return Err(FactQueryError::InfrastructureFailure),
         };
 
-        let receiver_type = self.resolve_access_subject_type(
-            facts,
-            expression_type(types, receiver)?,
-            diagnostics,
-        )?;
+        let raw_receiver_type = expression_type(types, receiver)?;
+
+        let receiver_type =
+            self.resolve_access_subject_type(facts, raw_receiver_type, diagnostics)?;
 
         let data = facts
             .semantic_values()
@@ -201,6 +199,12 @@ impl Compilation {
             return Ok(None);
         };
 
+        let member_origin = surface
+            .value()
+            .member(member)
+            .ok_or(FactQueryError::InfrastructureFailure)?
+            .origin();
+
         let (result_type, operation) = match member {
             AnySymbolId::StructField(field) => {
                 let result_type = self.resolve_member_type(
@@ -220,10 +224,40 @@ impl Compilation {
                 (result_type, Some(operation))
             }
             member if CallableDefinitionId::try_new(member).is_some() => {
+                let member_substitution = match member_origin {
+                    TypeAssociatedMemberOrigin::Direct => *substitution,
+                    TypeAssociatedMemberOrigin::InherentImplementation(implementation) => {
+                        let contribution = surface
+                            .value()
+                            .implementations()
+                            .iter()
+                            .find(|candidate| candidate.implementation() == implementation)
+                            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                        let pattern = self.resolve_implementation_self_type(
+                            facts,
+                            implementation.into(),
+                            diagnostics,
+                        )?;
+
+                        match match_implementation_subject(
+                            implementation.into(),
+                            contribution.generic().parameters(),
+                            pattern,
+                            receiver_type,
+                            facts.semantic_values(),
+                        ) {
+                            Ok(Some(substitution)) => substitution,
+                            Ok(None) => return Ok(None),
+                            Err(_) => return Err(FactQueryError::InfrastructureFailure),
+                        }
+                    }
+                };
+
                 let Some(callable) = self.resolve_callable_member_signature(
                     facts,
                     member,
-                    *substitution,
+                    member_substitution,
                     diagnostics,
                 )?
                 else {
@@ -232,16 +266,16 @@ impl Compilation {
 
                 let result_type = callable.signature.callable_type();
 
-                let defaults = self.resolve_callable_defaults(
-                    facts,
-                    &callable.signature,
-                    diagnostics,
-                )?;
+                let defaults =
+                    self.resolve_callable_defaults(facts, &callable.signature, diagnostics)?;
 
                 let signature = member_callable_signature(callable.signature, receiver_type);
 
-                let target = MemberTarget::new(member, result_type, [])
-                    .with_callable(callable.instance, signature, defaults);
+                let target = MemberTarget::new(member, result_type, []).with_callable(
+                    callable.instance,
+                    signature,
+                    defaults,
+                );
 
                 let operation = SelectedOperation::Member(target);
 
@@ -318,13 +352,13 @@ impl Compilation {
 
     #[expect(
         clippy::too_many_arguments,
-        reason = "the operation, receiver, trait application, dispatch, and member are distinct semantic inputs"
+        reason = "the operation subject, trait application, dispatch, and member are distinct semantic inputs"
     )]
     fn resolve_constrained_trait_member_operation(
         &self,
         facts: &CompilationBinderFacts<'_>,
         expression: BoundExpressionId,
-        receiver_type: TypeId,
+        subject_type: TypeId,
         application: TraitApplicationId,
         dispatch: TraitConstraintDispatch,
         member: TraitCallableMemberSymbolId,
@@ -353,13 +387,14 @@ impl Compilation {
         let trait_context = SelfTypeContext::Trait(application.definition());
 
         let signature =
-            substitute_callable_self(facts, callable.signature, trait_context, receiver_type)?;
+            substitute_callable_self(facts, callable.signature, trait_context, subject_type)?;
 
         let signature = normalize_callable_type_equalities(facts, signature, constraints)?;
 
         let result_type = signature.callable_type();
         let defaults = self.resolve_callable_defaults(facts, &signature, diagnostics)?;
-        let signature = member_callable_signature(signature, receiver_type);
+
+        let signature = member_callable_signature(signature, subject_type);
 
         let target = MemberTarget::new(member.into(), result_type, [])
             .with_callable(callable.instance, signature, defaults)
@@ -512,36 +547,55 @@ impl Compilation {
         let constraints =
             super::constraint::enclosing_generic_constraints(facts, owner, diagnostics)?;
 
-        let requirements = Self::trait_constraint_requirements(&constraints, receiver_type);
+        let dereferenced_type =
+            self.resolve_access_subject_type(facts, receiver_type, diagnostics)?;
 
-        if let Some(dispatch) = requirements.get(&application).copied() {
-            return self.resolve_constrained_trait_member_operation(
-                facts,
-                expression,
-                receiver_type,
-                application,
-                dispatch,
-                trait_member,
-                &constraints,
-                diagnostics,
-            );
+        let mut selected_implementation = None;
+
+        for subject_type in [receiver_type, dereferenced_type]
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, ty)| (index == 0 || ty != receiver_type).then_some(ty))
+        {
+            let requirements = Self::trait_constraint_requirements(&constraints, subject_type);
+
+            if let Some(dispatch) = requirements.get(&application).copied() {
+                return self.resolve_constrained_trait_member_operation(
+                    facts,
+                    expression,
+                    subject_type,
+                    application,
+                    dispatch,
+                    trait_member,
+                    &constraints,
+                    diagnostics,
+                );
+            }
+
+            let requirement =
+                bray_symbols::ImplementationRequirementKey::new(subject_type, application);
+
+            let selected = self.implementation_selection_result_with_cancellation(
+                requirement,
+                facts.cancellation(),
+            )?;
+
+            *diagnostics = diagnostics.merged(selected.diagnostics());
+
+            if let ImplementationSelection::Selected(witness) = selected.value() {
+                selected_implementation = Some((subject_type, requirement, *witness));
+
+                break;
+            }
         }
 
-        let requirement =
-            bray_symbols::ImplementationRequirementKey::new(receiver_type, application);
-
-        let selected = self
-            .implementation_selection_result_with_cancellation(requirement, facts.cancellation())?;
-
-        *diagnostics = diagnostics.merged(selected.diagnostics());
-
-        let ImplementationSelection::Selected(witness) = selected.value() else {
+        let Some((subject_type, requirement, witness)) = selected_implementation else {
             return Ok(None);
         };
 
         let instance = facts
             .semantic_values()
-            .implementation_instance_data(*witness)
+            .implementation_instance_data(witness)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         let fulfillments = implementation_fulfillments(facts, instance.definition())?;
@@ -563,19 +617,14 @@ impl Compilation {
         };
 
         let result_type = callable.signature.callable_type();
+        let defaults = self.resolve_callable_defaults(facts, &callable.signature, diagnostics)?;
 
-        let defaults = self.resolve_callable_defaults(
-            facts,
-            &callable.signature,
-            diagnostics,
-        )?;
-
-        let signature = member_callable_signature(callable.signature, receiver_type);
+        let signature = member_callable_signature(callable.signature, subject_type);
 
         let target = MemberTarget::new(
             fulfillment.into(),
             result_type,
-            [SelectedImplementationWitness::new(requirement, *witness)],
+            [SelectedImplementationWitness::new(requirement, witness)],
         )
         .with_callable(callable.instance, signature, defaults);
 
@@ -602,17 +651,22 @@ impl Compilation {
         facts: &CompilationBinderFacts<'_>,
         signature: &CallableSignature,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Vec<(CallableParameterSymbolId, CallableParameterDefaultProviderSymbolId)>, FactQueryError>
-    {
+    ) -> Result<
+        Vec<(
+            CallableParameterSymbolId,
+            CallableParameterDefaultProviderSymbolId,
+        )>,
+        FactQueryError,
+    > {
         let mut defaults = Vec::new();
 
         for parameter in signature.parameters() {
             let parameter = parameter.parameter();
 
             let result = facts
-                .symbol_fact(SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(
-                    parameter,
-                ))
+                .symbol_fact(
+                    SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(parameter),
+                )
                 .map_err(binder_fact_error)?;
 
             *diagnostics = diagnostics.merged(result.diagnostics());

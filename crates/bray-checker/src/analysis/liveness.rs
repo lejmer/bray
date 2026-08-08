@@ -1,15 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencyGuard, BoundDependencyRequirement, BoundDependencySubject,
-    BoundExpression, BoundExpressionId, BoundUnit, CheckedMemoryOperations,
-    CheckedSemanticSelections, DependencyContractInstantiationError, LastUse, LiveAcrossScope,
-    LiveAcrossSuspension, LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding,
-    StoragePlan,
+    AnyBoundNodeId, BoundDependencyRequirement, BoundDependencySubject, BoundExpression,
+    BoundExpressionId, BoundUnit, CheckedMemoryOperations, CheckedSemanticSelections,
+    DependencyContractInstantiationError, LastUse, LiveAcrossScope, LiveAcrossSuspension,
+    LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding, StoragePlan,
 };
 use bray_symbols::{CallableSignatureFact, TypeData};
 
-use crate::dependency::selected_call_contract;
+use crate::dependency::selected_call_contracts;
 use crate::storage::local_initialization_bindings;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
@@ -277,24 +276,30 @@ impl OperationEffects {
                 continue;
             };
 
-            let contract = match selected_call_contract(request, storage, entry.expression(), call)
-            {
-                Ok(contract) => contract,
-                Err(DependencyContractInstantiationError::Resolution(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                )) => {
-                    self.recovered_nodes
-                        .insert(AnyBoundNodeId::Expression(entry.expression()));
+            let contracts =
+                match selected_call_contracts(request, storage, entry.expression(), call) {
+                    Ok(contracts) => contracts,
+                    Err(DependencyContractInstantiationError::Resolution(
+                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                    )) => {
+                        self.recovered_nodes
+                            .insert(AnyBoundNodeId::Expression(entry.expression()));
 
-                    continue;
-                }
-                Err(DependencyContractInstantiationError::Resolution(error)) => return Err(error),
-                Err(DependencyContractInstantiationError::ForeignUnit) => {
-                    return Err(CheckerInfrastructureError::InvalidLivenessFacts);
-                }
-            };
+                        continue;
+                    }
+                    Err(DependencyContractInstantiationError::Resolution(error)) => {
+                        return Err(error);
+                    }
+                    Err(DependencyContractInstantiationError::ForeignUnit) => {
+                        return Err(CheckerInfrastructureError::InvalidLivenessFacts);
+                    }
+                };
 
-            let subjects = dependency_subjects(contract.requirements(), storage);
+            let mut subjects = dependency_subjects(contracts.invocation().requirements(), storage);
+
+            if let Some(deferred) = contracts.deferred() {
+                collect_dependency_subjects(deferred.requirements(), storage, &mut subjects);
+            }
 
             self.universe.extend(subjects.iter().copied());
             self.extend_uses(entry.expression(), subjects);
@@ -435,18 +440,7 @@ fn collect_dependency_subjects(
                 }
             }
             BoundDependencyRequirement::Guarded(requirement) => {
-                let guard = match requirement.guard() {
-                    BoundDependencyGuard::NullablePresent(access)
-                    | BoundDependencyGuard::ActiveUnionVariant { access, .. } => {
-                        BoundDependencySubject::StorageAccess(access)
-                    }
-                    BoundDependencyGuard::BorrowCapabilityActive(capability) => {
-                        BoundDependencySubject::BorrowCapability(capability)
-                    }
-                    BoundDependencyGuard::ScopedCapabilityLive(capability) => {
-                        BoundDependencySubject::ScopedCapability(capability)
-                    }
-                };
+                let guard = requirement.guard().subject();
 
                 subjects.insert(guard);
                 collect_dependency_subjects(requirement.requirements(), storage, subjects);

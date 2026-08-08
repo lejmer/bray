@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundCallableTarget, BoundDependencyContract, BoundExpressionId,
-    DependencyContractInstantiationContext, DependencyContractInstantiationError, SelectedCall,
-    SelectedIterationSource, StorageIdentity, StoragePlan,
+    DependencyContractInstantiationError, SelectedCall, SelectedIterationSource, StorageIdentity,
+    StoragePlan,
 };
 use bray_symbols::{
     CallableDependencyContracts, CallableInstanceData, CallableSignatureFact,
@@ -15,12 +15,30 @@ use crate::{
     CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
 };
 
-pub(crate) fn selected_call_contract<C>(
+pub(crate) struct InstantiatedCallContracts {
+    invocation: BoundDependencyContract,
+    deferred: Option<BoundDependencyContract>,
+}
+
+impl InstantiatedCallContracts {
+    pub(crate) const fn invocation(&self) -> &BoundDependencyContract {
+        &self.invocation
+    }
+
+    pub(crate) const fn deferred(&self) -> Option<&BoundDependencyContract> {
+        self.deferred.as_ref()
+    }
+}
+
+pub(crate) fn selected_call_contracts<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     expression: BoundExpressionId,
     call: &SelectedCall,
-) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
+) -> Result<
+    InstantiatedCallContracts,
+    DependencyContractInstantiationError<CheckerInfrastructureError>,
+>
 where
     C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
@@ -33,7 +51,7 @@ where
 
     let mut context = CallInstantiationContext::new(request, storage, expression, call);
 
-    instantiate_callable_contract(request, contracts, &mut context)
+    instantiate_callable_contracts(request, contracts, &mut context)
 }
 
 fn callable_dependencies_for_implementation<C>(
@@ -131,17 +149,20 @@ where
 
     let mut context = CallInstantiationContext::hidden(request, storage, receiver, result);
 
-    instantiate_callable_contract(request, contracts, &mut context)
+    instantiate_callable_contracts(request, contracts, &mut context)
+        .map(|contracts| contracts.invocation)
 }
 
-fn instantiate_callable_contract<C, I>(
+fn instantiate_callable_contracts<C>(
     request: CheckerUnitView<'_, C>,
     contracts: CallableDependencyContracts,
-    context: &mut I,
-) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
+    context: &mut CallInstantiationContext<'_, C>,
+) -> Result<
+    InstantiatedCallContracts,
+    DependencyContractInstantiationError<CheckerInfrastructureError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
-    I: DependencyContractInstantiationContext<Error = CheckerInfrastructureError>,
 {
     let invocation = request
         .semantic_values()
@@ -152,29 +173,30 @@ where
             )
         })?;
 
-    let mut requirements = BoundDependencyContract::try_instantiate(&invocation, context)?
-        .requirements()
-        .to_vec();
+    let invocation = BoundDependencyContract::try_instantiate(&invocation, context)?;
 
-    if let Some(deferred) = contracts.deferred_execution() {
-        let deferred = request
-            .semantic_values()
-            .dependency_contract_template_data(deferred)
-            .map_err(|_| {
-                DependencyContractInstantiationError::Resolution(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                )
-            })?;
+    let deferred = contracts
+        .deferred_execution()
+        .map(|deferred| {
+            context.begin_deferred_execution();
 
-        requirements.extend(
-            BoundDependencyContract::try_instantiate(&deferred, context)?
-                .requirements()
-                .iter()
-                .cloned(),
-        );
-    }
+            let deferred = request
+                .semantic_values()
+                .dependency_contract_template_data(deferred)
+                .map_err(|_| {
+                    DependencyContractInstantiationError::Resolution(
+                        CheckerInfrastructureError::SemanticValueUnavailable,
+                    )
+                })?;
 
-    Ok(BoundDependencyContract::new(requirements))
+            BoundDependencyContract::try_instantiate(&deferred, context)
+        })
+        .transpose()?;
+
+    Ok(InstantiatedCallContracts {
+        invocation,
+        deferred,
+    })
 }
 
 fn callable_dependency_contracts<C>(
@@ -280,19 +302,21 @@ mod tests {
     use bray_bound_tree::{
         BoundCallResult, BoundCallableTarget, BoundDependencyGuard, BoundDependencyRequirement,
         BoundDependencyRequirementKind, BoundDependencySubject, BoundErrorExpression,
-        BoundExpression, BoundResolvedCall, BoundUnitId, SelectedArgument, SelectedCall,
-        StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
-        StoragePlanBuilder, StorageProjection,
+        BoundExpression, BoundFutureConstruction, BoundResolvedCall, BoundUnitId, SelectedArgument,
+        SelectedCall, StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity,
+        StorageIdentityId, StoragePlanBuilder, StorageProjection,
     };
     use bray_compiler_known::ImplementationHook;
     use bray_symbols::{
-        CallableAbi, CallableConstness, CallableDependencyContracts, CallableTrust,
+        BorrowKind, CallableAbi, CallableConstness, CallableDependencyContracts, CallableTrust,
         CallableTypeData, DependencyContractTemplateData, DependencyGuard, DependencyProjection,
         DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
-        SymbolOrdinal, TypeData,
+        SymbolOrdinal, TypeData, TypeId,
     };
 
-    use super::{instantiate_callable_contract, selected_call_contract};
+    use super::{
+        InstantiatedCallContracts, instantiate_callable_contracts, selected_call_contracts,
+    };
     use crate::CheckerUnitView;
     use crate::dependency::call::instantiation::CallInstantiationContext;
     use crate::test_support::{
@@ -304,28 +328,13 @@ mod tests {
     fn selected_calls_instantiate_direct_and_guarded_dependency_templates() {
         let unit_id = BoundUnitId::new(29);
 
-        let (unit, expressions) = expression_unit(unit_id, |tree, origin| {
-            vec![
-                push_expression(
-                    tree,
-                    BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-                ),
-                push_expression(
-                    tree,
-                    BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-                ),
-            ]
-        });
-
-        let [argument, call_expression] = expressions.as_slice() else {
-            panic!("test unit must contain an argument and call expression");
-        };
+        let (unit, argument, call_expression) = expression_pair(unit_id);
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
 
         let (identity, argument_access) = push_direct_storage(
             &mut storage,
-            StorageIdentity::Temporary(*argument),
+            StorageIdentity::Temporary(argument),
             unit.key().source(),
         );
 
@@ -365,47 +374,19 @@ mod tests {
             ]))
             .unwrap_or_else(|error| panic!("test dependency template must intern: {error:?}"));
 
-        let callable_type = semantic_values()
-            .intern_type(TypeData::Callable(CallableTypeData::new(
-                [],
-                error_type(),
-                CallableConstness::Runtime,
-                CallableTrust::Safe,
-                CallableAbi::Bray,
-                CallableDependencyContracts::synchronous(template),
-            )))
-            .unwrap_or_else(|error| panic!("test callable type must intern: {error:?}"));
+        let callable_type =
+            indirect_callable_type(CallableDependencyContracts::synchronous(template));
 
-        let call = SelectedCall::new(
-            BoundResolvedCall::new(
-                BoundCallableTarget::Indirect(callable_type),
-                [],
-                BoundCallResult::Immediate(error_type()),
-            ),
-            CallableAbi::Bray,
-            empty_callable_phase_behaviors(),
-            None,
-            [SelectedArgument::Explicit {
-                expression: *argument,
-                parameter: None,
-                ordinal: 0,
-                conversion: bray_bound_tree::SelectedConversion::new(
-                    error_type(),
-                    error_type(),
-                    bray_bound_tree::ConversionTarget::Identity,
-                ),
-            }],
-            [],
+        let call = selected_indirect_call(
+            callable_type,
+            argument,
+            BoundCallResult::Immediate(error_type()),
+            error_type(),
         );
 
-        let context = TestCheckerContext::new(false);
-        let semantic_context = callable_entry(unit.key());
+        let contracts = selected_contracts(&unit, &storage, call_expression, &call);
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
-
-        let contract = selected_call_contract(request, &storage, *call_expression, &call)
-            .unwrap_or_else(|error| panic!("selected call contract must instantiate: {error:?}"));
+        let contract = contracts.invocation();
 
         assert!(contract.requirements().iter().any(|requirement| {
             matches!(
@@ -441,31 +422,94 @@ mod tests {
         assert_borrowed_text_result_dependency(ImplementationHook::StringUtf8);
     }
 
-    fn assert_borrowed_text_result_dependency(implementation: ImplementationHook) {
-        let unit_id = BoundUnitId::new(31);
+    #[test]
+    fn deferred_argument_dependencies_follow_transferred_storage() {
+        let unit_id = BoundUnitId::new(32);
 
-        let (unit, expressions) = expression_unit(unit_id, |tree, origin| {
-            vec![
-                push_expression(
-                    tree,
-                    BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-                ),
-                push_expression(
-                    tree,
-                    BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-                ),
-            ]
-        });
-
-        let [argument, call_expression] = expressions.as_slice() else {
-            panic!("test unit must contain an argument and call expression");
-        };
+        let (unit, argument, call_expression) = expression_pair(unit_id);
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
 
         let (_, argument_access) = push_direct_storage(
             &mut storage,
-            StorageIdentity::Temporary(*argument),
+            StorageIdentity::Temporary(argument),
+            unit.key().source(),
+        );
+
+        let (_, future_access) = push_direct_storage(
+            &mut storage,
+            StorageIdentity::Temporary(call_expression),
+            unit.key().source(),
+        );
+
+        let storage = storage.finish();
+        let values = semantic_values();
+
+        let empty = values
+            .empty_dependency_contract_template()
+            .unwrap_or_else(|error| panic!("empty dependency template must intern: {error:?}"));
+
+        let deferred = values
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([
+                DependencyRequirement::direct(
+                    DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(
+                        0,
+                    ))),
+                    DependencyRequirementKind::StorageInitialized,
+                ),
+            ]))
+            .unwrap_or_else(|error| panic!("deferred dependency template must intern: {error:?}"));
+
+        let borrowed_type = values
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target: error_type(),
+            })
+            .unwrap_or_else(|error| panic!("borrowed test type must intern: {error:?}"));
+
+        for (target_type, expected_access) in [
+            (error_type(), future_access),
+            (borrowed_type, argument_access),
+        ] {
+            let callable_type =
+                indirect_callable_type(CallableDependencyContracts::asynchronous(empty, deferred));
+
+            let call = selected_indirect_call(
+                callable_type,
+                argument,
+                BoundCallResult::LazyFuture(BoundFutureConstruction::new(
+                    error_type(),
+                    error_type(),
+                )),
+                target_type,
+            );
+
+            let contracts = selected_contracts(&unit, &storage, call_expression, &call);
+
+            let contract = contracts
+                .deferred()
+                .unwrap_or_else(|| panic!("asynchronous call must retain a deferred contract"));
+
+            assert_eq!(
+                contract.requirements(),
+                &[BoundDependencyRequirement::Direct {
+                    subject: BoundDependencySubject::StorageAccess(expected_access),
+                    kind: BoundDependencyRequirementKind::StorageInitialized,
+                }]
+            );
+        }
+    }
+
+    fn assert_borrowed_text_result_dependency(implementation: ImplementationHook) {
+        let unit_id = BoundUnitId::new(31);
+
+        let (unit, argument, call_expression) = expression_pair(unit_id);
+
+        let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
+
+        let (_, argument_access) = push_direct_storage(
+            &mut storage,
+            StorageIdentity::Temporary(argument),
             unit.key().source(),
         );
 
@@ -475,48 +519,19 @@ mod tests {
             .empty_dependency_contract_template()
             .unwrap_or_else(|error| panic!("empty dependency template must intern: {error:?}"));
 
-        let callable_type = semantic_values()
-            .intern_type(TypeData::Callable(CallableTypeData::new(
-                [],
-                error_type(),
-                CallableConstness::Runtime,
-                CallableTrust::Safe,
-                CallableAbi::Bray,
-                CallableDependencyContracts::synchronous(empty),
-            )))
-            .unwrap_or_else(|error| panic!("test callable type must intern: {error:?}"));
+        let callable_type = indirect_callable_type(CallableDependencyContracts::synchronous(empty));
 
-        let call = SelectedCall::new(
-            BoundResolvedCall::new(
-                BoundCallableTarget::Indirect(callable_type),
-                [],
-                BoundCallResult::Immediate(error_type()),
-            ),
-            CallableAbi::Bray,
-            empty_callable_phase_behaviors(),
-            None,
-            [SelectedArgument::Explicit {
-                expression: *argument,
-                parameter: None,
-                ordinal: 0,
-                conversion: bray_bound_tree::SelectedConversion::new(
-                    error_type(),
-                    error_type(),
-                    bray_bound_tree::ConversionTarget::Identity,
-                ),
-            }],
-            [],
+        let call = selected_indirect_call(
+            callable_type,
+            argument,
+            BoundCallResult::Immediate(error_type()),
+            error_type(),
         )
         .with_implementation_hook(Some(implementation));
 
-        let context = TestCheckerContext::new(false);
-        let semantic_context = callable_entry(unit.key());
+        let contracts = selected_contracts(&unit, &storage, call_expression, &call);
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
-
-        let contract = selected_call_contract(request, &storage, *call_expression, &call)
-            .unwrap_or_else(|error| panic!("borrowed result contract must instantiate: {error:?}"));
+        let contract = contracts.invocation();
 
         assert!(contract.requirements().iter().any(|requirement| {
             matches!(
@@ -533,34 +548,19 @@ mod tests {
     fn hidden_iteration_calls_instantiate_receiver_and_result_dependencies() {
         let unit_id = BoundUnitId::new(30);
 
-        let (unit, expressions) = expression_unit(unit_id, |tree, origin| {
-            vec![
-                push_expression(
-                    tree,
-                    BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-                ),
-                push_expression(
-                    tree,
-                    BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-                ),
-            ]
-        });
-
-        let [source, iteration] = expressions.as_slice() else {
-            panic!("test unit must contain a source and iteration expression");
-        };
+        let (unit, source, iteration) = expression_pair(unit_id);
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
 
         let (_, source_access) = push_direct_storage(
             &mut storage,
-            StorageIdentity::Temporary(*source),
+            StorageIdentity::Temporary(source),
             unit.key().source(),
         );
 
         let (_, cursor_access) = push_direct_storage(
             &mut storage,
-            StorageIdentity::IterationCursor(*iteration),
+            StorageIdentity::IterationCursor(iteration),
             unit.key().source(),
         );
 
@@ -588,12 +588,14 @@ mod tests {
         let mut context =
             CallInstantiationContext::hidden(request, &storage, source_access, cursor_access);
 
-        let contract = instantiate_callable_contract(
+        let contracts = instantiate_callable_contracts(
             request,
             CallableDependencyContracts::synchronous(template),
             &mut context,
         )
         .unwrap_or_else(|error| panic!("hidden call contract must instantiate: {error:?}"));
+
+        let contract = contracts.invocation();
 
         assert!(contract.requirements().iter().any(|requirement| {
             matches!(
@@ -614,6 +616,85 @@ mod tests {
                 } if *access == cursor_access
             )
         }));
+    }
+
+    fn expression_pair(
+        unit: BoundUnitId,
+    ) -> (
+        bray_bound_tree::BoundUnit,
+        bray_bound_tree::BoundExpressionId,
+        bray_bound_tree::BoundExpressionId,
+    ) {
+        let (unit, expressions) = expression_unit(unit, |tree, origin| {
+            (0..2)
+                .map(|_| {
+                    push_expression(
+                        tree,
+                        BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+                    )
+                })
+                .collect()
+        });
+
+        let [first, second] = expressions.as_slice() else {
+            panic!("test expression pair must contain two expressions");
+        };
+
+        (unit, *first, *second)
+    }
+
+    fn indirect_callable_type(contracts: CallableDependencyContracts) -> TypeId {
+        semantic_values()
+            .intern_type(TypeData::Callable(CallableTypeData::new(
+                [],
+                error_type(),
+                CallableConstness::Runtime,
+                CallableTrust::Safe,
+                CallableAbi::Bray,
+                contracts,
+            )))
+            .unwrap_or_else(|error| panic!("test callable type must intern: {error:?}"))
+    }
+
+    fn selected_indirect_call(
+        callable_type: TypeId,
+        argument: bray_bound_tree::BoundExpressionId,
+        result: BoundCallResult,
+        target_type: TypeId,
+    ) -> SelectedCall {
+        SelectedCall::new(
+            BoundResolvedCall::new(BoundCallableTarget::Indirect(callable_type), [], result),
+            CallableAbi::Bray,
+            empty_callable_phase_behaviors(),
+            None,
+            [SelectedArgument::Explicit {
+                expression: argument,
+                parameter: None,
+                ordinal: 0,
+                conversion: bray_bound_tree::SelectedConversion::new(
+                    error_type(),
+                    target_type,
+                    bray_bound_tree::ConversionTarget::Identity,
+                ),
+            }],
+            [],
+        )
+    }
+
+    fn selected_contracts(
+        unit: &bray_bound_tree::BoundUnit,
+        storage: &bray_bound_tree::StoragePlan,
+        expression: bray_bound_tree::BoundExpressionId,
+        call: &SelectedCall,
+    ) -> InstantiatedCallContracts {
+        let context = TestCheckerContext::new(false);
+        let semantic_context = callable_entry(unit.key());
+
+        let request = CheckerUnitView::new(unit, &semantic_context, &context)
+            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+
+        selected_call_contracts(request, storage, expression, call)
+            .unwrap_or_else(|error| panic!("selected call contract must instantiate: {error:?}"))
     }
 
     fn push_direct_storage(

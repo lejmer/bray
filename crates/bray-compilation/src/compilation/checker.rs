@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "the compilation checker context keeps one complete lazy checker-fact adapter")
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
@@ -395,6 +397,13 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 
     fn symbols(&self) -> &bray_symbols::SymbolGraph {
         CompilationCheckerContext::symbols(self)
+    }
+
+    fn symbol_key(
+        &self,
+        symbol: AnySymbolId,
+    ) -> CheckerFactResult<Option<&bray_symbols::SymbolKey>> {
+        self.facts.symbol_key(symbol).map_err(checker_binder_error)
     }
 
     fn lookup_member(

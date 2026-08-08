@@ -265,7 +265,7 @@ where
     pub(crate) fn declared_type_has_lifecycle(
         self,
         subject: bray_symbols::NamedTypeSymbolId,
-    ) -> crate::CheckerFactResult<bray_diagnostics::DiagnosticResult<bool>> {
+    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bool>> {
         self.context.declared_type_has_lifecycle(subject)
     }
 

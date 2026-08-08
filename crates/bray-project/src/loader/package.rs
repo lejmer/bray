@@ -251,7 +251,57 @@ fn load_products(
         |pair| pair[0].identity().name(),
     )?;
 
+    validate_tested_libraries(&products, manifest_path)?;
+
     Ok(products.into())
+}
+
+fn validate_tested_libraries(
+    products: &[ProjectProduct],
+    manifest_path: &Path,
+) -> Result<(), ProjectLoadError> {
+    for product in products {
+        let Some(tested_library) = product.tested_library() else {
+            continue;
+        };
+
+        if product.kind() != ProductKind::Test {
+            return Err(ProjectLoadError::invalid(
+                manifest_path.to_path_buf(),
+                ProjectManifestProblem::TestedLibraryOnNonTestProduct,
+                product.identity().name(),
+            ));
+        }
+
+        let Some(library) = products
+            .iter()
+            .find(|candidate| candidate.identity() == tested_library)
+        else {
+            return Err(ProjectLoadError::invalid(
+                manifest_path.to_path_buf(),
+                ProjectManifestProblem::UnknownDependencyProduct,
+                format!(
+                    "{}/{}",
+                    tested_library.package().as_str(),
+                    tested_library.name()
+                ),
+            ));
+        };
+
+        if library.kind() != ProductKind::Library {
+            return Err(ProjectLoadError::invalid(
+                manifest_path.to_path_buf(),
+                ProjectManifestProblem::DependencyProductNotLibrary,
+                format!(
+                    "{}/{}",
+                    tested_library.package().as_str(),
+                    tested_library.name()
+                ),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn load_product(
@@ -273,6 +323,22 @@ fn load_product(
     };
 
     let kind = product_kind(manifest.kind);
+
+    let tested_library = manifest
+        .tested_library
+        .map(|name| {
+            let name = local_name(name, manifest_path)?;
+
+            ProductIdentity::try_new(package.clone(), name.clone()).ok_or_else(|| {
+                ProjectLoadError::invalid(
+                    manifest_path.to_path_buf(),
+                    ProjectManifestProblem::InvalidName,
+                    name.to_string(),
+                )
+            })
+        })
+        .transpose()?;
+
     let sources = select_sources(manifest.source_roots, source_roots, manifest_path)?;
     let targets = select_targets(manifest.targets, targets, manifest_path)?;
     let outputs = select_outputs(manifest.outputs, manifest_path)?;
@@ -281,6 +347,7 @@ fn load_product(
     Ok(ProjectProduct::new(
         identity,
         kind,
+        tested_library,
         sources,
         targets,
         outputs,

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_runtime_interface::PlatformServiceBinding;
+use bray_standard_library::PackageSourceAuthority;
 
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{TargetIdentity, TargetOutputKind};
@@ -115,6 +116,7 @@ impl ProjectDependency {
 pub struct ProjectProduct {
     identity: ProductIdentity,
     kind: ProductKind,
+    tested_library: Option<ProductIdentity>,
     sources: Arc<[ProjectPath]>,
     targets: Arc<[TargetIdentity]>,
     outputs: Arc<[TargetOutputKind]>,
@@ -125,6 +127,7 @@ impl ProjectProduct {
     pub(crate) fn new(
         identity: ProductIdentity,
         kind: ProductKind,
+        tested_library: Option<ProductIdentity>,
         sources: Arc<[ProjectPath]>,
         targets: Arc<[TargetIdentity]>,
         outputs: Arc<[TargetOutputKind]>,
@@ -133,6 +136,7 @@ impl ProjectProduct {
         Self {
             identity,
             kind,
+            tested_library,
             sources,
             targets,
             outputs,
@@ -148,6 +152,11 @@ impl ProjectProduct {
     /// Returns the language-level product category.
     pub const fn kind(&self) -> ProductKind {
         self.kind
+    }
+
+    /// Returns the sibling library whose public surface this test product consumes.
+    pub const fn tested_library(&self) -> Option<&ProductIdentity> {
+        self.tested_library.as_ref()
     }
 
     /// Returns the product's workspace-relative sources in canonical path order.
@@ -263,6 +272,7 @@ impl ProjectPackage {
 /// Immutable project contract ordered for deterministic dependency-first builds.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectGraph {
+    source_authority: PackageSourceAuthority,
     formatter_configuration: Option<ProjectPath>,
     output_root: ProjectPath,
     targets: Arc<[ProjectTarget]>,
@@ -271,17 +281,24 @@ pub struct ProjectGraph {
 
 impl ProjectGraph {
     pub(crate) fn new(
+        source_authority: PackageSourceAuthority,
         formatter_configuration: Option<ProjectPath>,
         output_root: ProjectPath,
         targets: Arc<[ProjectTarget]>,
         packages: Arc<[ProjectPackage]>,
     ) -> Self {
         Self {
+            source_authority,
             formatter_configuration,
             output_root,
             targets,
             packages,
         }
+    }
+
+    /// Returns the host authority under which package source was loaded.
+    pub const fn source_authority(&self) -> PackageSourceAuthority {
+        self.source_authority
     }
 
     /// Returns the workspace-selected formatter configuration path, when present.

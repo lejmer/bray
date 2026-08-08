@@ -10,7 +10,7 @@ use bray_symbols::{
     GenericConstraintObligationKey, ImplementationRequirementKey, ImplementationSelection,
     MemberLookupResult, NamedTypeSymbolId, ProofOutcome, SemanticValueStore, StructSymbol,
     StructSymbolId, SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult,
-    SymbolGraph, SymbolName, TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
+    SymbolGraph, SymbolKey, SymbolName, TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
     UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId,
     UnionVariantSymbol, UnionVariantSymbolId,
 };
@@ -179,6 +179,11 @@ pub trait CheckerRequestContext: Sync {
     /// Returns the compilation-wide symbol graph.
     fn symbols(&self) -> &SymbolGraph;
 
+    /// Returns the stable semantic key of a source or imported declaration.
+    fn symbol_key(&self, symbol: AnySymbolId) -> CheckerFactResult<Option<&SymbolKey>> {
+        Ok(self.symbols().symbol_key(symbol))
+    }
+
     /// Resolves one ordinary member from a source or imported declaration.
     fn lookup_member(
         &self,
@@ -302,7 +307,7 @@ pub trait CheckerRequestContext: Sync {
     fn statically_establishes_copyability(
         &self,
         context: &SemanticUnitContext,
-        ty: bray_symbols::TypeId,
+        ty: TypeId,
     ) -> CheckerFactResult<bool>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.

@@ -16,7 +16,7 @@ use super::ExpressionTypeInput;
 use super::cardinality::unproven_array_generators;
 use super::session::{ExpressionTypeSession, SessionProgress};
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
 struct DiagnosticConflict {
     expression: BoundExpressionId,
     expected: DiagnosticType,
@@ -212,11 +212,7 @@ pub(crate) fn diagnostic_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    crate::diagnostic::diagnostic_type(
-        request.semantic_values(),
-        request.available_compiler_known_symbols(),
-        ty,
-    )
+    crate::diagnostic::diagnostic_type(request.context(), ty)
 }
 
 #[cfg(test)]
@@ -247,12 +243,13 @@ mod tests {
         ExpressionTypeInput,
     };
 
-    #[test]
-    fn checking_publishes_one_canonical_result_for_every_expression() {
-        let first_type = tuple_type([]);
-        let second_type = tuple_type([first_type]);
-
-        let (unit, expressions) = expression_unit(BoundUnitId::new(40), |tree, origin| {
+    fn two_element_tuple_unit(
+        unit: BoundUnitId,
+    ) -> (
+        bray_bound_tree::BoundUnit,
+        [bray_bound_tree::BoundExpressionId; 3],
+    ) {
+        let (unit, expressions) = expression_unit(unit, |tree, origin| {
             let first = push_expression(tree, literal(origin, None));
             let second = push_expression(tree, literal(origin, None));
 
@@ -271,6 +268,20 @@ mod tests {
 
             vec![first, second, tuple]
         });
+
+        let [first, second, tuple] = expressions.as_slice() else {
+            panic!("two-element tuple fixture must contain three expressions");
+        };
+
+        (unit, [*first, *second, *tuple])
+    }
+
+    #[test]
+    fn checking_publishes_one_canonical_result_for_every_expression() {
+        let first_type = tuple_type([]);
+        let second_type = tuple_type([first_type]);
+
+        let (unit, expressions) = two_element_tuple_unit(BoundUnitId::new(40));
 
         let input = ExpressionTypeInput::new().with_evidence([
             ExpressionTypeEvidence::new(expressions[0], first_type),
@@ -648,25 +659,7 @@ mod tests {
         let first_type = tuple_type([]);
         let second_type = tuple_type([first_type]);
 
-        let (unit, expressions) = expression_unit(BoundUnitId::new(42), |tree, origin| {
-            let first = push_expression(tree, literal(origin, None));
-            let second = push_expression(tree, literal(origin, None));
-
-            let tuple = push_expression(
-                tree,
-                BoundExpression::Structured(BoundStructuredExpression::new(
-                    origin,
-                    BoundStructuredExpressionKind::Tuple,
-                    [first, second],
-                    [],
-                    [],
-                    None,
-                    false,
-                )),
-            );
-
-            vec![first, second, tuple]
-        });
+        let (unit, expressions) = two_element_tuple_unit(BoundUnitId::new(42));
 
         let expected_tuple = tuple_type([first_type, first_type]);
 
@@ -1459,11 +1452,9 @@ mod tests {
         let request = CheckerUnitView::new(&fixture.unit, &entry, &context)
             .unwrap_or_else(|error| panic!("test checker view must be valid: {error:?}"));
 
-        let unit_type = crate::representation::representation_type(
-            request,
-            bray_compiler_known::RepresentationRole::Unit,
-        )
-        .unwrap_or_else(|error| panic!("unit type must be available: {error:?}"));
+        let unit_type =
+            crate::representation::representation_type(request, RepresentationRole::Unit)
+                .unwrap_or_else(|error| panic!("unit type must be available: {error:?}"));
 
         assert_eq!(
             result
@@ -1588,11 +1579,9 @@ mod tests {
         let request = CheckerUnitView::new(&unit, &entry, &context)
             .unwrap_or_else(|error| panic!("test checker view must be valid: {error:?}"));
 
-        let panic_report = crate::representation::representation_type(
-            request,
-            bray_compiler_known::RepresentationRole::PanicReport,
-        )
-        .unwrap_or_else(|error| panic!("PanicReport must be available: {error:?}"));
+        let panic_report =
+            crate::representation::representation_type(request, RepresentationRole::PanicReport)
+                .unwrap_or_else(|error| panic!("PanicReport must be available: {error:?}"));
 
         assert_eq!(error, panic_report);
     }

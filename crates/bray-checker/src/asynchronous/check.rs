@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
     BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult,
-    BoundCallableTarget, BoundExpression, BoundExpressionId, CheckedAsyncFacts,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinementFacts,
+    BoundCallableTarget, BoundDependencyContractId, BoundExpression, BoundExpressionId,
+    CheckedAsyncFacts, CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinementFacts,
     CheckedSemanticSelections, LivenessFacts, SemanticSelection, StorageFlowFacts, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
@@ -137,7 +137,12 @@ where
 
                         (
                             AsyncSuspensionKind::Await { operand },
-                            dependencies.expression(operand),
+                            deferred_dependency_contract(
+                                request,
+                                dependencies,
+                                &local_initializers,
+                                operand,
+                            ),
                             calls,
                             request
                                 .view()
@@ -409,6 +414,43 @@ fn collect_block_initializers(
             }
             BoundBlockItem::Expression(_) => {}
         }
+    }
+}
+
+fn deferred_dependency_contract<C>(
+    request: CheckerUnitView<'_, C>,
+    dependencies: &CheckedDependencyContracts,
+    local_initializers: &BTreeMap<AnyLocalSymbolId, BoundExpressionId>,
+    expression: BoundExpressionId,
+) -> Option<BoundDependencyContractId>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut current = expression;
+    let mut active = BTreeSet::new();
+
+    loop {
+        if let Some(contract) = dependencies.deferred_expression(current) {
+            return Some(contract);
+        }
+
+        if !active.insert(current) {
+            return None;
+        }
+
+        current = match request.view().expression(current)? {
+            BoundExpression::Name(name) => {
+                let bray_bound_tree::BoundReferenceTarget::Local(local) = name.target() else {
+                    return None;
+                };
+
+                *local_initializers.get(&local)?
+            }
+            BoundExpression::PatternReference(reference) => {
+                *local_initializers.get(&AnyLocalSymbolId::from(reference.binding()))?
+            }
+            _ => return None,
+        };
     }
 }
 

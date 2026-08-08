@@ -5,7 +5,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     DependencyGuard, DependencyProjection, DependencyRequirementKind, DependencySubject,
-    DependencySubjectRoot, SymbolOrdinal,
+    DependencySubjectRoot, ReceiverMode, SymbolOrdinal, TypeData,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
@@ -28,6 +28,7 @@ where
     request: CheckerUnitView<'check, C>,
     storage: &'check StoragePlan,
     input: CallInstantiationInput<'check>,
+    deferred: bool,
 }
 
 impl<'check, C> CallInstantiationContext<'check, C>
@@ -44,6 +45,7 @@ where
             request,
             storage,
             input: CallInstantiationInput::Selected { expression, call },
+            deferred: false,
         }
     }
 
@@ -57,7 +59,12 @@ where
             request,
             storage,
             input: CallInstantiationInput::Hidden { receiver, result },
+            deferred: false,
         }
+    }
+
+    pub(super) const fn begin_deferred_execution(&mut self) {
+        self.deferred = true;
     }
 
     fn resolve_guard_access(
@@ -115,6 +122,58 @@ where
         }
     }
 
+    fn deferred_frame_access(
+        &self,
+        root: DependencySubjectRoot,
+    ) -> Result<Option<StorageAccessId>, CheckerInfrastructureError> {
+        if !self.deferred {
+            return Ok(None);
+        }
+
+        let CallInstantiationInput::Selected { expression, call } = self.input else {
+            return Ok(None);
+        };
+
+        let transferred = match root {
+            DependencySubjectRoot::Receiver => call.receiver().is_some_and(|receiver| {
+                matches!(
+                    receiver.mode(),
+                    ReceiverMode::Consuming | ReceiverMode::ConsumingMutable
+                )
+            }),
+            DependencySubjectRoot::Parameter(ordinal) => {
+                let argument = call.arguments().iter().find(|argument| match argument {
+                    SelectedArgument::Explicit {
+                        ordinal: actual, ..
+                    }
+                    | SelectedArgument::Default {
+                        ordinal: actual, ..
+                    } => SymbolOrdinal::new(*actual) == ordinal,
+                });
+
+                match argument {
+                    Some(SelectedArgument::Explicit { conversion, .. }) => !matches!(
+                        self.request
+                            .semantic_values()
+                            .type_data(conversion.target_type())
+                            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+                            .as_ref(),
+                        TypeData::Borrow { .. }
+                    ),
+                    Some(SelectedArgument::Default { .. }) => true,
+                    None => false,
+                }
+            }
+            DependencySubjectRoot::Result
+            | DependencySubjectRoot::ScopedCapability(_)
+            | DependencySubjectRoot::ImplementationWitness(_) => false,
+        };
+
+        Ok(transferred
+            .then(|| expression_access(self.storage, expression))
+            .flatten())
+    }
+
     fn borrow_capability(
         &self,
         expression: Option<BoundExpressionId>,
@@ -155,8 +214,12 @@ where
         let root = subject.subject_root();
         let expression = self.selected_expression(root);
 
-        let base = expression
-            .and_then(|expression| expression_access(self.storage, expression))
+        let frame_access = self.deferred_frame_access(root)?;
+
+        let base = frame_access
+            .or_else(|| {
+                expression.and_then(|expression| expression_access(self.storage, expression))
+            })
             .or_else(|| self.hidden_access(root))
             .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
@@ -168,7 +231,11 @@ where
             return Ok(BoundDependencySubject::BorrowCapability(capability));
         }
 
-        let access = projected_access(self.storage, base, subject.projections()).unwrap_or(base);
+        let access = if frame_access.is_some() {
+            base
+        } else {
+            projected_access(self.storage, base, subject.projections()).unwrap_or(base)
+        };
 
         Ok(BoundDependencySubject::StorageAccess(access))
     }

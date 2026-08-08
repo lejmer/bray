@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.random;
+module bray.standard_library_tests.random;
 
 using std.random;
 using std.bytes;

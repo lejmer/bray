@@ -1,0 +1,236 @@
+module bray.standard_library_tests.filesystem;
+
+using std.fs;
+using internal std.fs.FileReader;
+using internal std.fs.FileWriter;
+using std.io;
+using std.io.IoErrorKindEquatable;
+using internal std.io.BufferedReaderSourceReader;
+using internal std.io.BufferedWriterSinkWriter;
+using std.path;
+using std.string;
+
+@test(serial)
+func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io.IoError>
+{
+    let directory: std.path.Path = test_path("bray-filesystem-conformance");
+    let alpha: std.path.Path = test_path("bray-filesystem-conformance/alpha");
+    let zeta: std.path.Path = test_path("bray-filesystem-conformance/zeta");
+
+    discard_existing_file(&alpha);
+    discard_existing_file(&zeta);
+    discard_existing_directory(&directory);
+
+    try std.fs.create_directory(&directory);
+    try write_file(&zeta, value = 90);
+    try write_file(&alpha, value = 65);
+
+    let mut traversal: std.fs.Directory = try std.fs.Directory.open(&directory);
+    let first: std.fs.DirectoryEntry? = try traversal.next();
+    let second: std.fs.DirectoryEntry? = try traversal.next();
+    let exhausted: std.fs.DirectoryEntry? = try traversal.next();
+
+    assert(entry_name_equals(first, "alpha"));
+    assert(entry_name_equals(second, "zeta"));
+
+    match exhausted
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    try traversal.close();
+
+    try std.fs.remove_file(&alpha);
+    try std.fs.remove_file(&zeta);
+    try std.fs.remove_directory(&directory);
+
+    return Ok(unit);
+}
+
+@test(serial)
+func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoError>
+{
+    let path: std.path.Path = test_path("bray-buffered-file-conformance");
+    discard_existing_file(&path);
+
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.ReadWrite,
+        creation = std.fs.FileCreation.CreateNew,
+    );
+
+    let opened: std.fs.File = try std.fs.File.open(&path, options = options);
+    let mut writer: std.io.BufferedWriter<std.fs.File> = try std.io.BufferedWriter<std.fs.File>(opened, capacity = 2);
+
+    let first: [u8; 2] = [65, 66];
+    let second: [u8; 1] = [67];
+
+    let first_written: usize = try writer(std.io.Writer).write(&first[..]);
+    let second_written: usize = try writer(std.io.Writer).write(&second[..]);
+
+    assert(first_written == 2);
+    assert(second_written == 1);
+
+    let mut writable: std.fs.File = try writer.into_sink();
+    let position: u64 = try writable.seek(offset = 0, origin = std.io.SeekOrigin.Start);
+
+    assert(position == 0);
+
+    let mut reader: std.io.BufferedReader<std.fs.File> = try std.io.BufferedReader<std.fs.File>(writable, capacity = 2);
+    let mut destination: [u8; 3] = [0; 3];
+
+    let first_read: usize = try reader(std.io.Reader).read(&mut destination[0.. 1]);
+    let second_read: usize = try reader(std.io.Reader).read(&mut destination[1.. 3]);
+    let third_read: usize = try reader(std.io.Reader).read(&mut destination[2.. 3]);
+
+    let mut readable: std.fs.File = reader.into_source();
+
+    assert(first_read == 1);
+    assert(second_read == 1);
+    assert(third_read == 1);
+
+    assert(destination[0] == 65);
+    assert(destination[1] == 66);
+    assert(destination[2] == 67);
+
+    try readable.close();
+    try std.fs.remove_file(&path);
+
+    return Ok(unit);
+}
+
+@test(serial)
+async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<unit, std.io.IoError>
+{
+    let source: std.path.Path = test_path("bray-async-file-conformance");
+    let destination: std.path.Path = test_path("bray-async-file-conformance-renamed");
+
+    discard_existing_file(&source);
+    discard_existing_file(&destination);
+
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.ReadWrite,
+        creation = std.fs.FileCreation.CreateNew,
+    );
+
+    let mut file: std.fs.File = try std.fs.File.open(&source, options = options);
+    let bytes: [u8; 2] = [88, 89];
+    let written: usize = try await file.write_async(&bytes[..]);
+
+    assert(written == 2);
+
+    try await file.flush_async();
+
+    let position: u64 = try await file.seek_async(offset = 0, origin = std.io.SeekOrigin.Start);
+
+    assert(position == 0);
+
+    let mut read: [u8; 2] = [0; 2];
+    let read_count: usize = try await file.read_async(&mut read[..]);
+
+    assert(read_count == 2);
+    assert(read[0] == 88);
+    assert(read[1] == 89);
+
+    let metadata: std.fs.FileMetadata = try await file.metadata_async();
+    assert(metadata.bytes == 2);
+
+    try await file.close_async();
+    try await std.fs.rename_async(&source, &destination);
+
+    let renamed: std.fs.FileMetadata = try await std.fs.metadata_async(&destination);
+
+    assert(renamed.bytes == 2);
+
+    try await std.fs.remove_file_async(&destination);
+
+    return Ok(unit);
+}
+
+@test(serial)
+func missing_files_report_the_portable_error_kind()
+{
+    let path: std.path.Path = test_path("bray-missing-file-conformance");
+    discard_existing_file(&path);
+
+    match std.fs.metadata(&path)
+    {
+        case Ok(_) { assert(false); }
+        case Error(error) { assert(error.kind == std.io.IoErrorKind.NotFound); }
+    }
+}
+
+func test_path(pos value: string) -> std.path.Path
+{
+    match std.path.Path.from_string(value)
+    {
+        case Ok(result) { return result; }
+        case Error(_) { panic("test path should be valid"); }
+    }
+}
+
+func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoError>
+{
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.ReadWrite,
+        creation = std.fs.FileCreation.CreateNew,
+    );
+
+    let mut file: std.fs.File = try std.fs.File.open(path, options = options);
+    let bytes: [u8; 1] = [value];
+    let written: usize = try file.write(&bytes[..]);
+
+    assert(written == 1);
+
+    let position: u64 = try file.seek(offset = 0, origin = std.io.SeekOrigin.Start);
+
+    assert(position == 0);
+
+    let mut destination: [u8; 1] = [0];
+    let read: usize = try file.read(&mut destination[..]);
+
+    assert(read == 1);
+    assert(destination[0] == value);
+
+    let metadata: std.fs.FileMetadata = try file.metadata();
+
+    assert(metadata.bytes == 1);
+
+    return file.close();
+}
+
+func entry_name_equals(pos candidate: std.fs.DirectoryEntry?, pos expected: string) -> bool
+{
+    match consume candidate
+    {
+        case ?entry
+        {
+            let text: Result<string, std.path.PathError> = entry.path.to_string();
+
+            match consume text
+            {
+                case Ok(actual) { return std.string.equals(&actual, &expected); }
+                case Error(_) { return false; }
+            }
+        }
+        case none { return false; }
+    }
+}
+
+func discard_existing_file(pos path: &std.path.Path)
+{
+    match std.fs.remove_file(path)
+    {
+        case Ok(_) {}
+        case Error(_) {}
+    }
+}
+
+func discard_existing_directory(pos path: &std.path.Path)
+{
+    match std.fs.remove_directory(path)
+    {
+        case Ok(_) {}
+        case Error(_) {}
+    }
+}

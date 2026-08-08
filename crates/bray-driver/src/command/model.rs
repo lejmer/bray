@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use bray_compilation::{CompilationOptions, WorkerBudget};
+use bray_compilation::{CompilationOptions, PackageSourceAuthority, WorkerBudget};
 use bray_standard_library::StandardLibraryRoot;
 use bray_tooling::{InspectionTarget, OutputFormat};
 
@@ -13,6 +13,7 @@ pub struct DriverOptions {
     output_format: OutputFormat,
     compilation: DriverCompilationConfiguration,
     standard_library_root: Option<StandardLibraryRoot>,
+    package_source_authority: PackageSourceAuthority,
 }
 
 impl DriverOptions {
@@ -22,12 +23,14 @@ impl DriverOptions {
         output_format: OutputFormat,
         compilation: DriverCompilationConfiguration,
         standard_library_root: Option<StandardLibraryRoot>,
+        package_source_authority: PackageSourceAuthority,
     ) -> Self {
         Self {
             worker_budget,
             output_format,
             compilation,
             standard_library_root,
+            package_source_authority,
         }
     }
 
@@ -58,6 +61,11 @@ impl DriverOptions {
     /// Returns the explicitly selected standard-library bundle root.
     pub const fn standard_library_root(&self) -> Option<&StandardLibraryRoot> {
         self.standard_library_root.as_ref()
+    }
+
+    /// Returns the authority governing source package identities.
+    pub const fn package_source_authority(&self) -> PackageSourceAuthority {
+        self.package_source_authority
     }
 }
 
@@ -151,6 +159,23 @@ pub enum DriverCommand {
     },
 }
 
+macro_rules! with_command_files {
+    ($command:expr, $files:ident => $result:expr) => {
+        match $command {
+            DriverCommand::Build { files: $files, .. }
+            | DriverCommand::Check { files: $files, .. }
+            | DriverCommand::InspectSource { files: $files }
+            | DriverCommand::InspectTokens { files: $files }
+            | DriverCommand::InspectSyntax { files: $files }
+            | DriverCommand::InspectDeclarations { files: $files }
+            | DriverCommand::InspectSymbols { files: $files }
+            | DriverCommand::InspectBound { files: $files, .. }
+            | DriverCommand::InspectLowered { files: $files, .. }
+            | DriverCommand::InspectMir { files: $files, .. } => $result,
+        }
+    };
+}
+
 impl DriverCommand {
     /// Creates a product build command.
     pub fn build(configuration: DriverProductConfiguration, files: Vec<PathBuf>) -> Self {
@@ -226,18 +251,7 @@ impl DriverCommand {
 
     /// Returns the command's source file paths.
     pub fn files(&self) -> &[PathBuf] {
-        match self {
-            Self::Build { files, .. }
-            | Self::Check { files, .. }
-            | Self::InspectSource { files }
-            | Self::InspectTokens { files }
-            | Self::InspectSyntax { files }
-            | Self::InspectDeclarations { files }
-            | Self::InspectSymbols { files }
-            | Self::InspectBound { files, .. }
-            | Self::InspectLowered { files, .. }
-            | Self::InspectMir { files, .. } => files,
-        }
+        with_command_files!(self, files => files)
     }
 
     /// Returns the source and optional position selected for semantic-unit inspection.
@@ -259,18 +273,7 @@ impl DriverCommand {
     }
 
     pub(crate) fn into_files(self) -> Vec<PathBuf> {
-        match self {
-            Self::Build { files, .. }
-            | Self::Check { files, .. }
-            | Self::InspectSource { files }
-            | Self::InspectTokens { files }
-            | Self::InspectSyntax { files }
-            | Self::InspectDeclarations { files }
-            | Self::InspectSymbols { files }
-            | Self::InspectBound { files, .. }
-            | Self::InspectLowered { files, .. }
-            | Self::InspectMir { files, .. } => files,
-        }
+        with_command_files!(self, files => files)
     }
 
     /// Returns the package-interface destination requested by a check command.

@@ -606,7 +606,7 @@ const CHECKING_TASK_START_OUTSIDE_ASYNC_CALLABLE: &[MessageTemplatePart] =
     )];
 
 const CHECKING_UNAVAILABLE_AWAIT_DEPENDENCY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "awaited computation requires semantic state that is not available here",
+    "awaited computation depends on a value or borrow that is no longer available",
 )];
 
 const CHECKING_ENTRYPOINT_NOT_ALLOWED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(

@@ -3,7 +3,9 @@
   "identity": "std",
   "version": { "workspace": true },
   "source_roots": [
-    { "name": "library", "path": "src" }
+    { "name": "library", "path": "src" },
+    { "name": "tests-api", "path": "tests/api" },
+    { "name": "tests-outcomes", "path": "tests/outcomes" }
   ],
   "products": [
     {
@@ -185,6 +187,36 @@
           "declaration": "std.time.platform_time_format"
         }
       ]
+    },
+    {
+      "name": "api",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": ["tests-api"],
+      "targets": [
+        "aarch64-linux",
+        "aarch64-macos",
+        "aarch64-windows",
+        "x86-64-linux",
+        "x86-64-macos",
+        "x86-64-windows"
+      ],
+      "outputs": ["executable"]
+    },
+    {
+      "name": "outcomes",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": ["tests-outcomes"],
+      "targets": [
+        "aarch64-linux",
+        "aarch64-macos",
+        "aarch64-windows",
+        "x86-64-linux",
+        "x86-64-macos",
+        "x86-64-windows"
+      ],
+      "outputs": ["executable"]
     }
   ]
 }

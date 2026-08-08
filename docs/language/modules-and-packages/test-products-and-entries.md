@@ -12,6 +12,11 @@ Test-only source inputs and test-only dependencies participate only in test prod
 They do not contribute declarations, dependencies, implementations, overloads, conversions, public API, or coherence-domain behavior
 to library or executable products.
 
+A package integration-test product may select a library product from the same package as its tested library. The test product
+consumes that library product through its public compiled contract. Library source files are not compiled as part of the test
+product, so declarations that are absent from the public contract are unavailable unless another language access rule explicitly
+provides them.
+
 Test products use ordinary module declarations, path resolution, dependency checking, visibility checking, internal access rules,
 trusted-module rules, target gates, contract checking, ownership checking, and [async and run-boundary rules](../async-and-concurrency.md).
 

@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.order;
+module bray.standard_library_tests.order;
 
 using std.order;
 using std.order.OrderingEquatable;

@@ -151,7 +151,7 @@ impl ConcreteCodegenInstance {
             return None;
         };
 
-        if Some(template.role()) != bray_ir::MirGeneratedLifecycleRole::from_reference(&reference) {
+        if Some(template.role()) != MirGeneratedLifecycleRole::from_reference(&reference) {
             return None;
         }
 
@@ -414,7 +414,7 @@ impl Compilation {
                 bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
                     .map_err(FactQueryError::CheckerInfrastructure)?;
 
-            if outcome != Some(bray_symbols::ProofOutcome::Proven) {
+            if outcome != Some(ProofOutcome::Proven) {
                 return Err(FactQueryError::InfrastructureFailure.into());
             }
 
@@ -549,20 +549,13 @@ impl Compilation {
         let mut forwarded = Vec::new();
 
         for requirement in requirements {
-            if self
-                .concrete_codegen_matching_witness(
-                    direct_witnesses.iter().copied(),
-                    requirement,
-                    cancellation,
-                )?
-                .is_some()
-            {
-                continue;
-            }
+            let available = direct_witnesses
+                .iter()
+                .copied()
+                .chain(owner.implementation_witnesses().iter().copied());
 
-            let witness = self
-                .concrete_codegen_dispatch_witness(owner, requirement, cancellation)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let witness =
+                self.concrete_codegen_requirement_witness(available, requirement, cancellation)?;
 
             forwarded.push(witness);
         }
@@ -593,23 +586,42 @@ impl Compilation {
         let mut witnesses = Vec::new();
 
         for requirement in requirements {
-            let selection =
-                self.implementation_selection_result_with_cancellation(requirement, cancellation)?;
-
-            if selection.diagnostics().has_errors() {
-                return Err(CodegenFactError::Diagnostics(
-                    selection.diagnostics().clone(),
-                ));
-            }
-
-            let ImplementationSelection::Selected(witness) = selection.value() else {
-                return Err(FactQueryError::InfrastructureFailure.into());
-            };
-
-            witnesses.push(*witness);
+            witnesses.push(self.concrete_codegen_requirement_witness(
+                std::iter::empty(),
+                requirement,
+                cancellation,
+            )?);
         }
 
         Ok(witnesses)
+    }
+
+    fn concrete_codegen_requirement_witness(
+        &self,
+        available: impl IntoIterator<Item = ImplementationInstanceId>,
+        requirement: ImplementationRequirementKey,
+        cancellation: &CancellationToken,
+    ) -> Result<ImplementationInstanceId, CodegenFactError> {
+        if let Some(witness) =
+            self.concrete_codegen_matching_witness(available, requirement, cancellation)?
+        {
+            return Ok(witness);
+        }
+
+        let selection =
+            self.implementation_selection_result_with_cancellation(requirement, cancellation)?;
+
+        if selection.diagnostics().has_errors() {
+            return Err(CodegenFactError::Diagnostics(
+                selection.diagnostics().clone(),
+            ));
+        }
+
+        let ImplementationSelection::Selected(witness) = selection.value() else {
+            return Err(FactQueryError::InfrastructureFailure.into());
+        };
+
+        Ok(*witness)
     }
 
     fn concrete_codegen_constraint_requirements(

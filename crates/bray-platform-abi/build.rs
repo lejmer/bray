@@ -37,9 +37,10 @@ fn main() {
             .unwrap_or_else(|| panic!("Cargo must provide CARGO_MANIFEST_DIR")),
     );
 
-    let provider = manifest.join("../../third-party/temporal");
-    let date = provider.join("date");
-    let tzdata = provider.join("tzdata");
+    let third_party = manifest.join("../../third-party/temporal");
+    let provider = manifest.join("native/temporal");
+    let date = third_party.join("date");
+    let tzdata = third_party.join("tzdata");
 
     verify_files(&date, DATE_FILES, DATE_DIGEST, "date provider");
     verify_files(&tzdata, TZDATA_FILES, TZDATA_DIGEST, "timezone database");
@@ -56,7 +57,7 @@ fn main() {
         .cpp(true)
         .std("c++17")
         .include(date.join("include"))
-        .include(provider.join("provider/include"))
+        .include(provider.join("include"))
         .include(&out)
         .define("AUTO_DOWNLOAD", "0")
         .define("HAS_REMOTE_API", "0")
@@ -64,7 +65,7 @@ fn main() {
         .define("ONLY_C_LOCALE", "1")
         .define("NOMINMAX", None)
         .file(date.join("src/tz.cpp"))
-        .file(provider.join("provider/src/provider.cpp"))
+        .file(provider.join("src/provider.cpp"))
         .warnings(false)
         .compile("bray_temporal_provider");
 
@@ -76,10 +77,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", date.display());
     println!("cargo:rerun-if-changed={}", tzdata.display());
 
-    println!(
-        "cargo:rerun-if-changed={}",
-        provider.join("provider").display()
-    );
+    println!("cargo:rerun-if-changed={}", provider.display());
 }
 
 fn verify_files(root: &Path, files: &[&str], expected: &str, name: &str) {

@@ -887,14 +887,16 @@ mod tests {
     use bray_bound_tree::{
         BorrowCapabilityOrigin, BoundConversionExpression, BoundDependencyContract,
         BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
-        BoundExpression, BoundExpressionId, BoundStructuredExpression,
-        BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitRoot, CheckedAsyncFacts,
-        CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
-        CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts,
+        BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor,
+        BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit,
+        BoundUnitId, BoundUnitRoot, CheckedAsyncFacts, CheckedBodyBehavior,
+        CheckedControlFlowFacts, CheckedDependencyContracts, CheckedExpressionTypes,
+        CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts,
         CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry, ExpressionTypeResult,
         ExpressionTypeStatus, LastUse, LivenessFacts, PlannedBorrowCapability, StorageAccess,
-        StorageAccessPurpose, StorageAccessRoot, StorageFlowFacts, StorageIdentity,
-        StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
+        StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageFlowFacts,
+        StorageIdentity, StorageIdentityId, StorageOperationDecision, StorageOperationStatus,
+        StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_symbols::{BorrowKind, CurrentRunCancellation, SemanticValueStore, TypeData, TypeId};
@@ -916,25 +918,7 @@ mod tests {
 
         let facts = empty_expression_facts(&unit);
 
-        let input = match LoweringInput::try_new(
-            &unit,
-            &control_flow,
-            &facts.types,
-            &facts.patterns,
-            &facts.selections,
-            &facts.literals,
-            &facts.storage,
-            &facts.liveness,
-            &facts.refinements,
-            &facts.storage_flow,
-            &facts.dependencies,
-            &facts.async_facts,
-            &facts.behavior,
-            &facts.values,
-            available_compiler_known_symbols(),
-            bray_ir::MirUnitKind::Synchronous,
-            test_mir_target(),
-        ) {
+        let input = match lowering_input(&unit, &control_flow, (&facts).into()) {
             Ok(input) => input,
             Err(error) => panic!("matching lowering input must validate: {error:?}"),
         };
@@ -967,18 +951,7 @@ mod tests {
 
     #[test]
     fn input_rejects_compile_time_only_units_before_runtime_fact_validation() {
-        let unit = test_constant_template_unit(5, |tree, origin| {
-            tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
-                origin,
-                BoundStructuredExpressionKind::Unit,
-                [],
-                [],
-                [],
-                None,
-                false,
-            )))
-            .unwrap_or_else(|error| panic!("test expression must fit: {error:?}"))
-        });
+        let unit = test_constant_template_unit(5, push_unit_expression);
 
         let control_flow = CheckedControlFlowFacts::new(
             unit.unit(),
@@ -989,25 +962,7 @@ mod tests {
         let facts = empty_expression_facts(&unit);
 
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &control_flow,
-                &facts.types,
-                &facts.patterns,
-                &facts.selections,
-                &facts.literals,
-                &facts.storage,
-                &facts.liveness,
-                &facts.refinements,
-                &facts.storage_flow,
-                &facts.dependencies,
-                &facts.async_facts,
-                &facts.behavior,
-                &facts.values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &control_flow, (&facts).into()),
             LoweringInputError::CompileTimeUnitRequiresClassification,
         );
     }
@@ -1024,25 +979,7 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &foreign,
-                &facts.types,
-                &facts.patterns,
-                &facts.selections,
-                &facts.literals,
-                &facts.storage,
-                &facts.liveness,
-                &facts.refinements,
-                &facts.storage_flow,
-                &facts.dependencies,
-                &facts.async_facts,
-                &facts.behavior,
-                &facts.values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &foreign, (&facts).into()),
             LoweringInputError::ForeignFact {
                 fact: LoweringFactKind::ControlFlow,
                 expected: BoundUnitId::new(4),
@@ -1057,25 +994,7 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &wrong_kind,
-                &facts.types,
-                &facts.patterns,
-                &facts.selections,
-                &facts.literals,
-                &facts.storage,
-                &facts.liveness,
-                &facts.refinements,
-                &facts.storage_flow,
-                &facts.dependencies,
-                &facts.async_facts,
-                &facts.behavior,
-                &facts.values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &wrong_kind, (&facts).into()),
             LoweringInputError::FactKindMismatch {
                 fact: LoweringFactKind::ControlFlow,
                 expected: unit.key().kind(),
@@ -1097,26 +1016,13 @@ mod tests {
             ControlCompletion::default(),
         );
 
+        let foreign_types = ExpressionFactReferences {
+            types: &foreign.types,
+            ..(&local).into()
+        };
+
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &control_flow,
-                &foreign.types,
-                &local.patterns,
-                &local.selections,
-                &local.literals,
-                &local.storage,
-                &local.liveness,
-                &local.refinements,
-                &local.storage_flow,
-                &local.dependencies,
-                &local.async_facts,
-                &local.behavior,
-                &local.values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &control_flow, foreign_types),
             LoweringInputError::ForeignFact {
                 fact: LoweringFactKind::ExpressionTypes,
                 expected: unit.unit(),
@@ -1124,26 +1030,13 @@ mod tests {
             },
         );
 
+        let foreign_patterns = ExpressionFactReferences {
+            patterns: &foreign.patterns,
+            ..(&local).into()
+        };
+
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &control_flow,
-                &local.types,
-                &foreign.patterns,
-                &local.selections,
-                &local.literals,
-                &local.storage,
-                &local.liveness,
-                &local.refinements,
-                &local.storage_flow,
-                &local.dependencies,
-                &local.async_facts,
-                &local.behavior,
-                &local.values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &control_flow, foreign_patterns),
             LoweringInputError::ForeignFact {
                 fact: LoweringFactKind::PatternFacts,
                 expected: unit.unit(),
@@ -1173,25 +1066,7 @@ mod tests {
         let facts = empty_expression_facts_with_width(&unit, actual);
 
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &control_flow,
-                &facts.types,
-                &facts.patterns,
-                &facts.selections,
-                &facts.literals,
-                &facts.storage,
-                &facts.liveness,
-                &facts.refinements,
-                &facts.storage_flow,
-                &facts.dependencies,
-                &facts.async_facts,
-                &facts.behavior,
-                &facts.values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &control_flow, (&facts).into()),
             LoweringInputError::LiteralTargetWidthMismatch { expected, actual },
         );
     }
@@ -1233,15 +1108,12 @@ mod tests {
             .push_identity(StorageIdentity::Temporary(expression))
             .unwrap_or_else(|error| panic!("alternate identity must validate: {error:?}"));
 
-        let access = alternate_storage
-            .push_access(StorageAccess::new(
-                StorageAccessRoot::Storage(identity),
-                [],
-                reached_type,
-                bound.origin().source_anchor(),
-                false,
-            ))
-            .unwrap_or_else(|error| panic!("alternate access must validate: {error:?}"));
+        let access = push_storage_access(
+            &mut alternate_storage,
+            identity,
+            reached_type,
+            bound.origin().source_anchor(),
+        );
 
         let liveness = LivenessFacts::try_new(
             unit.unit(),
@@ -1262,26 +1134,13 @@ mod tests {
             ControlCompletion::default(),
         );
 
+        let facts = ExpressionFactReferences {
+            liveness: &liveness,
+            ..(&facts).into()
+        };
+
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &control_flow,
-                &facts.types,
-                &facts.patterns,
-                &facts.selections,
-                &facts.literals,
-                &facts.storage,
-                &liveness,
-                &facts.refinements,
-                &facts.storage_flow,
-                &facts.dependencies,
-                &facts.async_facts,
-                &facts.behavior,
-                &facts.values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &control_flow, facts),
             LoweringInputError::InvalidFactContents(LoweringFactKind::Liveness),
         );
     }
@@ -1300,15 +1159,12 @@ mod tests {
             .push_identity(StorageIdentity::Temporary(expression))
             .unwrap_or_else(|error| panic!("test identity must validate: {error:?}"));
 
-        let access = storage
-            .push_access(StorageAccess::new(
-                StorageAccessRoot::Storage(identity),
-                [],
-                reached_type,
-                bound.origin().source_anchor(),
-                false,
-            ))
-            .unwrap_or_else(|error| panic!("test access must validate: {error:?}"));
+        let access = push_storage_access(
+            &mut storage,
+            identity,
+            reached_type,
+            bound.origin().source_anchor(),
+        );
 
         let storage = storage.finish();
         let empty = BoundDependencyContract::new([]);
@@ -1317,6 +1173,7 @@ mod tests {
             &unit,
             &storage,
             [(expression, empty.clone())],
+            [],
             [(access, empty.clone())],
             [],
             false,
@@ -1332,6 +1189,7 @@ mod tests {
             &unit,
             &storage,
             [(expression, empty)],
+            [],
             [(access, access_contract)],
             [],
             false,
@@ -1372,20 +1230,7 @@ mod tests {
 
     #[test]
     fn input_rejects_bound_expressions_without_final_types() {
-        let unit = test_runtime_default_unit(6, |tree, origin| {
-            match tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
-                origin,
-                BoundStructuredExpressionKind::Unit,
-                [],
-                [],
-                [],
-                None,
-                false,
-            ))) {
-                Ok(expression) => expression,
-                Err(error) => panic!("test unit expression must fit: {error:?}"),
-            }
-        });
+        let unit = test_runtime_default_unit(6, push_unit_expression);
 
         let BoundUnitRoot::Expression(expression) = unit.root() else {
             panic!("test expression unit must retain its root");
@@ -1400,25 +1245,7 @@ mod tests {
         );
 
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &control_flow,
-                &facts.types,
-                &facts.patterns,
-                &facts.selections,
-                &facts.literals,
-                &facts.storage,
-                &facts.liveness,
-                &facts.refinements,
-                &facts.storage_flow,
-                &facts.dependencies,
-                &facts.async_facts,
-                &facts.behavior,
-                &facts.values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &control_flow, (&facts).into()),
             LoweringInputError::MissingExpressionType(expression),
         );
     }
@@ -1426,20 +1253,7 @@ mod tests {
     #[test]
     fn input_rejects_valid_expressions_without_required_semantic_selections() {
         let unit = test_runtime_default_unit(6, |tree, origin| {
-            let unit_expression = match tree.push_expression(BoundExpression::Structured(
-                BoundStructuredExpression::new(
-                    origin,
-                    BoundStructuredExpressionKind::Unit,
-                    [],
-                    [],
-                    [],
-                    None,
-                    false,
-                ),
-            )) {
-                Ok(expression) => expression,
-                Err(error) => panic!("test unit expression must fit: {error:?}"),
-            };
+            let unit_expression = push_unit_expression(tree, origin);
 
             match tree.push_expression(BoundExpression::Conversion(BoundConversionExpression::new(
                 origin,
@@ -1502,26 +1316,19 @@ mod tests {
         let patterns = CheckedPatternFacts::new(unit.unit(), unit.key().kind(), [], [], []);
         let ancillary = empty_expression_facts(&unit);
 
+        let facts = ExpressionFactReferences {
+            types: &types,
+            patterns: &patterns,
+            selections: &selections,
+            literals: &literals,
+            storage: &storage,
+            storage_flow: &storage_flow,
+            values: &values,
+            ..(&ancillary).into()
+        };
+
         assert_input_error(
-            LoweringInput::try_new(
-                &unit,
-                &control_flow,
-                &types,
-                &patterns,
-                &selections,
-                &literals,
-                &storage,
-                &ancillary.liveness,
-                &ancillary.refinements,
-                &storage_flow,
-                &ancillary.dependencies,
-                &ancillary.async_facts,
-                &ancillary.behavior,
-                &values,
-                available_compiler_known_symbols(),
-                bray_ir::MirUnitKind::Synchronous,
-                test_mir_target(),
-            ),
+            lowering_input(&unit, &control_flow, facts),
             LoweringInputError::MissingSemanticSelection(conversion),
         );
     }
@@ -1540,15 +1347,12 @@ mod tests {
             .push_identity(StorageIdentity::Temporary(expression))
             .unwrap_or_else(|error| panic!("test identity must validate: {error:?}"));
 
-        let access = storage
-            .push_access(StorageAccess::new(
-                StorageAccessRoot::Storage(identity),
-                [],
-                reached_type,
-                bound.origin().source_anchor(),
-                false,
-            ))
-            .unwrap_or_else(|error| panic!("test access must validate: {error:?}"));
+        let access = push_storage_access(
+            &mut storage,
+            identity,
+            reached_type,
+            bound.origin().source_anchor(),
+        );
 
         storage
             .plan_access(expression, StorageAccessPurpose::Read, access)
@@ -1604,15 +1408,12 @@ mod tests {
             .push_identity(StorageIdentity::Temporary(expression))
             .unwrap_or_else(|error| panic!("test identity must validate: {error:?}"));
 
-        let access = storage
-            .push_access(StorageAccess::new(
-                StorageAccessRoot::Storage(identity),
-                [],
-                reached_type,
-                bound.origin().source_anchor(),
-                false,
-            ))
-            .unwrap_or_else(|error| panic!("test access must validate: {error:?}"));
+        let access = push_storage_access(
+            &mut storage,
+            identity,
+            reached_type,
+            bound.origin().source_anchor(),
+        );
 
         let wrong_capability = storage
             .push_borrow_capability(PlannedBorrowCapability::new(
@@ -1657,19 +1458,41 @@ mod tests {
         );
     }
 
-    fn storage_expression_unit(id: u32) -> (BoundUnit, BoundExpressionId, TypeId) {
-        let unit = test_runtime_default_unit(id, |tree, origin| {
-            tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
-                origin,
-                BoundStructuredExpressionKind::Unit,
+    fn push_unit_expression(
+        tree: &mut BoundTreeBuilder,
+        origin: BoundNodeOrigin,
+    ) -> BoundExpressionId {
+        tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
+            origin,
+            BoundStructuredExpressionKind::Unit,
+            [],
+            [],
+            [],
+            None,
+            false,
+        )))
+        .unwrap_or_else(|error| panic!("test unit expression must fit: {error:?}"))
+    }
+
+    fn push_storage_access(
+        storage: &mut StoragePlanBuilder,
+        identity: StorageIdentityId,
+        reached_type: TypeId,
+        source: BoundSourceAnchor,
+    ) -> StorageAccessId {
+        storage
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(identity),
                 [],
-                [],
-                [],
-                None,
+                reached_type,
+                source,
                 false,
-            )))
-            .unwrap_or_else(|error| panic!("test expression must fit: {error:?}"))
-        });
+            ))
+            .unwrap_or_else(|error| panic!("test access must validate: {error:?}"))
+    }
+
+    fn storage_expression_unit(id: u32) -> (BoundUnit, BoundExpressionId, TypeId) {
+        let unit = test_runtime_default_unit(id, push_unit_expression);
 
         let BoundUnitRoot::Expression(expression) = unit.root() else {
             panic!("test expression unit must retain its root");
@@ -1714,6 +1537,67 @@ mod tests {
         async_facts: CheckedAsyncFacts,
         behavior: CheckedBodyBehavior,
         values: SemanticValueStore,
+    }
+
+    #[derive(Clone, Copy)]
+    struct ExpressionFactReferences<'facts> {
+        types: &'facts CheckedExpressionTypes,
+        patterns: &'facts CheckedPatternFacts,
+        selections: &'facts CheckedSemanticSelections,
+        literals: &'facts CheckedLiteralValues,
+        storage: &'facts bray_bound_tree::StoragePlan,
+        liveness: &'facts LivenessFacts,
+        refinements: &'facts CheckedRefinementFacts,
+        storage_flow: &'facts StorageFlowFacts,
+        dependencies: &'facts CheckedDependencyContracts,
+        async_facts: &'facts CheckedAsyncFacts,
+        behavior: &'facts CheckedBodyBehavior,
+        values: &'facts SemanticValueStore,
+    }
+
+    impl<'facts> From<&'facts ExpressionFacts> for ExpressionFactReferences<'facts> {
+        fn from(facts: &'facts ExpressionFacts) -> Self {
+            Self {
+                types: &facts.types,
+                patterns: &facts.patterns,
+                selections: &facts.selections,
+                literals: &facts.literals,
+                storage: &facts.storage,
+                liveness: &facts.liveness,
+                refinements: &facts.refinements,
+                storage_flow: &facts.storage_flow,
+                dependencies: &facts.dependencies,
+                async_facts: &facts.async_facts,
+                behavior: &facts.behavior,
+                values: &facts.values,
+            }
+        }
+    }
+
+    fn lowering_input<'facts>(
+        unit: &'facts BoundUnit,
+        control_flow: &'facts CheckedControlFlowFacts,
+        facts: ExpressionFactReferences<'facts>,
+    ) -> Result<LoweringInput<'facts>, LoweringInputError> {
+        LoweringInput::try_new(
+            unit,
+            control_flow,
+            facts.types,
+            facts.patterns,
+            facts.selections,
+            facts.literals,
+            facts.storage,
+            facts.liveness,
+            facts.refinements,
+            facts.storage_flow,
+            facts.dependencies,
+            facts.async_facts,
+            facts.behavior,
+            facts.values,
+            available_compiler_known_symbols(),
+            bray_ir::MirUnitKind::Synchronous,
+            test_mir_target(),
+        )
     }
 
     fn empty_expression_facts(unit: &BoundUnit) -> ExpressionFacts {
@@ -1762,6 +1646,7 @@ mod tests {
             unit,
             &storage,
             expressions,
+            [],
             accesses,
             borrows,
             false,

@@ -39,11 +39,11 @@ use bray_symbols::{
     CallableParameterDefaultFact, CallableParameterDefaultValue, CallableParameterSignature,
     CallableSignature, CallableSignatureFact, ConstantTermData, ConstantValueKind,
     DeclaredLayoutMode, ForeignCallableDirection, GenericArgument, GenericSubstitutionId,
-    ImplementationCoherenceFact, NamedTypeSymbolId, PackageIdentity, ReceiverMode,
-    ReceiverParameterSignature, RuntimeDefaultProviderInput, SelfTypeContext,
-    StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId, SymbolFactRequest, SymbolKey,
-    SymbolKeyData, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
+    ImplementationCoherenceFact, ImplementationSymbolId, NamedTypeSymbolId, PackageIdentity,
+    ReceiverMode, ReceiverParameterSignature, RuntimeDefaultProviderInput, SelfTypeContext,
+    SemanticValueStore, StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId,
+    SymbolFactRequest, SymbolKey, SymbolKeyData, TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
 };
 use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
 
@@ -1829,8 +1829,17 @@ impl Compilation {
             .receiver()
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let receiver_ty = replace_contextual_self(values, receiver.ty(), ty)?;
+        let receiver_ty =
+            self.concrete_codegen_type(receiver.ty(), Some(*substitution), None, cancellation)?;
+
         let receiver = receiver_codegen_type(values, receiver_ty, receiver.mode())?;
+
+        let result = self.concrete_codegen_type(
+            signature.result(),
+            Some(*substitution),
+            None,
+            cancellation,
+        )?;
 
         let callable_type = values
             .type_data(signature.callable_type())
@@ -1843,7 +1852,7 @@ impl Compilation {
         Ok(Some((
             MirCallableReference::new(callable, callable_type.abi()),
             receiver,
-            signature.result(),
+            result,
         )))
     }
 
@@ -2623,13 +2632,7 @@ impl Compilation {
 
         let facts = self.binder_facts(cancellation)?;
 
-        let coherence = facts
-            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
-                *implementation,
-            ))
-            .map_err(super::super::binder::binder_fact_error)?;
-
-        Ok(coherence.value().subject())
+        implementation_subject(&facts, *implementation)
     }
 
     fn substitute_codegen_constant_term(
@@ -3659,6 +3662,17 @@ impl Compilation {
         let substitution = callable.substitution();
         let facts = self.binder_facts(cancellation)?;
 
+        let contextual_self = self
+            .symbol_graph()?
+            .containing_symbol(definition.symbol())
+            .and_then(ImplementationSymbolId::try_from_any)
+            .map(|implementation| {
+                let subject = implementation_subject(&facts, implementation)?;
+
+                Ok::<_, FactQueryError>((SelfTypeContext::Implementation(implementation), subject))
+            })
+            .transpose()?;
+
         let template = facts
             .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
                 definition.callable_symbol(),
@@ -3679,24 +3693,41 @@ impl Compilation {
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let receiver_container = facts
-            .containing_symbol(definition.callable_symbol().into_any())
-            .map_err(super::super::binder::binder_fact_error)?;
+        let callable_type =
+            substitute_contextual_self(values, signature.callable_type(), contextual_self)?;
+
+        let receiver = signature
+            .receiver()
+            .map(|receiver| {
+                substitute_contextual_self(values, receiver.ty(), contextual_self).map(|ty| {
+                    ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
+                })
+            })
+            .transpose()?;
+
+        let parameters = signature
+            .parameters()
+            .iter()
+            .copied()
+            .map(|parameter| {
+                substitute_contextual_self(values, parameter.ty(), contextual_self)
+                    .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let result = substitute_contextual_self(values, signature.result(), contextual_self)?;
 
         let checker = CompilationCheckerContext::new(facts)
             .with_implementation_witnesses(instance.implementation_witnesses().iter().copied());
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let callable_type = bray_checker::normalize_type_valued_members(
-            &checker,
-            signature.callable_type(),
-            &mut diagnostics,
-        )
-        .map_err(codegen_checker_error)?;
+        let callable_type =
+            bray_checker::normalize_type_valued_members(&checker, callable_type, &mut diagnostics)
+                .map_err(codegen_checker_error)?;
 
-        let receiver = signature
-            .receiver()
+        let receiver = receiver
+            .as_ref()
             .map(|receiver| {
                 bray_checker::normalize_type_valued_members(
                     &checker,
@@ -3710,8 +3741,7 @@ impl Compilation {
             })
             .transpose()?;
 
-        let parameters = signature
-            .parameters()
+        let parameters = parameters
             .iter()
             .copied()
             .map(|parameter| {
@@ -3725,12 +3755,9 @@ impl Compilation {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let result = bray_checker::normalize_type_valued_members(
-            &checker,
-            signature.result(),
-            &mut diagnostics,
-        )
-        .map_err(codegen_checker_error)?;
+        let result =
+            bray_checker::normalize_type_valued_members(&checker, result, &mut diagnostics)
+                .map_err(codegen_checker_error)?;
 
         if diagnostics.has_errors() {
             return Err(CodegenFactError::Diagnostics(diagnostics));
@@ -3749,38 +3776,54 @@ impl Compilation {
         let receiver = signature
             .receiver()
             .map(|receiver| {
-                let receiver_ty = concrete_callable_receiver(
-                    values,
-                    receiver_container,
-                    substitution,
+                let receiver_ty = self.concrete_codegen_type(
                     receiver.ty(),
+                    Some(substitution),
+                    Some(instance),
+                    cancellation,
                 )?;
 
                 receiver_codegen_type(values, receiver_ty, receiver.mode())
+                    .map_err(CodegenFactError::from)
             })
             .transpose()?;
 
+        let parameter_types = signature
+            .parameters()
+            .iter()
+            .map(|parameter| {
+                self.concrete_codegen_type(
+                    parameter.ty(),
+                    Some(substitution),
+                    Some(instance),
+                    cancellation,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         let parameters = receiver
             .into_iter()
-            .chain(
-                signature
-                    .parameters()
-                    .iter()
-                    .map(|parameter| parameter.ty()),
-            )
+            .chain(parameter_types)
             .map(|ty| CodegenParameterMapping::direct(ty, None, []));
+
+        let result_type = self.concrete_codegen_type(
+            signature.result(),
+            Some(substitution),
+            Some(instance),
+            cancellation,
+        )?;
 
         let result = if callable.execution() == CallableExecution::Asynchronous {
             let future = self
                 .available_compiler_known_symbols()
-                .unary_representation_type(values, RepresentationRole::Future, signature.result())
+                .unary_representation_type(values, RepresentationRole::Future, result_type)
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             CodegenResultMapping::direct(future, None, [])
-        } else if is_unit(self, signature.result())? {
+        } else if is_unit(self, result_type)? {
             CodegenResultMapping::Void
         } else {
-            CodegenResultMapping::direct(signature.result(), None, [])
+            CodegenResultMapping::direct(result_type, None, [])
         };
 
         Ok(CodegenCallableSignature::new(
@@ -3926,24 +3969,20 @@ impl Compilation {
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let receiver_container = facts
-            .containing_symbol(owner.into_any())
-            .map_err(super::super::binder::binder_fact_error)?;
-
         let values = self.semantic_value_store()?;
 
         let receiver = signature
             .receiver()
             .filter(|receiver| AnySymbolId::ReceiverParameter(receiver.parameter()) == parameter)
             .map(|receiver| {
-                let ty = concrete_callable_receiver(
-                    values,
-                    receiver_container,
-                    substitution,
+                let ty = self.concrete_codegen_type(
                     receiver.ty(),
+                    Some(substitution),
+                    Some(instance),
+                    cancellation,
                 )?;
 
-                receiver_codegen_type(values, ty, receiver.mode())
+                receiver_codegen_type(values, ty, receiver.mode()).map_err(CodegenFactError::from)
             })
             .transpose()?;
 
@@ -3959,7 +3998,7 @@ impl Compilation {
                 .ok_or(FactQueryError::InfrastructureFailure)?,
         };
 
-        self.concrete_codegen_type(ty, None, Some(instance), cancellation)
+        self.concrete_codegen_type(ty, Some(substitution), Some(instance), cancellation)
     }
 
     fn codegen_callable_definition(
@@ -4137,6 +4176,32 @@ const fn target_layout_contract(layout: DeclaredLayoutMode) -> TargetLayoutContr
         DeclaredLayoutMode::C => TargetLayoutContract::C,
         DeclaredLayoutMode::Transparent => TargetLayoutContract::Transparent,
     }
+}
+
+fn substitute_contextual_self(
+    values: &SemanticValueStore,
+    ty: TypeId,
+    substitution: Option<(SelfTypeContext, TypeId)>,
+) -> Result<TypeId, FactQueryError> {
+    let Some((context, replacement)) = substitution else {
+        return Ok(ty);
+    };
+
+    values
+        .substitute_contextual_self(ty, context, replacement)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
+}
+
+fn implementation_subject(
+    facts: &CompilationBinderFacts<'_>,
+    implementation: ImplementationSymbolId,
+) -> Result<TypeId, FactQueryError> {
+    facts
+        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+            implementation,
+        ))
+        .map(|coherence| coherence.value().subject())
+        .map_err(super::super::binder::binder_fact_error)
 }
 
 fn signature_types(signature: &CodegenCallableSignature) -> impl Iterator<Item = TypeId> + '_ {
@@ -4331,32 +4396,6 @@ fn lifecycle_operation_block_kind(
     }
 }
 
-fn concrete_callable_receiver(
-    values: &bray_symbols::SemanticValueStore,
-    container: Option<AnySymbolId>,
-    substitution: GenericSubstitutionId,
-    receiver: TypeId,
-) -> Result<TypeId, FactQueryError> {
-    let Some(container) = container else {
-        return Ok(receiver);
-    };
-
-    let Some(definition) = NamedTypeSymbolId::try_from_any(container) else {
-        return Ok(receiver);
-    };
-
-    let substitution = substitution_for_owner(values, container, [substitution])?;
-
-    let concrete_self = values
-        .intern_type(TypeData::Named {
-            definition,
-            substitution,
-        })
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    replace_contextual_self(values, receiver, concrete_self)
-}
-
 fn receiver_codegen_type(
     values: &bray_symbols::SemanticValueStore,
     ty: TypeId,
@@ -4379,31 +4418,6 @@ fn receiver_codegen_type(
             .intern_type(data)
             .map_err(|_| FactQueryError::InfrastructureFailure),
         None => Ok(ty),
-    }
-}
-
-fn replace_contextual_self(
-    values: &bray_symbols::SemanticValueStore,
-    receiver: TypeId,
-    concrete_self: TypeId,
-) -> Result<TypeId, FactQueryError> {
-    let receiver_data = values
-        .type_data(receiver)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    match receiver_data.as_ref() {
-        TypeData::ContextualSelf(_) => Ok(concrete_self),
-        TypeData::Borrow { kind, target } => {
-            let target = replace_contextual_self(values, *target, concrete_self)?;
-
-            values
-                .intern_type(TypeData::Borrow {
-                    kind: *kind,
-                    target,
-                })
-                .map_err(|_| FactQueryError::InfrastructureFailure)
-        }
-        _ => Ok(receiver),
     }
 }
 
@@ -4739,21 +4753,55 @@ mod tests {
     };
     use bray_symbols::testing::intern_type;
     use bray_symbols::{
-        BorrowKind, CallableAbi, NamedTypeSymbolId, ReceiverMode, SymbolOrigin,
-        TraitApplicationData, TypeData, TypeId,
+        BorrowKind, CallableAbi, ImplementationSymbolId, InherentImplementationSymbolId,
+        NamedTypeSymbolId, ReceiverMode, SelfTypeContext, SemanticValueStore, SymbolId,
+        SymbolOrigin, TraitApplicationData, TypeData, TypeId,
     };
     use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use bray_testing::{test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration};
 
     use super::{
         dependency_symbol, direct_helper_symbol, indirect_abi_value, named_type, pointer_layout,
-        receiver_codegen_type,
+        receiver_codegen_type, substitute_contextual_self,
     };
     use crate::compilation::CodegenFactError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
     use crate::compilation::substitution::empty_substitution;
     use crate::test_support::compilation;
     use crate::{CancellationToken, Compilation, SelectedTarget};
+
+    #[test]
+    fn codegen_contextual_self_substitution_reaches_nested_type_forms() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
+
+        let implementation = ImplementationSymbolId::Inherent(
+            InherentImplementationSymbolId::from_symbol_id(SymbolId::new(1)),
+        );
+
+        let context = SelfTypeContext::Implementation(implementation);
+
+        let contextual = values
+            .intern_type(TypeData::ContextualSelf(context))
+            .unwrap_or_else(|error| panic!("test contextual type must intern: {error:?}"));
+
+        let nested = values
+            .intern_type(TypeData::Nullable(contextual))
+            .unwrap_or_else(|error| panic!("test nested type must intern: {error:?}"));
+
+        let replacement = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test replacement type must intern: {error:?}"));
+
+        let substituted = substitute_contextual_self(&values, nested, Some((context, replacement)))
+            .unwrap_or_else(|error| panic!("test contextual type must substitute: {error:?}"));
+
+        let data = values
+            .type_data(substituted)
+            .unwrap_or_else(|error| panic!("test substituted type must resolve: {error:?}"));
+
+        assert_eq!(data.as_ref(), &TypeData::Nullable(replacement));
+    }
 
     #[test]
     fn generated_helpers_map_to_exact_runtime_and_frame_roles() {

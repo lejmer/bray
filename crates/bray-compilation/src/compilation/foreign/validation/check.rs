@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "foreign boundary validation keeps its exhaustive ABI contract checks together")
+
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_bound_tree::BoundSourceAnchor;
 use bray_checker::{
@@ -635,6 +637,7 @@ fn validate_foreign_type(
     .with_arg(DiagnosticArg::actual_type(template_diagnostic_type(
         compilation,
         template,
+        cancellation,
     )?))
     .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi)));
 

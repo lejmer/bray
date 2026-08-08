@@ -5,9 +5,8 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     AnySymbolId, CallablePosition, GenericSubstitutionId, MemberLookupResult, NamedTypeSymbolId,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, TypeData,
-    TypeExpressionTemplate, TypeId, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact,
-    UnionVariantSymbolId,
+    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, TypeData, TypeExpressionTemplate,
+    TypeId, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
 };
 
 use super::result::{effective_pattern_kind, symbol_ordinal};

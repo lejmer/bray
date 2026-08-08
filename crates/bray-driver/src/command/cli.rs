@@ -166,6 +166,8 @@ struct CliOptions {
         value_name = "DIRECTORY"
     )]
     standard_library_root: Option<PathBuf>,
+    #[arg(long = "standard-library-source", global = true, hide = true)]
+    standard_library_source: bool,
     #[command(flatten)]
     compilation: CliCompilationOptions,
 }
@@ -201,6 +203,11 @@ impl CliOptions {
             self.format,
             compilation,
             standard_library_root,
+            if self.standard_library_source {
+                bray_compilation::PackageSourceAuthority::StandardLibrary
+            } else {
+                bray_compilation::PackageSourceAuthority::Ordinary
+            },
         ))
     }
 }

@@ -468,7 +468,7 @@ fn is_role(
 }
 
 fn resolved_is_unit(
-    ty: bray_symbols::TypeId,
+    ty: TypeId,
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
 ) -> bool {

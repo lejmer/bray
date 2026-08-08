@@ -37,7 +37,7 @@ impl Lowerer<'_> {
             .type_data(result_type)
             .map_err(|_| LoweringError::SemanticValueUnavailable)?;
 
-        let bray_symbols::TypeData::Borrow {
+        let TypeData::Borrow {
             kind: result_kind,
             target,
         } = result_data.as_ref()
@@ -117,9 +117,7 @@ impl Lowerer<'_> {
                     .storage_plan()
                     .identity(identity)
                     .and_then(|model| match model {
-                        StorageIdentity::Temporary(owner)
-                            if owner == initialization_expression =>
-                        {
+                        StorageIdentity::Temporary(owner) if owner == initialization_expression => {
                             Some(owner)
                         }
                         _ => None,
@@ -301,7 +299,7 @@ impl Lowerer<'_> {
 
         if entry_borrow
             && place.projections().is_empty()
-            && let bray_symbols::TypeData::Borrow { kind, target } = self
+            && let TypeData::Borrow { kind, target } = self
                 .input
                 .semantic_values()
                 .type_data(place.ty())
@@ -453,7 +451,7 @@ impl Lowerer<'_> {
 
         Ok(LoweredPlace::Continuing {
             block: current,
-            place: MirPlace::new(storage, lowered, reached_type),
+            place: MirPlace::new(storage, lowered, source_type),
         })
     }
 
@@ -605,13 +603,7 @@ impl Lowerer<'_> {
             source_type = result_type;
         }
 
-        let place_type = if project_borrowed_root || !projections.is_empty() {
-            reached_type
-        } else {
-            root_type
-        };
-
-        Ok(MirPlace::new(root.storage(), lowered, place_type))
+        Ok(MirPlace::new(root.storage(), lowered, source_type))
     }
 
     pub(in crate::lowering) fn storage_identity_type(

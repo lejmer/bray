@@ -182,6 +182,21 @@ pub enum BoundDependencyGuard {
 }
 
 impl BoundDependencyGuard {
+    /// Returns the semantic subject whose state controls this guard.
+    pub const fn subject(self) -> BoundDependencySubject {
+        match self {
+            Self::NullablePresent(access) | Self::ActiveUnionVariant { access, .. } => {
+                BoundDependencySubject::StorageAccess(access)
+            }
+            Self::BorrowCapabilityActive(capability) => {
+                BoundDependencySubject::BorrowCapability(capability)
+            }
+            Self::ScopedCapabilityLive(capability) => {
+                BoundDependencySubject::ScopedCapability(capability)
+            }
+        }
+    }
+
     fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::NullablePresent(access) | Self::ActiveUnionVariant { access, .. } => {

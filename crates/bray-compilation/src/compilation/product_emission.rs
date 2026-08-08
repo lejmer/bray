@@ -289,8 +289,9 @@ impl Compilation {
         request: &EmissionRequest,
         target_outputs: &TargetOutputDescription,
     ) -> Result<(), ProductEmissionError> {
-        if request.product().package() != self.package_identity()
-            || request.product_kind() != self.options().product_kind()
+        if request.product_kind() != self.options().product_kind()
+            || (request.product().package() != self.package_identity()
+                && request.product_kind() != bray_symbols::ProductKind::Test)
         {
             return Err(ProductEmissionError::new(
                 ProductEmissionErrorKind::ProductMismatch,
@@ -750,11 +751,11 @@ mod tests {
     use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
     use bray_testing::{
         TemporaryFile, test_async_executable_host_contract_for_frame, test_bound_unit,
-        test_mir_target, test_mir_type,
+        test_executable_host_contract_for, test_mir_target, test_mir_type,
     };
 
     use super::{ProductEmissionErrorKind, ProductEmissionInputs, validate_executable_units};
-    use crate::test_support::package_version;
+    use crate::test_support::{compilation_with_product, package_version};
     use crate::{
         CancellationToken, Compilation, CompilationOptions, CompilationRequest,
         PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
@@ -830,6 +831,46 @@ mod tests {
             std::fs::read(destination.path())
                 .unwrap_or_else(|error| panic!("existing output must be readable: {error:?}")),
             b"unchanged",
+        );
+    }
+
+    #[test]
+    fn test_product_emission_can_use_a_public_package_identity() {
+        let compilation = compilation_with_product("module tests;\n", ProductKind::Test);
+
+        let public_package = PackageIdentity::try_new("public.package")
+            .unwrap_or_else(|| panic!("public test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(public_package, "tests")
+            .unwrap_or_else(|| panic!("public test product identity must be valid"));
+
+        let selected = compilation.selected_target().target().profile().clone();
+
+        let host = test_executable_host_contract_for(product.clone(), selected.identity().clone());
+
+        let request = EmissionRequest::try_new(
+            product,
+            ProductKind::Test,
+            Some(host),
+            selected.identity().clone(),
+            RequestedArtifactDestination::FilesystemFile("tests".into()),
+            [RequestedArtifact::new(
+                ArtifactKind::Executable,
+                ArtifactRequirement::Required,
+            )],
+            ReplacementPolicy::RequireAbsent,
+        )
+        .unwrap_or_else(|error| panic!("test emission request must be valid: {error:?}"));
+
+        let name = TargetOutputName::try_new(TargetOutputKind::Executable, "", "")
+            .unwrap_or_else(|error| panic!("test executable name must be valid: {error:?}"));
+
+        let outputs = TargetOutputDescription::try_new(selected, [name])
+            .unwrap_or_else(|error| panic!("test target outputs must be valid: {error:?}"));
+
+        assert_eq!(
+            compilation.validate_product_request(&request, &outputs),
+            Ok(())
         );
     }
 

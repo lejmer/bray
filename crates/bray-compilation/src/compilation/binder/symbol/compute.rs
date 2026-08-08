@@ -206,6 +206,17 @@ impl CompilationSymbolFactBinding<ImplementationSubjectFact> for CompilationSymb
         request: SymbolFactRequest<ImplementationSubjectFact>,
     ) -> BinderFactResult<SymbolFactResult<ImplementationSubjectFact>> {
         let symbol = request.symbol();
+
+        if let Some(address) = context.imported_fact_address(symbol)? {
+            let imported = super::imported::imported_implementation(context, address)?;
+
+            return Ok(imported.map(|implementation| {
+                ImplementationSubjectTemplate::new(bray_symbols::TypeExpressionTemplate::Resolved(
+                    implementation.subject().ty(),
+                ))
+            }));
+        }
+
         let syntax = declaration_child::<ImplementationSubjectSyntax>(context, symbol)?;
         let result = type_binder(context, symbol)?.bind_implementation_subject(&syntax)?;
 

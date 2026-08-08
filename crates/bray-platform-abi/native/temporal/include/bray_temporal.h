@@ -4,9 +4,11 @@
 #include <cstddef>
 #include <cstdint>
 
-extern "C" {
+extern "C"
+{
 
-struct BrayTemporalDateTime {
+struct BrayTemporalDateTime
+{
     std::int32_t year;
     std::uint32_t month;
     std::uint32_t day;
@@ -16,13 +18,15 @@ struct BrayTemporalDateTime {
     std::uint32_t nanosecond;
 };
 
-struct BrayTemporalObservation {
+struct BrayTemporalObservation
+{
     BrayTemporalDateTime local;
     std::int32_t offset_seconds;
     std::uint32_t daylight;
 };
 
-struct BrayTemporalResolution {
+struct BrayTemporalResolution
+{
     std::uint32_t kind;
     std::uint32_t reserved;
     std::int64_t first_seconds;
@@ -33,7 +37,8 @@ struct BrayTemporalResolution {
     std::uint32_t second_reserved;
 };
 
-struct BrayTemporalValue {
+struct BrayTemporalValue
+{
     BrayTemporalDateTime local;
     std::int64_t timestamp_seconds;
     std::int32_t offset_seconds;

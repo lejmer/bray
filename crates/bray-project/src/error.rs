@@ -43,6 +43,8 @@ pub enum ProjectManifestProblem {
     UnknownDependencyProduct,
     /// A dependency selects a non-library product.
     DependencyProductNotLibrary,
+    /// A non-test product declares a sibling library under test.
+    TestedLibraryOnNonTestProduct,
     /// A declared source root cannot be read as a project-owned directory.
     InvalidSourceRoot,
     /// A declared source tree contains a symbolic link.
@@ -171,7 +173,10 @@ const fn diagnostic_kind(problem: ProjectManifestProblem) -> DiagnosticKind {
         | ProjectManifestProblem::MissingRootPackage
         | ProjectManifestProblem::UndeclaredFeature
         | ProjectManifestProblem::UnknownSourceRoot
-        | ProjectManifestProblem::UnknownTarget => DiagnosticKind::ProjectManifestInvalid,
+        | ProjectManifestProblem::UnknownTarget
+        | ProjectManifestProblem::TestedLibraryOnNonTestProduct => {
+            DiagnosticKind::ProjectManifestInvalid
+        }
     }
 }
 

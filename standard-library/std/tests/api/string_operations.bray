@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.string_operations;
+module bray.standard_library_tests.string_operations;
 
 using std.string;
 using std.string.ScalarCursorIterator;
@@ -25,6 +25,7 @@ func string_queries_and_slices()
     assert(std.string.is_empty(&""));
     assert(std.string.equals(&value, &same));
     assert(!std.string.equals(&value, &different));
+
     let slice: string = std.string.scalar_slice(&value, start = 1, end = 2);
 
     assert(std.string.equals(&slice, &"é"));

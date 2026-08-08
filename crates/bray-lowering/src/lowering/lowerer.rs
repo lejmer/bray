@@ -188,11 +188,8 @@ impl<'unit> Lowerer<'unit> {
         self.builder.finish(entry).map_err(Into::into)
     }
 
-    pub(super) fn source(
-        &self,
-        origin: bray_bound_tree::BoundNodeOrigin,
-    ) -> bray_ir::MirSourceAnchor {
-        bray_ir::MirSourceAnchor::source(origin)
+    pub(super) fn source(&self, origin: BoundNodeOrigin) -> MirSourceAnchor {
+        MirSourceAnchor::source(origin)
     }
 
     pub(super) fn retained_source(source: &MirSourceAnchor) -> MirSourceAnchor {
@@ -277,6 +274,43 @@ mod tests {
 
     use super::lower_unit;
     use crate::LoweringInput;
+
+    fn synchronous_callable_unit(
+        template: &BoundUnit,
+        mut tree: BoundTreeBuilder,
+        origin: bray_bound_tree::BoundNodeOrigin,
+        block: bray_bound_tree::BoundBlockId,
+    ) -> BoundUnit {
+        let body = tree
+            .push_callable_body(BoundCallableBody::block(origin, block))
+            .unwrap_or_else(|error| panic!("test callable body must fit: {error:?}"));
+
+        BoundUnit::try_new(
+            template.key().clone(),
+            tree.finish(),
+            template.local_symbols().clone(),
+            [],
+            BoundUnitRoot::CallableBody {
+                execution: bray_symbols::CallableExecution::Synchronous,
+                body,
+            },
+        )
+        .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"))
+    }
+
+    fn uniform_expression_types(
+        unit: &BoundUnit,
+        expressions: impl IntoIterator<Item = BoundExpressionId>,
+        result: ExpressionTypeResult,
+    ) -> CheckedExpressionTypes {
+        CheckedExpressionTypes::new(
+            unit.unit(),
+            unit.key().kind(),
+            expressions
+                .into_iter()
+                .map(|expression| ExpressionTypeEntry::new(expression, result)),
+        )
+    }
 
     #[test]
     fn lowering_publishes_selected_binary_operations_and_returns() {
@@ -654,21 +688,7 @@ mod tests {
             ))
             .unwrap_or_else(|error| panic!("test block must fit: {error:?}"));
 
-        let body = tree
-            .push_callable_body(BoundCallableBody::block(origin, block))
-            .unwrap_or_else(|error| panic!("test callable body must fit: {error:?}"));
-
-        let unit = BoundUnit::try_new(
-            template.key().clone(),
-            tree.finish(),
-            template.local_symbols().clone(),
-            [],
-            BoundUnitRoot::CallableBody {
-                execution: bray_symbols::CallableExecution::Synchronous,
-                body,
-            },
-        )
-        .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"));
+        let unit = synchronous_callable_unit(&template, tree, origin, block);
 
         let result = ExpressionTypeResult::new(ty, ExpressionTypeStatus::Valid);
 
@@ -678,14 +698,7 @@ mod tests {
             .chain([call, return_expression])
             .collect::<Vec<_>>();
 
-        let types = CheckedExpressionTypes::new(
-            unit.unit(),
-            unit.key().kind(),
-            expressions
-                .iter()
-                .copied()
-                .map(|expression| ExpressionTypeEntry::new(expression, result)),
-        );
+        let types = uniform_expression_types(&unit, expressions.iter().copied(), result);
 
         let dependency = values
             .empty_dependency_contract_template()
@@ -848,33 +861,12 @@ mod tests {
             ))
             .unwrap_or_else(|error| panic!("test block must fit: {error:?}"));
 
-        let body = tree
-            .push_callable_body(BoundCallableBody::block(origin, block))
-            .unwrap_or_else(|error| panic!("test callable body must fit: {error:?}"));
-
-        let unit = BoundUnit::try_new(
-            template.key().clone(),
-            tree.finish(),
-            template.local_symbols().clone(),
-            [],
-            BoundUnitRoot::CallableBody {
-                execution: bray_symbols::CallableExecution::Synchronous,
-                body,
-            },
-        )
-        .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"));
+        let unit = synchronous_callable_unit(&template, tree, origin, block);
 
         let result = ExpressionTypeResult::new(ty, ExpressionTypeStatus::Valid);
         let expressions = [left, right, binary, return_expression];
 
-        let types = CheckedExpressionTypes::new(
-            unit.unit(),
-            unit.key().kind(),
-            expressions
-                .iter()
-                .copied()
-                .map(|expression| ExpressionTypeEntry::new(expression, result)),
-        );
+        let types = uniform_expression_types(&unit, expressions, result);
 
         let selection = SemanticSelectionEntry::new(
             binary,
@@ -991,21 +983,7 @@ mod tests {
             ))
             .unwrap_or_else(|error| panic!("test block must fit: {error:?}"));
 
-        let body = tree
-            .push_callable_body(BoundCallableBody::block(origin, block))
-            .unwrap_or_else(|error| panic!("test callable body must fit: {error:?}"));
-
-        let unit = BoundUnit::try_new(
-            template.key().clone(),
-            tree.finish(),
-            template.local_symbols().clone(),
-            [],
-            BoundUnitRoot::CallableBody {
-                execution: bray_symbols::CallableExecution::Synchronous,
-                body,
-            },
-        )
-        .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"));
+        let unit = synchronous_callable_unit(&template, tree, origin, block);
 
         let entries = [
             ExpressionTypeEntry::new(
@@ -1101,6 +1079,7 @@ mod tests {
                 .iter()
                 .copied()
                 .map(|expression| (expression, BoundDependencyContract::new([]))),
+            [],
             [],
             [],
             false,

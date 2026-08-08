@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.io_async;
+module bray.standard_library_tests.io_async;
 
 using std.io;
 

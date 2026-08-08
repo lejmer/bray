@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.time;
+module bray.standard_library_tests.time;
 
 using std.string;
 using std.time;
@@ -95,11 +95,15 @@ func civil_and_timestamp_text_round_trip() -> Result<unit, std.time.TimeError>
 {
     let date: std.time.Date = try std.time.Date.parse(&"2024-02-29");
     let date_text: string = try date.iso8601();
+
     let time: std.time.TimeOfDay = try std.time.TimeOfDay.parse(&"12:34:56.125");
     let time_text: string = try time.iso8601();
+
     let local: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-02-29T12:34:56.125");
     let local_text: string = try local.iso8601();
+
     let timestamp: std.time.Timestamp = try std.time.Timestamp.parse(&"2024-02-29T12:34:56.125+05:30");
+
     let offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
     let timestamp_text: string = try timestamp.rfc3339(offset);
     let expanded: std.time.Date = try std.time.Date(year = 10000, month = 1, day = 2);
@@ -122,6 +126,7 @@ func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.ti
     let local: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-02-29T12:34:56.125");
     let offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
     let timestamp: std.time.Timestamp = try local.at_offset(offset);
+
     let round_trip_offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
     let round_trip: std.time.LocalDateTime = try timestamp.local_at(round_trip_offset);
     let text: string = try round_trip.iso8601();

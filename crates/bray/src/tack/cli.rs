@@ -132,6 +132,8 @@ struct Cli {
     workspace: PathBuf,
     #[arg(long = "toolchain-root", global = true, value_name = "DIRECTORY")]
     toolchain_root: Option<PathBuf>,
+    #[arg(long = "standard-library-source", global = true, hide = true)]
+    standard_library_source: bool,
     #[arg(long = "cpu-count", global = true, value_name = "N")]
     cpu_count: Option<usize>,
     #[arg(long = "format", global = true, value_enum, default_value = "text")]
@@ -162,6 +164,7 @@ impl Cli {
         Ok(TackInvocation::new(
             self.workspace,
             self.toolchain_root,
+            self.standard_library_source,
             worker_count,
             output_format,
             self.verbose,
@@ -524,7 +527,7 @@ mod tests {
             let invocation = TackInvocation::try_from_arguments(["bray", command, "--release"])
                 .unwrap_or_else(|error| panic!("release {command} should parse: {error:?}"));
 
-            let (_, _, _, _, command) = invocation.into_parts();
+            let (_, _, _, _, _, command) = invocation.into_parts();
 
             let configuration = match command {
                 TackCommand::Build { configuration, .. }
@@ -554,7 +557,7 @@ mod tests {
         ])
         .unwrap_or_else(|error| panic!("test options should parse: {error:?}"));
 
-        let (_, _, _, _, command) = invocation.into_parts();
+        let (_, _, _, _, _, command) = invocation.into_parts();
 
         let TackCommand::Test { options, .. } = command else {
             panic!("expected test command");
@@ -607,7 +610,7 @@ mod tests {
         ])
         .unwrap_or_else(|error| panic!("formatter configuration should parse: {error:?}"));
 
-        let (_, _, _, _, command) = invocation.into_parts();
+        let (_, _, _, _, _, command) = invocation.into_parts();
 
         let TackCommand::Format { configuration, .. } = command else {
             panic!("expected formatter command");

@@ -53,6 +53,7 @@ pub struct CheckedDependencyContracts {
     kind: BoundUnitKind,
     contracts: Arc<[BoundDependencyContract]>,
     expressions: Arc<[ContractEntry<BoundExpressionId>]>,
+    deferred_expressions: Arc<[ContractEntry<BoundExpressionId>]>,
     accesses: Arc<[ContractEntry<StorageAccessId>]>,
     borrows: Arc<[ContractEntry<BorrowCapabilityId>]>,
     is_recovered: bool,
@@ -64,6 +65,7 @@ impl CheckedDependencyContracts {
         unit: &BoundUnit,
         storage: &StoragePlan,
         expressions: impl IntoIterator<Item = (BoundExpressionId, BoundDependencyContract)>,
+        deferred_expressions: impl IntoIterator<Item = (BoundExpressionId, BoundDependencyContract)>,
         accesses: impl IntoIterator<Item = (StorageAccessId, BoundDependencyContract)>,
         borrows: impl IntoIterator<Item = (BorrowCapabilityId, BoundDependencyContract)>,
         is_recovered: bool,
@@ -78,6 +80,17 @@ impl CheckedDependencyContracts {
         let expressions = build_entries(
             unit.unit(),
             expressions,
+            &mut contracts,
+            &mut contract_ids,
+            |expression| {
+                expression.unit() == unit.unit() && unit.view().expression(expression).is_some()
+            },
+            DependencyContractsBuildError::InvalidExpression,
+        )?;
+
+        let deferred_expressions = build_entries(
+            unit.unit(),
+            deferred_expressions,
             &mut contracts,
             &mut contract_ids,
             |expression| {
@@ -109,6 +122,7 @@ impl CheckedDependencyContracts {
             kind: unit.key().kind(),
             contracts: contracts.into(),
             expressions: expressions.into(),
+            deferred_expressions: deferred_expressions.into(),
             accesses: accesses.into(),
             borrows: borrows.into(),
             is_recovered,
@@ -139,6 +153,14 @@ impl CheckedDependencyContracts {
     /// Returns the contract carried by one expression result.
     pub fn expression(&self, expression: BoundExpressionId) -> Option<BoundDependencyContractId> {
         find_contract(&self.expressions, expression)
+    }
+
+    /// Returns the contract required when one lazy expression is executed.
+    pub fn deferred_expression(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<BoundDependencyContractId> {
+        find_contract(&self.deferred_expressions, expression)
     }
 
     /// Returns the contract carried by one evaluated storage access.
@@ -283,10 +305,16 @@ mod tests {
             BoundDependencyRequirementKind::StorageAlive,
         )]);
 
+        let deferred = BoundDependencyContract::new([BoundDependencyRequirement::direct(
+            BoundDependencySubject::StorageAccess(access),
+            BoundDependencyRequirementKind::StorageInitialized,
+        )]);
+
         let table = CheckedDependencyContracts::try_new(
             &bound,
             &storage,
             [(expression, contract.clone())],
+            [(expression, deferred)],
             [(access, contract)],
             [],
             false,
@@ -299,6 +327,10 @@ mod tests {
 
         assert_eq!(table.access(access), Some(expression_contract));
 
+        let deferred_contract = table
+            .deferred_expression(expression)
+            .unwrap_or_else(|| panic!("deferred expression contract must exist"));
+
         assert_eq!(
             table
                 .contract(expression_contract)
@@ -307,6 +339,19 @@ mod tests {
                 [BoundDependencyRequirement::direct(
                     BoundDependencySubject::StorageAccess(access),
                     BoundDependencyRequirementKind::StorageAlive,
+                )]
+                .as_slice()
+            )
+        );
+
+        assert_eq!(
+            table
+                .contract(deferred_contract)
+                .map(BoundDependencyContract::requirements),
+            Some(
+                [BoundDependencyRequirement::direct(
+                    BoundDependencySubject::StorageAccess(access),
+                    BoundDependencyRequirementKind::StorageInitialized,
                 )]
                 .as_slice()
             )
@@ -327,6 +372,7 @@ mod tests {
                     BoundExpressionId::from_slot(BoundUnitId::new(4), 0),
                     BoundDependencyContract::new([]),
                 )],
+                [],
                 [(
                     StorageAccessId::from_slot(unit, 0),
                     BoundDependencyContract::new([]),
@@ -350,6 +396,7 @@ mod tests {
             &bound,
             &storage,
             [(expression, contract.clone())],
+            [],
             [(access, contract)],
             [],
             false,
@@ -362,8 +409,9 @@ mod tests {
 
         assert!(!complete.is_complete_for(&bound, &alternate_storage));
 
-        let incomplete = CheckedDependencyContracts::try_new(&bound, &storage, [], [], [], false)
-            .unwrap_or_else(|error| panic!("partial dependency table must build: {error:?}"));
+        let incomplete =
+            CheckedDependencyContracts::try_new(&bound, &storage, [], [], [], [], false)
+                .unwrap_or_else(|error| panic!("partial dependency table must build: {error:?}"));
 
         assert!(!incomplete.is_complete_for(&bound, &storage));
     }

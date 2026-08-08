@@ -858,7 +858,7 @@ mod tests {
                 .iter()
                 .any(|operation| matches!(
                     operation.kind(),
-                    bray_ir::MirOperationKind::AnonymousCallable(key) if key == &nested
+                    MirOperationKind::AnonymousCallable(key) if key == &nested
                 ))
         );
 
@@ -897,7 +897,7 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
         )));
 
         assert!(
@@ -909,7 +909,7 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::PublishTerminalState {
                 state: bray_ir::MirTaskTerminalState::Cancelled,
                 ..
             })
@@ -994,7 +994,7 @@ mod tests {
         let mir = lowered_mir(&result);
 
         let aggregate_kinds = mir.operations().iter().filter_map(|operation| {
-            let bray_ir::MirOperationKind::Aggregate(aggregate) = operation.kind() else {
+            let MirOperationKind::Aggregate(aggregate) = operation.kind() else {
                 return None;
             };
 
@@ -1012,14 +1012,13 @@ mod tests {
         );
 
         assert!(
-            mir.operations().iter().any(|operation| matches!(
-                operation.kind(),
-                bray_ir::MirOperationKind::Construct(_)
-            ))
+            mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::Construct(_)))
         );
 
         let construction_targets = mir.operations().iter().filter_map(|operation| {
-            let bray_ir::MirOperationKind::Construct(construction) = operation.kind() else {
+            let MirOperationKind::Construct(construction) = operation.kind() else {
                 return None;
             };
 
@@ -1038,7 +1037,7 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::Construct(construction)
+            MirOperationKind::Construct(construction)
                 if matches!(
                     construction.target(),
                     bray_bound_tree::ConstructionTarget::TypeForm { .. }
@@ -1046,7 +1045,7 @@ mod tests {
         )));
 
         assert!(mir.operations().iter().any(|operation| {
-            let bray_ir::MirOperationKind::Construct(construction) = operation.kind() else {
+            let MirOperationKind::Construct(construction) = operation.kind() else {
                 return false;
             };
 
@@ -1057,7 +1056,7 @@ mod tests {
         }));
 
         assert!(mir.operations().iter().any(|operation| {
-            let bray_ir::MirOperationKind::Construct(construction) = operation.kind() else {
+            let MirOperationKind::Construct(construction) = operation.kind() else {
                 return false;
             };
 
@@ -1074,7 +1073,7 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::Store {
+            MirOperationKind::Store {
                 value: MirOperand::Move(place),
                 ..
             } if !place.projections().is_empty()
@@ -1082,13 +1081,13 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::Convert { conversion, .. }
+            MirOperationKind::Convert { conversion, .. }
                 if conversion.source_type() != conversion.target_type()
         )));
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::Convert { conversion, .. }
+            MirOperationKind::Convert { conversion, .. }
                 if matches!(
                     conversion.target(),
                     bray_bound_tree::ConversionTarget::Composite(_)
@@ -1132,14 +1131,14 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::PatternProjection {
+            MirOperationKind::PatternProjection {
                 operation: bray_bound_tree::PatternOperation::Consume,
                 ..
             }
         )));
 
         assert!(mir.operations().iter().any(|operation| {
-            let bray_ir::MirOperationKind::Call(call) = operation.kind() else {
+            let MirOperationKind::Call(call) = operation.kind() else {
                 return false;
             };
 
@@ -1269,7 +1268,7 @@ mod tests {
             .operations()
             .iter()
             .filter_map(|operation| match operation.kind() {
-                bray_ir::MirOperationKind::Generator(operation) => Some(operation),
+                MirOperationKind::Generator(operation) => Some(operation),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -1363,7 +1362,7 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::PatternProjection {
+            MirOperationKind::PatternProjection {
                 projection: bray_bound_tree::PatternProjection::ActiveUnionPayloadField { .. },
                 ..
             }
@@ -1381,10 +1380,11 @@ mod tests {
 
         let mir = lowered_mir(&result);
 
-        assert!(mir.operations().iter().any(|operation| matches!(
-            operation.kind(),
-            bray_ir::MirOperationKind::Convert { .. }
-        )));
+        assert!(
+            mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::Convert { .. }))
+        );
     }
 
     #[test]
@@ -1418,7 +1418,7 @@ mod tests {
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
-            bray_ir::MirOperationKind::Borrow {
+            MirOperationKind::Borrow {
                 kind: bray_symbols::BorrowKind::Shared,
                 ..
             }

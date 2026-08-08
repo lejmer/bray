@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.collection;
+module bray.standard_library_tests.collection;
 
 using std.collection;
 using std.collection.ListElementIndex;

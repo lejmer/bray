@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "Tack command execution shares one project-loading and structured-result orchestration boundary")
+
 use std::ffi::OsString;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -150,8 +152,14 @@ fn execute_invocation_with_progress(
     protocol_output: &mut dyn Write,
     progress: &WorkflowProgress,
 ) -> TackRunResult {
-    let (workspace_root, toolchain_root, worker_count, output_format, command) =
-        invocation.into_parts();
+    let (
+        workspace_root,
+        toolchain_root,
+        standard_library_source,
+        worker_count,
+        output_format,
+        command,
+    ) = invocation.into_parts();
 
     let workspace_root = match std::path::absolute(workspace_root) {
         Ok(workspace_root) => workspace_root,
@@ -202,7 +210,7 @@ fn execute_invocation_with_progress(
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
 
-    let graph = match load_graph(&workspace_root) {
+    let graph = match load_graph(&workspace_root, standard_library_source) {
         Ok(graph) => graph,
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
@@ -694,7 +702,7 @@ fn run_format(
     let explicit_files = !files.is_empty();
 
     let graph = if configuration.is_none() || files.is_empty() {
-        match load_graph(workspace_root) {
+        match load_graph(workspace_root, false) {
             Ok(graph) => Some(graph),
             Err(diagnostics) => return failure(diagnostics, output_format),
         }

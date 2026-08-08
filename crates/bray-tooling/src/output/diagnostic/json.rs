@@ -280,7 +280,7 @@ impl DiagnosticArgValueJson {
                     minor: version.minor(),
                 })
             }
-            DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(*ty)),
+            DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(ty)),
             DiagnosticArgValue::SelectionKind(kind) => Self::SelectionKind((*kind).as_str()),
         }
     }
@@ -297,57 +297,97 @@ struct DiagnosticTypeJson {
     kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     element_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    arguments: Option<Vec<DiagnosticTypeArgumentJson>>,
 }
 
 impl DiagnosticTypeJson {
-    const fn from_type(ty: bray_diagnostics::DiagnosticType) -> Self {
+    fn from_type(ty: &bray_diagnostics::DiagnosticType) -> Self {
         use bray_diagnostics::DiagnosticType;
 
-        let (kind, element_count) = match ty {
-            DiagnosticType::Error => ("error", None),
-            DiagnosticType::Boolean => ("boolean", None),
-            DiagnosticType::Character => ("character", None),
-            DiagnosticType::I8 => ("i8", None),
-            DiagnosticType::I16 => ("i16", None),
-            DiagnosticType::I32 => ("i32", None),
-            DiagnosticType::I64 => ("i64", None),
-            DiagnosticType::I128 => ("i128", None),
-            DiagnosticType::U8 => ("u8", None),
-            DiagnosticType::U16 => ("u16", None),
-            DiagnosticType::U32 => ("u32", None),
-            DiagnosticType::U64 => ("u64", None),
-            DiagnosticType::U128 => ("u128", None),
-            DiagnosticType::Isize => ("isize", None),
-            DiagnosticType::Usize => ("usize", None),
-            DiagnosticType::Unit => ("unit", None),
-            DiagnosticType::Never => ("never", None),
-            DiagnosticType::String => ("string", None),
-            DiagnosticType::R16 => ("r16", None),
-            DiagnosticType::R32 => ("r32", None),
-            DiagnosticType::R64 => ("r64", None),
-            DiagnosticType::R128 => ("r128", None),
-            DiagnosticType::C32 => ("c32", None),
-            DiagnosticType::C64 => ("c64", None),
-            DiagnosticType::C128 => ("c128", None),
-            DiagnosticType::C256 => ("c256", None),
-            DiagnosticType::Named => ("named", None),
-            DiagnosticType::TypeParameter => ("type_parameter", None),
-            DiagnosticType::ContextualSelf => ("contextual_self", None),
-            DiagnosticType::TypeValuedMember => ("type_valued_member", None),
-            DiagnosticType::Tuple(count) => ("tuple", Some(count)),
-            DiagnosticType::Array => ("array", None),
-            DiagnosticType::Slice => ("slice", None),
-            DiagnosticType::Generator => ("generator", None),
-            DiagnosticType::Nullable => ("nullable", None),
-            DiagnosticType::Borrow => ("borrow", None),
-            DiagnosticType::TraitView => ("trait_view", None),
-            DiagnosticType::OwnedIndirection => ("owned_indirection", None),
-            DiagnosticType::Callable => ("callable", None),
+        let (kind, element_count, path, arguments) = match ty {
+            DiagnosticType::Error => ("error", None, None, None),
+            DiagnosticType::Boolean => ("boolean", None, None, None),
+            DiagnosticType::Character => ("character", None, None, None),
+            DiagnosticType::I8 => ("i8", None, None, None),
+            DiagnosticType::I16 => ("i16", None, None, None),
+            DiagnosticType::I32 => ("i32", None, None, None),
+            DiagnosticType::I64 => ("i64", None, None, None),
+            DiagnosticType::I128 => ("i128", None, None, None),
+            DiagnosticType::U8 => ("u8", None, None, None),
+            DiagnosticType::U16 => ("u16", None, None, None),
+            DiagnosticType::U32 => ("u32", None, None, None),
+            DiagnosticType::U64 => ("u64", None, None, None),
+            DiagnosticType::U128 => ("u128", None, None, None),
+            DiagnosticType::Isize => ("isize", None, None, None),
+            DiagnosticType::Usize => ("usize", None, None, None),
+            DiagnosticType::Unit => ("unit", None, None, None),
+            DiagnosticType::Never => ("never", None, None, None),
+            DiagnosticType::String => ("string", None, None, None),
+            DiagnosticType::R16 => ("r16", None, None, None),
+            DiagnosticType::R32 => ("r32", None, None, None),
+            DiagnosticType::R64 => ("r64", None, None, None),
+            DiagnosticType::R128 => ("r128", None, None, None),
+            DiagnosticType::C32 => ("c32", None, None, None),
+            DiagnosticType::C64 => ("c64", None, None, None),
+            DiagnosticType::C128 => ("c128", None, None, None),
+            DiagnosticType::C256 => ("c256", None, None, None),
+            DiagnosticType::Named(named) => (
+                "named",
+                None,
+                Some(named.path().to_vec()),
+                Some(
+                    named
+                        .arguments()
+                        .iter()
+                        .map(DiagnosticTypeArgumentJson::from_argument)
+                        .collect(),
+                ),
+            ),
+            DiagnosticType::Unknown => ("unknown", None, None, None),
+            DiagnosticType::TypeParameter => ("type_parameter", None, None, None),
+            DiagnosticType::ContextualSelf => ("contextual_self", None, None, None),
+            DiagnosticType::TypeValuedMember => ("type_valued_member", None, None, None),
+            DiagnosticType::Tuple(count) => ("tuple", Some(*count), None, None),
+            DiagnosticType::Array => ("array", None, None, None),
+            DiagnosticType::Slice => ("slice", None, None, None),
+            DiagnosticType::Generator => ("generator", None, None, None),
+            DiagnosticType::Nullable => ("nullable", None, None, None),
+            DiagnosticType::Borrow => ("borrow", None, None, None),
+            DiagnosticType::TraitView => ("trait_view", None, None, None),
+            DiagnosticType::OwnedIndirection => ("owned_indirection", None, None, None),
+            DiagnosticType::Callable => ("callable", None, None, None),
         };
 
         Self {
             kind,
             element_count,
+            path,
+            arguments,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct DiagnosticTypeArgumentJson {
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    r#type: Option<Box<DiagnosticTypeJson>>,
+}
+
+impl DiagnosticTypeArgumentJson {
+    fn from_argument(argument: &bray_diagnostics::DiagnosticTypeArgument) -> Self {
+        match argument {
+            bray_diagnostics::DiagnosticTypeArgument::Type(ty) => Self {
+                kind: "type",
+                r#type: Some(Box::new(DiagnosticTypeJson::from_type(ty))),
+            },
+            bray_diagnostics::DiagnosticTypeArgument::Constant => Self {
+                kind: "constant",
+                r#type: None,
+            },
         }
     }
 }
@@ -438,8 +478,9 @@ mod tests {
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
         DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticId, DiagnosticInterfaceLimit,
         DiagnosticInterfaceSection, DiagnosticKind, DiagnosticModuleTrust, DiagnosticNameKind,
-        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticRuntimeAbiVersion,
-        DiagnosticSelectionKind, DiagnosticVisibility, SeverityKind,
+        DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
+        DiagnosticRuntimeAbiVersion, DiagnosticSelectionKind, DiagnosticType,
+        DiagnosticTypeArgument, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -535,12 +576,18 @@ mod tests {
             DiagnosticKind::CheckingIncompatibleExpressionType,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::expected_type(
-            bray_diagnostics::DiagnosticType::Boolean,
-        ))
-        .with_arg(DiagnosticArg::actual_type(
-            bray_diagnostics::DiagnosticType::Array,
-        ));
+        .with_arg(DiagnosticArg::expected_type(DiagnosticType::Named(
+            DiagnosticNamedType::new(
+                [String::from("collection"), String::from("MoveCursor")],
+                [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
+            ),
+        )))
+        .with_arg(DiagnosticArg::actual_type(DiagnosticType::Named(
+            DiagnosticNamedType::new(
+                [String::from("collection"), String::from("ReadCursor")],
+                [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
+            ),
+        )));
 
         let selection_diagnostic = Diagnostic::new(
             DiagnosticId::new(1),
@@ -571,9 +618,29 @@ mod tests {
 
         assert_eq!(arguments[0]["name"], "expected_type");
         assert_eq!(arguments[0]["value"]["kind"], "type");
-        assert_eq!(arguments[0]["value"]["value"]["kind"], "boolean");
+        assert_eq!(arguments[0]["value"]["value"]["kind"], "named");
+
+        assert_eq!(
+            arguments[0]["value"]["value"]["path"],
+            serde_json::json!(["collection", "MoveCursor"])
+        );
+
+        assert_eq!(
+            arguments[0]["value"]["value"]["arguments"][0]["kind"],
+            "type"
+        );
+
+        assert_eq!(
+            arguments[0]["value"]["value"]["arguments"][0]["type"]["kind"],
+            "i32"
+        );
+
         assert_eq!(arguments[1]["name"], "actual_type");
-        assert_eq!(arguments[1]["value"]["value"]["kind"], "array");
+
+        assert_eq!(
+            arguments[1]["value"]["value"]["path"],
+            serde_json::json!(["collection", "ReadCursor"])
+        );
 
         let selection = &output["diagnostics"][1]["args"][0];
 

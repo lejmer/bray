@@ -1,6 +1,7 @@
 // rust-style: allow(module-too-large, reason = "diagnostic argument names, values, and typed constructors form one cohesive protocol inventory")
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use bray_source::{SourceInputKind, SourceSpan, TextSize};
 use bray_syntax::SyntaxKind;
@@ -839,8 +840,47 @@ impl DiagnosticSelectionKind {
     }
 }
 
+/// One source-visible named type retained by structured diagnostics.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticNamedType {
+    path: Arc<[String]>,
+    arguments: Arc<[DiagnosticTypeArgument]>,
+}
+
+impl DiagnosticNamedType {
+    /// Creates a named type from its qualified path and ordered generic arguments.
+    pub fn new(
+        path: impl IntoIterator<Item = String>,
+        arguments: impl IntoIterator<Item = DiagnosticTypeArgument>,
+    ) -> Self {
+        Self {
+            path: path.into_iter().collect(),
+            arguments: arguments.into_iter().collect(),
+        }
+    }
+
+    /// Returns the qualified source path components.
+    pub fn path(&self) -> &[String] {
+        &self.path
+    }
+
+    /// Returns the ordered generic arguments.
+    pub fn arguments(&self) -> &[DiagnosticTypeArgument] {
+        &self.arguments
+    }
+}
+
+/// One generic argument retained by a diagnostic type.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticTypeArgument {
+    /// A semantic type argument.
+    Type(DiagnosticType),
+    /// A constant argument whose exact value is not available to diagnostics.
+    Constant,
+}
+
 /// Locale-neutral semantic type categories used by structured diagnostics.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticType {
     /// The canonical recovery type.
     Error,
@@ -894,8 +934,10 @@ pub enum DiagnosticType {
     C128,
     /// The 256-bit complex type.
     C256,
-    /// Another named type.
-    Named,
+    /// A named type with its qualified identity and generic arguments.
+    Named(DiagnosticNamedType),
+    /// A type whose source-visible identity is unavailable.
+    Unknown,
     /// A generic type parameter.
     TypeParameter,
     /// The contextual `Self` type.

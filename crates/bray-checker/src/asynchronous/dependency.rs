@@ -43,7 +43,7 @@ fn collect_requirement_subjects(
                 subjects.insert(*subject);
             }
             BoundDependencyRequirement::Guarded(guarded) => {
-                subjects.insert(guard_subject(guarded.guard()));
+                subjects.insert(guarded.guard().subject());
                 pending.extend(guarded.requirements());
             }
         }
@@ -326,21 +326,6 @@ fn refinement_guard_value(
             .then(|| value(fact.kind()))
             .flatten()
     })
-}
-
-const fn guard_subject(guard: BoundDependencyGuard) -> BoundDependencySubject {
-    match guard {
-        BoundDependencyGuard::NullablePresent(access)
-        | BoundDependencyGuard::ActiveUnionVariant { access, .. } => {
-            BoundDependencySubject::StorageAccess(access)
-        }
-        BoundDependencyGuard::BorrowCapabilityActive(capability) => {
-            BoundDependencySubject::BorrowCapability(capability)
-        }
-        BoundDependencyGuard::ScopedCapabilityLive(capability) => {
-            BoundDependencySubject::ScopedCapability(capability)
-        }
-    }
 }
 
 #[cfg(test)]

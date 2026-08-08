@@ -563,8 +563,18 @@ where
                     .iter()
                     .any(|entry| entry.subject() == subject);
 
+                let completed_retaining_suspension = match operation {
+                    AnyBoundNodeId::Expression(expression) => {
+                        self.liveness.is_live_across_suspension(expression, subject)
+                    }
+                    AnyBoundNodeId::Pattern(_)
+                    | AnyBoundNodeId::Block(_)
+                    | AnyBoundNodeId::CallableBody(_) => false,
+                };
+
                 capability.entry_binding().is_none()
-                    && ((moved_borrows.contains(borrow) && !retained_for_suspension)
+                    && ((moved_borrows.contains(borrow)
+                        && (!retained_for_suspension || completed_retaining_suspension))
                         || self.liveness.is_last_use(operation, subject)
                         || capability.expression().is_some_and(|expression| {
                             self.liveness
@@ -628,7 +638,7 @@ where
         &mut self,
         state: &StorageFlowState,
         block: bray_bound_tree::BoundBlockId,
-        exit: bray_bound_tree::AnyBoundNodeId,
+        exit: AnyBoundNodeId,
     ) {
         if !self.publish {
             return;

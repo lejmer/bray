@@ -1,0 +1,187 @@
+module bray.standard_library_tests.process;
+
+using std.io;
+using std.path;
+using std.process;
+using internal std.process.ChildOutputReader;
+
+@test
+func process_context_accessors_observe_one_snapshot()
+{
+    let _: std.process.Id = std.process.current_id();
+    let _: std.path.Path = std.process.current_directory();
+    let arguments: std.process.Arguments = std.process.arguments();
+    let argument_count: usize = arguments.length();
+
+    match arguments.value_at(argument_count)
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    if argument_count > 0
+    {
+        match arguments.value_at(0)
+        {
+            case ?_ {}
+            case none { assert(false); }
+        }
+    }
+
+    let environment: std.process.Environment = std.process.environment();
+    let environment_count: usize = environment.length();
+
+    match environment.entry_at(environment_count)
+    {
+        case ?_ { assert(false); }
+        case none {}
+    }
+
+    if environment_count > 0
+    {
+        let first_entry: std.process.EnvironmentEntry? = environment.entry_at(0);
+
+        match first_entry
+        {
+            case ?entry
+            {
+                match environment.value(&entry.key)
+                {
+                    case ?_ {}
+                    case none { assert(false); }
+                }
+            }
+            case none { assert(false); }
+        }
+    }
+}
+
+@test(serial)
+func child_processes_capture_output_and_reap_cleanly()
+{
+    let executable: std.path.Path = required_child_executable();
+    let mut command: std.process.ChildCommand = required_child_command(executable);
+    let input_policy: std.process.ChildStreamPolicy = std.process.ChildStreamPolicy.Null;
+    let output_policy: std.process.ChildStreamPolicy = std.process.ChildStreamPolicy.Piped;
+    let error_policy: std.process.ChildStreamPolicy = std.process.ChildStreamPolicy.Null;
+
+    required_argument(&mut command, "--help");
+    command.standard_input(policy = input_policy);
+    command.standard_output(policy = output_policy);
+    command.standard_error(policy = error_policy);
+
+    let mut child: std.process.ChildProcess = required_child(command);
+    let mut output: std.process.ChildOutput = required_output(child.take_standard_output());
+    let observed: usize = read_all(&mut output);
+
+    required_close(output);
+
+    let status: std.process.ExitStatus = required_wait(child);
+
+    assert(observed > 0);
+
+    match status
+    {
+        case Code(0) {}
+        case Code(_) { assert(false); }
+        case TargetTermination(_) { assert(false); }
+    }
+}
+
+func required_child_executable() -> std.path.Path
+{
+    let key: std.path.NativeText = required_native_text("BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE");
+    let environment: std.process.Environment = std.process.environment();
+
+    return match consume environment.value(&key)
+    {
+        case ?value
+        {
+            yield match consume std.path.Path.from_native(value)
+            {
+                case Ok(path) { yield path; }
+                case Error(_) { panic("child executable path must be valid"); }
+            };
+        }
+        case none { panic("child executable path must be present"); }
+    };
+}
+
+func required_native_text(pos value: string) -> std.path.NativeText
+{
+    return match consume std.path.NativeText.from_string(value)
+    {
+        case Ok(text) { yield text; }
+        case Error(_) { panic("test native text must be valid"); }
+    };
+}
+
+func required_child_command(pos executable: std.path.Path) -> std.process.ChildCommand
+{
+    return match consume std.process.ChildCommand(executable)
+    {
+        case Ok(command) { yield command; }
+        case Error(_) { panic("child command must be created"); }
+    };
+}
+
+func required_argument(pos command: &mut std.process.ChildCommand, pos value: string)
+{
+    match command.argument(required_native_text(value))
+    {
+        case Ok(_) {}
+        case Error(_) { panic("child argument must be added"); }
+    }
+}
+
+func required_child(pos command: std.process.ChildCommand) -> std.process.ChildProcess
+{
+    return match consume command.spawn()
+    {
+        case Ok(child) { yield child; }
+        case Error(_) { panic("child process must be created"); }
+    };
+}
+
+func required_output(pos output: std.process.ChildOutput?) -> std.process.ChildOutput
+{
+    return match consume output
+    {
+        case ?stream { yield stream; }
+        case none { panic("piped child output must be present"); }
+    };
+}
+
+func read_all(pos output: &mut std.process.ChildOutput) -> usize
+{
+    let mut buffer: [u8; 256] = [0; 256];
+    let mut observed: usize = 0;
+
+    loop
+    {
+        match output(std.io.Reader).read(&mut buffer[..])
+        {
+            case Ok(0) { return observed; }
+            case Ok(read) { observed += read; }
+            case Error(_) { panic("child output must be readable"); }
+        }
+    }
+}
+
+func required_close(pos mut output: std.process.ChildOutput)
+{
+    match output.close()
+    {
+        case Ok(_) {}
+        case Error(_) { panic("child output must close"); }
+    }
+}
+
+func required_wait(pos mut child: std.process.ChildProcess) -> std.process.ExitStatus
+{
+    return match consume child.wait()
+    {
+        case Ok(status) { yield status; }
+        case Error(_) { panic("child process must be reaped"); }
+    };
+}

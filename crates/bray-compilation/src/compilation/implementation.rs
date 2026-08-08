@@ -13,3 +13,4 @@ pub(super) use fulfillment::{
 };
 pub(super) use index::ImplementationHeader;
 pub(in crate::compilation) use index::ImplementationHeaderIndex;
+pub(super) use matching::match_implementation_subject;

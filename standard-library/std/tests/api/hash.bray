@@ -1,4 +1,4 @@
-module bray.standard_library_conformance.hash;
+module bray.standard_library_tests.hash;
 
 using std.hash;
 using std.hash.BooleanHashable;
@@ -33,9 +33,11 @@ func stable_hashing_covers_scalar_values()
     let false_hash: u128 = std.hash.stable_hash(&false);
     let true_hash: u128 = std.hash.stable_hash(&true);
     let character_hash: u128 = std.hash.stable_hash(&'A');
+
     let byte: u8 = 65;
     let wide: u128 = 65;
     let size: usize = 65;
+
     let byte_hash: u128 = std.hash.stable_hash(&byte);
     let wide_hash: u128 = std.hash.stable_hash(&wide);
     let size_hash: u128 = std.hash.stable_hash(&size);
@@ -55,6 +57,7 @@ func incremental_hashing_preserves_write_order()
 
     first(std.hash.HashSink).write(10);
     first(std.hash.HashSink).write(20);
+
     repeated(std.hash.HashSink).write(10);
     repeated(std.hash.HashSink).write(20);
     reversed(std.hash.HashSink).write(20);
