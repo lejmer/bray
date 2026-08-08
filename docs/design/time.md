@@ -19,8 +19,8 @@ The time library must:
 ## Native Temporal Provider
 
 Civil calendar and timezone behavior is provided by a pinned source revision of Howard Hinnant's `date` and `tz` C++ libraries.
-The toolchain also pins one IANA timezone database release. Both inputs are content-addressed, recorded in toolchain provenance, and
-verified before use.
+The toolchain also pins one IANA timezone database release and one CLDR Windows-to-IANA mapping release. These inputs are
+content-addressed, recorded in toolchain provenance, and verified before use.
 
 The provider is built into a static support archive. A product links its provider objects and timezone data only when it demands
 named-zone services. Users do not install a DLL, shared object, C++ runtime package, or timezone database separately. The provider
@@ -38,6 +38,10 @@ The provider owns these difficult and externally maintained rules:
 - unique, repeated, and skipped local-time classification,
 - UTC offset and timezone abbreviation lookup,
 - and strict timestamp parsing and formatting primitives.
+
+Host-local timezone discovery maps target-native zone identities into the pinned IANA namespace. Windows discovery uses the pinned
+CLDR mapping rather than interpreting registry names as IANA names. A host identity with no deterministic mapping produces
+`Unavailable`.
 
 Bray owns the public types, failure values, ownership rules, formatting ergonomics, and policy choices. The public API does not
 mirror the C++ API.
@@ -153,6 +157,10 @@ database version.
 
 Compiled package interfaces expose only ordinary public `std.time` declarations. They do not contain native provider identities,
 timezone handles, C++ names, source paths, or the physical timezone database location.
+
+Every standard-library target artifact set includes temporal-provider provenance. The record identifies the provider source,
+timezone database, host-zone mapping data, and verified content digests used to build that target. It is toolchain metadata rather
+than a runtime dependency.
 
 ## Testing
 

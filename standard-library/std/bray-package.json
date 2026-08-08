@@ -139,6 +139,50 @@
         {
           "role": "platform.entropy.fill",
           "declaration": "std.platform.entropy_fill"
+        },
+        {
+          "role": "platform.time.date_validate",
+          "declaration": "std.time.platform_time_date_validate"
+        },
+        {
+          "role": "platform.time.date_add",
+          "declaration": "std.time.platform_time_date_add"
+        },
+        {
+          "role": "platform.time.zone_load",
+          "declaration": "std.time.platform_time_zone_load"
+        },
+        {
+          "role": "platform.time.zone_local",
+          "declaration": "std.time.platform_time_zone_local"
+        },
+        {
+          "role": "platform.time.zone_retain",
+          "declaration": "std.time.platform_time_zone_retain"
+        },
+        {
+          "role": "platform.time.zone_close",
+          "declaration": "std.time.platform_time_zone_close"
+        },
+        {
+          "role": "platform.time.zone_name",
+          "declaration": "std.time.platform_time_zone_name"
+        },
+        {
+          "role": "platform.time.observe",
+          "declaration": "std.time.platform_time_observe"
+        },
+        {
+          "role": "platform.time.resolve",
+          "declaration": "std.time.platform_time_resolve"
+        },
+        {
+          "role": "platform.time.parse",
+          "declaration": "std.time.platform_time_parse"
+        },
+        {
+          "role": "platform.time.format",
+          "declaration": "std.time.platform_time_format"
         }
       ]
     }

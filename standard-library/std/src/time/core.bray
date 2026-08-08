@@ -1,0 +1,452 @@
+trusted module std.time;
+
+const NANOSECONDS_PER_SECOND: u32 = 1000000000;
+
+internal struct DurationState
+{
+    seconds: i64;
+    nanoseconds: u32;
+}
+
+struct Duration
+{
+    internal state: DurationState;
+
+    construct(seconds: i64, nanoseconds: u32) -> Result<Self, ClockError>
+    {
+        if nanoseconds >= NANOSECONDS_PER_SECOND
+        {
+            return Error(ClockError.OutOfRange);
+        }
+
+        return Ok(
+            {
+                state =
+                {
+                    seconds = seconds,
+                    nanoseconds = nanoseconds,
+                }
+            }
+        );
+    }
+
+    func seconds() -> i64
+    {
+        return self.state.seconds;
+    }
+
+    func nanoseconds() -> u32
+    {
+        return self.state.nanoseconds;
+    }
+
+    func checked_add(pos other: Duration) -> Result<Duration, ClockError>
+    {
+        let nanoseconds: u32 = self.state.nanoseconds + other.state.nanoseconds;
+
+        let carry: i64 = if nanoseconds >= NANOSECONDS_PER_SECOND
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        };
+
+        let remainder: u32 = if carry == 1
+        {
+            yield nanoseconds - NANOSECONDS_PER_SECOND;
+        }
+        else
+        {
+            yield nanoseconds;
+        };
+
+        let combined_seconds: i64 = try checked_clock_add(self.state.seconds, other.state.seconds);
+        let adjusted_seconds: i64 = try checked_clock_add(combined_seconds, carry);
+
+        return Duration(seconds = adjusted_seconds, nanoseconds = remainder);
+    }
+
+    func checked_subtract(pos other: Duration) -> Result<Duration, ClockError>
+    {
+        let borrow: i64 = if self.state.nanoseconds < other.state.nanoseconds
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        };
+
+        let nanoseconds: u32 = if borrow == 1
+        {
+            yield NANOSECONDS_PER_SECOND + self.state.nanoseconds - other.state.nanoseconds;
+        }
+        else
+        {
+            yield self.state.nanoseconds - other.state.nanoseconds;
+        };
+
+        let combined_seconds: i64 = try checked_clock_subtract(self.state.seconds, other.state.seconds);
+        let adjusted_seconds: i64 = try checked_clock_subtract(combined_seconds, borrow);
+
+        return Duration(seconds = adjusted_seconds, nanoseconds = nanoseconds);
+    }
+}
+
+internal struct InstantState
+{
+    ticks: u64;
+    frequency: u64;
+    clock_identity: u64;
+}
+
+struct Instant
+{
+    internal state: InstantState;
+
+    func duration_since(pos earlier: &Instant) -> Result<Duration, ClockError>
+    {
+        if self.state.clock_identity != earlier.state.clock_identity || self.state.frequency !=
+            earlier.state.frequency || self.state.frequency == 0 || self.state.ticks < earlier.state.ticks
+        {
+            return Error(ClockError.OutOfRange);
+        }
+
+        let elapsed: u64 = self.state.ticks - earlier.state.ticks;
+        let frequency: u128 = self.state.frequency as u128;
+        let seconds: u128 = elapsed as u128 / frequency;
+
+        if seconds > 9223372036854775807
+        {
+            return Error(ClockError.OutOfRange);
+        }
+
+        let remaining: u128 = elapsed as u128 % frequency;
+        let nanoseconds: u128 = remaining * NANOSECONDS_PER_SECOND as u128 / frequency;
+
+        return Duration(seconds = std.truncate_to<i64>(seconds), nanoseconds = std.truncate_to<u32>(nanoseconds));
+    }
+}
+
+internal struct TimestampState
+{
+    seconds: i64;
+    nanoseconds: u32;
+}
+
+struct Timestamp
+{
+    internal state: TimestampState;
+
+    construct(seconds: i64, nanoseconds: u32) -> Result<Self, ClockError>
+    {
+        if nanoseconds >= NANOSECONDS_PER_SECOND
+        {
+            return Error(ClockError.OutOfRange);
+        }
+
+        return Ok(timestamp_from_parts(seconds = seconds, nanoseconds = nanoseconds));
+    }
+
+    func seconds() -> i64
+    {
+        return self.state.seconds;
+    }
+
+    func nanoseconds() -> u32
+    {
+        return self.state.nanoseconds;
+    }
+
+    construct parse(pos text: &string) -> Result<Self, TimeError>
+    {
+        let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 3, text = text);
+
+        return Ok(timestamp_from_parts(seconds = value.timestamp_seconds, nanoseconds = value.local.nanosecond));
+    }
+
+    func rfc3339(pos offset: UtcOffset = UtcOffset.utc()) -> Result<string, TimeError>
+    {
+        return trusted format_temporal_value(
+            kind = 3,
+            value = temporal_value(
+                local = platform_date_time(year = 1970, month = 1, day = 1, nanosecond = self.state.nanoseconds),
+                timestamp_seconds = self.state.seconds,
+                offset_seconds = offset.seconds(),
+            ),
+        );
+    }
+
+    func local_at(pos offset: UtcOffset) -> Result<LocalDateTime, TimeError>
+    {
+        let timestamp: Timestamp = timestamp_from_parts(
+            seconds = self.state.seconds,
+            nanoseconds = self.state.nanoseconds,
+        );
+
+        let observation: TemporalObservation = try trusted observe_timestamp(
+            zone = 0,
+            fixed_offset_seconds = offset.seconds(),
+            timestamp = &timestamp,
+        );
+
+        return Ok(local_from_platform(&observation.value.local));
+    }
+
+    func checked_add(pos duration: Duration) -> Result<Timestamp, TimeError>
+    {
+        let nanoseconds: u32 = self.state.nanoseconds + duration.nanoseconds();
+
+        let carry: i64 = if nanoseconds >= NANOSECONDS_PER_SECOND
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        };
+
+        let remainder: u32 = if carry == 1
+        {
+            yield nanoseconds - NANOSECONDS_PER_SECOND;
+        }
+        else
+        {
+            yield nanoseconds;
+        };
+
+        let combined_seconds: i64 = try checked_time_add(self.state.seconds, duration.seconds());
+        let adjusted_seconds: i64 = try checked_time_add(combined_seconds, carry);
+
+        return Ok(timestamp_from_parts(seconds = adjusted_seconds, nanoseconds = remainder));
+    }
+
+    func checked_subtract(pos duration: Duration) -> Result<Timestamp, TimeError>
+    {
+        let borrow: i64 = if self.state.nanoseconds < duration.nanoseconds()
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        };
+
+        let nanoseconds: u32 = if borrow == 1
+        {
+            yield NANOSECONDS_PER_SECOND + self.state.nanoseconds - duration.nanoseconds();
+        }
+        else
+        {
+            yield self.state.nanoseconds - duration.nanoseconds();
+        };
+
+        let combined_seconds: i64 = try checked_time_subtract(self.state.seconds, duration.seconds());
+        let adjusted_seconds: i64 = try checked_time_subtract(combined_seconds, borrow);
+
+        return Ok(timestamp_from_parts(seconds = adjusted_seconds, nanoseconds = nanoseconds));
+    }
+
+    func duration_since(pos earlier: Timestamp) -> Result<Duration, TimeError>
+    {
+        let borrow: i64 = if self.state.nanoseconds < earlier.state.nanoseconds
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        };
+
+        let nanoseconds: u32 = if borrow == 1
+        {
+            yield NANOSECONDS_PER_SECOND + self.state.nanoseconds - earlier.state.nanoseconds;
+        }
+        else
+        {
+            yield self.state.nanoseconds - earlier.state.nanoseconds;
+        };
+
+        let combined_seconds: i64 = try checked_time_subtract(self.state.seconds, earlier.state.seconds);
+        let adjusted_seconds: i64 = try checked_time_subtract(combined_seconds, borrow);
+
+        return Ok(
+            {
+                state =
+                {
+                    seconds = adjusted_seconds,
+                    nanoseconds = nanoseconds,
+                }
+            }
+        );
+    }
+}
+
+union ClockError
+{
+    Unavailable;
+    OutOfRange;
+    Platform(pos error: std.io.IoError);
+}
+
+func monotonic_now() -> Result<Instant, ClockError>
+{
+    return trusted monotonic_now_from_platform();
+}
+
+trusted internal func monotonic_now_from_platform() -> Result<Instant, ClockError>
+    uses(foreign_call)
+{
+    let mut ticks: u64 = 0;
+    let mut frequency: u64 = 0;
+    let mut clock_identity: u64 = 0;
+
+    let status: std.platform.PlatformStatus = trusted internal std.platform.clock_monotonic_now(
+        ticks = std.memory.address_of_mut<u64>(&mut ticks),
+        frequency = std.memory.address_of_mut<u64>(&mut frequency),
+        clock_identity = std.memory.address_of_mut<u64>(&mut clock_identity),
+    );
+
+    try checked_clock_status(status);
+
+    if frequency == 0 || clock_identity == 0
+    {
+        return Error(ClockError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            state =
+            {
+                ticks = ticks,
+                frequency = frequency,
+                clock_identity = clock_identity,
+            }
+        }
+    );
+}
+
+func wall_now() -> Result<Timestamp, ClockError>
+{
+    return trusted wall_now_from_platform();
+}
+
+trusted internal func wall_now_from_platform() -> Result<Timestamp, ClockError>
+    uses(foreign_call)
+{
+    let mut seconds: i64 = 0;
+    let mut nanoseconds: u32 = 0;
+
+    let status: std.platform.PlatformStatus = trusted internal std.platform.clock_wall_now(
+        seconds = std.memory.address_of_mut<i64>(&mut seconds),
+        nanoseconds = std.memory.address_of_mut<u32>(&mut nanoseconds),
+    );
+
+    try checked_clock_status(status);
+
+    if nanoseconds >= NANOSECONDS_PER_SECOND
+    {
+        return Error(ClockError.OutOfRange);
+    }
+
+    return Ok(timestamp_from_parts(seconds = seconds, nanoseconds = nanoseconds));
+}
+
+func sleep(pos duration: Duration) -> Result<unit, ClockError>
+    requires(blocking_execution())
+{
+    return trusted sleep_on_platform(duration);
+}
+
+trusted internal func sleep_on_platform(pos duration: Duration) -> Result<unit, ClockError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    if duration.seconds() < 0
+    {
+        return Error(ClockError.OutOfRange);
+    }
+
+    let status: std.platform.PlatformStatus = trusted internal std.platform.clock_sleep(
+        seconds = std.truncate_to<u64>(duration.seconds()),
+        nanoseconds = duration.nanoseconds(),
+    );
+
+    return checked_clock_status(status);
+}
+
+trusted async func sleep_async(pos duration: Duration) -> Result<unit, ClockError>
+    requires(blocking_execution())
+{
+    return trusted sleep(duration);
+}
+
+internal func timestamp_from_parts(seconds: i64, nanoseconds: u32) -> Timestamp
+{
+    return
+    {
+        state =
+        {
+            seconds = seconds,
+            nanoseconds = nanoseconds,
+        }
+    };
+}
+
+internal func checked_clock_status(pos status: std.platform.PlatformStatus) -> Result<unit, ClockError>
+{
+    if status.reserved != 0
+    {
+        return Error(ClockError.Platform(internal std.io.invalid_transfer_error()));
+    }
+
+    if status.category == 0
+    {
+        return Ok(unit);
+    }
+
+    if status.category == 1
+    {
+        return Error(ClockError.Unavailable);
+    }
+
+    return Error(ClockError.Platform(internal std.io.platform_status_error(status)));
+}
+
+internal func checked_clock_add(pos left: i64, pos right: i64) -> Result<i64, ClockError>
+{
+    match std.numeric.checked_add<i64>(left, right)
+    {
+        case ?value { return Ok(value); }
+        case none { return Error(ClockError.OutOfRange); }
+    }
+}
+
+internal func checked_clock_subtract(pos left: i64, pos right: i64) -> Result<i64, ClockError>
+{
+    match std.numeric.checked_subtract<i64>(left, right)
+    {
+        case ?value { return Ok(value); }
+        case none { return Error(ClockError.OutOfRange); }
+    }
+}
+
+internal func checked_time_add(pos left: i64, pos right: i64) -> Result<i64, TimeError>
+{
+    match std.numeric.checked_add<i64>(left, right)
+    {
+        case ?value { return Ok(value); }
+        case none { return Error(TimeError.OutOfRange); }
+    }
+}
+
+internal func checked_time_subtract(pos left: i64, pos right: i64) -> Result<i64, TimeError>
+{
+    match std.numeric.checked_subtract<i64>(left, right)
+    {
+        case ?value { return Ok(value); }
+        case none { return Error(TimeError.OutOfRange); }
+    }
+}

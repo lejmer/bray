@@ -219,6 +219,9 @@ fn platform_abi_type_matches(
     };
 
     match expected {
+        bray_runtime_interface::PlatformAbiType::I32 => {
+            type_has_representation(compilation, ty, RepresentationRole::ScalarI32)
+        }
         bray_runtime_interface::PlatformAbiType::U32 => {
             type_has_representation(compilation, ty, RepresentationRole::ScalarU32)
         }
@@ -290,6 +293,24 @@ fn platform_abi_type_matches(
             };
 
             c_struct_matches(compilation, status, EXIT_STATUS_FIELDS, cancellation)
+        }
+        bray_runtime_interface::PlatformAbiType::TemporalDateTime => {
+            c_struct_matches(compilation, ty, TEMPORAL_DATE_TIME_FIELDS, cancellation)
+        }
+        bray_runtime_interface::PlatformAbiType::TemporalDateTimePointer => {
+            pointer_struct_matches(compilation, ty, TEMPORAL_DATE_TIME_FIELDS, cancellation)
+        }
+        bray_runtime_interface::PlatformAbiType::TemporalObservationPointer => {
+            pointer_struct_matches(compilation, ty, TEMPORAL_OBSERVATION_FIELDS, cancellation)
+        }
+        bray_runtime_interface::PlatformAbiType::TemporalResolutionPointer => {
+            pointer_struct_matches(compilation, ty, TEMPORAL_RESOLUTION_FIELDS, cancellation)
+        }
+        bray_runtime_interface::PlatformAbiType::TemporalValue => {
+            c_struct_matches(compilation, ty, TEMPORAL_VALUE_FIELDS, cancellation)
+        }
+        bray_runtime_interface::PlatformAbiType::TemporalValuePointer => {
+            pointer_struct_matches(compilation, ty, TEMPORAL_VALUE_FIELDS, cancellation)
         }
         bray_runtime_interface::PlatformAbiType::Status => {
             platform_status_matches(compilation, ty, cancellation)
@@ -426,6 +447,53 @@ const EXIT_STATUS_FIELDS: &[AbiField] = &[
     AbiField::Scalar(RepresentationRole::ScalarU32),
     AbiField::Scalar(RepresentationRole::ScalarI64),
 ];
+
+const TEMPORAL_DATE_TIME_FIELDS: &[AbiField] = &[
+    AbiField::Scalar(RepresentationRole::ScalarI32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+];
+
+const TEMPORAL_OBSERVATION_FIELDS: &[AbiField] = &[
+    AbiField::Struct(TEMPORAL_DATE_TIME_FIELDS),
+    AbiField::Scalar(RepresentationRole::ScalarI32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+];
+
+const TEMPORAL_RESOLUTION_FIELDS: &[AbiField] = &[
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarI64),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarI64),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+];
+
+const TEMPORAL_VALUE_FIELDS: &[AbiField] = &[
+    AbiField::Struct(TEMPORAL_DATE_TIME_FIELDS),
+    AbiField::Scalar(RepresentationRole::ScalarI64),
+    AbiField::Scalar(RepresentationRole::ScalarI32),
+    AbiField::Scalar(RepresentationRole::ScalarU32),
+];
+
+fn pointer_struct_matches(
+    compilation: &Compilation,
+    ty: TypeId,
+    fields: &[AbiField],
+    cancellation: &CancellationToken,
+) -> Result<bool, FactQueryError> {
+    let Some(target) = raw_pointer_target(compilation, ty)? else {
+        return Ok(false);
+    };
+
+    c_struct_matches(compilation, target, fields, cancellation)
+}
 
 fn c_struct_matches(
     compilation: &Compilation,

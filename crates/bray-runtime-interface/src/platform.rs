@@ -63,6 +63,28 @@ pub enum PlatformServiceRole {
     ClockSleep,
     /// Fills caller-owned bytes from the host entropy source.
     EntropyFill,
+    /// Validates one proleptic Gregorian date.
+    TimeDateValidate,
+    /// Applies a checked calendar period to one date.
+    TimeDateAdd,
+    /// Loads one named timezone from the pinned database.
+    TimeZoneLoad,
+    /// Discovers and loads the host's local timezone when available.
+    TimeZoneLocal,
+    /// Retains one immutable timezone owner.
+    TimeZoneRetain,
+    /// Releases one immutable timezone owner.
+    TimeZoneClose,
+    /// Copies one timezone's canonical IANA name.
+    TimeZoneName,
+    /// Observes one timestamp through a named zone or fixed offset.
+    TimeObserve,
+    /// Resolves one local date-time through a named zone or fixed offset.
+    TimeResolve,
+    /// Parses one strict standard temporal representation.
+    TimeParse,
+    /// Formats one strict standard temporal representation.
+    TimeFormat,
 }
 
 impl PlatformServiceRole {
@@ -98,6 +120,17 @@ impl PlatformServiceRole {
             Self::ClockWallNow => 0x0402,
             Self::ClockSleep => 0x0403,
             Self::EntropyFill => 0x0501,
+            Self::TimeDateValidate => 0x0701,
+            Self::TimeDateAdd => 0x0702,
+            Self::TimeZoneLoad => 0x0710,
+            Self::TimeZoneLocal => 0x0711,
+            Self::TimeZoneRetain => 0x0712,
+            Self::TimeZoneClose => 0x0713,
+            Self::TimeZoneName => 0x0714,
+            Self::TimeObserve => 0x0720,
+            Self::TimeResolve => 0x0721,
+            Self::TimeParse => 0x0730,
+            Self::TimeFormat => 0x0731,
         }
     }
 
@@ -133,6 +166,17 @@ impl PlatformServiceRole {
             Self::ClockWallNow => "platform.clock.wall_now",
             Self::ClockSleep => "platform.clock.sleep",
             Self::EntropyFill => "platform.entropy.fill",
+            Self::TimeDateValidate => "platform.time.date_validate",
+            Self::TimeDateAdd => "platform.time.date_add",
+            Self::TimeZoneLoad => "platform.time.zone_load",
+            Self::TimeZoneLocal => "platform.time.zone_local",
+            Self::TimeZoneRetain => "platform.time.zone_retain",
+            Self::TimeZoneClose => "platform.time.zone_close",
+            Self::TimeZoneName => "platform.time.zone_name",
+            Self::TimeObserve => "platform.time.observe",
+            Self::TimeResolve => "platform.time.resolve",
+            Self::TimeParse => "platform.time.parse",
+            Self::TimeFormat => "platform.time.format",
         }
     }
 
@@ -168,6 +212,17 @@ impl PlatformServiceRole {
             "platform.clock.wall_now" => Some(Self::ClockWallNow),
             "platform.clock.sleep" => Some(Self::ClockSleep),
             "platform.entropy.fill" => Some(Self::EntropyFill),
+            "platform.time.date_validate" => Some(Self::TimeDateValidate),
+            "platform.time.date_add" => Some(Self::TimeDateAdd),
+            "platform.time.zone_load" => Some(Self::TimeZoneLoad),
+            "platform.time.zone_local" => Some(Self::TimeZoneLocal),
+            "platform.time.zone_retain" => Some(Self::TimeZoneRetain),
+            "platform.time.zone_close" => Some(Self::TimeZoneClose),
+            "platform.time.zone_name" => Some(Self::TimeZoneName),
+            "platform.time.observe" => Some(Self::TimeObserve),
+            "platform.time.resolve" => Some(Self::TimeResolve),
+            "platform.time.parse" => Some(Self::TimeParse),
+            "platform.time.format" => Some(Self::TimeFormat),
             _ => None,
         }
     }
@@ -175,8 +230,10 @@ impl PlatformServiceRole {
     /// Returns the exact private callable shape required by this role.
     pub const fn signature(self) -> PlatformServiceSignature {
         use PlatformAbiType::{
-            ChildRequest, ExitStatusPointer, FileMetadataPointer, FileOptions, NativeText, Path,
-            PointerI64, PointerU8, PointerU32, PointerU64, Status, U32, U64,
+            ChildRequest, ExitStatusPointer, FileMetadataPointer, FileOptions, I32, I64,
+            NativeText, Path, PointerI64, PointerU8, PointerU32, PointerU64, Status,
+            TemporalDateTime, TemporalDateTimePointer, TemporalObservationPointer,
+            TemporalResolutionPointer, TemporalValue, TemporalValuePointer, U32, U64,
         };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
@@ -208,6 +265,47 @@ impl PlatformServiceRole {
         const CLOCK_WALL_NOW: &[PlatformAbiType] = &[PointerI64, PointerU32];
         const CLOCK_SLEEP: &[PlatformAbiType] = &[U64, U32];
         const ENTROPY_FILL: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
+        const TIME_DATE_VALIDATE: &[PlatformAbiType] = &[I32, U32, U32, PointerU32];
+        const TIME_DATE_ADD: &[PlatformAbiType] = &[
+            TemporalDateTime,
+            I32,
+            I32,
+            I32,
+            U32,
+            TemporalDateTimePointer,
+            PointerU32,
+        ];
+        const TIME_ZONE_LOAD: &[PlatformAbiType] = &[NativeText, PointerU64, PointerU32];
+        const TIME_ZONE_LOCAL: &[PlatformAbiType] = &[PointerU64, PointerU32];
+        const TIME_ZONE_HANDLE: &[PlatformAbiType] = &[U64];
+        const TIME_ZONE_NAME: &[PlatformAbiType] = &[U64, PointerU8, U64, PointerU64, PointerU32];
+        const TIME_OBSERVE: &[PlatformAbiType] = &[
+            U64,
+            I32,
+            I64,
+            U32,
+            TemporalObservationPointer,
+            PointerU8,
+            U64,
+            PointerU64,
+            PointerU32,
+        ];
+        const TIME_RESOLVE: &[PlatformAbiType] = &[
+            U64,
+            I32,
+            TemporalDateTime,
+            TemporalResolutionPointer,
+            PointerU32,
+        ];
+        const TIME_PARSE: &[PlatformAbiType] = &[
+            U32,
+            NativeText,
+            TemporalValuePointer,
+            PointerU64,
+            PointerU32,
+        ];
+        const TIME_FORMAT: &[PlatformAbiType] =
+            &[U32, TemporalValue, PointerU8, U64, PointerU64, PointerU32];
 
         const CHILD_SPAWN: &[PlatformAbiType] =
             &[ChildRequest, PointerU64, PointerU64, PointerU64, PointerU64];
@@ -243,6 +341,16 @@ impl PlatformServiceRole {
             Self::ClockWallNow => CLOCK_WALL_NOW,
             Self::ClockSleep => CLOCK_SLEEP,
             Self::EntropyFill => ENTROPY_FILL,
+            Self::TimeDateValidate => TIME_DATE_VALIDATE,
+            Self::TimeDateAdd => TIME_DATE_ADD,
+            Self::TimeZoneLoad => TIME_ZONE_LOAD,
+            Self::TimeZoneLocal => TIME_ZONE_LOCAL,
+            Self::TimeZoneRetain | Self::TimeZoneClose => TIME_ZONE_HANDLE,
+            Self::TimeZoneName => TIME_ZONE_NAME,
+            Self::TimeObserve => TIME_OBSERVE,
+            Self::TimeResolve => TIME_RESOLVE,
+            Self::TimeParse => TIME_PARSE,
+            Self::TimeFormat => TIME_FORMAT,
         };
 
         PlatformServiceSignature::new(parameters, Status)
@@ -252,6 +360,8 @@ impl PlatformServiceRole {
 /// One ABI value kind used by the closed platform-service callable schema.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PlatformAbiType {
+    /// Fixed-width signed 32-bit scalar.
+    I32,
     /// Fixed-width unsigned 32-bit scalar.
     U32,
     /// Fixed-width unsigned 64-bit scalar.
@@ -278,8 +388,185 @@ pub enum PlatformAbiType {
     ChildRequest,
     /// Raw pointer to a fixed-layout child exit-status record.
     ExitStatusPointer,
+    /// The fixed-layout civil date-time record.
+    TemporalDateTime,
+    /// Raw pointer to a civil date-time record.
+    TemporalDateTimePointer,
+    /// Raw pointer to a timezone observation record.
+    TemporalObservationPointer,
+    /// Raw pointer to a local-time resolution record.
+    TemporalResolutionPointer,
+    /// The fixed-layout parsing and formatting value record.
+    TemporalValue,
+    /// Raw pointer to a parsing and formatting value record.
+    TemporalValuePointer,
     /// The fixed-layout platform status record.
     Status,
+}
+
+/// Fixed-layout proleptic Gregorian date and wall-time fields.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct NativePlatformDateTime {
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
+    nanosecond: u32,
+}
+
+impl NativePlatformDateTime {
+    /// Creates one fixed-layout civil date-time record.
+    pub const fn new(
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+        second: u32,
+        nanosecond: u32,
+    ) -> Self {
+        Self {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            nanosecond,
+        }
+    }
+
+    /// Returns the proleptic Gregorian year.
+    pub const fn year(self) -> i32 {
+        self.year
+    }
+
+    /// Returns the one-based month.
+    pub const fn month(self) -> u32 {
+        self.month
+    }
+
+    /// Returns the one-based day of month.
+    pub const fn day(self) -> u32 {
+        self.day
+    }
+
+    /// Returns the zero-based hour of day.
+    pub const fn hour(self) -> u32 {
+        self.hour
+    }
+
+    /// Returns the minute within the hour.
+    pub const fn minute(self) -> u32 {
+        self.minute
+    }
+
+    /// Returns the second within the minute.
+    pub const fn second(self) -> u32 {
+        self.second
+    }
+
+    /// Returns the nanosecond within the second.
+    pub const fn nanosecond(self) -> u32 {
+        self.nanosecond
+    }
+}
+
+/// Fixed-layout result of observing one absolute timestamp.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct NativePlatformTemporalObservation {
+    local: NativePlatformDateTime,
+    offset_seconds: i32,
+    daylight: u32,
+}
+
+impl NativePlatformTemporalObservation {
+    /// Returns the observed local date and time.
+    pub const fn local(self) -> NativePlatformDateTime {
+        self.local
+    }
+
+    /// Returns the observed UTC offset in seconds.
+    pub const fn offset_seconds(self) -> i32 {
+        self.offset_seconds
+    }
+
+    /// Returns whether daylight-saving time applies.
+    pub const fn is_daylight_saving(self) -> bool {
+        self.daylight == 1
+    }
+}
+
+/// Fixed-layout result of resolving one local date-time.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct NativePlatformTemporalResolution {
+    kind: u32,
+    reserved: u32,
+    first_seconds: i64,
+    first_nanoseconds: u32,
+    first_reserved: u32,
+    second_seconds: i64,
+    second_nanoseconds: u32,
+    second_reserved: u32,
+}
+
+impl NativePlatformTemporalResolution {
+    /// Returns the encoded local-time resolution kind.
+    pub const fn kind(self) -> u32 {
+        self.kind
+    }
+
+    /// Returns the first candidate's whole Unix seconds.
+    pub const fn first_seconds(self) -> i64 {
+        self.first_seconds
+    }
+
+    /// Returns the first candidate's nanosecond remainder.
+    pub const fn first_nanoseconds(self) -> u32 {
+        self.first_nanoseconds
+    }
+
+    /// Returns the second candidate's whole Unix seconds.
+    pub const fn second_seconds(self) -> i64 {
+        self.second_seconds
+    }
+
+    /// Returns the second candidate's nanosecond remainder.
+    pub const fn second_nanoseconds(self) -> u32 {
+        self.second_nanoseconds
+    }
+}
+
+/// Fixed-layout value used by strict temporal parsing and formatting.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct NativePlatformTemporalValue {
+    local: NativePlatformDateTime,
+    timestamp_seconds: i64,
+    offset_seconds: i32,
+    reserved: u32,
+}
+
+impl NativePlatformTemporalValue {
+    /// Returns the civil date-time component.
+    pub const fn local(self) -> NativePlatformDateTime {
+        self.local
+    }
+
+    /// Returns the absolute whole Unix seconds.
+    pub const fn timestamp_seconds(self) -> i64 {
+        self.timestamp_seconds
+    }
+
+    /// Returns the fixed UTC offset in seconds.
+    pub const fn offset_seconds(self) -> i32 {
+        self.offset_seconds
+    }
 }
 
 /// Call-only target-native path bytes passed across the platform ABI.

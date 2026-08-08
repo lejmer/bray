@@ -296,6 +296,10 @@ fn build_bundle(
     let mut interface = None;
     let mut implementation = None;
     let mut built_targets = Vec::new();
+    let root = workspace::root().map_err(BuildError::Workspace)?;
+    let temporal_provenance_path = root.join("third-party/temporal/provenance.json");
+    let temporal_provenance = fs::read(&temporal_provenance_path)
+        .map_err(|error| BuildError::read(&temporal_provenance_path, error))?;
 
     for target in targets {
         let built = build_target(product, version, &source_paths, target, work)?;
@@ -384,10 +388,24 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
+        let provenance_path = format!(
+            "targets/{}/{abi_path}/temporal-provider.json",
+            target.as_str()
+        );
+
+        write_bundle_artifact(bundle, &provenance_path, &temporal_provenance)?;
+
+        let provenance = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::DependencyMetadata,
+            provenance_path,
+            &temporal_provenance,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
         let target = StandardLibraryTargetArtifacts::try_new(
             target.clone(),
             abi,
-            [archive, platform_archive],
+            [archive, platform_archive, provenance],
         )
         .map(|target| target.with_native_links(platform_native_links))
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;

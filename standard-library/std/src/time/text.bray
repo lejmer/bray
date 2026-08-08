@@ -1,0 +1,166 @@
+trusted module std.time;
+
+trusted internal func parse_temporal_value(pos kind: u32, pos text: &string) -> Result<PlatformTemporalValue, TimeError>
+    uses(foreign_call)
+{
+    let mut value: PlatformTemporalValue = temporal_value(local = platform_date_time(year = 1970, month = 1, day = 1));
+    let mut invalid_offset: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let status: std.platform.PlatformStatus = trusted platform_time_parse(
+        kind,
+        native_text_span(text),
+        value = std.memory.address_of_mut<PlatformTemporalValue>(&mut value),
+        invalid_offset = std.memory.address_of_mut<u64>(&mut invalid_offset),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    let offset: usize = invalid_offset as usize;
+
+    if offset as u64 != invalid_offset
+    {
+        return Error(TimeError.OutOfRange);
+    }
+
+    try checked_temporal_call(status, outcome, invalid_offset = offset);
+
+    return Ok(value);
+}
+
+trusted internal func format_temporal_value(
+    pos kind: u32,
+    pos value: PlatformTemporalValue,
+) -> Result<string, TimeError>
+    uses(foreign_call)
+{
+    let mut required: u64 = 0;
+    let mut outcome: u32 = TEMPORAL_SUCCESS;
+
+    let measured: std.platform.PlatformStatus = trusted platform_time_format(
+        kind,
+        copy_temporal_value(&value),
+        destination = std.memory.null<u8>(),
+        capacity = 0,
+        written_or_required = std.memory.address_of_mut<u64>(&mut required),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_variable_text_measure(measured, outcome, required);
+
+    let mut buffer: std.memory.RawBuffer<u8> = try trusted temporal_text_buffer(required);
+
+    outcome = TEMPORAL_SUCCESS;
+
+    let formatted: std.platform.PlatformStatus = trusted platform_time_format(
+        kind,
+        value,
+        destination = std.memory.pointer<u8>(&buffer),
+        capacity = required,
+        written_or_required = std.memory.address_of_mut<u64>(&mut required),
+        outcome = std.memory.address_of_mut<u32>(&mut outcome),
+    );
+
+    try checked_temporal_call(formatted, outcome);
+
+    return trusted temporal_text(buffer, required);
+}
+
+internal func checked_variable_text_measure(
+    pos status: std.platform.PlatformStatus,
+    pos outcome: u32,
+    pos required: u64,
+) -> Result<unit, TimeError>
+{
+    try checked_platform_status(status);
+
+    if outcome != TEMPORAL_INSUFFICIENT_BUFFER && !(outcome == TEMPORAL_SUCCESS && required == 0)
+    {
+        return Error(temporal_error(outcome));
+    }
+
+    return Ok(unit);
+}
+
+trusted internal func temporal_text_buffer(pos required: u64) -> Result<std.memory.RawBuffer<u8>, TimeError>
+{
+    let capacity: usize = required as usize;
+
+    if capacity as u64 != required
+    {
+        return Error(TimeError.OutOfRange);
+    }
+
+    let created: Result<std.memory.RawBuffer<u8>, std.memory.MemoryLayoutError> = trusted std.memory.RawBuffer<u8>(
+        capacity = capacity,
+    );
+
+    match created
+    {
+        case Ok(buffer) { return Ok(buffer); }
+        case Error(_) { return Error(TimeError.OutOfRange); }
+    }
+}
+
+trusted internal func temporal_text(
+    pos mut buffer: std.memory.RawBuffer<u8>,
+    pos written: u64,
+) -> Result<string, TimeError>
+{
+    let length: usize = written as usize;
+
+    if length as u64 != written || length > std.memory.capacity<u8>(&buffer)
+    {
+        return Error(TimeError.OutOfRange);
+    }
+
+    trusted std.memory.set_initialized_count<u8>(&mut buffer, count = length);
+
+    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&buffer);
+
+    match std.string.from_utf8(bytes)
+    {
+        case Ok(text) { return Ok(text); }
+        case Error(_) { return Error(TimeError.Platform(error = internal std.io.invalid_transfer_error())); }
+    }
+}
+
+internal func temporal_value(
+    pos local: PlatformDateTime,
+    timestamp_seconds: i64 = 0,
+    offset_seconds: i32 = 0,
+) -> PlatformTemporalValue
+{
+    return
+    {
+        local = local,
+        timestamp_seconds = timestamp_seconds,
+        offset_seconds = offset_seconds,
+        reserved = 0,
+    };
+}
+
+internal func checked_platform_status(pos status: std.platform.PlatformStatus) -> Result<unit, TimeError>
+{
+    match internal std.io.checked_status(status)
+    {
+        case Ok(_) { return Ok(unit); }
+        case Error(error) { return Error(TimeError.Platform(error = error)); }
+    }
+}
+
+internal func copy_temporal_value(pos value: &PlatformTemporalValue) -> PlatformTemporalValue
+{
+    return temporal_value(
+        local = platform_date_time(
+            year = value.local.year,
+            month = value.local.month,
+            day = value.local.day,
+            hour = value.local.hour,
+            minute = value.local.minute,
+            second = value.local.second,
+            nanosecond = value.local.nanosecond,
+        ),
+        timestamp_seconds = value.timestamp_seconds,
+        offset_seconds = value.offset_seconds,
+    );
+}

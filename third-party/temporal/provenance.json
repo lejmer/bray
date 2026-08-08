@@ -1,0 +1,20 @@
+{
+  "date": {
+    "version": "3.0.4",
+    "commit": "f94b8f36c6180be0021876c4a397a054fe50c6f2",
+    "archive_sha256": "54fea2ccfa82ec1ce856eb71fc76d5c10412afb8b1fc0bfe2f0e8913bf3767b7",
+    "vendored_files_sha256": "63373dc7f9e9802a7a9d2b6705e86674034f9716d7aa07f9d7d00d3fbf1ead00"
+  },
+  "tzdata": {
+    "version": "2026c",
+    "commit": "71f28b9ab3b67c0f9466803f6151812d4fc8e357",
+    "archive_sha512": "e0b4b7044b66fbc27bc21d13d18063abcdf78ab58d5ba5fd64bd1a88d86e9d495f45add4d8e65bb6c40249f9c94ca29b72c8ebba8d0e4c468f2965ac77932ef0",
+    "vendored_files_sha256": "9109885cd793b03fa905cc5e737498c393d590102359e893b8f3b3c5b6f9102a"
+  },
+  "cldr": {
+    "version": "48.2",
+    "commit": "11299982335beb974c1c63c45265184e759c0f41",
+    "windows_zones_sha256": "9cf3db6a31fb382fee21b70be6feba1e82766b0fcd06e6261fb7936a73e537ff",
+    "license_sha256": "b49d0e9f8ead51ca8b7df6fec89cc3ae6809198b4b9d43c74216da0118f23f5b"
+  }
+}
