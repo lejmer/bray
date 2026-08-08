@@ -3,6 +3,10 @@
 Use this page to find the crate that owns a concept. Detailed phase contracts and implementation guidance belong in the design
 documents.
 
+## `crates/`
+
+Compiler libraries and installed Bray tools.
+
 - `bray-base`
     - Small foundational types and helpers shared across otherwise unrelated compiler crates,
       including private same-directory staging for atomic file publication.
@@ -115,11 +119,19 @@ documents.
 - `bray-testing`
     - Shared test fixtures, builders, harnesses, and assertions used across compiler crates.
 
+## `tools/`
+
+Contributor-only development tools.
+
 - `rust-style`
     - Reusable Rust source-style enforcement used by `xtask`, with no dependencies on Bray compiler crates.
 
 - `bray-llvm-toolchain`
     - Dependency-light provisioning and validation of the pinned LLVM development toolchain.
+
+## `xtask/`
+
+Repository automation.
 
 - `xtask`
     - Repository automation invoked through Cargo, including generated-source and conformance tasks.
