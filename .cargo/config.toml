@@ -3,3 +3,5 @@ xtask = "run --package xtask --release --"
 
 [env]
 BRAY_LLVM_PREFIX = { value = "target/toolchains/llvm/active", relative = true }
+# The upstream llvm-sys build script owns this compatibility name.
+LLVM_SYS_221_PREFIX = { value = "target/toolchains/llvm/active", relative = true }

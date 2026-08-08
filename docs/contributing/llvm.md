@@ -15,8 +15,10 @@ The command downloads the official LLVM development archive with `curl`, verifie
 it with `tar`, and validates the LLVM version, C headers, and static core and target libraries. Provisioned files remain under
 Cargo's ignored `target/toolchains/llvm` directory. Repeated commands reuse a valid archive and installation.
 
-Cargo receives the provisioned prefix through `BRAY_LLVM_PREFIX` in `.cargo/config.toml`. Set that environment variable before
-invoking Cargo to use a separately managed LLVM installation instead. Validate an external installation before building:
+Cargo receives the provisioned prefix through `BRAY_LLVM_PREFIX` in `.cargo/config.toml`. The configuration also supplies the
+versioned environment name consumed by the upstream `llvm-sys` build script, but Bray-owned code does not use that external crate's
+name. Set both variables before invoking Cargo to use a separately managed LLVM installation. Validate an external installation
+before building:
 
 ```text
 cargo xtask llvm validate --root <directory>
