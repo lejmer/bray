@@ -93,6 +93,15 @@ where
             SelectionKind::Operator,
             bound.child_expressions(),
         ),
+        BoundExpression::Assignment(assignment)
+            if assignment.operator().binary_operator().is_some() =>
+        {
+            operation(
+                expression,
+                SelectionKind::Operator,
+                bound.child_expressions(),
+            )
+        }
         BoundExpression::Conversion(_) => operation(
             expression,
             SelectionKind::Conversion,

@@ -239,9 +239,9 @@ pub fn llvm_tool_path(name: &str) -> Option<PathBuf> {
         name.to_owned()
     };
 
-    let configured = env::var_os("LLVM_SYS_221_PREFIX")
+    let configured = env::var_os(bray_codegen_llvm::LLVM_PREFIX_ENVIRONMENT_VARIABLE)
         .map(PathBuf::from)
-        .or_else(|| option_env!("LLVM_SYS_221_PREFIX").map(PathBuf::from))
+        .or_else(|| bray_codegen_llvm::COMPILED_LLVM_PREFIX.map(PathBuf::from))
         .map(|prefix| prefix.join("bin").join(&executable_name));
 
     if configured.as_ref().is_some_and(|path| path.is_file()) {

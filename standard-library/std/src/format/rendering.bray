@@ -329,14 +329,14 @@ internal func escaped_string_length(pos value: &string) -> usize
 
         if escape_code(byte) == 0
         {
-            length = length + 1;
+            length += 1;
         }
         else
         {
-            length = length + 2;
+            length += 2;
         }
 
-        index = index + 1;
+        index += 1;
     }
 
     return length;
@@ -367,7 +367,7 @@ internal func write_escaped_string(
             try write_escape(&mut destination, escaped);
         }
 
-        index = index + 1;
+        index += 1;
     }
 
     return std.bytes.push(&mut destination.buffer, value = 34);
@@ -458,7 +458,7 @@ internal func write_raw_character(
     {
         try std.bytes.push(&mut destination.buffer, value = std.character.utf8_byte(value = value, index = index));
 
-        index = index + 1;
+        index += 1;
     }
 
     return Ok(unit);
@@ -491,7 +491,7 @@ internal func write_character_value(
 
     if quoted
     {
-        rendered_length = rendered_length + 2;
+        rendered_length += 2;
     }
 
     let padding: usize = padding_count(options.width, rendered_length);

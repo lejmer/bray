@@ -409,6 +409,9 @@ fn operation_target(
         SelectedOperation::Operator { target, .. } => {
             operator_target(*target, symbols, semantic_values)
         }
+        SelectedOperation::CompoundAssignment(selection) => {
+            operator_target(selection.target(), symbols, semantic_values)
+        }
         SelectedOperation::Index { target, .. } => index_target(*target, symbols, semantic_values),
         SelectedOperation::Conversion(conversion) => Ok(InspectionSelectionTarget::Conversion {
             conversion: Box::new(inspection_conversion(conversion, symbols, semantic_values)?),

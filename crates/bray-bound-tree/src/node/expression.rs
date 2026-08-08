@@ -16,9 +16,9 @@ pub use call::{
     BoundFutureConstruction, BoundGenericArgument, BoundResolvedCall,
 };
 pub use category::{
-    BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundBinaryExpression,
-    BoundConversionExpression, BoundOperator, BoundSliceBounds, BoundStructuredExpression,
-    BoundStructuredExpressionKind, BoundUnaryExpression,
+    BoundAnonymousCallableExpression, BoundAssignmentExpression, BoundAssignmentOperator,
+    BoundBinaryExpression, BoundConversionExpression, BoundOperator, BoundSliceBounds,
+    BoundStructuredExpression, BoundStructuredExpressionKind, BoundUnaryExpression,
 };
 pub use construction::{BoundStructConstructionExpression, BoundStructFieldInitializer};
 pub use control::{BoundForExpression, BoundMatchArm, BoundMatchExpression};

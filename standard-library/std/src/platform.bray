@@ -339,7 +339,7 @@ internal func valid_context_payloads(
             return false;
         }
 
-        argument_index = argument_index + 1;
+        argument_index += 1;
     }
 
     let mut environment_index: usize = 0;
@@ -367,7 +367,7 @@ internal func valid_context_payloads(
             return false;
         }
 
-        environment_index = environment_index + 1;
+        environment_index += 1;
     }
 
     return true;
@@ -432,7 +432,7 @@ internal func valid_native_payload(pos buffer: &std.memory.RawBuffer<u8>, offset
             return false;
         }
 
-        index = index + unit_bytes;
+        index += unit_bytes;
     }
 
     return true;

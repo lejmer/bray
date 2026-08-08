@@ -224,8 +224,8 @@ mod tests {
     use bray_bound_tree::{
         BoundAssignmentExpression, BoundBlockItem, BoundControlTransferExpression,
         BoundControlTransferKind, BoundExpression, BoundForExpression, BoundGeneratorExpression,
-        BoundIterationSource, BoundMatchArm, BoundMatchExpression, BoundNodeOrigin, BoundOperator,
-        BoundPattern, BoundPatternKind, BoundPatternMode, BoundStructuredExpression,
+        BoundIterationSource, BoundMatchArm, BoundMatchExpression, BoundNodeOrigin, BoundPattern,
+        BoundPatternKind, BoundPatternMode, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundTreeBuilder, BoundTypeReference, BoundUnitId,
         ExpressionTypeResult, ExpressionTypeStatus, IterationSourceMode,
     };
@@ -945,7 +945,7 @@ mod tests {
                 tree,
                 BoundExpression::Assignment(BoundAssignmentExpression::new(
                     origin,
-                    BoundOperator::Assign,
+                    bray_bound_tree::BoundAssignmentOperator::Assign,
                     [target, value],
                     None,
                     false,

@@ -141,20 +141,22 @@ fn collect_operation_behavior(
     calls: &mut Vec<BodyBehaviorCall>,
     defaults: &mut Vec<ConstructionDefaultProvider>,
 ) {
-    match operation {
-        SelectedOperation::Operator {
-            target: OperatorTarget::Trait { fulfillment, .. },
-            ..
+    if let Some(target) = operation.operator_target() {
+        match target {
+            OperatorTarget::Trait { fulfillment, .. } => calls.push(invocation(fulfillment)),
+            OperatorTarget::TraitConstraint { member, .. } => calls.push(invocation(member)),
+            OperatorTarget::BuiltIn(_) => {}
         }
-        | SelectedOperation::Index {
+
+        return;
+    }
+
+    match operation {
+        SelectedOperation::Index {
             target: IndexTarget::Custom { fulfillment, .. },
             ..
         } => calls.push(invocation(*fulfillment)),
-        SelectedOperation::Operator {
-            target: OperatorTarget::TraitConstraint { member, .. },
-            ..
-        }
-        | SelectedOperation::Index {
+        SelectedOperation::Index {
             target: IndexTarget::TraitConstraint { member, .. },
             ..
         } => calls.push(invocation(*member)),
@@ -178,6 +180,7 @@ fn collect_operation_behavior(
         }
         SelectedOperation::Member(_)
         | SelectedOperation::Operator { .. }
+        | SelectedOperation::CompoundAssignment(_)
         | SelectedOperation::Index { .. }
         | SelectedOperation::Implementation(_) => {}
     }

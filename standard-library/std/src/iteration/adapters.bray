@@ -71,7 +71,7 @@ impl TakeIterator = Take<I, E>(Iterator)
         {
             case ?value
             {
-                self.remaining = self.remaining - 1;
+                self.remaining -= 1;
 
                 let mut result: E? = none;
 
@@ -102,7 +102,7 @@ impl SkipIterator = Skip<I, E>(Iterator)
 
             match consume item
             {
-                case ?_ { self.remaining = self.remaining - 1; }
+                case ?_ { self.remaining -= 1; }
                 case none
                 {
                     self.remaining = 0;

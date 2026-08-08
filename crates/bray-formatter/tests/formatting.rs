@@ -263,9 +263,7 @@ fn formats_generic_delimiters_prefix_operators_and_inline_collections() {
             "\n",
             "@test\n",
             "@abi(\"C\")\n",
-            "public async func transform<T, const N: i32>(pos value: i32 = 1, mut tail: bool) -> unit\n",
-            "{\n",
-            "}\n",
+            "public async func transform<T, const N: i32>(pos value: i32 = 1, mut tail: bool) -> unit {}\n",
             "\n",
             "func negate(value: i32) -> i32\n",
             "{\n",
@@ -475,6 +473,45 @@ fn keeps_simple_match_arm_bodies_inline_when_they_fit() {
 }
 
 #[test]
+fn keeps_empty_blocks_inline_only_when_they_fit() {
+    let output = formatted("module app; func noop() { } func check(value: bool) { if value { } }");
+
+    assert!(
+        output.text().contains("func noop() {}"),
+        "{}",
+        output.text()
+    );
+
+    assert!(output.text().contains("if value {}"), "{}", output.text());
+    assert!(!formatted(output.text()).changed());
+
+    let narrow = formatted_with_width(
+        "module app; func check() { if extraordinarily_long_condition { } }",
+        39,
+    );
+
+    assert!(
+        narrow
+            .text()
+            .contains("if extraordinarily_long_condition\n    {\n    }"),
+        "{}",
+        narrow.text()
+    );
+
+    assert!(!formatted_with_width(narrow.text(), 39).changed());
+
+    let commented = formatted("module app; func documented() { // Keep this comment.\n }");
+
+    assert!(
+        commented
+            .text()
+            .contains("func documented()\n{ // Keep this comment.\n}"),
+        "{}",
+        commented.text()
+    );
+}
+
+#[test]
 fn wraps_parenthesized_and_bracketed_lists_at_configured_width() {
     let source = concat!(
         "module app;",
@@ -647,7 +684,7 @@ fn editor_text_preserves_utf8_byte_order_mark() {
 
     assert_eq!(
         output.text().trim_start_matches('\u{feff}'),
-        "module editor;\n\nfunc main()\n{\n}\n"
+        "module editor;\n\nfunc main() {}\n"
     );
 }
 

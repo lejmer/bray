@@ -45,7 +45,7 @@ where
                 self.reference_access(id, target)?
             }
             BoundExpression::Assignment(assignment) => {
-                self.plan_assignment(id, assignment.operands())?
+                self.plan_assignment(id, assignment.operator(), assignment.operands())?
             }
             BoundExpression::Unary(expression) => self.plan_operator(id, expression.operands())?,
             BoundExpression::Binary(expression) => self.plan_operator(id, expression.operands())?,
@@ -283,13 +283,7 @@ where
         id: BoundExpressionId,
         operands: &[BoundExpressionId],
     ) -> Result<StorageAccessId, PlanError> {
-        let purpose = match self.selections.expression(id) {
-            Some(SemanticSelection::Operation(SelectedOperation::Operator {
-                target: OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. },
-                ..
-            })) => StorageAccessPurpose::Borrow(BorrowKind::Shared),
-            _ => StorageAccessPurpose::Read,
-        };
+        let purpose = self.operator_operand_purpose(id);
 
         for operand in operands {
             self.plan_expression(*operand, Some(purpose))?;
@@ -301,6 +295,7 @@ where
     fn plan_assignment(
         &mut self,
         id: BoundExpressionId,
+        operator: bray_bound_tree::BoundAssignmentOperator,
         operands: &[BoundExpressionId],
     ) -> Result<StorageAccessId, PlanError> {
         let Some((destination, values)) = operands.split_first() else {
@@ -311,6 +306,12 @@ where
 
         let destination_access =
             self.assignment_destination_access(*destination, destination_access)?;
+
+        if operator.binary_operator().is_some() {
+            let purpose = self.operator_operand_purpose(id);
+
+            self.record_purpose(*destination, Some(purpose), destination_access)?;
+        }
 
         self.record_purpose(
             *destination,
@@ -324,11 +325,34 @@ where
             destination_access,
         )?;
 
+        let value_purpose = if operator.binary_operator().is_some() {
+            self.operator_operand_purpose(id)
+        } else {
+            StorageAccessPurpose::ValueTransfer
+        };
+
         for value in values {
-            self.plan_expression(*value, Some(StorageAccessPurpose::ValueTransfer))?;
+            self.plan_expression(*value, Some(value_purpose))?;
         }
 
         self.temporary_access(id)
+    }
+
+    fn operator_operand_purpose(&self, id: BoundExpressionId) -> StorageAccessPurpose {
+        let target = self
+            .selections
+            .expression(id)
+            .and_then(|selection| match selection {
+                SemanticSelection::Operation(operation) => operation.operator_target(),
+                _ => None,
+            });
+
+        match target {
+            Some(OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. }) => {
+                StorageAccessPurpose::Borrow(BorrowKind::Shared)
+            }
+            Some(OperatorTarget::BuiltIn(_)) | None => StorageAccessPurpose::Read,
+        }
     }
 
     fn assignment_destination_access(

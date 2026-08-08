@@ -4,8 +4,8 @@ use bray_source::{
     TextSizeOverflow, leading_utf8_bom_len,
 };
 use bray_syntax::{
-    MatchArmSyntax, SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxText,
-    SyntaxToken, SyntaxTrivia, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
+    SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxText, SyntaxToken,
+    SyntaxTrivia, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
 };
 
 use super::block::BlockParagraphs;
@@ -17,6 +17,10 @@ use super::context::{
 use super::line_ending;
 use super::model::FormattedSource;
 use super::rewrite::simplify_nested_conditionals;
+use super::syntax::{
+    block_expression_is_empty, compact_match_arm_body_is_empty, is_callable_declaration_header,
+    is_close_delimiter, is_declaration_clause_keyword, is_open_delimiter,
+};
 use super::writer::FormatWriter;
 use crate::{FormatterConfiguration, FormatterRule};
 
@@ -127,6 +131,7 @@ struct Formatter<'source, 'configuration> {
     callable_header_group_indented: bool,
     callable_clause_indent_open: bool,
     compact_match_arms: Vec<CompactMatchArm>,
+    compact_empty_blocks: Vec<usize>,
     block_paragraphs: BlockParagraphs,
 }
 
@@ -161,6 +166,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             callable_header_group_indented: false,
             callable_clause_indent_open: false,
             compact_match_arms: Vec::new(),
+            compact_empty_blocks: Vec::new(),
             block_paragraphs: BlockParagraphs::new(
                 configuration.is_enabled(FormatterRule::BlockParagraphSpacing),
             ),
@@ -218,6 +224,14 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             });
         }
 
+        if node.kind() == SyntaxKind::BlockExpression
+            && self.configuration.is_enabled(FormatterRule::BlockBraces)
+            && block_expression_is_empty(node)
+        {
+            self.writer.begin_group();
+            self.compact_empty_blocks.push(self.nodes.len());
+        }
+
         self.nodes.push(node.kind());
 
         SyntaxWalkControl::Continue
@@ -270,6 +284,16 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             self.writer.end_group();
             self.writer.request_newlines(1);
             self.compact_match_arms.pop();
+        }
+
+        if node.kind() == SyntaxKind::BlockExpression
+            && self
+                .compact_empty_blocks
+                .last()
+                .is_some_and(|depth| *depth == self.nodes.len())
+        {
+            self.writer.end_group();
+            self.compact_empty_blocks.pop();
         }
 
         SyntaxWalkControl::Continue
@@ -406,6 +430,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
 
         let block_braces_enabled = self.configuration.is_enabled(FormatterRule::BlockBraces);
         let compact_match_arm_body = self.compact_match_arm_body();
+        let compact_empty_block = self.inside_compact_empty_block();
 
         let preserve_block_paragraph = source_line_breaks >= 2
             && self
@@ -459,6 +484,12 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             } else if source_space {
                 self.writer.request_space();
             }
+        } else if kind == SyntaxKind::CloseBraceToken && compact_empty_block {
+            if self.configuration.is_enabled(FormatterRule::Indentation) {
+                self.writer.decrease_indent();
+            }
+
+            self.writer.request_optional_break(false);
         } else if kind == SyntaxKind::CloseBraceToken
             && let Some(arm) = compact_match_arm_body
         {
@@ -473,6 +504,8 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             }
 
             self.writer.set_newlines(1);
+        } else if kind == SyntaxKind::OpenBraceToken && compact_empty_block {
+            self.writer.request_optional_break(true);
         } else if kind == SyntaxKind::OpenBraceToken && compact_match_arm_body.is_some() {
             self.writer.request_optional_break(true);
         } else if block_braces_enabled
@@ -492,7 +525,8 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         let mut spacing_enforced = block_brace && block_braces_enabled
             || list_delimiter && trailing_comma_layout
             || kind == SyntaxKind::CaseKeyword && self.compact_match_arm_active()
-            || self.inside_compact_match_arm_body();
+            || self.inside_compact_match_arm_body()
+            || compact_empty_block;
 
         if preserve_block_paragraph {
             self.writer.request_newlines(2);
@@ -538,6 +572,13 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
     ) {
         match kind {
             kind if is_open_delimiter(kind) && list_delimiter => {
+                if self.configuration.is_enabled(FormatterRule::Indentation) {
+                    self.writer.increase_indent();
+                }
+
+                self.writer.request_optional_break(false);
+            }
+            SyntaxKind::OpenBraceToken if self.inside_compact_empty_block() => {
                 if self.configuration.is_enabled(FormatterRule::Indentation) {
                     self.writer.increase_indent();
                 }
@@ -709,66 +750,12 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                 .count()
                 == 1
     }
-}
 
-fn compact_match_arm_body_is_empty(node: SyntaxNodeView<'_>) -> Option<bool> {
-    let arm = node.cast::<MatchArmSyntax>()?;
-    let body = arm.block_expression();
-    let mut items = body.block_items();
-
-    let Some(item) = items.next() else {
-        return Some(true);
-    };
-
-    if items.next().is_some()
-        || item.expression().is_none() && item.generator_iteration_expression().is_none()
-    {
-        return None;
+    fn inside_compact_empty_block(&self) -> bool {
+        self.compact_empty_blocks
+            .last()
+            .is_some_and(|depth| self.nodes.get(*depth) == Some(&SyntaxKind::BlockExpression))
     }
-
-    Some(false)
-}
-
-fn is_declaration_clause_keyword(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::RequiresKeyword
-            | SyntaxKind::EnsuresKeyword
-            | SyntaxKind::WithKeyword
-            | SyntaxKind::UsesKeyword
-    )
-}
-
-fn is_callable_declaration_header(nodes: &[SyntaxKind]) -> bool {
-    nodes
-        .iter()
-        .rev()
-        .skip(1)
-        .copied()
-        .find(|kind| {
-            is_callable_declaration(*kind)
-                || matches!(
-                    kind,
-                    SyntaxKind::CallableBodyBlockExpression
-                        | SyntaxKind::BlockExpression
-                        | SyntaxKind::LambdaExpression
-                )
-        })
-        .is_some_and(is_callable_declaration)
-}
-
-const fn is_open_delimiter(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::OpenParenToken | SyntaxKind::OpenBracketToken | SyntaxKind::LessToken
-    )
-}
-
-const fn is_close_delimiter(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::CloseParenToken | SyntaxKind::CloseBracketToken | SyntaxKind::GreaterToken
-    )
 }
 
 fn required_token_text<'source>(token: &SyntaxToken, source_text: &'source str) -> &'source str {

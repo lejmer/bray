@@ -10,12 +10,12 @@ pub use block::{
 pub use callable::{BoundCallableBody, BoundCallableBodyKind, BoundErrorCallableBody};
 pub use expression::{
     BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
-    BoundAwaitExpression, BoundAwaitResolution, BoundBinaryExpression, BoundBlockExpression,
-    BoundCallExpression, BoundCallResolution, BoundCallResult, BoundCallableTarget,
-    BoundControlTransferExpression, BoundControlTransferKind, BoundConversionExpression,
-    BoundErrorCallExpression, BoundErrorConversionExpression, BoundErrorExpression,
-    BoundExpression, BoundForExpression, BoundFutureComposition, BoundFutureConstruction,
-    BoundGeneratorExpression, BoundGenericArgument, BoundIterationSource,
+    BoundAssignmentOperator, BoundAwaitExpression, BoundAwaitResolution, BoundBinaryExpression,
+    BoundBlockExpression, BoundCallExpression, BoundCallResolution, BoundCallResult,
+    BoundCallableTarget, BoundControlTransferExpression, BoundControlTransferKind,
+    BoundConversionExpression, BoundErrorCallExpression, BoundErrorConversionExpression,
+    BoundErrorExpression, BoundExpression, BoundForExpression, BoundFutureComposition,
+    BoundFutureConstruction, BoundGeneratorExpression, BoundGenericArgument, BoundIterationSource,
     BoundLeadingDotVariantExpression, BoundLiteralExpression, BoundLiteralKind, BoundMatchArm,
     BoundMatchExpression, BoundMemberAccessExpression, BoundMemberSelector, BoundNameExpression,
     BoundOperator, BoundPatternReferenceExpression, BoundReferenceTarget, BoundResolvedCall,

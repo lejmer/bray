@@ -86,7 +86,7 @@ The state at the start of a repeated condition evaluation must be coherent with 
 while index < items.count()
 {
     process(items.at(index));
-    index = index + 1;
+    index += 1;
 }
 ```
 
@@ -100,7 +100,7 @@ let found: Item? = while index < items.count()
         break item;
     }
 
-    index = index + 1;
+    index += 1;
 }
 else
 {

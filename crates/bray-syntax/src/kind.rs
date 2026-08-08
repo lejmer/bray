@@ -418,6 +418,18 @@ pub enum SyntaxKind {
     LessLessToken,
     GreaterGreaterToken,
     StarStarToken,
+    PlusEqualsToken,
+    MinusEqualsToken,
+    StarEqualsToken,
+    SlashEqualsToken,
+    PercentEqualsToken,
+    AtEqualsToken,
+    AmpersandEqualsToken,
+    PipeEqualsToken,
+    CaretEqualsToken,
+    LessLessEqualsToken,
+    GreaterGreaterEqualsToken,
+    StarStarEqualsToken,
     DotDotToken,
     OpenParenToken,
     CloseParenToken,
@@ -734,6 +746,18 @@ impl SyntaxKind {
         matches!(
             self,
             Self::EqualsToken
+                | Self::PlusEqualsToken
+                | Self::MinusEqualsToken
+                | Self::StarEqualsToken
+                | Self::SlashEqualsToken
+                | Self::PercentEqualsToken
+                | Self::AtEqualsToken
+                | Self::AmpersandEqualsToken
+                | Self::PipeEqualsToken
+                | Self::CaretEqualsToken
+                | Self::LessLessEqualsToken
+                | Self::GreaterGreaterEqualsToken
+                | Self::StarStarEqualsToken
                 | Self::PipePipeToken
                 | Self::AmpersandAmpersandToken
                 | Self::EqualsEqualsToken
@@ -1040,6 +1064,18 @@ impl SyntaxKind {
             Self::LessLessToken => "less_less_token",
             Self::GreaterGreaterToken => "greater_greater_token",
             Self::StarStarToken => "star_star_token",
+            Self::PlusEqualsToken => "plus_equals_token",
+            Self::MinusEqualsToken => "minus_equals_token",
+            Self::StarEqualsToken => "star_equals_token",
+            Self::SlashEqualsToken => "slash_equals_token",
+            Self::PercentEqualsToken => "percent_equals_token",
+            Self::AtEqualsToken => "at_equals_token",
+            Self::AmpersandEqualsToken => "ampersand_equals_token",
+            Self::PipeEqualsToken => "pipe_equals_token",
+            Self::CaretEqualsToken => "caret_equals_token",
+            Self::LessLessEqualsToken => "less_less_equals_token",
+            Self::GreaterGreaterEqualsToken => "greater_greater_equals_token",
+            Self::StarStarEqualsToken => "star_star_equals_token",
             Self::DotDotToken => "dot_dot_token",
             Self::OpenParenToken => "open_paren_token",
             Self::CloseParenToken => "close_paren_token",

@@ -125,7 +125,7 @@ func find<Sequence>(pos values: &Sequence, pos value: &Sequence(OrderedSequence)
             return result;
         }
 
-        index = index + 1;
+        index += 1;
     }
 
     return none;
@@ -177,10 +177,10 @@ func sort_stable<Sequence>(pos values: &mut Sequence) -> unit
             }
 
             values.swap_indices(current - 1, current);
-            current = current - 1;
+            current -= 1;
         }
 
-        index = index + 1;
+        index += 1;
     }
 }
 
@@ -202,7 +202,7 @@ func sort_unstable<Sequence>(pos values: &mut Sequence) -> unit
                 minimum_index = candidate;
             }
 
-            candidate = candidate + 1;
+            candidate += 1;
         }
 
         if minimum_index != index
@@ -210,6 +210,6 @@ func sort_unstable<Sequence>(pos values: &mut Sequence) -> unit
             values.swap_indices(index, minimum_index);
         }
 
-        index = index + 1;
+        index += 1;
     }
 }

@@ -47,7 +47,7 @@ impl Parser {
     ) -> ExpressionSyntax {
         let left = self.parse_non_assignment_expression_until(at_boundary);
 
-        if at_boundary(self) || !self.at(SyntaxKind::EqualsToken) {
+        if at_boundary(self) || !at_assignment_operator(self.peek().kind()) {
             return left;
         }
 
@@ -55,7 +55,7 @@ impl Parser {
         let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
 
         builder.push_expression(left);
-        builder.push_operator_token(self.expect(SyntaxKind::EqualsToken));
+        builder.push_operator_token(self.consume());
         builder.push_expression(self.parse_expression_until(at_boundary));
 
         builder.build()
@@ -141,6 +141,25 @@ impl Parser {
 
 pub(in crate::parser::expression) fn at_infix_operator(kind: SyntaxKind) -> bool {
     infix_operator(kind).is_some()
+}
+
+fn at_assignment_operator(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::EqualsToken
+            | SyntaxKind::PlusEqualsToken
+            | SyntaxKind::MinusEqualsToken
+            | SyntaxKind::StarEqualsToken
+            | SyntaxKind::SlashEqualsToken
+            | SyntaxKind::PercentEqualsToken
+            | SyntaxKind::AtEqualsToken
+            | SyntaxKind::AmpersandEqualsToken
+            | SyntaxKind::PipeEqualsToken
+            | SyntaxKind::CaretEqualsToken
+            | SyntaxKind::LessLessEqualsToken
+            | SyntaxKind::GreaterGreaterEqualsToken
+            | SyntaxKind::StarStarEqualsToken
+    )
 }
 
 fn infix_operator(kind: SyntaxKind) -> Option<InfixOperator> {
@@ -253,6 +272,44 @@ mod tests {
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parser_preserves_every_compound_assignment_operator() {
+        let cases = [
+            ("+=", SyntaxKind::PlusEqualsToken),
+            ("-=", SyntaxKind::MinusEqualsToken),
+            ("*=", SyntaxKind::StarEqualsToken),
+            ("/=", SyntaxKind::SlashEqualsToken),
+            ("%=", SyntaxKind::PercentEqualsToken),
+            ("@=", SyntaxKind::AtEqualsToken),
+            ("&=", SyntaxKind::AmpersandEqualsToken),
+            ("|=", SyntaxKind::PipeEqualsToken),
+            ("^=", SyntaxKind::CaretEqualsToken),
+            ("<<=", SyntaxKind::LessLessEqualsToken),
+            (">>=", SyntaxKind::GreaterGreaterEqualsToken),
+            ("**=", SyntaxKind::StarStarEqualsToken),
+        ];
+
+        for (spelling, kind) in cases {
+            let source_text = format!("left {spelling} right;");
+            let sources = source_store([source_text.as_str()]);
+            let snapshot = source(&sources, 0);
+            let mut parser = Parser::new(snapshot);
+            let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+
+            let expression = parser.parse_expression_until(&mut boundary);
+            let diagnostics = parser.finish();
+
+            assert_eq!(expression.full_text(), format!("left {spelling} right"));
+
+            assert_eq!(
+                expression.operator_token().map(|token| token.kind()),
+                Some(kind)
+            );
+
+            assert!(diagnostics.is_empty(), "{spelling}: {diagnostics:?}");
+        }
     }
 
     #[test]

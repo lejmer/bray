@@ -6,12 +6,17 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "src/environment.rs"]
+mod environment;
+
+use environment::LLVM_PREFIX_ENVIRONMENT_VARIABLE;
+
 const LLVM_REVISION: &str = "22.1.8";
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-env-changed=LLVM_SYS_221_PREFIX");
+    println!("cargo:rerun-if-env-changed={LLVM_PREFIX_ENVIRONMENT_VARIABLE}");
 
-    let prefix = PathBuf::from(env::var("LLVM_SYS_221_PREFIX")?);
+    let prefix = PathBuf::from(env::var(LLVM_PREFIX_ENVIRONMENT_VARIABLE)?);
     let config = llvm_config(&prefix);
     let version = command_output(&config, "--version")?;
 

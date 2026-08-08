@@ -559,7 +559,7 @@ mod tests {
     #[test]
     fn operator_and_punctuation_tokens_use_longest_matching() {
         let tokens = token_stream(
-            "-> == != <= >= && || << >> ** .. ( ) { } [ ] , ; : . ? = + - * / % @ & | ^ ~ ! < > _",
+            "-> == != <= >= && || << >> ** += -= *= /= %= @= &= |= ^= <<= >>= **= .. ( ) { } [ ] , ; : . ? = + - * / % @ & | ^ ~ ! < > _",
         );
 
         assert_eq!(
@@ -575,6 +575,18 @@ mod tests {
                 SyntaxKind::LessLessToken,
                 SyntaxKind::GreaterGreaterToken,
                 SyntaxKind::StarStarToken,
+                SyntaxKind::PlusEqualsToken,
+                SyntaxKind::MinusEqualsToken,
+                SyntaxKind::StarEqualsToken,
+                SyntaxKind::SlashEqualsToken,
+                SyntaxKind::PercentEqualsToken,
+                SyntaxKind::AtEqualsToken,
+                SyntaxKind::AmpersandEqualsToken,
+                SyntaxKind::PipeEqualsToken,
+                SyntaxKind::CaretEqualsToken,
+                SyntaxKind::LessLessEqualsToken,
+                SyntaxKind::GreaterGreaterEqualsToken,
+                SyntaxKind::StarStarEqualsToken,
                 SyntaxKind::DotDotToken,
                 SyntaxKind::OpenParenToken,
                 SyntaxKind::CloseParenToken,

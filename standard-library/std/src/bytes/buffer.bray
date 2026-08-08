@@ -87,7 +87,7 @@ func equals(pos left: &[u8], pos right: &[u8]) -> bool
             return false;
         }
 
-        index = index + 1;
+        index += 1;
     }
 
     return true;

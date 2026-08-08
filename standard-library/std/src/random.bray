@@ -66,11 +66,11 @@ struct Generator
             let result: u64 = wrapping_multiply(left = rotated, right = 9);
             let shifted: u64 = self.state1 << 17;
 
-            self.state2 = self.state2 ^ self.state0;
-            self.state3 = self.state3 ^ self.state1;
-            self.state1 = self.state1 ^ self.state2;
-            self.state0 = self.state0 ^ self.state3;
-            self.state2 = self.state2 ^ shifted;
+            self.state2 ^= self.state0;
+            self.state3 ^= self.state1;
+            self.state1 ^= self.state2;
+            self.state0 ^= self.state3;
+            self.state2 ^= shifted;
             self.state3 = rotate_left(value = self.state3, distance = 45);
 
             return result;
@@ -92,9 +92,10 @@ struct Generator
                 }
 
                 destination[index] = std.truncate_to<u8>(value);
-                value = value >> 8;
-                available = available - 1;
-                index = index + 1;
+
+                value >>= 8;
+                available -= 1;
+                index += 1;
             }
         }
     }
@@ -157,9 +158,9 @@ struct Generator
 
             while index < 8
             {
-                value = value + seed[start + index] as u128 * multiplier;
-                multiplier = multiplier * 256;
-                index = index + 1;
+                value += seed[start + index] as u128 * multiplier;
+                multiplier *= 256;
+                index += 1;
             }
 
             return std.truncate_to<u64>(value);

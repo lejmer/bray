@@ -9,8 +9,6 @@ use crate::{BoundBlockId, BoundExpressionId, BoundNodeOrigin, BoundPatternId, Bo
 /// A source operator classified independently from parser token representation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundOperator {
-    /// Simple assignment.
-    Assign,
     /// Short-circuit logical disjunction.
     LogicalOr,
     /// Short-circuit logical conjunction.
@@ -55,6 +53,37 @@ pub enum BoundOperator {
     BitwiseNot,
     /// Logical negation.
     LogicalNot,
+}
+
+/// A source assignment operator classified independently from parser token representation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BoundAssignmentOperator {
+    /// Replace the destination value.
+    Assign,
+    /// Add to the destination value.
+    Add,
+    /// Subtract from the destination value.
+    Subtract,
+    /// Multiply the destination value.
+    Multiply,
+    /// Divide the destination value.
+    Divide,
+    /// Replace the destination with the division remainder.
+    Remainder,
+    /// Matrix-multiply the destination value.
+    MatrixMultiply,
+    /// Exponentiate the destination value.
+    Exponentiate,
+    /// Apply bitwise conjunction to the destination value.
+    BitwiseAnd,
+    /// Apply bitwise disjunction to the destination value.
+    BitwiseOr,
+    /// Apply bitwise exclusive disjunction to the destination value.
+    BitwiseXor,
+    /// Shift the destination value left.
+    ShiftLeft,
+    /// Shift the destination value right.
+    ShiftRight,
 }
 
 macro_rules! define_operator_expression {
@@ -117,7 +146,60 @@ macro_rules! define_operator_expression {
 
 define_operator_expression!(BoundUnaryExpression, "A source unary operation.");
 define_operator_expression!(BoundBinaryExpression, "A source binary operation.");
-define_operator_expression!(BoundAssignmentExpression, "A source assignment operation.");
+
+/// A source assignment operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundAssignmentExpression {
+    origin: BoundNodeOrigin,
+    operator: BoundAssignmentOperator,
+    operands: Arc<[BoundExpressionId]>,
+    ty: Option<TypeId>,
+    is_recovered: bool,
+}
+
+impl BoundAssignmentExpression {
+    /// Creates an assignment expression with source-ordered operands.
+    pub fn new(
+        origin: BoundNodeOrigin,
+        operator: BoundAssignmentOperator,
+        operands: impl IntoIterator<Item = BoundExpressionId>,
+        ty: Option<TypeId>,
+        is_recovered: bool,
+    ) -> Self {
+        Self {
+            origin,
+            operator,
+            operands: shared_slice(operands),
+            ty,
+            is_recovered,
+        }
+    }
+
+    /// Returns the source or synthesized origin.
+    pub const fn origin(&self) -> BoundNodeOrigin {
+        self.origin
+    }
+
+    /// Returns the source assignment operator.
+    pub const fn operator(&self) -> BoundAssignmentOperator {
+        self.operator
+    }
+
+    /// Returns operands in evaluation order.
+    pub fn operands(&self) -> &[BoundExpressionId] {
+        &self.operands
+    }
+
+    /// Returns the checked or recovery type.
+    pub const fn ty(&self) -> Option<TypeId> {
+        self.ty
+    }
+
+    /// Returns whether recovery contributed to this expression.
+    pub const fn is_recovered(&self) -> bool {
+        self.is_recovered
+    }
+}
 
 /// An explicit conversion retaining its operand and resolved target type when available.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -286,7 +368,6 @@ impl BoundOperator {
     /// Returns this operator's stable machine-readable name.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Assign => "assign",
             Self::LogicalOr => "logical_or",
             Self::LogicalAnd => "logical_and",
             Self::Equal => "equal",
@@ -309,6 +390,46 @@ impl BoundOperator {
             Self::Exponentiate => "exponentiate",
             Self::BitwiseNot => "bitwise_not",
             Self::LogicalNot => "logical_not",
+        }
+    }
+}
+
+impl BoundAssignmentOperator {
+    /// Returns the binary operation applied by a compound assignment.
+    pub const fn binary_operator(self) -> Option<BoundOperator> {
+        match self {
+            Self::Assign => None,
+            Self::Add => Some(BoundOperator::Add),
+            Self::Subtract => Some(BoundOperator::Subtract),
+            Self::Multiply => Some(BoundOperator::Multiply),
+            Self::Divide => Some(BoundOperator::Divide),
+            Self::Remainder => Some(BoundOperator::Remainder),
+            Self::MatrixMultiply => Some(BoundOperator::MatrixMultiply),
+            Self::Exponentiate => Some(BoundOperator::Exponentiate),
+            Self::BitwiseAnd => Some(BoundOperator::BitwiseAnd),
+            Self::BitwiseOr => Some(BoundOperator::BitwiseOr),
+            Self::BitwiseXor => Some(BoundOperator::BitwiseXor),
+            Self::ShiftLeft => Some(BoundOperator::ShiftLeft),
+            Self::ShiftRight => Some(BoundOperator::ShiftRight),
+        }
+    }
+
+    /// Returns this assignment operator's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Assign => "assign",
+            Self::Add => "add",
+            Self::Subtract => "subtract",
+            Self::Multiply => "multiply",
+            Self::Divide => "divide",
+            Self::Remainder => "remainder",
+            Self::MatrixMultiply => "matrix_multiply",
+            Self::Exponentiate => "exponentiate",
+            Self::BitwiseAnd => "bitwise_and",
+            Self::BitwiseOr => "bitwise_or",
+            Self::BitwiseXor => "bitwise_xor",
+            Self::ShiftLeft => "shift_left",
+            Self::ShiftRight => "shift_right",
         }
     }
 }

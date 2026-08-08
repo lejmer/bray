@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundOperator, CheckedExpressionTypes, OperatorTarget,
-    SelectedOperation, SemanticSelection, SemanticSelectionEntry,
+    SelectedCompoundAssignment, SelectedOperation, SemanticSelection, SemanticSelectionEntry,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{TypeData, TypeId};
@@ -14,6 +14,13 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 pub(super) struct PreparedBuiltInOperator {
     expression: BoundExpressionId,
     operator: BoundOperator,
+    kind: PreparedBuiltInOperatorKind,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum PreparedBuiltInOperatorKind {
+    Ordinary,
+    CompoundAssignment,
 }
 
 impl PreparedBuiltInOperator {
@@ -21,13 +28,17 @@ impl PreparedBuiltInOperator {
         expression: BoundExpressionId,
         bound: &BoundExpression,
     ) -> Option<Self> {
-        let operator = match bound {
+        let (operator, kind) = match bound {
             BoundExpression::Unary(expression) if expression.operands().len() == 1 => {
-                expression.operator()
+                (expression.operator(), PreparedBuiltInOperatorKind::Ordinary)
             }
             BoundExpression::Binary(expression) if expression.operands().len() == 2 => {
-                expression.operator()
+                (expression.operator(), PreparedBuiltInOperatorKind::Ordinary)
             }
+            BoundExpression::Assignment(expression) if expression.operands().len() == 2 => (
+                expression.operator().binary_operator()?,
+                PreparedBuiltInOperatorKind::CompoundAssignment,
+            ),
             _ => return None,
         };
 
@@ -58,6 +69,7 @@ impl PreparedBuiltInOperator {
         .then_some(Self {
             expression,
             operator,
+            kind,
         })
     }
 
@@ -80,6 +92,22 @@ where
         let Some(expression) = request.view().expression(operation.expression) else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
+
+        if operation.kind == PreparedBuiltInOperatorKind::CompoundAssignment {
+            if let Some(ty) = numeric_operation_type(
+                request,
+                operation.expression,
+                expression,
+                operation.operator,
+                session,
+            )? {
+                for operand in expression.child_expressions() {
+                    session.add_expectation(operand, ty)?;
+                }
+            }
+
+            continue;
+        }
 
         if is_boolean_result_operator(operation.operator) {
             session.add_evidence(operation.expression, boolean)?;
@@ -117,31 +145,43 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     for operation in prepared {
-        let Some(BoundExpression::Binary(expression)) =
-            request.view().expression(operation.expression)
-        else {
-            continue;
+        let Some(source) = request.view().expression(operation.expression) else {
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
-        let [left, right] = expression.operands() else {
+        let operands = match source {
+            BoundExpression::Binary(expression) => expression.operands(),
+            BoundExpression::Assignment(expression)
+                if operation.kind == PreparedBuiltInOperatorKind::CompoundAssignment =>
+            {
+                expression.operands()
+            }
+            _ => continue,
+        };
+
+        let [left, right] = operands else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
         };
 
         if let Some(ty) = built_in_operand_type(request, types, *left, operation.operator)? {
             add_operand_expectation(request, session, *right, ty)?;
 
-            session.add_evidence(
-                operation.expression,
-                result_type(request, operation.operator, ty)?,
-            )?;
+            if operation.kind == PreparedBuiltInOperatorKind::Ordinary {
+                session.add_evidence(
+                    operation.expression,
+                    result_type(request, operation.operator, ty)?,
+                )?;
+            }
         } else if let Some(ty) = built_in_operand_type(request, types, *right, operation.operator)?
         {
             add_operand_expectation(request, session, *left, ty)?;
 
-            session.add_evidence(
-                operation.expression,
-                result_type(request, operation.operator, ty)?,
-            )?;
+            if operation.kind == PreparedBuiltInOperatorKind::Ordinary {
+                session.add_evidence(
+                    operation.expression,
+                    result_type(request, operation.operator, ty)?,
+                )?;
+            }
         }
     }
 
@@ -163,12 +203,32 @@ where
             continue;
         };
 
+        let target = OperatorTarget::BuiltIn(operation.operator);
+
+        let selection = if operation.kind == PreparedBuiltInOperatorKind::CompoundAssignment {
+            let Some(assignment_type) = types
+                .expression(operation.expression)
+                .filter(|result| !result.is_recovered())
+                .map(bray_bound_tree::ExpressionTypeResult::ty)
+            else {
+                continue;
+            };
+
+            SelectedOperation::CompoundAssignment(SelectedCompoundAssignment::new(
+                target,
+                result_type,
+                assignment_type,
+            ))
+        } else {
+            SelectedOperation::Operator {
+                target,
+                result_type,
+            }
+        };
+
         entries.push(SemanticSelectionEntry::new(
             operation.expression,
-            SemanticSelection::Operation(SelectedOperation::Operator {
-                target: OperatorTarget::BuiltIn(operation.operator),
-                result_type,
-            }),
+            SemanticSelection::Operation(selection),
         ));
     }
 

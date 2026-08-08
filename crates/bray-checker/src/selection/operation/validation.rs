@@ -21,17 +21,27 @@ pub(super) fn validate_operation_instances<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    match operation {
-        SelectedOperation::Operator {
-            target:
-                OperatorTarget::Trait {
-                    member,
-                    fulfillment,
-                    ..
-                },
-            ..
+    if let Some(target) = operation.operator_target() {
+        match target {
+            OperatorTarget::Trait {
+                member,
+                fulfillment,
+                ..
+            } => {
+                validate_trait_callable_instance(request, member)?;
+                validate_trait_callable_fulfillment(request, fulfillment)?;
+            }
+            OperatorTarget::TraitConstraint { member, .. } => {
+                validate_trait_callable_instance(request, member)?;
+            }
+            OperatorTarget::BuiltIn(_) => {}
         }
-        | SelectedOperation::Index {
+
+        return Ok(());
+    }
+
+    match operation {
+        SelectedOperation::Index {
             target:
                 IndexTarget::Custom {
                     member,
@@ -43,11 +53,7 @@ where
             validate_trait_callable_instance(request, *member)?;
             validate_trait_callable_fulfillment(request, *fulfillment)?;
         }
-        SelectedOperation::Operator {
-            target: OperatorTarget::TraitConstraint { member, .. },
-            ..
-        }
-        | SelectedOperation::Index {
+        SelectedOperation::Index {
             target: IndexTarget::TraitConstraint { member, .. },
             ..
         } => validate_trait_callable_instance(request, *member)?,
@@ -61,6 +67,7 @@ where
         }
         SelectedOperation::Member(_)
         | SelectedOperation::Operator { .. }
+        | SelectedOperation::CompoundAssignment(_)
         | SelectedOperation::Index { .. }
         | SelectedOperation::Implementation(_) => {}
     }
@@ -279,46 +286,50 @@ fn collect_compiler_known_operations<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    match operation {
-        SelectedOperation::Operator {
-            target:
-                OperatorTarget::Trait {
-                    operator,
-                    member,
-                    requirement,
-                    ..
-                }
-                | OperatorTarget::TraitConstraint {
-                    operator,
-                    member,
-                    requirement,
-                    ..
-                },
-            result_type,
-        } => {
+    if let (Some(target), Some(result_type)) =
+        (operation.operator_target(), operation.operator_value_type())
+    {
+        if let OperatorTarget::Trait {
+            operator,
+            member,
+            requirement,
+            ..
+        }
+        | OperatorTarget::TraitConstraint {
+            operator,
+            member,
+            requirement,
+            ..
+        } = target
+        {
             let Some((receiver, parameter_types)) = actual_types.split_first() else {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
             };
 
-            let role = compiler_known_operation_role(expression, *operator)
+            let role = compiler_known_operation_role(expression, operator)
                 .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
             let callable_result = if role == CompilerKnownOperationRole::Comparison {
                 RequiredCallableResult::FixedContractType
             } else {
-                RequiredCallableResult::Expression(*result_type)
+                RequiredCallableResult::Expression(result_type)
             };
 
             required.push(RequiredTraitOperation::Callable {
                 role,
-                requirement: *requirement,
-                callable: *member,
+                requirement,
+                callable: member,
                 receiver: receiver.ty(),
                 parameter_types: parameter_types.iter().map(|result| result.ty()).collect(),
                 callable_result,
                 receiver_mode: ReceiverMode::Shared,
             });
         }
+
+        return Ok(());
+    }
+
+    match operation {
         SelectedOperation::Index {
             target:
                 IndexTarget::Custom {
@@ -374,6 +385,7 @@ where
         }
         SelectedOperation::Member(_)
         | SelectedOperation::Operator { .. }
+        | SelectedOperation::CompoundAssignment(_)
         | SelectedOperation::Index { .. }
         | SelectedOperation::Construction(_)
         | SelectedOperation::Implementation(_) => {}

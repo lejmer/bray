@@ -272,6 +272,30 @@ fn push_operation_dependencies(
 ) -> Result<bool, FactQueryError> {
     let mut exposes_internal = false;
 
+    if let Some(target) = operation.operator_target() {
+        if let OperatorTarget::Trait {
+            member,
+            fulfillment,
+            requirement,
+            witness,
+            ..
+        } = target
+        {
+            exposes_internal |= push_trait_operation_dependencies(
+                semantic_values,
+                symbols,
+                declarations,
+                member,
+                fulfillment,
+                requirement,
+                witness,
+                dependencies,
+            )?;
+        }
+
+        return Ok(exposes_internal);
+    }
+
     match operation {
         SelectedOperation::Member(target) => {
             dependencies.push(target.member());
@@ -293,18 +317,7 @@ fn push_operation_dependencies(
                 )?;
             }
         }
-        SelectedOperation::Operator {
-            target:
-                OperatorTarget::Trait {
-                    member,
-                    fulfillment,
-                    requirement,
-                    witness,
-                    ..
-                },
-            ..
-        }
-        | SelectedOperation::Index {
+        SelectedOperation::Index {
             target:
                 IndexTarget::Custom {
                     member,
@@ -314,28 +327,20 @@ fn push_operation_dependencies(
                 },
             ..
         } => {
-            dependencies.push(member.definition().symbol());
-            dependencies.push(fulfillment.definition().symbol());
-
-            exposes_internal |=
-                callable_instance_exposes_internal(*member, semantic_values, symbols, declarations);
-
-            exposes_internal |= callable_instance_exposes_internal(
+            exposes_internal |= push_trait_operation_dependencies(
+                semantic_values,
+                symbols,
+                declarations,
+                *member,
                 *fulfillment,
-                semantic_values,
-                symbols,
-                declarations,
-            );
-
-            exposes_internal |= push_witness_dependencies(
-                semantic_values,
-                symbols,
-                declarations,
-                SelectedImplementationWitness::new(*requirement, *witness),
+                *requirement,
+                *witness,
                 dependencies,
             )?;
         }
-        SelectedOperation::Operator { .. } | SelectedOperation::Index { .. } => {}
+        SelectedOperation::Operator { .. }
+        | SelectedOperation::CompoundAssignment(_)
+        | SelectedOperation::Index { .. } => {}
         SelectedOperation::Construction(construction) => {
             exposes_internal |= push_construction_dependencies(
                 semantic_values,
@@ -364,6 +369,40 @@ fn push_operation_dependencies(
             )?;
         }
     }
+
+    Ok(exposes_internal)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "trait operation dependencies retain both callable instances and their witness"
+)]
+fn push_trait_operation_dependencies(
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+    member: bray_symbols::CallableInstanceData,
+    fulfillment: bray_symbols::CallableInstanceData,
+    requirement: bray_symbols::ImplementationRequirementKey,
+    witness: bray_symbols::ImplementationInstanceId,
+    dependencies: &mut Vec<AnySymbolId>,
+) -> Result<bool, FactQueryError> {
+    dependencies.push(member.definition().symbol());
+    dependencies.push(fulfillment.definition().symbol());
+
+    let mut exposes_internal =
+        callable_instance_exposes_internal(member, semantic_values, symbols, declarations);
+
+    exposes_internal |=
+        callable_instance_exposes_internal(fulfillment, semantic_values, symbols, declarations);
+
+    exposes_internal |= push_witness_dependencies(
+        semantic_values,
+        symbols,
+        declarations,
+        SelectedImplementationWitness::new(requirement, witness),
+        dependencies,
+    )?;
 
     Ok(exposes_internal)
 }

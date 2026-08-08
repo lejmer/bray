@@ -21,8 +21,17 @@ Assignment requires mutation authority over the destination access path.
 On normal completion, assignment returns `unit`.
 
 ```bray
-counter.value = counter.value + 1;
+counter.value += 1;
 ```
+
+Compound assignment applies a binary operation to the current destination value and the right-side value, then assigns the operation
+result back to the destination. Bray provides `+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, and `**=`.
+
+Each compound assignment uses the same built-in or trait-backed operation as its binary operator. The operation result must be
+compatible with the destination type.
+
+The destination access path is evaluated exactly once. Compound assignment reads the established destination before evaluating the
+right side and writes the operation result after the right side completes normally.
 
 The destination access path can be a local binding access path, field access path, indexed access path, active union payload field access path, or another expression form that produces an assignable access path.
 
