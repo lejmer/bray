@@ -576,18 +576,18 @@ mod tests {
             DiagnosticKind::CheckingIncompatibleExpressionType,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::expected_type(
-            DiagnosticType::Named(DiagnosticNamedType::new(
+        .with_arg(DiagnosticArg::expected_type(DiagnosticType::Named(
+            DiagnosticNamedType::new(
                 [String::from("collection"), String::from("MoveCursor")],
                 [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
-            )),
-        ))
-        .with_arg(DiagnosticArg::actual_type(
-            DiagnosticType::Named(DiagnosticNamedType::new(
+            ),
+        )))
+        .with_arg(DiagnosticArg::actual_type(DiagnosticType::Named(
+            DiagnosticNamedType::new(
                 [String::from("collection"), String::from("ReadCursor")],
                 [DiagnosticTypeArgument::Type(DiagnosticType::I32)],
-            )),
-        ));
+            ),
+        )));
 
         let selection_diagnostic = Diagnostic::new(
             DiagnosticId::new(1),

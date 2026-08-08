@@ -1,11 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencyGuard, BoundDependencyRequirement, BoundDependencySubject,
-    BoundExpression, BoundExpressionId, BoundUnit, CheckedMemoryOperations,
-    CheckedSemanticSelections, DependencyContractInstantiationError, LastUse, LiveAcrossScope,
-    LiveAcrossSuspension, LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding,
-    StoragePlan,
+    AnyBoundNodeId, BoundDependencyRequirement, BoundDependencySubject, BoundExpression,
+    BoundExpressionId, BoundUnit, CheckedMemoryOperations, CheckedSemanticSelections,
+    DependencyContractInstantiationError, LastUse, LiveAcrossScope, LiveAcrossSuspension,
+    LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding, StoragePlan,
 };
 use bray_symbols::{CallableSignatureFact, TypeData};
 
@@ -441,18 +440,7 @@ fn collect_dependency_subjects(
                 }
             }
             BoundDependencyRequirement::Guarded(requirement) => {
-                let guard = match requirement.guard() {
-                    BoundDependencyGuard::NullablePresent(access)
-                    | BoundDependencyGuard::ActiveUnionVariant { access, .. } => {
-                        BoundDependencySubject::StorageAccess(access)
-                    }
-                    BoundDependencyGuard::BorrowCapabilityActive(capability) => {
-                        BoundDependencySubject::BorrowCapability(capability)
-                    }
-                    BoundDependencyGuard::ScopedCapabilityLive(capability) => {
-                        BoundDependencySubject::ScopedCapability(capability)
-                    }
-                };
+                let guard = requirement.guard().subject();
 
                 subjects.insert(guard);
                 collect_dependency_subjects(requirement.requirements(), storage, subjects);

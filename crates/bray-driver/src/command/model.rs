@@ -159,6 +159,23 @@ pub enum DriverCommand {
     },
 }
 
+macro_rules! with_command_files {
+    ($command:expr, $files:ident => $result:expr) => {
+        match $command {
+            DriverCommand::Build { files: $files, .. }
+            | DriverCommand::Check { files: $files, .. }
+            | DriverCommand::InspectSource { files: $files }
+            | DriverCommand::InspectTokens { files: $files }
+            | DriverCommand::InspectSyntax { files: $files }
+            | DriverCommand::InspectDeclarations { files: $files }
+            | DriverCommand::InspectSymbols { files: $files }
+            | DriverCommand::InspectBound { files: $files, .. }
+            | DriverCommand::InspectLowered { files: $files, .. }
+            | DriverCommand::InspectMir { files: $files, .. } => $result,
+        }
+    };
+}
+
 impl DriverCommand {
     /// Creates a product build command.
     pub fn build(configuration: DriverProductConfiguration, files: Vec<PathBuf>) -> Self {
@@ -234,18 +251,7 @@ impl DriverCommand {
 
     /// Returns the command's source file paths.
     pub fn files(&self) -> &[PathBuf] {
-        match self {
-            Self::Build { files, .. }
-            | Self::Check { files, .. }
-            | Self::InspectSource { files }
-            | Self::InspectTokens { files }
-            | Self::InspectSyntax { files }
-            | Self::InspectDeclarations { files }
-            | Self::InspectSymbols { files }
-            | Self::InspectBound { files, .. }
-            | Self::InspectLowered { files, .. }
-            | Self::InspectMir { files, .. } => files,
-        }
+        with_command_files!(self, files => files)
     }
 
     /// Returns the source and optional position selected for semantic-unit inspection.
@@ -267,18 +273,7 @@ impl DriverCommand {
     }
 
     pub(crate) fn into_files(self) -> Vec<PathBuf> {
-        match self {
-            Self::Build { files, .. }
-            | Self::Check { files, .. }
-            | Self::InspectSource { files }
-            | Self::InspectTokens { files }
-            | Self::InspectSyntax { files }
-            | Self::InspectDeclarations { files }
-            | Self::InspectSymbols { files }
-            | Self::InspectBound { files, .. }
-            | Self::InspectLowered { files, .. }
-            | Self::InspectMir { files, .. } => files,
-        }
+        with_command_files!(self, files => files)
     }
 
     /// Returns the package-interface destination requested by a check command.

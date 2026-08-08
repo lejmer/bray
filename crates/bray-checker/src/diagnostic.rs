@@ -140,11 +140,7 @@ where
         .generic_substitution_data(substitution)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let path = symbol_module_path(key)
-        .into_iter()
-        .flat_map(bray_symbols::ModulePathKey::segments)
-        .map(str::to_owned)
-        .chain([name.as_str().to_owned()]);
+    let path = diagnostic_symbol_path(key, name.as_str());
 
     let arguments = substitution
         .bindings()
@@ -160,6 +156,25 @@ where
     Ok(DiagnosticType::Named(DiagnosticNamedType::new(
         path, arguments,
     )))
+}
+
+fn diagnostic_symbol_path(key: &SymbolKey, name: &str) -> Vec<String> {
+    let mut path = Vec::new();
+
+    if let SymbolKeyData::External(key) = key.data() {
+        path.push(key.package_identity().as_str().to_owned());
+    }
+
+    path.extend(
+        symbol_module_path(key)
+            .into_iter()
+            .flat_map(bray_symbols::ModulePathKey::segments)
+            .map(str::to_owned),
+    );
+
+    path.push(name.to_owned());
+
+    path
 }
 
 fn symbol_module_path(key: &SymbolKey) -> Option<&bray_symbols::ModulePathKey> {
@@ -242,5 +257,43 @@ const fn diagnostic_representation(role: RepresentationRole) -> Option<Diagnosti
         | RepresentationRole::BooleanFalse
         | RepresentationRole::UnitValue
         | RepresentationRole::NoneValue => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{
+        ExternalSymbolKey, ModulePathKey, PackageIdentity, SymbolKey, SymbolKind, SymbolName,
+    };
+
+    use super::diagnostic_symbol_path;
+
+    #[test]
+    fn imported_diagnostic_paths_include_the_defining_package() {
+        let first = imported_type_path("first.package");
+        let second = imported_type_path("second.package");
+
+        assert_eq!(first, ["first.package", "shared", "Value"]);
+        assert_eq!(second, ["second.package", "shared", "Value"]);
+        assert_ne!(first, second);
+    }
+
+    fn imported_type_path(package: &str) -> Vec<String> {
+        let package = PackageIdentity::try_new(package)
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let module = ModulePathKey::try_new(["shared"])
+            .unwrap_or_else(|| panic!("test module path must be valid"));
+
+        let module = ExternalSymbolKey::module(ExternalSymbolKey::package(package), module)
+            .unwrap_or_else(|| panic!("test module key must be valid"));
+
+        let name = SymbolName::try_new("Value")
+            .unwrap_or_else(|| panic!("test symbol name must be valid"));
+
+        let declaration = ExternalSymbolKey::named(module, SymbolKind::Struct, name)
+            .unwrap_or_else(|| panic!("test declaration key must be valid"));
+
+        diagnostic_symbol_path(&SymbolKey::external(declaration), "Value")
     }
 }

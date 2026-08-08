@@ -438,9 +438,7 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
     {
         return Err(BuildError::conformance(
             "catalog metadata",
-            format!(
-                "the native catalog retained unexpected serial test constraints: {names:?}"
-            ),
+            format!("the native catalog retained unexpected serial test constraints: {names:?}"),
         ));
     }
 

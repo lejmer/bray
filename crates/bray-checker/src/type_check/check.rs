@@ -243,12 +243,13 @@ mod tests {
         ExpressionTypeInput,
     };
 
-    #[test]
-    fn checking_publishes_one_canonical_result_for_every_expression() {
-        let first_type = tuple_type([]);
-        let second_type = tuple_type([first_type]);
-
-        let (unit, expressions) = expression_unit(BoundUnitId::new(40), |tree, origin| {
+    fn two_element_tuple_unit(
+        unit: BoundUnitId,
+    ) -> (
+        bray_bound_tree::BoundUnit,
+        [bray_bound_tree::BoundExpressionId; 3],
+    ) {
+        let (unit, expressions) = expression_unit(unit, |tree, origin| {
             let first = push_expression(tree, literal(origin, None));
             let second = push_expression(tree, literal(origin, None));
 
@@ -267,6 +268,20 @@ mod tests {
 
             vec![first, second, tuple]
         });
+
+        let [first, second, tuple] = expressions.as_slice() else {
+            panic!("two-element tuple fixture must contain three expressions");
+        };
+
+        (unit, [*first, *second, *tuple])
+    }
+
+    #[test]
+    fn checking_publishes_one_canonical_result_for_every_expression() {
+        let first_type = tuple_type([]);
+        let second_type = tuple_type([first_type]);
+
+        let (unit, expressions) = two_element_tuple_unit(BoundUnitId::new(40));
 
         let input = ExpressionTypeInput::new().with_evidence([
             ExpressionTypeEvidence::new(expressions[0], first_type),
@@ -644,25 +659,7 @@ mod tests {
         let first_type = tuple_type([]);
         let second_type = tuple_type([first_type]);
 
-        let (unit, expressions) = expression_unit(BoundUnitId::new(42), |tree, origin| {
-            let first = push_expression(tree, literal(origin, None));
-            let second = push_expression(tree, literal(origin, None));
-
-            let tuple = push_expression(
-                tree,
-                BoundExpression::Structured(BoundStructuredExpression::new(
-                    origin,
-                    BoundStructuredExpressionKind::Tuple,
-                    [first, second],
-                    [],
-                    [],
-                    None,
-                    false,
-                )),
-            );
-
-            vec![first, second, tuple]
-        });
+        let (unit, expressions) = two_element_tuple_unit(BoundUnitId::new(42));
 
         let expected_tuple = tuple_type([first_type, first_type]);
 
