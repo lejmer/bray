@@ -229,7 +229,8 @@ assignment-continuation =
     assignment-operator expression ;
 
 assignment-operator =
-    "=" ;
+    "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "@=" |
+    "&=" | "|=" | "^=" | "<<=" | ">>=" | "**=" ;
 
 non-assignment-expression =
     logical-or-expression ;

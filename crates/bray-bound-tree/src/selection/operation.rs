@@ -432,6 +432,40 @@ impl SelectedConversion {
     }
 }
 
+/// The selected operation and value type used by one compound assignment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SelectedCompoundAssignment {
+    target: OperatorTarget,
+    value_type: TypeId,
+    result_type: TypeId,
+}
+
+impl SelectedCompoundAssignment {
+    /// Creates one checked compound-assignment operation.
+    pub const fn new(target: OperatorTarget, value_type: TypeId, result_type: TypeId) -> Self {
+        Self {
+            target,
+            value_type,
+            result_type,
+        }
+    }
+
+    /// Returns the selected operator implementation.
+    pub const fn target(&self) -> OperatorTarget {
+        self.target
+    }
+
+    /// Returns the value type produced before assignment to the destination.
+    pub const fn value_type(&self) -> TypeId {
+        self.value_type
+    }
+
+    /// Returns the type of the complete assignment expression.
+    pub const fn result_type(&self) -> TypeId {
+        self.result_type
+    }
+}
+
 /// One exact operation whose operands have already been associated by binding and checking.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectedOperation {
@@ -444,6 +478,8 @@ pub enum SelectedOperation {
         /// The expression result type.
         result_type: TypeId,
     },
+    /// The operator selected for a compound assignment.
+    CompoundAssignment(SelectedCompoundAssignment),
     /// Element or slice indexing.
     Index {
         /// The selected indexing contract.
@@ -464,7 +500,7 @@ impl SelectedOperation {
     pub const fn kind(&self) -> SelectionKind {
         match self {
             Self::Member(_) => SelectionKind::Member,
-            Self::Operator { .. } => SelectionKind::Operator,
+            Self::Operator { .. } | Self::CompoundAssignment(_) => SelectionKind::Operator,
             Self::Index { .. } => SelectionKind::Index,
             Self::Construction(_) => SelectionKind::Construction,
             Self::Conversion(_) => SelectionKind::Conversion,
@@ -479,9 +515,28 @@ impl SelectedOperation {
             Self::Operator { result_type, .. } | Self::Index { result_type, .. } => {
                 Some(*result_type)
             }
+            Self::CompoundAssignment(selection) => Some(selection.result_type()),
             Self::Construction(construction) => Some(construction.result_type()),
             Self::Conversion(conversion) => Some(conversion.target_type()),
             Self::Implementation(_) => None,
+        }
+    }
+
+    /// Returns the selected operator implementation, when this is an operator selection.
+    pub const fn operator_target(&self) -> Option<OperatorTarget> {
+        match self {
+            Self::Operator { target, .. } => Some(*target),
+            Self::CompoundAssignment(selection) => Some(selection.target()),
+            _ => None,
+        }
+    }
+
+    /// Returns the value type produced by an operator implementation.
+    pub const fn operator_value_type(&self) -> Option<TypeId> {
+        match self {
+            Self::Operator { result_type, .. } => Some(*result_type),
+            Self::CompoundAssignment(selection) => Some(selection.value_type()),
+            _ => None,
         }
     }
 
@@ -495,6 +550,12 @@ impl SelectedOperation {
             }
             (Self::Operator { target, .. }, BoundExpression::Binary(source)) => {
                 target.operator() == source.operator()
+            }
+            (Self::Operator { target, .. }, BoundExpression::Assignment(source)) => {
+                source.operator().binary_operator() == Some(target.operator())
+            }
+            (Self::CompoundAssignment(selection), BoundExpression::Assignment(source)) => {
+                source.operator().binary_operator() == Some(selection.target().operator())
             }
             (Self::Index { target, .. }, BoundExpression::Structured(source)) => {
                 index_target_matches(*target, source.kind())
@@ -534,6 +595,15 @@ impl SelectedOperation {
                     },
                 ..
             }
+            | Self::CompoundAssignment(SelectedCompoundAssignment {
+                target:
+                    OperatorTarget::Trait {
+                        requirement,
+                        witness,
+                        ..
+                    },
+                ..
+            })
             | Self::Index {
                 target:
                     IndexTarget::Custom {
@@ -553,7 +623,7 @@ impl SelectedOperation {
                 } => vec![SelectedImplementationWitness::new(requirement, witness)],
                 ConstructionTarget::Struct(_) | ConstructionTarget::UnionVariant(_) => Vec::new(),
             },
-            Self::Operator { .. } | Self::Index { .. } => Vec::new(),
+            Self::Operator { .. } | Self::CompoundAssignment(_) | Self::Index { .. } => Vec::new(),
         };
 
         witnesses.sort_unstable();

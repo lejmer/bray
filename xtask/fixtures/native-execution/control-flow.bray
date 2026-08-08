@@ -1,8 +1,6 @@
 module native_execution;
 
-func helper()
-{
-}
+func helper() {}
 
 func main()
 {

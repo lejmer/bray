@@ -399,7 +399,7 @@ A path expression that produces an assignable access path can be the destination
 
 ```bray
 point.x = 1.0;
-counter.value = counter.value + 1;
+counter.value += 1;
 ```
 
 Assignment through a path requires mutation authority over the destination access path.

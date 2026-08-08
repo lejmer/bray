@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    BoundMemberSelector, BoundOperator, BoundReferenceTarget, BoundStructuredExpressionKind,
-    BoundUnresolvedReferenceKind, IterationSourceMode,
+    BoundAssignmentOperator, BoundMemberSelector, BoundOperator, BoundReferenceTarget,
+    BoundStructuredExpressionKind, BoundUnresolvedReferenceKind, IterationSourceMode,
 };
 use bray_symbols::MemberLookupResult;
 use bray_syntax::{SourceSyntaxNode, SyntaxKind};
@@ -24,7 +24,6 @@ const fn iteration_source_mode_from_kind(kind: Option<SyntaxKind>) -> IterationS
 
 pub(super) fn classify_operator(kind: SyntaxKind) -> Option<BoundOperator> {
     Some(match kind {
-        SyntaxKind::EqualsToken => BoundOperator::Assign,
         SyntaxKind::PipePipeToken => BoundOperator::LogicalOr,
         SyntaxKind::AmpersandAmpersandToken => BoundOperator::LogicalAnd,
         SyntaxKind::EqualsEqualsToken => BoundOperator::Equal,
@@ -47,6 +46,25 @@ pub(super) fn classify_operator(kind: SyntaxKind) -> Option<BoundOperator> {
         SyntaxKind::StarStarToken => BoundOperator::Exponentiate,
         SyntaxKind::TildeToken => BoundOperator::BitwiseNot,
         SyntaxKind::BangToken => BoundOperator::LogicalNot,
+        _ => return None,
+    })
+}
+
+pub(super) fn classify_assignment_operator(kind: SyntaxKind) -> Option<BoundAssignmentOperator> {
+    Some(match kind {
+        SyntaxKind::EqualsToken => BoundAssignmentOperator::Assign,
+        SyntaxKind::PlusEqualsToken => BoundAssignmentOperator::Add,
+        SyntaxKind::MinusEqualsToken => BoundAssignmentOperator::Subtract,
+        SyntaxKind::StarEqualsToken => BoundAssignmentOperator::Multiply,
+        SyntaxKind::SlashEqualsToken => BoundAssignmentOperator::Divide,
+        SyntaxKind::PercentEqualsToken => BoundAssignmentOperator::Remainder,
+        SyntaxKind::AtEqualsToken => BoundAssignmentOperator::MatrixMultiply,
+        SyntaxKind::AmpersandEqualsToken => BoundAssignmentOperator::BitwiseAnd,
+        SyntaxKind::PipeEqualsToken => BoundAssignmentOperator::BitwiseOr,
+        SyntaxKind::CaretEqualsToken => BoundAssignmentOperator::BitwiseXor,
+        SyntaxKind::LessLessEqualsToken => BoundAssignmentOperator::ShiftLeft,
+        SyntaxKind::GreaterGreaterEqualsToken => BoundAssignmentOperator::ShiftRight,
+        SyntaxKind::StarStarEqualsToken => BoundAssignmentOperator::Exponentiate,
         _ => return None,
     })
 }

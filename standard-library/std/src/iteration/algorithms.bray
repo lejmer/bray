@@ -19,7 +19,7 @@ func nth<I>(pos mut iterator: I, index: usize) -> I(Iterator).Element?
 
         match consume skipped
         {
-            case ?_ { current = current + 1; }
+            case ?_ { current += 1; }
             case none { return none; }
         }
     }

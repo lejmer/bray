@@ -46,10 +46,10 @@ internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos sour
     while index < accepted
     {
         destination[writer.length + index] = source[index];
-        index = index + 1;
+        index += 1;
     }
 
-    writer.length = writer.length + accepted;
+    writer.length += accepted;
 
     return accepted;
 }
@@ -88,8 +88,8 @@ impl BufferedWriter<Sink>
                         return Error(no_progress_error(transferred = committed));
                     }
 
-                    self.start = self.start + transferred;
-                    committed = committed + transferred;
+                    self.start += transferred;
+                    committed += transferred;
                 }
                 case Error(error)
                 {
@@ -100,7 +100,7 @@ impl BufferedWriter<Sink>
 
                     let transferred: usize = error.transferred;
 
-                    self.start = self.start + transferred;
+                    self.start += transferred;
 
                     return Error(prefixed_error(error, prefix = committed));
                 }
@@ -169,8 +169,8 @@ impl BufferedWriter<Sink>
                         return Error(no_progress_error(transferred = committed));
                     }
 
-                    self.start = self.start + transferred;
-                    committed = committed + transferred;
+                    self.start += transferred;
+                    committed += transferred;
                 }
                 case Error(error)
                 {
@@ -181,7 +181,7 @@ impl BufferedWriter<Sink>
 
                     let transferred: usize = error.transferred;
 
-                    self.start = self.start + transferred;
+                    self.start += transferred;
 
                     return Error(prefixed_error(error, prefix = committed));
                 }

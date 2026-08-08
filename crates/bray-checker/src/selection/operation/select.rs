@@ -265,7 +265,10 @@ where
             SelectionKind::Member,
             BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_),
         )
-        | (SelectionKind::Operator, BoundExpression::Unary(_) | BoundExpression::Binary(_)) => true,
+        | (
+            SelectionKind::Operator,
+            BoundExpression::Unary(_) | BoundExpression::Binary(_) | BoundExpression::Assignment(_),
+        ) => true,
         (SelectionKind::Index, BoundExpression::Structured(expression)) => matches!(
             expression.kind(),
             BoundStructuredExpressionKind::ElementIndex | BoundStructuredExpressionKind::SliceIndex
@@ -413,13 +416,14 @@ where
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundBinaryExpression, BoundConversionExpression, BoundExpression, BoundExpressionId,
-        BoundOperator, BoundStructConstructionExpression, BoundStructFieldInitializer,
-        BoundStructuredExpression, BoundStructuredExpressionKind, BoundUnit, BoundUnitId,
-        CheckedExpressionTypes, ConstructionDefaultProvider, ConstructionInputId,
-        ConstructionTarget, ConversionTarget, ExpressionTypeEntry, ExpressionTypeResult,
-        ExpressionTypeStatus, IndexTarget, MemberTarget, OperatorTarget, SelectedConstructionInput,
-        SelectedConversion, SelectedImplementationWitness, SelectedOperation, SelectionKind,
+        BoundAssignmentExpression, BoundAssignmentOperator, BoundBinaryExpression,
+        BoundConversionExpression, BoundExpression, BoundExpressionId, BoundOperator,
+        BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
+        BoundStructuredExpressionKind, BoundUnit, BoundUnitId, CheckedExpressionTypes,
+        ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
+        ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, IndexTarget, MemberTarget,
+        OperatorTarget, SelectedConstructionInput, SelectedConversion,
+        SelectedImplementationWitness, SelectedOperation, SelectionKind,
     };
     use bray_symbols::{
         CallablePosition, FunctionSymbolId, ImplementationSelection,
@@ -457,6 +461,60 @@ mod tests {
 
         assert_eq!(result.value(), &CandidateSelection::Selected(operation));
         assert!(result.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn compound_assignments_accept_their_binary_operator_candidate() {
+        let value_type = tuple_type([]);
+
+        let (unit, expressions) = expression_unit(BoundUnitId::new(114), |tree, origin| {
+            let destination = push_expression(
+                tree,
+                crate::test_support::integer_literal_expression(origin, Some(value_type)),
+            );
+
+            let value = push_expression(
+                tree,
+                crate::test_support::integer_literal_expression(origin, Some(value_type)),
+            );
+
+            let assignment = push_expression(
+                tree,
+                BoundExpression::Assignment(BoundAssignmentExpression::new(
+                    origin,
+                    BoundAssignmentOperator::Add,
+                    [destination, value],
+                    None,
+                    false,
+                )),
+            );
+
+            vec![destination, value, assignment]
+        });
+
+        let result = ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid);
+        let types = checked_expression_types(&unit, expressions.iter().copied(), result);
+
+        let operation = SelectedOperation::Operator {
+            target: OperatorTarget::BuiltIn(BoundOperator::Add),
+            result_type: value_type,
+        };
+
+        let input = OperationSelectionRequest::new(
+            expressions[2],
+            SelectionKind::Operator,
+            [expressions[0], expressions[1]],
+            [OperationCandidate::built_in(
+                operation.clone(),
+                [value_type, value_type],
+                OperationCandidateState::Available,
+            )],
+        );
+
+        let selection = select_request(&unit, &types, input);
+
+        assert_eq!(selection.value(), &CandidateSelection::Selected(operation));
+        assert!(selection.diagnostics().is_empty());
     }
 
     #[test]

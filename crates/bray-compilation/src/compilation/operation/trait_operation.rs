@@ -1,7 +1,7 @@
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_bound_tree::{
-    BoundExpression, ConversionTarget, IndexTarget, OperatorTarget, SelectedConversion,
-    SelectedOperation,
+    BoundExpression, ConversionTarget, IndexTarget, OperatorTarget, SelectedCompoundAssignment,
+    SelectedConversion, SelectedOperation,
 };
 use bray_checker::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 use bray_diagnostics::DiagnosticBag;
@@ -42,6 +42,13 @@ impl Compilation {
         let (operator, operands) = match expression {
             BoundExpression::Unary(expression) => (expression.operator(), expression.operands()),
             BoundExpression::Binary(expression) => (expression.operator(), expression.operands()),
+            BoundExpression::Assignment(expression) => {
+                let Some(operator) = expression.operator().binary_operator() else {
+                    return Ok(None);
+                };
+
+                (operator, expression.operands())
+            }
             _ => return Ok(None),
         };
 
@@ -83,7 +90,7 @@ impl Compilation {
 
         let candidate = candidate.into_candidate();
 
-        self.select_operation(
+        let resolution = self.select_operation(
             key,
             facts,
             unit,
@@ -92,7 +99,39 @@ impl Compilation {
             [candidate],
             cancellation,
             diagnostics,
-        )
+        )?;
+
+        let Some(resolution) = resolution else {
+            return Ok(None);
+        };
+
+        let BoundExpression::Assignment(_) = expression else {
+            return Ok(Some(resolution));
+        };
+
+        let [destination, _] = operands else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        let assignment_type = expression_type(types, key.expression())?;
+        let operation_type = resolution.result_type();
+
+        let Some(SelectedOperation::Operator { target, .. }) = resolution.selection() else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        let selection = SelectedOperation::CompoundAssignment(SelectedCompoundAssignment::new(
+            *target,
+            operation_type,
+            assignment_type,
+        ));
+
+        Ok(Some(OperationResolution::new(
+            key.expression(),
+            assignment_type,
+            [(*destination, operation_type)],
+            Some(selection),
+        )))
     }
 
     #[expect(

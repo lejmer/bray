@@ -91,7 +91,7 @@ struct Environment
                 return result;
             }
 
-            index = index + 1;
+            index += 1;
         }
 
         return none;

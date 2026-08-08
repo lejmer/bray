@@ -5,6 +5,4 @@ async func main()
     let completed: unit = await child();
 }
 
-async func child()
-{
-}
+async func child() {}

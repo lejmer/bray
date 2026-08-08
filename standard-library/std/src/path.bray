@@ -49,7 +49,7 @@ struct NativeText
                 case none { return Error(PathError.InvalidNativeValue); }
             }
 
-            index = index + 1;
+            index += 1;
         }
 
         return Ok(
@@ -169,7 +169,7 @@ struct Path
             if !ends_with_separator(std.bytes.as_slice(&output))
             {
                 try append_native_unit(&mut output, separator_value());
-                output_length = output_length + width;
+                output_length += width;
             }
 
             index = skip_separators(source, start = prefix_length);
@@ -383,7 +383,7 @@ internal func decode_utf16(pos bytes: &[u8]) -> Result<string, PathError>
             }
 
             scalar = 65536 + (first - 55296) * 1024 + second - 56320;
-            index = index + 2;
+            index += 2;
         }
         else if first >= 56320 && first <= 57343
         {
@@ -398,7 +398,7 @@ internal func decode_utf16(pos bytes: &[u8]) -> Result<string, PathError>
             case none { return Error(PathError.InvalidNativeValue); }
         }
 
-        index = index + 2;
+        index += 2;
     }
 
     return decode_utf8(std.bytes.as_slice(&utf8));
@@ -415,7 +415,7 @@ internal func append_utf8_scalar(pos buffer: &mut std.bytes.Buffer, pos value: c
 
         try append_byte(&mut buffer, byte);
 
-        index = index + 1;
+        index += 1;
     }
 
     return Ok(unit);
@@ -440,7 +440,7 @@ internal func valid_native_text(pos value: &NativeText) -> bool
             return false;
         }
 
-        index = index + width;
+        index += width;
     }
 
     return true;
@@ -662,7 +662,7 @@ internal func skip_separators(pos bytes: &[u8], start: usize) -> usize
 
     while index < std.bytes.slice_length(bytes) && is_separator(native_unit(bytes, index = index))
     {
-        index = index + width;
+        index += width;
     }
 
     return index;
@@ -675,7 +675,7 @@ internal func segment_end(pos bytes: &[u8], start: usize) -> usize
 
     while index < std.bytes.slice_length(bytes) && !is_separator(native_unit(bytes, index = index))
     {
-        index = index + width;
+        index += width;
     }
 
     return index;
@@ -709,7 +709,7 @@ internal func append_segment(
     if join_requires_separator(std.bytes.as_slice(&output))
     {
         try append_native_unit(&mut output, separator_value());
-        next_length = next_length + native_unit_bytes();
+        next_length += native_unit_bytes();
     }
 
     try append_bytes(&mut output, &source[start.. end]);

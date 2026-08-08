@@ -571,6 +571,14 @@ where
         _ => expected,
     };
 
+    if assignment.operator().binary_operator().is_some() {
+        if actual.is_none() {
+            add_operand_expectation(Some(*value), Some(expected), variables, inference);
+        }
+
+        return Ok(());
+    }
+
     if matches!(expected_data.as_ref(), TypeData::Nullable(element) if Some(*element) == actual) {
         return Ok(());
     }

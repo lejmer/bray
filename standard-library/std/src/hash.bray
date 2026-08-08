@@ -57,7 +57,7 @@ internal func multiply_modulo(pos left: u128, pos right: u128) -> u128
         }
 
         factor = add_modulo(factor, factor);
-        multiplier = multiplier / 2;
+        multiplier /= 2;
     }
 
     return product;
@@ -189,7 +189,7 @@ impl StringHashable = string(Hashable<Sink>)
         {
             sink.write(bytes[index] as u128);
 
-            index = index + 1;
+            index += 1;
         }
     }
 }

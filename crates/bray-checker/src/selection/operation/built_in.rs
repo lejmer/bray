@@ -126,7 +126,7 @@ pub(crate) const fn representation_supports_operator(
         BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr => {
             matches!(role, RepresentationRole::ScalarBool)
         }
-        BoundOperator::Assign | BoundOperator::MatrixMultiply => false,
+        BoundOperator::MatrixMultiply => false,
         BoundOperator::Add => {
             representation_supports_operation(role, CompilerKnownOperationRole::BinaryAdd)
         }

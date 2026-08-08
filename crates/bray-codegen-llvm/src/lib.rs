@@ -3,7 +3,9 @@
 #![forbid(unsafe_code)]
 
 mod backend;
+mod environment;
 mod initialization;
+mod installation;
 mod machine;
 mod mapping;
 mod native;
@@ -12,3 +14,5 @@ mod serialization;
 mod translation;
 
 pub use backend::LlvmCodeGenerator;
+pub use environment::LLVM_PREFIX_ENVIRONMENT_VARIABLE;
+pub use installation::COMPILED_LLVM_PREFIX;

@@ -1,9 +1,9 @@
 // rust-style: allow(module-too-large, reason = "core expression lowering keeps one exhaustive bound-to-MIR operation dispatch")
 
 use bray_bound_tree::{
-    BoundCallResult, BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator,
-    OperatorTarget, SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose,
-    StorageIdentity, StorageIdentityId,
+    BoundAssignmentOperator, BoundCallResult, BoundCallableTarget, BoundExpression,
+    BoundExpressionId, BoundOperator, OperatorTarget, SelectedArgument, SelectedOperation,
+    SemanticSelection, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
 };
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirBlockKind, MirCall,
@@ -11,7 +11,7 @@ use bray_ir::{
     MirImmediateValue, MirOperand, MirOperationKind, MirPatternPredicate, MirPlace,
     MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnaryOperator,
 };
-use bray_symbols::{CallableAbi, TypeId};
+use bray_symbols::{BorrowKind, CallableAbi, TypeData, TypeId};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -77,7 +77,7 @@ impl Lowerer<'_> {
                 self.lower_binary(id, expression.operator(), expression.operands(), current)
             }
             BoundExpression::Assignment(expression) => {
-                self.lower_assignment(id, expression.operands(), current)
+                self.lower_assignment(id, expression.operator(), expression.operands(), current)
             }
             BoundExpression::Call(_) => {
                 if matches!(
@@ -286,7 +286,8 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         };
 
-        let selection = self.selected_operator(id)?;
+        let (selection, result_type) = self.selected_operator_operation(id)?;
+
         let left = self.lower_operator_operand(id, *left_id, selection, current)?;
 
         let Some(current) = left.block else {
@@ -309,12 +310,41 @@ impl Lowerer<'_> {
 
         let source = self.expression_source(id)?;
 
-        let (current, value) = match selection {
+        let (current, value) = self.lower_binary_operation(
+            id,
+            operator,
+            selection,
+            result_type,
+            left,
+            right,
+            current,
+            Self::retained_source(&source),
+        )?;
+
+        Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "binary lowering retains its selected operation, operands, block, and source"
+    )]
+    fn lower_binary_operation(
+        &mut self,
+        id: BoundExpressionId,
+        operator: BoundOperator,
+        selection: OperatorTarget,
+        result_type: TypeId,
+        left: MirOperand,
+        right: MirOperand,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        match selection {
             OperatorTarget::BuiltIn(_) => {
                 let operator = binary_operator(operator)
                     .ok_or(LoweringError::UnsupportedOperator(operator))?;
 
-                let value = self.push_value_operation(
+                let value = self.push_typed_value_operation(
                     id,
                     current,
                     Self::retained_source(&source),
@@ -323,9 +353,10 @@ impl Lowerer<'_> {
                         left,
                         right,
                     },
+                    result_type,
                 )?;
 
-                (current, value)
+                Ok((current, value))
             }
             OperatorTarget::Trait {
                 fulfillment,
@@ -333,7 +364,7 @@ impl Lowerer<'_> {
                 witness,
                 ..
             } => {
-                let call_result_type = self.trait_binary_result_type(id, operator)?;
+                let call_result_type = self.trait_binary_result_type(operator, result_type)?;
 
                 let value = self.push_typed_value_operation(
                     id,
@@ -354,7 +385,7 @@ impl Lowerer<'_> {
                     call_result_type,
                 )?;
 
-                self.lower_trait_binary_result(id, operator, current, source.clone(), value)?
+                self.lower_trait_binary_result(id, operator, current, source, value)
             }
             OperatorTarget::TraitConstraint {
                 member, dispatch, ..
@@ -368,7 +399,7 @@ impl Lowerer<'_> {
                     .map(MirCallIntrinsic::Binary)
                     .ok_or(LoweringError::UnsupportedOperator(operator))?;
 
-                let value = self.push_value_operation(
+                let value = self.push_typed_value_operation(
                     id,
                     current,
                     Self::retained_source(&source),
@@ -378,17 +409,18 @@ impl Lowerer<'_> {
                                 member,
                                 CallableAbi::Bray,
                             )),
-                            BoundCallResult::Immediate(self.expression_type(id)?),
+                            BoundCallResult::Immediate(result_type),
                             [left, right],
                             [],
                         )
                         .with_trait_dispatch(dispatch)
                         .with_intrinsic(intrinsic),
                     ),
+                    result_type,
                 )?;
 
                 if operator == BoundOperator::NotEqual {
-                    let value = self.push_value_operation(
+                    let value = self.push_typed_value_operation(
                         id,
                         current,
                         Self::retained_source(&source),
@@ -396,28 +428,27 @@ impl Lowerer<'_> {
                             operator: MirUnaryOperator::Not,
                             operand: value,
                         },
+                        result_type,
                     )?;
 
-                    (current, value)
+                    Ok((current, value))
                 } else {
-                    (current, value)
+                    Ok((current, value))
                 }
             }
-        };
-
-        Ok(LoweredExpression::continuing(current, Some(value), source))
+        }
     }
 
     fn trait_binary_result_type(
         &self,
-        expression: BoundExpressionId,
         operator: BoundOperator,
+        result_type: TypeId,
     ) -> Result<TypeId, LoweringError> {
         if is_relational_operator(operator) {
             return Ok(self.ordering_representation()?.ty);
         }
 
-        self.expression_type(expression)
+        Ok(result_type)
     }
 
     fn lower_trait_binary_result(
@@ -482,6 +513,7 @@ impl Lowerer<'_> {
     fn lower_assignment(
         &mut self,
         id: BoundExpressionId,
+        operator: BoundAssignmentOperator,
         operands: &[BoundExpressionId],
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
@@ -498,7 +530,26 @@ impl Lowerer<'_> {
             super::super::access::LoweredPlace::Terminated(completion) => return Ok(completion),
         };
 
-        let value = self.lower_expression(*value_id, current)?;
+        let compound = operator
+            .binary_operator()
+            .map(|operator| {
+                self.selected_operator_operation(id)
+                    .map(|(selection, result_type)| (operator, selection, result_type))
+            })
+            .transpose()?;
+
+        let value = match compound {
+            Some((operator, selection, result_type)) => self.lower_compound_assignment_value(
+                id,
+                operator,
+                selection,
+                result_type,
+                *value_id,
+                Self::retained_place(&destination),
+                current,
+            )?,
+            None => self.lower_expression(*value_id, current)?,
+        };
 
         let Some(current) = value.block else {
             return Ok(value);
@@ -509,7 +560,11 @@ impl Lowerer<'_> {
         };
 
         let source = self.expression_source(id)?;
-        let value_type = self.expression_type(*value_id)?;
+
+        let value_type = compound
+            .map(|(_, _, result_type)| result_type)
+            .unwrap_or(self.expression_type(*value_id)?);
+
         let destination_type = destination.ty();
 
         let destination_data = self
@@ -548,6 +603,67 @@ impl Lowerer<'_> {
         )?;
 
         let value = self.unit_operand(self.expression_type(id)?);
+
+        Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    fn lower_compound_assignment_value(
+        &mut self,
+        id: BoundExpressionId,
+        operator: BoundOperator,
+        selection: OperatorTarget,
+        result_type: TypeId,
+        value: BoundExpressionId,
+        destination: MirPlace,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let source = self.expression_source(id)?;
+
+        let left = match selection {
+            OperatorTarget::BuiltIn(_) => MirOperand::Copy(destination),
+            OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => {
+                let borrow_type = self
+                    .input
+                    .semantic_values()
+                    .intern_type(TypeData::Borrow {
+                        kind: BorrowKind::Shared,
+                        target: destination.ty(),
+                    })
+                    .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+                self.push_typed_value_operation(
+                    id,
+                    current,
+                    Self::retained_source(&source),
+                    MirOperationKind::Borrow {
+                        kind: BorrowKind::Shared,
+                        place: destination,
+                    },
+                    borrow_type,
+                )?
+            }
+        };
+
+        let right = self.lower_operator_operand(id, value, selection, current)?;
+
+        let Some(current) = right.block else {
+            return Ok(right);
+        };
+
+        let Some(right) = right.value else {
+            return Err(LoweringError::MissingOperationResult(value));
+        };
+
+        let (current, value) = self.lower_binary_operation(
+            id,
+            operator,
+            selection,
+            result_type,
+            left,
+            right,
+            current,
+            Self::retained_source(&source),
+        )?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
@@ -752,12 +868,25 @@ impl Lowerer<'_> {
         &self,
         expression: BoundExpressionId,
     ) -> Result<OperatorTarget, LoweringError> {
-        let SelectedOperation::Operator { target, .. } = self.selected_operation(expression)?
-        else {
-            return Err(LoweringError::MissingSemanticSelection(expression));
-        };
+        self.selected_operator_operation(expression)
+            .map(|(target, _)| target)
+    }
 
-        Ok(*target)
+    fn selected_operator_operation(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<(OperatorTarget, TypeId), LoweringError> {
+        let operation = self.selected_operation(expression)?;
+
+        let target = operation
+            .operator_target()
+            .ok_or(LoweringError::MissingSemanticSelection(expression))?;
+
+        let result_type = operation
+            .operator_value_type()
+            .ok_or(LoweringError::MissingSemanticSelection(expression))?;
+
+        Ok((target, result_type))
     }
 
     fn lower_operator_operand(
@@ -896,8 +1025,7 @@ fn binary_operator(operator: BoundOperator) -> Option<MirBinaryOperator> {
         BoundOperator::Multiply => Some(MirBinaryOperator::Multiply),
         BoundOperator::Divide => Some(MirBinaryOperator::Divide),
         BoundOperator::Remainder => Some(MirBinaryOperator::Remainder),
-        BoundOperator::Assign
-        | BoundOperator::LogicalOr
+        BoundOperator::LogicalOr
         | BoundOperator::LogicalAnd
         | BoundOperator::MatrixMultiply
         | BoundOperator::Exponentiate

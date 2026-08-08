@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundAssignmentExpression, BoundBinaryExpression, BoundErrorExpression, BoundExpression,
-    BoundExpressionId, BoundOperator, BoundSliceBounds, BoundStructuredExpression,
-    BoundStructuredExpressionKind, BoundTypeReference, BoundUnaryExpression,
+    BoundExpressionId, BoundSliceBounds, BoundStructuredExpression, BoundStructuredExpressionKind,
+    BoundTypeReference, BoundUnaryExpression,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{BorrowKind, LocalScopeId, TypeId};
@@ -13,7 +13,7 @@ use bray_syntax::{
 
 use super::super::block::BlockBindingOperations;
 use super::super::{BindingError, BindingResult};
-use super::support::classify_operator;
+use super::support::{classify_assignment_operator, classify_operator};
 use crate::BinderFactContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind};
 use crate::lookup::{NameAccess, PathBindingContext};
@@ -88,7 +88,6 @@ impl ExpressionBinder {
     where
         C: BinderFactContext + ?Sized,
     {
-        let operator = classify_operator(operator_kind).ok_or(BindingError::UnsupportedSyntax)?;
         let mut operands = Vec::new();
 
         for operand in syntax.expressions() {
@@ -103,15 +102,21 @@ impl ExpressionBinder {
                 .iter()
                 .any(|operand| binder.expression_is_recovered(*operand));
 
-        let expression = if operator == BoundOperator::Assign {
+        let expression = if let Some(operator) = classify_assignment_operator(operator_kind) {
             BoundExpression::Assignment(BoundAssignmentExpression::new(
                 origin, operator, operands, None, recovered,
             ))
         } else if operands.len() == 1 {
+            let operator =
+                classify_operator(operator_kind).ok_or(BindingError::UnsupportedSyntax)?;
+
             BoundExpression::Unary(BoundUnaryExpression::new(
                 origin, operator, operands, None, recovered,
             ))
         } else {
+            let operator =
+                classify_operator(operator_kind).ok_or(BindingError::UnsupportedSyntax)?;
+
             BoundExpression::Binary(BoundBinaryExpression::new(
                 origin, operator, operands, None, recovered,
             ))
@@ -490,8 +495,9 @@ where
 mod tests {
     use crate::fact::test_support::TestFixture;
     use bray_bound_tree::{
-        BoundControlTransferKind, BoundExpression, BoundLiteralKind, BoundOperator,
-        BoundStructuredExpressionKind, BoundWalkControl, BoundWalkEvent, walk_bound_tree,
+        BoundAssignmentOperator, BoundControlTransferKind, BoundExpression, BoundLiteralKind,
+        BoundOperator, BoundStructuredExpressionKind, BoundWalkControl, BoundWalkEvent,
+        walk_bound_tree,
     };
 
     #[test]
@@ -502,6 +508,7 @@ mod tests {
             "func main()\n",
             "{\n",
             "    size + size;\n",
+            "    size += size;\n",
             "    size<i32, 2>(value = size);\n",
             "    size.field;\n",
             "    size as i32;\n",
@@ -582,6 +589,7 @@ mod tests {
         );
 
         let mut saw_add = false;
+        let mut saw_add_assignment = false;
         let mut saw_call = false;
         let mut saw_conversion = false;
         let mut saw_named_member = false;
@@ -623,6 +631,11 @@ mod tests {
                     if expression.operator() == BoundOperator::Add =>
                 {
                     saw_add = true;
+                }
+                BoundExpression::Assignment(expression)
+                    if expression.operator() == BoundAssignmentOperator::Add =>
+                {
+                    saw_add_assignment = true;
                 }
                 BoundExpression::Call(expression)
                     if expression.arguments().len() == 1
@@ -740,6 +753,7 @@ mod tests {
         });
 
         assert!(saw_add);
+        assert!(saw_add_assignment);
         assert!(saw_call);
         assert!(saw_conversion);
         assert!(saw_named_member);

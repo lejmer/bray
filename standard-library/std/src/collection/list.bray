@@ -128,14 +128,14 @@ trusted internal func reverse_values<T>(pos list: &mut List<T>, count: usize) ->
 
     while left < right
     {
-        right = right - 1;
+        right -= 1;
 
         if left < right
         {
             trusted swap_at<T>(&mut list, left = left, right = right);
         }
 
-        left = left + 1;
+        left += 1;
     }
 }
 
@@ -226,7 +226,7 @@ trusted func insert<T>(pos list: &mut List<T>, pos value: T, index: usize) -> Re
     {
         trusted swap_at<T>(&mut list, left = current - 1, right = current);
 
-        current = current - 1;
+        current -= 1;
     }
 
     return Ok(true);
@@ -247,7 +247,7 @@ trusted func remove<T>(pos list: &mut List<T>, index: usize) -> T?
     {
         trusted swap_at<T>(&mut list, left = current, right = current + 1);
 
-        current = current + 1;
+        current += 1;
     }
 
     return trusted pop<T>(&mut list);
@@ -290,7 +290,7 @@ internal func grown_capacity(pos current: usize, pos required: usize) -> usize
             return required;
         }
 
-        candidate = candidate + candidate;
+        candidate += candidate;
     }
 
     return candidate;

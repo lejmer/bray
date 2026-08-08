@@ -307,8 +307,7 @@ pub(super) const fn unary_term_operation(
         BoundOperator::Subtract => Some(ConstantUnaryOperation::Negate),
         BoundOperator::LogicalNot => Some(ConstantUnaryOperation::LogicalNot),
         BoundOperator::BitwiseNot => Some(ConstantUnaryOperation::BitwiseNot),
-        BoundOperator::Assign
-        | BoundOperator::LogicalOr
+        BoundOperator::LogicalOr
         | BoundOperator::LogicalAnd
         | BoundOperator::Equal
         | BoundOperator::NotEqual
@@ -352,9 +351,8 @@ pub(super) const fn binary_term_operation(
         BoundOperator::Divide => Some(ConstantBinaryOperation::Divide),
         BoundOperator::Remainder => Some(ConstantBinaryOperation::Remainder),
         BoundOperator::Exponentiate => Some(ConstantBinaryOperation::Exponentiate),
-        BoundOperator::Assign
-        | BoundOperator::MatrixMultiply
-        | BoundOperator::BitwiseNot
-        | BoundOperator::LogicalNot => None,
+        BoundOperator::MatrixMultiply | BoundOperator::BitwiseNot | BoundOperator::LogicalNot => {
+            None
+        }
     }
 }

@@ -29,10 +29,10 @@ internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source
     {
         destination[index] = std.bytes.as_slice(&reader.storage)[reader.start + index];
 
-        index = index + 1;
+        index += 1;
     }
 
-    reader.start = reader.start + copied;
+    reader.start += copied;
 
     if reader.start == reader.length
     {

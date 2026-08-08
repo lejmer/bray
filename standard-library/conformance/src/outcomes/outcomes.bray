@@ -39,9 +39,7 @@ func recoverable_error() -> Result<unit, std.string.Utf8Error>
 @test
 func timeout_requires_forced_termination()
 {
-    while true
-    {
-    }
+    while true {}
 }
 
 @test

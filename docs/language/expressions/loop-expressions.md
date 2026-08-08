@@ -53,7 +53,7 @@ let found: Item? = loop
         break item;
     }
 
-    index = index + 1;
+    index += 1;
 };
 ```
 

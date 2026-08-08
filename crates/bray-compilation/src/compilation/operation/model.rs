@@ -143,6 +143,10 @@ impl OperationResolution {
         &self.expectations
     }
 
+    pub(in crate::compilation) const fn selection(&self) -> Option<&SelectedOperation> {
+        self.selection.as_ref()
+    }
+
     pub(in crate::compilation) fn selection_entry(&self) -> Option<SemanticSelectionEntry> {
         // The operation fact retains its selection while the type input owns the table entry.
         self.selection.clone().map(|selection| {

@@ -422,6 +422,11 @@ pub(in crate::compilation) fn selection_kind(
         BoundExpression::Unary(_) | BoundExpression::Binary(_) => {
             Ok(bray_bound_tree::SelectionKind::Operator)
         }
+        BoundExpression::Assignment(expression)
+            if expression.operator().binary_operator().is_some() =>
+        {
+            Ok(bray_bound_tree::SelectionKind::Operator)
+        }
         BoundExpression::Conversion(_) => Ok(bray_bound_tree::SelectionKind::Conversion),
         BoundExpression::StructConstruction(_)
         | BoundExpression::LeadingDotVariant(_)

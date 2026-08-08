@@ -9,6 +9,7 @@ pub const fn compiler_known_operation_role(
     match expression {
         BoundExpression::Unary(_) => unary_operation_role(operator),
         BoundExpression::Binary(_) => binary_operation_role(operator),
+        BoundExpression::Assignment(_) => binary_operation_role(operator),
         _ => None,
     }
 }
@@ -17,8 +18,7 @@ const fn unary_operation_role(operator: BoundOperator) -> Option<CompilerKnownOp
     match operator {
         BoundOperator::Subtract => Some(CompilerKnownOperationRole::UnaryNegate),
         BoundOperator::BitwiseNot => Some(CompilerKnownOperationRole::UnaryBitNot),
-        BoundOperator::Assign
-        | BoundOperator::LogicalOr
+        BoundOperator::LogicalOr
         | BoundOperator::LogicalAnd
         | BoundOperator::Equal
         | BoundOperator::NotEqual
@@ -62,8 +62,7 @@ const fn binary_operation_role(operator: BoundOperator) -> Option<CompilerKnownO
         BoundOperator::Remainder => Some(CompilerKnownOperationRole::BinaryRemainder),
         BoundOperator::MatrixMultiply => Some(CompilerKnownOperationRole::BinaryMatrixMultiply),
         BoundOperator::Exponentiate => Some(CompilerKnownOperationRole::BinaryExponentiate),
-        BoundOperator::Assign
-        | BoundOperator::LogicalOr
+        BoundOperator::LogicalOr
         | BoundOperator::LogicalAnd
         | BoundOperator::BitwiseNot
         | BoundOperator::LogicalNot => None,
@@ -160,7 +159,6 @@ mod tests {
             assert_eq!(binary_operation_role(operator), Some(role));
         }
 
-        assert_eq!(binary_operation_role(BoundOperator::Assign), None);
         assert_eq!(binary_operation_role(BoundOperator::LogicalAnd), None);
         assert_eq!(binary_operation_role(BoundOperator::LogicalOr), None);
     }
