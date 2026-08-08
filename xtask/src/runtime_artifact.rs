@@ -3,11 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use bray_base::sha256_file;
 use crate::bundle::{
     DirectoryPublication, DirectoryPublicationError, NativeBuildOptions, NativeBuildOptionsBuilder,
     NativeBuildOptionsError,
 };
-use crate::{digest, workspace};
+use crate::workspace;
 use bray_runtime_interface::{
     AWAITED_FRAME_COMPOSITION_SYMBOL, BinarySymbolName, CLEANUP_INCIDENT_REPORTING_SYMBOL,
     COMPATIBLE_LANE_SELECTION_SYMBOL, CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
@@ -284,7 +285,7 @@ fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
 }
 
 fn digest_file(path: &Path) -> Result<RuntimeArtifactDigest, CommandError> {
-    let digest = digest::sha256(path).map_err(|error| CommandError::read(path, error))?;
+    let digest = sha256_file(path).map_err(|error| CommandError::read(path, error))?;
 
     Ok(RuntimeArtifactDigest::new(digest))
 }

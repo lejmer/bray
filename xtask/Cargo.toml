@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 bray-base = { path = "../crates/bray-base" }
+bray-llvm-toolchain = { path = "../tools/llvm-toolchain" }
 bray-compilation = { path = "../crates/bray-compilation" }
 bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
 bray-diagnostics = { path = "../crates/bray-diagnostics" }

@@ -118,5 +118,8 @@ documents.
 - `rust-style`
     - Reusable Rust source-style enforcement used by `xtask`, with no dependencies on Bray compiler crates.
 
+- `bray-llvm-toolchain`
+    - Dependency-light provisioning and validation of the pinned LLVM development toolchain.
+
 - `xtask`
     - Repository automation invoked through Cargo, including generated-source and conformance tasks.

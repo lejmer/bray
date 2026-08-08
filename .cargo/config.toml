@@ -1,4 +1,5 @@
 [alias]
+llvm = "run --package bray-llvm-toolchain --release --"
 xtask = "run --package xtask --release --"
 
 [env]

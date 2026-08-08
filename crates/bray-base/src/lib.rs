@@ -12,7 +12,7 @@ mod slice;
 mod text;
 
 pub use cancellation::Cancellation;
-pub use digest::StableDigestHasher;
+pub use digest::{StableDigestHasher, sha256_file};
 pub use file_staging::{CompletedStagedFile, FileReplacementMode, StagedFile};
 pub use hex::{is_lowercase_hex, lowercase_hex};
 pub use path::is_canonical_relative_path;

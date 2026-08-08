@@ -5,18 +5,20 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output};
 
+use bray_base::{lowercase_hex, sha256_file};
 use serde::{Deserialize, Serialize};
 
-use crate::{digest, workspace};
+use crate::workspace;
 
-const USAGE: &str = "usage: cargo xtask llvm <fetch | validate [--root <directory>] | host>";
-const MANIFEST: &str = include_str!("../../toolchains/llvm.json");
+const USAGE: &str = "usage: cargo llvm <fetch | validate [--root <directory>] | host>";
+const MANIFEST: &str = include_str!("../../../toolchains/llvm.json");
 const TOOLCHAIN_DIRECTORY: &str = "toolchains/llvm";
 const ACTIVE_DIRECTORY: &str = "active";
 const DOWNLOAD_DIRECTORY: &str = "downloads";
 const MARKER_FILE: &str = "bray-llvm-toolchain.json";
 
-pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
+/// Runs one LLVM toolchain provisioning command.
+pub fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
         Some("fetch") => reject_trailing(arguments).and_then(|()| fetch()),
         Some("validate") => validate_command(arguments),
@@ -111,7 +113,8 @@ fn toolchain_directory() -> Result<PathBuf, ToolchainError> {
     Ok(root.join("target").join(TOOLCHAIN_DIRECTORY))
 }
 
-pub(crate) fn tool_path(root: &Path, name: &str) -> PathBuf {
+/// Returns a tool path inside the provisioned LLVM installation.
+pub fn tool_path(root: &Path, name: &str) -> PathBuf {
     root.join("target")
         .join(TOOLCHAIN_DIRECTORY)
         .join(ACTIVE_DIRECTORY)
@@ -202,8 +205,8 @@ fn verify_archive(package: &ToolchainPackage, archive: &Path) -> Result<(), Tool
         });
     }
 
-    let actual = digest::hex(
-        &digest::sha256(archive).map_err(|error| ToolchainError::io("read", archive, error))?,
+    let actual = lowercase_hex(
+        &sha256_file(archive).map_err(|error| ToolchainError::io("read", archive, error))?,
     );
 
     if actual != package.sha256 {

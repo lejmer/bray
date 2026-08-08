@@ -37,6 +37,7 @@ members = [
     "crates/bray",
     "crates/brayc",
     "tools/rust-style",
+    "tools/llvm-toolchain",
     "xtask",
 ]
 resolver = "3"
