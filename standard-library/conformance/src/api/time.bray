@@ -71,6 +71,22 @@ func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.ti
         case Error(_) { assert(false); }
     }
 
+    match std.time.Date(year = 65536, month = 1, day = 1)
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.TimeError.OutOfRange) {}
+        case Error(_) { assert(false); }
+    }
+
+    let maximum: std.time.Date = try std.time.Date(year = 32767, month = 12, day = 31);
+
+    match maximum.add(std.time.CalendarPeriod(years = 1))
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.time.TimeError.OutOfRange) {}
+        case Error(_) { assert(false); }
+    }
+
     return Ok(unit);
 }
 
@@ -86,11 +102,16 @@ func civil_and_timestamp_text_round_trip() -> Result<unit, std.time.TimeError>
     let timestamp: std.time.Timestamp = try std.time.Timestamp.parse(&"2024-02-29T12:34:56.125+05:30");
     let offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
     let timestamp_text: string = try timestamp.rfc3339(offset);
+    let expanded: std.time.Date = try std.time.Date(year = 10000, month = 1, day = 2);
+    let expanded_text: string = try expanded.iso8601();
+    let expanded_round_trip: std.time.Date = try std.time.Date.parse(&expanded_text);
 
     assert(std.string.equals(&date_text, &"2024-02-29"));
     assert(std.string.equals(&time_text, &"12:34:56.125"));
     assert(std.string.equals(&local_text, &"2024-02-29T12:34:56.125"));
     assert(std.string.equals(&timestamp_text, &"2024-02-29T12:34:56.125+05:30"));
+    assert(std.string.equals(&expanded_text, &"+010000-01-02"));
+    assert(expanded_round_trip.year() == 10000);
 
     return Ok(unit);
 }
@@ -106,6 +127,20 @@ func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.ti
     let text: string = try round_trip.iso8601();
 
     assert(std.string.equals(&text, &"2024-02-29T12:34:56.125"));
+
+    match std.time.Timestamp(seconds = 9223372036854775807, nanoseconds = 0)
+    {
+        case Ok(extreme)
+        {
+            match extreme.rfc3339()
+            {
+                case Ok(_) { assert(false); }
+                case Error(std.time.TimeError.OutOfRange) {}
+                case Error(_) { assert(false); }
+            }
+        }
+        case Error(_) { assert(false); }
+    }
 
     return Ok(unit);
 }

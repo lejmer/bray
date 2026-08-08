@@ -33,6 +33,8 @@ constexpr std::uint32_t invalid_format = 5;
 constexpr std::uint32_t insufficient_buffer = 6;
 constexpr std::uint32_t provider_failure = 7;
 constexpr std::uint32_t nanoseconds_per_second = 1000000000;
+constexpr std::int32_t minimum_year = -32767;
+constexpr std::int32_t maximum_year = 32767;
 
 std::once_flag database_once;
 std::mutex zones_mutex;
@@ -104,6 +106,10 @@ date::year_month_day checked_date(
     std::uint32_t month,
     std::uint32_t day
 ) {
+    if (year < minimum_year || year > maximum_year) {
+        throw std::out_of_range("civil year is outside the provider range");
+    }
+
     const auto value = date::year{year} / date::month{month} / date::day{day};
 
     if (!value.ok()) {
@@ -149,9 +155,39 @@ date::sys_time<std::chrono::nanoseconds> timestamp(
         throw std::invalid_argument("invalid timestamp nanoseconds");
     }
 
-    return date::sys_time<std::chrono::nanoseconds>{
-        std::chrono::seconds{seconds} + std::chrono::nanoseconds{nanoseconds}
-    };
+    constexpr auto maximum = static_cast<std::uint64_t>(
+        std::numeric_limits<std::int64_t>::max()
+    );
+
+    std::int64_t count = 0;
+
+    if (seconds >= 0) {
+        const auto whole = static_cast<std::uint64_t>(seconds);
+
+        if (whole > maximum / nanoseconds_per_second ||
+            (whole == maximum / nanoseconds_per_second &&
+             nanoseconds > maximum % nanoseconds_per_second)) {
+            throw std::out_of_range("timestamp exceeds the nanosecond clock range");
+        }
+
+        count = static_cast<std::int64_t>(
+            whole * nanoseconds_per_second + nanoseconds
+        );
+    } else {
+        constexpr auto minimum_magnitude = maximum + 1;
+        const auto whole = static_cast<std::uint64_t>(-(seconds + 1));
+        const auto remainder = static_cast<std::uint64_t>(nanoseconds_per_second - nanoseconds);
+
+        if (whole > (minimum_magnitude - remainder) / nanoseconds_per_second) {
+            throw std::out_of_range("timestamp precedes the nanosecond clock range");
+        }
+
+        const auto magnitude = whole * nanoseconds_per_second + remainder;
+        count = magnitude == minimum_magnitude ? std::numeric_limits<std::int64_t>::min() :
+            -static_cast<std::int64_t>(magnitude);
+    }
+
+    return date::sys_time<std::chrono::nanoseconds>{std::chrono::nanoseconds{count}};
 }
 
 void timestamp_parts(
@@ -284,22 +320,36 @@ bool character(const std::string& text, std::size_t& cursor, char expected) {
 }
 
 bool parse_date(const std::string& text, std::size_t& cursor, BrayTemporalDateTime& value) {
-    bool negative = false;
+    char sign = '\0';
 
     if (cursor != text.size() && (text[cursor] == '-' || text[cursor] == '+')) {
-        negative = text[cursor] == '-';
+        sign = text[cursor];
         ++cursor;
     }
 
-    std::uint32_t year = 0;
+    const auto year_start = cursor;
 
-    if (!unsigned_field(text, cursor, 4, year) || !character(text, cursor, '-') ||
+    while (cursor != text.size() && digit(text[cursor]) && cursor - year_start != 6) {
+        ++cursor;
+    }
+
+    const auto year_digits = cursor - year_start;
+    std::uint32_t year = 0;
+    std::size_t year_cursor = year_start;
+
+    if ((year_digits != 4 && year_digits != 6) ||
+        (sign == '+' && year_digits != 6) ||
+        (sign == '\0' && year_digits != 4) ||
+        !unsigned_field(text, year_cursor, year_digits, year) || year_cursor != cursor ||
+        !character(text, cursor, '-') ||
         !unsigned_field(text, cursor, 2, value.month) || !character(text, cursor, '-') ||
-        !unsigned_field(text, cursor, 2, value.day) || year > 32767) {
+        !unsigned_field(text, cursor, 2, value.day) || year > maximum_year ||
+        (year_digits == 6 && year <= 9999) || (sign == '-' && year == 0)) {
         return false;
     }
 
-    value.year = negative ? -static_cast<std::int32_t>(year) : static_cast<std::int32_t>(year);
+    value.year = sign == '-' ? -static_cast<std::int32_t>(year) :
+        static_cast<std::int32_t>(year);
 
     return true;
 }
@@ -350,9 +400,11 @@ std::string padded(std::int64_t value, std::size_t width) {
 std::string format_date(BrayTemporalDateTime value) {
     const auto year = static_cast<std::int64_t>(value.year);
     const auto magnitude = year < 0 ? -year : year;
+    const auto expanded = magnitude > 9999;
 
-    return (year < 0 ? "-" : "") + padded(magnitude, 4) + "-" + padded(value.month, 2) +
-        "-" + padded(value.day, 2);
+    return (year < 0 ? "-" : expanded ? "+" : "") +
+        padded(magnitude, expanded ? 6 : 4) + "-" + padded(value.month, 2) + "-" +
+        padded(value.day, 2);
 }
 
 std::string format_time(BrayTemporalDateTime value) {
@@ -382,6 +434,8 @@ extern "C" std::uint32_t bray_temporal_date_validate(
     try {
         static_cast<void>(checked_date(year, month, day));
         return success;
+    } catch (const std::out_of_range&) {
+        return out_of_range;
     } catch (const std::invalid_argument&) {
         return invalid_value;
     } catch (...) {
@@ -402,8 +456,24 @@ extern "C" std::uint32_t bray_temporal_date_add(
     }
 
     try {
-        auto date = checked_date(value.year, value.month, value.day);
-        date = date + date::years{years} + date::months{months};
+        const auto original = checked_date(value.year, value.month, value.day);
+        const auto month_index = static_cast<std::int64_t>(value.year) * 12 +
+            static_cast<std::int64_t>(value.month - 1) +
+            static_cast<std::int64_t>(years) * 12 + months;
+        auto shifted_year = month_index / 12;
+        auto shifted_month = month_index % 12;
+
+        if (shifted_month < 0) {
+            shifted_month += 12;
+            --shifted_year;
+        }
+
+        if (shifted_year < minimum_year || shifted_year > maximum_year) {
+            return out_of_range;
+        }
+
+        auto date = date::year{static_cast<std::int32_t>(shifted_year)} /
+            date::month{static_cast<std::uint32_t>(shifted_month + 1)} / original.day();
 
         if (!date.ok()) {
             if (adjustment == 0) {
@@ -415,7 +485,21 @@ extern "C" std::uint32_t bray_temporal_date_add(
             };
         }
 
-        date = date::year_month_day{date::sys_days{date} + date::days{days}};
+        const auto day_number = static_cast<std::int64_t>(
+            date::sys_days{date}.time_since_epoch().count()
+        ) + days;
+        const auto minimum_day = date::sys_days{
+            date::year{minimum_year} / date::January / date::day{1}
+        }.time_since_epoch().count();
+        const auto maximum_day = date::sys_days{
+            date::year{maximum_year} / date::December / date::day{31}
+        }.time_since_epoch().count();
+
+        if (day_number < minimum_day || day_number > maximum_day) {
+            return out_of_range;
+        }
+
+        date = date::year_month_day{date::sys_days{date::days{day_number}}};
 
         if (!date.ok()) {
             return out_of_range;
@@ -485,37 +569,46 @@ extern "C" std::uint32_t bray_temporal_zone_local(std::uint64_t* handle) {
 }
 
 extern "C" std::uint32_t bray_temporal_zone_retain(std::uint64_t handle) {
-    std::lock_guard lock{zones_mutex};
-    const auto found = zone_references.find(handle);
+    try {
+        std::lock_guard lock{zones_mutex};
+        const auto found = zone_references.find(handle);
 
-    if (found == zone_references.end() || found->second == std::numeric_limits<std::uint64_t>::max()) {
-        return invalid_value;
+        if (found == zone_references.end() ||
+            found->second == std::numeric_limits<std::uint64_t>::max()) {
+            return invalid_value;
+        }
+
+        ++found->second;
+
+        return success;
+    } catch (...) {
+        return provider_failure;
     }
-
-    ++found->second;
-
-    return success;
 }
 
 extern "C" std::uint32_t bray_temporal_zone_close(std::uint64_t handle) {
-    std::lock_guard lock{zones_mutex};
-    const auto found = zone_references.find(handle);
+    try {
+        std::lock_guard lock{zones_mutex};
+        const auto found = zone_references.find(handle);
 
-    if (found == zone_references.end()) {
-        return invalid_value;
-    }
+        if (found == zone_references.end()) {
+            return invalid_value;
+        }
 
-    if (--found->second != 0) {
+        if (--found->second != 0) {
+            return success;
+        }
+
+        const auto value = zones.at(handle);
+
+        zone_names.erase(value->name());
+        zones.erase(handle);
+        zone_references.erase(found);
+
         return success;
+    } catch (...) {
+        return provider_failure;
     }
-
-    const auto value = zones.at(handle);
-
-    zone_names.erase(value->name());
-    zones.erase(handle);
-    zone_references.erase(found);
-
-    return success;
 }
 
 extern "C" std::uint32_t bray_temporal_zone_name(
@@ -678,83 +771,92 @@ extern "C" std::uint32_t bray_temporal_parse(
         return invalid_value;
     }
 
-    const auto source = text_value(text, length);
-    std::size_t cursor = 0;
-    BrayTemporalValue parsed{};
-    bool valid = kind == 1 ? parse_time(source, cursor, parsed.local) :
-        parse_date(source, cursor, parsed.local);
+    try {
+        const auto source = text_value(text, length);
+        std::size_t cursor = 0;
+        BrayTemporalValue parsed{};
+        bool valid = kind == 1 ? parse_time(source, cursor, parsed.local) :
+            parse_date(source, cursor, parsed.local);
 
-    if (valid && (kind == 2 || kind == 3)) {
-        valid = character(source, cursor, 'T') && parse_time(source, cursor, parsed.local);
-    }
+        if (valid && (kind == 2 || kind == 3)) {
+            valid = character(source, cursor, 'T') && parse_time(source, cursor, parsed.local);
+        }
 
-    if (valid && kind == 3) {
-        std::int32_t offset = 0;
+        if (valid && kind == 3) {
+            std::int32_t offset = 0;
 
-        if (cursor != source.size() && source[cursor] == 'Z') {
-            ++cursor;
-        } else {
-            const bool negative = cursor != source.size() && source[cursor] == '-';
-
-            if (cursor == source.size() || (source[cursor] != '+' && source[cursor] != '-')) {
-                valid = false;
-            } else {
+            if (cursor != source.size() && source[cursor] == 'Z') {
                 ++cursor;
-                std::uint32_t hour = 0;
-                std::uint32_t minute = 0;
+            } else {
+                const bool negative = cursor != source.size() && source[cursor] == '-';
 
-                valid = unsigned_field(source, cursor, 2, hour) &&
-                    character(source, cursor, ':') &&
-                    unsigned_field(source, cursor, 2, minute) && hour <= 23 && minute <= 59;
-                offset = static_cast<std::int32_t>(hour * 3600 + minute * 60);
+                if (cursor == source.size() ||
+                    (source[cursor] != '+' && source[cursor] != '-')) {
+                    valid = false;
+                } else {
+                    ++cursor;
+                    std::uint32_t hour = 0;
+                    std::uint32_t minute = 0;
 
-                if (negative) {
-                    offset = -offset;
+                    valid = unsigned_field(source, cursor, 2, hour) &&
+                        character(source, cursor, ':') &&
+                        unsigned_field(source, cursor, 2, minute) &&
+                        hour <= 23 && minute <= 59;
+                    offset = static_cast<std::int32_t>(hour * 3600 + minute * 60);
+
+                    if (negative) {
+                        offset = -offset;
+                    }
+                }
+            }
+
+            parsed.offset_seconds = offset;
+
+            if (valid) {
+                try {
+                    const auto instant = date::sys_time<std::chrono::nanoseconds>{
+                        local_time(parsed.local).time_since_epoch() -
+                        std::chrono::seconds{offset}
+                    };
+
+                    timestamp_parts(instant, parsed.timestamp_seconds, parsed.local.nanosecond);
+                } catch (...) {
+                    valid = false;
                 }
             }
         }
 
-        parsed.offset_seconds = offset;
-
         if (valid) {
             try {
-                const auto instant = date::sys_time<std::chrono::nanoseconds>{
-                    local_time(parsed.local).time_since_epoch() - std::chrono::seconds{offset}
-                };
-
-                timestamp_parts(instant, parsed.timestamp_seconds, parsed.local.nanosecond);
+                if (kind == 0) {
+                    static_cast<void>(
+                        checked_date(parsed.local.year, parsed.local.month, parsed.local.day)
+                    );
+                } else if (kind == 1) {
+                    parsed.local.year = 1970;
+                    parsed.local.month = 1;
+                    parsed.local.day = 1;
+                    static_cast<void>(local_time(parsed.local));
+                } else {
+                    static_cast<void>(local_time(parsed.local));
+                }
             } catch (...) {
                 valid = false;
             }
         }
-    }
 
-    if (valid) {
-        try {
-            if (kind == 0) {
-                static_cast<void>(checked_date(parsed.local.year, parsed.local.month, parsed.local.day));
-            } else if (kind == 1) {
-                parsed.local.year = 1970;
-                parsed.local.month = 1;
-                parsed.local.day = 1;
-                static_cast<void>(local_time(parsed.local));
-            } else {
-                static_cast<void>(local_time(parsed.local));
-            }
-        } catch (...) {
-            valid = false;
+        if (!valid || cursor != source.size()) {
+            *invalid_offset = static_cast<std::uint64_t>(cursor);
+            return invalid_format;
         }
+
+        *value = parsed;
+        *invalid_offset = static_cast<std::uint64_t>(source.size());
+
+        return success;
+    } catch (...) {
+        return provider_failure;
     }
-
-    if (!valid || cursor != source.size()) {
-        *invalid_offset = static_cast<std::uint64_t>(cursor);
-        return invalid_format;
-    }
-
-    *value = parsed;
-    *invalid_offset = static_cast<std::uint64_t>(source.size());
-
-    return success;
 }
 
 extern "C" std::uint32_t bray_temporal_format(

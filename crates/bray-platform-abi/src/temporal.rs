@@ -445,6 +445,13 @@ mod tests {
 
         assert_eq!(outcome, 2);
 
+        assert_eq!(
+            bray_platform_time_date_validate(65_536, 1, 1, &mut outcome),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(outcome, 4);
+
         let value = date_time(2024, 1, 31, 0, 0, 0, 0);
         let mut result = NativePlatformDateTime::default();
 
@@ -462,6 +469,21 @@ mod tests {
 
         assert_eq!(outcome, 0);
         assert_eq!(result, date_time(2024, 2, 29, 0, 0, 0, 0));
+
+        assert_eq!(
+            bray_platform_time_date_add(
+                date_time(32_767, 12, 31, 0, 0, 0, 0),
+                1,
+                0,
+                0,
+                0,
+                &mut result,
+                &mut outcome,
+            ),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(outcome, 4);
     }
 
     #[test]
@@ -587,6 +609,71 @@ mod tests {
 
         assert_eq!(outcome, 0);
         assert_eq!(formatted, source);
+
+        let expanded = b"+010000-01-02";
+
+        assert_eq!(
+            bray_platform_time_parse(
+                0,
+                NativePlatformText::new(expanded.as_ptr(), expanded.len() as u64),
+                &mut value,
+                &mut invalid_offset,
+                &mut outcome,
+            ),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(outcome, 0);
+
+        assert_eq!(
+            bray_platform_time_format(
+                0,
+                value,
+                std::ptr::null_mut(),
+                0,
+                &mut required,
+                &mut outcome,
+            ),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(outcome, 6);
+
+        formatted.resize(required as usize, 0);
+
+        assert_eq!(
+            bray_platform_time_format(
+                0,
+                value,
+                formatted.as_mut_ptr(),
+                formatted.len() as u64,
+                &mut required,
+                &mut outcome,
+            ),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(outcome, 0);
+        assert_eq!(formatted, expanded);
+
+        let mut observation = NativePlatformTemporalObservation::default();
+
+        assert_eq!(
+            bray_platform_time_observe(
+                0,
+                0,
+                i64::MAX,
+                0,
+                &mut observation,
+                std::ptr::null_mut(),
+                0,
+                &mut required,
+                &mut outcome,
+            ),
+            NativePlatformStatus::SUCCESS
+        );
+
+        assert_eq!(outcome, 4);
     }
 
     fn load_zone(name: &str) -> u64 {
