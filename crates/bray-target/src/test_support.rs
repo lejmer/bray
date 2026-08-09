@@ -1,8 +1,8 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
 use crate::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
-    TargetProfile,
+    Endianness, ObjectFormat, TargetArchitecture, TargetCAbiFacts, TargetIdentity,
+    TargetMachineProperties, TargetProfile, TargetScalarKind,
 };
 
 /// Returns the canonical target profile used by compiler tests.
@@ -19,7 +19,17 @@ pub fn test_target_profile() -> TargetProfile {
 
 /// Returns the canonical language-defined target facts used by compiler tests.
 pub fn test_target_facts() -> crate::TargetFacts {
-    let Some(facts) = crate::TargetFacts::try_portable("unknown", "linux", "gnu", "gnu") else {
+    let c_abi = TargetCAbiFacts::try_new(
+        TargetScalarKind::I8,
+        TargetScalarKind::I64,
+        TargetScalarKind::U64,
+        TargetScalarKind::I32,
+        None,
+    )
+    .unwrap_or_else(|| panic!("test C ABI facts must be valid"));
+
+    let Some(facts) = crate::TargetFacts::try_portable("unknown", "linux", "gnu", "gnu", c_abi)
+    else {
         panic!("test target facts must be valid");
     };
 

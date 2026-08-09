@@ -1,0 +1,42 @@
+module std.ffi;
+
+@copy
+union ForeignErrorKind
+{
+    Unsupported;
+    InvalidInput;
+    UnavailableSymbol;
+    UnavailableLibrary;
+    PermissionDenied;
+    Exhausted;
+    Interrupted;
+    IncompatibleAbi;
+    InvalidResource;
+    Other;
+}
+
+@copy
+struct ForeignError
+{
+    internal kind_value: ForeignErrorKind;
+    internal native_code_value: i64?;
+
+    func kind() -> ForeignErrorKind
+    {
+        return self.kind_value;
+    }
+
+    func native_code() -> i64?
+    {
+        return self.native_code_value;
+    }
+}
+
+func foreign_error(pos kind: ForeignErrorKind, pos native_code: i64? = none) -> ForeignError
+{
+    return
+    {
+        kind_value = kind,
+        native_code_value = native_code,
+    };
+}

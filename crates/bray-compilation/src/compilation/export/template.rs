@@ -303,6 +303,12 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 })
             }
             BoundExpression::Structured(expression) => match expression.kind() {
+                BoundStructuredExpressionKind::Absence => {
+                    Ok(InterfaceCheckedTemplateOperation::Constant {
+                        term: self.export.nullable_absence_term_id(ty)?,
+                        usage: Default::default(),
+                    })
+                }
                 BoundStructuredExpressionKind::Tuple => {
                     Ok(InterfaceCheckedTemplateOperation::tuple(
                         self.expressions(expression.operands())?,

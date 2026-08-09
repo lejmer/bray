@@ -1192,6 +1192,57 @@ mod tests {
         }
     }
 
+    #[test]
+    fn target_gated_contributions_do_not_invalidate_package_interface_export() {
+        let compilation = compilation_from_sources([
+            concat!(
+                "@target(false)\n",
+                "module app;\n",
+                "\n",
+                "func disabled()\n",
+                "{\n",
+                "}\n",
+            ),
+            concat!("module app;\n", "\n", "func enabled()\n", "{\n", "}\n",),
+        ]);
+
+        let bundle = export(&compilation);
+
+        assert_eq!(bundle.surface().symbols().symbols().len(), 3);
+    }
+
+    #[test]
+    fn runtime_defaults_export_after_disabled_target_gated_contributions() {
+        let compilation = compilation_from_sources([
+            concat!(
+                "@target(false)\n",
+                "module app;\n",
+                "\n",
+                "func disabled()\n",
+                "{\n",
+                "}\n",
+            ),
+            concat!(
+                "module app;\n",
+                "\n",
+                "func selected(pos value: i64? = none) -> i64?\n",
+                "{\n",
+                "    return value;\n",
+                "}\n",
+            ),
+        ]);
+
+        let bundle = export(&compilation);
+
+        assert_eq!(
+            bundle
+                .semantic_facts()
+                .callable_parameter_defaults()
+                .len(),
+            1
+        );
+    }
+
     fn export(compilation: &Compilation) -> &Arc<PackageInterfaceExportBundle> {
         match compilation.package_interface_export_bundle() {
             Some(Ok(bundle)) => bundle,

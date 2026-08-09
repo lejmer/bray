@@ -2385,7 +2385,20 @@ mod tests {
         match TargetProfile::try_new(
             identity,
             machine,
-            match bray_target::TargetFacts::try_portable("unknown", "linux", "gnu", "gnu") {
+            match bray_target::TargetFacts::try_portable(
+                "unknown",
+                "linux",
+                "gnu",
+                "gnu",
+                bray_target::TargetCAbiFacts::try_new(
+                    bray_target::TargetScalarKind::I8,
+                    bray_target::TargetScalarKind::I64,
+                    bray_target::TargetScalarKind::U64,
+                    bray_target::TargetScalarKind::I32,
+                    None,
+                )
+                .unwrap_or_else(|| panic!("constant-evaluation test C ABI facts must be valid")),
+            ) {
                 Some(facts) => facts,
                 None => panic!("constant-evaluation test target facts must be valid"),
             },

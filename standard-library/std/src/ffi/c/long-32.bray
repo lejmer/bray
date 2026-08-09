@@ -1,0 +1,42 @@
+@target(target.c.LONG == "i32" && target.c.UNSIGNED_LONG == "u32")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct Long
+{
+    internal raw: i32;
+
+    func value() -> i32
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct UnsignedLong
+{
+    internal raw: u32;
+
+    func value() -> u32
+    {
+        return self.raw;
+    }
+}
+
+func long(pos raw: i32) -> Long
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func unsigned_long(pos raw: u32) -> UnsignedLong
+{
+    return
+    {
+        raw = raw
+    };
+}

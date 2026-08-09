@@ -10,11 +10,12 @@ pub(super) fn platform_service_role(
     function: FunctionSymbolId,
 ) -> Result<Option<PlatformServiceRole>, FactQueryError> {
     let symbols = compilation.symbol_graph()?;
+    let declarations = compilation.product_source_graph()?.declarations();
 
     let declaration = symbols
         .function(function)
         .and_then(bray_symbols::FunctionSymbol::declaration)
-        .and_then(|declaration| compilation.declaration_table().declaration(declaration))
+        .and_then(|declaration| declarations.declaration(declaration))
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if declaration.kind() != DeclarationKind::Function {
@@ -28,8 +29,7 @@ pub(super) fn platform_service_role(
         return Ok(None);
     };
 
-    let module = compilation
-        .declaration_table()
+    let module = declarations
         .container(declaration.owning_container())
         .and_then(bray_declarations::ContainerRecord::module_path)
         .ok_or(FactQueryError::InfrastructureFailure)?;

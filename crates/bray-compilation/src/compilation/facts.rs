@@ -1746,6 +1746,7 @@ mod tests {
             bray_target::TargetScalarFacts::new(real16, false, false, false),
             baseline_facts.atomics(),
             baseline_facts.abis(),
+            baseline_facts.c_abi(),
             baseline_facts.address_spaces(),
             baseline_facts.alignments(),
             baseline_facts.operations(),

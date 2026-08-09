@@ -1,6 +1,6 @@
 // rust-style: allow(module-too-large, reason = "foreign boundary validation keeps its exhaustive ABI contract checks together")
 
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::SymbolFactProvider;
 use bray_bound_tree::BoundSourceAnchor;
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -494,8 +494,8 @@ fn c_struct_matches(
     let facts = compilation.binder_facts(cancellation)?;
 
     let structure = facts
-        .symbols()
         .structure(*structure)
+        .map_err(super::super::super::binder::binder_fact_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if !structure.generic_type_parameters().is_empty()
@@ -575,8 +575,8 @@ fn platform_status_matches(
     let facts = compilation.binder_facts(cancellation)?;
 
     let structure = facts
-        .symbols()
         .structure(*structure)
+        .map_err(super::super::super::binder::binder_fact_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if !structure.generic_type_parameters().is_empty()

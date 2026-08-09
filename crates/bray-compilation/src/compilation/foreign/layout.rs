@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::SymbolFactProvider;
 use bray_symbols::{
     GenericSubstitutionId, NamedTypeSymbolId, StructFieldTypeFact, SymbolFactRequest, TypeData,
     TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeFact,
@@ -100,8 +100,8 @@ fn named_alignment(
     let mut alignment = match definition {
         NamedTypeSymbolId::Struct(structure) => {
             let structure = facts
-                .symbols()
                 .structure(structure)
+                .map_err(super::super::binder::binder_fact_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let mut alignments = Vec::with_capacity(structure.fields().len());
@@ -124,8 +124,8 @@ fn named_alignment(
         }
         NamedTypeSymbolId::Union(union) => {
             let union = facts
-                .symbols()
                 .union(union)
+                .map_err(super::super::binder::binder_fact_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let mut alignment = representation
@@ -137,8 +137,8 @@ fn named_alignment(
 
             for variant in union.variants() {
                 let variant = facts
-                    .symbols()
                     .union_variant(*variant)
+                    .map_err(super::super::binder::binder_fact_error)?
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 for field in variant.payload_fields() {
@@ -279,4 +279,55 @@ fn pointer_alignment(compilation: &Compilation) -> NonZeroU64 {
             .machine()
             .pointer_alignment_bytes(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::NamedTypeSymbolId;
+
+    use super::aggregate_alignment;
+    use crate::compilation::substitution::empty_substitution;
+    use crate::test_support::{
+        compilation_with_dependencies, encoded_semantic_dependency,
+    };
+    use crate::CancellationToken;
+
+    #[test]
+    fn imported_aggregate_alignment_uses_dependency_symbols() {
+        let interface = bray_package_interface::test_support::encoded_semantic_test_interface();
+
+        let compilation = compilation_with_dependencies(
+            "module app;",
+            [encoded_semantic_dependency(&interface)],
+        );
+
+        let imported = compilation
+            .imported_symbol_skeleton_result()
+            .unwrap_or_else(|error| panic!("imported symbols must load: {error:?}"));
+
+        let structure = imported
+            .value()
+            .as_ref()
+            .and_then(|symbols| symbols.structures().first())
+            .unwrap_or_else(|| panic!("test interface must contain a structure"));
+
+        let definition = NamedTypeSymbolId::from(structure.id());
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must load: {error:?}"));
+
+        let substitution = empty_substitution(values, definition.into_any())
+            .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
+
+        let alignment = aggregate_alignment(
+            &compilation,
+            definition,
+            substitution,
+            &CancellationToken::new(),
+        )
+        .unwrap_or_else(|error| panic!("imported aggregate alignment must resolve: {error:?}"));
+
+        assert_eq!(alignment, std::num::NonZeroU64::MIN);
+    }
 }

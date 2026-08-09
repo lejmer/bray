@@ -118,6 +118,7 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
         baseline_facts.scalars(),
         baseline_facts.atomics(),
         baseline_facts.abis(),
+        baseline_facts.c_abi(),
         baseline_facts.address_spaces(),
         baseline_facts.alignments(),
         TargetOperationFacts::new(false, false),

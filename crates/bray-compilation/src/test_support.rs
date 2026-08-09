@@ -192,6 +192,7 @@ pub(crate) fn compilation_with_target_operations(
         baseline_facts.scalars(),
         baseline_facts.atomics(),
         baseline_facts.abis(),
+        baseline_facts.c_abi(),
         baseline_facts.address_spaces(),
         baseline_facts.alignments(),
         bray_target::TargetOperationFacts::new(raw_memory, allocation),

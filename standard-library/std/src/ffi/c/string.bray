@@ -1,0 +1,125 @@
+module std.ffi.c;
+
+union CStringError
+{
+    InteriorNul;
+    MissingTerminator;
+    Allocation;
+}
+
+@copy
+struct CStr
+{
+    internal units: &[u8];
+
+    func bytes() -> &[u8]
+    {
+        let count: usize = std.bytes.slice_length(self.units);
+
+        return &self.units[0.. count - 1];
+    }
+
+    func bytes_with_nul() -> &[u8]
+    {
+        return self.units;
+    }
+
+    func pointer() -> RawPointer<u8>
+    {
+        return std.memory.address_of<u8>(&self.units[0]);
+    }
+}
+
+func c_str_from_terminated(pos units: &[u8]) -> Result<CStr, CStringError>
+{
+    let count: usize = std.bytes.slice_length(units);
+
+    if count == 0 || units[count - 1] != 0
+    {
+        return Error(CStringError.MissingTerminator);
+    }
+
+    let mut index: usize = 0;
+
+    while index + 1 < count
+    {
+        if units[index] == 0
+        {
+            return Error(CStringError.InteriorNul);
+        }
+
+        index += 1;
+    }
+
+    return Ok(
+        {
+            units = units
+        }
+    );
+}
+
+struct CString
+{
+    internal storage: std.bytes.Buffer;
+
+    trusted construct from_bytes(pos bytes: &[u8]) -> Result<Self, CStringError>
+    {
+        if contains_nul(bytes)
+        {
+            return Error(CStringError.InteriorNul);
+        }
+
+        let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> = trusted std.bytes.Buffer.from_slice(
+            bytes
+        );
+
+        let mut storage: std.bytes.Buffer = match consume created
+        {
+            case Ok(buffer) { yield buffer; }
+            case Error(_) { return Error(CStringError.Allocation); }
+        };
+
+        match trusted std.bytes.push(&mut storage, value = 0)
+        {
+            case Ok(_) {}
+            case Error(_) { return Error(CStringError.Allocation); }
+        }
+
+        return Ok(
+            {
+                storage = storage
+            }
+        );
+    }
+
+    trusted construct from_string(pos value: &string) -> Result<Self, CStringError>
+    {
+        return CString.from_bytes(std.string.utf8(value));
+    }
+
+    func as_c_str() -> CStr
+    {
+        return
+        {
+            units = std.bytes.as_slice(&self.storage),
+        };
+    }
+}
+
+internal func contains_nul(pos bytes: &[u8]) -> bool
+{
+    let count: usize = std.bytes.slice_length(bytes);
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        if bytes[index] == 0
+        {
+            return true;
+        }
+
+        index += 1;
+    }
+
+    return false;
+}

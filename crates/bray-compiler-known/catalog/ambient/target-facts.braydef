@@ -172,6 +172,80 @@ scope TargetAbi at target.abi {
     }
 }
 
+scope TargetC at target.c {
+    declaration TargetCChar {
+        surface { const CHAR: string = ""; }
+    }
+
+    declaration TargetCSignedChar {
+        surface { const SIGNED_CHAR: string = ""; }
+    }
+
+    declaration TargetCUnsignedChar {
+        surface { const UNSIGNED_CHAR: string = ""; }
+    }
+
+    declaration TargetCShort {
+        surface { const SHORT: string = ""; }
+    }
+
+    declaration TargetCUnsignedShort {
+        surface { const UNSIGNED_SHORT: string = ""; }
+    }
+
+    declaration TargetCInt {
+        surface { const INT: string = ""; }
+    }
+
+    declaration TargetCUnsignedInt {
+        surface { const UNSIGNED_INT: string = ""; }
+    }
+
+    declaration TargetCLong {
+        surface { const LONG: string = ""; }
+    }
+
+    declaration TargetCUnsignedLong {
+        surface { const UNSIGNED_LONG: string = ""; }
+    }
+
+    declaration TargetCLongLong {
+        surface { const LONG_LONG: string = ""; }
+    }
+
+    declaration TargetCUnsignedLongLong {
+        surface { const UNSIGNED_LONG_LONG: string = ""; }
+    }
+
+    declaration TargetCSize {
+        surface { const SIZE: string = ""; }
+    }
+
+    declaration TargetCPointerDifference {
+        surface { const PTRDIFF: string = ""; }
+    }
+
+    declaration TargetCWideChar {
+        surface { const WCHAR: string = ""; }
+    }
+
+    declaration TargetCBool {
+        surface { const BOOL: string = ""; }
+    }
+
+    declaration TargetCFloat {
+        surface { const FLOAT: string = ""; }
+    }
+
+    declaration TargetCDouble {
+        surface { const DOUBLE: string = ""; }
+    }
+
+    declaration TargetCLongDouble {
+        surface { const LONG_DOUBLE: string = ""; }
+    }
+}
+
 scope TargetAddressSpace at target.address_space {
     declaration TargetAddressSpaceHost {
         surface { const HOST: bool = false; }

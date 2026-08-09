@@ -15,8 +15,9 @@ pub mod test_support;
 
 pub use facts::{
     TargetAbiFacts, TargetAbiScalarFacts, TargetAddressSpaceFacts, TargetAlignmentFacts,
-    TargetAtomicFacts, TargetFactKind, TargetFactValue, TargetFacts, TargetForeignAbiFacts,
-    TargetIdentityFacts, TargetOperationFacts, TargetScalarFacts, TargetScalarKind,
+    TargetAtomicFacts, TargetCAbiFacts, TargetCScalarKind, TargetFactKind, TargetFactValue,
+    TargetFacts, TargetForeignAbiFacts, TargetIdentityFacts, TargetOperationFacts,
+    TargetScalarFacts, TargetScalarKind,
 };
 pub use identity::TargetIdentity;
 pub use layout::{TargetLayoutContract, TargetValueLayout};

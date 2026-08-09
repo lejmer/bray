@@ -2,7 +2,10 @@ use std::num::NonZeroU64;
 
 use bray_base::NonEmptySharedStr;
 
-use super::{TargetAbiFacts, TargetAbiScalarFacts, TargetForeignAbiFacts, TargetScalarFacts};
+use super::{
+    TargetAbiFacts, TargetAbiScalarFacts, TargetCAbiFacts, TargetForeignAbiFacts,
+    TargetScalarFacts,
+};
 
 /// Stable identity details of one target profile.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -206,6 +209,7 @@ pub struct TargetFacts {
     scalars: TargetScalarFacts,
     atomics: TargetAtomicFacts,
     abis: TargetAbiFacts,
+    c_abi: TargetCAbiFacts,
     address_spaces: TargetAddressSpaceFacts,
     alignments: TargetAlignmentFacts,
     operations: TargetOperationFacts,
@@ -218,6 +222,7 @@ impl TargetFacts {
         scalars: TargetScalarFacts,
         atomics: TargetAtomicFacts,
         abis: TargetAbiFacts,
+        c_abi: TargetCAbiFacts,
         address_spaces: TargetAddressSpaceFacts,
         alignments: TargetAlignmentFacts,
         operations: TargetOperationFacts,
@@ -227,14 +232,21 @@ impl TargetFacts {
             scalars,
             atomics,
             abis,
+            c_abi,
             address_spaces,
             alignments,
             operations,
         }
     }
 
-    /// Creates the complete portable baseline fact set when identity spellings are nonempty.
-    pub fn try_portable(vendor: &str, system: &str, environment: &str, abi: &str) -> Option<Self> {
+    /// Creates the portable baseline fact set with the supplied C data model.
+    pub fn try_portable(
+        vendor: &str,
+        system: &str,
+        environment: &str,
+        abi: &str,
+        c_abi: TargetCAbiFacts,
+    ) -> Option<Self> {
         let identity = TargetIdentityFacts::try_new(vendor, system, environment, abi)?;
         let address_spaces = TargetAddressSpaceFacts::try_new(true, false)?;
         let maximum_alignment = NonZeroU64::new(1 << 29).unwrap_or(NonZeroU64::MIN);
@@ -254,6 +266,7 @@ impl TargetFacts {
             TargetScalarFacts::default(),
             TargetAtomicFacts::default(),
             TargetAbiFacts::new(Some(foreign_abi), Some(foreign_abi)),
+            c_abi,
             address_spaces,
             alignments,
             TargetOperationFacts::default(),
@@ -285,6 +298,11 @@ impl TargetFacts {
     /// Returns callable ABI availability and acceptance contracts.
     pub const fn abis(&self) -> TargetAbiFacts {
         self.abis
+    }
+
+    /// Returns the target's exact C scalar data model.
+    pub const fn c_abi(&self) -> TargetCAbiFacts {
+        self.c_abi
     }
 
     /// Returns address-space availability facts.

@@ -42,7 +42,7 @@ use bray_symbols::{
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
     CallableSignatureFact, CallableSymbolId, CheckedConstraintKind, ConstantDefinitionState,
     ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
-    ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind,
+    ConstantValueData, ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind,
     DeclaredStorageShape, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencyRequirementKind, DependencySubject, DependencySubjectRoot, ExternalSymbolKey,
     GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact, GenericOwnerId,
@@ -1976,6 +1976,18 @@ impl<'a> SemanticExporter<'a> {
             .map_err(|_| incomplete_type())?;
 
         self.constant_term_id(term)
+    }
+
+    pub(super) fn nullable_absence_term_id(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<InterfaceConstantTermId, PackageInterfaceExportError> {
+        let value = self
+            .values
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::NullableAbsent))
+            .map_err(|_| incomplete_type())?;
+
+        self.constant_value_term_id(value)
     }
 
     pub(super) fn declaration_template_reference(

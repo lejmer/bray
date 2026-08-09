@@ -372,6 +372,45 @@ extern trusted internal func flush(pos handle: u64) -> PlatformStatus
     }
 
     #[test]
+    fn platform_services_resolve_after_target_gates_remove_earlier_contributions() {
+        let compilation = compilation_with_platform_service_sources(
+            &[
+                "@target(false) module app.disabled;",
+                r#"trusted module app;
+
+@layout(c)
+internal struct PlatformStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+@abi(c)
+extern trusted internal func flush(pos handle: u64) -> PlatformStatus
+    uses(foreign_call);
+"#,
+            ],
+            PlatformServiceRole::StreamFlush,
+            "app.flush",
+        );
+
+        let function = source_function(&compilation, "flush");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert!(result.value().is_some());
+    }
+
+    #[test]
     fn ordinary_bray_externs_do_not_require_foreign_contracts() {
         let compilation = compilation(
             r#"module app;
@@ -723,6 +762,14 @@ func third()
         role: PlatformServiceRole,
         path: &str,
     ) -> crate::Compilation {
+        compilation_with_platform_service_sources(&[source], role, path)
+    }
+
+    fn compilation_with_platform_service_sources(
+        sources: &[&str],
+        role: PlatformServiceRole,
+        path: &str,
+    ) -> crate::Compilation {
         let Some(binding) = PlatformServiceBinding::try_new(role, path) else {
             panic!("test platform binding must be valid");
         };
@@ -735,7 +782,17 @@ func third()
 
         let request = CompilationRequest::with_options(
             package_identity(),
-            vec![source_input(source, 0)],
+            sources
+                .iter()
+                .enumerate()
+                .map(|(index, source)| {
+                    source_input(
+                        source,
+                        u32::try_from(index)
+                            .unwrap_or_else(|_| panic!("test source index must fit u32")),
+                    )
+                })
+                .collect(),
             options,
         )
         .with_platform_services([binding]);
@@ -788,6 +845,7 @@ func third()
             baseline_facts.scalars(),
             baseline_facts.atomics(),
             TargetAbiFacts::new(Some(foreign), Some(foreign)),
+            baseline_facts.c_abi(),
             baseline_facts.address_spaces(),
             baseline_facts.alignments(),
             baseline_facts.operations(),

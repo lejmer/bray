@@ -28,6 +28,8 @@ pub enum TargetProfileBuildError {
     ScalarAlignmentAboveStorageMaximum,
     /// A callable ABI accepts a scalar unavailable on the target.
     AbiAcceptsUnavailableScalar,
+    /// A C scalar maps to a Bray scalar unavailable on the target.
+    CAbiMapsUnavailableScalar,
     /// A callable ABI accepts an alignment above the target storage maximum.
     AbiAlignmentAboveStorageMaximum,
 }
@@ -55,6 +57,9 @@ impl std::fmt::Display for TargetProfileBuildError {
             }
             Self::AbiAcceptsUnavailableScalar => {
                 formatter.write_str("a callable ABI accepts an unavailable scalar")
+            }
+            Self::CAbiMapsUnavailableScalar => {
+                formatter.write_str("the C ABI maps to an unavailable scalar")
             }
             Self::AbiAlignmentAboveStorageMaximum => {
                 formatter.write_str("a callable ABI alignment exceeds the storage maximum")
@@ -114,6 +119,10 @@ impl TargetProfile {
 
         if !abis.is_supported_by(scalars) {
             return Err(TargetProfileBuildError::AbiAcceptsUnavailableScalar);
+        }
+
+        if !facts.c_abi().is_supported_by(scalars) {
+            return Err(TargetProfileBuildError::CAbiMapsUnavailableScalar);
         }
 
         for contract in [abis.c_contract(), abis.system_contract()]
@@ -215,6 +224,7 @@ mod tests {
             baseline.scalars(),
             TargetAtomicFacts::default(),
             baseline.abis(),
+            baseline.c_abi(),
             address_spaces,
             alignments,
             TargetOperationFacts::default(),
@@ -373,6 +383,7 @@ mod tests {
             scalars,
             baseline.atomics(),
             abis.unwrap_or_else(|| baseline.abis()),
+            baseline.c_abi(),
             baseline.address_spaces(),
             alignments,
             baseline.operations(),

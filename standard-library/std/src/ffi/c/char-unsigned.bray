@@ -1,0 +1,22 @@
+@target(target.c.CHAR == "u8")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct Char
+{
+    internal raw: u8;
+
+    func value() -> u8
+    {
+        return self.raw;
+    }
+}
+
+func char(pos raw: u8) -> Char
+{
+    return
+    {
+        raw = raw
+    };
+}

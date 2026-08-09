@@ -1,0 +1,22 @@
+@target(target.c.WCHAR == "i32")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct WideChar
+{
+    internal raw: i32;
+
+    func value() -> i32
+    {
+        return self.raw;
+    }
+}
+
+func wide_char(pos raw: i32) -> WideChar
+{
+    return
+    {
+        raw = raw
+    };
+}

@@ -1,0 +1,94 @@
+module bray.standard_library_tests.ffi;
+
+using std.bytes;
+using std.ffi;
+using std.ffi.c;
+using std.memory;
+
+@abi(c)
+func c_increment(pos value: std.ffi.c.Int) -> std.ffi.c.Int
+{
+    return std.ffi.c.int(value.value() + 1);
+}
+
+@test
+func c_scalar_wrappers_preserve_values_and_layouts()
+{
+    let value: std.ffi.c.Int = c_increment(std.ffi.c.int(41));
+
+    assert(value.value() == 42);
+    assert(std.memory.size_of<std.ffi.c.Int>() == std.memory.size_of<i32>());
+    assert(std.memory.align_of<std.ffi.c.Int>() == std.memory.align_of<i32>());
+    assert(std.ffi.c.boolean(true).value());
+    assert(!std.ffi.c.boolean(false).value());
+}
+
+@test
+trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.ffi.c.CStringError>
+    uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
+{
+    let input: [u8; 3] = [65, 66, 67];
+    let owned: std.ffi.c.CString = try trusted std.ffi.c.CString.from_bytes(&input[..]);
+    let borrowed: std.ffi.c.CStr = owned.as_c_str();
+    let bytes: &[u8] = borrowed.bytes();
+    let terminated: &[u8] = borrowed.bytes_with_nul();
+
+    assert(std.bytes.equals(bytes, &input[..]));
+    assert(std.bytes.slice_length(terminated) == 4);
+    assert(terminated[3] == 0);
+    assert(!std.memory.is_null<u8>(borrowed.pointer()));
+
+    let valid: [u8; 2] = [65, 0];
+    let from_terminated: std.ffi.c.CStr = try std.ffi.c.c_str_from_terminated(&valid[..]);
+
+    assert(std.bytes.slice_length(from_terminated.bytes()) == 1);
+
+    return Ok(unit);
+}
+
+@test
+trusted func c_strings_reject_interior_nul() -> Result<unit, std.ffi.c.CStringError>
+{
+    let invalid: [u8; 3] = [65, 0, 66];
+
+    match trusted std.ffi.c.CString.from_bytes(&invalid[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error
+            {
+                case std.ffi.c.CStringError.InteriorNul {}
+                case _ { assert(false); }
+            }
+        }
+    }
+
+    return Ok(unit);
+}
+
+@test
+func foreign_errors_preserve_structured_categories_and_codes()
+{
+    let mut code: i64? = none;
+    let native_code: i64 = 13;
+
+    code = native_code;
+
+    let error: std.ffi.ForeignError = std.ffi.foreign_error(
+        kind = std.ffi.ForeignErrorKind.PermissionDenied,
+        native_code = code,
+    );
+
+    match error.kind()
+    {
+        case std.ffi.ForeignErrorKind.PermissionDenied {}
+        case _ { assert(false); }
+    }
+
+    match error.native_code()
+    {
+        case ?value { assert(value == 13); }
+        case none { assert(false); }
+    }
+}

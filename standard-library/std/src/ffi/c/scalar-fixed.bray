@@ -1,0 +1,267 @@
+@target(
+    target.c.SIGNED_CHAR == "i8" && target.c.UNSIGNED_CHAR == "u8" && target.c.SHORT == "i16" &&
+        target.c.UNSIGNED_SHORT == "u16" && target.c.INT == "i32" && target.c.UNSIGNED_INT == "u32" &&
+        target.c.LONG_LONG == "i64" && target.c.UNSIGNED_LONG_LONG == "u64" && target.c.SIZE == "usize" &&
+        target.c.PTRDIFF == "isize" && target.c.BOOL == "bool" && target.c.FLOAT == "r32" && target.c.DOUBLE == "r64"
+)
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct SignedChar
+{
+    internal raw: i8;
+
+    func value() -> i8
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct UnsignedChar
+{
+    internal raw: u8;
+
+    func value() -> u8
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct Short
+{
+    internal raw: i16;
+
+    func value() -> i16
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct UnsignedShort
+{
+    internal raw: u16;
+
+    func value() -> u16
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct Int
+{
+    internal raw: i32;
+
+    func value() -> i32
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct UnsignedInt
+{
+    internal raw: u32;
+
+    func value() -> u32
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct LongLong
+{
+    internal raw: i64;
+
+    func value() -> i64
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct UnsignedLongLong
+{
+    internal raw: u64;
+
+    func value() -> u64
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct Size
+{
+    internal raw: usize;
+
+    func value() -> usize
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct PointerDifference
+{
+    internal raw: isize;
+
+    func value() -> isize
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct Boolean
+{
+    internal raw: bool;
+
+    func value() -> bool
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct Float
+{
+    internal raw: r32;
+
+    func value() -> r32
+    {
+        return self.raw;
+    }
+}
+
+@copy
+@layout(transparent)
+struct Double
+{
+    internal raw: r64;
+
+    func value() -> r64
+    {
+        return self.raw;
+    }
+}
+
+func signed_char(pos raw: i8) -> SignedChar
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func unsigned_char(pos raw: u8) -> UnsignedChar
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func short(pos raw: i16) -> Short
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func unsigned_short(pos raw: u16) -> UnsignedShort
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func int(pos raw: i32) -> Int
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func unsigned_int(pos raw: u32) -> UnsignedInt
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func long_long(pos raw: i64) -> LongLong
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func unsigned_long_long(pos raw: u64) -> UnsignedLongLong
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func size(pos raw: usize) -> Size
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func pointer_difference(pos raw: isize) -> PointerDifference
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func boolean(pos raw: bool) -> Boolean
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func float(pos raw: r32) -> Float
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func double(pos raw: r64) -> Double
+{
+    return
+    {
+        raw = raw
+    };
+}
