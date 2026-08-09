@@ -3,15 +3,45 @@ module bray.standard_library_tests.dynamic;
 
 using std.dynamic;
 using std.ffi;
-using std.memory;
+using std.path;
 
 @test
 trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Result<unit, std.ffi.ForeignError>
     uses(foreign_call, layout_reinterpret)
 {
+    let relative_result: Result<std.path.Path, std.path.PathError> = std.path.Path.from_string("ambient-loader-name");
+
+    let relative: std.path.Path = match consume relative_result
+    {
+        case Ok(path) { yield path; }
+        case Error(_)
+        {
+            assert(false);
+            return Ok(unit);
+        }
+    };
+
+    let relative_open: Result<std.dynamic.DynamicLibrary, std.ffi.ForeignError> = std.dynamic.DynamicLibrary.open_path(
+        &relative,
+        policy = std.dynamic.LoadPolicy.PlatformDefault,
+    );
+
+    match consume relative_open
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error.kind()
+            {
+                case std.ffi.ForeignErrorKind.InvalidInput {}
+                case _ { assert(false); }
+            }
+        }
+    }
+
     let mut library: std.dynamic.DynamicLibrary = try std.dynamic.DynamicLibrary.open_system(
         std.dynamic.SystemLibrary.CRuntime,
-        policy = std.dynamic.LoadPolicy.LocalImmediate,
+        policy = std.dynamic.LoadPolicy.PlatformDefault,
     );
 
     let invalid: [u8; 1] = [0];
@@ -35,12 +65,48 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
     }
 
     {
-        let name: [u8; 6] = [115, 116, 114, 108, 101, 110];
-        let symbol: std.dynamic.DynamicSymbol<u8> = try trusted std.dynamic.symbol<u8>(&library, &name[..]);
-        let address: RawPointer<u8> = symbol.pointer();
+        let missing_name: [u8; 19] = [
+            98,
+            114,
+            97,
+            121,
+            95,
+            109,
+            105,
+            115,
+            115,
+            105,
+            110,
+            103,
+            95,
+            115,
+            121,
+            109,
+            98,
+            111,
+            108,
+        ];
 
-        assert(!std.memory.is_null<u8>(address));
-        assert(trusted library.handle() != 0);
+        let missing: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted std.dynamic.symbol<u8>(
+            &library,
+            &missing_name[..],
+        );
+
+        match consume missing
+        {
+            case Ok(_) { assert(false); }
+            case Error(error)
+            {
+                match error.kind()
+                {
+                    case std.ffi.ForeignErrorKind.UnavailableSymbol {}
+                    case _ { assert(false); }
+                }
+            }
+        }
+
+        let name: [u8; 6] = [115, 116, 114, 108, 101, 110];
+        let _: std.dynamic.DynamicSymbol<u8> = try trusted std.dynamic.symbol<u8>(&library, &name[..]);
     }
 
     return library.close();

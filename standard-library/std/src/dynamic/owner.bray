@@ -4,6 +4,7 @@ trusted module std.dynamic;
 @copy
 union LoadPolicy
 {
+    PlatformDefault;
     LocalImmediate;
     LocalLazy;
     GlobalImmediate;
@@ -62,11 +63,6 @@ struct DynamicLibrary
         }
     }
 
-    trusted func handle() -> u64
-    {
-        return self.handle_value;
-    }
-
     consume mut func close() -> Result<unit, std.ffi.ForeignError>
         requires(blocking_execution())
     {
@@ -95,10 +91,5 @@ struct DynamicSymbol<T>
     func library() -> &DynamicLibrary
     {
         return self.owner;
-    }
-
-    func pointer() -> RawPointer<T>
-    {
-        return self.address;
     }
 }

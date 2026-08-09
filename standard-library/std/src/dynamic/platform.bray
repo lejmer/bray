@@ -65,10 +65,11 @@ internal func load_policy_value(pos policy: LoadPolicy) -> u32
 {
     match policy
     {
-        case LoadPolicy.LocalImmediate { return 0; }
-        case LoadPolicy.LocalLazy { return 1; }
-        case LoadPolicy.GlobalImmediate { return 2; }
-        case LoadPolicy.GlobalLazy { return 3; }
+        case LoadPolicy.PlatformDefault { return 0; }
+        case LoadPolicy.LocalImmediate { return 1; }
+        case LoadPolicy.LocalLazy { return 2; }
+        case LoadPolicy.GlobalImmediate { return 3; }
+        case LoadPolicy.GlobalLazy { return 4; }
     }
 }
 

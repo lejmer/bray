@@ -38,6 +38,7 @@ fn main() {
     );
 
     let third_party = manifest.join("../../third-party/temporal");
+    let dynamic = manifest.join("native/dynamic");
     let provider = manifest.join("native/temporal");
     let date = third_party.join("date");
     let tzdata = third_party.join("tzdata");
@@ -57,6 +58,7 @@ fn main() {
         .cpp(true)
         .std("c++17")
         .include(date.join("include"))
+        .include(dynamic.join("include"))
         .include(provider.join("include"))
         .include(&out)
         .define("AUTO_DOWNLOAD", "0")
@@ -65,6 +67,7 @@ fn main() {
         .define("ONLY_C_LOCALE", "1")
         .define("NOMINMAX", None)
         .file(date.join("src/tz.cpp"))
+        .file(dynamic.join("src/provider.cpp"))
         .file(provider.join("src/provider.cpp"))
         .warnings(false)
         .compile("bray_temporal_provider");
@@ -74,10 +77,15 @@ fn main() {
         println!("cargo:rustc-link-lib=ole32");
     }
 
+    if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|target| target == "linux") {
+        println!("cargo:rustc-link-lib=dl");
+    }
+
     println!("cargo:rerun-if-changed={}", date.display());
     println!("cargo:rerun-if-changed={}", tzdata.display());
 
     println!("cargo:rerun-if-changed={}", provider.display());
+    println!("cargo:rerun-if-changed={}", dynamic.display());
 }
 
 fn verify_files(root: &Path, files: &[&str], expected: &str, name: &str) {
