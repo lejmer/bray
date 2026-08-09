@@ -108,28 +108,28 @@ fn updated_snapshots_report_reuse_and_invalidation() {
 
 #[test]
 fn profile_reports_round_trip_through_the_machine_schema() {
-    let request = CompilationRequest::new(
-        package_identity(),
-        vec![source_input("module test.package;\n", 1)],
-    )
-    .with_profile(CompilationProfileConfiguration::new(
-        CompilationProfileMode::Trace,
-    ));
+    for mode in [CompilationProfileMode::Summary, CompilationProfileMode::Trace] {
+        let request = CompilationRequest::new(
+            package_identity(),
+            vec![source_input("module test.package;\n", 1)],
+        )
+        .with_profile(CompilationProfileConfiguration::new(mode));
 
-    let compilation = Compilation::load(request)
-        .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
 
-    let _ = compilation.syntax_tree_result();
+        let _ = compilation.syntax_tree_result();
 
-    let report = compilation
-        .profile_report()
-        .unwrap_or_else(|| panic!("profiled compilation must retain a report"));
+        let report = compilation
+            .profile_report()
+            .unwrap_or_else(|| panic!("profiled compilation must retain a report"));
 
-    let encoded = serde_json::to_vec(&report)
-        .unwrap_or_else(|error| panic!("profile report must serialize: {error:?}"));
+        let encoded = serde_json::to_vec(&report)
+            .unwrap_or_else(|error| panic!("profile report must serialize: {error:?}"));
 
-    let decoded = serde_json::from_slice(&encoded)
-        .unwrap_or_else(|error| panic!("profile report must deserialize: {error:?}"));
+        let decoded = serde_json::from_slice(&encoded)
+            .unwrap_or_else(|error| panic!("profile report must deserialize: {error:?}"));
 
-    assert_eq!(report, decoded);
+        assert_eq!(report, decoded);
+    }
 }

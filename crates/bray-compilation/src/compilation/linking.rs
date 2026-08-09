@@ -1,7 +1,7 @@
 use bray_emitter::{
     ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan, OutputSinkResolver,
 };
-use bray_linker::{LinkOutcome, LinkPlan, Linker};
+use bray_linker::{LinkOutcome, LinkPlan, LinkStatus, Linker};
 
 use super::Compilation;
 use crate::QueryPriority;
@@ -75,23 +75,29 @@ impl Compilation {
             .current_priority()?
             .unwrap_or(QueryPriority::Normal);
 
-        let span = self.state.fact_runtime.profile().map(|profile| {
-            profile.start(crate::profile::ProfileOperation::Linking, None)
-        });
+        let profile = self.state.fact_runtime.profile();
 
-        let result = self.state
-            .fact_runtime
-            .run(priority, || Ok(linker.link(plan, cancellation)));
-
-        if let Some(span) = span {
-            span.finish(match &result {
-                Ok(_) => crate::CompilationProfileOutcome::Completed,
-                Err(FactQueryError::Cancelled) => crate::CompilationProfileOutcome::Cancelled,
-                Err(_) => crate::CompilationProfileOutcome::Failed,
+        self.state.fact_runtime.run(priority, || {
+            let span = profile.map(|profile| {
+                profile.start(crate::profile::ProfileOperation::Linking, None)
             });
-        }
 
-        result
+            let outcome = linker.link(plan, cancellation);
+
+            if let Some(span) = span {
+                span.finish(link_profile_outcome(outcome.status()));
+            }
+
+            Ok(outcome)
+        })
+    }
+}
+
+const fn link_profile_outcome(status: &LinkStatus) -> crate::CompilationProfileOutcome {
+    match status {
+        LinkStatus::Complete(_) => crate::CompilationProfileOutcome::Completed,
+        LinkStatus::Failed(_) => crate::CompilationProfileOutcome::Failed,
+        LinkStatus::Cancelled => crate::CompilationProfileOutcome::Cancelled,
     }
 }
 
@@ -138,7 +144,9 @@ mod tests {
     use super::Compilation;
     use crate::test_support::{package_identity, source_input};
     use crate::{
-        CancellationToken, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
+        CancellationToken, CompilationOptions, CompilationProfileConfiguration,
+        CompilationProfileMode, CompilationProfileOutcome, CompilationRequest, SelectedTarget,
+        WorkerBudget,
     };
 
     #[test]
@@ -410,7 +418,7 @@ mod tests {
         let linker = linker(driver as Arc<dyn LinkerDriver>);
         let plan = executable_plan("cancelled.stage");
         let cancellation = CancellationToken::new();
-        let compilation = compilation(WorkerBudget::serial());
+        let compilation = profiled_compilation();
 
         std::thread::scope(|scope| {
             let operation = scope.spawn(|| {
@@ -429,6 +437,8 @@ mod tests {
             assert_eq!(outcome.status(), &LinkStatus::Cancelled);
             assert_eq!(outcome.artifacts(), None);
         });
+
+        assert_link_profile(&compilation, CompilationProfileOutcome::Cancelled);
     }
 
     #[test]
@@ -437,7 +447,9 @@ mod tests {
         let linker = linker(driver as Arc<dyn LinkerDriver>);
         let plan = executable_plan("failed.stage");
 
-        let outcome = compilation(WorkerBudget::serial())
+        let compilation = profiled_compilation();
+
+        let outcome = compilation
             .link_product(&linker, &plan)
             .unwrap_or_else(|error| panic!("failed test link must return: {error:?}"));
 
@@ -447,6 +459,7 @@ mod tests {
         );
 
         assert_eq!(outcome.artifacts(), None);
+        assert_link_profile(&compilation, CompilationProfileOutcome::Failed);
     }
 
     #[test]
@@ -526,6 +539,48 @@ mod tests {
 
         Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
+    }
+
+    fn profiled_compilation() -> Compilation {
+        let request = CompilationRequest::with_options(
+            package_identity(),
+            vec![source_input("module app;", 0)],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Executable,
+                SelectedTarget::baseline(),
+            ),
+        )
+        .with_profile(CompilationProfileConfiguration::new(
+            CompilationProfileMode::Summary,
+        ));
+
+        Compilation::load(request)
+            .unwrap_or_else(|error| panic!("profiled test compilation must load: {error:?}"))
+    }
+
+    fn assert_link_profile(compilation: &Compilation, outcome: CompilationProfileOutcome) {
+        let report = compilation
+            .profile_report()
+            .unwrap_or_else(|| panic!("profiled link must report"));
+
+        let link = report
+            .operations
+            .iter()
+            .find(|operation| operation.name == "compiler.link")
+            .unwrap_or_else(|| panic!("link operation statistics must be present"));
+
+        let (completed, failed, cancelled) = match outcome {
+            CompilationProfileOutcome::Completed => (1, 0, 0),
+            CompilationProfileOutcome::Failed => (0, 1, 0),
+            CompilationProfileOutcome::Cancelled => (0, 0, 1),
+            CompilationProfileOutcome::Abandoned => (0, 0, 0),
+        };
+
+        assert_eq!(link.executions, 1);
+        assert_eq!(link.completed, completed);
+        assert_eq!(link.failed, failed);
+        assert_eq!(link.cancelled, cancelled);
     }
 
     fn linker(driver: Arc<dyn LinkerDriver>) -> Linker {

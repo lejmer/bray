@@ -40,7 +40,17 @@ impl ProfileOperation {
     }
 
     pub(crate) const fn id(self) -> u16 {
-        self as u16 + 1
+        match self {
+            Self::CompilationLoad => 1,
+            Self::QueryEvaluation => 2,
+            Self::SchedulerQueue => 3,
+            Self::DependencyWait => 4,
+            Self::Lowering => 5,
+            Self::CodeGeneration => 6,
+            Self::Linking => 7,
+            Self::Emission => 8,
+            Self::InterfaceExport => 9,
+        }
     }
 
     pub(crate) const fn category(self) -> CompilationProfileCategory {
@@ -152,7 +162,24 @@ impl ProfileMetricKind {
     }
 
     pub(crate) const fn id(self) -> u16 {
-        self as u16 + 2_000
+        match self {
+            Self::SourceUnits => 2_000,
+            Self::SourceBytes => 2_001,
+            Self::SyntaxTokens => 2_002,
+            Self::Declarations => 2_003,
+            Self::BoundUnits => 2_004,
+            Self::CheckedBodies => 2_005,
+            Self::MirUnits => 2_006,
+            Self::MirBlocks => 2_007,
+            Self::MirOperations => 2_008,
+            Self::ConcreteInstances => 2_009,
+            Self::CodegenUnits => 2_010,
+            Self::InterfaceSections => 2_011,
+            Self::InterfaceBytes => 2_012,
+            Self::LinkInputs => 2_013,
+            Self::EmittedArtifacts => 2_014,
+            Self::EmittedBytes => 2_015,
+        }
     }
 
     pub(crate) const fn allowed_subjects(self) -> &'static [CompilationProfileSubjectKind] {
@@ -197,7 +224,7 @@ impl ProfileMetricKind {
 }
 
 macro_rules! define_profile_query_kinds {
-    ($( $variant:ident => $name:literal, )+) => {
+    ($( $variant:ident = $id:literal => $name:literal, )+) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(u8)]
         pub(crate) enum ProfileQueryKind {
@@ -222,85 +249,87 @@ macro_rules! define_profile_query_kinds {
             }
 
             pub(crate) const fn id(self) -> u16 {
-                self as u16 + 1_000
+                match self {
+                    $( Self::$variant => $id, )+
+                }
             }
         }
     };
 }
 
 define_profile_query_kinds! {
-    SelectedTarget => "selected_target",
-    TargetValidity => "target_validity",
-    ModuleContributionGate => "module_contribution_gate",
-    CallableTypeDirectives => "callable_type_directives",
-    CompilerKnownSymbols => "compiler_known_symbols",
-    BoundUnitIdentities => "bound_unit_identities",
-    BoundUnit => "bound_unit",
-    CheckDiagnostics => "check_diagnostics",
-    ConstantTemplateKeys => "constant_template_keys",
-    CallableBodyKeys => "callable_body_keys",
-    PredicateDefinitionKeys => "predicate_definition_keys",
-    ConstantInstance => "constant_instance",
-    ConstantCall => "constant_call",
-    ConstantCallCycle => "constant_call_cycle",
-    CheckedControlFlow => "checked_control_flow",
-    CheckedExpressionTypes => "checked_expression_types",
-    CheckedLiteralValues => "checked_literal_values",
-    CheckedPatterns => "checked_patterns",
-    CheckedSemanticSelections => "checked_semantic_selections",
-    StoragePlan => "storage_plan",
-    Liveness => "liveness",
-    RefinementFacts => "refinement_facts",
-    StorageFlowFacts => "storage_flow_facts",
-    DependencyContracts => "dependency_contracts",
-    MemoryOperations => "memory_operations",
-    AsyncFacts => "async_facts",
-    BodyBehaviorContributions => "body_behavior_contributions",
-    CheckedBodyBehavior => "checked_body_behavior",
-    LoweredUnit => "lowered_unit",
-    CodegenArtifact => "codegen_artifact",
-    NativeProduct => "native_product",
-    DeclaredValueTypeTemplates => "declared_value_type_templates",
-    ExpressionSemantics => "expression_semantics",
-    ProvisionalExpressionSemantics => "provisional_expression_semantics",
-    SymbolicConstantTerm => "symbolic_constant_term",
-    DeclarationChunk => "declaration_chunk",
-    DeclarationTable => "declaration_table",
-    ProductSourceGraph => "product_source_graph",
-    ProductSemantics => "product_semantics",
-    TestDiscovery => "test_discovery",
-    DiscoverySymbolGraph => "discovery_symbol_graph",
-    DependencyInterface => "dependency_interface",
-    DependencyImplementation => "dependency_implementation",
-    ImportedDiagnostics => "imported_diagnostics",
-    ImplementationHeaderIndex => "implementation_header_index",
-    ImplementationCandidateSet => "implementation_candidate_set",
-    TraitImplementationConformance => "trait_implementation_conformance",
-    GenericConstraintSatisfaction => "generic_constraint_satisfaction",
-    ImplementationSelection => "implementation_selection",
-    IterationSource => "iteration_source",
-    OperationSelection => "operation_selection",
-    ImportedSemanticGraph => "imported_semantic_graph",
-    ImportedSemanticFact => "imported_semantic_fact",
-    ImportedConstantCallableBody => "imported_constant_callable_body",
-    ImportedExecutableTemplate => "imported_executable_template",
-    ImplementationParticipation => "implementation_participation",
-    ImplementationCoherence => "implementation_coherence",
-    CallableOverloadValidation => "callable_overload_validation",
-    ForeignCallableContract => "foreign_callable_contract",
-    ForeignCallableValidation => "foreign_callable_validation",
-    TypeAssociatedSurface => "type_associated_surface",
-    DeclaredTypeRepresentation => "declared_type_representation",
-    TypeAssociatedImplementationIndex => "type_associated_implementation_index",
-    ImportedSymbolSkeleton => "imported_symbol_skeleton",
-    PackageInterfaceExportBundle => "package_interface_export_bundle",
-    SemanticValueStore => "semantic_value_store",
-    SemanticDiagnostics => "semantic_diagnostics",
-    SourceUnitSyntax => "source_unit_syntax",
-    SourceReferenceIndex => "source_reference_index",
-    SymbolGraph => "symbol_graph",
-    Symbol => "symbol",
-    SyntaxTree => "syntax_tree",
+    SelectedTarget = 1000 => "selected_target",
+    TargetValidity = 1001 => "target_validity",
+    ModuleContributionGate = 1002 => "module_contribution_gate",
+    CallableTypeDirectives = 1003 => "callable_type_directives",
+    CompilerKnownSymbols = 1004 => "compiler_known_symbols",
+    BoundUnitIdentities = 1005 => "bound_unit_identities",
+    BoundUnit = 1006 => "bound_unit",
+    CheckDiagnostics = 1007 => "check_diagnostics",
+    ConstantTemplateKeys = 1008 => "constant_template_keys",
+    CallableBodyKeys = 1009 => "callable_body_keys",
+    PredicateDefinitionKeys = 1010 => "predicate_definition_keys",
+    ConstantInstance = 1011 => "constant_instance",
+    ConstantCall = 1012 => "constant_call",
+    ConstantCallCycle = 1013 => "constant_call_cycle",
+    CheckedControlFlow = 1014 => "checked_control_flow",
+    CheckedExpressionTypes = 1015 => "checked_expression_types",
+    CheckedLiteralValues = 1016 => "checked_literal_values",
+    CheckedPatterns = 1017 => "checked_patterns",
+    CheckedSemanticSelections = 1018 => "checked_semantic_selections",
+    StoragePlan = 1019 => "storage_plan",
+    Liveness = 1020 => "liveness",
+    RefinementFacts = 1021 => "refinement_facts",
+    StorageFlowFacts = 1022 => "storage_flow_facts",
+    DependencyContracts = 1023 => "dependency_contracts",
+    MemoryOperations = 1024 => "memory_operations",
+    AsyncFacts = 1025 => "async_facts",
+    BodyBehaviorContributions = 1026 => "body_behavior_contributions",
+    CheckedBodyBehavior = 1027 => "checked_body_behavior",
+    LoweredUnit = 1028 => "lowered_unit",
+    CodegenArtifact = 1029 => "codegen_artifact",
+    NativeProduct = 1030 => "native_product",
+    DeclaredValueTypeTemplates = 1031 => "declared_value_type_templates",
+    ExpressionSemantics = 1032 => "expression_semantics",
+    ProvisionalExpressionSemantics = 1033 => "provisional_expression_semantics",
+    SymbolicConstantTerm = 1034 => "symbolic_constant_term",
+    DeclarationChunk = 1035 => "declaration_chunk",
+    DeclarationTable = 1036 => "declaration_table",
+    ProductSourceGraph = 1037 => "product_source_graph",
+    ProductSemantics = 1038 => "product_semantics",
+    TestDiscovery = 1039 => "test_discovery",
+    DiscoverySymbolGraph = 1040 => "discovery_symbol_graph",
+    DependencyInterface = 1041 => "dependency_interface",
+    DependencyImplementation = 1042 => "dependency_implementation",
+    ImportedDiagnostics = 1043 => "imported_diagnostics",
+    ImplementationHeaderIndex = 1044 => "implementation_header_index",
+    ImplementationCandidateSet = 1045 => "implementation_candidate_set",
+    TraitImplementationConformance = 1046 => "trait_implementation_conformance",
+    GenericConstraintSatisfaction = 1047 => "generic_constraint_satisfaction",
+    ImplementationSelection = 1048 => "implementation_selection",
+    IterationSource = 1049 => "iteration_source",
+    OperationSelection = 1050 => "operation_selection",
+    ImportedSemanticGraph = 1051 => "imported_semantic_graph",
+    ImportedSemanticFact = 1052 => "imported_semantic_fact",
+    ImportedConstantCallableBody = 1053 => "imported_constant_callable_body",
+    ImportedExecutableTemplate = 1054 => "imported_executable_template",
+    ImplementationParticipation = 1055 => "implementation_participation",
+    ImplementationCoherence = 1056 => "implementation_coherence",
+    CallableOverloadValidation = 1057 => "callable_overload_validation",
+    ForeignCallableContract = 1058 => "foreign_callable_contract",
+    ForeignCallableValidation = 1059 => "foreign_callable_validation",
+    TypeAssociatedSurface = 1060 => "type_associated_surface",
+    DeclaredTypeRepresentation = 1061 => "declared_type_representation",
+    TypeAssociatedImplementationIndex = 1062 => "type_associated_implementation_index",
+    ImportedSymbolSkeleton = 1063 => "imported_symbol_skeleton",
+    PackageInterfaceExportBundle = 1064 => "package_interface_export_bundle",
+    SemanticValueStore = 1065 => "semantic_value_store",
+    SemanticDiagnostics = 1066 => "semantic_diagnostics",
+    SourceUnitSyntax = 1067 => "source_unit_syntax",
+    SourceReferenceIndex = 1068 => "source_reference_index",
+    SymbolGraph = 1069 => "symbol_graph",
+    Symbol = 1070 => "symbol",
+    SyntaxTree = 1071 => "syntax_tree",
 }
 
 impl ProfileQueryKind {
@@ -399,5 +428,33 @@ pub(crate) const fn result_outcome<T, E>(result: &Result<T, E>) -> CompilationPr
         CompilationProfileOutcome::Completed
     } else {
         CompilationProfileOutcome::Failed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ProfileMetricKind, ProfileOperation, ProfileQueryKind};
+
+    #[test]
+    fn descriptor_ids_are_schema_locked() {
+        assert_eq!(
+            ProfileOperation::all().map(ProfileOperation::id),
+            [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        );
+
+        assert_eq!(
+            ProfileMetricKind::all().map(ProfileMetricKind::id),
+            [
+                2_000, 2_001, 2_002, 2_003, 2_004, 2_005, 2_006, 2_007, 2_008, 2_009,
+                2_010, 2_011, 2_012, 2_013, 2_014, 2_015,
+            ]
+        );
+
+        assert_eq!(
+            ProfileQueryKind::all().map(ProfileQueryKind::id),
+            std::array::from_fn(|index| {
+                1_000 + u16::try_from(index).unwrap_or(u16::MAX)
+            })
+        );
     }
 }

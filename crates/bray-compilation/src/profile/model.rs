@@ -282,7 +282,7 @@ pub struct CompilationProfileReport {
     /// Stable unit and size statistics.
     pub metrics: Vec<CompilationProfileMetric>,
     /// Detailed events retained in trace mode.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<CompilationProfileEvent>,
     /// Detailed events discarded after bounded buffers became full.
     pub dropped_events: u64,

@@ -44,6 +44,10 @@ impl NativeProductFactKey {
             linker_drivers: linker_drivers.into(),
         }
     }
+
+    pub(crate) const fn product(&self) -> &ProductIdentity {
+        &self.product
+    }
 }
 
 /// The exact artifact-local address of one imported symbol-owned fact category.
@@ -183,6 +187,10 @@ impl CodegenArtifactFactKey {
             options,
             artifacts,
         }
+    }
+
+    pub(crate) const fn unit(&self) -> &CodegenUnitKey {
+        &self.unit
     }
 }
 

@@ -1,4 +1,3 @@
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::ThreadId;
 use std::time::Instant;
@@ -11,8 +10,9 @@ use super::model::{
     CompilationProfileContext, CompilationProfileEvent, CompilationProfileMetric,
     CompilationProfileOperationStatistics, CompilationProfileOutcome,
     CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
-    CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
+use super::subject::{ProfileSubjectRecord, profile_subject};
 use crate::fact::CompilationFactKey;
 
 const PROFILE_SCHEMA_REVISION: u32 = 1;
@@ -98,7 +98,9 @@ impl ProfileSession {
         key: &CompilationFactKey,
     ) -> ProfileSpan<'_> {
         let query = ProfileQueryKind::from_key(key);
-        let subject = records_trace(self.configuration.mode()).then(|| profile_subject(key));
+
+        let subject =
+            records_trace(self.configuration.mode()).then(|| profile_subject(query, key));
 
         self.start_with_subject(operation, Some(query), subject)
     }
@@ -475,12 +477,6 @@ struct ProfileEventRecord {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ProfileSubjectRecord {
-    kind: CompilationProfileSubjectKind,
-    fingerprint: u64,
-}
-
-#[derive(Clone, Copy, Debug)]
 struct ActiveSpan {
     id: u64,
     thread: ThreadId,
@@ -541,51 +537,6 @@ fn finish_active_span(
     }
 
     duration.saturating_sub(span.child_nanoseconds)
-}
-
-fn profile_subject(key: &CompilationFactKey) -> ProfileSubjectRecord {
-    let kind = match key {
-        CompilationFactKey::SourceUnitSyntax(_)
-        | CompilationFactKey::SourceReferenceIndex(_)
-        | CompilationFactKey::DeclarationChunk(_) => CompilationProfileSubjectKind::SourceUnit,
-        CompilationFactKey::CodegenArtifact(_) => CompilationProfileSubjectKind::CodegenUnit,
-        CompilationFactKey::NativeProduct(_)
-        | CompilationFactKey::PackageInterfaceExportBundle
-        | CompilationFactKey::ProductSourceGraph
-        | CompilationFactKey::ProductSemantics
-        | CompilationFactKey::TestDiscovery(_) => CompilationProfileSubjectKind::Product,
-        key if key.bound_unit_key().is_some() => CompilationProfileSubjectKind::SemanticUnit,
-        _ => CompilationProfileSubjectKind::Compilation,
-    };
-
-    let mut hasher = StableSubjectHasher::new();
-    key.hash(&mut hasher);
-
-    ProfileSubjectRecord {
-        kind,
-        fingerprint: hasher.finish(),
-    }
-}
-
-struct StableSubjectHasher(u64);
-
-impl StableSubjectHasher {
-    const fn new() -> Self {
-        Self(0xcbf2_9ce4_8422_2325)
-    }
-}
-
-impl Hasher for StableSubjectHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        for byte in bytes {
-            self.0 ^= u64::from(*byte);
-            self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
 }
 
 fn merge_aggregates(

@@ -1,6 +1,7 @@
 mod descriptor;
 mod model;
 mod session;
+mod subject;
 #[cfg(test)]
 mod tests;
 
