@@ -73,7 +73,8 @@ them.
 
 ### C Values
 
-C scalar declarations are transparent standard-library value types selected for the target's C ABI. The initial family covers:
+C scalar declarations are transparent standard-library value types selected by the exact `target.c` facts defined in the target
+profile language contract. The initial family covers:
 
 - signed and unsigned `char`, `short`, `int`, `long`, and `long long`,
 - `size_t`, `ptrdiff_t`, and `wchar_t`,
@@ -85,9 +86,10 @@ explicit checked or wrapping operation according to the named conversion. Observ
 No general module-level type alias is introduced, and a C wrapper is not implicitly interchangeable with an equal-width Bray
 scalar.
 
-The selected target profile determines width, alignment, signedness, and callable pass mode. A wrapper is unavailable when the
-target profile cannot provide its exact C representation. Compiled package interfaces record every target fact that affects its
-public representation.
+Each fact maps one C type to a canonical Bray scalar spelling or `"unavailable"`. The target profile validator guarantees equal
+value representation, size, alignment, and C callable classification; the standard library then selects one target-gated
+transparent wrapper by an exact fact comparison. A wrapper is unavailable when its fact is `"unavailable"`. Compiled package
+interfaces record every `target.c` fact that affects a public representation.
 
 Fixed-width C APIs should use Bray's fixed-width scalar types directly when the C declaration guarantees that exact representation.
 The named C wrappers are for declarations whose ABI follows target C types rather than fixed widths.
@@ -180,8 +182,10 @@ obligations. Converting an untyped address to either form is trusted and rejects
 Closing consumes the library owner. Lookup failure does not close the library. A library with active symbol borrows cannot be
 closed or transferred. Destruction resolves an otherwise live library according to the foreign-resource rules.
 
-Dynamic loading is target-conditional through a dedicated platform-service availability fact. The public value and error types can
-remain available for generic signatures, while open and lookup operations are unavailable on targets without a loader service.
+Dynamic loading is target-conditional through the boolean `target.platform.dynamic_loading` fact. The public value and error types
+can remain available for generic signatures, while open and lookup operations are unavailable when that fact is false. The fact is
+part of the language-defined closed `target.platform` surface and participates in target gates and compiled-interface dependencies
+like the existing filesystem and child-process facts.
 
 ## Foreign Callbacks
 
@@ -197,37 +201,49 @@ Bray calling convention internally.
 A plain function pointer carries no context ownership. It is valid for the linked image lifetime and cannot represent a capturing
 lambda, borrowed local state, or a dynamically unloadable callable without another owner preserving that dependency.
 
-### Owned Callback Contexts
+### Explicit Callback Contexts
 
-Capturing callbacks use an owning `std.ffi.Callback<T>` value containing a generated entry pointer and private context ownership.
-The callback owner is non-copyable. Borrowing its foreign pair preserves the owner dependency and produces the ABI-qualified entry
-pointer plus an opaque context pointer expected by that entry.
+Bray callable values remain capture-free. A stateful foreign callback uses an explicit `std.ffi.CallbackContext<State>` owner plus
+a static ABI-qualified entry whose first parameter is the context pointer. Context construction consumes one explicit `State`
+value; it does not inspect a lambda or capture an enclosing binding. Borrowing the foreign pair preserves the context-owner
+dependency and produces the supplied static entry pointer plus the opaque pointer expected by that entry.
 
-The context stores only captures admitted by the checked run-transfer, ownership, borrowing, synchronization, and thread-affinity
-contracts. A borrowed capture cannot outlive its source. A callback transferred to foreign ownership consumes its Bray owner and
-requires an explicit foreign release entry that returns or destroys the context exactly once.
+A trusted entry reconstructs a borrow of `State` through the recognized `std.ffi.callback_state<State>(context)` operation. The
+compiler accepts that operation only inside an exported ABI callable whose matching context parameter is live, records the borrow
+against the context owner, and lowers it without inventing hidden callable state. The ordinary exported-callable wrapper supplies
+foreign-thread entry and panic containment; there is no separate capture-synthesis hook.
+
+The context owner is non-copyable. Its explicit state is checked by ordinary ownership, run-transfer, synchronization, and
+thread-affinity rules. A wrapper cannot hide a borrowed local in a retained context. Transfer to foreign ownership consumes the
+Bray owner and is permitted only when the foreign API exposes a release callback or deregistration operation with an exact
+once-only ownership contract.
 
 Registering a callback does not imply that the foreign API retains it. The wrapper for that API declares whether invocation is
 call-only, scoped, retained until explicit deregistration, or ownership-transferring. The callback representation follows that
 declared lifetime rather than guessing from the C signature.
 
+For retained callbacks, successful deregistration must guarantee that the foreign provider will begin no new invocation. The
+wrapper then waits for every already-entered invocation to leave before destroying the context. If an API cannot provide that
+quiescence contract, a Bray-owned retained context cannot safely wrap it. Invocation after release violates the foreign API
+precondition before Bray entry; a trampoline never dereferences retired storage merely to diagnose that violation.
+
 ### Callback Entry
 
 A generated callback trampoline performs these steps in order:
 
-1. Validate the context state and reject invocation after release.
+1. Enter one invocation against the still-live context under the registration's synchronization contract.
 2. Reuse an existing Bray runtime-thread scope or initialize the foreign caller thread for the duration of the callback.
 3. Establish a synchronous callback root through the selected private runtime ABI.
-4. Reconstruct checked captures and ABI parameters without duplicating ownership.
-5. Invoke the Bray callable under its declared execution, effect, trust, and reentrancy requirements.
+4. Reconstruct the explicit state borrow and ABI parameters without duplicating ownership.
+5. Invoke the static Bray adapter under its declared execution, effect, trust, and reentrancy requirements.
 6. Convert the normal result to the exact foreign ABI representation.
-7. Resolve callback-root lifecycle state before returning to foreign code.
+7. Resolve callback-root lifecycle state and leave the in-flight invocation before returning to foreign code.
 
 Thread initialization is a private platform/runtime mechanism and does not depend on the public `std.thread.Thread<T>` abstraction.
 It establishes only the execution facts declared by the callback boundary. A callback requiring main-thread, blocking, compute, or
 other execution facts is rejected or routed only when the foreign API contract supplies those facts.
 
-Concurrent invocation is allowed only when the callback's capture and synchronization contracts admit it. Reentrant invocation is
+Concurrent invocation is allowed only when the callback's state and synchronization contracts admit it. Reentrant invocation is
 separate from concurrent invocation and must be declared by the wrapper for the foreign API.
 
 An uncaught Bray panic is contained before the foreign frame. The callback adapter declares the ABI-representable failure value or
@@ -243,9 +259,11 @@ Each source contribution uses an exact gate over `target.identity.SYSTEM`, for e
 system with `"windows"`. The gate is evaluated before declaration identity and body checking. Package interfaces retain the target
 facts that affect every public target-specific declaration.
 
-Native constants come from the selected target support artifact or checked target metadata. They are not copied from the compiler
-host's headers during an unrelated target build. Cross compilation therefore uses target constants, layouts, symbols, and calling
-conventions even when the host operating system differs.
+Native constants have one authority: generated target-specific Bray source checked into the standard-library tree. `cargo xtask`
+generation reads only pinned target SDK descriptions, writes canonical source with its input digest, and fails verification when
+regeneration differs. Compilation never reads the compiler host's headers. The generated source bytes participate in the ordinary
+package source and artifact digests, so cross compilation and repeated builds use the same target constants even when the host
+operating system differs. Target metadata may validate a value but never supplies an alternate constant definition.
 
 Target modules may expose typed raw values needed to call operating-system APIs, but ownership remains in explicit owner types.
 Constants do not create resources, integer conversion does not transfer ownership, and matching numerical values across operating
@@ -266,8 +284,8 @@ The compiler owns:
 - `@link(...)` and `@symbol(...)` semantic contracts,
 - foreign import and export classification,
 - target-gate evaluation and target-fact dependency recording,
-- checked callback capture, transfer, affinity, effect, and lifetime facts,
-- callback-trampoline and exported-wrapper generation,
+- checked callback-context transfer, affinity, effect, and lifetime facts,
+- exported-wrapper generation,
 - immutable native-link requirements,
 - and structured diagnostics for invalid source or incompatible target contracts.
 
@@ -282,7 +300,7 @@ Ordinary trusted Bray source owns:
 - C string validation and storage,
 - resource lifecycle state machines,
 - dynamic-load and symbol-lookup policy,
-- callback owner and registration lifetimes,
+- explicit callback-context ownership and registration lifetimes,
 - target-specific low-level wrappers,
 - and adaptation from private mechanism results to public typed results.
 
@@ -311,13 +329,13 @@ callback, or error policy.
 ## Platform-Service Roles
 
 The private platform-service catalog is extended only for mechanisms that must be supplied by the selected target artifact. The
-foreign interoperability family requires roles for:
+dynamic-loader roles and their exact schemas are defined in `docs/design/io-and-platform-services.md`. They use role IDs
+`0x0801` through `0x0804`, the `dynamic_library` handle class, the `dynamic_loading` capability, and the existing structured status
+record. The provider retains target loader error codes in `native_code`; it never returns host prose.
 
-- opening and closing a dynamic library,
-- looking up a symbol by exact byte name,
-- retaining target loader error codes without host prose,
-- attaching and detaching a foreign caller thread when runtime entry requires it,
-- and target-specific resource duplication or transfer only where a public target module consumes it.
+Foreign caller-thread attachment is not a platform-service role. Callback entry reuses `bray-platform::RuntimeThreadScope` and the
+existing synchronous-root runtime ABI. Target-specific duplication or transfer is added to the closed catalog only together with a
+public target-module consumer and an allocated role schema; this contract allocates no speculative generic resource role.
 
 Every role has one typed ABI schema, ownership behavior, blocking behavior, target availability rule, and stable role identity. Role
 bindings are selected from the standard-library product manifest and validated like existing stream, filesystem, process, clock,

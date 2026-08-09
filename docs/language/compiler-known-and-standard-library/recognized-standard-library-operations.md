@@ -20,6 +20,9 @@ The recognized string operations are `std.string.scalar_count`, `std.string.is_e
 The recognized raw-memory operations, layout declarations, allocation owner, and raw-buffer
 declarations are the exact `std.memory` declarations listed by the conformance catalog.
 
+The recognized callback-context operation is `std.ffi.callback_state<State>(context)`. It can reconstruct a state borrow only for
+the live context parameter of an exported ABI callback entry and never synthesizes a callable capture.
+
 Device-memory helpers are not recognized.
 
 These operations are not syntax.

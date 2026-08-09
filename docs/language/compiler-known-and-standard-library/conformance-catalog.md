@@ -129,6 +129,15 @@ The recognized declarations under the `std` root are:
 
 The `RoundingRule` variants have the listed ordinal order from zero through four.
 
+The recognized declarations under `std.ffi` are:
+
+- `CallbackContext<State>` and its state-consuming primary constructor,
+- `callback_state<State>(context)`.
+
+`CallbackContext<State>` is non-copyable and owns stable-address storage for exactly one initialized `State`. The trusted
+`callback_state` operation returns a borrow tied to that owner only inside the matching exported ABI callback entry, as defined by
+the foreign-callback contract.
+
 The recognized declarations under `std.string` are:
 
 - `Utf8Error`,
