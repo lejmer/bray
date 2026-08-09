@@ -1,7 +1,7 @@
 module std.ffi.c;
 
 @copy
-struct WideCStr
+struct BorrowedWideString
 {
     internal units_value: &[WideChar];
 
@@ -23,13 +23,13 @@ struct WideCStr
     }
 }
 
-func wide_c_str_from_terminated(pos units: &[WideChar]) -> Result<WideCStr, CStringError>
+func borrow_wide_string(pos units: &[WideChar]) -> Result<BorrowedWideString, StringError>
 {
     let count: usize = std.memory.slice_length<WideChar>(units);
 
     if count == 0 || !wide_unit_is_nul(&units[count - 1])
     {
-        return Error(CStringError.MissingTerminator);
+        return Error(StringError.MissingTerminator);
     }
 
     let mut index: usize = 0;
@@ -38,7 +38,7 @@ func wide_c_str_from_terminated(pos units: &[WideChar]) -> Result<WideCStr, CStr
     {
         if wide_unit_is_nul(&units[index])
         {
-            return Error(CStringError.InteriorNul);
+            return Error(StringError.InteriorNul);
         }
 
         index += 1;
@@ -51,15 +51,15 @@ func wide_c_str_from_terminated(pos units: &[WideChar]) -> Result<WideCStr, CStr
     );
 }
 
-struct WideCString
+struct OwnedWideString
 {
     internal storage: std.collection.List<WideChar>;
 
-    trusted construct from_units(pos units: &[WideChar]) -> Result<Self, CStringError>
+    trusted construct from_units(pos units: &[WideChar]) -> Result<Self, StringError>
     {
         if wide_contains_nul(units)
         {
-            return Error(CStringError.InteriorNul);
+            return Error(StringError.InteriorNul);
         }
 
         let count: usize = std.memory.slice_length<WideChar>(units);
@@ -71,7 +71,7 @@ struct WideCString
         let mut storage: std.collection.List<WideChar> = match consume created
         {
             case Ok(list) { yield list; }
-            case Error(_) { return Error(CStringError.Allocation); }
+            case Error(_) { return Error(StringError.Allocation); }
         };
 
         let mut index: usize = 0;
@@ -81,7 +81,7 @@ struct WideCString
             match trusted std.collection.push<WideChar>(&mut storage, units[index])
             {
                 case Ok(_) {}
-                case Error(_) { return Error(CStringError.Allocation); }
+                case Error(_) { return Error(StringError.Allocation); }
             }
 
             index += 1;
@@ -90,7 +90,7 @@ struct WideCString
         match trusted std.collection.push<WideChar>(&mut storage, wide_char(0))
         {
             case Ok(_) {}
-            case Error(_) { return Error(CStringError.Allocation); }
+            case Error(_) { return Error(StringError.Allocation); }
         }
 
         return Ok(
@@ -100,7 +100,7 @@ struct WideCString
         );
     }
 
-    func as_wide_c_str() -> WideCStr
+    func borrow() -> BorrowedWideString
     {
         return
         {

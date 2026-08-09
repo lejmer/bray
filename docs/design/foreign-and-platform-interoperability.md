@@ -98,15 +98,15 @@ The named C wrappers are for declarations whose ABI follows target C types rathe
 
 `std.ffi.c` distinguishes borrowed and owned NUL-terminated storage:
 
-- `CStr` is a borrowed, immutable sequence ending in exactly one accessible NUL unit.
-- `CString` owns a NUL-terminated sequence and resolves its allocation on destruction.
+- `BorrowedNarrowString` is a borrowed, immutable sequence ending in exactly one accessible NUL unit.
+- `OwnedNarrowString` owns a NUL-terminated sequence and resolves its allocation on destruction.
 - Wide C strings use separately named unit-width types and do not inherit UTF-8 behavior.
 
 Construction from bytes or text validates interior NUL units, terminal NUL storage, capacity arithmetic, and the selected encoding
 policy. Conversion to Bray `string` is fallible and names the encoding being decoded. A C string is not assumed to contain UTF-8,
 and a native path is not silently converted through a C string.
 
-Borrowing a raw pointer from `CStr` or `CString` retains the source dependency. Constructing a borrowed C string from a raw pointer
+Borrowing a raw pointer from `BorrowedNarrowString` or `OwnedNarrowString` retains the source dependency. Constructing a borrowed C string from a raw pointer
 is trusted and requires an explicit readable extent or a caller obligation that permits bounded terminator search. The safe surface
 never performs an unbounded scan of untrusted storage.
 

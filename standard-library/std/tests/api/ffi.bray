@@ -25,12 +25,12 @@ func c_scalar_wrappers_preserve_values_and_layouts()
 }
 
 @test
-trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.ffi.c.CStringError>
+trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.ffi.c.StringError>
     uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let input: [u8; 3] = [65, 66, 67];
-    let owned: std.ffi.c.CString = try trusted std.ffi.c.CString.from_bytes(&input[..]);
-    let borrowed: std.ffi.c.CStr = owned.as_c_str();
+    let owned: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_bytes(&input[..]);
+    let borrowed: std.ffi.c.BorrowedNarrowString = owned.borrow();
     let bytes: &[u8] = borrowed.bytes();
     let terminated: &[u8] = borrowed.bytes_with_nul();
 
@@ -40,7 +40,7 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
     assert(!std.memory.is_null<u8>(borrowed.pointer()));
 
     let valid: [u8; 2] = [65, 0];
-    let from_terminated: std.ffi.c.CStr = try std.ffi.c.c_str_from_terminated(&valid[..]);
+    let from_terminated: std.ffi.c.BorrowedNarrowString = try std.ffi.c.borrow_narrow_string(&valid[..]);
 
     assert(std.bytes.slice_length(from_terminated.bytes()) == 1);
 
@@ -50,9 +50,9 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
 
     let wide_units: [std.ffi.c.WideChar; 2] = [std.ffi.c.wide_char(65), std.ffi.c.wide_char(66)];
 
-    let wide_owned: std.ffi.c.WideCString = try trusted std.ffi.c.WideCString.from_units(&wide_units[..]);
+    let wide_owned: std.ffi.c.OwnedWideString = try trusted std.ffi.c.OwnedWideString.from_units(&wide_units[..]);
 
-    let wide_borrowed: std.ffi.c.WideCStr = wide_owned.as_wide_c_str();
+    let wide_borrowed: std.ffi.c.BorrowedWideString = wide_owned.borrow();
     let borrowed_units: &[std.ffi.c.WideChar] = wide_borrowed.units();
     let terminated_units: &[std.ffi.c.WideChar] = wide_borrowed.units_with_nul();
 
@@ -66,25 +66,25 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
 }
 
 @test
-trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.CStringError>
+trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.StringError>
 {
     let invalid: [u8; 3] = [65, 0, 66];
 
-    match trusted std.ffi.c.CString.from_bytes(&invalid[..])
+    match trusted std.ffi.c.OwnedNarrowString.from_bytes(&invalid[..])
     {
         case Ok(_) { assert(false); }
         case Error(error)
         {
             match error
             {
-                case std.ffi.c.CStringError.InteriorNul {}
+                case std.ffi.c.StringError.InteriorNul {}
                 case _ { assert(false); }
             }
         }
     }
 
     let invalid_utf8: [u8; 2] = [255, 0];
-    let encoded: std.ffi.c.CStr = try std.ffi.c.c_str_from_terminated(&invalid_utf8[..]);
+    let encoded: std.ffi.c.BorrowedNarrowString = try std.ffi.c.borrow_narrow_string(&invalid_utf8[..]);
 
     match encoded.decode_utf8()
     {
@@ -93,7 +93,7 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.CStri
         {
             match error
             {
-                case std.ffi.c.CStringError.InvalidEncoding {}
+                case std.ffi.c.StringError.InvalidEncoding {}
                 case _ { assert(false); }
             }
         }
@@ -101,14 +101,14 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.CStri
 
     let unterminated: [u8; 1] = [65];
 
-    match std.ffi.c.c_str_from_terminated(&unterminated[..])
+    match std.ffi.c.borrow_narrow_string(&unterminated[..])
     {
         case Ok(_) { assert(false); }
         case Error(error)
         {
             match error
             {
-                case std.ffi.c.CStringError.MissingTerminator {}
+                case std.ffi.c.StringError.MissingTerminator {}
                 case _ { assert(false); }
             }
         }
@@ -116,14 +116,14 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.CStri
 
     let wide_unterminated: [std.ffi.c.WideChar; 1] = [std.ffi.c.wide_char(65)];
 
-    match std.ffi.c.wide_c_str_from_terminated(&wide_unterminated[..])
+    match std.ffi.c.borrow_wide_string(&wide_unterminated[..])
     {
         case Ok(_) { assert(false); }
         case Error(error)
         {
             match error
             {
-                case std.ffi.c.CStringError.MissingTerminator {}
+                case std.ffi.c.StringError.MissingTerminator {}
                 case _ { assert(false); }
             }
         }
@@ -135,14 +135,14 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.CStri
         std.ffi.c.wide_char(66),
     ];
 
-    match trusted std.ffi.c.WideCString.from_units(&wide_interior[..])
+    match trusted std.ffi.c.OwnedWideString.from_units(&wide_interior[..])
     {
         case Ok(_) { assert(false); }
         case Error(error)
         {
             match error
             {
-                case std.ffi.c.CStringError.InteriorNul {}
+                case std.ffi.c.StringError.InteriorNul {}
                 case _ { assert(false); }
             }
         }
