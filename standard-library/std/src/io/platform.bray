@@ -213,7 +213,7 @@ trusted internal func write_standard_stream_unlocked(pos source: &[u8], handle: 
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let requested: usize = internal std.memory.byte_slice_length(source);
+    let requested: usize = internal std.memory.slice_length<u8>(source);
     let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
@@ -272,7 +272,7 @@ trusted internal func read_standard_stream(pos destination: &mut [u8], handle: u
     uses(foreign_call)
 {
     let lock: StandardStreamLock = try trusted acquire_standard_stream(handle = handle);
-    let capacity: usize = internal std.memory.byte_slice_length(&destination);
+    let capacity: usize = internal std.memory.slice_length<u8>(&destination);
     let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);

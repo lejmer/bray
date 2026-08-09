@@ -6,6 +6,9 @@ pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution_v1";
 /// Stable symbol executing one synchronous root behind a panic boundary.
 pub const SYNCHRONOUS_ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_synchronous_root_execution_v1";
 
+/// Stable symbol executing one foreign callback behind a runtime boundary.
+pub const FOREIGN_CALLBACK_EXECUTION_SYMBOL: &str = "bray_runtime_foreign_callback_execution_v1";
+
 /// Stable symbol requesting cancellation of the host-owned root run.
 pub const ROOT_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_root_cancellation_request_v1";
 
@@ -180,6 +183,20 @@ pub const PLATFORM_TIME_PARSE_SYMBOL: &str = "bray_platform_time_parse";
 /// Stable symbol formatting one strict temporal representation.
 pub const PLATFORM_TIME_FORMAT_SYMBOL: &str = "bray_platform_time_format";
 
+/// Stable symbol opening one dynamic library from an explicit path.
+pub const PLATFORM_DYNAMIC_LIBRARY_OPEN_PATH_SYMBOL: &str =
+    "bray_platform_dynamic_library_open_path";
+
+/// Stable symbol opening one target-defined system library.
+pub const PLATFORM_DYNAMIC_LIBRARY_OPEN_SYSTEM_SYMBOL: &str =
+    "bray_platform_dynamic_library_open_system";
+
+/// Stable symbol resolving one exact dynamic-library symbol.
+pub const PLATFORM_DYNAMIC_LIBRARY_SYMBOL_SYMBOL: &str = "bray_platform_dynamic_library_symbol";
+
+/// Stable symbol closing one owned dynamic library.
+pub const PLATFORM_DYNAMIC_LIBRARY_CLOSE_SYMBOL: &str = "bray_platform_dynamic_library_close";
+
 /// Stable symbol counting Unicode scalar values in UTF-8 text.
 pub const STRING_SCALAR_COUNT_SYMBOL: &str = "bray_runtime_string_scalar_count_v1";
 
@@ -256,6 +273,7 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
     match role {
         Role::RootExecution => Some(ROOT_EXECUTION_SYMBOL),
         Role::SynchronousRootExecution => Some(SYNCHRONOUS_ROOT_EXECUTION_SYMBOL),
+        Role::ForeignCallbackExecution => Some(FOREIGN_CALLBACK_EXECUTION_SYMBOL),
         Role::RootCancellationRequest => Some(ROOT_CANCELLATION_REQUEST_SYMBOL),
         Role::TaskAllocation => Some(TASK_ALLOCATION_SYMBOL),
         Role::TaskStart => Some(TASK_START_SYMBOL),
@@ -346,6 +364,10 @@ pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRol
         Role::TimeResolve => PLATFORM_TIME_RESOLVE_SYMBOL,
         Role::TimeParse => PLATFORM_TIME_PARSE_SYMBOL,
         Role::TimeFormat => PLATFORM_TIME_FORMAT_SYMBOL,
+        Role::DynamicLibraryOpenPath => PLATFORM_DYNAMIC_LIBRARY_OPEN_PATH_SYMBOL,
+        Role::DynamicLibraryOpenSystem => PLATFORM_DYNAMIC_LIBRARY_OPEN_SYSTEM_SYMBOL,
+        Role::DynamicLibrarySymbol => PLATFORM_DYNAMIC_LIBRARY_SYMBOL_SYMBOL,
+        Role::DynamicLibraryClose => PLATFORM_DYNAMIC_LIBRARY_CLOSE_SYMBOL,
     }
 }
 

@@ -169,7 +169,7 @@ impl CodegenMappings {
         validate_terminator_mappings(unit, &terminators)?;
         validate_constant_mappings(unit, &constants, &constant_terms, &terminators)?;
 
-        let expected_runtime_references = mapped_runtime_references(unit, &operations);
+        let expected_runtime_references = mapped_runtime_references(unit, &operations, &symbols);
 
         let actual_runtime_references: BTreeSet<_> = symbols
             .iter()

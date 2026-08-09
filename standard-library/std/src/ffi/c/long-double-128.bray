@@ -1,0 +1,22 @@
+@target(target.c.LONG_DOUBLE == "r128")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct LongDouble
+{
+    internal raw: r128;
+
+    func value() -> r128
+    {
+        return self.raw;
+    }
+}
+
+func long_double(pos raw: r128) -> LongDouble
+{
+    return
+    {
+        raw = raw,
+    };
+}

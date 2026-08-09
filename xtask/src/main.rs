@@ -4,6 +4,7 @@ mod bundle;
 mod command;
 mod compiler_known;
 mod native_archive;
+mod native_product;
 mod native_toolchain;
 mod package_interface;
 mod readiness;

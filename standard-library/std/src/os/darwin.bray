@@ -1,0 +1,22 @@
+@target(target.identity.SYSTEM == "darwin")
+module std.os.darwin;
+
+@copy
+@layout(transparent)
+struct FileDescriptor
+{
+    internal raw: i32;
+
+    func value() -> i32
+    {
+        return self.raw;
+    }
+}
+
+func file_descriptor(pos raw: i32) -> FileDescriptor
+{
+    return
+    {
+        raw = raw,
+    };
+}

@@ -413,6 +413,13 @@ impl Compilation {
             MirHelperReference::AnonymousCallable(unit) => {
                 self.concrete_codegen_bound_helper(owner, unit.clone())?
             }
+            MirHelperReference::DeclaredCallable(callable) => self
+                .concrete_codegen_callable_data(
+                    owner,
+                    &callable.instance(),
+                    target,
+                    cancellation,
+                )?,
             MirHelperReference::CallableDefault(provider) => {
                 let MirOperationKind::Call(call) = operation else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -489,6 +496,7 @@ impl Compilation {
                 ty: self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             },
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
@@ -766,6 +774,7 @@ impl Compilation {
                     .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
             }
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
@@ -874,6 +883,7 @@ impl Compilation {
                 )?;
             }
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
@@ -1610,6 +1620,7 @@ impl Compilation {
                 )?;
             }
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
@@ -2101,7 +2112,7 @@ impl Compilation {
             ));
         }
 
-        for reference in codegen_runtime_references(unit, operations) {
+        for reference in codegen_runtime_references(unit, operations, &symbols) {
             let symbol_name = executable_host
                 .and_then(|host| host.role_binding(reference.role()))
                 .map(|binding| binding.symbol_name().clone())
@@ -3572,7 +3583,7 @@ impl Compilation {
         Ok(CodegenParameterMapping::indirect(
             pointer,
             ty,
-            CodegenIndirectParameterKind::ByValue,
+            indirect_parameter_kind(abi, target),
             layout.alignment(),
             [CodegenValueAttribute::NonNull],
         ))
@@ -4477,6 +4488,7 @@ fn direct_helper_symbol(
             helper_runtime_symbol(owner, RuntimeAbiRole::TaskDestruction)
         }
         MirHelperReference::AnonymousCallable(_)
+        | MirHelperReference::DeclaredCallable(_)
         | MirHelperReference::CallableDefault(_)
         | MirHelperReference::ConstructionDefault(_)
         | MirHelperReference::TypeForm(_)
@@ -4493,8 +4505,9 @@ fn direct_helper_symbol(
 fn codegen_runtime_references(
     unit: &CodegenUnit,
     operations: &[CodegenOperationMapping],
+    symbols: &[CodegenSymbolMapping],
 ) -> BTreeSet<MirRuntimeReference> {
-    mapped_runtime_references(unit, operations)
+    mapped_runtime_references(unit, operations, symbols)
 }
 
 fn dependency_symbol(
@@ -4585,6 +4598,25 @@ fn indirect_abi_value(
         }
         _ => layout.size() > pointer_layout(target).size().saturating_mul(2),
     }
+}
+
+fn indirect_parameter_kind(
+    abi: CallableAbi,
+    target: &CodegenTarget,
+) -> CodegenIndirectParameterKind {
+    if abi != CallableAbi::Bray
+        && (
+            target.profile().machine().architecture() == bray_target::TargetArchitecture::Aarch64
+                || matches!(
+                    bray_target::NativeTarget::for_profile(target.profile()),
+                    Some(bray_target::NativeTarget::X86_64WindowsMsvc)
+                )
+        )
+    {
+        return CodegenIndirectParameterKind::Reference;
+    }
+
+    CodegenIndirectParameterKind::ByValue
 }
 
 fn is_homogeneous_float_aggregate(
@@ -4761,8 +4793,8 @@ mod tests {
     use bray_testing::{test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration};
 
     use super::{
-        dependency_symbol, direct_helper_symbol, indirect_abi_value, named_type, pointer_layout,
-        receiver_codegen_type, substitute_contextual_self,
+        dependency_symbol, direct_helper_symbol, indirect_abi_value, indirect_parameter_kind,
+        named_type, pointer_layout, receiver_codegen_type, substitute_contextual_self,
     };
     use crate::compilation::CodegenFactError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
@@ -6071,6 +6103,7 @@ mod tests {
 
         let windows = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
         let linux = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
+        let aarch64 = CodegenTarget::for_native(NativeTarget::Aarch64LinuxGnu);
 
         assert!(indirect_abi_value(
             CallableAbi::C,
@@ -6095,6 +6128,26 @@ mod tests {
             &windows,
             &mappings,
         ));
+
+        assert_eq!(
+            indirect_parameter_kind(CallableAbi::C, &windows),
+            CodegenIndirectParameterKind::Reference
+        );
+
+        assert_eq!(
+            indirect_parameter_kind(CallableAbi::C, &linux),
+            CodegenIndirectParameterKind::ByValue
+        );
+
+        assert_eq!(
+            indirect_parameter_kind(CallableAbi::C, &aarch64),
+            CodegenIndirectParameterKind::Reference
+        );
+
+        assert_eq!(
+            indirect_parameter_kind(CallableAbi::Bray, &windows),
+            CodegenIndirectParameterKind::ByValue
+        );
     }
 
     #[test]

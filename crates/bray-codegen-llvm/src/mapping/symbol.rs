@@ -8,7 +8,7 @@ use inkwell::GlobalVisibility;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::module::{Linkage, Module};
 use inkwell::types::AnyType;
-use inkwell::values::FunctionValue;
+use inkwell::values::{CallSiteValue, FunctionValue};
 
 use super::LlvmTypeMappings;
 use super::attribute::{enum_attribute, type_attribute, value_attribute_name};
@@ -20,25 +20,34 @@ pub(crate) fn declare_symbols<'context>(
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     for mapping in mappings.symbols() {
-        let native_type =
-            crate::native::symbol_function_type(types.context(), target, mapping.key());
-
-        let function_type = native_type.unwrap_or(types.function_type(mapping.signature())?);
-
-        let function = module.add_function(mapping.name().as_str(), function_type, None);
-
-        apply_linkage(function, mapping, target)?;
-
-        if native_type.is_some() {
-            function.set_call_conventions(0);
-            apply_native_attributes(function, mapping, target, types)?;
-        } else {
-            function.set_call_conventions(call_convention(mapping, target)?);
-            apply_signature_attributes(function, mapping, types)?;
-        }
+        declare_symbol(module, mapping, target, types)?;
     }
 
     Ok(())
+}
+
+pub(crate) fn declare_symbol<'context>(
+    module: &Module<'context>,
+    mapping: &CodegenSymbolMapping,
+    target: &CodegenTarget,
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<FunctionValue<'context>, CodegenFailure> {
+    let native_type = crate::native::symbol_function_type(types.context(), target, mapping.key());
+
+    let function_type = native_type.unwrap_or(types.function_type(mapping.signature())?);
+    let function = module.add_function(mapping.name().as_str(), function_type, None);
+
+    apply_linkage(function, mapping, target)?;
+
+    if native_type.is_some() {
+        function.set_call_conventions(0);
+        apply_native_attributes(function, mapping, target, types)?;
+    } else {
+        function.set_call_conventions(call_convention(mapping.signature(), target)?);
+        apply_signature_attributes(function, mapping, types)?;
+    }
+
+    Ok(function)
 }
 
 fn apply_native_attributes(
@@ -179,6 +188,141 @@ fn apply_signature_attributes(
     Ok(())
 }
 
+pub(crate) fn apply_signature_call_attributes(
+    call: CallSiteValue<'_>,
+    signature: &bray_codegen::CodegenCallableSignature,
+    types: &mut LlvmTypeMappings<'_, '_>,
+) -> Result<(), CodegenFailure> {
+    let mut parameter_index = 0_u32;
+
+    match signature.result() {
+        CodegenResultMapping::Void => {}
+        CodegenResultMapping::Direct {
+            extension,
+            attributes,
+            ..
+        } => {
+            apply_call_extension(call, AttributeLoc::Return, *extension, types)?;
+            apply_call_value_attributes(call, AttributeLoc::Return, attributes, types)?;
+        }
+        CodegenResultMapping::Indirect {
+            pointee,
+            alignment,
+            attributes,
+            ..
+        } => {
+            apply_call_type_attribute(call, AttributeLoc::Param(0), "sret", *pointee, types)?;
+            apply_call_alignment(call, AttributeLoc::Param(0), alignment.get(), types)?;
+            apply_call_value_attributes(call, AttributeLoc::Param(0), attributes, types)?;
+
+            parameter_index = 1;
+        }
+    }
+
+    for parameter in signature.parameters() {
+        let location = AttributeLoc::Param(parameter_index);
+
+        match parameter {
+            CodegenParameterMapping::Ignore => continue,
+            CodegenParameterMapping::Direct {
+                extension,
+                attributes,
+                ..
+            } => {
+                apply_call_extension(call, location, *extension, types)?;
+                apply_call_value_attributes(call, location, attributes, types)?;
+            }
+            CodegenParameterMapping::Indirect {
+                pointee,
+                kind,
+                alignment,
+                attributes,
+                ..
+            } => {
+                if *kind == CodegenIndirectParameterKind::ByValue {
+                    apply_call_type_attribute(call, location, "byval", *pointee, types)?;
+                }
+
+                apply_call_alignment(call, location, alignment.get(), types)?;
+                apply_call_value_attributes(call, location, attributes, types)?;
+            }
+        }
+
+        parameter_index = parameter_index
+            .checked_add(1)
+            .ok_or(CodegenFailure::UnsupportedTarget)?;
+    }
+
+    Ok(())
+}
+
+fn apply_call_extension(
+    call: CallSiteValue<'_>,
+    location: AttributeLoc,
+    extension: Option<CodegenIntegerExtension>,
+    types: &LlvmTypeMappings<'_, '_>,
+) -> Result<(), CodegenFailure> {
+    let name = match extension {
+        Some(CodegenIntegerExtension::Sign) => "signext",
+        Some(CodegenIntegerExtension::Zero) => "zeroext",
+        None => return Ok(()),
+    };
+
+    apply_call_enum_attribute(call, location, name, 0, types)
+}
+
+fn apply_call_value_attributes(
+    call: CallSiteValue<'_>,
+    location: AttributeLoc,
+    attributes: &[CodegenValueAttribute],
+    types: &LlvmTypeMappings<'_, '_>,
+) -> Result<(), CodegenFailure> {
+    for attribute in attributes {
+        apply_call_enum_attribute(
+            call,
+            location,
+            value_attribute_name(*attribute),
+            0,
+            types,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn apply_call_alignment(
+    call: CallSiteValue<'_>,
+    location: AttributeLoc,
+    alignment: u64,
+    types: &LlvmTypeMappings<'_, '_>,
+) -> Result<(), CodegenFailure> {
+    apply_call_enum_attribute(call, location, "align", alignment, types)
+}
+
+fn apply_call_enum_attribute(
+    call: CallSiteValue<'_>,
+    location: AttributeLoc,
+    name: &str,
+    value: u64,
+    types: &LlvmTypeMappings<'_, '_>,
+) -> Result<(), CodegenFailure> {
+    call.add_attribute(location, enum_attribute(name, value, types)?);
+
+    Ok(())
+}
+
+fn apply_call_type_attribute(
+    call: CallSiteValue<'_>,
+    location: AttributeLoc,
+    name: &str,
+    pointee: bray_symbols::TypeId,
+    types: &mut LlvmTypeMappings<'_, '_>,
+) -> Result<(), CodegenFailure> {
+    call.add_attribute(location, type_attribute(name, pointee, types)?);
+
+    Ok(())
+}
+
 fn apply_extension(
     function: FunctionValue<'_>,
     location: AttributeLoc,
@@ -246,11 +390,11 @@ fn apply_type_attribute(
     Ok(())
 }
 
-fn call_convention(
-    mapping: &CodegenSymbolMapping,
+pub(crate) fn call_convention(
+    signature: &bray_codegen::CodegenCallableSignature,
     target: &CodegenTarget,
 ) -> Result<u32, CodegenFailure> {
-    let Some(convention) = target.abi().convention(mapping.signature().abi()) else {
+    let Some(convention) = target.abi().convention(signature.abi()) else {
         return Err(CodegenFailure::UnsupportedTarget);
     };
 

@@ -7,9 +7,9 @@ use bray_ir::{
 use bray_symbols::TypeId;
 
 use crate::{
-    CodegenConstantMapping, CodegenInstanceTypeMapping, CodegenOperationMapping,
-    CodegenParameterMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind,
-    CodegenTypeMapping, CodegenUnit,
+    CodegenConstantMapping, CodegenInstanceTypeMapping, CodegenLinkage,
+    CodegenOperationMapping, CodegenParameterMapping, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
 };
 
 use super::core::CodegenMappingsBuildError;
@@ -59,6 +59,7 @@ pub fn demanded_runtime_references(unit: &CodegenUnit) -> BTreeSet<MirRuntimeRef
 pub fn mapped_runtime_references(
     unit: &CodegenUnit,
     operations: &[CodegenOperationMapping],
+    symbols: &[CodegenSymbolMapping],
 ) -> BTreeSet<MirRuntimeReference> {
     let mut references = demanded_runtime_references(unit);
 
@@ -71,6 +72,19 @@ pub fn mapped_runtime_references(
             Some(*reference)
         })
     }));
+
+    if symbols.iter().any(|symbol| {
+        symbol.linkage() == CodegenLinkage::Export
+            && symbol.signature().abi() != bray_symbols::CallableAbi::Bray
+    }) {
+        references.extend(
+            [
+                bray_runtime_interface::RuntimeAbiRole::ForeignCallbackExecution,
+                bray_runtime_interface::RuntimeAbiRole::PanicReporting,
+            ]
+            .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
+        );
+    }
 
     references
 }
@@ -282,6 +296,7 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             | MirGeneratorOperation::Destroy { runtime, .. },
         ) => [Some(*runtime), None, None],
         MirOperationKind::AnonymousCallable(_)
+        | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::Unary { .. }

@@ -1,8 +1,8 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
 use crate::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetFacts, TargetIdentity,
-    TargetMachineProperties, TargetOperationFacts, TargetProfile,
+    Endianness, ObjectFormat, TargetArchitecture, TargetCAbiFacts, TargetFacts, TargetIdentity,
+    TargetMachineProperties, TargetOperationFacts, TargetProfile, TargetScalarKind,
 };
 
 /// Native target profiles provided by the Bray toolchain.
@@ -98,8 +98,12 @@ impl NativeTarget {
 
         let (vendor, system, environment, abi) = self.identity_facts();
 
-        let facts = TargetFacts::try_portable(vendor, system, environment, abi)
-            .map(|facts| facts.with_operations(TargetOperationFacts::new(true, true)))
+        let facts = TargetFacts::try_portable(vendor, system, environment, abi, self.c_abi_facts())
+            .map(|facts| {
+                facts
+                    .with_operations(TargetOperationFacts::new(true, true))
+                    .with_dynamic_loading(true)
+            })
             .unwrap_or_else(|| panic!("native target facts must be valid"));
 
         TargetProfile::try_new(self.identity(), machine, facts)
@@ -144,6 +148,40 @@ impl NativeTarget {
             Self::X86_64MacOs | Self::Aarch64MacOs => ("apple", "darwin", "none", "darwin"),
         }
     }
+
+    fn c_abi_facts(self) -> TargetCAbiFacts {
+        let char = if self == Self::Aarch64LinuxGnu {
+            TargetScalarKind::U8
+        } else {
+            TargetScalarKind::I8
+        };
+
+        let (long, unsigned_long, wide_char) = match self {
+            Self::X86_64WindowsMsvc | Self::Aarch64WindowsMsvc => (
+                TargetScalarKind::I32,
+                TargetScalarKind::U32,
+                TargetScalarKind::U16,
+            ),
+            Self::X86_64LinuxGnu
+            | Self::Aarch64LinuxGnu
+            | Self::X86_64MacOs
+            | Self::Aarch64MacOs => (
+                TargetScalarKind::I64,
+                TargetScalarKind::U64,
+                TargetScalarKind::I32,
+            ),
+        };
+
+        let long_double = match self {
+            Self::X86_64WindowsMsvc | Self::Aarch64WindowsMsvc | Self::Aarch64MacOs => {
+                Some(TargetScalarKind::R64)
+            }
+            Self::X86_64LinuxGnu | Self::Aarch64LinuxGnu | Self::X86_64MacOs => None,
+        };
+
+        TargetCAbiFacts::try_new(char, long, unsigned_long, wide_char, long_double)
+            .unwrap_or_else(|| panic!("native target C ABI facts must be valid"))
+    }
 }
 
 #[cfg(test)]
@@ -151,7 +189,9 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::NativeTarget;
-    use crate::{Endianness, ObjectFormat, TargetArchitecture};
+    use crate::{
+        Endianness, ObjectFormat, TargetArchitecture, TargetCScalarKind, TargetScalarKind,
+    };
 
     #[test]
     fn native_profiles_cover_the_declared_platform_matrix() {
@@ -172,13 +212,16 @@ mod tests {
             ])
         );
 
-        for profile in profiles {
+        for target in NativeTarget::ALL {
+            let profile = target.profile();
+
             assert_eq!(profile.machine().endianness(), Endianness::Little);
             assert_eq!(profile.machine().pointer_width_bits().get(), 64);
             assert_eq!(profile.machine().pointer_alignment_bytes().get(), 8);
             assert_eq!(profile.machine().stack_alignment_bytes().get(), 16);
             assert!(profile.facts().operations().raw_memory());
             assert!(profile.facts().operations().allocation());
+            assert!(profile.facts().dynamic_loading());
 
             assert!(matches!(
                 profile.machine().architecture(),
@@ -189,6 +232,20 @@ mod tests {
                 profile.machine().object_format(),
                 ObjectFormat::Elf | ObjectFormat::Coff | ObjectFormat::MachO
             ));
+
+            let expected_long = if matches!(
+                target,
+                NativeTarget::X86_64WindowsMsvc | NativeTarget::Aarch64WindowsMsvc
+            ) {
+                TargetScalarKind::I32
+            } else {
+                TargetScalarKind::I64
+            };
+
+            assert_eq!(
+                profile.facts().c_abi().mapping(TargetCScalarKind::Long),
+                Some(expected_long)
+            );
         }
     }
 

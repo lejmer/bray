@@ -56,7 +56,8 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::ByteBufferFill
         | CheckedMemoryOperationKind::ByteBufferCopy
         | CheckedMemoryOperationKind::ByteBufferRead
-        | CheckedMemoryOperationKind::ByteSliceLength => true,
+        | CheckedMemoryOperationKind::SliceLength
+        | CheckedMemoryOperationKind::CallbackState { .. } => true,
     };
 
     if !valid {

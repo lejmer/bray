@@ -280,6 +280,10 @@ fn test_runtime_contract(target: TargetIdentity, artifact: RuntimeArtifactId) ->
                 RuntimeAbiRole::MainThreadLaneDrive,
                 RuntimeRoleImplementation::BrayRuntime,
             ),
+            test_role_binding(
+                RuntimeAbiRole::TestEntrySelection,
+                RuntimeRoleImplementation::BrayRuntime,
+            ),
         ],
     )
     .unwrap_or_else(|error| panic!("test runtime contract must be valid: {error:?}"))

@@ -483,6 +483,21 @@ mod tests {
     }
 
     #[test]
+    fn target_gates_compare_c_abi_scalar_spellings() {
+        let compilation = compilation("@target(target.c.LONG == \"i64\") module app;");
+        let gate = module_gate(&compilation);
+
+        assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
+        assert!(gate.value().is_enabled());
+
+        let [dependency] = gate.value().dependencies() else {
+            panic!("target gate must retain the exact C ABI target dependency");
+        };
+
+        assert_dependency(&compilation, dependency, TargetFactKind::CLong);
+    }
+
+    #[test]
     fn target_gate_dependencies_exclude_short_circuited_references() {
         let compilation =
             compilation("@target(target.scalar.U64 || target.atomic.U64) module app;");

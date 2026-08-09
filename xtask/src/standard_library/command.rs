@@ -1,6 +1,9 @@
 mod core;
 mod error;
 
-pub(super) use core::{build, compare_bundles, read_manifest, write_bundle_artifact};
+pub(super) use core::{
+    build, compare_bundles, read_manifest, standard_library_product,
+    standard_library_source_request, standard_library_version, write_bundle_artifact,
+};
 pub(crate) use core::{build_target_bundle, run};
 pub(super) use error::BuildError;

@@ -28,6 +28,7 @@ impl MirGeneratedLifecycleRole {
             MirHelperReference::Destroy(_) => Some(Self::Destroy),
             MirHelperReference::Cleanup { phase, .. } => Some(Self::Cleanup(*phase)),
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)

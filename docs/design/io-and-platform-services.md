@@ -198,6 +198,7 @@ The ABI shape vocabulary is:
 | `mut_bytes(operation)` | Pointer plus `u64` length retained writable until operation completion |
 | `path` | Call-only bytes in the target-native path encoding named by the target contract |
 | `native_text` | Call-only units in the target-native process-text encoding named by the target contract |
+| `raw_address` | One target-width non-owning address. Zero is invalid for a successful symbol lookup |
 | `span_list` | Call-only pointer plus count of call-only byte spans |
 | `environment_list` | Call-only pointer plus count of key and value byte-span pairs |
 | `handle_ref<K>` | Borrowed nonzero `u64` opaque handle of class `K` |
@@ -216,16 +217,16 @@ The canonical descriptor encoding uses these closed ordinal tables:
 | Descriptor field | Ordinals |
 | --- | --- |
 | Direction | `input = 0`, `output = 1` |
-| Shape | `u32 = 0`, `u64 = 1`, `i64 = 2`, `status = 3`, `bytes = 4`, `path = 5`, `span_list = 6`, `environment_list = 7`, `handle = 8`, `child_request = 9`, `file_options = 10`, `file_metadata = 11`, `exit_status = 12`, `start_result = 13`, `operation_result = 14`, `native_text = 15` |
+| Shape | `u32 = 0`, `u64 = 1`, `i64 = 2`, `status = 3`, `bytes = 4`, `path = 5`, `span_list = 6`, `environment_list = 7`, `handle = 8`, `child_request = 9`, `file_options = 10`, `file_metadata = 11`, `exit_status = 12`, `start_result = 13`, `operation_result = 14`, `native_text = 15`, `date_time = 16`, `temporal_observation = 17`, `temporal_resolution = 18`, `temporal_value = 19`, `raw_address = 20` |
 | Byte access | `not_applicable = 0`, `immutable = 1`, `mutable = 2` |
 | Lifetime | `not_applicable = 0`, `call = 1`, `operation = 2` |
 | Presence | `required = 0`, `optional = 1` |
-| Handle class | `not_applicable = 0`, `stream = 1`, `seekable_stream = 2`, `file_stream = 3`, `directory = 4`, `child = 5`, `operation = 6`, `wait_source = 7` |
+| Handle class | `not_applicable = 0`, `stream = 1`, `seekable_stream = 2`, `file_stream = 3`, `directory = 4`, `child = 5`, `operation = 6`, `wait_source = 7`, `time_zone = 8`, `dynamic_library = 9` |
 | Handle state | `not_applicable = 0`, `absent = 1`, `borrowed = 2`, `owned = 3`, `retained_borrow = 4`, `retained_owner = 5`, `consumed = 6` |
 | Call mode | `nonblocking = 0`, `may_block = 1`, `starts_operation = 2` |
 | Completion | `immediate = 0`, `status_only = 1`, `byte_transfer = 2`, `child_wait = 3`, `timer = 4`, `operation_dispatch = 5` |
 | Cancellation | `not_applicable = 0`, `request_only = 1`, `request_and_complete = 2` |
-| Capability | `process_context = 0`, `streams = 1`, `filesystem = 2`, `child_processes = 3`, `clocks = 4`, `entropy = 5`, `wait_integration = 6` |
+| Capability | `process_context = 0`, `streams = 1`, `filesystem = 2`, `child_processes = 3`, `clocks = 4`, `entropy = 5`, `wait_integration = 6`, `temporal = 7`, `dynamic_loading = 8` |
 
 `const_bytes` and `mut_bytes` both encode as `bytes`; byte access and lifetime distinguish them. `handle_ref` and `handle_owner`
 both encode as `handle`; handle class, presence, and the initial handle state distinguish them. `out<T>` encodes `T` with output
@@ -357,6 +358,7 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 | `clock` | `0x1043` | `Success`, `Unsupported`, `Interrupted`, `Other` |
 | `entropy` | `0x10c3` | `Success`, `Unsupported`, `Interrupted`, `Exhausted`, `Other` |
 | `operation_control` | `0x1021` | `Success`, `InvalidInput`, `Other` |
+| `dynamic_loading` | `0x10ef` | `Success`, `Unsupported`, `PermissionDenied`, `NotFound`, `InvalidInput`, `Interrupted`, `Exhausted`, `Other` |
 
 #### Process context
 
@@ -484,6 +486,33 @@ The `0x07xx` role family is backed by the static temporal provider described in 
 fixed-width calendar fields, timestamps, caller-owned text buffers, and opaque process-local timezone identities. They do not
 expose C++ layouts or depend on a host-installed timezone database. Exact UTC and fixed-offset operations remain available without
 loading named-zone data.
+
+#### Dynamic libraries
+
+| ID | Role | Parameters | Results | Status set | Mode and effects |
+| ---: | --- | --- | --- | --- | --- |
+| `0x0801` | `platform.dynamic_library.open_path` | `path`, `u32 policy` | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`, creates an owner only on success |
+| `0x0802` | `platform.dynamic_library.open_system` | `u32 identity`, `u32 policy` | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`, creates an owner only on success |
+| `0x0803` | `platform.dynamic_library.symbol` | `handle_ref<dynamic_library>`, `const_bytes(call) name` | `out<raw_address>` | `dynamic_loading` | `may_block`, retains the library owner and creates no ownership |
+| `0x0804` | `platform.dynamic_library.close` | `handle_owner<dynamic_library>` | none | `dynamic_loading` | `may_block`, consumes the owner on every terminal status |
+
+All four roles use immediate completion and `not_applicable` cancellation. Policy values are `0` for local visibility with
+immediate resolution, `1` for local visibility with lazy resolution, `2` for global visibility with immediate resolution, and `3`
+for global visibility with lazy resolution. A target returns `Unsupported` before opening when it cannot provide the selected
+policy. Other values are `InvalidInput`.
+
+`open_path` uses the target-native path exactly and performs no ambient search. `open_system` accepts only an identity allocated by
+the selected target-specific standard-library module. It invokes the target's system-library facility without consulting the
+working directory, process environment, package graph, or network. Unknown identities are `InvalidInput`.
+
+`symbol` requires a nonempty exact byte name without an interior NUL. `NotFound` means unavailable symbol for this role and
+unavailable library for either open role. On success, `raw_address` is nonzero and remains valid only while the borrowed library
+owner remains live. The role proves address existence only. The trusted Bray wrapper remains responsible for the requested callable
+or data type. A failed close still consumes the native owner, matching the best-effort destruction contract and preventing a second
+close of an indeterminate loader state.
+
+The `dynamic_loading` capability requires all four roles and makes `target.platform.dynamic_loading` true. A target without the
+complete catalog exposes none of the operations and sets the fact to false.
 
 Cancellation is a request, not a terminal result. Once requested, the provider eventually makes `operation.complete` terminal.
 Normal completion wins a race that became terminal before cancellation was accepted; otherwise accepted cancellation completes with

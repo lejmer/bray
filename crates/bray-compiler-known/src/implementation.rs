@@ -69,7 +69,9 @@ define_catalog_enum! {
         /// Reads one initialized byte from byte-buffer storage.
         ByteBufferRead => "ByteBufferRead",
         /// Reads the element count carried by a byte slice.
-        ByteSliceLength => "ByteSliceLength",
+        SliceLength => "SliceLength",
+        /// Reconstructs a state borrow at a checked foreign-callback entry.
+        CallbackState => "CallbackState",
         /// Starts an inactive asynchronous computation as a task.
         FutureStart => "FutureStart",
         /// Joins and observes an independently running task.
@@ -157,7 +159,8 @@ impl ImplementationHook {
         Self::ByteBufferFill,
         Self::ByteBufferCopy,
         Self::ByteBufferRead,
-        Self::ByteSliceLength,
+        Self::SliceLength,
+        Self::CallbackState,
     ];
 }
 

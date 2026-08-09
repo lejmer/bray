@@ -1,0 +1,95 @@
+@target(target.platform.dynamic_loading)
+trusted module std.dynamic;
+
+@copy
+union LoadPolicy
+{
+    PlatformDefault;
+    LocalImmediate;
+    LocalLazy;
+    GlobalImmediate;
+    GlobalLazy;
+}
+
+@copy
+union SystemLibrary
+{
+    CRuntime;
+}
+
+struct DynamicLibrary
+{
+    internal handle_value: u64;
+    internal mut is_owned_value: bool;
+
+    construct open_path(pos path: &std.path.Path, policy: LoadPolicy) -> Result<Self, std.ffi.ForeignError>
+        requires(blocking_execution())
+    {
+        let handle: u64 = try trusted open_dynamic_library_path(path, policy = policy);
+
+        return Ok(
+            {
+                handle_value = handle,
+                is_owned_value = true,
+            }
+        );
+    }
+
+    construct open_system(pos identity: SystemLibrary, policy: LoadPolicy) -> Result<Self, std.ffi.ForeignError>
+        requires(blocking_execution())
+    {
+        let handle: u64 = try trusted open_dynamic_library_system(identity, policy = policy);
+
+        return Ok(
+            {
+                handle_value = handle,
+                is_owned_value = true,
+            }
+        );
+    }
+
+    trusted finalize() -> Result<unit, std.ffi.ForeignError>
+        requires(blocking_execution())
+    {
+        return trusted release_dynamic_library(&mut self);
+    }
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        if self.is_owned_value
+        {
+            let _: std.platform.PlatformStatus = trusted platform_dynamic_library_close(self.handle_value);
+        }
+    }
+
+    consume mut func close() -> Result<unit, std.ffi.ForeignError>
+        requires(blocking_execution())
+    {
+        return trusted release_dynamic_library(&mut self);
+    }
+
+    trusted consume mut func transfer() -> Result<u64, std.ffi.ForeignError>
+    {
+        let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
+            self.handle_value,
+            owned = self.is_owned_value,
+        );
+
+        self.is_owned_value = false;
+
+        return Ok(handle);
+    }
+}
+
+@copy
+struct DynamicSymbol<T>
+{
+    internal owner: &DynamicLibrary;
+    internal address: RawPointer<T>;
+
+    func library() -> &DynamicLibrary
+    {
+        return self.owner;
+    }
+}

@@ -58,10 +58,37 @@ pub struct RuntimeThreadScope {
     thread_bound: PhantomData<Rc<()>>,
 }
 
+/// One callback entry on either an already initialized or newly attached runtime thread.
+#[derive(Debug)]
+pub enum RuntimeThreadEntry {
+    /// The caller thread already belongs to Bray runtime execution.
+    Current(RuntimeThread),
+    /// The foreign caller thread is initialized for this entry's lifetime.
+    Attached(RuntimeThreadScope),
+}
+
+impl RuntimeThreadEntry {
+    /// Returns the runtime-thread identity active for this entry.
+    pub const fn runtime(&self) -> &RuntimeThread {
+        match self {
+            Self::Current(runtime) => runtime,
+            Self::Attached(scope) => scope.runtime(),
+        }
+    }
+}
+
 impl RuntimeThreadScope {
     /// Initializes the current thread until this scope is dropped.
     pub fn enter() -> Result<Self, PlatformError> {
         Self::enter_with_id(next_runtime_thread_id()?)
+    }
+
+    /// Reuses an active runtime thread or attaches the current foreign thread for this entry.
+    pub fn enter_or_reuse() -> Result<RuntimeThreadEntry, PlatformError> {
+        match current_runtime_thread() {
+            Some(runtime) => Ok(RuntimeThreadEntry::Current(runtime)),
+            None => Self::enter().map(RuntimeThreadEntry::Attached),
+        }
     }
 
     /// Returns the runtime identity installed by this scope.
@@ -197,7 +224,7 @@ mod tests {
     use bray_base::NonEmptySharedStr;
 
     use super::{
-        NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadScope,
+        NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry, RuntimeThreadScope,
         current_runtime_thread,
     };
 
@@ -253,6 +280,28 @@ mod tests {
 
         drop(scope);
 
+        assert_eq!(current_runtime_thread(), None);
+    }
+
+    #[test]
+    fn callback_entries_reuse_runtime_threads_and_attach_foreign_threads() {
+        let attached = RuntimeThreadScope::enter_or_reuse()
+            .unwrap_or_else(|error| panic!("foreign thread must attach: {error:?}"));
+
+        assert!(matches!(attached, RuntimeThreadEntry::Attached(_)));
+
+        let id = attached.runtime().id();
+
+        let current = RuntimeThreadScope::enter_or_reuse()
+            .unwrap_or_else(|error| panic!("runtime thread must be reused: {error:?}"));
+
+        assert!(matches!(current, RuntimeThreadEntry::Current(_)));
+        assert_eq!(current.runtime().id(), id);
+
+        drop(current);
+        assert_eq!(current_runtime_thread().map(|runtime| runtime.id()), Some(id));
+
+        drop(attached);
         assert_eq!(current_runtime_thread(), None);
     }
 }

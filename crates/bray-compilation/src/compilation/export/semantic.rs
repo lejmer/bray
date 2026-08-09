@@ -31,8 +31,8 @@ use bray_package_interface::{
     InterfaceImplementationInstanceId, InterfaceImplementationRecord, InterfaceNativeBoundary,
     InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfacePredicateSummary,
     InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceSupportEntity,
-    InterfaceSymbolReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
-    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
+    InterfaceSymbolReference, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
     InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
     PackageInterfaceSurface,
 };
@@ -42,7 +42,7 @@ use bray_symbols::{
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
     CallableSignatureFact, CallableSymbolId, CheckedConstraintKind, ConstantDefinitionState,
     ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
-    ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind,
+    ConstantValueData, ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind,
     DeclaredStorageShape, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencyRequirementKind, DependencySubject, DependencySubjectRoot, ExternalSymbolKey,
     GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact, GenericOwnerId,
@@ -62,6 +62,9 @@ use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::compilation::checker::{CompilationCheckerContext, checker_result};
 use crate::compilation::unit::semantic_unit_context_for;
+use crate::compilation::source_graph::{
+    source_declaration_module_parts, source_symbol_contribution_gate,
+};
 
 pub(super) fn build_semantic_facts(
     compilation: &Compilation,
@@ -118,6 +121,8 @@ pub(super) fn build_semantic_facts(
 
     let (implementations, coherence) = implementation_facts(&mut export, &binder, selected)?;
 
+    let target_dependencies = target_dependencies(compilation, graph, selected, &mut export)?;
+
     declarations.generic_declarations.sort_unstable();
     declarations.declaration_templates.sort_unstable();
 
@@ -151,7 +156,8 @@ pub(super) fn build_semantic_facts(
             declarations.declaration_templates,
             declarations.support_entities,
         )
-        .with_implementations(implementations, coherence);
+        .with_implementations(implementations, coherence)
+        .with_target_dependencies(target_dependencies, []);
 
     Ok((facts, executable_templates, native_boundaries))
 }
@@ -771,6 +777,44 @@ fn export_runtime_default(
         declaration_templates,
         support_entities,
     )
+}
+
+fn target_dependencies(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    selected: &BTreeSet<AnySymbolId>,
+    export: &mut SemanticExporter<'_>,
+) -> Result<Vec<InterfaceTargetFactDependency>, PackageInterfaceExportError> {
+    let source_graph = compilation
+        .product_source_graph()
+        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+    let module_parts = source_declaration_module_parts(source_graph.declarations());
+    let mut dependencies = Vec::new();
+
+    for owner in selected.iter().copied() {
+        let Some(gate) = source_symbol_contribution_gate(
+            source_graph,
+            graph,
+            &module_parts,
+            owner,
+        ) else {
+            continue;
+        };
+
+        for dependency in gate.dependencies() {
+            dependencies.push(InterfaceTargetFactDependency::new(
+                export.symbol_reference(owner)?,
+                export.symbol_reference(dependency.fact().into())?,
+                export.constant_value_id(dependency.value())?,
+            ));
+        }
+    }
+
+    dependencies.sort_unstable();
+    dependencies.dedup();
+
+    Ok(dependencies)
 }
 
 fn runtime_default_inputs(
@@ -1976,6 +2020,18 @@ impl<'a> SemanticExporter<'a> {
             .map_err(|_| incomplete_type())?;
 
         self.constant_term_id(term)
+    }
+
+    pub(super) fn nullable_absence_term_id(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<InterfaceConstantTermId, PackageInterfaceExportError> {
+        let value = self
+            .values
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::NullableAbsent))
+            .map_err(|_| incomplete_type())?;
+
+        self.constant_value_term_id(value)
     }
 
     pub(super) fn declaration_template_reference(

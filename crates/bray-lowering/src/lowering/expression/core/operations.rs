@@ -2,8 +2,9 @@
 
 use bray_bound_tree::{
     BoundAssignmentOperator, BoundCallResult, BoundCallableTarget, BoundExpression,
-    BoundExpressionId, BoundOperator, OperatorTarget, SelectedArgument, SelectedOperation,
-    SemanticSelection, StorageAccessPurpose, StorageIdentity, StorageIdentityId,
+    BoundExpressionId, BoundNameExpression, BoundOperator, BoundReferenceTarget, OperatorTarget,
+    SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose, StorageIdentity,
+    StorageIdentityId,
 };
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirBlockKind, MirCall,
@@ -11,7 +12,10 @@ use bray_ir::{
     MirImmediateValue, MirOperand, MirOperationKind, MirPatternPredicate, MirPlace,
     MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnaryOperator,
 };
-use bray_symbols::{BorrowKind, CallableAbi, TypeData, TypeId};
+use bray_symbols::{
+    BorrowKind, CallableAbi, CallableDefinitionId, CallableInstanceData, GenericOwnerId,
+    GenericSubstitutionData, TypeData, TypeId,
+};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -55,7 +59,7 @@ impl Lowerer<'_> {
                     source,
                 ))
             }
-            BoundExpression::Name(_) => {
+            BoundExpression::Name(name) => {
                 if let Some(value) = self.input.constant_reference_value(id) {
                     let source = self.source(expression.origin());
                     let ty = self.expression_type(id)?;
@@ -65,6 +69,17 @@ impl Lowerer<'_> {
                         Some(MirOperand::Constant { value, ty }),
                         source,
                     ))
+                } else if let Some(callable) = self.declared_foreign_callable_reference(id, *name)? {
+                    let source = self.source(expression.origin());
+
+                    let value = self.push_value_operation(
+                        id,
+                        current,
+                        Self::retained_source(&source),
+                        MirOperationKind::DeclaredCallable(callable),
+                    )?;
+
+                    Ok(LoweredExpression::continuing(current, Some(value), source))
                 } else {
                     self.lower_storage_operand(id, current)
                 }
@@ -165,6 +180,53 @@ impl Lowerer<'_> {
         }?;
 
         self.materialize_temporary(id, lowered)
+    }
+
+    fn declared_foreign_callable_reference(
+        &self,
+        expression: BoundExpressionId,
+        name: BoundNameExpression,
+    ) -> Result<Option<MirCallableReference>, LoweringError> {
+        let BoundReferenceTarget::Surface(symbol) = name.target() else {
+            return Ok(None);
+        };
+
+        let Some(definition) = CallableDefinitionId::try_new(symbol) else {
+            return Ok(None);
+        };
+
+        let ty = self.expression_type(expression)?;
+
+        let data = self
+            .input
+            .semantic_values()
+            .type_data(ty)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let TypeData::Callable(callable) = data.as_ref() else {
+            return Ok(None);
+        };
+
+        if callable.abi() == CallableAbi::Bray {
+            return Ok(None);
+        }
+
+        let owner = GenericOwnerId::try_new(definition.symbol())
+            .ok_or(LoweringError::SemanticValueUnavailable)?;
+
+        let substitution = GenericSubstitutionData::try_new(owner, [], [])
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let substitution = self
+            .input
+            .semantic_values()
+            .intern_generic_substitution(substitution)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        Ok(Some(MirCallableReference::new(
+            CallableInstanceData::new(definition, substitution),
+            callable.abi(),
+        )))
     }
 
     fn lower_unary(

@@ -38,7 +38,7 @@ internal func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<
     with(Sink: Writer)
     requires(blocking_execution())
 {
-    let length: usize = internal std.memory.byte_slice_length(source);
+    let length: usize = internal std.memory.slice_length<u8>(source);
     let mut written: usize = 0;
 
     while written < length
@@ -67,7 +67,7 @@ internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8]
     with(Sink: AsyncWriter)
     requires(blocking_execution())
 {
-    let length: usize = internal std.memory.byte_slice_length(source);
+    let length: usize = internal std.memory.slice_length<u8>(source);
     let mut written: usize = 0;
 
     while written < length
@@ -95,7 +95,7 @@ internal async func write_all_async<Sink>(pos sink: &mut Sink, pos source: &[u8]
 internal func write_standard_output_all(pos output: &mut StandardOutput, pos source: &[u8]) -> Result<usize, IoError>
     requires(blocking_execution())
 {
-    let length: usize = internal std.memory.byte_slice_length(source);
+    let length: usize = internal std.memory.slice_length<u8>(source);
     let mut written: usize = 0;
 
     while written < length

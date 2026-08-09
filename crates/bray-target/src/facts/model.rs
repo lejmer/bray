@@ -2,7 +2,10 @@ use std::num::NonZeroU64;
 
 use bray_base::NonEmptySharedStr;
 
-use super::{TargetAbiFacts, TargetAbiScalarFacts, TargetForeignAbiFacts, TargetScalarFacts};
+use super::{
+    TargetAbiFacts, TargetAbiScalarFacts, TargetCAbiFacts, TargetForeignAbiFacts,
+    TargetScalarFacts,
+};
 
 /// Stable identity details of one target profile.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -206,9 +209,11 @@ pub struct TargetFacts {
     scalars: TargetScalarFacts,
     atomics: TargetAtomicFacts,
     abis: TargetAbiFacts,
+    c_abi: TargetCAbiFacts,
     address_spaces: TargetAddressSpaceFacts,
     alignments: TargetAlignmentFacts,
     operations: TargetOperationFacts,
+    dynamic_loading: bool,
 }
 
 impl TargetFacts {
@@ -218,6 +223,7 @@ impl TargetFacts {
         scalars: TargetScalarFacts,
         atomics: TargetAtomicFacts,
         abis: TargetAbiFacts,
+        c_abi: TargetCAbiFacts,
         address_spaces: TargetAddressSpaceFacts,
         alignments: TargetAlignmentFacts,
         operations: TargetOperationFacts,
@@ -227,14 +233,22 @@ impl TargetFacts {
             scalars,
             atomics,
             abis,
+            c_abi,
             address_spaces,
             alignments,
             operations,
+            dynamic_loading: false,
         }
     }
 
-    /// Creates the complete portable baseline fact set when identity spellings are nonempty.
-    pub fn try_portable(vendor: &str, system: &str, environment: &str, abi: &str) -> Option<Self> {
+    /// Creates the portable baseline fact set with the supplied C data model.
+    pub fn try_portable(
+        vendor: &str,
+        system: &str,
+        environment: &str,
+        abi: &str,
+        c_abi: TargetCAbiFacts,
+    ) -> Option<Self> {
         let identity = TargetIdentityFacts::try_new(vendor, system, environment, abi)?;
         let address_spaces = TargetAddressSpaceFacts::try_new(true, false)?;
         let maximum_alignment = NonZeroU64::new(1 << 29).unwrap_or(NonZeroU64::MIN);
@@ -254,6 +268,7 @@ impl TargetFacts {
             TargetScalarFacts::default(),
             TargetAtomicFacts::default(),
             TargetAbiFacts::new(Some(foreign_abi), Some(foreign_abi)),
+            c_abi,
             address_spaces,
             alignments,
             TargetOperationFacts::default(),
@@ -263,6 +278,13 @@ impl TargetFacts {
     /// Returns these facts with the supplied compiler-provided operation capabilities.
     pub const fn with_operations(mut self, operations: TargetOperationFacts) -> Self {
         self.operations = operations;
+
+        self
+    }
+
+    /// Returns these facts with the supplied dynamic-loading capability.
+    pub const fn with_dynamic_loading(mut self, dynamic_loading: bool) -> Self {
+        self.dynamic_loading = dynamic_loading;
 
         self
     }
@@ -287,6 +309,11 @@ impl TargetFacts {
         self.abis
     }
 
+    /// Returns the target's exact C scalar data model.
+    pub const fn c_abi(&self) -> TargetCAbiFacts {
+        self.c_abi
+    }
+
     /// Returns address-space availability facts.
     pub const fn address_spaces(&self) -> TargetAddressSpaceFacts {
         self.address_spaces
@@ -300,6 +327,11 @@ impl TargetFacts {
     /// Returns compiler-known operation capability facts.
     pub const fn operations(&self) -> TargetOperationFacts {
         self.operations
+    }
+
+    /// Returns whether the complete dynamic-library platform role family is available.
+    pub const fn dynamic_loading(&self) -> bool {
+        self.dynamic_loading
     }
 }
 
@@ -331,6 +363,11 @@ mod tests {
 
         assert_eq!(
             profile.fact(TargetFactKind::EndianBig),
+            TargetFactValue::Boolean(false)
+        );
+
+        assert_eq!(
+            profile.fact(TargetFactKind::PlatformDynamicLoading),
             TargetFactValue::Boolean(false)
         );
     }

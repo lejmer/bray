@@ -208,7 +208,7 @@ extern trusted internal func byte_buffer_copy(
 extern trusted internal func byte_buffer_read(pos pointer: RawPointer<u8>, index: usize) -> u8
     uses(raw_memory);
 
-extern internal func byte_slice_length(pos bytes: &[u8]) -> usize;
+extern internal func slice_length<T>(pos values: &[T]) -> usize;
 
 internal func byte_address_of(pos value: &u8) -> RawPointer<u8>
 {
@@ -217,7 +217,7 @@ internal func byte_address_of(pos value: &u8) -> RawPointer<u8>
 
 internal func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8>
 {
-    if byte_slice_length(bytes) == 0
+    if slice_length<u8>(bytes) == 0
     {
         return null<u8>();
     }
@@ -231,7 +231,7 @@ internal func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>
     {
         let shared: &[u8] = &bytes;
 
-        yield byte_slice_length(shared) == 0;
+        yield slice_length<u8>(shared) == 0;
     };
 
     if is_empty

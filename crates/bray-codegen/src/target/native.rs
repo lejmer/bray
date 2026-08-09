@@ -17,7 +17,7 @@ impl CodegenTarget {
         let profile = target.profile();
         let contract = TargetContract::new(
             data_layout(&profile),
-            target_abi(target),
+            target_abi(),
             panic_abi(),
             symbol_convention(),
             compatibility(target),
@@ -80,19 +80,11 @@ fn data_layout(profile: &bray_target::TargetProfile) -> TargetDataLayout {
     .unwrap_or_else(|error| panic!("native target data layout must be valid: {error:?}"))
 }
 
-fn target_abi(target: NativeTarget) -> TargetAbi {
-    let foreign_convention = match target {
-        NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs => "sysv64",
-        NativeTarget::X86_64WindowsMsvc => "win64",
-        NativeTarget::Aarch64LinuxGnu
-        | NativeTarget::Aarch64WindowsMsvc
-        | NativeTarget::Aarch64MacOs => "c",
-    };
-
+fn target_abi() -> TargetAbi {
     let mappings = [
         (CallableAbi::Bray, "c"),
-        (CallableAbi::C, foreign_convention),
-        (CallableAbi::System, foreign_convention),
+        (CallableAbi::C, "c"),
+        (CallableAbi::System, "c"),
     ]
     .into_iter()
     .map(|(abi, name)| {
@@ -201,6 +193,20 @@ mod tests {
                 target
                     .abi()
                     .convention(CallableAbi::Bray)
+                    .map(|convention| convention.as_str()),
+                Some("c")
+            );
+            assert_eq!(
+                target
+                    .abi()
+                    .convention(CallableAbi::C)
+                    .map(|convention| convention.as_str()),
+                Some("c")
+            );
+            assert_eq!(
+                target
+                    .abi()
+                    .convention(CallableAbi::System)
                     .map(|convention| convention.as_str()),
                 Some("c")
             );

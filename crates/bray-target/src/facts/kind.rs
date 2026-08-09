@@ -81,6 +81,42 @@ pub enum TargetFactKind {
     AbiC,
     /// `target.abi.SYSTEM`.
     AbiSystem,
+    /// `target.c.CHAR`.
+    CChar,
+    /// `target.c.SIGNED_CHAR`.
+    CSignedChar,
+    /// `target.c.UNSIGNED_CHAR`.
+    CUnsignedChar,
+    /// `target.c.SHORT`.
+    CShort,
+    /// `target.c.UNSIGNED_SHORT`.
+    CUnsignedShort,
+    /// `target.c.INT`.
+    CInt,
+    /// `target.c.UNSIGNED_INT`.
+    CUnsignedInt,
+    /// `target.c.LONG`.
+    CLong,
+    /// `target.c.UNSIGNED_LONG`.
+    CUnsignedLong,
+    /// `target.c.LONG_LONG`.
+    CLongLong,
+    /// `target.c.UNSIGNED_LONG_LONG`.
+    CUnsignedLongLong,
+    /// `target.c.SIZE`.
+    CSize,
+    /// `target.c.PTRDIFF`.
+    CPointerDifference,
+    /// `target.c.WCHAR`.
+    CWideChar,
+    /// `target.c.BOOL`.
+    CBool,
+    /// `target.c.FLOAT`.
+    CFloat,
+    /// `target.c.DOUBLE`.
+    CDouble,
+    /// `target.c.LONG_DOUBLE`.
+    CLongDouble,
     /// `target.address_space.HOST`.
     AddressSpaceHost,
     /// `target.address_space.DEVICE`.
@@ -89,6 +125,8 @@ pub enum TargetFactKind {
     AlignmentMaxStorage,
     /// `target.alignment.MAX_ALLOCATION`.
     AlignmentMaxAllocation,
+    /// `target.platform.dynamic_loading`.
+    PlatformDynamicLoading,
 }
 
 impl TargetFactKind {
@@ -134,10 +172,29 @@ impl TargetFactKind {
         Self::AtomicPointer,
         Self::AbiC,
         Self::AbiSystem,
+        Self::CChar,
+        Self::CSignedChar,
+        Self::CUnsignedChar,
+        Self::CShort,
+        Self::CUnsignedShort,
+        Self::CInt,
+        Self::CUnsignedInt,
+        Self::CLong,
+        Self::CUnsignedLong,
+        Self::CLongLong,
+        Self::CUnsignedLongLong,
+        Self::CSize,
+        Self::CPointerDifference,
+        Self::CWideChar,
+        Self::CBool,
+        Self::CFloat,
+        Self::CDouble,
+        Self::CLongDouble,
         Self::AddressSpaceHost,
         Self::AddressSpaceDevice,
         Self::AlignmentMaxStorage,
         Self::AlignmentMaxAllocation,
+        Self::PlatformDynamicLoading,
     ];
 
     /// Returns the language-defined target-fact path.
@@ -183,10 +240,29 @@ impl TargetFactKind {
             Self::AtomicPointer => "target.atomic.POINTER",
             Self::AbiC => "target.abi.C",
             Self::AbiSystem => "target.abi.SYSTEM",
+            Self::CChar => "target.c.CHAR",
+            Self::CSignedChar => "target.c.SIGNED_CHAR",
+            Self::CUnsignedChar => "target.c.UNSIGNED_CHAR",
+            Self::CShort => "target.c.SHORT",
+            Self::CUnsignedShort => "target.c.UNSIGNED_SHORT",
+            Self::CInt => "target.c.INT",
+            Self::CUnsignedInt => "target.c.UNSIGNED_INT",
+            Self::CLong => "target.c.LONG",
+            Self::CUnsignedLong => "target.c.UNSIGNED_LONG",
+            Self::CLongLong => "target.c.LONG_LONG",
+            Self::CUnsignedLongLong => "target.c.UNSIGNED_LONG_LONG",
+            Self::CSize => "target.c.SIZE",
+            Self::CPointerDifference => "target.c.PTRDIFF",
+            Self::CWideChar => "target.c.WCHAR",
+            Self::CBool => "target.c.BOOL",
+            Self::CFloat => "target.c.FLOAT",
+            Self::CDouble => "target.c.DOUBLE",
+            Self::CLongDouble => "target.c.LONG_DOUBLE",
             Self::AddressSpaceHost => "target.address_space.HOST",
             Self::AddressSpaceDevice => "target.address_space.DEVICE",
             Self::AlignmentMaxStorage => "target.alignment.MAX_STORAGE",
             Self::AlignmentMaxAllocation => "target.alignment.MAX_ALLOCATION",
+            Self::PlatformDynamicLoading => "target.platform.dynamic_loading",
         }
     }
 }

@@ -12,6 +12,7 @@ pub use bray_standard_library::PackageSourceAuthority;
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     StandardLibraryLoadError, StandardLibraryResolver,
+    standard_library_target_artifact_directory,
 };
 use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 
@@ -194,6 +195,7 @@ enum DependencyInterfaceSource {
     StandardLibrary {
         artifact_path: Arc<Path>,
         resolver: StandardLibraryResolver,
+        target: SelectedTarget,
     },
 }
 
@@ -288,9 +290,11 @@ impl DependencyInterfaceInput {
                 // Validation retains immutable request bytes, so sharing avoids copying files.
                 Ok(Arc::clone(bytes))
             }
-            DependencyInterfaceSource::StandardLibrary { resolver, .. } => {
-                resolver.interface().map(|artifact| artifact.shared_bytes())
-            }
+            DependencyInterfaceSource::StandardLibrary {
+                resolver, target, ..
+            } => resolver
+                .interface(target.profile().identity(), target.runtime_abi())
+                .map(|artifact| artifact.shared_bytes()),
         }
     }
 
@@ -299,26 +303,35 @@ impl DependencyInterfaceInput {
     ) -> Result<Option<Arc<[u8]>>, StandardLibraryLoadError> {
         match &self.source {
             DependencyInterfaceSource::Bytes { .. } => Ok(None),
-            DependencyInterfaceSource::StandardLibrary { resolver, .. } => resolver
-                .implementation()
+            DependencyInterfaceSource::StandardLibrary {
+                resolver, target, ..
+            } => resolver
+                .implementation(target.profile().identity(), target.runtime_abi())
                 .map(|artifact| Some(artifact.shared_bytes())),
         }
     }
 
-    pub(crate) fn for_standard_library(resolver: StandardLibraryResolver) -> Self {
+    pub(crate) fn for_standard_library(
+        resolver: StandardLibraryResolver,
+        target: SelectedTarget,
+    ) -> Self {
         let package = PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
             .unwrap_or_else(|| panic!("standard library package identity must be valid"));
 
         let product = InterfaceProductIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY)
             .unwrap_or_else(|| panic!("standard library product identity must be valid"));
 
-        let artifact_path = resolver.root().path().join("interfaces").join("std.brayi");
+        let target_root = standard_library_target_artifact_directory(
+            target.profile().identity(),
+            target.runtime_abi(),
+        )
+        .split('/')
+        .fold(resolver.root().path().to_path_buf(), |path, component| {
+            path.join(component)
+        });
 
-        let implementation_path = resolver
-            .root()
-            .path()
-            .join("interfaces")
-            .join("std.brayimpl");
+        let artifact_path = target_root.join("std.brayi");
+        let implementation_path = target_root.join("std.brayimpl");
 
         Self {
             package,
@@ -326,6 +339,7 @@ impl DependencyInterfaceInput {
             source: DependencyInterfaceSource::StandardLibrary {
                 artifact_path: Arc::from(artifact_path),
                 resolver,
+                target,
             },
             dependency_span: None,
             validation_policy: InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),

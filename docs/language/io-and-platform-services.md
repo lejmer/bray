@@ -190,6 +190,7 @@ target.platform.child_processes
 target.platform.monotonic_clock
 target.platform.wall_clock
 target.platform.entropy
+target.platform.dynamic_loading
 ```
 
 The corresponding service operations are target-conditional declarations. Using an unavailable operation is a compile-time error.
@@ -197,6 +198,9 @@ A target-disabled module contribution can exclude unavailable operations through
 
 A true fact promises the complete service semantics required by this specification. It does not reveal a native symbol, artifact
 path, operating-system handle representation, or implementation language.
+
+`target.platform.dynamic_loading` promises the complete closed dynamic-library role family defined by the platform-service design
+contract. It does not permit ambient path search or make dynamically loaded code part of the package graph.
 
 ## Navigation
 

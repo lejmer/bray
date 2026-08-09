@@ -78,6 +78,33 @@ impl TargetScalarKind {
         Self::C256,
     ];
 
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bool => "bool",
+            Self::Char => "char",
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::I128 => "i128",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Isize => "isize",
+            Self::Usize => "usize",
+            Self::R16 => "r16",
+            Self::R32 => "r32",
+            Self::R64 => "r64",
+            Self::R128 => "r128",
+            Self::C32 => "c32",
+            Self::C64 => "c64",
+            Self::C128 => "c128",
+            Self::C256 => "c256",
+        }
+    }
+
     const fn index(self) -> usize {
         match self {
             Self::Bool => 0,

@@ -10,6 +10,9 @@ The public text, byte, collection, formatting, hashing, ordering, and numeric co
 The public I/O package layout and private target mechanism boundary are defined by
 [I/O and platform services](io-and-platform-services.md).
 
+The public C interoperability, dynamic loading, foreign resource, callback, and target-specific operating-system boundaries are
+defined by [Foreign and platform interoperability](foreign-and-platform-interoperability.md).
+
 The public testing surface and its private native-host boundary are defined by
 [Testing standard library and runner](testing.md).
 
@@ -73,7 +76,7 @@ source authority. A caller cannot obtain recognition by supplying an ordinary co
 ## Source Layout
 
 The repository-standard source workspace lives beneath `standard-library/`. Its public package is rooted at
-`standard-library/std/`; private support packages, when needed, occupy sibling directories and reserved `std.*` identities. The
+`standard-library/std/`. Private support packages, when needed, occupy sibling directories and reserved `std.*` identities. The
 workspace uses the ordinary Bray project manifest contract and is loaded only through the standard-library source-authority API.
 
 Compiler-known declarations remain in the checked-in compiler-known catalog owned by `bray-compiler-known`. They are not copied
@@ -146,12 +149,11 @@ The logical layout beneath a configured standard-library root is:
 ```text
 standard-library/
 |-- manifest.json
-|-- interfaces/
-|   `-- std.brayi
 `-- targets/
     `-- <target-identity>/
         `-- <runtime-abi>/
-            |-- std.brayd
+            |-- std.brayi
+            |-- std.brayimpl
             `-- <target-native artifacts>
 ```
 
@@ -176,7 +178,7 @@ pass the resulting selection into the compiler as typed data.
 Discovery proceeds as demand-driven facts:
 
 1. A request for a `std` declaration demands the configured bundle manifest.
-2. Interface use demands and validates `std.brayi`.
+2. Interface use demands and validates the `std.brayi` selected for the compilation target and runtime ABI.
 3. Lowering, code generation, or linking demands the exact target artifact set when the selected declaration needs it.
 4. Each demanded artifact is read and digest-validated once per immutable compilation state.
 
@@ -185,8 +187,8 @@ creating a compilation does not eagerly read every target artifact.
 
 Selecting a configured root inserts one synthetic package dependency edge from each selected user product to the canonical
 `std:library` product. The edge is explicit in the immutable project graph even though it is not written in a user package
-manifest. No root means no edge. The selected `.brayi` then enters compilation through the ordinary dependency-interface input
-contract with package `std` and product `library`.
+manifest. No root means no edge. The target-selected `.brayi` then enters compilation through the ordinary dependency-interface
+input contract with package `std` and product `library`.
 
 Normal visibility and path lookup decide whether source can name a declaration. Recognition adds language-defined behavior only
 after the complete package-interface identity has been validated. Private support packages remain dependencies of `std:library` and
@@ -210,7 +212,7 @@ One deterministic build request fixes:
 - and requested artifact kinds.
 
 Independent target builds may run in parallel. Their outputs are merged only by canonical target and artifact identity. Repeating a
-build with equal inputs produces byte-identical package interfaces, native artifacts, and bundle manifests.
+build with equal inputs produces byte-identical target interfaces, native artifacts, and bundle manifests.
 
 ## Ownership
 

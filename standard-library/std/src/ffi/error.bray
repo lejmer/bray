@@ -1,0 +1,107 @@
+module std.ffi;
+
+@copy
+union ForeignErrorKind
+{
+    Unsupported;
+    InvalidInput;
+    UnavailableSymbol;
+    UnavailableLibrary;
+    PermissionDenied;
+    Exhausted;
+    Interrupted;
+    IncompatibleAbi;
+    InvalidResource;
+    Other;
+}
+
+@copy
+struct ForeignError
+{
+    internal kind_value: ForeignErrorKind;
+    internal native_code_value: i64?;
+
+    func kind() -> ForeignErrorKind
+    {
+        return self.kind_value;
+    }
+
+    func native_code() -> i64?
+    {
+        return self.native_code_value;
+    }
+}
+
+func foreign_error(pos kind: ForeignErrorKind, pos native_code: i64? = none) -> ForeignError
+{
+    return
+    {
+        kind_value = kind,
+        native_code_value = native_code,
+    };
+}
+
+internal func platform_foreign_error_kind(pos category: u32, pos not_found_kind: ForeignErrorKind) -> ForeignErrorKind
+{
+    match category
+    {
+        case 1 { return ForeignErrorKind.Unsupported; }
+        case 2 { return ForeignErrorKind.PermissionDenied; }
+        case 3 { return not_found_kind; }
+        case 5 { return ForeignErrorKind.InvalidInput; }
+        case 6 { return ForeignErrorKind.Interrupted; }
+        case 7 { return ForeignErrorKind.Exhausted; }
+        case _ { return ForeignErrorKind.Other; }
+    }
+}
+
+internal func platform_foreign_error(
+    pos status: std.platform.PlatformStatus,
+    pos not_found_kind: ForeignErrorKind,
+) -> ForeignError
+{
+    let mut native_code: i64? = none;
+
+    if status.native_code != 0
+    {
+        native_code = status.native_code;
+    }
+
+    return foreign_error(
+        kind = platform_foreign_error_kind(status.category, not_found_kind),
+        native_code = native_code,
+    );
+}
+
+internal func checked_foreign_status(pos status: std.platform.PlatformStatus) -> Result<unit, ForeignError>
+{
+    return checked_foreign_status_with_not_found(status, ForeignErrorKind.Other);
+}
+
+internal func checked_foreign_library_status(pos status: std.platform.PlatformStatus) -> Result<unit, ForeignError>
+{
+    return checked_foreign_status_with_not_found(status, ForeignErrorKind.UnavailableLibrary);
+}
+
+internal func checked_foreign_symbol_status(pos status: std.platform.PlatformStatus) -> Result<unit, ForeignError>
+{
+    return checked_foreign_status_with_not_found(status, ForeignErrorKind.UnavailableSymbol);
+}
+
+internal func checked_foreign_status_with_not_found(
+    pos status: std.platform.PlatformStatus,
+    pos not_found_kind: ForeignErrorKind,
+) -> Result<unit, ForeignError>
+{
+    if status.reserved != 0
+    {
+        return Error(foreign_error(kind = ForeignErrorKind.IncompatibleAbi));
+    }
+
+    if status.category != 0
+    {
+        return Error(platform_foreign_error(status, not_found_kind));
+    }
+
+    return Ok(unit);
+}

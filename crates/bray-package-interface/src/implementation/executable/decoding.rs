@@ -529,6 +529,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 place: self.place()?,
             }),
             18 => Ok(MirOperationKind::Async(self.async_operation()?)),
+            19 => Ok(MirOperationKind::DeclaredCallable(MirCallableReference::new(
+                self.callable_instance()?,
+                self.callable_abi()?,
+            ))),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1191,7 +1195,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             22 => Ok(Kind::ByteBufferFill),
             23 => Ok(Kind::ByteBufferCopy),
             24 => Ok(Kind::ByteBufferRead),
-            25 => Ok(Kind::ByteSliceLength),
+            25 => Ok(Kind::SliceLength),
+            26 => Ok(Kind::CallbackState { state: self.ty()? }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

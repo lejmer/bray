@@ -307,6 +307,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirOperationKind::AnonymousCallable(_) => {
                 return Err(ExecutableTemplateEncodeError::NestedUnit);
             }
+            MirOperationKind::DeclaredCallable(callable) => {
+                self.wire.write_u32(19);
+                self.callable_instance(callable.instance())?;
+                self.callable_abi(callable.abi());
+            }
             MirOperationKind::Store {
                 kind,
                 destination,
@@ -1461,7 +1466,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             Kind::ByteBufferFill => self.wire.write_u32(22),
             Kind::ByteBufferCopy => self.wire.write_u32(23),
             Kind::ByteBufferRead => self.wire.write_u32(24),
-            Kind::ByteSliceLength => self.wire.write_u32(25),
+            Kind::SliceLength => self.wire.write_u32(25),
+            Kind::CallbackState { state } => {
+                self.wire.write_u32(26);
+                self.ty(state)?;
+            }
         }
 
         Ok(())

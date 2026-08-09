@@ -29,6 +29,7 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
             | CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
+            | CheckedMemoryOperationKind::CallbackState { .. }
     )
 }
 
@@ -300,7 +301,7 @@ where
             CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
-            | CheckedMemoryOperationKind::ByteSliceLength
+            | CheckedMemoryOperationKind::SliceLength
             | CheckedMemoryOperationKind::RawBufferCapacity
             | CheckedMemoryOperationKind::RawBufferInitializedCount
             | CheckedMemoryOperationKind::RawBufferPointer
@@ -308,7 +309,8 @@ where
             | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
             | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
-            | CheckedMemoryOperationKind::RawBufferRelease { .. } => {}
+            | CheckedMemoryOperationKind::RawBufferRelease { .. }
+            | CheckedMemoryOperationKind::CallbackState { .. } => {}
             CheckedMemoryOperationKind::RawBufferReplace { .. } => {}
         }
 

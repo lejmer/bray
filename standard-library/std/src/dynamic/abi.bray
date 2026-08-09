@@ -1,0 +1,33 @@
+@target(target.platform.dynamic_loading)
+trusted module std.dynamic;
+
+using internal std.fs.PlatformPath;
+
+@abi(c)
+extern trusted internal func platform_dynamic_library_open_path(
+    pos path: std.fs.PlatformPath,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_dynamic_library_open_system(
+    pos identity: u32,
+    pos policy: u32,
+    pos opened: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_dynamic_library_symbol(
+    pos handle: u64,
+    pos name: RawPointer<u8>,
+    pos length: u64,
+    pos address: RawPointer<RawPointer<u8>>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_dynamic_library_close(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call);

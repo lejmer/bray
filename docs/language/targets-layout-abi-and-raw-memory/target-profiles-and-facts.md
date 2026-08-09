@@ -65,10 +65,12 @@ The language-defined target fact groups are:
 - `target.endian`: the selected target's byte order,
 - `target.alignment`: supported alignment ranges for storage, allocation, and ABI surfaces,
 - `target.abi`: callable ABI and data layout ABI availability facts,
+- `target.c`: exact mappings from target C scalar types to Bray scalar representations,
 - `target.atomic`: atomic storage and atomic operation capability facts,
 - `target.address_space`: address-space availability and pointer behavior facts,
 - `target.allocation`: allocation size and alignment support facts,
-- `target.platform`: process context, standard stream, filesystem, child-process, clock, and entropy availability facts,
+- `target.platform`: process context, standard stream, filesystem, child-process, clock, entropy, and dynamic-loader availability
+  facts,
 - `target.linkage`: symbol encoding, linkage kind, and external artifact facts exposed by the target profile.
 
 The target fact surface includes these language-defined facts:
@@ -114,6 +116,24 @@ target.atomic.U128
 target.atomic.POINTER
 target.abi.C
 target.abi.SYSTEM
+target.c.CHAR
+target.c.SIGNED_CHAR
+target.c.UNSIGNED_CHAR
+target.c.SHORT
+target.c.UNSIGNED_SHORT
+target.c.INT
+target.c.UNSIGNED_INT
+target.c.LONG
+target.c.UNSIGNED_LONG
+target.c.LONG_LONG
+target.c.UNSIGNED_LONG_LONG
+target.c.SIZE
+target.c.PTRDIFF
+target.c.WCHAR
+target.c.BOOL
+target.c.FLOAT
+target.c.DOUBLE
+target.c.LONG_DOUBLE
 target.address_space.HOST
 target.address_space.DEVICE
 target.alignment.MAX_STORAGE
@@ -125,15 +145,37 @@ target.platform.child_processes
 target.platform.monotonic_clock
 target.platform.wall_clock
 target.platform.entropy
+target.platform.dynamic_loading
 ```
 
 `target.identity.NAME`, `target.identity.ARCH`, `target.identity.VENDOR`, `target.identity.SYSTEM`,
-`target.identity.ENVIRONMENT`, and `target.identity.ABI` have type `string`.
+`target.identity.ENVIRONMENT`, `target.identity.ABI`, and every `target.c` fact have type `string`.
 
 `target.pointer.BITS`, `target.pointer.BYTES`, `target.alignment.MAX_STORAGE`, and `target.alignment.MAX_ALLOCATION` have type
 `usize`.
 
 The other facts listed above have type `bool`.
+
+Each `target.c` fact is either the canonical spelling of one available Bray scalar type or `"unavailable"`. A scalar mapping
+promises equal C value representation, size, alignment, and by-value classification under `target.abi.C`. Equal width alone is
+insufficient. The standard library selects transparent C wrappers with exact comparisons against these facts. A public wrapper,
+constant, layout, or callable signature selected that way records the consulted `target.c` fact in its compiled interface.
+
+The native target profiles use this closed initial mapping:
+
+| Targets | `CHAR` | `LONG` / `UNSIGNED_LONG` | `WCHAR` | `LONG_DOUBLE` |
+| --- | --- | --- | --- | --- |
+| `x86_64-unknown-linux-gnu` | `i8` | `i64` / `u64` | `i32` | `unavailable` |
+| `aarch64-unknown-linux-gnu` | `u8` | `i64` / `u64` | `i32` | `unavailable` |
+| `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc` | `i8` | `i32` / `u32` | `u16` | `r64` |
+| `x86_64-apple-darwin` | `i8` | `i64` / `u64` | `i32` | `unavailable` |
+| `aarch64-apple-darwin` | `i8` | `i64` / `u64` | `i32` | `r64` |
+
+For every row, `SIGNED_CHAR = i8`, `UNSIGNED_CHAR = u8`, `SHORT = i16`, `UNSIGNED_SHORT = u16`, `INT = i32`,
+`UNSIGNED_INT = u32`, `LONG_LONG = i64`, `UNSIGNED_LONG_LONG = u64`, `SIZE = usize`, `PTRDIFF = isize`, `BOOL = bool`,
+`FLOAT = r32`, and `DOUBLE = r64`. A target profile cannot claim `target.abi.C` unless every non-`unavailable` mapping is
+available and satisfies the equality contract above. A C type whose representation has no exact Bray scalar remains unavailable.
+the compiler and standard library do not approximate it with an equal-size byte product.
 
 Exactly one of `target.endian.LITTLE` and `target.endian.BIG` is true.
 

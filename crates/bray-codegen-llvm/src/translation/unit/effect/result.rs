@@ -1,7 +1,9 @@
 use super::super::core::UnitTranslator;
-use super::super::support::{int_value, llvm};
+use super::super::support::{int_value, llvm, native_run_outcome, native_run_state_is};
 use bray_codegen::CodegenFailure;
-use bray_runtime_interface::{ExecutableEntryResult, RootExecution, RuntimeRoleImplementation};
+use bray_runtime_interface::{
+    ExecutableEntryResult, NativeRunState, RootExecution, RuntimeRoleImplementation,
+};
 use inkwell::IntPredicate;
 use inkwell::values::BasicValueEnum;
 
@@ -29,8 +31,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let native_boundary = asynchronous
             || host
                 .requirements()
-                .roles()
-                .contains(&bray_runtime_interface::RuntimeAbiRole::SynchronousRootExecution);
+                .requires_role(bray_runtime_interface::RuntimeAbiRole::SynchronousRootExecution);
 
         let (completed, result) = self.take_host_result(entry_result, native_boundary, panic)?;
 
@@ -193,25 +194,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let state = super::super::support::extract_value(&self.builder, outcome.into(), 0)
-            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+        let (state, payload) = native_run_outcome(&self.builder, outcome.into())?;
 
-        let payload = super::super::support::extract_value(&self.builder, outcome.into(), 1)
-            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
-
-        let completed = llvm(self.builder.build_int_compare(
-            IntPredicate::EQ,
+        let completed = native_run_state_is(
+            &self.builder,
             state,
-            state.get_type().const_zero(),
+            NativeRunState::COMPLETED,
             "root.completed",
-        ))?;
+        )?;
 
-        let panicked = llvm(self.builder.build_int_compare(
-            IntPredicate::EQ,
+        let panicked = native_run_state_is(
+            &self.builder,
             state,
-            state.get_type().const_int(2, false),
+            NativeRunState::PANICKED,
             "root.panicked",
-        ))?;
+        )?;
 
         if self.host_role_implementation(panic)? != RuntimeRoleImplementation::CompilerLowering {
             self.invoke_native_runtime_if(panicked, panic, &[payload.into()])?;

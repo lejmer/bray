@@ -1,6 +1,6 @@
 use crate::{Endianness, TargetProfile};
 
-use super::{TargetFactKind, TargetScalarKind};
+use super::{TargetCScalarKind, TargetFactKind, TargetScalarKind};
 
 /// The typed value of one language-defined target fact.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -17,6 +17,15 @@ impl<'profile> TargetFactValue<'profile> {
     pub(crate) fn for_profile(profile: &'profile TargetProfile, kind: TargetFactKind) -> Self {
         let facts = profile.facts();
         let scalar = |kind| Self::Boolean(facts.scalars().supports(kind));
+
+        let c_scalar = |kind| {
+            Self::String(
+                facts
+                    .c_abi()
+                    .mapping(kind)
+                    .map_or("unavailable", TargetScalarKind::as_str),
+            )
+        };
 
         match kind {
             TargetFactKind::IdentityName => Self::String(profile.identity().as_str()),
@@ -69,6 +78,28 @@ impl<'profile> TargetFactValue<'profile> {
             TargetFactKind::AtomicPointer => Self::Boolean(facts.atomics().pointer()),
             TargetFactKind::AbiC => Self::Boolean(facts.abis().c()),
             TargetFactKind::AbiSystem => Self::Boolean(facts.abis().system()),
+            TargetFactKind::CChar => c_scalar(TargetCScalarKind::Char),
+            TargetFactKind::CSignedChar => c_scalar(TargetCScalarKind::SignedChar),
+            TargetFactKind::CUnsignedChar => c_scalar(TargetCScalarKind::UnsignedChar),
+            TargetFactKind::CShort => c_scalar(TargetCScalarKind::Short),
+            TargetFactKind::CUnsignedShort => c_scalar(TargetCScalarKind::UnsignedShort),
+            TargetFactKind::CInt => c_scalar(TargetCScalarKind::Int),
+            TargetFactKind::CUnsignedInt => c_scalar(TargetCScalarKind::UnsignedInt),
+            TargetFactKind::CLong => c_scalar(TargetCScalarKind::Long),
+            TargetFactKind::CUnsignedLong => c_scalar(TargetCScalarKind::UnsignedLong),
+            TargetFactKind::CLongLong => c_scalar(TargetCScalarKind::LongLong),
+            TargetFactKind::CUnsignedLongLong => {
+                c_scalar(TargetCScalarKind::UnsignedLongLong)
+            }
+            TargetFactKind::CSize => c_scalar(TargetCScalarKind::Size),
+            TargetFactKind::CPointerDifference => {
+                c_scalar(TargetCScalarKind::PointerDifference)
+            }
+            TargetFactKind::CWideChar => c_scalar(TargetCScalarKind::WideChar),
+            TargetFactKind::CBool => c_scalar(TargetCScalarKind::Bool),
+            TargetFactKind::CFloat => c_scalar(TargetCScalarKind::Float),
+            TargetFactKind::CDouble => c_scalar(TargetCScalarKind::Double),
+            TargetFactKind::CLongDouble => c_scalar(TargetCScalarKind::LongDouble),
             TargetFactKind::AddressSpaceHost => Self::Boolean(facts.address_spaces().host()),
             TargetFactKind::AddressSpaceDevice => Self::Boolean(facts.address_spaces().device()),
             TargetFactKind::AlignmentMaxStorage => {
@@ -77,6 +108,7 @@ impl<'profile> TargetFactValue<'profile> {
             TargetFactKind::AlignmentMaxAllocation => {
                 Self::Usize(facts.alignments().max_allocation().get())
             }
+            TargetFactKind::PlatformDynamicLoading => Self::Boolean(facts.dynamic_loading()),
         }
     }
 }

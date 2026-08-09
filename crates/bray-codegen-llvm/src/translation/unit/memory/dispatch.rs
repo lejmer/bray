@@ -81,6 +81,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.memory_pointer(pointer).map(|value| Some(value.into()))
             }
+            CheckedMemoryOperationKind::CallbackState { .. } => {
+                let [context] = memory.operands() else {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                };
+
+                self.memory_pointer(context).map(|value| Some(value.into()))
+            }
             CheckedMemoryOperationKind::Read { pointee, .. } => {
                 let [pointer] = memory.operands() else {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -178,8 +185,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::ByteBufferRead => {
                 self.translate_byte_buffer_read(operation, memory).map(Some)
             }
-            CheckedMemoryOperationKind::ByteSliceLength => {
-                self.translate_byte_slice_length(memory).map(Some)
+            CheckedMemoryOperationKind::SliceLength => {
+                self.translate_slice_length(memory).map(Some)
             }
         }
     }
@@ -192,7 +199,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let available = match kind {
             CheckedMemoryOperationKind::LayoutQuery { .. }
-            | CheckedMemoryOperationKind::ByteSliceLength => true,
+            | CheckedMemoryOperationKind::SliceLength
+            | CheckedMemoryOperationKind::CallbackState { .. } => true,
             CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawDeallocate
             | CheckedMemoryOperationKind::Allocate

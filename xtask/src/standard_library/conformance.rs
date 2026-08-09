@@ -38,7 +38,7 @@ fn verify_bundle(bundle: &Path, scratch: &Path) -> Result<(), BuildError> {
     let manifest = read_manifest(bundle)?;
     let resolver = resolver(bundle)?;
 
-    verify_package_interface(&resolver)?;
+    verify_package_interfaces(&resolver, &manifest)?;
     verify_configured_root(bundle)?;
     verify_target_selection(&resolver, &manifest)?;
     verify_missing_artifact_diagnostic(bundle, &scratch.join("missing-artifact"))?;
@@ -114,14 +114,28 @@ fn write_file(path: &Path, contents: &str) -> Result<(), BuildError> {
     })
 }
 
-fn verify_package_interface(resolver: &StandardLibraryResolver) -> Result<(), BuildError> {
-    let artifact = resolver
-        .interface()
-        .map_err(|error| BuildError::conformance("package-interface", format!("{error:?}")))?;
-
+fn verify_package_interfaces(
+    resolver: &StandardLibraryResolver,
+    manifest: &StandardLibraryBundleManifest,
+) -> Result<(), BuildError> {
     let policy = InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0));
 
-    let validated = ValidatedPackageInterface::try_new(artifact.shared_bytes(), policy)
+    for target in manifest.targets() {
+        let artifact = resolver
+            .interface(target.target(), target.runtime_abi())
+            .map_err(|error| BuildError::conformance("package-interface", format!("{error:?}")))?;
+
+        verify_package_interface(artifact.shared_bytes(), policy)?;
+    }
+
+    Ok(())
+}
+
+fn verify_package_interface(
+    bytes: std::sync::Arc<[u8]>,
+    policy: InterfaceValidationPolicy,
+) -> Result<(), BuildError> {
+    let validated = ValidatedPackageInterface::try_new(bytes, policy)
         .map_err(|error| BuildError::conformance("package-interface", format!("{error:?}")))?;
 
     let surface = validated

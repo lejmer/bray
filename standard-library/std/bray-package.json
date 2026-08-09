@@ -185,6 +185,22 @@
         {
           "role": "platform.time.format",
           "declaration": "std.time.platform_time_format"
+        },
+        {
+          "role": "platform.dynamic_library.open_path",
+          "declaration": "std.dynamic.platform_dynamic_library_open_path"
+        },
+        {
+          "role": "platform.dynamic_library.open_system",
+          "declaration": "std.dynamic.platform_dynamic_library_open_system"
+        },
+        {
+          "role": "platform.dynamic_library.symbol",
+          "declaration": "std.dynamic.platform_dynamic_library_symbol"
+        },
+        {
+          "role": "platform.dynamic_library.close",
+          "declaration": "std.dynamic.platform_dynamic_library_close"
         }
       ]
     },

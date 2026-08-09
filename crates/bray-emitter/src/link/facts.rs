@@ -106,4 +106,17 @@ impl ProductLinkFacts {
 
         self
     }
+
+    /// Appends library and framework search paths after the selected product paths.
+    pub fn with_additional_search_paths(
+        mut self,
+        search_paths: impl IntoIterator<Item = LinkSearchPath>,
+    ) -> Self {
+        let mut combined = self.search_paths.to_vec();
+
+        combined.extend(search_paths);
+        self.search_paths = combined.into();
+
+        self
+    }
 }

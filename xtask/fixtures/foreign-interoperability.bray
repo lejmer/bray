@@ -1,0 +1,548 @@
+@link(name = "bray_foreign_fixture")
+module interoperability;
+
+using std.dynamic;
+using std.ffi;
+using std.ffi.c;
+using std.memory;
+using std.path;
+
+__TARGET_HANDLE_AUDIT__
+
+@copy
+@layout(c)
+struct NativeRecord
+{
+    narrow: i8;
+    unsigned_narrow: u8;
+    signed_value: i32;
+    wide: u64;
+}
+
+@symbol(name = "bray_foreign_transform_record")
+@abi(c)
+extern trusted func transform_record(pos value: NativeRecord) -> NativeRecord
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_validate_record")
+@abi(c)
+extern trusted func validate_record(pos value: NativeRecord) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_record_size")
+@abi(c)
+extern trusted func native_record_size() -> u64
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_record_alignment")
+@abi(c)
+extern trusted func native_record_alignment() -> u64
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_narrow_length")
+@abi(c)
+extern trusted func native_narrow_length(pos value: RawPointer<u8>) -> u64
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_wide_length")
+@abi(c)
+extern trusted func native_wide_length(pos value: RawPointer<std.ffi.c.WideChar>) -> u64
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_resource_acquire")
+@abi(c)
+extern trusted func native_resource_acquire(pos succeed: bool) -> u64
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_resource_duplicate")
+@abi(c)
+extern trusted func native_resource_duplicate(pos handle: u64) -> u64
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_resource_release")
+@abi(c)
+extern trusted func native_resource_release(pos handle: u64, fail: bool) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_resource_live_count")
+@abi(c)
+extern trusted func native_resource_live_count() -> u64
+    uses(foreign_call);
+
+@copy
+union NativeResourceError
+{
+    Invalid;
+    Release;
+}
+
+struct NativeResource
+{
+    internal handle_value: u64;
+    internal mut is_owned_value: bool;
+
+    trusted construct(pos succeed: bool) -> Result<Self, NativeResourceError>
+        uses(foreign_call)
+    {
+        let handle: u64 = trusted native_resource_acquire(succeed);
+
+        if handle == 0
+        {
+            return Error(NativeResourceError.Invalid);
+        }
+
+        return Ok(
+            {
+                handle_value = handle,
+                is_owned_value = true,
+            }
+        );
+    }
+
+    trusted finalize() -> Result<unit, NativeResourceError>
+    {
+        return trusted release_native_resource(&mut self, fail = false);
+    }
+
+    trusted destruct()
+        uses(foreign_call)
+    {
+        if self.is_owned_value
+        {
+            let _: i32 = trusted native_resource_release(self.handle_value, fail = false);
+        }
+    }
+
+    func is_owned() -> bool
+    {
+        return self.is_owned_value;
+    }
+
+    func handle() -> &u64
+    {
+        return &self.handle_value;
+    }
+
+    trusted func duplicate() -> Result<NativeResource, NativeResourceError>
+        uses(foreign_call)
+    {
+        let handle: u64 = trusted native_resource_duplicate(self.handle_value);
+
+        if handle == 0
+        {
+            return Error(NativeResourceError.Invalid);
+        }
+
+        return Ok(
+            {
+                handle_value = handle,
+                is_owned_value = true,
+            }
+        );
+    }
+
+    trusted consume mut func transfer() -> Result<u64, NativeResourceError>
+    {
+        if !self.is_owned_value
+        {
+            return Error(NativeResourceError.Invalid);
+        }
+
+        self.is_owned_value = false;
+
+        return Ok(self.handle_value);
+    }
+
+    trusted consume mut func close(pos fail: bool) -> Result<unit, NativeResourceError>
+    {
+        return trusted release_native_resource(&mut self, fail = fail);
+    }
+}
+
+trusted func release_native_resource(
+    pos resource: &mut NativeResource,
+    pos fail: bool,
+) -> Result<unit, NativeResourceError>
+    uses(foreign_call)
+{
+    if !resource.is_owned_value
+    {
+        return Error(NativeResourceError.Invalid);
+    }
+
+    let status: i32 = trusted native_resource_release(resource.handle_value, fail = fail);
+
+    if status != 0
+    {
+        return Error(NativeResourceError.Release);
+    }
+
+    resource.is_owned_value = false;
+
+    return Ok(unit);
+}
+
+@symbol(name = "bray_foreign_invoke_plain")
+@abi(c)
+extern trusted func native_invoke_plain(
+    pos callback: @abi(c)
+    trusted func(pos value: i32) -> i32,
+    pos value: i32,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_invoke")
+@abi(c)
+extern trusted func native_invoke(
+    pos callback: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+        uses(raw_memory),
+    pos context: RawPointer<i32>,
+    pos value: i32,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_invoke_on_thread")
+@abi(c)
+extern trusted func native_invoke_on_thread(
+    pos callback: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+        uses(raw_memory),
+    pos context: RawPointer<i32>,
+    pos value: i32,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_invoke_concurrently")
+@abi(c)
+extern trusted func native_invoke_concurrently(
+    pos callback: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+        uses(raw_memory),
+    pos context: RawPointer<i32>,
+    pos first_value: i32,
+    pos second_value: i32,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_plain_callback")
+@abi(c)
+trusted func plain_callback(pos value: i32) -> i32
+{
+    return value + 1;
+}
+
+@symbol(name = "bray_foreign_stateful_callback")
+@abi(c)
+trusted func stateful_callback(pos context: RawPointer<i32>, pos value: i32) -> i32
+    uses(raw_memory)
+{
+    let state: &i32 = trusted std.ffi.callback_state<i32>(context);
+
+    if state == 40
+    {
+        return value + 40;
+    }
+
+    return 0;
+}
+
+@symbol(name = "bray_foreign_invoke_reentrant")
+@abi(c)
+extern trusted func native_invoke_reentrant(
+    pos callback: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+        uses(foreign_call),
+    pos context: RawPointer<i32>,
+    pos value: i32,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_reentrant_callback")
+@abi(c)
+trusted func reentrant_callback(pos context: RawPointer<i32>, pos value: i32) -> i32
+    uses(foreign_call)
+{
+    if value == 0
+    {
+        return 1;
+    }
+
+    let entry: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+        uses(foreign_call) = reentrant_callback;
+
+    return trusted native_invoke_reentrant(entry, context, value = 0);
+}
+
+trusted func audit_record_calls()
+    uses(foreign_call)
+{
+    let input: NativeRecord =
+    {
+        narrow = 5,
+        unsigned_narrow = 7,
+        signed_value = 41,
+        wide = 100,
+    };
+
+    assert(trusted validate_record(input) == 1);
+
+    let output: NativeRecord = trusted transform_record(input);
+
+    assert(output.narrow == 4);
+    assert(output.unsigned_narrow == 8);
+    assert(output.signed_value == 43);
+    assert(output.wide == 103);
+    assert(trusted native_record_size() == std.memory.size_of<NativeRecord>() as u64);
+    assert(trusted native_record_alignment() == std.memory.align_of<NativeRecord>() as u64);
+}
+
+trusted func audit_strings()
+    uses(foreign_call)
+{
+    let narrow_bytes: [u8; 4] = [98, 114, 97, 121];
+
+    match consume trusted std.ffi.c.OwnedNarrowString.from_bytes(&narrow_bytes[..])
+    {
+        case Error(_) { assert(false); }
+        case Ok(narrow)
+        {
+            assert(trusted native_narrow_length(narrow.borrow().pointer()) == 4);
+        }
+    }
+
+    let wide_units: [std.ffi.c.WideChar; 4] = [
+        std.ffi.c.wide_char(98),
+        std.ffi.c.wide_char(114),
+        std.ffi.c.wide_char(97),
+        std.ffi.c.wide_char(121),
+    ];
+
+    match consume trusted std.ffi.c.OwnedWideString.from_units(&wide_units[..])
+    {
+        case Error(_) { assert(false); }
+        case Ok(wide)
+        {
+            assert(trusted native_wide_length(wide.borrow().pointer()) == 4);
+        }
+    }
+}
+
+trusted func audit_resources()
+    uses(foreign_call)
+{
+    assert(trusted native_resource_live_count() == 0);
+
+    match consume trusted NativeResource(succeed = false)
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error
+            {
+                case NativeResourceError.Invalid {}
+                case _ { assert(false); }
+            }
+        }
+    }
+
+    let mut owner: NativeResource = match consume trusted NativeResource(succeed = true)
+    {
+        case Error(_)
+        {
+            assert(false);
+            return;
+        }
+        case Ok(resource) { yield resource; }
+    };
+
+    assert(owner.is_owned());
+    assert(owner.handle() != 0);
+    assert(trusted native_resource_live_count() == 1);
+
+    let mut duplicate: NativeResource = match consume trusted owner.duplicate()
+    {
+        case Error(_)
+        {
+            assert(false);
+            return;
+        }
+        case Ok(resource) { yield resource; }
+    };
+
+    assert(trusted native_resource_live_count() == 2);
+
+    let transferred: u64 = match consume trusted duplicate.transfer()
+    {
+        case Error(_)
+        {
+            assert(false);
+            return;
+        }
+        case Ok(handle) { yield handle; }
+    };
+
+    assert(trusted native_resource_live_count() == 2);
+    assert(trusted native_resource_release(transferred, fail = false) == 0);
+    assert(trusted native_resource_live_count() == 1);
+
+    {
+        let mut failed: NativeResource = match consume trusted NativeResource(succeed = true)
+        {
+            case Error(_)
+            {
+                assert(false);
+                return;
+            }
+            case Ok(resource) { yield resource; }
+        };
+
+        assert(trusted native_resource_live_count() == 2);
+
+        match consume trusted failed.close(fail = true)
+        {
+            case Ok(_) { assert(false); }
+            case Error(_) {}
+        }
+    }
+
+    assert(trusted native_resource_live_count() == 1);
+
+    match consume trusted owner.close(fail = false)
+    {
+        case Error(_) { assert(false); }
+        case Ok(_) {}
+    }
+
+    assert(trusted native_resource_live_count() == 0);
+}
+
+trusted func audit_callbacks()
+    uses(foreign_call, manual_alloc, raw_memory, unchecked_init)
+{
+    let plain: @abi(c)
+    trusted func(pos value: i32) -> i32 = plain_callback;
+
+    assert(trusted native_invoke_plain(plain, 41) == 42);
+
+    let context: std.ffi.CallbackContext<i32> = match consume trusted std.ffi.CallbackContext<i32>(40)
+    {
+        case Error(_)
+        {
+            assert(false);
+            return;
+        }
+        case Ok(context) { yield context; }
+    };
+
+    let entry: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+        uses(raw_memory) = stateful_callback;
+
+    let callback = trusted std.ffi.borrow_callback(&context, entry);
+
+    assert(trusted native_invoke(callback.entry(), callback.context(), 2) == 42);
+    assert(trusted native_invoke_on_thread(callback.entry(), callback.context(), 2) == 42);
+    assert(trusted native_invoke_concurrently(callback.entry(), callback.context(), 1, 2) == 83);
+
+    let reentrant_entry: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> i32
+        uses(foreign_call) = reentrant_callback;
+
+    let reentrant = trusted std.ffi.borrow_callback(&context, reentrant_entry);
+
+    assert(trusted native_invoke_reentrant(reentrant.entry(), reentrant.context(), 1) == 1);
+}
+
+trusted func audit_dynamic_library()
+    requires(blocking_execution())
+    uses(foreign_call, layout_reinterpret)
+{
+    let path: std.path.Path = match consume std.path.Path.from_string("__SHARED_LIBRARY_PATH__")
+    {
+        case Error(_)
+        {
+            assert(false);
+            return;
+        }
+        case Ok(path) { yield path; }
+    };
+
+    let mut library: std.dynamic.DynamicLibrary = match consume std.dynamic.DynamicLibrary.open_path(
+        &path,
+        policy = std.dynamic.LoadPolicy.PlatformDefault,
+    )
+    {
+        case Error(_)
+        {
+            assert(false);
+            return;
+        }
+        case Ok(library) { yield library; }
+    };
+
+    {
+        let name: [u8; 29] = [
+            98, 114, 97, 121, 95, 102, 111, 114, 101, 105,
+            103, 110, 95, 116, 114, 97, 110, 115, 102, 111,
+            114, 109, 95, 114, 101, 99, 111, 114, 100,
+        ];
+
+        let symbol: std.dynamic.DynamicSymbol<
+            @abi(c)
+            trusted func(pos value: NativeRecord) -> NativeRecord
+        > = match consume trusted std.dynamic.symbol<
+            @abi(c)
+            trusted func(pos value: NativeRecord) -> NativeRecord
+        >(&library, &name[..])
+        {
+            case Error(_)
+            {
+                assert(false);
+                return;
+            }
+            case Ok(symbol) { yield symbol; }
+        };
+
+        let _: &std.dynamic.DynamicLibrary = symbol.library();
+    }
+
+    {
+        let missing_name: [u8; 20] = [
+            98, 114, 97, 121, 95, 109, 105, 115, 115, 105,
+            110, 103, 95, 102, 105, 120, 116, 117, 114, 101,
+        ];
+
+        match consume trusted std.dynamic.symbol<u8>(&library, &missing_name[..])
+        {
+            case Ok(_) { assert(false); }
+            case Error(error)
+            {
+                match error.kind()
+                {
+                    case std.ffi.ForeignErrorKind.UnavailableSymbol {}
+                    case _ { assert(false); }
+                }
+            }
+        }
+    }
+
+    match consume library.close()
+    {
+        case Ok(_) {}
+        case Error(_) { assert(false); }
+    }
+}
+
+trusted func main() -> i32
+{
+    trusted audit_target_handle();
+    trusted audit_record_calls();
+    trusted audit_strings();
+    trusted audit_resources();
+    trusted audit_callbacks();
+    trusted audit_dynamic_library();
+
+    return 0;
+}

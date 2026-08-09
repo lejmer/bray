@@ -211,6 +211,11 @@ impl RuntimeRequirements {
         &self.roles
     }
 
+    /// Returns whether the product requires one private runtime ABI role.
+    pub fn requires_role(&self, role: RuntimeAbiRole) -> bool {
+        self.roles.contains(&role)
+    }
+
     /// Returns required runtime capabilities in canonical order.
     pub fn capabilities(&self) -> &[RuntimeCapability] {
         &self.capabilities
@@ -354,6 +359,9 @@ mod tests {
             merged.roles(),
             [RuntimeAbiRole::TaskStart, RuntimeAbiRole::FrameResume]
         );
+
+        assert!(merged.requires_role(RuntimeAbiRole::TaskStart));
+        assert!(!merged.requires_role(RuntimeAbiRole::Wake));
 
         assert_eq!(
             merged.capabilities(),

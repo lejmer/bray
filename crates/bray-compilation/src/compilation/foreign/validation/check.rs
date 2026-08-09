@@ -1,6 +1,6 @@
 // rust-style: allow(module-too-large, reason = "foreign boundary validation keeps its exhaustive ABI contract checks together")
 
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::SymbolFactProvider;
 use bray_bound_tree::BoundSourceAnchor;
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -245,6 +245,13 @@ fn platform_abi_type_matches(
         }
         bray_runtime_interface::PlatformAbiType::PointerI64 => {
             raw_pointer_targets(compilation, ty, RepresentationRole::ScalarI64)
+        }
+        bray_runtime_interface::PlatformAbiType::RawAddressPointer => {
+            let Some(address) = raw_pointer_target(compilation, ty)? else {
+                return Ok(false);
+            };
+
+            raw_pointer_targets(compilation, address, RepresentationRole::ScalarU8)
         }
         bray_runtime_interface::PlatformAbiType::Path => c_struct_matches(
             compilation,
@@ -494,8 +501,8 @@ fn c_struct_matches(
     let facts = compilation.binder_facts(cancellation)?;
 
     let structure = facts
-        .symbols()
         .structure(*structure)
+        .map_err(super::super::super::binder::binder_fact_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if !structure.generic_type_parameters().is_empty()
@@ -575,8 +582,8 @@ fn platform_status_matches(
     let facts = compilation.binder_facts(cancellation)?;
 
     let structure = facts
-        .symbols()
         .structure(*structure)
+        .map_err(super::super::super::binder::binder_fact_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if !structure.generic_type_parameters().is_empty()

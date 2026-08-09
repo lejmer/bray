@@ -32,6 +32,7 @@ pub(super) fn validate_operation(
                 return Err(MirUnitBuildError::InvalidAnonymousCallable(id));
             }
         }
+        MirOperationKind::DeclaredCallable(_) => {}
         MirOperationKind::Store {
             destination, value, ..
         } => {
@@ -164,6 +165,7 @@ fn validate_operation_block(
             block_kind != MirBlockKind::CleanupBroadcast
         }
         MirOperationKind::AnonymousCallable(_)
+        | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::Unary { .. }
@@ -199,6 +201,7 @@ fn validate_operation_result(
     let requires_result = matches!(
         operation.kind(),
         MirOperationKind::AnonymousCallable(_)
+            | MirOperationKind::DeclaredCallable(_)
             | MirOperationKind::Borrow { .. }
             | MirOperationKind::Unary { .. }
             | MirOperationKind::Binary { .. }
@@ -450,7 +453,7 @@ mod tests {
             (CheckedMemoryOperationKind::ByteBufferFill, 3, false),
             (CheckedMemoryOperationKind::ByteBufferCopy, 3, false),
             (CheckedMemoryOperationKind::ByteBufferRead, 2, true),
-            (CheckedMemoryOperationKind::ByteSliceLength, 1, true),
+            (CheckedMemoryOperationKind::SliceLength, 1, true),
         ];
 
         for (kind, operands, produces_value) in cases {

@@ -39,6 +39,7 @@ pub use process::{
     NativeProcessOutput, NativeStdio,
 };
 pub use thread::{
-    NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadId, RuntimeThreadScope,
+    NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry, RuntimeThreadId,
+    RuntimeThreadScope,
     current_runtime_thread,
 };

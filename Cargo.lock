@@ -1682,6 +1682,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-emitter",
  "bray-formatter",
+ "bray-linker",
  "bray-llvm-toolchain",
  "bray-package-interface",
  "bray-project",

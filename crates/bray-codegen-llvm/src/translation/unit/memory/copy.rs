@@ -93,7 +93,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn translate_byte_slice_length(
+    pub(super) fn translate_slice_length(
         &mut self,
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
@@ -105,7 +105,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(
             self.builder
-                .build_extract_value(slice, 1, "byte.slice.length"),
+                .build_extract_value(slice, 1, "slice.length"),
         )
     }
 

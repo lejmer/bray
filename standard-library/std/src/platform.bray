@@ -154,7 +154,7 @@ internal func native_text_span(pos value: &[u8]) -> NativeTextSpan
     return
     {
         address = internal std.memory.byte_slice_pointer(value),
-        length = internal std.memory.byte_slice_length(value) as u64,
+        length = internal std.memory.slice_length<u8>(value) as u64,
     };
 }
 

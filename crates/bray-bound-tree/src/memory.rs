@@ -155,8 +155,13 @@ pub enum CheckedMemoryOperationKind {
     ByteBufferCopy,
     /// Read one initialized byte from byte-buffer storage.
     ByteBufferRead,
-    /// Read the element count carried by a byte slice.
-    ByteSliceLength,
+    /// Read the element count carried by a slice.
+    SliceLength,
+    /// Reconstruct a state borrow from a checked foreign-callback context parameter.
+    CallbackState {
+        /// Borrowed callback state type.
+        state: TypeId,
+    },
 }
 
 impl CheckedMemoryOperationKind {
@@ -176,7 +181,8 @@ impl CheckedMemoryOperationKind {
             | Self::RawBufferInitializedSliceMut
             | Self::RawBufferSparePointer { .. }
             | Self::RawBufferRelease { .. }
-            | Self::ByteSliceLength => 1,
+            | Self::SliceLength
+            | Self::CallbackState { .. } => 1,
             Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate

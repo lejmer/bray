@@ -39,8 +39,8 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
     };
 
     let selects_entries = host
-        .role_binding(bray_runtime_interface::RuntimeAbiRole::TestEntrySelection)
-        .is_some();
+        .requirements()
+        .requires_role(bray_runtime_interface::RuntimeAbiRole::TestEntrySelection);
 
     let operations_per_entry = if selects_entries { 5 } else { 4 };
 

@@ -1,0 +1,70 @@
+@target(target.platform.dynamic_loading)
+trusted module std.dynamic;
+
+trusted func symbol<T>(pos library: &DynamicLibrary, pos name: &[u8]) -> Result<DynamicSymbol<T>, std.ffi.ForeignError>
+    requires(blocking_execution())
+    uses(foreign_call, layout_reinterpret)
+{
+    return trusted resolve_dynamic_symbol<T>(library, name);
+}
+
+trusted internal func resolve_dynamic_symbol<T>(
+    pos library: &DynamicLibrary,
+    pos name: &[u8],
+) -> Result<DynamicSymbol<T>, std.ffi.ForeignError>
+    requires(blocking_execution())
+    uses(foreign_call, layout_reinterpret)
+{
+    if !valid_symbol_name(name)
+    {
+        return Error(std.ffi.foreign_error(kind = std.ffi.ForeignErrorKind.InvalidInput));
+    }
+
+    let mut address: RawPointer<u8> = std.memory.null<u8>();
+    let handle: u64 = trusted dynamic_library_handle(library);
+
+    let status: std.platform.PlatformStatus = trusted platform_dynamic_library_symbol(
+        handle,
+        name = internal std.memory.byte_slice_pointer(name),
+        length = std.bytes.slice_length(name) as u64,
+        address = std.memory.address_of_mut<RawPointer<u8>>(&mut address),
+    );
+
+    try internal std.ffi.checked_foreign_symbol_status(status);
+
+    if std.memory.is_null<u8>(address)
+    {
+        return Error(std.ffi.foreign_error(kind = std.ffi.ForeignErrorKind.IncompatibleAbi));
+    }
+
+    return Ok(
+        {
+            owner = library,
+            address = trusted std.memory.reinterpret<T, u8>(address),
+        }
+    );
+}
+
+internal func valid_symbol_name(pos name: &[u8]) -> bool
+{
+    let count: usize = std.bytes.slice_length(name);
+
+    if count == 0
+    {
+        return false;
+    }
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        if name[index] == 0
+        {
+            return false;
+        }
+
+        index += 1;
+    }
+
+    return true;
+}

@@ -460,7 +460,7 @@ mod tests {
             render_catalog(&COMPILER_KNOWN_CATALOG, output.source_digest())
         );
 
-        assert_eq!(generator_input_inventory().sources().len(), 15);
+        assert_eq!(generator_input_inventory().sources().len(), 16);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()
@@ -562,6 +562,9 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         let expected = [
+            "StandardCallbackContext",
+            "StandardCallbackContextConstructor",
+            "StandardCallbackState",
             "StandardCharacterFromScalarValue",
             "StandardCharacterIsAlphabetic",
             "StandardCharacterIsNumeric",
@@ -578,7 +581,7 @@ mod tests {
             "StandardMemoryByteBufferFill",
             "StandardMemoryByteBufferRead",
             "StandardMemoryByteOffset",
-            "StandardMemoryByteSliceLength",
+            "StandardMemorySliceLength",
             "StandardMemoryCapacity",
             "StandardMemoryCopy",
             "StandardMemoryCopyOverlapping",

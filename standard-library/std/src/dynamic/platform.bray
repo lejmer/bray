@@ -1,0 +1,82 @@
+@target(target.platform.dynamic_loading)
+trusted module std.dynamic;
+
+trusted internal func open_dynamic_library_path(
+    pos path: &std.path.Path,
+    policy: LoadPolicy,
+) -> Result<u64, std.ffi.ForeignError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let mut handle: u64 = 0;
+
+    let status: std.platform.PlatformStatus = trusted platform_dynamic_library_open_path(
+        internal std.fs.platform_path(path),
+        policy = load_policy_value(policy),
+        opened = std.memory.address_of_mut<u64>(&mut handle),
+    );
+
+    try internal std.ffi.checked_foreign_library_status(status);
+
+    return internal std.ffi.checked_foreign_resource_handle(handle, valid = handle != 0);
+}
+
+trusted internal func open_dynamic_library_system(
+    pos identity: SystemLibrary,
+    policy: LoadPolicy,
+) -> Result<u64, std.ffi.ForeignError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let mut handle: u64 = 0;
+
+    let status: std.platform.PlatformStatus = trusted platform_dynamic_library_open_system(
+        system_library_value(identity),
+        policy = load_policy_value(policy),
+        opened = std.memory.address_of_mut<u64>(&mut handle),
+    );
+
+    try internal std.ffi.checked_foreign_library_status(status);
+
+    return internal std.ffi.checked_foreign_resource_handle(handle, valid = handle != 0);
+}
+
+trusted internal func release_dynamic_library(pos library: &mut DynamicLibrary) -> Result<unit, std.ffi.ForeignError>
+    requires(blocking_execution())
+    uses(foreign_call)
+{
+    let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
+        library.handle_value,
+        owned = library.is_owned_value,
+    );
+
+    library.is_owned_value = false;
+    let status: std.platform.PlatformStatus = trusted platform_dynamic_library_close(handle);
+
+    return internal std.ffi.checked_foreign_status(status);
+}
+
+trusted internal func dynamic_library_handle(pos library: &DynamicLibrary) -> u64
+{
+    return library.handle_value;
+}
+
+internal func load_policy_value(pos policy: LoadPolicy) -> u32
+{
+    match policy
+    {
+        case LoadPolicy.PlatformDefault { return 0; }
+        case LoadPolicy.LocalImmediate { return 1; }
+        case LoadPolicy.LocalLazy { return 2; }
+        case LoadPolicy.GlobalImmediate { return 3; }
+        case LoadPolicy.GlobalLazy { return 4; }
+    }
+}
+
+internal func system_library_value(pos identity: SystemLibrary) -> u32
+{
+    match identity
+    {
+        case SystemLibrary.CRuntime { return 0; }
+    }
+}

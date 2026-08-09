@@ -1,18 +1,11 @@
 use std::path::Path;
 
 use bray_compilation::{
-    BuildConfiguration, Compilation, CompilationOptions, CompilationRequest, ProductEmissionInputs,
-    SelectedTarget, WorkerBudget,
+    Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
 };
-use bray_emitter::{
-    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
-    RequestedArtifact, RequestedArtifactDestination,
-};
-use bray_runtime_interface::{RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactMetadata};
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
-use bray_target::{NativeTarget, TargetOutputDescription, TargetOutputKind};
-use bray_tooling::{load_llvm_compilation, native_linker, source_inputs_from_file_arguments};
-use sha2::{Digest, Sha256};
+use bray_target::NativeTarget;
+use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 
 use super::core::{PRODUCT_NAME, executable_path, execute_product, native_output};
 
@@ -107,82 +100,7 @@ pub(super) fn build_standard_library_fixtures(
     let product = ProductIdentity::try_new(package, PRODUCT_NAME)
         .ok_or_else(|| "standard-library fixture product identity is invalid".to_owned())?;
 
-    emit_native_executable(compilation, product, target, runtime, output)
-}
-
-pub(super) fn emit_native_executable(
-    compilation: Compilation,
-    product: ProductIdentity,
-    target: NativeTarget,
-    runtime: &Path,
-    output: &Path,
-) -> Result<(), String> {
-    let selected = SelectedTarget::for_native(target);
-
-    let linker = native_linker(target)
-        .ok_or_else(|| format!("native linker is unavailable for {}", target.as_str()))?;
-
-    let runtime = load_runtime_artifact(runtime)?;
-
-    let native = compilation
-        .native_product_facts(
-            product.clone(),
-            BuildConfiguration::Release,
-            Some(runtime),
-            [],
-            Some(&linker),
-        )
-        .map_err(|error| {
-            format!(
-                "could not build native fixture product: {error:?}; diagnostics={:?}",
-                compilation.check_diagnostics()
-            )
-        })?;
-
-    let outputs = TargetOutputDescription::for_native(
-        target,
-        [
-            TargetOutputKind::Executable,
-            TargetOutputKind::RelocatableObject,
-        ],
-    );
-
-    let request = EmissionRequest::try_new(
-        product,
-        ProductKind::Executable,
-        native.executable_host().cloned(),
-        selected.profile().identity().clone(),
-        RequestedArtifactDestination::FilesystemDirectory(output.to_path_buf()),
-        [
-            RequestedArtifact::new(ArtifactKind::Executable, ArtifactRequirement::Required),
-            RequestedArtifact::new(
-                ArtifactKind::RelocatableObject,
-                ArtifactRequirement::Optional,
-            ),
-        ],
-        ReplacementPolicy::ReplaceExisting,
-    )
-    .map_err(|error| format!("standard byte-buffer emission request is invalid: {error:?}"))?;
-
-    let inputs = ProductEmissionInputs::new(&outputs).with_native_product(&native, &linker);
-
-    let outcome = compilation.emit_product(request, inputs).map_err(|error| {
-        format!(
-            "native fixture emission failed: {:?}; diagnostics={:?}",
-            error.kind(),
-            compilation.check_diagnostics()
-        )
-    })?;
-
-    if matches!(outcome.status(), EmissionStatus::Complete) {
-        Ok(())
-    } else {
-        Err(format!(
-            "standard byte-buffer emission did not complete: {:?}; diagnostics={:?}",
-            outcome.status(),
-            outcome.diagnostics()
-        ))
-    }
+    crate::native_product::emit_executable(compilation, product, target, runtime, output, [])
 }
 
 pub(super) fn standard_library_compilation(
@@ -210,26 +128,4 @@ pub(super) fn standard_library_compilation(
         .with_standard_library_source_authority();
 
     load_llvm_compilation(request).ok_or_else(|| "LLVM compiler backend is unavailable".to_owned())
-}
-
-fn load_runtime_artifact(metadata_path: &Path) -> Result<RuntimeArtifact, String> {
-    let metadata_bytes = std::fs::read(metadata_path)
-        .map_err(|error| format!("could not read runtime metadata: {error}"))?;
-
-    let metadata = RuntimeArtifactMetadata::decode_json(&metadata_bytes)
-        .map_err(|error| format!("could not decode runtime metadata: {error:?}"))?;
-
-    let parent = metadata_path
-        .parent()
-        .ok_or_else(|| "runtime metadata has no parent directory".to_owned())?;
-
-    let archive = parent.join(metadata.archive_file_name());
-
-    let archive_bytes = std::fs::read(&archive)
-        .map_err(|error| format!("could not read runtime archive: {error}"))?;
-
-    let digest = RuntimeArtifactDigest::new(Sha256::digest(&archive_bytes).into());
-
-    RuntimeArtifact::try_new(metadata, archive, digest)
-        .map_err(|error| format!("runtime artifact is invalid: {error:?}"))
 }

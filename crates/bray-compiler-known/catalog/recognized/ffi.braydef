@@ -1,0 +1,36 @@
+catalog recognized_standard_library;
+
+scope StandardFfi at std.ffi {
+    declaration StandardCallbackContext {
+        identity name CallbackContext;
+        availability Allocation;
+
+        surface { struct CallbackContext<State> {} }
+    }
+
+    declaration StandardCallbackContextConstructor {
+        owner StandardCallbackContext;
+        identity ordinal 0;
+        availability Allocation;
+
+        surface {
+            trusted construct(
+                pos state: State,
+            ) -> Result<Self, std.memory.MemoryLayoutError>
+                uses(manual_alloc, raw_memory, unchecked_init)
+            {}
+        }
+    }
+
+    declaration StandardCallbackState {
+        identity name callback_state;
+        implementation CallbackState;
+
+        surface {
+            trusted func callback_state<State>(
+                pos context: RawPointer<State>,
+            ) -> &State
+                uses(raw_memory);
+        }
+    }
+}

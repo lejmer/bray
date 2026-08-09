@@ -1,0 +1,14 @@
+@target(target.identity.SYSTEM == "darwin")
+module bray.standard_library_tests.os_darwin;
+
+using std.os.darwin;
+
+@test
+func darwin_native_values_are_typed_and_target_gated()
+{
+    let descriptor: std.os.darwin.FileDescriptor = std.os.darwin.file_descriptor(7);
+
+    assert(descriptor.value() == 7);
+    assert(std.os.darwin.AT_FDCWD == -2);
+    assert(std.os.darwin.O_CLOEXEC == 16777216);
+}
