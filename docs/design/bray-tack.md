@@ -161,16 +161,16 @@ The installed artifact layout is:
             └─ <runtime archive>
 ```
 
-The standard-library directory is the bundle root containing its canonical manifest, public
-package interface, and target artifacts. Each runtime directory contains metadata and the archive
-named by that metadata. Release assembly and development xtasks must publish this layout. Normal
-Bray Tack commands only consume it and never compile toolchain source.
+The standard-library directory is the bundle root containing its canonical manifest and target-selected package interfaces,
+implementation payloads, and native artifacts. Each runtime directory contains metadata and the archive named by that metadata.
+Release assembly and development xtasks must publish this layout. Normal Bray Tack commands only consume it and never compile
+toolchain source.
 
 Every compiler request receives the selected standard-library root. The compilation resolver reads
-and validates its manifest, interface, target artifacts, digests, target identity, and runtime ABI
-only when the requested facts demand them. Executable and test builds also receive the exact runtime
-metadata path for their selected target. The compiler's existing runtime loader validates metadata,
-archive digest, capabilities, target, panic ABI, and native link requirements before emission.
+and validates its manifest, target-selected interface and implementation, native artifacts, digests, target identity, and runtime
+ABI only when the requested facts demand them. Executable and test builds also receive the exact runtime metadata path for their
+selected target. The compiler's existing runtime loader validates metadata, archive digest, capabilities, target, panic ABI, and
+native link requirements before emission.
 
 ## Dependency Acquisition
 

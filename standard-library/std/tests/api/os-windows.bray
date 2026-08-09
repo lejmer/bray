@@ -9,7 +9,6 @@ func windows_native_values_are_typed_and_target_gated()
     let handle: std.os.windows.Handle = std.os.windows.handle(7);
 
     assert(handle.value() == 7);
-    assert(std.os.windows.invalid_handle_value().value() == ~0);
     assert(std.os.windows.GENERIC_READ == 2147483648);
     assert(std.os.windows.OPEN_EXISTING == 3);
 }

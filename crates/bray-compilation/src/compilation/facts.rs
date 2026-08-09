@@ -248,8 +248,10 @@ impl Compilation {
 
         if let Some(resolver) = standard_library.as_ref() {
             // The synthetic dependency and native selection share one immutable resolver cache.
+            // SelectedTarget is small immutable request data retained by both compilation facts.
             dependency_interfaces.push(DependencyInterfaceInput::for_standard_library(
                 resolver.clone(),
+                options.selected_target().clone(),
             ));
         }
 

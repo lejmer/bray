@@ -20,8 +20,3 @@ func handle(pos raw: usize) -> Handle
         raw = raw,
     };
 }
-
-func invalid_handle_value() -> Handle
-{
-    return handle(~0);
-}

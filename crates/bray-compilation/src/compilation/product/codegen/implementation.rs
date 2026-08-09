@@ -692,14 +692,24 @@ mod tests {
 
         let interface = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::PackageInterface,
-            "interfaces/std.brayi",
+            format!(
+                "targets/{}/{}.{}/std.brayi",
+                target.as_str(),
+                runtime_abi.major(),
+                runtime_abi.minor()
+            ),
             b"interface",
         )
         .unwrap_or_else(|error| panic!("interface metadata must be valid: {error:?}"));
 
         let implementation = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::PackageImplementation,
-            "interfaces/std.brayimpl",
+            format!(
+                "targets/{}/{}.{}/std.brayimpl",
+                target.as_str(),
+                runtime_abi.major(),
+                runtime_abi.minor()
+            ),
             b"implementation",
         )
         .unwrap_or_else(|error| panic!("implementation metadata must be valid: {error:?}"));
@@ -728,7 +738,12 @@ mod tests {
         let target_artifacts = StandardLibraryTargetArtifacts::try_new(
             target,
             runtime_abi,
-            [archive.clone(), platform_archive.clone()],
+            [
+                interface.clone(),
+                implementation.clone(),
+                archive.clone(),
+                platform_archive.clone(),
+            ],
         )
         .map(|target| {
             target.with_native_links([NativeLinkRequirement::new(
@@ -739,9 +754,8 @@ mod tests {
         })
         .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
-        let manifest =
-            StandardLibraryBundleManifest::try_new(interface, implementation, [target_artifacts])
-                .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
+        let manifest = StandardLibraryBundleManifest::try_new([target_artifacts])
+            .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
 
         let archive_file = archive.beneath(directory.path());
 
@@ -759,6 +773,12 @@ mod tests {
 
         fs::write(&platform_archive_file, platform_archive_bytes)
             .unwrap_or_else(|error| panic!("platform archive must be written: {error}"));
+
+        fs::write(interface.beneath(directory.path()), b"interface")
+            .unwrap_or_else(|error| panic!("interface must be written: {error}"));
+
+        fs::write(implementation.beneath(directory.path()), b"implementation")
+            .unwrap_or_else(|error| panic!("implementation must be written: {error}"));
 
         let manifest_bytes = encode_standard_library_manifest(&manifest)
             .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));

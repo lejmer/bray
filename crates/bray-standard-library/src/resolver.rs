@@ -87,20 +87,30 @@ impl StandardLibraryResolver {
             .clone()
     }
 
-    /// Returns the public package interface selected by the manifest.
-    pub fn interface(&self) -> Result<ResolvedStandardLibraryArtifact, StandardLibraryLoadError> {
-        let manifest = self.manifest()?;
-
-        self.resolve(manifest.interface())
-    }
-
-    /// Returns the implementation payload companion selected by the manifest.
-    pub fn implementation(
+    /// Returns the public package interface selected for a target and runtime ABI.
+    pub fn interface(
         &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
     ) -> Result<ResolvedStandardLibraryArtifact, StandardLibraryLoadError> {
         let manifest = self.manifest()?;
+        let selected = target_inventory(&manifest, target, runtime_abi)?;
+        let interface = selected.package_interface();
 
-        self.resolve(manifest.implementation())
+        self.resolve(interface)
+    }
+
+    /// Returns the implementation payload selected for a target and runtime ABI.
+    pub fn implementation(
+        &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<ResolvedStandardLibraryArtifact, StandardLibraryLoadError> {
+        let manifest = self.manifest()?;
+        let selected = target_inventory(&manifest, target, runtime_abi)?;
+        let implementation = selected.package_implementation();
+
+        self.resolve(implementation)
     }
 
     /// Returns the exact artifacts selected for a target and runtime ABI.
@@ -279,7 +289,7 @@ pub enum StandardLibraryLoadError {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use bray_base::NonEmptySharedStr;
     use bray_runtime_interface::RuntimeAbiVersion;
@@ -303,14 +313,14 @@ mod tests {
         fixture.write();
 
         let first = resolver
-            .interface()
+            .interface(&fixture.target(), RuntimeAbiVersion::new(1, 0))
             .unwrap_or_else(|error| panic!("interface must resolve: {error:?}"));
 
         fs::write(first.path(), b"changed")
             .unwrap_or_else(|error| panic!("fixture artifact must change: {error}"));
 
         let second = resolver
-            .interface()
+            .interface(&fixture.target(), RuntimeAbiVersion::new(1, 0))
             .unwrap_or_else(|error| panic!("cached interface must resolve: {error:?}"));
 
         assert_eq!(first, second);
@@ -329,9 +339,12 @@ mod tests {
             .target_artifacts(&target, RuntimeAbiVersion::new(1, 0))
             .unwrap_or_else(|error| panic!("target artifacts must resolve: {error:?}"));
 
-        let [archive] = artifacts.as_ref() else {
-            panic!("fixture must contain one target artifact");
-        };
+        let archive = artifacts
+            .iter()
+            .find(|artifact| {
+                artifact.metadata().kind() == StandardLibraryArtifactKind::StaticLibrary
+            })
+            .unwrap_or_else(|| panic!("fixture must contain its archive"));
 
         assert_eq!(archive.bytes(), b"archive");
 
@@ -379,6 +392,102 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn resolver_selects_distinct_interfaces_from_multi_target_bundles() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
+
+        let linux = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            .unwrap_or_else(|| panic!("Linux target identity must be valid"));
+
+        let windows = TargetIdentity::try_new("x86_64-pc-windows-msvc")
+            .unwrap_or_else(|| panic!("Windows target identity must be valid"));
+
+        let runtime_abi = RuntimeAbiVersion::new(1, 0);
+
+        let manifest = StandardLibraryBundleManifest::try_new([
+            write_target_interface_fixture(directory.path(), linux.clone(), b"linux interface"),
+            write_target_interface_fixture(
+                directory.path(),
+                windows.clone(),
+                b"windows interface",
+            ),
+        ])
+        .unwrap_or_else(|error| panic!("multi-target manifest must be valid: {error:?}"));
+
+        let manifest_bytes = encode_standard_library_manifest(&manifest)
+            .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));
+
+        fs::write(directory.path().join("manifest.json"), manifest_bytes)
+            .unwrap_or_else(|error| panic!("manifest must be written: {error}"));
+
+        let root = StandardLibraryRoot::try_new(directory.path())
+            .unwrap_or_else(|| panic!("temporary root must be absolute"));
+
+        let resolver = StandardLibraryResolver::new(root);
+
+        assert_eq!(
+            resolver
+                .interface(&linux, runtime_abi)
+                .unwrap_or_else(|error| panic!("Linux interface must resolve: {error:?}"))
+                .bytes(),
+            b"linux interface"
+        );
+
+        assert_eq!(
+            resolver
+                .interface(&windows, runtime_abi)
+                .unwrap_or_else(|error| panic!("Windows interface must resolve: {error:?}"))
+                .bytes(),
+            b"windows interface"
+        );
+    }
+
+    fn write_target_interface_fixture(
+        root: &Path,
+        target: TargetIdentity,
+        interface_bytes: &[u8],
+    ) -> StandardLibraryTargetArtifacts {
+        let runtime_abi = RuntimeAbiVersion::new(1, 0);
+        let prefix = format!("targets/{}/1.0", target.as_str());
+
+        let interface = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageInterface,
+            format!("{prefix}/std.brayi"),
+            interface_bytes,
+        )
+        .unwrap_or_else(|error| panic!("interface metadata must be valid: {error:?}"));
+
+        let implementation = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageImplementation,
+            format!("{prefix}/std.brayimpl"),
+            b"implementation",
+        )
+        .unwrap_or_else(|error| panic!("implementation metadata must be valid: {error:?}"));
+
+        let interface_path = interface.beneath(root);
+
+        fs::create_dir_all(
+            interface_path
+                .parent()
+                .unwrap_or_else(|| panic!("interface must have a parent")),
+        )
+        .unwrap_or_else(|error| panic!("target directory must exist: {error}"));
+
+        fs::write(interface_path, interface_bytes)
+            .unwrap_or_else(|error| panic!("interface must be written: {error}"));
+
+        fs::write(implementation.beneath(root), b"implementation")
+            .unwrap_or_else(|error| panic!("implementation must be written: {error}"));
+
+        StandardLibraryTargetArtifacts::try_new(
+            target,
+            runtime_abi,
+            [interface, implementation],
+        )
+        .unwrap_or_else(|error| panic!("target inventory must be valid: {error:?}"))
+    }
+
     struct Fixture {
         directory: TempDir,
         manifest: StandardLibraryBundleManifest,
@@ -391,14 +500,14 @@ mod tests {
 
             let interface = StandardLibraryArtifact::try_for_bytes(
                 StandardLibraryArtifactKind::PackageInterface,
-                "interfaces/std.brayi",
+                "targets/x86_64-unknown-linux-gnu/1.0/std.brayi",
                 b"interface",
             )
             .unwrap_or_else(|error| panic!("interface metadata must be valid: {error:?}"));
 
             let implementation = StandardLibraryArtifact::try_for_bytes(
                 StandardLibraryArtifactKind::PackageImplementation,
-                "interfaces/std.brayimpl",
+                "targets/x86_64-unknown-linux-gnu/1.0/std.brayimpl",
                 b"implementation",
             )
             .unwrap_or_else(|error| panic!("implementation metadata must be valid: {error:?}"));
@@ -416,7 +525,7 @@ mod tests {
             let target = StandardLibraryTargetArtifacts::try_new(
                 target,
                 bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
-                [archive],
+                [interface, implementation, archive],
             )
             .map(|target| {
                 target.with_native_links([NativeLinkRequirement::new(
@@ -427,9 +536,8 @@ mod tests {
             })
             .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
-            let manifest =
-                StandardLibraryBundleManifest::try_new(interface, implementation, [target])
-                    .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
+            let manifest = StandardLibraryBundleManifest::try_new([target])
+                .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
 
             Self {
                 directory,
@@ -447,7 +555,12 @@ mod tests {
         }
 
         fn archive_path(&self) -> PathBuf {
-            self.manifest.targets()[0].artifacts()[0].beneath(self.directory.path())
+            self.manifest.targets()[0]
+                .artifacts()
+                .iter()
+                .find(|artifact| artifact.kind() == StandardLibraryArtifactKind::StaticLibrary)
+                .unwrap_or_else(|| panic!("fixture must contain its archive"))
+                .beneath(self.directory.path())
         }
 
         fn target(&self) -> TargetIdentity {
@@ -455,11 +568,11 @@ mod tests {
         }
 
         fn write(&self) {
-            let interface = self.manifest.interface().beneath(self.directory.path());
+            let target = &self.manifest.targets()[0];
+            let interface = target.package_interface().beneath(self.directory.path());
 
-            let implementation = self
-                .manifest
-                .implementation()
+            let implementation = target
+                .package_implementation()
                 .beneath(self.directory.path());
 
             let archive = self.archive_path();

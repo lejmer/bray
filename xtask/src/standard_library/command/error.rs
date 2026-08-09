@@ -29,11 +29,9 @@ pub(in crate::standard_library) enum BuildError {
     EmissionRequest(String),
     Emission(String),
     MissingEmittedArtifact(ArtifactKind),
-    TargetDependentInterface(TargetIdentity),
     InvalidArtifactPath(PathBuf),
     InvalidIdentity,
     MissingProduct,
-    MissingInterface,
     NonReproducibleManifest,
     NonReproducibleArtifact(String),
     Conformance {
@@ -143,13 +141,6 @@ impl fmt::Display for BuildError {
             Self::MissingEmittedArtifact(kind) => {
                 write!(formatter, "standard library emission omitted {kind:?}")
             }
-            Self::TargetDependentInterface(target) => {
-                write!(
-                    formatter,
-                    "package interface differs for target {}",
-                    target.as_str()
-                )
-            }
             Self::InvalidArtifactPath(path) => {
                 write!(formatter, "artifact path is invalid: {}", path.display())
             }
@@ -159,8 +150,6 @@ impl fmt::Display for BuildError {
             Self::MissingProduct => {
                 formatter.write_str("standard library product std:library is missing")
             }
-            Self::MissingInterface => formatter
-                .write_str("standard library has no target from which to build its interface"),
             Self::NonReproducibleManifest => {
                 formatter.write_str("repeated standard library builds produced different manifests")
             }

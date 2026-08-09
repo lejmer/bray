@@ -22,8 +22,6 @@ pub fn encode_standard_library_manifest(
     manifest: &StandardLibraryBundleManifest,
 ) -> Result<Vec<u8>, StandardLibraryManifestError> {
     encode_published(
-        manifest.interface(),
-        manifest.implementation(),
         manifest.targets(),
         manifest.bundle_digest(),
     )
@@ -39,8 +37,6 @@ pub fn decode_standard_library_manifest(
     validate_identity(&wire)?;
 
     let published_digest = StandardLibraryBundleDigest::new(decode_digest(wire.bundle_digest)?);
-    let interface = decode_artifact(wire.interface)?;
-    let implementation = decode_artifact(wire.implementation)?;
 
     let targets = wire
         .targets
@@ -70,7 +66,7 @@ pub fn decode_standard_library_manifest(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let manifest = StandardLibraryBundleManifest::try_new(interface, implementation, targets)?;
+    let manifest = StandardLibraryBundleManifest::try_new(targets)?;
 
     if manifest.bundle_digest() != published_digest {
         return Err(StandardLibraryManifestError::BundleDigestMismatch);
@@ -178,14 +174,14 @@ mod tests {
     fn manifest() -> StandardLibraryBundleManifest {
         let interface = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::PackageInterface,
-            "interfaces/std.brayi",
+            "targets/x86_64-unknown-linux-gnu/1.0/std.brayi",
             b"interface",
         )
         .unwrap_or_else(|error| panic!("interface must be valid: {error:?}"));
 
         let implementation = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::PackageImplementation,
-            "interfaces/std.brayimpl",
+            "targets/x86_64-unknown-linux-gnu/1.0/std.brayimpl",
             b"implementation",
         )
         .unwrap_or_else(|error| panic!("implementation must be valid: {error:?}"));
@@ -203,7 +199,7 @@ mod tests {
         let target = StandardLibraryTargetArtifacts::try_new(
             target,
             RuntimeAbiVersion::new(1, 0),
-            [archive],
+            [interface, implementation, archive],
         )
         .map(|target| {
             target.with_native_links([NativeLinkRequirement::new(
@@ -214,7 +210,7 @@ mod tests {
         })
         .unwrap_or_else(|error| panic!("target artifacts must be valid: {error:?}"));
 
-        StandardLibraryBundleManifest::try_new(interface, implementation, [target])
+        StandardLibraryBundleManifest::try_new([target])
             .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"))
     }
 }

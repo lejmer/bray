@@ -87,7 +87,7 @@ fn generate(check: bool) -> Result<(), String> {
     if check {
         check_files(&files)
     } else {
-        write_files(&files)
+        synchronize_files(&files)
     }
 }
 
@@ -207,6 +207,8 @@ fn check_files(files: &[(PathBuf, String)]) -> Result<(), String> {
         }
     }
 
+    stale.extend(obsolete_managed_files(files)?.iter().map(|path| path.display().to_string()));
+
     if stale.is_empty() {
         return Ok(());
     }
@@ -214,7 +216,7 @@ fn check_files(files: &[(PathBuf, String)]) -> Result<(), String> {
     Err(format!("generated output is stale: {}", stale.join(", ")))
 }
 
-fn write_files(files: &[(PathBuf, String)]) -> Result<(), String> {
+fn synchronize_files(files: &[(PathBuf, String)]) -> Result<(), String> {
     for (path, contents) in files {
         let parent = path
             .parent()
@@ -231,12 +233,51 @@ fn write_files(files: &[(PathBuf, String)]) -> Result<(), String> {
             .map_err(|error| workspace::io_error("write", path, error))?;
     }
 
+    for path in obsolete_managed_files(files)? {
+        std::fs::remove_file(&path)
+            .map_err(|error| workspace::io_error("remove", &path, error))?;
+    }
+
     Ok(())
+}
+
+fn obsolete_managed_files(files: &[(PathBuf, String)]) -> Result<Vec<PathBuf>, String> {
+    let Some(output_root) = files.first().and_then(|(path, _)| path.parent()) else {
+        return Ok(Vec::new());
+    };
+
+    let expected = files
+        .iter()
+        .map(|(path, _)| path.as_path())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let entries = match std::fs::read_dir(output_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(workspace::io_error("read", output_root, error)),
+    };
+
+    let mut obsolete = Vec::new();
+
+    for entry in entries {
+        let entry = entry.map_err(|error| workspace::io_error("read", output_root, error))?;
+        let path = entry.path();
+
+        if path.extension().is_some_and(|extension| extension == "bray")
+            && !expected.contains(path.as_path())
+        {
+            obsolete.push(path);
+        }
+    }
+
+    obsolete.sort_unstable();
+
+    Ok(obsolete)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ConstantDescription, valid_constant_name};
+    use super::{ConstantDescription, check_files, synchronize_files, valid_constant_name};
 
     #[test]
     fn constant_names_accept_only_canonical_native_spellings() {
@@ -254,5 +295,29 @@ mod tests {
         };
 
         assert_eq!(description.value, -100);
+    }
+
+    #[test]
+    fn generated_directory_rejects_and_removes_obsolete_bray_files() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary directory must exist: {error}"));
+
+        let expected = directory.path().join("linux.bray");
+        let obsolete = directory.path().join("obsolete.bray");
+        let files = [(expected.clone(), "expected\n".to_owned())];
+
+        std::fs::write(&expected, "expected\n")
+            .unwrap_or_else(|error| panic!("expected output must be written: {error}"));
+
+        std::fs::write(&obsolete, "obsolete\n")
+            .unwrap_or_else(|error| panic!("obsolete output must be written: {error}"));
+
+        assert!(check_files(&files).is_err());
+
+        synchronize_files(&files)
+            .unwrap_or_else(|error| panic!("outputs must synchronize: {error}"));
+
+        assert!(!obsolete.exists());
+        assert!(check_files(&files).is_ok());
     }
 }

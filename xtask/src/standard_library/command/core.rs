@@ -20,7 +20,7 @@ use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
     StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
     StandardLibraryTargetArtifacts, decode_standard_library_manifest,
-    encode_standard_library_manifest,
+    encode_standard_library_manifest, standard_library_target_artifact_directory,
 };
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{
@@ -154,8 +154,6 @@ pub(in crate::standard_library) fn compare_bundles(
     }
 
     let first_manifest = decode_manifest(&first_manifest_bytes)?;
-
-    compare_artifact(first, second, first_manifest.interface())?;
 
     for artifact in first_manifest
         .targets()
@@ -299,8 +297,6 @@ fn build_bundle(
         .map(|source| source.beneath(workspace_root))
         .collect();
 
-    let mut interface = None;
-    let mut implementation = None;
     let mut built_targets = Vec::new();
     let root = workspace::root().map_err(BuildError::Workspace)?;
     let temporal_provenance_path = root.join("third-party/temporal/provenance.json");
@@ -321,54 +317,34 @@ fn build_bundle(
             platform_native_links,
         } = built;
 
-        match interface.as_ref() {
-            Some((expected, _)) if expected != &interface_bytes => {
-                return Err(BuildError::TargetDependentInterface(target.clone()));
-            }
-            Some(_) => {}
-            None => {
-                let path = "interfaces/std.brayi";
-
-                write_bundle_artifact(bundle, path, &interface_bytes)?;
-
-                let artifact = StandardLibraryArtifact::try_for_bytes(
-                    StandardLibraryArtifactKind::PackageInterface,
-                    path,
-                    &interface_bytes,
-                )
-                .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
-
-                interface = Some((interface_bytes, artifact));
-            }
-        }
-
-        match implementation.as_ref() {
-            Some((expected, _)) if expected != &implementation_bytes => {
-                return Err(BuildError::TargetDependentInterface(target.clone()));
-            }
-            Some(_) => {}
-            None => {
-                let path = "interfaces/std.brayimpl";
-
-                write_bundle_artifact(bundle, path, &implementation_bytes)?;
-
-                let artifact = StandardLibraryArtifact::try_for_bytes(
-                    StandardLibraryArtifactKind::PackageImplementation,
-                    path,
-                    &implementation_bytes,
-                )
-                .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
-
-                implementation = Some((implementation_bytes, artifact));
-            }
-        }
-
         let abi = selected.runtime_abi();
-        let abi_path = format!("{}.{}", abi.major(), abi.minor());
+        let target_path = standard_library_target_artifact_directory(target, abi);
+
+        let interface_path = format!("{target_path}/std.brayi");
+
+        write_bundle_artifact(bundle, &interface_path, &interface_bytes)?;
+
+        let interface = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageInterface,
+            interface_path,
+            &interface_bytes,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
+        let implementation_path = format!("{target_path}/std.brayimpl");
+
+        write_bundle_artifact(bundle, &implementation_path, &implementation_bytes)?;
+
+        let implementation = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageImplementation,
+            implementation_path,
+            &implementation_bytes,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         let file_name = standard_library_archive_name(native)?;
 
-        let portable_path = format!("targets/{}/{abi_path}/{file_name}", target.as_str());
+        let portable_path = format!("{target_path}/{file_name}");
 
         write_bundle_artifact(bundle, &portable_path, &archive_bytes)?;
 
@@ -381,10 +357,7 @@ fn build_bundle(
 
         let platform_file_name = platform_abi_archive_name(native)?;
 
-        let platform_path = format!(
-            "targets/{}/{abi_path}/{platform_file_name}",
-            target.as_str()
-        );
+        let platform_path = format!("{target_path}/{platform_file_name}");
 
         write_bundle_artifact(bundle, &platform_path, &platform_archive_bytes)?;
 
@@ -395,10 +368,7 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        let provenance_path = format!(
-            "targets/{}/{abi_path}/temporal-provider.json",
-            target.as_str()
-        );
+        let provenance_path = format!("{target_path}/temporal-provider.json");
 
         write_bundle_artifact(bundle, &provenance_path, &temporal_provenance)?;
 
@@ -412,7 +382,13 @@ fn build_bundle(
         let target = StandardLibraryTargetArtifacts::try_new(
             target.clone(),
             abi,
-            [archive, platform_archive, provenance],
+            [
+                interface,
+                implementation,
+                archive,
+                platform_archive,
+                provenance,
+            ],
         )
         .map(|target| target.with_native_links(platform_native_links))
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
@@ -420,11 +396,7 @@ fn build_bundle(
         built_targets.push(target);
     }
 
-    let (_, interface) = interface.ok_or(BuildError::MissingInterface)?;
-
-    let (_, implementation) = implementation.ok_or(BuildError::MissingInterface)?;
-
-    StandardLibraryBundleManifest::try_new(interface, implementation, built_targets)
+    StandardLibraryBundleManifest::try_new(built_targets)
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))
 }
 
@@ -821,7 +793,6 @@ mod tests {
         let manifest = read_manifest(&output)
             .unwrap_or_else(|error| panic!("built manifest must decode: {error}"));
 
-        assert!(manifest.interface().beneath(&output).is_file());
         assert!(!manifest.targets().is_empty());
 
         for artifact in manifest
