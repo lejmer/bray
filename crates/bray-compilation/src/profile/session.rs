@@ -204,10 +204,13 @@ impl ProfileSession {
 
         events.sort_by_key(|event| (event.started_at, event.worker, event.sequence));
 
+        // Reports own stable context text independently of the active profiling session.
+        let context = self.context.clone();
+
         CompilationProfileReport {
             schema_revision: PROFILE_SCHEMA_REVISION,
             mode: self.configuration.mode(),
-            context: self.context.clone(),
+            context,
             trace_event_limit: records_trace(self.configuration.mode())
                 .then_some(self.configuration.trace_event_limit()),
             elapsed_nanoseconds: self.clock.now_nanoseconds(),

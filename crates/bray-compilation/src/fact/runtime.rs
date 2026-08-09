@@ -79,7 +79,10 @@ impl FactRuntime {
         Self {
             next_task: AtomicU64::new(0),
             state: Mutex::new(RuntimeState::default()),
-            scheduler: FactScheduler::with_profile(worker_budget, profile.clone()),
+            scheduler: FactScheduler::with_profile(
+                worker_budget,
+                profile.as_ref().map(Arc::clone),
+            ),
             profile,
             #[cfg(test)]
             observer: Mutex::new(None),
@@ -153,7 +156,10 @@ impl FactRuntime {
                 dependencies,
                 ..RuntimeState::default()
             }),
-            scheduler: FactScheduler::with_profile(worker_budget, profile.clone()),
+            scheduler: FactScheduler::with_profile(
+                worker_budget,
+                profile.as_ref().map(Arc::clone),
+            ),
             profile,
             #[cfg(test)]
             observer: Mutex::new(None),
@@ -168,7 +174,7 @@ impl FactRuntime {
     }
 
     pub(crate) fn profile_session(&self) -> Option<Arc<ProfileSession>> {
-        self.profile.clone()
+        self.profile.as_ref().map(Arc::clone)
     }
 
     pub(crate) fn profile_configuration(&self) -> Option<CompilationProfileConfiguration> {
