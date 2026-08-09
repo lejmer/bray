@@ -66,7 +66,7 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
 }
 
 @test
-trusted func c_strings_reject_interior_nul() -> Result<unit, std.ffi.c.CStringError>
+trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.CStringError>
 {
     let invalid: [u8; 3] = [65, 0, 66];
 
@@ -94,6 +94,55 @@ trusted func c_strings_reject_interior_nul() -> Result<unit, std.ffi.c.CStringEr
             match error
             {
                 case std.ffi.c.CStringError.InvalidEncoding {}
+                case _ { assert(false); }
+            }
+        }
+    }
+
+    let unterminated: [u8; 1] = [65];
+
+    match std.ffi.c.c_str_from_terminated(&unterminated[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error
+            {
+                case std.ffi.c.CStringError.MissingTerminator {}
+                case _ { assert(false); }
+            }
+        }
+    }
+
+    let wide_unterminated: [std.ffi.c.WideChar; 1] = [std.ffi.c.wide_char(65)];
+
+    match std.ffi.c.wide_c_str_from_terminated(&wide_unterminated[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error
+            {
+                case std.ffi.c.CStringError.MissingTerminator {}
+                case _ { assert(false); }
+            }
+        }
+    }
+
+    let wide_interior: [std.ffi.c.WideChar; 3] = [
+        std.ffi.c.wide_char(65),
+        std.ffi.c.wide_char(0),
+        std.ffi.c.wide_char(66),
+    ];
+
+    match trusted std.ffi.c.WideCString.from_units(&wide_interior[..])
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error
+            {
+                case std.ffi.c.CStringError.InteriorNul {}
                 case _ { assert(false); }
             }
         }

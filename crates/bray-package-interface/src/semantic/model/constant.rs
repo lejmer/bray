@@ -23,6 +23,11 @@ impl InterfaceConstantValue {
     pub const fn new(ty: InterfaceTypeId, kind: InterfaceConstantValueKind) -> Self {
         Self { ty, kind }
     }
+
+    /// Returns the durable closed-value payload.
+    pub const fn kind(&self) -> &InterfaceConstantValueKind {
+        &self.kind
+    }
 }
 
 /// Durable payload of one closed constant value.

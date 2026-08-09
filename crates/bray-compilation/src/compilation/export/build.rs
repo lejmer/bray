@@ -655,14 +655,18 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
+    use bray_compiler_known::CompilerKnownDeclarationKey;
     use bray_package_interface::{
-        InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
-        PackageInterfaceExportBundle, ValidatedPackageInterface, encode_package_interface,
+        InterfaceConstantValueKind, InterfaceLanguageRevision, InterfaceProductIdentity,
+        InterfaceSymbolReference, InterfaceValidationPolicy, PackageInterfaceExportBundle,
+        ValidatedPackageInterface, encode_package_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
-        AnySymbolId, CallableParameterDefaultValue, MemberLookupResult, ModulePathKey,
-        PackageIdentity, ProductKind, RuntimeDefaultTemplateReference, TypeExpressionTemplate,
+        AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
+        MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
+        RuntimeDefaultTemplateReference, SymbolKey, SymbolKind, SymbolName,
+        TypeExpressionTemplate,
     };
     use bray_testing::test_source_inputs;
 
@@ -1216,7 +1220,63 @@ mod tests {
         let bundle = export(&compilation);
 
         assert_eq!(bundle.surface().symbols().symbols().len(), 3);
-        assert_eq!(bundle.semantic_facts().target_dependencies().len(), 1);
+
+        let [dependency] = bundle.semantic_facts().target_dependencies() else {
+            panic!("selected contribution must retain one exact target dependency");
+        };
+
+        let package = ExternalSymbolKey::package(
+            PackageIdentity::try_new("example.package")
+                .unwrap_or_else(|| panic!("test package identity must be valid")),
+        );
+
+        let module = ExternalSymbolKey::module(
+            package,
+            ModulePathKey::try_new(["app"])
+                .unwrap_or_else(|| panic!("test module path must be valid")),
+        )
+        .unwrap_or_else(|| panic!("test module key must be valid"));
+
+        let enabled = ExternalSymbolKey::named(
+            module,
+            SymbolKind::Function,
+            SymbolName::try_new("enabled")
+                .unwrap_or_else(|| panic!("test function name must be valid")),
+        )
+        .unwrap_or_else(|| panic!("test function key must be valid"));
+
+        let owner = bundle
+            .surface()
+            .symbol_by_external_key(&enabled)
+            .unwrap_or_else(|| panic!("enabled function must be exported"));
+
+        assert_eq!(dependency.owner(), &InterfaceSymbolReference::Local(owner));
+
+        let InterfaceSymbolReference::CompilerKnown(fact) = dependency.fact() else {
+            panic!("target dependency must retain its compiler-known fact");
+        };
+
+        let declaration = CompilerKnownDeclarationKey::try_new("TargetPointerBits")
+            .unwrap_or_else(|| panic!("target pointer-bits key must be valid"));
+
+        let fact_key = SymbolKey::compiler_known_declaration(declaration, SymbolKind::Constant)
+            .unwrap_or_else(|| panic!("target pointer-bits symbol key must be valid"));
+
+        assert_eq!(fact.key(), &fact_key);
+
+        let value = bundle
+            .semantic_facts()
+            .constant_values()
+            .get(
+                usize::try_from(dependency.value().raw())
+                    .unwrap_or_else(|_| panic!("target dependency value ID must fit usize")),
+            )
+            .unwrap_or_else(|| panic!("target dependency value must be exported"));
+
+        assert_eq!(
+            value.kind(),
+            &InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(64))
+        );
     }
 
     #[test]
