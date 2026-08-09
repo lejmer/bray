@@ -335,7 +335,7 @@ impl Compilation {
         request: &EmissionRequest,
         target_outputs: &TargetOutputDescription,
     ) -> Result<(), ProductEmissionError> {
-        if request.product_kind() != self.options().product_kind()
+        if request.product_kind() != self.product_kind()
             || (request.product().package() != self.package_identity()
                 && request.product_kind() != bray_symbols::ProductKind::Test)
         {

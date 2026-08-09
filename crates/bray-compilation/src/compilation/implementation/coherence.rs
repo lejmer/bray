@@ -68,10 +68,7 @@ impl Compilation {
         let mut requires_family = Vec::new();
         let mut by_trait = BTreeMap::new();
 
-        let maximum_comparisons = self
-            .options()
-            .semantic_analysis_limits()
-            .pairwise_comparisons();
+        let maximum_comparisons = self.semantic_pairwise_limit();
 
         let mut comparisons = 0;
 

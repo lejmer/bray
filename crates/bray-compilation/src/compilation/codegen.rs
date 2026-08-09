@@ -260,6 +260,8 @@ impl Compilation {
             cancellation,
             priority,
             |shared_cancellation| {
+                self.record_codegen_configuration();
+
                 let request = CodegenRequest::try_new(
                     unit,
                     backend,

@@ -320,7 +320,7 @@ impl Compilation {
         limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<EvaluatedConstantCall>>, FactQueryError> {
-        let target = self.options().selected_target().profile().clone();
+        let target = self.requested_target().profile().clone();
         let key = ConstantInstanceFactKey::new(instance, target, limits);
         let cell = self.state.constant_instances.cell(key.clone())?;
 
@@ -930,7 +930,7 @@ mod tests {
             .intern_callable_instance(request.callable())
             .unwrap_or_else(|error| panic!("constant callable instance must intern: {error:?}"));
 
-        let target = compilation.options().selected_target().profile().clone();
+        let target = compilation.requested_target().profile().clone();
 
         let shallow = ConstantCallFactKey::new(
             callable,
@@ -1428,7 +1428,7 @@ mod tests {
     ) -> ConstantInstanceFactKey {
         ConstantInstanceFactKey::new(
             instance,
-            compilation.options().selected_target().profile().clone(),
+            compilation.requested_target().profile().clone(),
             ConstantEvaluationLimits::default(),
         )
     }

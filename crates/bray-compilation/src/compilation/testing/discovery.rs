@@ -78,7 +78,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<TestDiscovery>, FactQueryError> {
         if product.package() != self.package_identity()
-            && self.options().product_kind() != ProductKind::Test
+            && self.product_kind() != ProductKind::Test
         {
             return Err(FactQueryError::InfrastructureFailure);
         }

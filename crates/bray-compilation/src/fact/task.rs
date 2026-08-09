@@ -1,8 +1,8 @@
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use super::{CompilationFactKey, FactCycle, FactQueryError};
+use super::{CompilationFactKey, CompilationInputKey, FactCycle, FactFingerprint, FactQueryError};
 
 thread_local! {
     static LOCAL_EVALUATIONS: RefCell<Vec<FactTaskContext>> = const { RefCell::new(Vec::new()) };
@@ -26,6 +26,12 @@ struct FactTaskData {
 struct FactTaskState {
     accepting_dependencies: bool,
     dependencies: BTreeSet<CompilationFactKey>,
+    inputs: BTreeMap<CompilationInputKey, FactFingerprint>,
+}
+
+pub(crate) struct RecordedDependencies {
+    pub(crate) facts: BTreeSet<CompilationFactKey>,
+    pub(crate) inputs: BTreeMap<CompilationInputKey, FactFingerprint>,
 }
 
 impl FactTaskContext {
@@ -44,6 +50,7 @@ impl FactTaskContext {
                 state: Mutex::new(FactTaskState {
                     accepting_dependencies: true,
                     dependencies: BTreeSet::new(),
+                    inputs: BTreeMap::new(),
                 }),
             }),
         }
@@ -57,7 +64,7 @@ impl FactTaskContext {
         self.data.identity
     }
 
-    pub(crate) fn finish(&self) -> Result<BTreeSet<CompilationFactKey>, FactQueryError> {
+    pub(crate) fn finish(&self) -> Result<RecordedDependencies, FactQueryError> {
         let mut state = self.state()?;
 
         if !state.accepting_dependencies {
@@ -66,7 +73,10 @@ impl FactTaskContext {
 
         state.accepting_dependencies = false;
 
-        Ok(std::mem::take(&mut state.dependencies))
+        Ok(RecordedDependencies {
+            facts: std::mem::take(&mut state.dependencies),
+            inputs: std::mem::take(&mut state.inputs),
+        })
     }
 
     pub(crate) fn discard(&self) {
@@ -76,6 +86,7 @@ impl FactTaskContext {
 
         state.accepting_dependencies = false;
         state.dependencies.clear();
+        state.inputs.clear();
     }
 
     pub(crate) fn run<T>(
@@ -105,6 +116,25 @@ impl FactTaskContext {
         state.dependencies.insert(key.clone());
 
         Ok(())
+    }
+
+    fn record_input(
+        &self,
+        key: &CompilationInputKey,
+        fingerprint: FactFingerprint,
+    ) -> Result<(), FactQueryError> {
+        let mut state = self.state()?;
+
+        if !state.accepting_dependencies {
+            return Err(FactQueryError::InfrastructureFailure);
+        }
+
+        match state.inputs.insert(key.clone(), fingerprint) {
+            Some(previous) if previous != fingerprint => {
+                Err(FactQueryError::InfrastructureFailure)
+            }
+            _ => Ok(()),
+        }
     }
 
     fn state(&self) -> Result<std::sync::MutexGuard<'_, FactTaskState>, FactQueryError> {
@@ -140,6 +170,27 @@ pub(crate) fn record_request_with_cycle_key(
         }
 
         context.record(key)
+    })
+}
+
+pub(crate) fn record_input(
+    runtime: RuntimeIdentity,
+    key: &CompilationInputKey,
+    fingerprint: Option<FactFingerprint>,
+) -> Result<(), FactQueryError> {
+    local_evaluations(|active| {
+        let Some(context) = active.last() else {
+            return Ok(());
+        };
+
+        if context.data.runtime != runtime {
+            return Ok(());
+        }
+
+        context.record_input(
+            key,
+            fingerprint.ok_or(FactQueryError::InfrastructureFailure)?,
+        )
     })
 }
 

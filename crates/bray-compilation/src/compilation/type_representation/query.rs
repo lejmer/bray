@@ -232,10 +232,7 @@ struct CompilationTypeRepresentationContext<'compilation> {
 
 impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn maximum_recursion_depth(&self) -> usize {
-        self.compilation
-            .options()
-            .semantic_analysis_limits()
-            .recursion_depth()
+        self.compilation.semantic_recursion_limit()
     }
 
     fn semantic_values(&self) -> &bray_symbols::SemanticValueStore {

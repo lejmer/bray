@@ -35,8 +35,7 @@ pub(super) fn platform_service_role(
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     let mut matched = compilation
-        .state
-        .platform_services
+        .platform_services()
         .iter()
         .filter(|binding| {
             binding.declaration() == name

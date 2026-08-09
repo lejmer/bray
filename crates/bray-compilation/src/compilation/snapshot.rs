@@ -79,15 +79,15 @@ fn reuse_published_facts(
 ) {
     updated.sources = shared_sources(&previous.sources, &updated.sources);
 
-    let semantic_values_forked = fork_semantic_values(previous, updated);
-    let invalidation_roots = invalidation_roots(previous, updated, semantic_values_forked);
+    fork_semantic_values(previous, updated);
 
     let worker_budget = updated.options.worker_budget();
     let profile = updated.fact_runtime.profile_session();
+    let inputs = updated.fact_runtime.input_snapshot();
 
     let (runtime, reusable) = previous
         .fact_runtime
-        .updated(worker_budget, invalidation_roots, profile);
+        .updated(worker_budget, inputs, profile);
 
     updated.fact_runtime = runtime;
 
@@ -140,9 +140,9 @@ fn reuse_published_facts(
 fn fork_semantic_values(
     previous: &super::facts::CompilationState,
     updated: &mut super::facts::CompilationState,
-) -> bool {
+) {
     let Some(Ok(previous_store)) = previous.semantic_values.get() else {
-        return false;
+        return;
     };
 
     updated.semantic_values = FactCell::ready(
@@ -150,7 +150,6 @@ fn fork_semantic_values(
         previous_store.fork(),
     );
 
-    true
 }
 
 fn shared_sources(previous: &SourceStore, updated: &SourceStore) -> SourceStore {
@@ -168,156 +167,6 @@ fn shared_sources(previous: &SourceStore, updated: &SourceStore) -> SourceStore 
 
     SourceStore::from_snapshots(snapshots)
         .unwrap_or_else(|| panic!("loaded source snapshots must remain in source ID order"))
-}
-
-fn invalidation_roots(
-    previous: &super::facts::CompilationState,
-    updated: &super::facts::CompilationState,
-    semantic_values_forked: bool,
-) -> BTreeSet<CompilationFactKey> {
-    let mut roots = BTreeSet::new();
-
-    if !semantic_values_forked {
-        roots.insert(CompilationFactKey::SemanticValueStore);
-    }
-
-    let sources_changed = previous.sources != updated.sources;
-
-    if sources_changed {
-        roots.extend([
-            CompilationFactKey::SyntaxTree,
-            CompilationFactKey::DeclarationTable,
-        ]);
-
-        for source in previous.sources.iter() {
-            if updated.sources.get(source.source_id()) != Some(source) {
-                roots.insert(CompilationFactKey::SourceUnitSyntax(source.source_id()));
-                roots.insert(CompilationFactKey::DeclarationChunk(source.source_id()));
-                roots.insert(CompilationFactKey::SourceReferenceIndex(source.source_id()));
-            }
-        }
-    }
-
-    if previous.source_diagnostics != updated.source_diagnostics {
-        roots.insert(CompilationFactKey::CheckDiagnostics);
-    }
-
-    if previous.options.selected_target() != updated.options.selected_target() {
-        roots.insert(CompilationFactKey::SelectedTarget);
-
-        roots.extend(
-            previous
-                .target_validity
-                .keys()
-                .into_iter()
-                .map(CompilationFactKey::TargetValidity),
-        );
-
-        roots.extend(
-            previous
-                .constant_instances
-                .keys()
-                .into_iter()
-                .map(CompilationFactKey::ConstantInstance),
-        );
-
-        roots.extend(
-            previous
-                .constant_calls
-                .keys()
-                .into_iter()
-                .map(CompilationFactKey::ConstantCall),
-        );
-    }
-
-    if previous.options.product_kind() != updated.options.product_kind() {
-        roots.insert(CompilationFactKey::ProductSourceGraph);
-    }
-
-    if previous.options.native_link_inputs() != updated.options.native_link_inputs() {
-        roots.insert(CompilationFactKey::ForeignCallableValidation);
-
-        roots.extend(
-            previous
-                .foreign_callable_contracts
-                .keys()
-                .into_iter()
-                .map(CompilationFactKey::ForeignCallableContract),
-        );
-    }
-
-    let previous_semantic_limits = previous.options.semantic_analysis_limits();
-    let updated_semantic_limits = updated.options.semantic_analysis_limits();
-
-    if previous_semantic_limits.recursion_depth() != updated_semantic_limits.recursion_depth() {
-        roots.extend(
-            previous
-                .declared_type_representations
-                .keys()
-                .into_iter()
-                .map(CompilationFactKey::DeclaredTypeRepresentation),
-        );
-    }
-
-    if previous_semantic_limits.pairwise_comparisons()
-        != updated_semantic_limits.pairwise_comparisons()
-    {
-        roots.extend([
-            CompilationFactKey::ImplementationCoherence,
-            CompilationFactKey::CallableOverloadValidation,
-        ]);
-    }
-
-    if previous.dependency_interfaces != updated.dependency_interfaces {
-        roots.extend([
-            CompilationFactKey::ImportedSymbolSkeleton,
-            CompilationFactKey::ImportedDiagnostics,
-        ]);
-
-        for (index, dependency) in previous.dependency_interfaces.iter().enumerate() {
-            if updated.dependency_interfaces.get(index) != Some(dependency) {
-                let Some(interface) = ImportedInterfaceId::try_from_index(index) else {
-                    continue;
-                };
-
-                roots.insert(CompilationFactKey::DependencyInterface(interface));
-                roots.insert(CompilationFactKey::DependencyImplementation(interface));
-                roots.insert(CompilationFactKey::ImportedSemanticGraph(interface));
-
-                roots.extend(
-                    previous
-                        .imported_constant_callable_bodies
-                        .keys()
-                        .into_iter()
-                        .filter(|address| address.interface() == interface)
-                        .map(CompilationFactKey::ImportedConstantCallableBody),
-                );
-
-                roots.extend(
-                    previous
-                        .imported_executable_templates
-                        .keys()
-                        .into_iter()
-                        .filter(|address| address.interface() == interface)
-                        .map(CompilationFactKey::ImportedExecutableTemplate),
-                );
-            }
-        }
-
-        roots.extend(
-            previous
-                .imported_semantic_facts
-                .keys()
-                .into_iter()
-                .map(CompilationFactKey::ImportedSemanticFact),
-        );
-    }
-
-    if previous.package_interface_export != updated.package_interface_export {
-        roots.insert(CompilationFactKey::PackageInterfaceExportBundle);
-    }
-
-    roots
 }
 
 fn reuse_fixed_cells(

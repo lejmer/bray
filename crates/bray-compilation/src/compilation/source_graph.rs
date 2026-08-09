@@ -129,7 +129,7 @@ impl Compilation {
                     .is_some_and(ModuleContributionGate::is_enabled)
             },
             |declaration| {
-                self.options().product_kind() == ProductKind::Test
+                self.product_kind() == ProductKind::Test
                     || declaration.kind() != DeclarationKind::Function
                     || !declaration.surface().directives().iter().any(|directive| {
                         directive.syntax_kind() == bray_syntax::SyntaxKind::TestDirective
@@ -142,7 +142,7 @@ impl Compilation {
         let diagnostics = gate_diagnostics.merged(&declaration_diagnostics);
 
         Ok(ProductSourceGraph::new(
-            self.options().product_kind(),
+            self.product_kind(),
             declarations,
             contribution_gates,
             diagnostics,

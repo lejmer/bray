@@ -147,7 +147,7 @@ pub struct CompilationRequest {
 }
 
 /// Package-layer identity inputs for the current library product's interface export.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PackageInterfaceExportRequest {
     identity: PackageInterfaceIdentity,
     language_revision: InterfaceLanguageRevision,

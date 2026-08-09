@@ -186,7 +186,7 @@ impl Compilation {
             request.selected_implementation(),
             Arc::from(request.arguments()),
             request.result_type(),
-            self.options().selected_target().profile().clone(),
+            self.requested_target().profile().clone(),
             request.limits(),
         );
 

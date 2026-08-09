@@ -26,9 +26,9 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        let Some(input) = self.state.dependency_interfaces.get(index) else {
+        if self.state.dependency_interfaces.get(index).is_none() {
             return Ok(None);
-        };
+        }
 
         let Some(cache) = self.state.loaded_dependency_implementations.get(index) else {
             return Ok(None);
@@ -39,6 +39,12 @@ impl super::super::Compilation {
             cache,
             cancellation,
             |_| {
+                self.record_dependency_implementation(interface);
+
+                let input = self
+                    .dependency_interface(interface)
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
                 if let Some(artifact) = input.implementation_artifact() {
                     return Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
                         artifact.clone(),

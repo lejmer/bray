@@ -3,6 +3,7 @@ mod cancellation;
 mod cell_map;
 mod completion;
 mod error;
+mod fingerprint;
 mod key;
 mod priority;
 mod runtime;
@@ -17,6 +18,9 @@ pub use completion::SymbolCompletionError;
 
 pub(crate) use completion::force_complete_symbol;
 pub use error::{FactCycle, FactQueryError};
+pub(crate) use fingerprint::{
+    CompilationInputKey, CompilationInputs, FactDependencyRecord, FactFingerprint,
+};
 pub use key::ImportedSemanticFactKey;
 pub use priority::QueryPriority;
 

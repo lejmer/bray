@@ -39,9 +39,9 @@ use bray_symbols::{
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, ConstantInstanceFactKey, FactCell,
-    FactCellMap, FactQueryError, FactRuntime, ImportedSemanticFactKey, PublishedUnitFact,
-    UnitFactCache,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, CompilationInputKey,
+    ConstantInstanceFactKey, FactCell, FactCellMap, FactQueryError, FactRuntime,
+    ImportedSemanticFactKey, PublishedUnitFact, UnitFactCache,
 };
 use crate::request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
@@ -277,7 +277,7 @@ impl Compilation {
             (configuration, context)
         });
 
-        let fact_runtime = FactRuntime::with_profile(worker_budget, profile);
+        let mut fact_runtime = FactRuntime::with_profile(worker_budget, profile);
         let profile_session = fact_runtime.profile_session();
 
         let load_span = profile_session.as_deref().map(|profile| {
@@ -352,6 +352,19 @@ impl Compilation {
 
         let source_count = sources.len();
         let dependency_count = dependency_interfaces.len();
+
+        fact_runtime.set_inputs(super::input::compilation_inputs(
+            &package_identity,
+            package_source_authority,
+            standard_library.as_ref(),
+            &options,
+            &sources,
+            &diagnostics,
+            &dependency_interfaces,
+            &platform_services,
+            package_interface_export.as_ref(),
+            codegen.as_ref(),
+        ));
 
         if let Some(profile) = fact_runtime.profile() {
             profile.add_metric(
@@ -472,11 +485,15 @@ impl Compilation {
 
     /// Returns the source package identity selected for this compilation.
     pub fn package_identity(&self) -> &PackageIdentity {
+        self.record_input(CompilationInputKey::PackageIdentity);
+
         &self.state.package_identity
     }
 
     /// Returns the authority governing this source package's identity.
     pub fn package_source_authority(&self) -> crate::PackageSourceAuthority {
+        self.record_input(CompilationInputKey::PackageSourceAuthority);
+
         self.state.package_source_authority
     }
 
@@ -508,7 +525,7 @@ impl Compilation {
                 };
 
                 // The published fact retains its target independently of request options.
-                let target = self.state.options.selected_target().clone();
+                let target = self.requested_target().clone();
                 let available = provider.available_symbols(|rule| target.supports(rule));
 
                 crate::SelectedTargetContext::new(target, available)
@@ -523,23 +540,31 @@ impl Compilation {
 
     /// Returns the loaded source snapshots.
     pub fn sources(&self) -> &SourceStore {
+        self.record_input(CompilationInputKey::SourceSet);
+
         &self.state.sources
     }
 
     /// Returns diagnostics produced while loading source inputs.
     pub fn source_diagnostics(&self) -> &DiagnosticBag {
+        self.record_input(CompilationInputKey::SourceDiagnostics);
+
         &self.state.source_diagnostics
     }
 
     /// Returns the syntax result for one source unit.
     pub fn source_unit_syntax(&self, source_id: SourceId) -> Option<&SourceUnitSyntaxResult> {
-        let snapshot = self.source(source_id)?;
+        self.state.sources.get(source_id)?;
         let cache = self.state.source_unit_syntax.get(source_id.to_index()?)?;
 
         Some(self.fact(
             CompilationFactKey::SourceUnitSyntax(source_id),
             cache,
             || {
+                let snapshot = self
+                    .source(source_id)
+                    .unwrap_or_else(|| panic!("source fact cache should match source store"));
+
                 let result = parse_source_unit(snapshot);
 
                 if let Some(profile) = self.state.fact_runtime.profile() {
@@ -760,21 +785,29 @@ impl Compilation {
 
     /// Returns the loaded source snapshot for `source_id`.
     pub fn source(&self, source_id: SourceId) -> Option<&SourceSnapshot> {
+        self.record_input(CompilationInputKey::Source(source_id));
+
         self.state.sources.get(source_id)
     }
 
     /// Returns the loaded source text for `source_id`.
     pub fn source_text(&self, source_id: SourceId) -> Option<&str> {
+        self.record_input(CompilationInputKey::Source(source_id));
+
         self.state.sources.text(source_id)
     }
 
     /// Returns the number of loaded source snapshots.
     pub fn source_count(&self) -> usize {
+        self.record_input(CompilationInputKey::SourceSet);
+
         self.state.sources.len()
     }
 
     /// Returns whether this compilation has no source snapshots.
     pub fn is_empty(&self) -> bool {
+        self.record_input(CompilationInputKey::SourceSet);
+
         self.state.sources.is_empty()
     }
 
