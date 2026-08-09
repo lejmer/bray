@@ -6,7 +6,7 @@ A type form is a compiler-recognized type-level construct.
 
 A type form can define construction behavior when constructing values of that type form requires compiler-recognized semantics.
 
-`box` is the currently defined type form with construction expression syntax.
+`box` is the sole type form with construction expression syntax.
 
 ```bray
 box[S] T

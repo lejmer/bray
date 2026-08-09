@@ -4,7 +4,7 @@ The standard library provides the ordinary user-facing raw memory surface under 
 
 The standard-library root for these declarations is `std.memory`.
 
-The raw-memory-facing standard-library surface includes:
+The raw-memory-facing standard-library surface consists of:
 
 - raw pointer helpers,
 - allocator and allocation-owner helpers,

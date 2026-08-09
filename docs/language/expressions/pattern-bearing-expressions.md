@@ -2,7 +2,7 @@
 
 A **pattern-bearing expression** is an expression form that applies a pattern to a subject value, subject access path, or subject element.
 
-Pattern-bearing expression forms include match expressions, for expressions, array generator expressions, general
+The pattern-bearing expression forms are match expressions, for expressions, array generator expressions, general
 generator iteration expressions, and local destructuring constructs.
 
 Pattern syntax, resolution, refutability, operation modes, bindings, partial moves, fact refinement, and structural matching rules
@@ -35,7 +35,7 @@ Pattern-introduced bindings participate in ownership, borrowing, mutation author
 
 Additional boolean filtering is handled by guards when the surrounding expression form defines guards.
 
-Match `case` arms are the only currently defined guard-bearing control-flow arms. Other control-flow forms use their condition expression directly rather than a separate `when` guard.
+Match `case` arms are the only guard-bearing control-flow arms. Other control-flow forms use their condition expression directly rather than a separate `when` guard.
 
 ## Navigation
 

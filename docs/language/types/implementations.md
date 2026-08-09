@@ -544,9 +544,9 @@ Trait generic parameters are inputs to the trait application.
 
 Trait type-valued members are outputs of the selected trait implementation.
 
-A generic trait should use generic parameters when the caller or constraint site chooses the type relationship.
+A generic trait uses generic parameters when the caller or constraint site chooses the type relationship.
 
-A generic trait should use type-valued members when the implementation uniquely determines the related type.
+A generic trait uses type-valued members when the implementation uniquely determines the related type.
 
 For example, `ConvertTo<Target>` uses the target type as an input:
 

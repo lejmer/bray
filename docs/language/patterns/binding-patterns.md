@@ -10,7 +10,7 @@ _
 
 The discard pattern is irrefutable.
 
-It is used when a value or part of a value should be matched without being named.
+It is used to match a value or part of a value without naming it.
 
 ## Mutable binding pattern
 

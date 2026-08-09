@@ -936,10 +936,7 @@ The grammar excludes `|` alternatives from `irrefutable-pattern` positions.
 Semantic checking still verifies that an `irrefutable-pattern` matches every value of its subject type.
 
 `irrefutable-recursive-pattern` and `case-recursive-pattern` are the two recursive specializations of the same pattern shape. They
-are separate grammar productions only because their child pattern roots differ.
-
-A hand-written parser should implement the shared pattern-primary dispatch once and pass the current pattern context into recursive
-child parsing.
+are separate grammar productions because their child pattern roots differ.
 
 A bare `identifier` is parsed through `path-irrefutable-pattern` or `path-case-pattern`. Pattern-context name resolution decides
 whether it is a binding pattern or a named pattern.

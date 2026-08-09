@@ -4,7 +4,7 @@ A **compiler-provided declaration** is a compiler-known declaration whose implem
 
 Compiler-provided declarations have ordinary declaration surfaces.
 
-Their declaration surface includes:
+Their declaration surface consists of:
 
 - owning declaration scope,
 - name,

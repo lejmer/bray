@@ -70,7 +70,7 @@ calls only through the corresponding trusted capabilities.
 
 ## Implementation allocation
 
-The following facilities are expected to be implementable in ordinary safe Bray:
+The following facilities are implemented in ordinary safe Bray:
 
 - public channel, synchronization, task-combinator, thread-owner, process-owner, codec, protocol, budget, and parallel-algorithm
   behavior,
@@ -78,7 +78,7 @@ The following facilities are expected to be implementable in ordinary safe Bray:
 - process framing, authentication, and decoded-value commit ordering,
 - composition of `Future<T>`, `Task<T>`, and `RunResult<T>`.
 
-The following facilities are expected to be implementable in trusted Bray over compiler-provided atomics, raw-memory operations,
+The following facilities are implemented in trusted Bray over compiler-provided atomics, raw-memory operations,
 manual allocation, and private runtime roles:
 
 - ready queues, waiter lists, timer heaps, task registries, permit counters, and scheduler policy,
@@ -102,7 +102,7 @@ ownership, lifecycle, cancellation, protocol, or scheduling policy.
 
 The cleanup-report sink is a product-host service and does not require an async scheduler; synchronous products using native
 threads provide it too. It is mandatory even when a product has no interactive debugger or logging backend. It accepts an ordered
-batch of owned type-erased incidents and suppressed child-run panic reports at terminal-boundary observation, reports at least each
+batch of owned type-erased incidents and suppressed child-run panic reports at terminal-boundary observation, reports each
 entry's kind, concrete type, producer/source identity, and ordinal to the product host or persistent inspection stream, then
 infallibly destroys every payload. A product policy
 can additionally terminate or render richer diagnostics, but cannot silently discard the batch or change source

@@ -321,7 +321,7 @@ A method path used without a call does not implicitly produce a callable value t
 let f = buffer.clear; // invalid
 ```
 
-Use a lambda with an explicit receiver parameter when a callable value should call a method later.
+Use a lambda with an explicit receiver parameter to create a callable value that calls a method when invoked.
 
 ```bray
 let clear_buffer = lambda (pos target: &mut Buffer)

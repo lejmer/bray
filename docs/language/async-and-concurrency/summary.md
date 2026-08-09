@@ -31,7 +31,7 @@ channels, synchronization, checkpoints, timers, and concurrent combinators remai
 trusted ABI operations.
 
 Public concurrency policy, protocols, owners, combinators, budgets, and parallel algorithms are implemented in Bray. Portable
-runtime internals should be trusted Bray; direct FFI or a narrow native shim is reserved for operating-system thread, process,
+runtime internals must be trusted Bray. Direct FFI or a narrow native shim is reserved for operating-system thread, process,
 wait/wake, event, virtual-memory, unwind, and host-integration mechanisms that the Bray abstract machine cannot perform itself.
 
 Parallel algorithms use domain-typed `std.parallel.Budget<Domain>` values as owned library-side bounds. Nested algorithms share or

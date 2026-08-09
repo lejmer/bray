@@ -62,8 +62,7 @@ An export does not create a declaration identity or introduce an unqualified nam
 declaration's ordinary name through the module's exported lookup surface, where that name must not conflict with another declaration
 or export.
 
-An additional lookup namespace exists only if this specification explicitly permits a new name category to reuse an ordinary name
-in the same scope. Bray currently defines no such category.
+Bray has no additional lookup namespaces. No name category can reuse an ordinary name in the same scope.
 
 ## Declaration identity
 

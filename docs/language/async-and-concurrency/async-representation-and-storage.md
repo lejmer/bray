@@ -38,7 +38,7 @@ This stability rule is enforced by generated code and is not exposed through a s
 
 Calling `start()` is the independent-execution storage boundary. The runtime obtains stable task-owned storage, moves the inactive
 frame into that storage before its first resume, creates the task control state, and returns the source-level `Task<T>` owner. A
-runtime should be able to co-allocate the task control state and frame, but allocation strategy is not observable language behavior.
+runtime can co-allocate the task control state and frame. Allocation strategy is not observable language behavior.
 
 Recursive async execution whose dynamically suspended depth is not statically bounded requires dynamic storage for the recursive
 activations. The compiler can use indirect frames, segmented frame storage, a task arena, tail-recursion transformation where valid,
@@ -46,7 +46,7 @@ or another representation. Source never introduces boxing or pinning solely to m
 
 ## Cost transparency
 
-Compiler inspection information for an async callable must make at least these properties available:
+Compiler inspection information for an async callable must make these properties available:
 
 - total frame size and alignment for each concrete compiled instantiation,
 - values retained across each suspension point,
@@ -55,8 +55,8 @@ Compiler inspection information for an async callable must make at least these p
 - dynamic-storage sites introduced for recursion or representation erasure,
 - execution requirements and thread-affinity constraints.
 
-These are inspection facts and diagnostic inputs, not source-visible layout guarantees. Optimization can change them without
-changing the callable's source contract unless an explicit ABI rule states otherwise.
+This information supports compiler inspection and diagnostics. It is not a source-visible layout guarantee. Optimization can
+change it without changing the callable's source contract unless an explicit ABI rule states otherwise.
 
 ## Navigation
 

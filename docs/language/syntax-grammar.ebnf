@@ -517,10 +517,6 @@ case-recursive-pattern =
     | case-tuple-pattern
     | case-array-pattern ;
 
-(* The irrefutable and case recursive productions are context specializations
-   of the same parser shape. A hand-written parser should dispatch through one
-   pattern-primary routine parameterized by the current pattern context. *)
-
 discard-pattern =
     "_" ;
 

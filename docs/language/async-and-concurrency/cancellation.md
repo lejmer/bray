@@ -15,7 +15,7 @@ Forwarding `RunResult.Cancelled` marks the current run as cancellation-requested
 cancellation cleanup. It does not wait for another checkpoint. Lifecycle bodies therefore observe cancellation as requested while
 resolving that path.
 
-The ordinary standard-library run surface is semantically equivalent to:
+The public `std.run` declarations are:
 
 ```bray
 func cancellation_requested() -> bool;
@@ -41,8 +41,8 @@ callable's ordinary result type. An uncaught cancellation reaches the current ru
 panics or normal completion won a permitted request race before cancellation was committed.
 
 Pure computation containing no checkpoint or cancellation-aware operation can delay a request indefinitely. Bray does not preempt
-arbitrary source instructions. Implementations should diagnose evident async loops or long-running computation paths with no
-observation opportunity.
+arbitrary source instructions. A compiler must warn when it proves that a reachable async cycle has no cancellation observation
+opportunity. Failure to prove such a cycle does not affect program validity.
 
 ## Cleanup shielding
 

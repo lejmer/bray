@@ -4,7 +4,8 @@ A **literal expression** directly denotes a literal value written in source text
 
 Literal expressions are expression grammar forms. They are checked in expression context and receive a type during binding and type checking.
 
-Literal expressions currently include integer literals, real literals, imaginary literals, boolean literals, character literals, and string literals.
+The literal expression grammar consists of integer literals, real literals, imaginary literals, boolean literals, character
+literals, and string literals.
 
 ```bray
 1
@@ -430,7 +431,7 @@ let x: i32 = 1;
 let y: r64 = 1.0;
 ```
 
-The only suffix currently used in numeric literal syntax is `i` for imaginary literals.
+Numeric literal syntax has no type suffixes. The suffix `i` is reserved for forming imaginary literals.
 
 ```bray
 let z: c128 = 1.0 + 2.0i;

@@ -7,6 +7,10 @@ by name by the language.
 The standard library is written in Bray over the compiler-known types and private trusted runtime ABI declarations. Its public
 surface does not expose those private ABI declarations.
 
+Every public declaration written in this chapter is normative. Its module, name, generic parameters, ownership modifiers, result,
+and contracts are exact. An implementation can choose private representation and lowering, but cannot substitute a merely
+equivalent public API.
+
 General stream, path, filesystem, process-context, raw child-process, clock, and entropy semantics are defined by
 [I/O and platform services](../io-and-platform-services.md). This chapter defines the additional concurrency, typed child-process,
 and structured ownership contracts built over that surface.
@@ -15,17 +19,17 @@ and structured ownership contracts built over that surface.
 
 The concurrency and parallelism implementation is divided into three layers:
 
-| Layer | Required role |
-| --- | --- |
-| Ordinary safe Bray | Public owners, state machines, protocols, policies, combinators, budgets, and parallel algorithms |
-| Trusted Bray | Raw internal representations, atomics-based synchronization internals, runtime-event integration, callback context handling, and safe wrappers around platform handles |
+| Layer                        | Required role                                                                                                                                                                                                                   |
+|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Ordinary safe Bray           | Public owners, state machines, protocols, policies, combinators, budgets, and parallel algorithms                                                                                                                               |
+| Trusted Bray                 | Raw internal representations, atomics-based synchronization internals, runtime-event integration, callback context handling, and safe wrappers around platform handles                                                          |
 | Product or platform boundary | Operations unavailable in the Bray abstract machine, such as creating native threads or processes, waiting on operating-system events, signalling or reaping processes, polling platform reactors, and acquiring virtual memory |
 
 The public standard-library layer is Bray source. In particular, channel semantics, task combinators, thread and process ownership,
 typed process protocols, codecs, termination policy, budgets, cancellation composition, and parallel algorithms are not delegated
 to C, Rust, or another foreign library.
 
-Portable target-independent internals should also be trusted Bray. This includes ready queues, waiter lists, permit accounting,
+Portable target-independent internals must also be trusted Bray. This includes ready queues, waiter lists, permit accounting,
 reference management, protocol framing, timer data structures, scheduler policy, and lifecycle state machines when the required
 atomic, memory, and runtime operations are available through Bray contracts.
 
@@ -59,7 +63,7 @@ func checkpoint();
 `cancellation_requested()` reports the current run's request state. `checkpoint()` enters cancellation when a request is pending
 and otherwise returns normally. Executable roots, tasks, native threads, and conforming child-process roots all use this state.
 
-`std.task` provides async-domain conveniences including:
+`std.task` provides these async-domain declarations:
 
 ```bray
 func cancellation_requested() -> bool;
@@ -72,7 +76,8 @@ The task helpers delegate to `std.run`. `yield_now()` additionally allows anothe
 
 ## Channels and synchronization
 
-The minimum public channel surface is semantically equivalent to:
+The public `std.sync` channel owner types are `Sender<T>` and `Receiver<T>`. Their representation is internal to the standard
+library, and neither has public primary construction. The public channel declarations are:
 
 ```bray
 union SendError<T>
@@ -86,21 +91,11 @@ union ReceiveResult<T>
     Closed;
 }
 
-struct Sender<T>
-{
-    internal state: SenderState<T>;
-}
-
 impl Sender<T>
 {
     func duplicate() -> Sender<T>;
     async func send(pos value: T) -> Result<unit, SendError<T>>;
     func close();
-}
-
-struct Receiver<T>
-{
-    internal state: ReceiverState<T>;
 }
 
 impl Receiver<T>
@@ -119,10 +114,8 @@ instantiates the template for that destination. A concrete use is rejected when 
 thread affinity, unsynchronized mutation authority, or a lifecycle obligation that the receiver cannot resolve. This is ordinary
 generic dependency-contract inference, not a channel-specific trait bound or compiler-recognized `std` declaration.
 
-The internal state types in these conceptual signatures are implementation placeholders, not public contracts. The owner types have
-no public primary construction. Bounded channel construction, asynchronous send, asynchronous receive, closure, and explicit sender
-duplication are implemented with ordinary ownership, unions, atomics, synchronization types, async functions, and a runtime-backed
-event primitive.
+Bounded channel construction, asynchronous send, asynchronous receive, closure, and explicit sender duplication are implemented
+with ordinary ownership, unions, atomics, synchronization types, async functions, and a runtime-backed event primitive.
 
 Cancellation-safe channel operations register a waiter before suspension, withdraw an uncommitted waiter during cancellation, and
 transfer an owned message only at the operation's atomic commit point. Before commit, the sending frame still owns the value and
@@ -132,12 +125,12 @@ normal cancellation cleanup resolves it.
 `receive` returns queued values before returning `ReceiveResult.Closed`; it returns `Closed` only when no queued value remains and
 every sender is closed or destroyed. `close` is idempotent. Destroying the final endpoint performs the corresponding close operation.
 
-`std.sync` provides ordinary synchronization types such as mutexes, events, and higher-level atomic wrappers. The safe contracts of
+`std.sync` provides mutexes, events, and higher-level atomic wrappers. The safe contracts of
 those types establish the cross-run visibility edges they expose.
 
 ## Concurrent combinators
 
-The minimum first-completion surface is:
+The public `std.task` first-completion declaration is:
 
 ```bray
 async func first<T, const N: usize>(pos computations: [Future<T>; N]) -> RunResult<T>
@@ -165,7 +158,8 @@ ordinary Bray contract.
 
 ## Operating-system threads
 
-The minimum operating-system-thread surface is semantically equivalent to:
+The public `std.thread` owner type is `Thread<T>`. `ThreadFailure` is its creation-failure record. Their representation is internal
+to the standard library, and neither has public primary construction. The public operating-system-thread declarations are:
 
 ```bray
 callable Entry<State, T> = func(pos state: State) -> T
@@ -173,16 +167,6 @@ callable Entry<State, T> = func(pos state: State) -> T
         blocking_execution(),
         compute_execution(),
     );
-
-struct Thread<T>
-{
-    internal state: ThreadState<T>;
-}
-
-struct ThreadFailure
-{
-    internal state: ThreadFailureState;
-}
 
 union ThreadError
 {
@@ -279,44 +263,11 @@ the native thread creation, wait, and wake mechanism must cross the platform bou
 a value of type `T`. Process binding is explicit and does not depend on compiler reflection, synthesized serialization, or a
 compiler-recognized entrypoint shape.
 
-The minimum typed-process surface is semantically equivalent to:
+The public `std.process` owner and descriptor types are `Executable`, `Codec<T>`, `TerminationPolicy`, `Program<Input, T>`,
+`Process<T>`, `ProcessFailure`, and `CodecFailure`. Their representation is internal to the standard library, and none has public
+primary construction. The public typed-process declarations are:
 
 ```bray
-struct Executable
-{
-    internal state: ExecutableState;
-}
-
-struct Codec<T>
-{
-    internal state: CodecState<T>;
-}
-
-struct TerminationPolicy
-{
-    internal state: TerminationPolicyState;
-}
-
-struct Program<Input, T>
-{
-    internal state: ProgramState<Input, T>;
-}
-
-struct Process<T>
-{
-    internal state: ProcessState<T>;
-}
-
-struct ProcessFailure
-{
-    internal state: ProcessFailureState;
-}
-
-struct CodecFailure
-{
-    internal state: CodecFailureState;
-}
-
 union ProcessError
 {
     Creation(pos failure: ProcessFailure);
@@ -459,17 +410,14 @@ corresponding synchronization, lifetime, authority, and cleanup obligations.
 `std.parallel` provides ordinary Bray algorithms over explicit execution resources. Parallelism is not inferred from an ordinary
 loop and no algorithm creates an unbounded private worker pool.
 
-The minimum resource-policy surface is semantically equivalent to:
+`TaskDomain`, `ThreadDomain`, and `ProcessDomain` are public `std.parallel` domain marker types. `Budget<Domain>` is a public owner
+whose representation is internal to the standard library and which has no public primary construction. The public resource-policy
+declarations are:
 
 ```bray
 struct TaskDomain {}
 struct ThreadDomain {}
 struct ProcessDomain {}
-
-struct Budget<Domain>
-{
-    internal state: BudgetState<Domain>;
-}
 
 union BudgetError
 {

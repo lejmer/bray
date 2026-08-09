@@ -73,7 +73,7 @@ The language-defined target fact groups are:
   facts,
 - `target.linkage`: symbol encoding, linkage kind, and external artifact facts exposed by the target profile.
 
-The target fact surface includes these language-defined facts:
+The target fact surface consists of these language-defined facts:
 
 ```bray
 target.identity.NAME
@@ -161,7 +161,7 @@ promises equal C value representation, size, alignment, and by-value classificat
 insufficient. The standard library selects transparent C wrappers with exact comparisons against these facts. A public wrapper,
 constant, layout, or callable signature selected that way records the consulted `target.c` fact in its compiled interface.
 
-The native target profiles use this closed initial mapping:
+The C scalar mappings for the native target profiles are:
 
 | Targets | `CHAR` | `LONG` / `UNSIGNED_LONG` | `WCHAR` | `LONG_DOUBLE` |
 | --- | --- | --- | --- | --- |
@@ -175,7 +175,7 @@ For every row, `SIGNED_CHAR = i8`, `UNSIGNED_CHAR = u8`, `SHORT = i16`, `UNSIGNE
 `UNSIGNED_INT = u32`, `LONG_LONG = i64`, `UNSIGNED_LONG_LONG = u64`, `SIZE = usize`, `PTRDIFF = isize`, `BOOL = bool`,
 `FLOAT = r32`, and `DOUBLE = r64`. A target profile cannot claim `target.abi.C` unless every non-`unavailable` mapping is
 available and satisfies the equality contract above. A C type whose representation has no exact Bray scalar remains unavailable.
-the compiler and standard library do not approximate it with an equal-size byte product.
+The compiler and standard library do not approximate it with an equal-size byte product.
 
 Exactly one of `target.endian.LITTLE` and `target.endian.BIG` is true.
 

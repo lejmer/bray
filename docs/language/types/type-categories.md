@@ -2,7 +2,7 @@
 
 Bray has multiple type categories.
 
-The type categories include:
+The type categories are:
 
 - scalar types,
 - product types,
@@ -17,7 +17,8 @@ The type categories include:
 - owned-indirection types,
 - callable types.
 
-Scalar types include integers, real floating-point types, complex floating-point types, machine-sized integer types, `bool`, `char`, `unit`, and `never`.
+Scalar types are integers, real floating-point types, complex floating-point types, machine-sized integer types, `bool`, `char`,
+`unit`, and `never`.
 
 Product types are named types with fields.
 

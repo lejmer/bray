@@ -64,7 +64,7 @@ dependency and affinity rules.
 `main_thread_execution()` is an execution-context fact, not ownership of a `MainThread` handle. Standard-library or user APIs that
 must execute on the initial thread state that requirement in `requires(...)`.
 
-Ordinary observational thread identity can use a standard-library surface semantically equivalent to:
+`std.thread` provides these public observational thread-identity declarations:
 
 ```bray
 struct Id {}
@@ -79,10 +79,10 @@ These declarations belong to `std.thread`. Their values do not grant execution a
 
 ## Current-process facilities
 
-The current process is observed through ordinary standard-library operations such as process identity, arguments, environment, and
+The current process is observed through ordinary standard-library operations for process identity, arguments, environment, and
 host integration. Those operations do not manufacture an owning `std.process.Process<T>` for the current process.
 
-The minimum observational surface under `std.process` is semantically equivalent to:
+`std.process` provides these public current-process observation declarations:
 
 ```bray
 struct Id {}
@@ -111,7 +111,7 @@ RunResult<T>
 
 This observation is a host operation rather than a source-level `Task<T>.join()`.
 
-For an entrypoint returning `Result<unit, E>`, the conceptual root outcome is
+For an entrypoint returning `Result<unit, E>`, the root outcome is
 `RunResult<Result<unit, E>>`. The product contract maps:
 
 - `RunResult.Completed(Result.Ok(unit))` to successful completion,
