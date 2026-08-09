@@ -157,7 +157,7 @@ target.platform.dynamic_loading
 The other facts listed above have type `bool`.
 
 Each `target.c` fact is either the canonical spelling of one available Bray scalar type or `"unavailable"`. A scalar mapping
-promises equal C value representation, size, alignment, and by-value classification under `target.abi.C`; equal width alone is
+promises equal C value representation, size, alignment, and by-value classification under `target.abi.C`. Equal width alone is
 insufficient. The standard library selects transparent C wrappers with exact comparisons against these facts. A public wrapper,
 constant, layout, or callable signature selected that way records the consulted `target.c` fact in its compiled interface.
 
@@ -174,7 +174,7 @@ The native target profiles use this closed initial mapping:
 For every row, `SIGNED_CHAR = i8`, `UNSIGNED_CHAR = u8`, `SHORT = i16`, `UNSIGNED_SHORT = u16`, `INT = i32`,
 `UNSIGNED_INT = u32`, `LONG_LONG = i64`, `UNSIGNED_LONG_LONG = u64`, `SIZE = usize`, `PTRDIFF = isize`, `BOOL = bool`,
 `FLOAT = r32`, and `DOUBLE = r64`. A target profile cannot claim `target.abi.C` unless every non-`unavailable` mapping is
-available and satisfies the equality contract above. A C type whose representation has no exact Bray scalar remains unavailable;
+available and satisfies the equality contract above. A C type whose representation has no exact Bray scalar remains unavailable.
 the compiler and standard library do not approximate it with an equal-size byte product.
 
 Exactly one of `target.endian.LITTLE` and `target.endian.BIG` is true.

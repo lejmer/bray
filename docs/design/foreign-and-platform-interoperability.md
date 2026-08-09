@@ -37,7 +37,7 @@ Foreign interoperability follows these rules:
 - A foreign panic boundary never unwinds through a non-Bray ABI frame.
 - Portable standard-library modules do not expose operating-system constants or raw platform representations.
 - Target-specific modules use ordinary `@target(...)` contributions and leave no fallback declaration on unsupported targets.
-- The compiler validates and lowers declared contracts; it does not invent missing foreign ownership or failure contracts.
+- The compiler validates and lowers declared contracts. It does not invent missing foreign ownership or failure contracts.
 - Native code provides irreducible ABI normalization and operating-system mechanisms, not portable policy.
 
 ## Public Package Layout
@@ -87,7 +87,7 @@ No general module-level type alias is introduced, and a C wrapper is not implici
 scalar.
 
 Each fact maps one C type to a canonical Bray scalar spelling or `"unavailable"`. The target profile validator guarantees equal
-value representation, size, alignment, and C callable classification; the standard library then selects one target-gated
+value representation, size, alignment, and C callable classification. The standard library then selects one target-gated
 transparent wrapper by an exact fact comparison. A wrapper is unavailable when its fact is `"unavailable"`. Compiled package
 interfaces record every `target.c` fact that affects a public representation.
 
@@ -126,7 +126,7 @@ symbol name or result type.
 ## Foreign Resources And Native Handles
 
 A foreign resource is a value whose lifecycle is controlled partly by code outside Bray. A native handle is one possible raw
-representation of such a resource; it is not itself the ownership contract.
+representation of such a resource. It is not itself the ownership contract.
 
 The public library does not define one universal `NativeHandle` that erases resource kind, target, close operation, affinity, or
 invalid representation. Concrete owners such as `DynamicLibrary`, a Windows kernel-handle owner, or a Linux file-descriptor owner
@@ -143,7 +143,7 @@ Every owning resource type defines:
 - and the typed failure behavior of explicit release.
 
 Successful acquisition returns an initialized owner. Failure returns no owner. A raw invalid value is validated at the trusted
-boundary and never represented as an apparently live owner. Public absence uses `Option`; operational failure uses `Result`.
+boundary and never represented as an apparently live owner. Public absence uses `Option`. Operational failure uses `Result`.
 
 Explicit release consumes the owner and returns its fallible result. Destruction provides the contractually required best-effort
 cleanup for an owner that was not explicitly released, but cannot turn a fallible release into observable success. APIs for which
@@ -151,7 +151,7 @@ release failure must be observed require explicit resolution before normal compl
 
 Borrowing a resource exposes only the operations admitted by that borrow. Raw-handle observation is a trusted operation whose
 result carries the owner's dependency. Ownership transfer consumes the owner and returns a target-specific transfer value or passes
-the value directly to the receiving boundary; it does not copy the raw representation while leaving two apparent owners.
+the value directly to the receiving boundary. It does not copy the raw representation while leaving two apparent owners.
 
 Resource duplication is a distinct fallible operation supplied only where the target contract can create an independent ownership
 obligation. Retaining an externally reference-counted resource is likewise explicit and returns a new owner only after the foreign
@@ -172,7 +172,7 @@ Symbol lookup accepts an exact native symbol name and an ABI-qualified requested
 `DynamicSymbol<T>` borrowed from the library owner. The symbol cannot outlive the library, and the library cannot be closed while a
 symbol borrow remains active.
 
-The requested type is part of the trusted lookup boundary. The loader can establish only that an address exists; it cannot prove a
+The requested type is part of the trusted lookup boundary. The loader can establish only that an address exists. It cannot prove a
 foreign function's signature, data layout, ownership, effects, or failure behavior. Safe wrappers therefore keep typed lookup
 inside a trusted module and publish an ordinary Bray callable or owner whose complete contract is declared in source.
 
@@ -205,13 +205,13 @@ lambda, borrowed local state, or a dynamically unloadable callable without anoth
 
 Bray callable values remain capture-free. A stateful foreign callback uses an explicit `std.ffi.CallbackContext<State>` owner plus
 a static ABI-qualified entry whose first parameter is the context pointer. Context construction consumes one explicit `State`
-value; it does not inspect a lambda or capture an enclosing binding. Borrowing the foreign pair preserves the context-owner
+value. It does not inspect a lambda or capture an enclosing binding. Borrowing the foreign pair preserves the context-owner
 dependency and produces the supplied static entry pointer plus the opaque pointer expected by that entry.
 
 A trusted entry reconstructs a borrow of `State` through the recognized `std.ffi.callback_state<State>(context)` operation. The
 compiler accepts that operation only inside an exported ABI callable whose matching context parameter is live, records the borrow
 against the context owner, and lowers it without inventing hidden callable state. The ordinary exported-callable wrapper supplies
-foreign-thread entry and panic containment; there is no separate capture-synthesis hook.
+foreign-thread entry and panic containment. There is no separate capture-synthesis hook.
 
 The context owner is non-copyable. Its explicit state is checked by ordinary ownership, run-transfer, synchronization, and
 thread-affinity rules. A wrapper cannot hide a borrowed local in a retained context. Transfer to foreign ownership consumes the
@@ -225,7 +225,7 @@ declared lifetime rather than guessing from the C signature.
 For retained callbacks, successful deregistration must guarantee that the foreign provider will begin no new invocation. The
 wrapper then waits for every already-entered invocation to leave before destroying the context. If an API cannot provide that
 quiescence contract, a Bray-owned retained context cannot safely wrap it. Invocation after release violates the foreign API
-precondition before Bray entry; a trampoline never dereferences retired storage merely to diagnose that violation.
+precondition before Bray entry. A trampoline never dereferences retired storage merely to diagnose that violation.
 
 ### Callback Entry
 
@@ -331,11 +331,11 @@ callback, or error policy.
 The private platform-service catalog is extended only for mechanisms that must be supplied by the selected target artifact. The
 dynamic-loader roles and their exact schemas are defined in `docs/design/io-and-platform-services.md`. They use role IDs
 `0x0801` through `0x0804`, the `dynamic_library` handle class, the `dynamic_loading` capability, and the existing structured status
-record. The provider retains target loader error codes in `native_code`; it never returns host prose.
+record. The provider retains target loader error codes in `native_code`. It never returns host prose.
 
 Foreign caller-thread attachment is not a platform-service role. Callback entry reuses `bray-platform::RuntimeThreadScope` and the
 existing synchronous-root runtime ABI. Target-specific duplication or transfer is added to the closed catalog only together with a
-public target-module consumer and an allocated role schema; this contract allocates no speculative generic resource role.
+public target-module consumer and an allocated role schema. This contract allocates no speculative generic resource role.
 
 Every role has one typed ABI schema, ownership behavior, blocking behavior, target availability rule, and stable role identity. Role
 bindings are selected from the standard-library product manifest and validated like existing stream, filesystem, process, clock,

@@ -198,7 +198,7 @@ The ABI shape vocabulary is:
 | `mut_bytes(operation)` | Pointer plus `u64` length retained writable until operation completion |
 | `path` | Call-only bytes in the target-native path encoding named by the target contract |
 | `native_text` | Call-only units in the target-native process-text encoding named by the target contract |
-| `raw_address` | One target-width non-owning address; zero is invalid for a successful symbol lookup |
+| `raw_address` | One target-width non-owning address. Zero is invalid for a successful symbol lookup |
 | `span_list` | Call-only pointer plus count of call-only byte spans |
 | `environment_list` | Call-only pointer plus count of key and value byte-span pairs |
 | `handle_ref<K>` | Borrowed nonzero `u64` opaque handle of class `K` |
@@ -491,10 +491,10 @@ loading named-zone data.
 
 | ID | Role | Parameters | Results | Status set | Mode and effects |
 | ---: | --- | --- | --- | --- | --- |
-| `0x0801` | `platform.dynamic_library.open_path` | `path`, `u32 policy` | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`; creates an owner only on success |
-| `0x0802` | `platform.dynamic_library.open_system` | `u32 identity`, `u32 policy` | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`; creates an owner only on success |
-| `0x0803` | `platform.dynamic_library.symbol` | `handle_ref<dynamic_library>`, `const_bytes(call) name` | `out<raw_address>` | `dynamic_loading` | `may_block`; retains the library owner and creates no ownership |
-| `0x0804` | `platform.dynamic_library.close` | `handle_owner<dynamic_library>` | none | `dynamic_loading` | `may_block`; consumes the owner on every terminal status |
+| `0x0801` | `platform.dynamic_library.open_path` | `path`, `u32 policy` | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`, creates an owner only on success |
+| `0x0802` | `platform.dynamic_library.open_system` | `u32 identity`, `u32 policy` | `out<handle_owner<dynamic_library>>` | `dynamic_loading` | `may_block`, creates an owner only on success |
+| `0x0803` | `platform.dynamic_library.symbol` | `handle_ref<dynamic_library>`, `const_bytes(call) name` | `out<raw_address>` | `dynamic_loading` | `may_block`, retains the library owner and creates no ownership |
+| `0x0804` | `platform.dynamic_library.close` | `handle_owner<dynamic_library>` | none | `dynamic_loading` | `may_block`, consumes the owner on every terminal status |
 
 All four roles use immediate completion and `not_applicable` cancellation. Policy values are `0` for local visibility with
 immediate resolution, `1` for local visibility with lazy resolution, `2` for global visibility with immediate resolution, and `3`
@@ -502,12 +502,12 @@ for global visibility with lazy resolution. A target returns `Unsupported` befor
 policy. Other values are `InvalidInput`.
 
 `open_path` uses the target-native path exactly and performs no ambient search. `open_system` accepts only an identity allocated by
-the selected target-specific standard-library module; it invokes the target's system-library facility without consulting the
+the selected target-specific standard-library module. It invokes the target's system-library facility without consulting the
 working directory, process environment, package graph, or network. Unknown identities are `InvalidInput`.
 
 `symbol` requires a nonempty exact byte name without an interior NUL. `NotFound` means unavailable symbol for this role and
 unavailable library for either open role. On success, `raw_address` is nonzero and remains valid only while the borrowed library
-owner remains live. The role proves address existence only; the trusted Bray wrapper remains responsible for the requested callable
+owner remains live. The role proves address existence only. The trusted Bray wrapper remains responsible for the requested callable
 or data type. A failed close still consumes the native owner, matching the best-effort destruction contract and preventing a second
 close of an indeterminate loader state.
 

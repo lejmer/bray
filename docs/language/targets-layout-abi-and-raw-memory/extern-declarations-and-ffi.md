@@ -178,7 +178,7 @@ state type is the one owned by the registered context. The resulting borrow cann
 owner. This operation does not capture enclosing state or create a bound callable.
 
 A retained registration must deregister first, prevent new invocations, and wait for in-flight entries before resolving the context
-owner. Invocation after the foreign provider has released the context violates the foreign API contract before Bray entry; no
+owner. Invocation after the foreign provider has released the context violates the foreign API contract before Bray entry. No
 generated wrapper reads retired storage to diagnose it.
 
 ## Navigation
