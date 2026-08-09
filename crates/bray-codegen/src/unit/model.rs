@@ -72,7 +72,7 @@ impl CodegenUnitKey {
 }
 
 /// One immutable independently generated collection of concrete MIR definitions.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CodegenUnit {
     key: CodegenUnitKey,
     target: MirTargetFacts,
@@ -197,7 +197,7 @@ fn content_identity(partition_revision: u32, instances: &[CodegenInstance]) -> [
 }
 
 /// A contract violation that prevents creation of a code generation unit.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenUnitBuildError {
     /// The partition contains no definitions.
     Empty,

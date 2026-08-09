@@ -16,7 +16,7 @@ pub(crate) fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
 }
 
 /// Immutable package-interface bytes with an eagerly validated structural envelope.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ValidatedPackageInterface {
     bytes: Arc<[u8]>,
     header: InterfaceHeader,

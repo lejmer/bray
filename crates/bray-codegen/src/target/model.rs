@@ -183,7 +183,7 @@ impl CodegenTarget {
 }
 
 /// A contract violation that prevents creation of a codegen target.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenTargetBuildError {
     /// The selected profile is not a native toolchain target.
     UnsupportedProfile,

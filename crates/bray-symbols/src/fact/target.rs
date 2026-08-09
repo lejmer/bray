@@ -35,7 +35,7 @@ impl TargetFactDependency {
 }
 
 /// The selected product and target result for one source module contribution.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ModuleContributionGate {
     enabled: bool,
     dependencies: Arc<[TargetFactDependency]>,

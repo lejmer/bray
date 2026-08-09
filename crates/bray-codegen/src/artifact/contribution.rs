@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// One immutable logically identified artifact contribution produced by a backend.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BackendArtifactContribution {
     id: BackendArtifactId,
     content: ArtifactContent,
@@ -62,7 +62,7 @@ impl BackendArtifactContribution {
 }
 
 /// Complete immutable artifact contributions for one authoritative codegen request.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BackendArtifactSet {
     unit: CodegenUnitKey,
     backend: BackendIdentity,

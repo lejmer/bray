@@ -46,7 +46,7 @@ impl SelectedPredicateArgument {
 }
 
 /// The exact predicate application selected for one source call.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedPredicateApplication {
     callee: BoundExpressionId,
     predicate: PredicateDefinitionSymbolId,

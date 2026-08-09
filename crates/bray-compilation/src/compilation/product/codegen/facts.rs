@@ -6,7 +6,7 @@ use bray_linker::LinkSearchPath;
 use bray_runtime_interface::ExecutableHostContract;
 
 /// Compilation-owned native product facts consumed by emission.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub struct NativeProductFacts {
     pub(super) backend: EmissionBackend,
     pub(super) target: CodegenTarget,

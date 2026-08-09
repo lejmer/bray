@@ -65,7 +65,7 @@ pub enum CatalogSurfaceElement {
 }
 
 /// Pre-parsed source-independent syntax for one declaration surface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogDeclarationSurfaceSyntax {
     pub(super) surface: CatalogDeclarationSurface,
     pub(super) kind: CatalogDeclarationKind,
@@ -109,7 +109,7 @@ pub enum CatalogGenericParameterKind {
 }
 
 /// One written generic parameter in generated declaration syntax.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogGenericParameter {
     kind: CatalogGenericParameterKind,
     name: String,
@@ -128,7 +128,7 @@ impl CatalogGenericParameter {
 }
 
 /// The signature-owned child shape of one generated declaration surface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogDeclarationSignature {
     generic_parameters: Box<[CatalogGenericParameter]>,
     implementation_parameter_candidates: Box<[CatalogGenericParameter]>,
@@ -177,7 +177,7 @@ impl CatalogDeclarationSignature {
 }
 
 /// Pre-parsed source-independent syntax for one type-expression surface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CatalogTypeSurfaceSyntax {
     pub(super) surface: CatalogTypeSurface,
     pub(super) elements: Cow<'static, [CatalogSurfaceElement]>,

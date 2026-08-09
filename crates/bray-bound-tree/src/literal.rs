@@ -33,7 +33,7 @@ impl CheckedLiteralValueEntry {
 }
 
 /// Complete immutable literal values for one checked bound unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedLiteralValues {
     unit: BoundUnitId,
     kind: BoundUnitKind,

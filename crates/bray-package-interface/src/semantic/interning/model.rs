@@ -51,7 +51,7 @@ impl From<SemanticValueStoreError> for InterfaceSemanticInternError {
 }
 
 /// Immutable compilation-local IDs produced from one decoded semantic interface graph.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ImportedSemanticFacts {
     pub(super) interface_facts: Arc<InterfaceSemanticFacts>,
     pub(super) types: Arc<[TypeId]>,
@@ -80,7 +80,7 @@ pub struct ImportedSemanticFacts {
 }
 
 /// One imported declaration-owned checked template and its exact semantic owner.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ImportedDeclarationTemplateFact {
     pub(super) owner: AnySymbolId,
     pub(super) kind: CheckedTemplateKind,
@@ -90,7 +90,7 @@ pub struct ImportedDeclarationTemplateFact {
 }
 
 /// One exact imported symbol-owned semantic fact.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ImportedSemanticFact {
     /// One callable signature template.
     CallableSignature(ImportedCallableSignatureFact),
@@ -121,7 +121,7 @@ pub enum ImportedSemanticFact {
 }
 
 /// One imported declaration-owned checked type.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ImportedDeclaredTypeFact {
     pub(super) owner: AnySymbolId,
     pub(super) ty: TypeId,

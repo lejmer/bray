@@ -132,7 +132,7 @@ impl ProductTestEntry {
 }
 
 /// Semantic roots and public declarations of one selected product.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProductSemanticFacts {
     kind: ProductKind,
     entrypoint: Option<FunctionSymbolId>,

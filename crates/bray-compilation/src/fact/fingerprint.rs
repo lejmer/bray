@@ -54,23 +54,41 @@ impl CompilationInputs {
     pub(crate) fn get(&self, key: &CompilationInputKey) -> Option<FactFingerprint> {
         self.0.get(key).copied()
     }
+
+    pub(crate) fn has_same_identity_namespace(&self, other: &Self) -> bool {
+        self.0
+            .iter()
+            .filter(|(key, _)| key.affects_identity_namespace())
+            .eq(other
+                .0
+                .iter()
+                .filter(|(key, _)| key.affects_identity_namespace()))
+    }
+}
+
+impl CompilationInputKey {
+    const fn affects_identity_namespace(&self) -> bool {
+        matches!(
+            self,
+            Self::PackageIdentity
+                | Self::SourceSet
+                | Self::Source(_)
+                | Self::DependencySet
+                | Self::DependencyInterface(_)
+                | Self::DependencyImplementation(_)
+                | Self::StandardLibrary
+        )
+    }
 }
 
 impl FactDependencyRecord {
     pub(crate) fn new(
-        key: &CompilationFactKey,
+        fingerprint: FactFingerprint,
         facts: BTreeMap<CompilationFactKey, FactFingerprint>,
         inputs: BTreeMap<CompilationInputKey, FactFingerprint>,
     ) -> Self {
-        let mut hasher = StableDigestHasher::new();
-
-        COMPILER_SEMANTIC_REVISION.hash(&mut hasher);
-        key.hash(&mut hasher);
-        facts.hash(&mut hasher);
-        inputs.hash(&mut hasher);
-
         Self {
-            fingerprint: FactFingerprint(hasher.finalize()),
+            fingerprint,
             facts,
             inputs,
         }
@@ -89,6 +107,19 @@ impl FactDependencyRecord {
     }
 }
 
+pub(crate) fn fact_fingerprint<T>(key: &CompilationFactKey, value: &T) -> FactFingerprint
+where
+    T: Hash + ?Sized,
+{
+    let mut hasher = StableDigestHasher::new();
+
+    COMPILER_SEMANTIC_REVISION.hash(&mut hasher);
+    key.hash(&mut hasher);
+    value.hash(&mut hasher);
+
+    FactFingerprint(hasher.finalize())
+}
+
 pub(crate) fn fingerprint<T>(key: &CompilationInputKey, value: &T) -> FactFingerprint
 where
     T: Hash + ?Sized,
@@ -100,4 +131,18 @@ where
     value.hash(&mut hasher);
 
     FactFingerprint(hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fact_fingerprint;
+    use crate::fact::CompilationFactKey;
+
+    #[test]
+    fn fact_fingerprints_include_result_content() {
+        let key = CompilationFactKey::SyntaxTree;
+
+        assert_ne!(fact_fingerprint(&key, &11_u8), fact_fingerprint(&key, &12_u8));
+        assert_eq!(fact_fingerprint(&key, &11_u8), fact_fingerprint(&key, &11_u8));
+    }
 }

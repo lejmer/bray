@@ -21,7 +21,7 @@ use bray_syntax::{
 use super::state::Parser;
 
 /// Syntax tree plus diagnostics for a source store.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SyntaxTreeResult {
     syntax_tree: SyntaxTree,
     diagnostics: DiagnosticBag,
@@ -79,7 +79,7 @@ pub fn parse_compilation_unit(sources: &SourceStore) -> SyntaxTreeResult {
 }
 
 /// Source-unit syntax plus diagnostics.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SourceUnitSyntaxResult {
     source_id: SourceId,
     source_unit: SourceUnitSyntax,

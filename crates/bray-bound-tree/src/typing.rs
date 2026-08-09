@@ -77,7 +77,7 @@ impl ExpressionTypeEntry {
 }
 
 /// Complete immutable expression types for one bound semantic unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedExpressionTypes {
     unit: BoundUnitId,
     kind: BoundUnitKind,

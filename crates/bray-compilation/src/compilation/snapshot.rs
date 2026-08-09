@@ -145,11 +145,7 @@ fn fork_semantic_values(
         return;
     };
 
-    updated.semantic_values = FactCell::ready(
-        CompilationFactKey::SemanticValueStore,
-        previous_store.fork(),
-    );
-
+    updated.semantic_values = std::sync::OnceLock::from(previous_store.fork());
 }
 
 fn shared_sources(previous: &SourceStore, updated: &SourceStore) -> SourceStore {
@@ -197,11 +193,6 @@ fn reuse_fixed_cells(
     );
 
     reuse!(selected_target, CompilationFactKey::SelectedTarget);
-
-    reuse!(
-        bound_unit_identities,
-        CompilationFactKey::BoundUnitIdentities
-    );
 
     reuse!(
         discovery_symbol_graph,
@@ -677,13 +668,6 @@ mod tests {
             ))
             .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
-        assert!(
-            !previous
-                .state
-                .semantic_values
-                .shares_storage_with(&updated.state.semantic_values)
-        );
-
         let updated_store = updated
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("updated semantic store must build: {error:?}"));
@@ -721,11 +705,15 @@ mod tests {
                 .shares_cell_with(&updated.state.bound_units, &stable_unit)
         );
 
-        assert!(
-            !previous
-                .state
-                .semantic_values
-                .shares_storage_with(&updated.state.semantic_values)
+        assert_ne!(
+            previous
+                .semantic_value_store()
+                .unwrap_or_else(|error| panic!("previous semantic store must exist: {error:?}"))
+                .id(),
+            updated
+                .semantic_value_store()
+                .unwrap_or_else(|error| panic!("updated semantic store must exist: {error:?}"))
+                .id()
         );
     }
 

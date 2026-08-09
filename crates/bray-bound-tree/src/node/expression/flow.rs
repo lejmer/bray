@@ -20,7 +20,7 @@ pub enum BoundControlTransferKind {
 }
 
 /// A source control transfer with its exact semantic target.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundControlTransferExpression {
     origin: BoundNodeOrigin,
     kind: BoundControlTransferKind,

@@ -61,7 +61,7 @@ impl BodyBehaviorCall {
 }
 
 /// Direct semantic contributions discovered in one checked bound unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BodyBehaviorContributions {
     unit: BoundUnitId,
     kind: BoundUnitKind,
@@ -123,7 +123,7 @@ impl BodyBehaviorContributions {
 }
 
 /// Normalized effects and obligations of one checked semantic body.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedBodyBehavior {
     unit: BoundUnitId,
     kind: BoundUnitKind,

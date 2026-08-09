@@ -24,7 +24,7 @@ pub enum LocalScopeBoundary {
 }
 
 /// An immutable lexical lookup scope inside one local semantic region.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LocalScope {
     pub(super) id: LocalScopeId,
     pub(super) parent: Option<LocalScopeId>,

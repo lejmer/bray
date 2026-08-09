@@ -11,7 +11,7 @@ use bray_symbols::{
 use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall, SelectedConversion};
 
 /// The checked receiver passed to one selected callable.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedReceiver {
     expression: BoundExpressionId,
     parameter: ReceiverParameterSymbolId,
@@ -95,7 +95,7 @@ impl SelectedImplementationWitness {
 }
 
 /// One explicit or defaulted value in call evaluation order.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SelectedArgument {
     /// A source argument mapped to its exact parameter.
     Explicit {
@@ -120,7 +120,7 @@ pub enum SelectedArgument {
 }
 
 /// One exact callable, ABI, implementation witnesses, and normalized argument mapping.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedCall {
     resolution: BoundResolvedCall,
     abi: CallableAbi,

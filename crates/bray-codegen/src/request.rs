@@ -113,7 +113,7 @@ impl<'request> CodegenRequest<'request> {
 }
 
 /// A contract violation that prevents creation of a backend request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenRequestBuildError {
     /// The artifact request belongs to another codegen unit.
     ArtifactUnitMismatch,

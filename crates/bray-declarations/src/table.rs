@@ -5,7 +5,7 @@ use crate::name::ModulePath;
 use crate::record::{ContainerKind, ContainerRecord, DeclarationRecord, ModulePartRecord};
 
 /// Immutable declaration discovery table for one compilation input set.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DeclarationTable {
     root_container: ContainerId,
     declarations: Box<[DeclarationRecord]>,

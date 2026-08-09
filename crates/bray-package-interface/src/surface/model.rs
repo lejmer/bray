@@ -378,7 +378,7 @@ impl ExportedLookupEdge {
 }
 
 /// Invalid semantic input supplied for package-interface identity sections.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceSurfaceBuildError {
     /// Compiled interfaces can describe only library products.
     NonLibraryProduct,
@@ -423,7 +423,7 @@ pub enum PackageInterfaceSurfaceBuildError {
 }
 
 /// Canonical package identity and symbol-surface data ready for section encoding.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PackageInterfaceSurface {
     pub(super) identity: PackageInterfaceIdentity,
     pub(super) dependencies: Arc<[InterfaceDependency]>,

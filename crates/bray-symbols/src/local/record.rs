@@ -9,7 +9,7 @@ use crate::{SymbolKind, SymbolName, SymbolOrdinal};
 macro_rules! define_named_local_record {
     ($record:ident, $id:ident, $kind:ident) => {
         #[doc = concat!("The immutable identity record for one `", stringify!($kind), "` symbol.")]
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
         pub struct $record {
             id: $id,
             key: LocalSymbolKey,
@@ -67,7 +67,7 @@ define_named_local_record!(LocalBindingSymbol, LocalBindingSymbolId, LocalBindin
 define_named_local_record!(LocalConstantSymbol, LocalConstantSymbolId, LocalConstant);
 
 /// The immutable identity record for one anonymous callable.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AnonymousCallableSymbol {
     id: AnonymousCallableSymbolId,
     key: LocalSymbolKey,
@@ -136,7 +136,7 @@ impl AnonymousCallableSymbol {
 }
 
 /// The immutable identity record for one anonymous callable parameter.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AnonymousCallableParameterSymbol {
     id: AnonymousCallableParameterSymbolId,
     key: LocalSymbolKey,
@@ -217,7 +217,7 @@ impl AnonymousCallableParameterSymbol {
 }
 
 /// The immutable identity record for a contextual postcondition result binding.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PostconditionResultSymbol {
     id: PostconditionResultSymbolId,
     key: LocalSymbolKey,

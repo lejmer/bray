@@ -421,7 +421,7 @@ impl CodegenMappings {
 }
 
 /// A contract violation that prevents creation of code generation mappings.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenMappingsBuildError {
     /// MIR and mapping target contracts do not identify the same target.
     TargetMismatch,

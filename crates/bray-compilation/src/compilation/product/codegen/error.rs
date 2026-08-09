@@ -9,7 +9,7 @@ use bray_runtime_interface::ExecutableHostContractBuildError;
 use crate::fact::FactQueryError;
 
 /// A failure to derive complete native product facts.
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub enum NativeProductFactError {
     /// The compilation has no selected code generation backend.
     CodegenUnavailable,

@@ -242,7 +242,7 @@ fn load_artifact(
 }
 
 /// A configured standard library root cannot satisfy an exact artifact request.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum StandardLibraryLoadError {
     /// A required file could not be read.
     Read {

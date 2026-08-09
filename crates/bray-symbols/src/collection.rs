@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct TypedSymbolRecords<I, R> {
     records: Box<[R]>,
     indexes: BTreeMap<I, usize>,

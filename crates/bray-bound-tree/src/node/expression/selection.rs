@@ -31,7 +31,7 @@ impl BoundReferenceTarget {
 }
 
 /// A value reference whose pattern-introduced local remains subject-dependent.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundPatternReferenceExpression {
     origin: BoundNodeOrigin,
     pattern: BoundPatternId,
@@ -101,7 +101,7 @@ impl BoundPatternReferenceExpression {
 }
 
 /// A resolved source reference.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundNameExpression {
     origin: BoundNodeOrigin,
     target: BoundReferenceTarget,
@@ -147,7 +147,7 @@ impl BoundNameExpression {
 }
 
 /// A source member selector awaiting receiver-aware lookup.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BoundMemberSelector {
     /// A named member selector.
     Name(SymbolName),
@@ -156,7 +156,7 @@ pub enum BoundMemberSelector {
 }
 
 /// A variant reference whose containing type is supplied contextually.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundLeadingDotVariantExpression {
     origin: BoundNodeOrigin,
     selector: Option<BoundMemberSelector>,
@@ -202,7 +202,7 @@ impl BoundLeadingDotVariantExpression {
 }
 
 /// An unqualified name awaiting variant lookup against a known expected union type.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundUnqualifiedVariantExpression {
     origin: BoundNodeOrigin,
     name: SymbolName,
@@ -248,7 +248,7 @@ impl BoundUnqualifiedVariantExpression {
 }
 
 /// A receiver member selection awaiting receiver-aware checking.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundMemberAccessExpression {
     origin: BoundNodeOrigin,
     receiver: BoundExpressionId,
@@ -306,7 +306,7 @@ impl BoundMemberAccessExpression {
 }
 
 /// A trait-qualified member selection preserving its trait application.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundTraitQualifiedMemberExpression {
     origin: BoundNodeOrigin,
     receiver: BoundExpressionId,

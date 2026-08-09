@@ -24,7 +24,7 @@ pub enum BoundUnresolvedReferenceKind {
 }
 
 /// An unresolved source reference retaining every viable semantic candidate.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundUnresolvedReferenceExpression {
     origin: BoundNodeOrigin,
     kind: BoundUnresolvedReferenceKind,
@@ -70,7 +70,7 @@ impl BoundUnresolvedReferenceExpression {
 }
 
 /// A call whose source shape survived semantic recovery.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundErrorCallExpression {
     origin: BoundNodeOrigin,
     callee: BoundExpressionId,
@@ -137,7 +137,7 @@ impl BoundErrorCallExpression {
 }
 
 /// A conversion whose operand and target survived semantic recovery.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundErrorConversionExpression {
     origin: BoundNodeOrigin,
     operand: BoundExpressionId,

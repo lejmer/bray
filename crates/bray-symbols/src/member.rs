@@ -43,7 +43,7 @@ impl MemberValidity {
 }
 
 /// One typed member participating in an owner's ordinary-name surface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MemberEntry<I> {
     id: I,
     name: SymbolName,
@@ -244,7 +244,7 @@ where
 /// The ID type should be a closed family containing every semantic category that competes in the
 /// owner's ordinary namespace. Entry enumeration preserves candidate order; map ordering never
 /// creates lookup precedence.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MemberLookupIndex<I> {
     members: Box<[MemberEntry<I>]>,
     name_index: BTreeMap<SymbolName, Box<[usize]>>,

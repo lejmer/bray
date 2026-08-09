@@ -9,7 +9,7 @@ use bray_runtime_interface::{
 use crate::{CodegenMappings, CodegenSymbolKey, CodegenUnit};
 
 /// Immutable target-specific metadata for one protected async frame.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedAsyncFrameMetadata {
     frame: ProtectedAsyncFrameId,
     frame_abi: ProtectedFrameAbiVersions,
@@ -47,7 +47,7 @@ impl ProtectedAsyncFrameMetadata {
 }
 
 /// Complete runtime metadata generated for one codegen unit.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct CodegenRuntimeMetadata {
     frames: Arc<[ProtectedAsyncFrameMetadata]>,
     executable_host: Option<ExecutableHostContract>,

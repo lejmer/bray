@@ -90,7 +90,7 @@ impl Default for SelectedTarget {
 }
 
 /// Target facts and compiler-known declarations available to one compilation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedTargetContext {
     target: SelectedTarget,
     available_compiler_known_symbols: AvailableCompilerKnownSymbols,

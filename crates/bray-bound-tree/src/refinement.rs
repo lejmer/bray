@@ -89,7 +89,7 @@ impl RefinementFact {
 }
 
 /// Refinement facts available immediately before one bound operation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RefinementOccurrence {
     node: AnyBoundNodeId,
     facts: Arc<[RefinementFact]>,
@@ -130,7 +130,7 @@ pub enum RefinementFactsBuildError {
 }
 
 /// Immutable flow-sensitive facts retained for checked operation occurrences.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedRefinementFacts {
     unit: BoundUnitId,
     kind: BoundUnitKind,

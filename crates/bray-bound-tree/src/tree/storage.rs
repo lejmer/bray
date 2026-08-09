@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// Immutable bound nodes for one checked semantic unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundTree {
     unit: BoundUnitId,
     expressions: Arc<[BoundExpression]>,

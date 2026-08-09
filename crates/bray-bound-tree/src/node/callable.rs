@@ -1,7 +1,7 @@
 use crate::{BoundBlockId, BoundNodeOrigin};
 
 /// A bound callable body or its category-specific recovery form.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallableBody {
     origin: BoundNodeOrigin,
     kind: BoundCallableBodyKind,
@@ -43,7 +43,7 @@ impl BoundCallableBody {
 }
 
 /// The exact semantic form of a callable body.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundCallableBodyKind {
     /// A successfully checked block body.
     Block(BoundBlockId),
@@ -52,7 +52,7 @@ pub enum BoundCallableBodyKind {
 }
 
 /// A callable body preserved after semantic recovery.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundErrorCallableBody {
     body: Option<BoundBlockId>,
 }

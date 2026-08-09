@@ -15,7 +15,7 @@ use crate::compilation::product::structural_type_identity;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 /// Stable test metadata paired with compilation-local callable identities.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TestDiscovery {
     catalog: TestCatalog,
     functions: BTreeMap<TestIdentity, FunctionSymbolId>,

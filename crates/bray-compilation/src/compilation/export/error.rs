@@ -4,7 +4,7 @@ use bray_package_interface::{
 use bray_symbols::SymbolKind;
 
 /// Failure while producing the current library product's public interface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceExportError {
     /// Source or semantic errors make the product invalid.
     InvalidCompilation,

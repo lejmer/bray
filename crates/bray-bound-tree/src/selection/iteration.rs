@@ -6,7 +6,7 @@ use bray_symbols::{
 use crate::{BoundExpressionId, BoundIterationSource, IterationSourceMode};
 
 /// The checked types participating in one selected iteration.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedIterationTypes {
     source: TypeId,
     cursor: TypeId,
@@ -40,7 +40,7 @@ impl SelectedIterationTypes {
 }
 
 /// One implementation witness and callable operation selected for an iteration protocol.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedIterationProtocolOperation {
     requirement: ImplementationRequirementKey,
     witness: ImplementationInstanceId,
@@ -86,7 +86,7 @@ impl SelectedIterationProtocolOperation {
 }
 
 /// The exact protocols and operations selected for one iteration source occurrence.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedIterationSource {
     expression: BoundExpressionId,
     source: BoundIterationSource,

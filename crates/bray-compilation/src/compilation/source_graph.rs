@@ -11,7 +11,7 @@ use super::Compilation;
 use crate::fact::{CompilationFactKey, FactQueryError};
 
 /// Enabled source declarations for one selected package product and target.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProductSourceGraph {
     product_kind: ProductKind,
     declarations: DeclarationTable,

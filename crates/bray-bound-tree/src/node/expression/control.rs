@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// One exact match-arm relationship.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundMatchArm {
     pattern: BoundPatternId,
     guard: Option<BoundExpressionId>,
@@ -47,7 +47,7 @@ impl BoundMatchArm {
 }
 
 /// A match expression preserving exact arm associations.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundMatchExpression {
     origin: BoundNodeOrigin,
     subject: BoundExpressionId,
@@ -127,7 +127,7 @@ impl BoundMatchExpression {
 }
 
 /// A for expression preserving its iteration pattern and branch roles.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundForExpression {
     origin: BoundNodeOrigin,
     source: BoundExpressionId,

@@ -272,7 +272,7 @@ impl CodegenInstance {
 }
 
 /// A contract violation that prevents creation of one concrete code generation instance.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenInstanceBuildError {
     /// The concrete identity names another MIR template.
     TemplateMismatch,

@@ -66,7 +66,7 @@ macro_rules! for_each_declaration_symbol {
 
 pub(crate) use for_each_declaration_symbol;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum DeclarationSymbolIdentity {
     Source {
         key: SymbolKey,
@@ -96,7 +96,7 @@ pub(crate) enum DeclarationSymbolIdentity {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ImportedSymbolBacking {
     interface: ImportedInterfaceId,
     symbol: InterfaceSymbolId,
@@ -277,7 +277,7 @@ macro_rules! define_declaration_symbol_records {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         $(
             #[doc = concat!("The immutable identity record for a `", stringify!($variant), "` symbol.")]
-            #[derive(Clone, Debug, Eq, PartialEq)]
+            #[derive(Clone, Debug, Eq, Hash, PartialEq)]
             pub struct $record {
                 id: crate::$id,
                 identity: DeclarationSymbolIdentity,
@@ -887,7 +887,7 @@ impl_defaultable_field!(
 );
 
 /// The synthesized receiver parameter of an instance-associated callable.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ReceiverParameterSymbol {
     id: crate::ReceiverParameterSymbolId,
     key: SymbolKey,

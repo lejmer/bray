@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map::Entry};
+use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -17,7 +18,7 @@ use super::task::{
 };
 use super::{
     CompilationFactKey, CompilationInputKey, CompilationInputs, FactCycle, FactDependencyRecord,
-    FactQueryError, QueryPriority, QueryPriorityDemand,
+    FactQueryError, QueryPriority, QueryPriorityDemand, fact_fingerprint,
 };
 
 #[derive(Debug)]
@@ -105,7 +106,10 @@ impl FactRuntime {
             .lock()
             .unwrap_or_else(|_| panic!("fact dependency state must remain available"));
 
-        let (records, invalidated) = retained_records(&state, &inputs);
+        let identity_namespace_matches = self.inputs.has_same_identity_namespace(&inputs);
+
+        let (records, invalidated) =
+            retained_records(&state, &inputs, identity_namespace_matches);
 
         let reusable = records.keys().cloned().collect();
 
@@ -399,11 +403,15 @@ impl FactRuntime {
         RuntimeIdentity(std::ptr::from_ref(self).addr())
     }
 
-    fn prepare_evaluation<'runtime>(
+    fn prepare_evaluation<'runtime, T>(
         &'runtime self,
         key: &CompilationFactKey,
         context: &FactTaskContext,
-    ) -> Result<EvaluationCommit<'runtime>, FactQueryError> {
+        value: &T,
+    ) -> Result<EvaluationCommit<'runtime>, FactQueryError>
+    where
+        T: Hash + ?Sized,
+    {
         let state = self.state()?;
 
         if state.owners.get(key).copied() != Some(context.identity()) {
@@ -425,7 +433,11 @@ impl FactRuntime {
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
 
-        let record = FactDependencyRecord::new(key, facts, dependencies.inputs);
+        let record = FactDependencyRecord::new(
+            fact_fingerprint(key, value),
+            facts,
+            dependencies.inputs,
+        );
 
         // The commit owns the key while coordinating runtime and cache publication locks.
         Ok(EvaluationCommit {
@@ -469,11 +481,12 @@ impl FactRuntime {
 fn retained_records(
     state: &RuntimeState,
     inputs: &CompilationInputs,
+    identity_namespace_matches: bool,
 ) -> (
     BTreeMap<CompilationFactKey, FactDependencyRecord>,
     BTreeSet<CompilationFactKey>,
 ) {
-    let mut invalidated = direct_invalidations(state, inputs);
+    let mut invalidated = direct_invalidations(state, inputs, identity_namespace_matches);
     let dependents = reverse_dependencies(state);
     let mut pending = invalidated.iter().cloned().collect::<VecDeque<_>>();
 
@@ -502,12 +515,14 @@ fn retained_records(
 fn direct_invalidations(
     state: &RuntimeState,
     inputs: &CompilationInputs,
+    identity_namespace_matches: bool,
 ) -> BTreeSet<CompilationFactKey> {
     state
         .records
         .iter()
-        .filter(|(_, record)| {
-            record
+        .filter(|(key, record)| {
+            (!identity_namespace_matches && !key.has_stable_snapshot_identity())
+                || record
                 .inputs()
                 .iter()
                 .any(|(key, fingerprint)| inputs.get(key) != Some(*fingerprint))
@@ -679,8 +694,13 @@ impl<'a> EvaluationGuard<'a> {
         self.context.run(operation)
     }
 
-    pub(crate) fn prepare(mut self) -> Result<EvaluationCommit<'a>, FactQueryError> {
-        let commit = self.runtime.prepare_evaluation(&self.key, &self.context)?;
+    pub(crate) fn prepare<T>(mut self, value: &T) -> Result<EvaluationCommit<'a>, FactQueryError>
+    where
+        T: Hash + ?Sized,
+    {
+        let commit = self
+            .runtime
+            .prepare_evaluation(&self.key, &self.context, value)?;
 
         self.active = false;
 
@@ -750,12 +770,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use bray_source::SourceId;
+    use bray_declarations::ModulePartId;
 
     use super::{FactEvaluationTestObserver, FactRuntime};
     use crate::WorkerBudget;
     use crate::fact::{
         CancellationToken, CompilationFactKey, CompilationInputKey, CompilationInputs,
-        FactCell, FactDependencyRecord,
+        FactCell, FactDependencyRecord, fact_fingerprint,
     };
 
     #[test]
@@ -853,6 +874,38 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_local_fact_keys_are_not_compared_across_snapshots() {
+        let mut runtime = FactRuntime::default();
+        let key = CompilationFactKey::ModuleContributionGate(ModulePartId::new(7));
+        let mut inputs = CompilationInputs::default();
+
+        inputs.insert(CompilationInputKey::SourceSet, &[1_u8]);
+        runtime.set_inputs(inputs);
+
+        runtime
+            .state()
+            .unwrap_or_else(|error| panic!("runtime state must be available: {error:?}"))
+            .records
+            .insert(
+                key.clone(),
+                FactDependencyRecord::new(
+                    fact_fingerprint(&key, &17_u8),
+                    BTreeMap::new(),
+                    BTreeMap::new(),
+                ),
+            );
+
+        let mut updated_inputs = CompilationInputs::default();
+
+        updated_inputs.insert(CompilationInputKey::SourceSet, &[2_u8]);
+
+        let (_, reusable) =
+            runtime.updated(WorkerBudget::serial(), updated_inputs, None);
+
+        assert!(reusable.is_empty());
+    }
+
+    #[test]
     fn deep_and_expansion_heavy_invalidation_is_iterative_and_precise() {
         const DEPTH: u32 = 20_000;
         const WIDTH: u32 = 20_000;
@@ -879,7 +932,7 @@ mod tests {
             state.records.insert(
                 deep_root.clone(),
                 FactDependencyRecord::new(
-                    &deep_root,
+                    fact_fingerprint(&deep_root, &deep_root),
                     BTreeMap::new(),
                     BTreeMap::from([(CompilationInputKey::SourceDiagnostics, deep_input)]),
                 ),
@@ -898,7 +951,7 @@ mod tests {
                 state.records.insert(
                     key.clone(),
                     FactDependencyRecord::new(
-                        &key,
+                        fact_fingerprint(&key, &key),
                         BTreeMap::from([(dependency, fingerprint)]),
                         BTreeMap::new(),
                     ),
@@ -912,7 +965,7 @@ mod tests {
             state.records.insert(
                 wide_root.clone(),
                 FactDependencyRecord::new(
-                    &wide_root,
+                    fact_fingerprint(&wide_root, &wide_root),
                     BTreeMap::new(),
                     BTreeMap::from([(CompilationInputKey::ProductKind, wide_input)]),
                 ),
@@ -930,7 +983,7 @@ mod tests {
                 state.records.insert(
                     key.clone(),
                     FactDependencyRecord::new(
-                        &key,
+                        fact_fingerprint(&key, &key),
                         BTreeMap::from([(wide_root.clone(), fingerprint)]),
                         BTreeMap::new(),
                     ),
@@ -939,7 +992,11 @@ mod tests {
 
             state.records.insert(
                 unrelated.clone(),
-                FactDependencyRecord::new(&unrelated, BTreeMap::new(), BTreeMap::new()),
+                FactDependencyRecord::new(
+                    fact_fingerprint(&unrelated, &unrelated),
+                    BTreeMap::new(),
+                    BTreeMap::new(),
+                ),
             );
         }
 

@@ -441,7 +441,7 @@ impl ExecutableHostContract {
 }
 
 /// A contract violation that prevents executable-host construction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ExecutableHostContractBuildError {
     /// More than one binary binding was supplied for one closed ABI role.
     DuplicateRole(RuntimeAbiRole),

@@ -404,7 +404,7 @@ fn symbol_mapping(
 }
 
 /// A failure to request one lazy code generation contribution fact.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenFactError {
     /// This compilation was composed without a code generation backend.
     CodegenUnavailable,

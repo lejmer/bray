@@ -74,7 +74,7 @@ impl BackendTargetPlatform {
 }
 
 /// Immutable capabilities declared by one backend implementation.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct BackendCapabilities {
     target_platforms: Arc<[BackendTargetPlatform]>,
     artifact_kinds: Arc<[BackendArtifactKind]>,

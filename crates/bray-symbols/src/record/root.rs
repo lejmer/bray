@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// The single compilation-local root for ambient compiler-known declarations.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownEnvironmentSymbol {
     id: CompilerKnownEnvironmentSymbolId,
     key: SymbolKey,
@@ -117,7 +117,7 @@ impl CompilerKnownEnvironmentSymbol {
 }
 
 /// The immutable identity record for one package root.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PackageSymbol {
     id: PackageSymbolId,
     key: SymbolKey,
@@ -170,7 +170,7 @@ impl PackageSymbol {
 }
 
 /// The immutable identity record for one logical module.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ModuleSymbol {
     id: ModuleSymbolId,
     key: SymbolKey,

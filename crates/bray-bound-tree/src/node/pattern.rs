@@ -89,7 +89,7 @@ impl BoundPatternKind {
     }
 }
 /// An existing semantic entity selected by a non-binding pattern.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundPatternTarget {
     /// A unit-local assignment destination.
     Local(AnyLocalSymbolId),
@@ -137,14 +137,14 @@ impl BoundPatternLiteral {
 }
 
 /// One product, tuple, array, or variant payload entry in source order.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundPatternEntry {
     name: Option<SymbolName>,
     kind: BoundPatternEntryKind,
 }
 
 /// The exact semantic content of one structured pattern entry.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundPatternEntryKind {
     /// A nested source pattern.
     Pattern(BoundPatternId),
@@ -199,7 +199,7 @@ impl BoundPatternEntry {
 }
 
 /// One checked source pattern and its exact local identities.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundPattern {
     origin: BoundNodeOrigin,
     input_type: TypeId,

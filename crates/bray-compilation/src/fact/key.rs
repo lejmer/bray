@@ -299,8 +299,6 @@ pub(crate) enum CompilationFactKey {
     CallableTypeDirectives(CallableTypeDirectiveKey),
     /// The complete canonical compiler-known symbol and fact provider.
     CompilerKnownSymbols,
-    /// Deterministic compact identities for bound-unit source anchors.
-    BoundUnitIdentities,
     /// One canonical immutable bound unit selected by its exact stable key.
     BoundUnit(BoundUnitKey),
     /// Diagnostics for the current whole-compilation check boundary.
@@ -418,8 +416,6 @@ pub(crate) enum CompilationFactKey {
     ImportedSymbolSkeleton,
     /// The current library product's complete immutable interface export bundle.
     PackageInterfaceExportBundle,
-    /// The canonical semantic value store for this compilation snapshot.
-    SemanticValueStore,
     /// Binding and semantic-analysis diagnostics for the source package.
     SemanticDiagnostics,
     /// Parsed syntax for one source unit.
@@ -435,6 +431,27 @@ pub(crate) enum CompilationFactKey {
 }
 
 impl CompilationFactKey {
+    pub(crate) const fn has_stable_snapshot_identity(&self) -> bool {
+        !matches!(
+            self,
+            Self::TargetValidity(_)
+                | Self::ModuleContributionGate(_)
+                | Self::CallableTypeDirectives(_)
+                | Self::ConstantInstance(_)
+                | Self::ConstantCall(_)
+                | Self::ConstantCallCycle(_)
+                | Self::ImplementationCandidateSet(_)
+                | Self::TraitImplementationConformance(_)
+                | Self::GenericConstraintSatisfaction(_)
+                | Self::ImplementationSelection(_)
+                | Self::ImplementationParticipation(_)
+                | Self::ForeignCallableContract(_)
+                | Self::TypeAssociatedSurface(_)
+                | Self::DeclaredTypeRepresentation(_)
+                | Self::Symbol(_)
+        )
+    }
+
     pub(crate) const fn bound_unit_key(&self) -> Option<&BoundUnitKey> {
         match self {
             Self::BoundUnit(key)
@@ -464,7 +481,6 @@ impl CompilationFactKey {
             | Self::ModuleContributionGate(_)
             | Self::CallableTypeDirectives(_)
             | Self::CompilerKnownSymbols
-            | Self::BoundUnitIdentities
             | Self::CheckDiagnostics
             | Self::ConstantTemplateKeys
             | Self::CallableBodyKeys
@@ -502,7 +518,6 @@ impl CompilationFactKey {
             | Self::TypeAssociatedImplementationIndex
             | Self::ImportedSymbolSkeleton
             | Self::PackageInterfaceExportBundle
-            | Self::SemanticValueStore
             | Self::SemanticDiagnostics
             | Self::SourceUnitSyntax(_)
             | Self::SourceReferenceIndex(_)

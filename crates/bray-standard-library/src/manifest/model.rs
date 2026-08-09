@@ -407,7 +407,7 @@ fn required_artifact(
 }
 
 /// A standard library bundle manifest violates its semantic or wire contract.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum StandardLibraryManifestError {
     /// Serialized JSON is malformed or does not match the strict schema.
     Malformed,

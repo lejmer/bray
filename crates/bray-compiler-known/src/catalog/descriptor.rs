@@ -108,7 +108,7 @@ pub enum CompilerKnownDeclarationOwner {
 }
 
 /// Immutable descriptor for one merged compiler-known scope.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownScopeDescriptor {
     pub(super) id: CompilerKnownScopeId,
     pub(super) key: CompilerKnownScopeKey,
@@ -145,7 +145,7 @@ impl CompilerKnownScopeDescriptor {
 }
 
 /// Immutable compiler-known declaration surface and metadata.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownDeclarationDescriptor {
     pub(super) id: CompilerKnownDeclarationId,
     pub(super) key: CompilerKnownDeclarationKey,
@@ -200,7 +200,7 @@ impl CompilerKnownDeclarationDescriptor {
 }
 
 /// Immutable descriptor for a language-known value that is not a declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownValueDescriptor {
     pub(super) id: CompilerKnownValueId,
     pub(super) key: CompilerKnownValueKey,
@@ -296,7 +296,7 @@ impl RecognizedStandardLibraryDeclarationIdentity {
 }
 
 /// Immutable descriptor for one recognized standard-library path.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RecognizedStandardLibraryScopeDescriptor {
     pub(super) id: RecognizedStandardLibraryScopeId,
     pub(super) key: RecognizedStandardLibraryScopeKey,
@@ -327,7 +327,7 @@ impl RecognizedStandardLibraryScopeDescriptor {
 }
 
 /// Immutable recognition contract for one standard-library declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RecognizedStandardLibraryDeclarationDescriptor {
     pub(super) id: RecognizedStandardLibraryDeclarationId,
     pub(super) key: RecognizedStandardLibraryDeclarationKey,

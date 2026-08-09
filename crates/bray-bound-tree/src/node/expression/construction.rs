@@ -6,7 +6,7 @@ use bray_symbols::{SymbolName, TypeId};
 use crate::{BoundExpressionId, BoundNodeOrigin};
 
 /// One named field initializer in a struct construction.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundStructFieldInitializer {
     name: Option<SymbolName>,
     expression: BoundExpressionId,
@@ -44,7 +44,7 @@ impl BoundStructFieldInitializer {
 }
 
 /// A struct construction with an optional explicit type head.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundStructConstructionExpression {
     origin: BoundNodeOrigin,
     head: Option<BoundExpressionId>,

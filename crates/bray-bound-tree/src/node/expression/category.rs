@@ -89,7 +89,7 @@ pub enum BoundAssignmentOperator {
 macro_rules! define_operator_expression {
     ($name:ident, $documentation:literal) => {
         #[doc = $documentation]
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
         pub struct $name {
             origin: BoundNodeOrigin,
             operator: BoundOperator,
@@ -148,7 +148,7 @@ define_operator_expression!(BoundUnaryExpression, "A source unary operation.");
 define_operator_expression!(BoundBinaryExpression, "A source binary operation.");
 
 /// A source assignment operation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundAssignmentExpression {
     origin: BoundNodeOrigin,
     operator: BoundAssignmentOperator,
@@ -202,7 +202,7 @@ impl BoundAssignmentExpression {
 }
 
 /// An explicit conversion retaining its operand and resolved target type when available.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundConversionExpression {
     origin: BoundNodeOrigin,
     operand: BoundExpressionId,
@@ -268,7 +268,7 @@ impl BoundConversionExpression {
 }
 
 /// A reference to a separately bound anonymous callable unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundAnonymousCallableExpression {
     origin: BoundNodeOrigin,
     unit: BoundUnitKey,
@@ -489,7 +489,7 @@ impl BoundSliceBounds {
 }
 
 /// A source-shaped aggregate, control-flow, or effect expression.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundStructuredExpression {
     origin: BoundNodeOrigin,
     kind: BoundStructuredExpressionKind,

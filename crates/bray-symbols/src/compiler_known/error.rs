@@ -8,7 +8,7 @@ use crate::SymbolKind;
 use crate::allocator::SymbolIdCapacityError;
 
 /// A violated invariant while materializing the generated compiler-known catalog.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CompilerKnownSymbolBuildError {
     /// The catalog-local scope ID does not match canonical descriptor order.
     NonCanonicalScopeId {

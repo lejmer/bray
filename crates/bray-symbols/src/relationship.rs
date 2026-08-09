@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// Describes whether declaration syntax supplies a runtime default.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeDefaultPresence {
     /// No default syntax was written.
     Absent,
@@ -31,29 +31,29 @@ pub enum RuntimeDefaultPresence {
     Recovered,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct LeafRelationships;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct GenericRelationships {
     pub(crate) type_parameters: Box<[GenericTypeParameterSymbolId]>,
     pub(crate) const_parameters: Box<[GenericConstParameterSymbolId]>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct CallableRelationships {
     pub(crate) generics: GenericRelationships,
     pub(crate) receiver: Option<ReceiverParameterSymbolId>,
     pub(crate) parameters: Box<[CallableParameterSymbolId]>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct PredicateRelationships {
     pub(crate) generics: GenericRelationships,
     pub(crate) parameters: Box<[PredicateParameterSymbolId]>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct StructRelationships {
     pub(crate) generics: GenericRelationships,
     pub(crate) fields: Box<[StructFieldSymbolId]>,
@@ -69,7 +69,7 @@ pub(crate) struct StructRelationships {
     pub(crate) overloads: Box<[CallableOverloadSymbolId]>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct UnionRelationships {
     pub(crate) generics: GenericRelationships,
     pub(crate) variants: Box<[UnionVariantSymbolId]>,
@@ -85,7 +85,7 @@ pub(crate) struct UnionRelationships {
     pub(crate) overloads: Box<[CallableOverloadSymbolId]>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct TraitRelationships {
     pub(crate) generics: GenericRelationships,
     pub(crate) callables: Box<[TraitCallableMemberSymbolId]>,
@@ -98,7 +98,7 @@ pub(crate) struct TraitRelationships {
     pub(crate) scope_exits: Box<[TraitScopeExitRequirementSymbolId]>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct ImplementationRelationships {
     pub(crate) generics: GenericRelationships,
     pub(crate) callables: Box<[TypeCallableMemberSymbolId]>,
@@ -119,13 +119,13 @@ pub(crate) struct ImplementationRelationships {
     pub(crate) overloads: Box<[CallableOverloadSymbolId]>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct VariantRelationships {
     pub(crate) owner: UnionSymbolId,
     pub(crate) payload_fields: Box<[UnionPayloadFieldSymbolId]>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct CallableParameterRelationships {
     pub(crate) owner: CallableSymbolId,
     pub(crate) ordinal: u32,
@@ -133,19 +133,19 @@ pub(crate) struct CallableParameterRelationships {
     pub(crate) default_provider: Option<crate::CallableParameterDefaultProviderSymbolId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct PredicateParameterRelationships {
     pub(crate) owner: PredicateDefinitionSymbolId,
     pub(crate) ordinal: u32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct GenericParameterRelationships {
     pub(crate) owner: GenericOwnerId,
     pub(crate) ordinal: u32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct StructFieldRelationships {
     pub(crate) owner: StructSymbolId,
     pub(crate) ordinal: u32,
@@ -154,7 +154,7 @@ pub(crate) struct StructFieldRelationships {
     pub(crate) default_provider: Option<crate::StructFieldDefaultProviderSymbolId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct UnionPayloadFieldRelationships {
     pub(crate) owner: UnionVariantSymbolId,
     pub(crate) ordinal: u32,
@@ -164,7 +164,7 @@ pub(crate) struct UnionPayloadFieldRelationships {
     pub(crate) default_provider: Option<UnionPayloadDefaultProviderSymbolId>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct OverloadRelationships {
     pub(crate) arm_syntax: Box<[SyntaxAnchor]>,
     pub(crate) arms: Box<[AnySymbolId]>,
@@ -560,7 +560,7 @@ fn predicate_owner(owner: AnySymbolId) -> Option<PredicateDefinitionSymbolId> {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct ModuleRelationships {
     pub(crate) trusted_capabilities: Box<[TrustedCapabilitySymbolId]>,
     pub(crate) constants: Box<[ConstantSymbolId]>,

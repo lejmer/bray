@@ -33,7 +33,7 @@ impl BoundGenericArgument {
 }
 
 /// One source-ordered input to overload selection.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundArgument {
     expression: BoundExpressionId,
     name: Option<SymbolName>,
@@ -143,7 +143,7 @@ impl BoundCallResult {
 }
 
 /// The complete callable selection needed to interpret a checked call.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundResolvedCall {
     target: BoundCallableTarget,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
@@ -211,7 +211,7 @@ impl BoundResolvedCall {
 }
 
 /// Whether ordinary call selection is still pending or has completed.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BoundCallResolution {
     /// Overload selection and type checking have not completed yet.
     Pending,
@@ -237,7 +237,7 @@ impl BoundCallResolution {
 }
 
 /// An ordinary call expression retaining source inputs and semantic selection.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallExpression {
     origin: BoundNodeOrigin,
     callee: BoundExpressionId,

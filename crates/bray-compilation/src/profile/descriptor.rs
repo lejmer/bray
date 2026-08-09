@@ -263,7 +263,6 @@ define_profile_query_kinds! {
     ModuleContributionGate = 1002 => "module_contribution_gate",
     CallableTypeDirectives = 1003 => "callable_type_directives",
     CompilerKnownSymbols = 1004 => "compiler_known_symbols",
-    BoundUnitIdentities = 1005 => "bound_unit_identities",
     BoundUnit = 1006 => "bound_unit",
     CheckDiagnostics = 1007 => "check_diagnostics",
     ConstantTemplateKeys = 1008 => "constant_template_keys",
@@ -323,7 +322,6 @@ define_profile_query_kinds! {
     TypeAssociatedImplementationIndex = 1062 => "type_associated_implementation_index",
     ImportedSymbolSkeleton = 1063 => "imported_symbol_skeleton",
     PackageInterfaceExportBundle = 1064 => "package_interface_export_bundle",
-    SemanticValueStore = 1065 => "semantic_value_store",
     SemanticDiagnostics = 1066 => "semantic_diagnostics",
     SourceUnitSyntax = 1067 => "source_unit_syntax",
     SourceReferenceIndex = 1068 => "source_reference_index",
@@ -348,7 +346,6 @@ impl ProfileQueryKind {
             CompilationFactKey::ModuleContributionGate(_) => Self::ModuleContributionGate,
             CompilationFactKey::CallableTypeDirectives(_) => Self::CallableTypeDirectives,
             CompilationFactKey::CompilerKnownSymbols => Self::CompilerKnownSymbols,
-            CompilationFactKey::BoundUnitIdentities => Self::BoundUnitIdentities,
             CompilationFactKey::BoundUnit(_) => Self::BoundUnit,
             CompilationFactKey::CheckDiagnostics => Self::CheckDiagnostics,
             CompilationFactKey::ConstantTemplateKeys => Self::ConstantTemplateKeys,
@@ -408,7 +405,6 @@ impl ProfileQueryKind {
             CompilationFactKey::TypeAssociatedImplementationIndex => Self::TypeAssociatedImplementationIndex,
             CompilationFactKey::ImportedSymbolSkeleton => Self::ImportedSymbolSkeleton,
             CompilationFactKey::PackageInterfaceExportBundle => Self::PackageInterfaceExportBundle,
-            CompilationFactKey::SemanticValueStore => Self::SemanticValueStore,
             CompilationFactKey::SemanticDiagnostics => Self::SemanticDiagnostics,
             CompilationFactKey::SourceUnitSyntax(_) => Self::SourceUnitSyntax,
             CompilationFactKey::SourceReferenceIndex(_) => Self::SourceReferenceIndex,
@@ -452,9 +448,15 @@ mod tests {
 
         assert_eq!(
             ProfileQueryKind::all().map(ProfileQueryKind::id),
-            std::array::from_fn(|index| {
-                1_000 + u16::try_from(index).unwrap_or(u16::MAX)
-            })
+            [
+                1_000, 1_001, 1_002, 1_003, 1_004, 1_006, 1_007, 1_008, 1_009, 1_010,
+                1_011, 1_012, 1_013, 1_014, 1_015, 1_016, 1_017, 1_018, 1_019, 1_020,
+                1_021, 1_022, 1_023, 1_024, 1_025, 1_026, 1_027, 1_028, 1_029, 1_030,
+                1_031, 1_032, 1_033, 1_034, 1_035, 1_036, 1_037, 1_038, 1_039, 1_040,
+                1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049, 1_050,
+                1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060,
+                1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071,
+            ]
         );
     }
 }

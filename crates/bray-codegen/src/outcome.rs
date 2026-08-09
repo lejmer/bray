@@ -25,7 +25,7 @@ pub enum CodegenFailure {
 }
 
 /// Atomic completion state of one backend operation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenStatus {
     /// Every requested required artifact was generated and validated.
     Complete(Box<BackendArtifactSet>),
@@ -36,7 +36,7 @@ pub enum CodegenStatus {
 }
 
 /// Immutable result and structured diagnostics from one backend operation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CodegenOutcome {
     status: CodegenStatus,
     diagnostics: DiagnosticBag,

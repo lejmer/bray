@@ -13,7 +13,7 @@ use super::{
 };
 
 /// Complete immutable semantic fact tables ready for package-interface encoding.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct InterfaceSemanticFacts {
     pub(crate) substitutions: Arc<[InterfaceGenericSubstitution]>,
     pub(crate) trait_applications: Arc<[InterfaceTraitApplication]>,

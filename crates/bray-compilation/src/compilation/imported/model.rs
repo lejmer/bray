@@ -1,7 +1,7 @@
 use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::{PackageInterfaceSurface, ValidatedPackageInterface};
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub(in crate::compilation) struct LoadedDependencyInterface {
     validated: Option<ValidatedPackageInterface>,
     result: DiagnosticResult<Option<PackageInterfaceSurface>>,

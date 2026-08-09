@@ -4,7 +4,7 @@ use bray_checker::CheckerInfrastructureError;
 use super::CompilationFactKey;
 
 /// One detected cycle in the compilation fact dependency graph.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct FactCycle {
     facts: Box<[CompilationFactKey]>,
 }
@@ -81,7 +81,7 @@ mod tests {
 }
 
 /// An outer compiler-query outcome that must not be represented as a source diagnostic.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum FactQueryError {
     /// The requesting operation was cancelled before completion.
     Cancelled,

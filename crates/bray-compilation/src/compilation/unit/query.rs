@@ -700,7 +700,7 @@ impl Compilation {
         project: fn(&CheckedExpressionSemantics) -> &T,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
     where
-        T: Clone + Send + Sync,
+        T: Clone + std::hash::Hash + Send + Sync,
     {
         // Cache identity, unit publication, and the atomic computation retain the shared key.
         self.unit_fact(

@@ -215,7 +215,7 @@ impl ContainerKind {
 }
 
 /// Immutable record for one discovered syntax declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DeclarationRecord {
     id: DeclarationId,
     kind: DeclarationKind,
@@ -306,7 +306,7 @@ pub(crate) struct DeclarationRecordInput {
 }
 
 /// Immutable record for one declaration container.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ContainerRecord {
     id: ContainerId,
     kind: ContainerKind,
@@ -369,7 +369,7 @@ pub(crate) struct ContainerRecordInput {
 }
 
 /// Immutable record for one syntax contribution to a partial module.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ModulePartRecord {
     id: ModulePartId,
     module_container: ContainerId,

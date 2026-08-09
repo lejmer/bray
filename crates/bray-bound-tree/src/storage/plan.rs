@@ -139,7 +139,7 @@ impl StorageBinding {
 }
 
 /// Exact source accesses represented by one branch-dependent logical binding.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StorageAlternative {
     pattern: BoundPatternId,
     accesses: Arc<[StorageAccessId]>,
@@ -258,7 +258,7 @@ impl StorageAccessPlan {
 }
 
 /// Immutable storage identities and occurrence-specific access plans for one bound unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StoragePlan {
     unit: BoundUnitId,
     kind: BoundUnitKind,
@@ -272,14 +272,14 @@ pub struct StoragePlan {
     plans: Arc<[StorageAccessPlan]>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ResolvedStorageAccess {
     logical_root: StorageIdentityId,
     logical_projections: Arc<[StorageProjection]>,
     paths: Arc<[ResolvedStoragePath]>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ResolvedStoragePath {
     root: StorageIdentityId,
     projections: Arc<[StorageProjection]>,

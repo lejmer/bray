@@ -21,7 +21,7 @@ use crate::{AnySymbolId, ExactSymbolId};
 ///
 /// The underlying provider retains every catalog symbol. This view only controls which
 /// declarations participate in target-dependent lookup and semantic requests.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AvailableCompilerKnownSymbols {
     provider: Arc<CompilerKnownSymbolProvider>,
     declarations: Box<[AnySymbolId]>,

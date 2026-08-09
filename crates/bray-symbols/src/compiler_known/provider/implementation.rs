@@ -53,7 +53,7 @@ impl CompilerKnownScopeSymbolId {
 
 macro_rules! define_compiler_known_records {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
         enum CompilerKnownRecord {
             $($variant(crate::$record),)+
         }
@@ -115,7 +115,7 @@ macro_rules! define_compiler_known_records {
 for_each_declaration_symbol!(define_compiler_known_records);
 
 /// Immutable compilation-local provider for generated compiler-known symbols and facts.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownSymbolProvider {
     catalog: &'static CompilerKnownCatalog,
     environment: CompilerKnownEnvironmentSymbol,

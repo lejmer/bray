@@ -8,7 +8,7 @@ use super::{
 };
 
 /// An immutable symbol and lexical-scope snapshot for one checked semantic region.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LocalSymbolSnapshot {
     pub(super) region: LocalSymbolRegionId,
     pub(super) key: LocalSymbolRegionKey,

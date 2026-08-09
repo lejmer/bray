@@ -21,7 +21,7 @@ const FORMAT_VERSION: u16 = 1;
 const HEADER_LENGTH: usize = 48;
 const DIRECTORY_ENTRY_LENGTH: usize = 24;
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 enum ImplementationPayloadKind {
     ConstantCallableBody = 0,
@@ -65,7 +65,7 @@ impl InterfaceConstantCallableBody {
 }
 
 /// One source-independent executable body addressed by interface identity.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InterfaceExecutableTemplate {
     owner: InterfaceSymbolId,
     payload: Arc<[u8]>,
@@ -91,7 +91,7 @@ impl InterfaceExecutableTemplate {
 }
 
 /// One native symbol boundary retained by an executable package implementation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InterfaceNativeBoundary {
     owner: InterfaceSymbolId,
     direction: ForeignCallableDirection,
@@ -128,7 +128,7 @@ impl InterfaceNativeBoundary {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ImplementationDirectoryEntry {
     owner: InterfaceSymbolId,
     kind: ImplementationPayloadKind,
@@ -136,7 +136,7 @@ struct ImplementationDirectoryEntry {
 }
 
 /// An immutable package implementation artifact associated with one semantic interface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PackageImplementationArtifact {
     bytes: Arc<[u8]>,
     interface_content_hash: InterfaceContentHash,

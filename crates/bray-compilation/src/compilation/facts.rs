@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
@@ -99,10 +99,10 @@ pub(super) struct CompilationState {
         FactCellMap<ModulePartId, Arc<DiagnosticResult<bray_symbols::ModuleContributionGate>>>,
     pub(super) callable_type_directives:
         FactCellMap<CallableTypeDirectiveKey, Arc<DiagnosticResult<DirectiveSurface>>>,
-    pub(super) bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
+    pub(super) bound_unit_identities: OnceLock<Result<BoundUnitIdentityMap, FactQueryError>>,
     pub(super) discovery_symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     pub(super) symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
-    pub(super) semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
+    pub(super) semantic_values: OnceLock<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
     pub(super) loaded_dependency_interfaces:
         Vec<FactCell<super::imported::LoadedDependencyInterface>>,
     pub(super) loaded_dependency_implementations: Vec<
@@ -410,10 +410,10 @@ impl Compilation {
                 target_validity: FactCellMap::new(),
                 module_contribution_gates: FactCellMap::new(),
                 callable_type_directives: FactCellMap::new(),
-                bound_unit_identities: FactCell::new(),
+                bound_unit_identities: OnceLock::new(),
                 discovery_symbol_graph: FactCell::new(),
                 symbol_graph: FactCell::new(),
-                semantic_values: FactCell::new(),
+                semantic_values: OnceLock::new(),
                 loaded_dependency_interfaces: empty_fact_caches(dependency_count),
                 loaded_dependency_implementations: empty_fact_caches(dependency_count),
                 imported_symbol_skeleton: FactCell::new(),
@@ -750,11 +750,9 @@ impl Compilation {
 
     /// Returns the canonical semantic value store for this compilation snapshot.
     pub fn semantic_value_store(&self) -> Result<&SemanticValueStore, FactQueryError> {
-        self.fact(
-            CompilationFactKey::SemanticValueStore,
-            &self.state.semantic_values,
-            SemanticValueStore::try_new,
-        )
+        self.state
+            .semantic_values
+            .get_or_init(SemanticValueStore::try_new)
         .as_ref()
         .map_err(|_| FactQueryError::InfrastructureFailure)
     }
@@ -773,11 +771,11 @@ impl Compilation {
         &self,
         key: &BoundUnitKey,
     ) -> Result<bray_bound_tree::BoundUnitId, FactQueryError> {
-        self.fact(
-            CompilationFactKey::BoundUnitIdentities,
-            &self.state.bound_unit_identities,
-            || BoundUnitIdentityMap::from_syntax(self.syntax_tree()),
-        )
+        let syntax = self.syntax_tree();
+
+        self.state
+            .bound_unit_identities
+            .get_or_init(|| BoundUnitIdentityMap::from_syntax(syntax))
         .as_ref()
         .map_err(Clone::clone)?
         .unit_id(key)
@@ -818,7 +816,7 @@ impl Compilation {
         compute: impl FnOnce() -> T + Send,
     ) -> &'a T
     where
-        T: Send,
+        T: std::hash::Hash + Send,
     {
         match cache.get_or_compute(
             &self.state.fact_runtime,
@@ -853,7 +851,7 @@ impl Compilation {
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&'a T, FactQueryError>
     where
-        T: Send,
+        T: std::hash::Hash + Send,
     {
         let priority = self
             .state
@@ -883,7 +881,7 @@ impl Compilation {
         + Send,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
     where
-        T: Send + Sync,
+        T: std::hash::Hash + Send + Sync,
     {
         let priority = self
             .state
@@ -908,7 +906,7 @@ impl Compilation {
         + Send,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
     where
-        T: Send + Sync,
+        T: std::hash::Hash + Send + Sync,
     {
         cache.get_or_compute_with_priority(
             &self.state.fact_runtime,
