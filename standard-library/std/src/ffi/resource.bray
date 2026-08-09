@@ -26,11 +26,9 @@ trusted internal func resolve_foreign_resource_release(
         return Error(foreign_error(kind = ForeignErrorKind.InvalidResource));
     }
 
-    try checked_foreign_status(status);
-
     resource.is_owned_value = false;
 
-    return Ok(unit);
+    return checked_foreign_status(status);
 }
 
 trusted internal func transfer_foreign_resource(pos resource: &mut ForeignResourceState) -> Result<u64, ForeignError>

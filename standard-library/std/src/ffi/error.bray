@@ -41,12 +41,13 @@ func foreign_error(pos kind: ForeignErrorKind, pos native_code: i64? = none) -> 
     };
 }
 
-internal func platform_foreign_error_kind(pos category: u32) -> ForeignErrorKind
+internal func platform_foreign_error_kind(pos category: u32, pos not_found_kind: ForeignErrorKind) -> ForeignErrorKind
 {
     match category
     {
         case 1 { return ForeignErrorKind.Unsupported; }
         case 2 { return ForeignErrorKind.PermissionDenied; }
+        case 3 { return not_found_kind; }
         case 5 { return ForeignErrorKind.InvalidInput; }
         case 6 { return ForeignErrorKind.Interrupted; }
         case 7 { return ForeignErrorKind.Exhausted; }
@@ -54,7 +55,10 @@ internal func platform_foreign_error_kind(pos category: u32) -> ForeignErrorKind
     }
 }
 
-internal func platform_foreign_error(pos status: std.platform.PlatformStatus) -> ForeignError
+internal func platform_foreign_error(
+    pos status: std.platform.PlatformStatus,
+    pos not_found_kind: ForeignErrorKind,
+) -> ForeignError
 {
     let mut native_code: i64? = none;
 
@@ -63,10 +67,31 @@ internal func platform_foreign_error(pos status: std.platform.PlatformStatus) ->
         native_code = status.native_code;
     }
 
-    return foreign_error(kind = platform_foreign_error_kind(status.category), native_code = native_code);
+    return foreign_error(
+        kind = platform_foreign_error_kind(status.category, not_found_kind),
+        native_code = native_code,
+    );
 }
 
 internal func checked_foreign_status(pos status: std.platform.PlatformStatus) -> Result<unit, ForeignError>
+{
+    return checked_foreign_status_with_not_found(status, ForeignErrorKind.Other);
+}
+
+internal func checked_foreign_library_status(pos status: std.platform.PlatformStatus) -> Result<unit, ForeignError>
+{
+    return checked_foreign_status_with_not_found(status, ForeignErrorKind.UnavailableLibrary);
+}
+
+internal func checked_foreign_symbol_status(pos status: std.platform.PlatformStatus) -> Result<unit, ForeignError>
+{
+    return checked_foreign_status_with_not_found(status, ForeignErrorKind.UnavailableSymbol);
+}
+
+internal func checked_foreign_status_with_not_found(
+    pos status: std.platform.PlatformStatus,
+    pos not_found_kind: ForeignErrorKind,
+) -> Result<unit, ForeignError>
 {
     if status.reserved != 0
     {
@@ -75,7 +100,7 @@ internal func checked_foreign_status(pos status: std.platform.PlatformStatus) ->
 
     if status.category != 0
     {
-        return Error(platform_foreign_error(status));
+        return Error(platform_foreign_error(status, not_found_kind));
     }
 
     return Ok(unit);
