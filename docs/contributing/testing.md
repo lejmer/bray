@@ -5,6 +5,8 @@ boundaries.
 
 See [Repository tasks](xtask.md) for the complete development-command reference.
 
+Use [Compiler profiling](profiling.md) to diagnose compiler performance and compare compilation runs.
+
 ## Readiness audits
 
 Repository-wide readiness audits are development checks rather than ordinary behavioral tests. Run every audit explicitly with:

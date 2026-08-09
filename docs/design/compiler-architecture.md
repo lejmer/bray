@@ -952,6 +952,8 @@ Compiler profiling is an explicit observation mode of one invocation. It is not 
 fact identity, cache validity, scheduling policy, or deterministic output. The same request must produce the same compiler results
 with profiling enabled or disabled.
 
+Contributor commands and report interpretation are documented in [Compiler profiling](../contributing/profiling.md).
+
 The disabled path does not create a profiling session, read a clock, update a counter, allocate event storage, enter a lock, access
 thread-local profiling state, or construct a report. An instrumented boundary performs at most one predictable optional-session
 check when profiling is disabled. Measurement code must stay behind that check so descriptor lookup and subject construction also
