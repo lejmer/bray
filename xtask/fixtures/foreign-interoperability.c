@@ -260,10 +260,10 @@ BRAY_EXPORT int32_t bray_foreign_invoke_concurrently(
         return -101;
     }
 
-    if (
-        pthread_join(first_thread, NULL) != 0 ||
-        pthread_join(second_thread, NULL) != 0
-    )
+    const int first_join = pthread_join(first_thread, NULL);
+    const int second_join = pthread_join(second_thread, NULL);
+
+    if (first_join != 0 || second_join != 0)
         return -102;
 #endif
 

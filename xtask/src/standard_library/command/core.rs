@@ -457,20 +457,7 @@ fn build_target(
 
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
 
-    let sources = source_inputs_from_file_arguments(source_paths.iter().cloned())
-        .map_err(|error| BuildError::Source(format!("{error:?}")))?;
-
-    let options = CompilationOptions::new(
-        WorkerBudget::default(),
-        ProductKind::Library,
-        selected.clone(),
-    );
-
-    let request =
-        CompilationRequest::with_options(product.identity().package().clone(), sources, options)
-            .with_standard_library_source_authority()
-            .with_platform_services(product.platform_services().iter().cloned())
-            .with_package_interface_export(interface_export_request(product.identity(), version)?);
+    let request = standard_library_source_request(product, version, source_paths, &selected)?;
 
     let compilation = load_llvm_compilation(request).ok_or(BuildError::CompilerUnavailable)?;
 
@@ -569,6 +556,29 @@ fn build_target(
     })
 }
 
+pub(in crate::standard_library) fn standard_library_source_request(
+    product: &ProjectProduct,
+    version: &PackageVersion,
+    source_paths: &[PathBuf],
+    selected: &SelectedTarget,
+) -> Result<CompilationRequest, BuildError> {
+    let sources = source_inputs_from_file_arguments(source_paths.iter().cloned())
+        .map_err(|error| BuildError::Source(format!("{error:?}")))?;
+
+    let options = CompilationOptions::new(
+        WorkerBudget::default(),
+        ProductKind::Library,
+        selected.clone(),
+    );
+
+    Ok(
+        CompilationRequest::with_options(product.identity().package().clone(), sources, options)
+            .with_standard_library_source_authority()
+            .with_platform_services(product.platform_services().iter().cloned())
+            .with_package_interface_export(interface_export_request(product.identity(), version)?),
+    )
+}
+
 fn emitted_path(
     outcome: &bray_emitter::EmissionOutcome,
     kind: ArtifactKind,
@@ -609,7 +619,9 @@ fn interface_export_request(
     ))
 }
 
-fn standard_library_version(graph: &ProjectGraph) -> Result<&PackageVersion, BuildError> {
+pub(in crate::standard_library) fn standard_library_version(
+    graph: &ProjectGraph,
+) -> Result<&PackageVersion, BuildError> {
     let package = PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
         .ok_or(BuildError::InvalidIdentity)?;
 
@@ -619,7 +631,9 @@ fn standard_library_version(graph: &ProjectGraph) -> Result<&PackageVersion, Bui
         .ok_or(BuildError::MissingProduct)
 }
 
-fn standard_library_product(graph: &ProjectGraph) -> Result<&ProjectProduct, BuildError> {
+pub(in crate::standard_library) fn standard_library_product(
+    graph: &ProjectGraph,
+) -> Result<&ProjectProduct, BuildError> {
     let package = PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
         .ok_or(BuildError::InvalidIdentity)?;
 
