@@ -172,7 +172,7 @@ An exported foreign callable address names a compiler-generated trampoline rathe
 attaches an otherwise foreign thread to the runtime for the invocation, establishes a synchronous Bray run, and contains panic or
 cancellation at that boundary. Normal completion returns the body's ABI result. A panic is reported through the runtime panic sink
 before the trampoline returns the ABI-zero result. Cancellation also returns the ABI-zero result, and result-less callbacks return
-normally after either abnormal outcome; neither panic nor cancellation unwinds into foreign code.
+normally after either abnormal outcome. Neither panic nor cancellation unwinds into foreign code.
 
 Bray callable values remain capture-free. The standard `std.ffi.CallbackContext<State>` owner supplies stable-address storage when
 a foreign API needs an explicit state pointer. Construction consumes the state value. A static exported ABI callable receives the
