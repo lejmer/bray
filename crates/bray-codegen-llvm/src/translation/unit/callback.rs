@@ -3,7 +3,7 @@ use bray_codegen::{
     CodegenSymbolMapping,
 };
 use bray_ir::MirRuntimeReference;
-use bray_runtime_interface::RuntimeAbiRole;
+use bray_runtime_interface::{NativeRunState, RuntimeAbiRole};
 use bray_symbols::CallableAbi;
 use inkwell::DLLStorageClass;
 use inkwell::AddressSpace;
@@ -11,9 +11,9 @@ use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicMetadataValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
 
-use super::support::{int_value, llvm, pointer_value};
+use super::support::{int_value, llvm, native_run_outcome, native_run_state_is, pointer_value};
 use crate::mapping::{LlvmTypeMappings, apply_signature_call_attributes, declare_symbol};
 
 pub(super) fn prepare<'context, 'request>(
@@ -128,7 +128,7 @@ pub(super) fn translate<'context, 'request>(
         state_handle.into(),
     ];
 
-    crate::native::invoke_function(
+    let outcome = crate::native::invoke_function(
         context,
         &builder,
         request.target(),
@@ -138,6 +138,8 @@ pub(super) fn translate<'context, 'request>(
         "callback.boundary",
     )?
     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    resolve_callback_outcome(context, module, request, &builder, trampoline, outcome)?;
 
     match result_field {
         Some(field) => {
@@ -158,6 +160,59 @@ pub(super) fn translate<'context, 'request>(
             llvm(builder.build_return(None))?;
         }
     }
+
+    Ok(())
+}
+
+fn resolve_callback_outcome<'context>(
+    context: &'context Context,
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    builder: &Builder<'context>,
+    trampoline: FunctionValue<'context>,
+    outcome: BasicValueEnum<'context>,
+) -> Result<(), CodegenFailure> {
+    let (state, payload) = native_run_outcome(builder, outcome)?;
+
+    let panicked = native_run_state_is(
+        builder,
+        state,
+        NativeRunState::PANICKED,
+        "callback.panicked",
+    )?;
+
+    let report = context.append_basic_block(trampoline, "callback.report_panic");
+    let complete = context.append_basic_block(trampoline, "callback.complete");
+
+    llvm(builder.build_conditional_branch(panicked, report, complete))?;
+    builder.position_at_end(report);
+
+    let panic = MirRuntimeReference::new(
+        RuntimeAbiRole::PanicReporting,
+        request.unit().target().runtime_abi(),
+    );
+
+    let key = CodegenSymbolKey::Runtime(panic);
+
+    let function = request
+        .mappings()
+        .symbol(&key)
+        .and_then(|mapping| module.get_function(mapping.name().as_str()))
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    crate::native::invoke_function(
+        context,
+        builder,
+        request.target(),
+        &key,
+        function,
+        &[payload.into()],
+        "callback.report_panic",
+    )?
+    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    llvm(builder.build_unconditional_branch(complete))?;
+    builder.position_at_end(complete);
 
     Ok(())
 }

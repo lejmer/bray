@@ -28,8 +28,19 @@ struct CallbackContext<State>
 struct BorrowedCallback<State, Entry>
 {
     internal owner: &CallbackContext<State>;
-    internal entry: Entry;
-    internal context: RawPointer<State>;
+    internal entry_value: Entry;
+    internal context_value: RawPointer<State>;
+
+    func entry() -> Entry
+        with(Entry: Copyable)
+    {
+        return self.entry_value;
+    }
+
+    func context() -> RawPointer<State>
+    {
+        return self.context_value;
+    }
 }
 
 trusted func borrow_callback<State, Entry>(
@@ -40,8 +51,8 @@ trusted func borrow_callback<State, Entry>(
     let binding: BorrowedCallback<State, Entry> =
     {
         owner = context,
-        entry = entry,
-        context = std.memory.pointer<State>(&context.storage),
+        entry_value = entry,
+        context_value = std.memory.pointer<State>(&context.storage),
     };
 
     return binding;

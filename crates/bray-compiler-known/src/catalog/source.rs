@@ -235,15 +235,15 @@ const SOURCES: [CatalogSource; 16] = [
     ),
     CatalogSource::new(
         CatalogSourceId::new(14),
-        CatalogKind::CompilerKnown,
-        "catalog/ambient/capabilities.braydef",
-        include_str!("../../catalog/ambient/capabilities.braydef"),
-    ),
-    CatalogSource::new(
-        CatalogSourceId::new(15),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/ffi.braydef",
         include_str!("../../catalog/recognized/ffi.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(15),
+        CatalogKind::CompilerKnown,
+        "catalog/ambient/capabilities.braydef",
+        include_str!("../../catalog/ambient/capabilities.braydef"),
     ),
 ];
 
@@ -275,7 +275,7 @@ mod tests {
             .map(|path| format!("catalog/{path}"))
             .collect::<Vec<_>>();
 
-        assert_eq!(sources.len(), 15);
+        assert_eq!(sources.len(), 16);
 
         assert_eq!(
             sources
@@ -299,7 +299,7 @@ mod tests {
                 .iter()
                 .filter(|source| source.kind() == CatalogKind::RecognizedStandardLibrary)
                 .count(),
-            6
+            7
         );
 
         for (index, source) in sources.iter().enumerate() {

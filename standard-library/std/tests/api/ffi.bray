@@ -47,7 +47,7 @@ trusted func callback_bindings_preserve_state_ownership() -> Result<unit, std.me
 
     let callback = trusted std.ffi.borrow_callback(&context, entry);
 
-    assert(!std.memory.is_null<i32>(callback.context));
+    assert(!std.memory.is_null<i32>(callback.context()));
 
     return Ok(unit);
 }
@@ -66,9 +66,9 @@ trusted func callback_entries_recover_state() -> Result<unit, std.memory.MemoryL
 
     let entry: @abi(c)
     trusted func(pos context: RawPointer<i32>, pos value: i32) -> bool
-        uses(raw_memory) = callback.entry;
+        uses(raw_memory) = callback.entry();
 
-    assert(trusted entry(callback.context, 41));
+    assert(trusted entry(callback.context(), 41));
     let _: &std.ffi.CallbackContext<i32> = callback.owner;
 
     return Ok(unit);

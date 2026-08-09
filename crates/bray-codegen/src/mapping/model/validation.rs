@@ -77,10 +77,13 @@ pub fn mapped_runtime_references(
         symbol.linkage() == CodegenLinkage::Export
             && symbol.signature().abi() != bray_symbols::CallableAbi::Bray
     }) {
-        references.insert(MirRuntimeReference::new(
-            bray_runtime_interface::RuntimeAbiRole::ForeignCallbackExecution,
-            unit.target().runtime_abi(),
-        ));
+        references.extend(
+            [
+                bray_runtime_interface::RuntimeAbiRole::ForeignCallbackExecution,
+                bray_runtime_interface::RuntimeAbiRole::PanicReporting,
+            ]
+            .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
+        );
     }
 
     references

@@ -3,6 +3,7 @@ use bray_codegen::{
     CodegenResultMapping,
 };
 use bray_ir::{MirBinaryOperator, MirHelperReference};
+use bray_runtime_interface::NativeRunState;
 use bray_symbols::{IntegerConstant, IntegerSign, RealConstantBits};
 use inkwell::builder::{Builder, BuilderError};
 use inkwell::values::{AggregateValueEnum, BasicValueEnum, IntValue, PointerValue};
@@ -88,6 +89,33 @@ pub(super) fn extract_value<'context>(
         }
         _ => Err(CodegenFailure::GeneratedModuleInvariant),
     }
+}
+
+pub(super) fn native_run_outcome<'context>(
+    builder: &Builder<'context>,
+    outcome: BasicValueEnum<'context>,
+) -> Result<(IntValue<'context>, IntValue<'context>), CodegenFailure> {
+    let state = extract_value(builder, outcome, 0)
+        .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+
+    let payload = extract_value(builder, outcome, 1)
+        .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+
+    Ok((state, payload))
+}
+
+pub(super) fn native_run_state_is<'context>(
+    builder: &Builder<'context>,
+    state: IntValue<'context>,
+    expected: NativeRunState,
+    name: &str,
+) -> Result<IntValue<'context>, CodegenFailure> {
+    llvm(builder.build_int_compare(
+        IntPredicate::EQ,
+        state,
+        state.get_type().const_int(u64::from(expected.code()), false),
+        name,
+    ))
 }
 
 pub(super) fn aggregate_value_length(value: BasicValueEnum<'_>) -> Result<u32, CodegenFailure> {
