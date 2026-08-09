@@ -40,3 +40,43 @@ func foreign_error(pos kind: ForeignErrorKind, pos native_code: i64? = none) -> 
         native_code_value = native_code,
     };
 }
+
+internal func platform_foreign_error_kind(pos category: u32) -> ForeignErrorKind
+{
+    match category
+    {
+        case 1 { return ForeignErrorKind.Unsupported; }
+        case 2 { return ForeignErrorKind.PermissionDenied; }
+        case 5 { return ForeignErrorKind.InvalidInput; }
+        case 6 { return ForeignErrorKind.Interrupted; }
+        case 7 { return ForeignErrorKind.Exhausted; }
+        case _ { return ForeignErrorKind.Other; }
+    }
+}
+
+internal func platform_foreign_error(pos status: std.platform.PlatformStatus) -> ForeignError
+{
+    let mut native_code: i64? = none;
+
+    if status.native_code != 0
+    {
+        native_code = status.native_code;
+    }
+
+    return foreign_error(kind = platform_foreign_error_kind(status.category), native_code = native_code);
+}
+
+internal func checked_foreign_status(pos status: std.platform.PlatformStatus) -> Result<unit, ForeignError>
+{
+    if status.reserved != 0
+    {
+        return Error(foreign_error(kind = ForeignErrorKind.IncompatibleAbi));
+    }
+
+    if status.category != 0
+    {
+        return Error(platform_foreign_error(status));
+    }
+
+    return Ok(unit);
+}

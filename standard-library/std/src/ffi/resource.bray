@@ -1,0 +1,67 @@
+module std.ffi;
+
+internal struct ForeignResourceState
+{
+    internal handle_value: u64;
+    internal mut is_owned_value: bool;
+}
+
+internal func foreign_resource_is_owned(pos resource: &ForeignResourceState) -> bool
+{
+    return resource.is_owned_value;
+}
+
+trusted internal func borrow_foreign_resource_handle(pos resource: &ForeignResourceState) -> &u64
+{
+    return &resource.handle_value;
+}
+
+trusted internal func resolve_foreign_resource_release(
+    pos resource: &mut ForeignResourceState,
+    pos status: std.platform.PlatformStatus,
+) -> Result<unit, ForeignError>
+{
+    if !resource.is_owned_value
+    {
+        return Error(foreign_error(kind = ForeignErrorKind.InvalidResource));
+    }
+
+    try checked_foreign_status(status);
+
+    resource.is_owned_value = false;
+
+    return Ok(unit);
+}
+
+trusted internal func transfer_foreign_resource(pos resource: &mut ForeignResourceState) -> Result<u64, ForeignError>
+{
+    if !resource.is_owned_value
+    {
+        return Error(foreign_error(kind = ForeignErrorKind.InvalidResource));
+    }
+
+    let handle: u64 = resource.handle_value;
+
+    resource.is_owned_value = false;
+
+    return Ok(handle);
+}
+
+trusted internal func owned_foreign_resource(
+    pos handle: u64,
+    valid: bool,
+    invalid_native_code: i64? = none,
+) -> Result<ForeignResourceState, ForeignError>
+{
+    if !valid
+    {
+        return Error(foreign_error(kind = ForeignErrorKind.InvalidResource, native_code = invalid_native_code));
+    }
+
+    return Ok(
+        {
+            handle_value = handle,
+            is_owned_value = true,
+        }
+    );
+}

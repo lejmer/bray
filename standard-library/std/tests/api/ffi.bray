@@ -5,6 +5,7 @@ using std.ffi;
 using std.ffi.c;
 using std.memory;
 using std.string;
+using internal std.platform.PlatformStatus;
 
 @abi(c)
 func c_increment(pos value: std.ffi.c.Int) -> std.ffi.c.Int
@@ -174,5 +175,85 @@ func foreign_errors_preserve_structured_categories_and_codes()
     {
         case ?value { assert(value == 13); }
         case none { assert(false); }
+    }
+}
+
+@test
+trusted func foreign_resources_reject_invalid_handles() -> Result<unit, std.ffi.ForeignError>
+{
+    let mut native_code: i64? = none;
+    let invalid_code: i64 = 6;
+
+    native_code = invalid_code;
+
+    match trusted internal std.ffi.owned_foreign_resource(0, valid = false, invalid_native_code = native_code)
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error.kind()
+            {
+                case std.ffi.ForeignErrorKind.InvalidResource {}
+                case _ { assert(false); }
+            }
+
+            match error.native_code()
+            {
+                case ?value { assert(value == 6); }
+                case none { assert(false); }
+            }
+        }
+    }
+
+    return Ok(unit);
+}
+
+@test
+func foreign_platform_statuses_preserve_stable_failures()
+{
+    let denied: std.platform.PlatformStatus =
+    {
+        category = 2,
+        reserved = 0,
+        native_code = 13,
+    };
+
+    match internal std.ffi.checked_foreign_status(denied)
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error.kind()
+            {
+                case std.ffi.ForeignErrorKind.PermissionDenied {}
+                case _ { assert(false); }
+            }
+
+            match error.native_code()
+            {
+                case ?value { assert(value == 13); }
+                case none { assert(false); }
+            }
+        }
+    }
+
+    let malformed: std.platform.PlatformStatus =
+    {
+        category = 0,
+        reserved = 1,
+        native_code = 0,
+    };
+
+    match internal std.ffi.checked_foreign_status(malformed)
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error.kind()
+            {
+                case std.ffi.ForeignErrorKind.IncompatibleAbi {}
+                case _ { assert(false); }
+            }
+        }
     }
 }
