@@ -10,6 +10,9 @@ The public text, byte, collection, formatting, hashing, ordering, and numeric co
 The public I/O package layout and private target mechanism boundary are defined by
 [I/O and platform services](io-and-platform-services.md).
 
+The public C interoperability, dynamic loading, foreign resource, callback, and target-specific operating-system boundaries are
+defined by [Foreign and platform interoperability](foreign-and-platform-interoperability.md).
+
 The public testing surface and its private native-host boundary are defined by
 [Testing standard library and runner](testing.md).
 

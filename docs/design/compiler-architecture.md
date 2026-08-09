@@ -37,6 +37,9 @@ Native linker integration rules live in `docs/design/linker.md`.
 
 Standard-library I/O and private platform-service boundary rules live in `docs/design/io-and-platform-services.md`.
 
+Foreign ABI conveniences, dynamic loading, native resource ownership, callbacks, and target-specific operating-system rules live
+in `docs/design/foreign-and-platform-interoperability.md`.
+
 This document is the design-level contract those implementation documents should follow.
 
 ---
