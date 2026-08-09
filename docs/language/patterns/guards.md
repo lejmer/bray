@@ -8,7 +8,7 @@ Guards belong to the surrounding construct that uses the pattern.
 
 The pattern system supplies structural refinement. Guard expressions supply additional condition checking.
 
-Guard coverage and guard proof rules are defined by the surrounding expression form and the shared predicate and fact-context rules.
+Guard coverage and guard proof rules are defined by the surrounding expression form and the shared predicate and flow-sensitive contract reasoning rules.
 
 Guard syntax is defined by the expression forms that accept guards.
 
@@ -16,5 +16,5 @@ Guard syntax is defined by the expression forms that accept guards.
 
 - [Language index](../index.md)
 - [Patterns index](../patterns.md)
-- Previous: [Fact-context refinement](fact-context-refinement.md)
+- Previous: [Condition refinement](pattern-refinement.md)
 - Next: [Pattern evaluation](pattern-evaluation.md)

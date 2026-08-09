@@ -21,4 +21,4 @@ For unions, destruction follows the active variant and the initialized state of 
 - [Language index](../index.md)
 - [Patterns index](../patterns.md)
 - Previous: [Pattern operation modes](pattern-operation-modes.md)
-- Next: [Fact-context refinement](fact-context-refinement.md)
+- Next: [Condition refinement](pattern-refinement.md)

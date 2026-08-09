@@ -54,7 +54,7 @@ Constant-evaluation eligibility is declared with the `const` function modifier.
 invocation state are checked while constructing the frame, while requirements about the execution context are carried by the
 resulting computation until execution.
 
-`ensures(...)` declares established facts after normal completion.
+`ensures(...)` declares established conditions after normal completion.
 
 `uses(...)` declares trusted implementation capabilities used by a trusted callable body.
 
@@ -99,7 +99,7 @@ Deallocation releases runtime storage.
 
 Safe allocation and safe deallocation are ordinary runtime effects.
 
-Low-level allocation, raw allocation facts, and allocator manipulation require trusted capabilities such as `manual_alloc` or
+Low-level allocation, raw allocation conditions, and allocator manipulation require trusted capabilities such as `manual_alloc` or
 `raw_memory` when the selected operation's contract names those capabilities.
 
 Constant-evaluation context, predicate-expression context, static constraint context, and other allocation-free contexts require
@@ -118,7 +118,7 @@ Constant-evaluation context, predicate-expression context, static constraint con
 callables without I/O.
 
 I/O becomes caller-visible when the callable's signature or contracts require an I/O resource, return an I/O resource, mutate an
-I/O resource, transfer an I/O obligation, or state facts about external behavior.
+I/O resource, transfer an I/O obligation, or state conditions about external behavior.
 
 ### Cancellation effects
 
@@ -148,8 +148,8 @@ can be cancelled by its owning task or root according to the async observation r
 synchronous callable that explicitly checkpoints or forwards an observed child cancellation.
 
 Calling an async function creates an async computation whose cancellation behavior is governed by [Async and concurrency](../async-and-concurrency.md).
-Body effects, body capabilities, execution-context requirements, and normal-completion facts belong to the computation's execution
-contract; they are not effects or facts of inactive-frame construction.
+Body effects, body capabilities, execution-context requirements, and normal-completion conditions belong to the computation's execution
+contract. They are not effects or conditions of inactive-frame construction.
 
 Awaiting an async computation, starting it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
 the async computation's ownership, borrowing, capability, effect, finalization, and cancellation obligations.
@@ -183,7 +183,7 @@ Callable types represent caller-visible effects through the ordinary callable ty
 - `@abi(...)` for explicit callable ABI contracts,
 - receiver and parameter modes for ownership, borrowing, movement, and mutation requirements,
 - trusted `uses(...)` for trusted implementation capability envelopes that must be preserved,
-- contract clauses for preconditions, postconditions, static constraints, trusted caller obligations, facts, and resource obligations,
+- contract clauses for preconditions, postconditions, static constraints, trusted caller obligations, conditions, and resource obligations,
 - parameter and result types for task handles, async computations, storage obligations, lifecycle obligations, and resource
   ownership.
 

@@ -28,7 +28,7 @@ Irrefutable-only contexts reject refutable patterns.
 
 Union variant matching over closed unions performs exhaustive coverage checking.
 
-Successful patterns refine the fact context.
+Successful patterns make their structural guarantees available in the region governed by the match.
 
 Pattern matching is structural, deterministic, and effect-free.
 

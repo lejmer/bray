@@ -32,7 +32,7 @@ checked as producing `T`, and only an async callable invocation can create its p
 can accept, move, store, or return an existing `Future<T>` value but cannot construct one directly.
 
 `Future<T>` is compiler-known, protected-representation, owned, move-only, and not directly constructible. It contains the inactive
-computation frame and every owned value, borrow, capability, fact dependency, execution requirement, effect, and lifecycle
+computation frame and every owned value, borrow, capability, contract dependency, execution requirement, effect, and lifecycle
 obligation required to execute or discard that frame. It also carries the body's normal-completion postcondition template. Direct
 await applies that template only after normal completion; a started task preserves it only for a `RunResult.Completed` refinement.
 

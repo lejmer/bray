@@ -24,7 +24,7 @@ Depending on the parameter, the argument may be:
 - moved,
 - copied,
 - consumed,
-- used to establish a contract fact.
+- used to establish a contract guarantee.
 
 Owned parameters take ownership of the argument value unless the value is copyable or another explicit rule applies.
 

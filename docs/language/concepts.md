@@ -121,9 +121,9 @@ A **non-local completion** exits the current expression region through a control
 
 ---
 
-## Contracts And Facts
+## Contracts And Conditions
 
-A **fact** is compiler-visible information known to hold in a context.
+A **condition** is a proposition guaranteed by the language rules at a particular program point.
 
 A **predicate** is a named or inline boolean rule valid in predicate context.
 
@@ -141,7 +141,8 @@ A **trusted obligation** is an obligation the ordinary checker cannot prove and 
 
 A **capability** is named authority to perform an operation that ordinary safe Bray does not allow without that authority.
 
-Contract, predicate, fact-context, trusted-capability, trusted-obligation, witness-value, and trust-boundary rules are defined in [Contracts and trust](contracts-and-trust.md).
+Contract, predicate, flow-sensitive contract reasoning, trusted-capability, trusted-obligation, witness-value, and trust-boundary
+rules are defined in [Contracts and trust](contracts-and-trust.md).
 
 ---
 

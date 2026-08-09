@@ -4,9 +4,9 @@ Contracts describe caller obligations, static constraints, and normal-completion
 
 Predicate expressions are restricted contract-level expressions.
 
-Ordinary requirements are checkable predicate facts.
+Ordinary requirements are checkable predicate conditions.
 
-Trusted requirements are trusted predicate facts that must be established, preserved, or acknowledged.
+Trusted requirements are trusted predicate conditions that must be established, preserved, or acknowledged.
 
 Trusted implementation capabilities are implementation authority declared with `uses(...)`.
 
@@ -16,9 +16,9 @@ Trusted caller obligations appear in the declaration contract.
 
 Trust boundaries visibly acknowledge trusted caller obligations for a specific operand expression.
 
-Trusted witness values carry trusted facts as part of ordinary value contracts.
+Trusted witness values carry trusted guarantees as part of ordinary value contracts.
 
-Fact contexts are flow-sensitive and are invalidated by ownership, mutation, lifetime, capability, and storage-state changes.
+Contract reasonings are flow-sensitive and are invalidated by ownership, mutation, lifetime, capability, and storage-state changes.
 
 Trusted obligations used inside wrappers must be discharged or exposed.
 

@@ -17,15 +17,15 @@ A guard is evaluated before the arm body is selected.
 
 A guard is an ordinary expression checked in guard context.
 
-It uses normal expression checking with the capabilities, effects, and facts available in guard context.
+It uses normal expression checking with the capabilities, effects, and conditions available in guard context.
 
 A guard must produce `bool`.
 
 Bindings introduced by the pattern are available in the guard.
 
-Facts established by successful structural pattern matching are available in the guard.
+Conditions established by successful structural pattern matching are available in the guard.
 
-Surrounding facts from the fact context are available in the guard when they remain valid at the guard evaluation point.
+Surrounding guarantees are available in the guard when they remain valid at the guard evaluation point.
 
 Pattern bindings are available in observe-only form in the guard.
 
@@ -48,17 +48,17 @@ Arm selection then continues according to the surrounding expression form’s ar
 
 For match expressions, the first arm whose pattern matches and whose guard evaluates to `true` is selected.
 
-A guard can establish facts for the selected arm body when the guard condition is known to hold after evaluation.
+A guard can establish conditions for the selected arm body when the guard condition is known to hold after evaluation.
 
-Facts established by a guard remain valid only while the values, storage identities, lifetimes, capabilities, and versions they depend on remain valid.
+Conditions established by a guard remain valid only while the values, storage identities, lifetimes, capabilities, and versions they depend on remain valid.
 
-Static guard coverage uses the shared fact and predicate system.
+Static guard coverage uses the shared condition and predicate system.
 
 For each guarded arm, coverage analysis asks whether the guard condition is statically entailed by:
 
-- facts established by the arm pattern,
-- surrounding facts still valid at the guard point,
-- predicate facts available in the fact context.
+- conditions established by the arm pattern,
+- surrounding conditions still valid at the guard point,
+- predicate guarantees available at that program point.
 
 The static result for a guard over a coverage subregion is one of:
 

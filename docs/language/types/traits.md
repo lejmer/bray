@@ -224,7 +224,7 @@ The type annotation is required.
 The initializer, when present, is checked in constant-initializer context.
 
 The initializer is a declaration-owned constant definition template. Its selected concrete value is evaluated after the exact
-implementing subject, trait application, implementation, generic substitution, and target facts are known.
+implementing subject, trait application, implementation, generic substitution, and target properties are known.
 
 The initializer must be compatible with the declared constant type.
 
@@ -324,7 +324,7 @@ An implementation member that refers to a type-valued member is checked after su
 
 A trait implementation satisfies the trait only when its callable members match the trait contract after all type-valued member bindings are applied.
 
-Type-valued members participate in type checking, callable checking, method resolution, generic constraints, contract checking, fact-context checking, documentation, and public API compatibility.
+Type-valued members participate in type checking, callable checking, method resolution, generic constraints, contract checking, flow-sensitive contract checking, documentation, and public API compatibility.
 
 Type-valued members do not create runtime type identity.
 
@@ -465,7 +465,7 @@ Outside the declaring trait and an implementation of that trait, a predicate mem
 SubjectType(TraitApplication).predicate_name(...)
 ```
 
-Predicate members participate in contract checking, static constraints, fact-context checking, generic satisfaction,
+Predicate members participate in contract checking, static constraints, flow-sensitive contract checking, generic satisfaction,
 documentation, and public API compatibility.
 
 Trusted predicate members follow the ordinary trusted predicate and trusted obligation rules from the contract and trust rules.
@@ -743,7 +743,8 @@ A defaulted trait member’s body is checked against its contract.
 
 An implementation member must satisfy the contract of the trait member it fulfills.
 
-Rules for predicate expressions, fact contexts, trusted obligations, and contract clauses belong to the contract and trust rules.
+Rules for predicate expressions, flow-sensitive contract reasoning, trusted obligations, and contract clauses belong to the
+contract and trust rules.
 
 A required trait member can be trusted.
 

@@ -295,15 +295,16 @@ A destroyed binding is outside the set of usable value states.
 
 ---
 
-## Name expressions and fact context
+## Name expressions and contract reasoning
 
-A name expression can read facts from the fact context.
+A name expression can use the guarantees available at that program point.
 
-Facts can describe initialization state, active union variant, field availability, borrow state, mutation authority, predicate facts, trusted facts, and other flow-sensitive information.
+Conditions can describe initialization state, active union variant, field availability, borrow state, mutation authority, predicate conditions, trusted guarantees, and other flow-sensitive information.
 
-Using a name expression can also invalidate facts when the use moves, consumes, mutably borrows, assigns through, finalizes, or destroys the reached storage.
+Using a name expression can make guarantees unavailable when the use moves, consumes, mutably borrows, assigns through, finalizes,
+or destroys the reached storage.
 
-A name expression that only observes a stable value preserves facts that remain true under observation.
+A name expression that only observes a stable value preserves conditions that remain true under observation.
 
 ## Navigation
 

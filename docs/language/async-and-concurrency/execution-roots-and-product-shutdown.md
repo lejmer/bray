@@ -61,41 +61,29 @@ The root task remains on the main-thread lane for its lifetime. Child tasks with
 among compatible runtime workers. A child retaining main-thread-affine state is pinned to the main-thread lane through the ordinary
 dependency and affinity rules.
 
-`main_thread_execution()` is an execution-context fact, not ownership of a `MainThread` handle. Standard-library or user APIs that
+`main_thread_execution()` is an execution-context requirement, not ownership of a `MainThread` handle. Standard-library or user APIs that
 must execute on the initial thread state that requirement in `requires(...)`.
 
-`std.thread` provides these public observational thread-identity declarations:
+`std.thread.Id` is a nonforgeable observational value type with no public primary construction. `std.thread` provides these public
+thread-identity declarations:
 
 ```bray
-struct Id {}
-
 func current_id() -> Id;
 func main_id() -> Id;
 func is_main() -> bool;
 ```
 
 These declarations belong to `std.thread`. Their values do not grant execution authority, establish
-`main_thread_execution()`, keep a thread alive, or permit joining it.
+`main_thread_execution()`, keep a thread alive, or permit joining it. Two `Id` values are equal exactly when they identify the same
+operating-system thread lifetime in the same process. Reuse of a target-native thread number for a later thread does not make the
+identities equal.
 
 ## Current-process facilities
 
-The current process is observed through ordinary standard-library operations for process identity, arguments, environment, and
-host integration. Those operations do not manufacture an owning `std.process.Process<T>` for the current process.
-
-`std.process` provides these public current-process observation declarations:
-
-```bray
-struct Id {}
-
-func current_id() -> Id;
-func arguments() -> Arguments;
-func environment() -> Environment;
-```
-
-`Arguments` and `Environment` are ordinary owned or borrowed standard-library views selected by the product contract. Process
-identity and environment access do not grant child-process creation, termination, raw-handle, or shared-memory authority.
-The immutable snapshot and target-availability rules for these facilities are defined by
-[I/O and platform services](../io-and-platform-services.md).
+The current process is observed through the `std.process` identity, arguments, environment, and startup-working-directory
+declarations defined by [I/O and platform services](../io-and-platform-services.md). These operations do not manufacture an owning
+`std.process.Process<T>` for the current process and do not grant child-process creation, termination, raw-handle, or shared-memory
+authority.
 
 Normal process termination occurs only after the executable root run and its owned lifecycle obligations resolve. A safe ordinary
 process-exit operation cannot silently bypass structured cleanup. A platform may expose an explicitly aborting operation through a

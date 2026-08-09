@@ -29,7 +29,7 @@ Child-process execution supplied by `std.process` is an ordinary library boundar
 encoded, transferred, decoded, and owned on each side. A borrow, raw pointer, exact-thread capability, process-local resource, or
 unsynchronized shared-memory authority cannot cross merely because its type is copyable.
 
-The executable root itself is established by the product host. It owns the initial process and main-thread lifetime facts but does
+The executable root itself is established by the product host. It owns the initial process and main-thread lifetime guarantees but does
 not expose self-owning `Process<T>` or `Thread<T>` values to source.
 
 ## Navigation

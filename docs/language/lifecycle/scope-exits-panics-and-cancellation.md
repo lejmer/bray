@@ -3,8 +3,8 @@
 Scope exit resolves local ownership and lifecycle state for the scope being left. Initialized owned values whose ownership remains
 in the scope are resolved; moved values are not. Partially initialized values resolve only initialized represented parts.
 
-Reachable exits must merge to coherent ownership, borrowing, initialization, destruction, finalization, capability, effect, task,
-and fact-context state.
+Reachable exits must agree on ownership, borrowing, initialization, destruction, finalization, capabilities, effects, task
+obligations, and which contract guarantees remain available.
 
 In async execution, each lexical block is also a structured task boundary. Before ordinary reverse lifecycle resolution, every
 unresolved task obligation whose owner ends at that boundary receives cancellation. Only after all requests have been issued does

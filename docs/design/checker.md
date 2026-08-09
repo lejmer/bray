@@ -613,7 +613,7 @@ Post-selection target validity can reject the selected operation. It does not ca
 back to a different candidate.
 
 These rules follow `docs/language/targets-layout-abi-and-raw-memory.md` and
-`docs/language/compiler-known-and-standard-library/target-profiles-and-target-facts.md`.
+`docs/language/compiler-known-and-standard-library/target-profiles-and-properties.md`.
 
 ---
 
@@ -652,9 +652,9 @@ Full per-program-point fact sets remain private.
 
 Recovery removes any fact whose truth is uncertain. It never invents a positive refinement to keep checking moving.
 
-Refinement follows `docs/language/contracts-and-trust/fact-context.md`,
-`docs/language/patterns/fact-context-refinement.md`, and
-`docs/language/ownership-and-borrowing/fact-and-borrow-invalidation.md`.
+Refinement follows `docs/language/contracts-and-trust/contract-reasoning.md`,
+`docs/language/patterns/pattern-refinement.md`, and
+`docs/language/ownership-and-borrowing/contract-and-borrow-validity.md`.
 
 ### Liveness
 

@@ -117,7 +117,7 @@ Variant contracts are checked during construction.
 
 A `requires(...)` clause on a variant must be satisfied by the construction expression.
 
-A successful variant construction can establish facts declared by the variant’s `ensures(...)` clause.
+A successful variant construction can establish conditions declared by the variant’s `ensures(...)` clause.
 
 A successful variant construction establishes that the produced union value has the selected active variant.
 
@@ -151,11 +151,11 @@ A payload default can use only the capabilities available to the declaration tha
 
 Trusted capabilities used by defaults, payload initializers, or variant contracts must be permitted by the surrounding trusted declaration or rejected according to the contract and trust rules.
 
-A union variant construction expression can establish facts in the fact context.
+A union variant construction expression can establish conditions at that program point.
 
-Facts can include the union type, selected active variant, initialized active payload, initialized payload fields, and facts established by payload initializer expressions, defaults, or variant contracts.
+Conditions can include the union type, selected active variant, initialized active payload, initialized payload fields, and conditions established by payload initializer expressions, defaults, or variant contracts.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts about the constructed union value or active payload.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about the constructed union value or active payload.
 
 A union variant construction expression creates a new value. Initialization performed by the construction expression is initialization, not ordinary mutation.
 

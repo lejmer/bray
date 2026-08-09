@@ -297,7 +297,7 @@ A borrow type is a non-owning access path type.
 
 A borrow value does not own the reached storage.
 
-Borrow compatibility, creation, movement, copying, lifetime validity, reborrowing, and invalidation are defined in [Borrow rules](../ownership-and-borrowing/borrow-rules.md), [Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md), and [Fact and borrow invalidation](../ownership-and-borrowing/fact-and-borrow-invalidation.md).
+Borrow compatibility, creation, movement, copying, lifetime validity, reborrowing, and invalidation are defined in [Borrow rules](../ownership-and-borrowing/borrow-rules.md), [Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md), and [Condition and borrow invalidation](../ownership-and-borrowing/contract-and-borrow-validity.md).
 
 Nested borrow types are allowed.
 
@@ -914,9 +914,7 @@ The call surface of a lambda is its visible callable contract.
 
 ## Type forms and construction
 
-Some type forms define construction expression syntax.
-
-`box` defines a type-form construction expression.
+`box` is the sole type form that defines construction expression syntax.
 
 ```bray
 box[S] T

@@ -34,7 +34,7 @@ Match expressions are expressions and produce the selected arm result.
 
 Predicate expressions use a restricted contract-expression context.
 
-Expressions participate in ownership, borrowing, initialization, destruction, finalization, effects, capabilities, and fact-context refinement.
+Expressions participate in ownership, borrowing, initialization, destruction, finalization, effects, capabilities, and condition refinement.
 
 ## Navigation
 

@@ -44,7 +44,7 @@ Omitted slice boundaries do not evaluate an expression.
 
 Index access with `[]` is asserted access.
 
-When the indexing contract has bounds or validity requirements, the compiler can discharge those requirements from static facts.
+When the indexing contract has bounds or validity requirements, the compiler can discharge those requirements from compile-time conditions.
 
 If an asserted index requirement is checked at runtime and fails, the access panics.
 
@@ -147,13 +147,13 @@ Borrowing a slice projection creates a borrow of the projected contiguous substo
 
 Mutable borrowing a slice projection requires compatible exclusivity for the whole projected range.
 
-Index access can refine or use facts in the fact context.
+Index access can refine or use conditions at that program point.
 
-Facts can establish that an index is valid, that a slice range is valid, that an element is initialized, or that an indexed access
-is within the subject’s bounds when the indexing contract exposes such facts.
+Conditions can establish that an index is valid, that a slice range is valid, that an element is initialized, or that an indexed access
+is within the subject’s bounds when the indexing contract exposes such conditions.
 
 Mutation, movement, consumption, destruction, reinitialization, or finalization of the subject, reached element, or projected
-substorage can invalidate facts about indexed access.
+substorage can invalidate conditions about indexed access.
 
 A custom indexing contract defines:
 
@@ -162,7 +162,7 @@ A custom indexing contract defines:
 - the produced value type or access path type,
 - the required capabilities,
 - the asserted validity requirements,
-- the facts established by successful access,
+- the conditions established by successful access,
 - the panic condition for failed asserted access.
 
 Custom element indexing uses the compiler-known `ElementIndex<Selector>` contract:

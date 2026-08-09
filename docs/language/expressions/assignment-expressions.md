@@ -90,11 +90,11 @@ If the right side moves from an access path, that source access path becomes mov
 
 If assignment overwrites a value with a finalization obligation, the obligation must be completed, transferred, or converted into an explicit fallback ownership form before the old value’s ownership ends.
 
-Assignment invalidates facts that depend on the previous value stored in the destination.
+Assignment invalidates conditions that depend on the previous value stored in the destination.
 
-Assignment invalidates facts that depend on storage changed by the assignment.
+Assignment invalidates conditions that depend on storage changed by the assignment.
 
-Assignment preserves facts that remain true after the destination is reinitialized.
+Assignment preserves conditions that remain true after the destination is reinitialized.
 
 Assignment participates in effect and capability checking.
 

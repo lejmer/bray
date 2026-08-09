@@ -1,6 +1,6 @@
 # Layout helpers
 
-ABI and layout helpers expose target-dependent layout facts used by allocation, raw buffers, FFI support, and low-level storage code.
+ABI and layout helpers expose target-dependent layout conditions used by allocation, raw buffers, FFI support, and low-level storage code.
 
 The standard-library layout helper family is under `std.memory`.
 
@@ -58,9 +58,9 @@ Constructing a `MemoryLayout` value from arbitrary field values is valid only wh
 
 The ABI and layout helper results are target-dependent constants when their inputs are constant.
 
-The compiler records the target facts used by these helpers in compiled interface metadata.
+The compiler records the target properties used by these helpers in compiled interface metadata.
 
-These helpers do not read memory, write memory, allocate, deallocate, initialize storage, destroy values, create raw pointer validity facts, or create allocation ownership facts.
+These helpers do not read memory, write memory, allocate, deallocate, initialize storage, destroy values, create raw pointer validity conditions, or create allocation ownership conditions.
 
 ## Navigation
 

@@ -114,9 +114,9 @@ Finalization obligations created in an iteration body must be completed, transfe
 
 Finalization obligations of yielded values become part of the resulting array.
 
-Facts established by the source expression, pattern, and iteration body are scoped according to the iteration region.
+Conditions established by the source expression, pattern, and iteration body are scoped according to the iteration region.
 
-Facts tied to an iteration binding expire at the end of that iteration unless they are transferred into the yielded value or another surviving storage location.
+Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into the yielded value or another surviving storage location.
 
 ## Navigation
 

@@ -12,7 +12,7 @@ The compiler-known surface consists of:
 - the compiler-known result and conversion types `Result<T, E>` and `ConversionError`,
 - compiler-known execution-context predicates `blocking_execution()`, `compute_execution()`, and `main_thread_execution()`,
 - compiler-known raw memory declarations and trusted predicates under `core.memory`,
-- compiler-known target facts under the ambient `target` path,
+- compiler-known target properties under the ambient `target` path,
 - the compiler-known type-form support trait `Storage<T>`,
 - the compiler-known iteration traits `Iterable` and `Iterator`,
 - the compiler-known conversion traits `ConvertTo<Target>` and `CheckedConvertTo<Target>`,

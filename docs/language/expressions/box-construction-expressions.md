@@ -137,11 +137,11 @@ Finalization obligations created by the contained value expression, storage cons
 
 Trusted capabilities used by storage construction behavior must be permitted by the trusted declaration that implements that behavior or rejected according to the contract and trust rules.
 
-A box construction expression can establish facts in the fact context.
+A box construction expression can establish conditions at that program point.
 
-Facts can include the produced box type, storage policy type, contained or viewed type, stored concrete type when it remains visible to the checking context, full initialization of the box value, initialization of the stored value, and facts established by the contained value expression or storage construction behavior.
+Conditions can include the produced box type, storage policy type, contained or viewed type, stored concrete type when it remains visible to the checking context, full initialization of the box value, initialization of the stored value, and conditions established by the contained value expression or storage construction behavior.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts about the box value, storage state, or contained value.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about the box value, storage state, or contained value.
 
 The contained value expression and additional explicit storage policy arguments are evaluated in source order.
 

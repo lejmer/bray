@@ -27,12 +27,8 @@ threads, processes, budgets, and cleanup incidents before terminal publication. 
 reports, and ends runtime infrastructure and process-scoped resources.
 
 The executable product selects one conforming runtime. `std.thread.Thread<T>`, `std.process.Process<T>`, parallel algorithms,
-channels, synchronization, checkpoints, timers, and concurrent combinators remain ordinary standard-library Bray over private
-trusted ABI operations.
-
-Public concurrency policy, protocols, owners, combinators, budgets, and parallel algorithms are implemented in Bray. Portable
-runtime internals must be trusted Bray. Direct FFI or a narrow native shim is reserved for operating-system thread, process,
-wait/wake, event, virtual-memory, unwind, and host-integration mechanisms that the Bray abstract machine cannot perform itself.
+channels, synchronization, checkpoints, timers, and concurrent combinators remain ordinary standard-library declarations. Their
+source-visible semantics do not depend on the private runtime mechanism used by the product.
 
 Parallel algorithms use domain-typed `std.parallel.Budget<Domain>` values as owned library-side bounds. Nested algorithms share or
 split those bounds. Independent budgets remain subject to the underlying runtime or product hard limits and do not modify

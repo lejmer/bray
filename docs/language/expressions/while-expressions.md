@@ -71,14 +71,14 @@ An else body is required when the while expression result type is not `unit` and
 
 If the compiler proves the false-condition path unreachable, a missing else body does not contribute a normal path.
 
-The while body is checked in a fact context where the condition is true.
+The while body is checked with the loop condition known to be true.
 
-The else body is checked in a fact context where the condition is false.
+The else body is checked with the loop condition known to be false.
 
-No fact is assumed to survive from one iteration to the next merely because it was true in a previous iteration.
+No condition is assumed to survive from one iteration to the next merely because it was true in a previous iteration.
 
-The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and fact state after a while
-expression is the merge of all reachable normal while exits.
+The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and available contract state
+after a while expression is the merge of all reachable normal while exits.
 
 The state at the start of a repeated condition evaluation must be coherent with the state before the first condition evaluation.
 

@@ -1,6 +1,7 @@
 # Expressions
 
-Expressions compute values, produce access paths, perform effects, control evaluation, and establish facts.
+Expressions compute values, produce access paths, perform effects, control evaluation, and establish guarantees used by later
+language checks.
 
 ---
 
@@ -62,6 +63,6 @@ Expressions compute values, produce access paths, perform effects, control evalu
 - [Expression ownership](expressions/expression-ownership.md)
 - [Expression initialization behavior](expressions/expression-initialization-behavior.md)
 - [Expression destruction and finalization behavior](expressions/expression-destruction-and-finalization-behavior.md)
-- [Expression fact-context behavior](expressions/expression-fact-context-behavior.md)
+- [Flow-sensitive contract reasoning](expressions/flow-sensitive-contract-reasoning.md)
 - [Expression evaluation order](expressions/expression-evaluation-order.md)
 - [Summary](expressions/summary.md)

@@ -22,7 +22,7 @@ func add(pos counter: &std.atomic.AtomicU64, amount: u64) -> u64
 }
 ```
 
-A fallback module contribution can use the negated target fact:
+A fallback module contribution can use the negated target property:
 
 ```bray
 @target(!target.atomic.U64)
@@ -45,7 +45,7 @@ The operand of `@target(...)` is an ordinary compile-time boolean expression eva
 
 Target-selection context uses ordinary constant-expression syntax and semantics.
 
-The expression can reference compiler-known target facts under `target`, literals, compiler-known target-fact enum values, and
+The expression can reference compiler-known target properties under `target`, literals, language-defined target enum values, and
 built-in boolean, comparison, field-access, and grouping expressions that are valid in constant-evaluation context.
 
 The expression cannot reference declarations contributed by the source graph being selected.
@@ -64,9 +64,9 @@ Only one `@target(...)` directive can apply to a module declaration.
 
 ## Target-conditional declarations
 
-A **target-conditional declaration** is a compiler-known or recognized standard-library declaration whose availability depends on target facts.
+A **target-conditional declaration** is a compiler-known or recognized standard-library declaration whose availability depends on target properties.
 
-The owning language rule defines each target-conditional declaration's availability rule as a compile-time boolean expression over target facts.
+The owning language rule defines each target-conditional declaration's availability rule as a compile-time boolean expression over target properties.
 
 Before normal source checking, the compiler evaluates availability rules for the selected target profile and forms the available compiler-known and recognized standard-library surface for that product.
 
@@ -80,13 +80,13 @@ A generic declaration that uses a target-conditional declaration must be valid f
 
 A target-gated module contribution can prove target availability for declarations inside that contribution.
 
-If a public declaration's signature, contract, layout, ABI, constant value, implementation participation, overload participation, or availability depends on target facts, compiled interface metadata records the relevant target fact dependencies.
+If a public declaration's signature, contract, layout, ABI, constant value, implementation participation, overload participation, or availability depends on target properties, compiled interface metadata records the relevant target-property dependencies.
 
-Compiled interface metadata for a target-dependent public surface is valid only for target profiles whose recorded target facts match for the purposes of that public surface.
+Compiled interface metadata for a target-dependent public surface is valid only for target profiles whose recorded target properties match for the purposes of that public surface.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Targets, layout, ABI, and raw memory index](../targets-layout-abi-and-raw-memory.md)
-- Previous: [Target profiles and facts](target-profiles-and-facts.md)
+- Previous: [Target profiles and properties](target-profiles-and-properties.md)
 - Next: [Layout contracts](layout-contracts.md)

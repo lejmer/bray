@@ -41,9 +41,10 @@ A call to a callable returning `never` has no normal continuation.
 A call to an async callable whose declared result is `T` produces an owned `Future<T>`. The async body is still checked as producing
 `T`. Invocation checks the callable's invocation contract and transfers its execution contract into that computation.
 
-A call expression can use ordinary and trusted facts from the fact context to satisfy the selected callable contract.
+A call expression can use ordinary and trusted guarantees available at that program point to satisfy the selected callable
+contract.
 
-A synchronous call expression can establish facts from the callable's `ensures(...)` clause after successful completion. Constructing
+A synchronous call expression makes the callable's `ensures(...)` guarantees available after successful completion. Constructing
 an `Future<T>` establishes no body postcondition. The postconditions of an async callable become available only after direct await
 completes normally, or within a `RunResult.Completed(value)` refinement after observing a started task. Postconditions mentioning
 `result` describe that completed value.
@@ -58,7 +59,7 @@ A call expression participates in overload resolution when the callee resolves t
 
 A call first selects exactly one callable through name resolution, argument mapping and type compatibility, explicit generic
 substitution and static constraints, target availability, and overload resolution. Ordinary call checking then validates ownership,
-borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract facts for that
+borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract guarantees for that
 selected callable.
 
 Overload resolution rules are defined in [Function overloading](../callables/function-overloading.md).

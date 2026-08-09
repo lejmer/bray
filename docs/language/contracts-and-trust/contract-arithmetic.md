@@ -24,4 +24,4 @@ The final result of a contract expression must still be valid for the predicate 
 - [Language index](../index.md)
 - [Contracts and trust index](../contracts-and-trust.md)
 - Previous: [Predicate-expression callable calls](predicate-expression-callable-calls.md)
-- Next: [Fact context](fact-context.md)
+- Next: [Contract reasoning](contract-reasoning.md)

@@ -2,7 +2,7 @@
 
 Bray does not have source-level lifetime parameters or source-level lifetime annotations.
 
-Lifetime and capability dependency contracts are semantic facts inferred and checked by the compiler.
+Lifetime and capability dependency contracts are semantic conditions inferred and checked by the compiler.
 
 A dependency contract records the non-local requirements that must remain true for a value, access path, callable value, trait view,
 async computation, task handle, or stored field to remain valid.
@@ -15,7 +15,7 @@ A dependency contract can include:
 - mutation authority that must remain exclusive,
 - scoped capability that must remain live,
 - finalization or destruction obligations that must remain attached to the value,
-- facts whose validity depends on the same storage, capability, or ownership state.
+- conditions whose validity depends on the same storage, capability, or ownership state.
 
 It can also contain an open run-transfer requirement. Such a requirement states that an owned subject and every dependency it can
 carry must remain valid if ownership or access moves to a distinct task, native thread, or synchronized shared owner. It identifies
@@ -24,7 +24,7 @@ lifecycle obligations that the destination cannot drive.
 
 A dependency contract is not part of surface syntax.
 
-It is part of the compiler-visible semantic contract of the value or declaration that carries it.
+It is part of the declared semantic contract of the value or declaration that carries it.
 
 For exported declarations, compiled interfaces, documentation, incremental compilation, and separate compilation, the compiler records the inferred dependency contract as interface metadata.
 

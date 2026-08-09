@@ -82,12 +82,48 @@ visible through it.
 Arguments and environment entries preserve target-native units losslessly. Their conversion to and from UTF-8 text is explicit and
 fallible where the selected target cannot represent the requested value.
 
-Environment lookup and duplicate-key validation use the selected target's environment-key comparison rules. Iteration preserves
-the immutable snapshot but does not promise source ordering unless the caller requests a deterministically ordered view.
+Environment lookup and duplicate-key validation use the selected target's environment-key comparison rules. Indexed iteration is
+ordered lexicographically by the unsigned target-native code units of each key and is deterministic. This ordering does not replace
+the target's key-equality rule.
 
 Bray does not expose mutation of the current process environment. A child-process request builds an explicit environment from an
 empty set or the immutable startup snapshot and applies explicit additions and removals. Inheritance is therefore a declared
 request policy rather than hidden ambient behavior.
+
+`std.process.Id`, `Arguments`, and `Environment` are nonforgeable value types with no public primary construction.
+`EnvironmentEntry` is an ordinary owned product. The public process-context declarations are:
+
+```bray
+struct EnvironmentEntry
+{
+    key: std.path.NativeText;
+    value: std.path.NativeText;
+}
+
+impl Arguments
+{
+    func length() -> usize;
+    func value_at(pos index: usize) -> std.path.NativeText?;
+}
+
+impl Environment
+{
+    func length() -> usize;
+    func value(pos key: &std.path.NativeText) -> std.path.NativeText?;
+    func entry_at(pos index: usize) -> EnvironmentEntry?;
+}
+
+func current_id() -> Id;
+func arguments() -> Arguments;
+func environment() -> Environment;
+func current_directory() -> std.path.Path;
+```
+
+`arguments()` excludes the executable path. Indexing is zero-based and `value_at` returns `none` outside the snapshot.
+`Environment.value` uses target environment-key equality.
+`Environment.entry_at` uses that code-unit order, making iteration deterministic and independent of host enumeration order.
+`current_directory()` returns the startup working-directory snapshot and never observes later host-global mutation. Two `Id`
+values are equal exactly when they identify the same process lifetime in the same host observation domain.
 
 ## Child Processes
 
@@ -107,6 +143,110 @@ The higher-level `std.process.Process<T>` contract adds authenticated Bray proto
 conforming Bray child. Its encoding, decoding, panic-report, cancellation, and commit-ordering rules are defined by
 [standard-library concurrency and parallelism](async-and-concurrency/standard-library-concurrency.md). Arbitrary external programs
 use an explicit exit representation and are not treated as Bray runs.
+
+`ChildCommand` is the mutable construction request. `ChildProcess`, `ChildInput`, and `ChildOutput` are nonforgeable owners with no
+public primary construction. The public raw child-process declarations are:
+
+```bray
+union ChildStreamPolicy
+{
+    Inherit;
+    Null;
+    Piped;
+}
+
+union EnvironmentPolicy
+{
+    Empty;
+    InheritSnapshot;
+}
+
+union ChildErrorKind
+{
+    Creation;
+    Waiting;
+    Termination;
+    Reaping;
+}
+
+struct ChildError
+{
+    kind: ChildErrorKind;
+    io: std.io.IoError;
+}
+
+union ExitStatus
+{
+    Code(pos code: i32);
+    TargetTermination(pos code: i64);
+}
+
+impl ChildInput
+{
+    consume func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
+}
+
+impl ChildOutput
+{
+    consume func close() -> Result<unit, std.io.IoError>
+        requires(blocking_execution());
+}
+
+impl ChildCommand
+{
+    construct(pos executable: std.path.Path) -> Result<Self, ChildError>;
+    mut func argument(pos value: std.path.NativeText) -> Result<unit, ChildError>;
+    mut func environment_policy(policy: EnvironmentPolicy) -> Result<unit, ChildError>;
+
+    mut func set_environment(
+        pos key: std.path.NativeText,
+        pos value: std.path.NativeText,
+    ) -> Result<unit, ChildError>;
+
+    mut func remove_environment(pos key: &std.path.NativeText) -> unit;
+    mut func working_directory(pos path: std.path.Path) -> unit;
+    mut func standard_input(policy: ChildStreamPolicy) -> unit;
+    mut func standard_output(policy: ChildStreamPolicy) -> unit;
+    mut func standard_error(policy: ChildStreamPolicy) -> unit;
+
+    consume func spawn() -> Result<ChildProcess, ChildError>
+        requires(blocking_execution());
+}
+
+impl ChildProcess
+{
+    func id() -> Id;
+
+    mut func take_standard_input() -> ChildInput?;
+    mut func take_standard_output() -> ChildOutput?;
+    mut func take_standard_error() -> ChildOutput?;
+
+    mut func request_termination() -> Result<unit, ChildError>
+        requires(blocking_execution());
+
+    consume func wait() -> Result<ExitStatus, ChildError>
+        requires(blocking_execution());
+
+    consume func force_termination() -> Result<ExitStatus, ChildError>
+        requires(blocking_execution());
+}
+```
+
+`ChildCommand` begins with no child arguments, `EnvironmentPolicy.InheritSnapshot`, no explicit working directory, and
+`ChildStreamPolicy.Inherit` for every standard stream. No explicit working directory means the current process's startup
+working-directory snapshot. A piped handle can be taken at most once. Inherited and null policies produce no pipe owner.
+
+`ChildInput` implements `std.io.Writer`. `ChildOutput` implements `std.io.Reader`. Consuming `close` resolves the pipe owner on both
+result variants. `request_termination` does not consume the process owner, wait, or reap. Every returning `wait` or
+`force_termination` path has reaped the child and resolved the process owner, including `Result.Error`. Normal scope exit rejects an
+unresolved `ChildProcess`, so source must choose and handle a consuming completion operation. `ChildProcess.id()` is observational
+and grants no termination, waiting, raw-handle, or shared-memory authority independently of the owner.
+
+`spawn` does not return an error while retaining an unowned live child. If failure occurs after operating-system creation, it forces
+termination where necessary and reaps before returning. If cancellation of the calling run is observed during consuming `wait` or
+`force_termination`, the operation forces termination, reaps, and resolves retained pipes under shielding before continuing caller
+cancellation. A cleanup failure becomes a cleanup incident rather than abandoning the child.
 
 ## Time
 
@@ -180,7 +320,7 @@ invariant.
 
 ## Target Availability
 
-The following compiler-known boolean target facts describe platform-service availability:
+The following compiler-known boolean target properties describe platform-service availability:
 
 ```bray
 target.platform.process_context
@@ -196,7 +336,7 @@ target.platform.dynamic_loading
 The corresponding service operations are target-conditional declarations. Using an unavailable operation is a compile-time error.
 A target-disabled module contribution can exclude unavailable operations through the normal target-gating rules.
 
-A true fact promises the complete service semantics required by this specification. It does not reveal a native symbol, artifact
+A true condition promises the complete service semantics required by this specification. It does not reveal a native symbol, artifact
 path, operating-system handle representation, or implementation language.
 
 `target.platform.dynamic_loading` promises the complete closed dynamic-library role family defined by the platform-service design

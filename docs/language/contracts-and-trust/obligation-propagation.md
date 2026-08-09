@@ -27,7 +27,7 @@ func read_wrapper(pos pointer: RawPointer<u8>) -> u8
 }
 ```
 
-A wrapper is also valid when it proves or establishes the required facts before calling the trusted operation.
+A wrapper is also valid when it proves or establishes the required conditions before calling the trusted operation.
 
 Trusted obligations must propagate through:
 

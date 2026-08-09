@@ -514,6 +514,11 @@ the compiler does not recognize its source name. Consumers instantiate the expor
 mutation, unencodable process-local state, and undrivable lifecycle obligations without a public marker trait or another
 compiler-known type.
 
+`std.channel` provides bounded multiple-producer, single-consumer channels with runtime-selected capacity. Capacity zero is a
+rendezvous channel, positive capacity bounds queued messages, and no unbounded constructor exists. Send and receive commits are
+FIFO, waiter admission is FIFO after registration, and cancellation removes only the uncommitted waiter. `std.concurrent.first`
+selects one terminal result and resolves every loser. `std.concurrent.all` returns every terminal result in input-index order.
+
 `std.thread.Thread<T>` and its entry callable are ordinary standard-library types, allowing synchronous-only products to use native
 threads without selecting the async runtime. The standard library's async thread bridge integrates those owners with runtime events
 when used from tasks. Synchronous executable roots establish all three execution predicates. Native-thread roots establish blocking
@@ -523,26 +528,40 @@ request-thread-cancellation, shielded wait, terminal lifecycle resolution, and c
 uses a private async-finalizable standard-library owner rather than the public synchronous thread owner, preserving ordinary Bray
 expressibility while allowing async lifecycle resolution of `T`.
 
+The thread owner exposes its observational `std.thread.Id`. Creation failures preserve the stable capacity or creation category and
+an optional target-native numeric code without exposing a platform-authored message as semantic data. The public native-thread
+surface is available only when `target.platform.native_threads` is true.
+
 `std.process.Process<T>` is an ordinary asynchronously finalizable standard-library owner whose explicit finalizer returns
 `Result<unit, ProcessError>`. Normal scope exit therefore rejects an unresolved owner and requires an explicit consuming `join` or
 `cancel`; abnormal cleanup records finalizer failure as a cleanup incident. Its outer `Result` reports process creation, transport,
 protocol, encoding, decoding, termination, and reaping failures; its inner `RunResult<T>` represents a conforming Bray child run.
 
-`Executable`, `Codec<T>`, `TerminationPolicy`, and `Program<Input, T>` are ordinary nonforgeable standard-library owners with
-internal represented state. Executable identity comes from an explicit path plus digest or a declared product dependency. Codecs
-contain explicit encoder/decoder witnesses and fingerprints; the compiler synthesizes no serialization. A child executable's
+`Executable`, `ProductDependency`, `Codec<T>`, `TerminationPolicy`, and `Program<Input, T>` are ordinary nonforgeable
+standard-library owners with internal represented state. Executable identity comes from a declared executable product dependency.
+Dependency lookup uses the current product's selected graph and performs no ambient search. Arbitrary path-based external programs
+remain on the raw child-process surface.
+Codecs contain explicit encoder and decoder witnesses, use `std.bytes.Buffer`, and carry a 256-bit protocol fingerprint. The
+compiler synthesizes no serialization. A child executable's
 ordinary async main directly awaits `std.process.serve(worker, codecs...)`, which registers a private host terminal reporter and
 maps root completion, panic, or cancellation into the authenticated protocol. The handshake validates executable and protocol
 identity. Parent observation retains raw payload bytes until termination, reaping, and all fallible protocol checks complete, and
 only then decodes and commits `T` or `PanicReport`; no outer process error is possible after that commit. Raw external programs adapt
 their explicit exit representation rather than pretending every nonzero status or signal is a Bray panic.
 
+`Program<Input, T>` carries explicit arguments, environment policy and edits, working directory, and standard-stream policy. Typed
+protocol transport is separate from standard streams. Piped stream owners can be taken from `Process<T>` exactly once. Public codec
+implementations construct the closed `CodecFailure` categories, while private process failures retain an optional target-native
+numeric code under their stable `ProcessError` variant.
+
 `std.parallel` algorithms accept `Budget<TaskDomain>`, `Budget<ThreadDomain>`, or `Budget<ProcessDomain>`. These ordinary
 nonforgeable standard-library owners bound one algorithm hierarchy; they are not product capacity authority and do not change
-`Future<T>.start()`. Algorithms acquire a library permit before child creation and release it after terminal observation. Nested
-algorithms share or split a same-domain parent; independent budgets can collectively exceed product capacity and remain subject to
-the underlying creation limits. Scoped task and thread algorithms can retain checked borrows only while they own and resolve every
-child before return; process algorithms transfer encoded values and cannot borrow process-local memory.
+`Future<T>.start()`. `try_acquire`, cancellation-safe FIFO `acquire`, and FIFO `acquire_blocking` produce one owned
+`Permit<Domain>` per active child. Permit release follows terminal observation. Nested algorithms split unacquired and unreserved
+capacity from a same-domain parent, and child destruction returns the reservation. Independent budgets can collectively exceed
+product capacity and remain subject to the underlying creation limits. Scoped task and thread algorithms can retain checked borrows
+only while they own and resolve every child before return. Process algorithms transfer encoded values and cannot borrow process-local
+memory.
 
 Native-thread creation returns `Result<Thread<T>, ThreadError>` so capacity and operating-system creation failures remain
 recoverable. After successful creation, safe `Thread<T>.join()` and `.cancel()` produce `RunResult<T>` without another operational

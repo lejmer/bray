@@ -95,7 +95,7 @@ An overload arm matches a call only when:
 - the arm is available for the selected target profile.
 
 Argument ownership availability, borrow availability, mutation authority, dependency contracts, effects, capabilities, trusted
-obligations, `requires(...)` facts, postconditions, expected result type, and result type do not make an overload arm match.
+obligations, `requires(...)` conditions, postconditions, expected result type, and result type do not make an overload arm match.
 
 After exactly one arm is selected, ordinary call checking validates all of those requirements for the selected arm. If that call is
 invalid, the call is rejected. Resolution does not fall back to another overload arm.

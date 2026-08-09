@@ -68,7 +68,7 @@ A `with(...)` clause constrains declared generic parameters.
 
 A `with(...)` clause does not introduce generic parameters.
 
-A generic declaration body is checked once against the operations, type relationships, const facts, ownership behavior,
+A generic declaration body is checked once against the operations, type relationships, const conditions, ownership behavior,
 capabilities, effects, and contracts established by its declared parameters and `with(...)` constraints.
 
 A concrete instantiation is valid only when every supplied generic argument has the required kind and every `with(...)`

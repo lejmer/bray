@@ -6,7 +6,7 @@ Constructors, finalizers, destructors, `enter`, and `exit` declarations use the 
 
 - `uses(...)` declares trusted implementation capabilities,
 - `requires(...)` declares caller or lifecycle preconditions,
-- `ensures(...)` declares established facts,
+- `ensures(...)` declares established conditions,
 - trusted requirements must be propagated, discharged, established, or acknowledged.
 
 Lifecycle declaration syntax and ordering are defined in [Lifecycle](../lifecycle.md).
@@ -24,7 +24,7 @@ Foreign boundaries include:
 
 Callable ABI, `extern`, `@abi(...)`, `@link(...)`, and `@symbol(...)` rules are defined in [Extern declarations and FFI](../targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md).
 
-Raw pointer facts, raw memory predicates, allocation facts, and ABI layout helpers are defined in [Targets, layout, ABI, and raw memory](../targets-layout-abi-and-raw-memory.md).
+Raw pointer conditions, raw memory predicates, allocation conditions, and ABI layout helpers are defined in [Targets, layout, ABI, and raw memory](../targets-layout-abi-and-raw-memory.md).
 
 An extern callable with a foreign ABI is a trusted declaration.
 
@@ -34,7 +34,7 @@ The compiler checks calls to an extern callable against that declaration exactly
 
 The foreign implementation body is not Bray source and is not type checked as Bray source.
 
-A foreign callable that requires trusted facts must state them as trusted requirements.
+A foreign callable that requires trusted guarantees must state them as trusted requirements.
 
 An extern callable resolved to a separately compiled Bray artifact is not a foreign boundary merely because it is extern. Its
 private ABI and linkage contract still require validation, but `foreign_call` applies only when execution crosses a foreign ABI.

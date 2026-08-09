@@ -37,12 +37,14 @@ The always-available compiler-known type entries are:
 - `Ordering`,
 - `Future<T>`,
 - `Task<T>`,
+- `Heap`,
 - structural tuple type forms,
 - structural fixed-size array type forms,
 - slice type forms,
 - nullable type forms,
 - borrow type forms,
 - trait-view type forms,
+- owned-indirection type forms,
 - callable type forms,
 - `RawPointer<T>`.
 
@@ -75,15 +77,15 @@ The target-available compiler-known entries are:
 - `c256`,
 - target-conditional scalar operations,
 - target-conditional raw memory declarations under `core.memory`,
-- target-conditional atomic declarations and facts,
-- target-conditional ABI declarations and facts,
-- target-conditional address-space declarations and facts,
-- target-conditional allocation declarations and facts,
-- target-conditional platform-service availability facts.
+- target-conditional atomic declarations and capabilities,
+- target-conditional ABI declarations and properties,
+- target-conditional address-space declarations and properties,
+- target-conditional allocation declarations and properties,
+- target-conditional platform-service availability.
 
 ## Compiler-known traits and contracts
 
-The compiler-known traits and contracts include:
+The compiler-known traits and contracts are:
 
 - `Storage<T>`,
 - `Iterable`,
@@ -103,7 +105,7 @@ The compiler provides the named generic implementation
 
 ## Compiler-known paths
 
-The reserved compiler-known paths include:
+The reserved compiler-known paths are:
 
 - `core.memory`,
 - `target`.

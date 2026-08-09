@@ -22,7 +22,7 @@ A block expression introduces a scope for:
 - finalization tracking,
 - capability checking,
 - effect checking,
-- fact-context refinement.
+- condition refinement.
 
 A block expression can produce `unit`, `never`, or another value type.
 
@@ -48,7 +48,8 @@ to conditional, match, while, for, loop, and with expressions. Other expression 
 
 A block expression whose control flow has no normal continuation has type `never`.
 
-A block expression’s exits must merge to coherent type, ownership, initialization, destruction, finalization, capability, effect, and fact-context state.
+A block expression's exits must agree on type, ownership, initialization, destruction, finalization, capabilities, effects, and
+which contract guarantees remain available.
 
 ## Navigation
 

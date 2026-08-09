@@ -69,19 +69,19 @@ An else body is required when the conditional expression result type is not `uni
 If the compiler proves the false path unreachable, a missing else body does not contribute a normal path.
 
 All reachable normal branch exits must merge to a coherent type, ownership state, initialization state, destruction state,
-finalization state, capability state, effect state, task-obligation state, and fact context.
+finalization state, capability state, effect state, task-obligation state, and set of available contract guarantees.
 
 A `never` branch does not contribute a value to the merged result type.
 
 Bindings introduced inside a branch body are scoped to that branch body.
 
-The then body receives the fact that the condition is true.
+The then body receives the condition that the condition is true.
 
-The else body receives the fact that the condition is false.
+The else body receives the condition that the condition is false.
 
-For an `else if` chain, each later condition is checked in a fact context where all earlier conditions in the chain are false.
+For an `else if` chain, each later condition is checked with every earlier condition in the chain known to be false.
 
-Facts established inside a branch body contribute after the conditional expression only when they are established by every
+Conditions established inside a branch body contribute after the conditional expression only when they are established by every
 reachable normal branch exit and remain valid after the merged ownership and mutation state.
 
 If a branch moves, destroys, initializes, finalizes, cancels, transfers, or changes capability state, the merged state after the

@@ -48,7 +48,9 @@ source declaration and does not gain compiler-provided behavior.
 
 The owning language rules define the observable semantics of each compiler-provided declaration.
 
-Those observable semantics include normal results, panic behavior, trusted fact production, trusted fact invalidation, ownership effects, borrowing effects, initialization effects, finalization effects, destruction effects, allocation effects, aliasing effects, memory effects, and target-specific constraints.
+Those observable semantics include normal results, panic behavior, trusted guarantees and their validity, ownership effects,
+borrowing effects, initialization effects, finalization effects, destruction effects, allocation effects, aliasing effects, memory
+effects, and target-specific constraints.
 
 A conforming compiler must implement the specified observable semantics for every supported target where the declaration is available.
 
@@ -62,17 +64,18 @@ A compiler can use target intrinsics, runtime calls, inline code generation, pla
 
 Lowering strategy is not observable Bray semantics.
 
-Implementation-specific lowering must not introduce extra user-visible preconditions, postconditions, panics, trusted facts, invalidations, overloads, conversions, imports, visibility changes, or evaluation-order changes.
+Implementation-specific lowering must not introduce extra user-visible preconditions, postconditions, panics, trusted guarantees, invalidations, overloads, conversions, imports, visibility changes, or evaluation-order changes.
 
-Implementation-specific lowering must not remove any specified precondition, postcondition, panic, trusted fact, invalidation, ownership effect, borrowing effect, initialization effect, finalization effect, destruction effect, allocation effect, aliasing effect, memory effect, or evaluation-order rule.
+Implementation-specific lowering must not remove any specified precondition, postcondition, panic, trusted guarantee, invalidation, ownership effect, borrowing effect, initialization effect, finalization effect, destruction effect, allocation effect, aliasing effect, memory effect, or evaluation-order rule.
 
-If a declaration's behavior depends on target properties, the owning language rules state the abstract rule and the target profile provides the concrete target facts needed by that rule.
+If a declaration's behavior depends on target properties, the owning language rules state the abstract rule and the target profile
+provides the concrete property values needed by that rule.
 
-Examples of target facts include pointer width, pointer alignment, scalar layout, address-space rules, allocation alignment support, atomic operation support, and platform ABI constraints.
+Examples of target properties include pointer width, pointer alignment, scalar layout, address-space rules, allocation alignment support, atomic operation support, and platform ABI constraints.
 
 An always-available compiler-provided declaration must be implemented on every target that the compiler claims to support.
 
-A target-conditional compiler-provided declaration is part of the language surface only for targets whose target facts satisfy the declaration's availability rule.
+A target-conditional compiler-provided declaration is part of the language surface only for targets whose target properties satisfy the declaration's availability rule.
 
 Using a target-unavailable compiler-provided declaration is a compile-time error before code generation.
 
@@ -94,7 +97,7 @@ Standard-library wrappers over compiler-provided declarations are ordinary stand
 
 Compiler-specific extensions must not appear in compiler-known declaration scopes.
 
-Compiler-specific extensions must not change name resolution, overload resolution, type checking, ownership checking, contract checking, trusted fact checking, or code generation for conforming Bray source.
+Compiler-specific extensions must not change name resolution, overload resolution, type checking, ownership checking, contract checking, trusted guarantee checking, or code generation for conforming Bray source.
 
 Compiler-specific extensions are reached through ordinary package or target configuration mechanisms outside the compiler-known declaration set.
 

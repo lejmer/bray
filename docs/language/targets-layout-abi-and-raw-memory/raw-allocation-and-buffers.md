@@ -25,17 +25,17 @@ trusted func deallocate(pos allocation: RawAllocation) -> unit
 
 `RawAllocation` is not copyable.
 
-A `RawAllocation` value carries the trusted allocation ownership fact for its allocation.
+A `RawAllocation` value carries the trusted allocation ownership condition for its allocation.
 
-The trusted allocation ownership fact is not implied by the visible field values.
+The trusted allocation ownership condition is not implied by the visible field values.
 
-Only compiler-recognized allocator declarations, trusted declarations that establish the required facts, or movement of an existing `RawAllocation` can create a `RawAllocation` value that carries allocation ownership.
+Only compiler-recognized allocator declarations, trusted declarations that establish the required conditions, or movement of an existing `RawAllocation` can create a `RawAllocation` value that carries allocation ownership.
 
-Constructing a `RawAllocation` value from arbitrary field values is rejected unless the surrounding trusted context establishes the required allocation ownership facts for those fields.
+Constructing a `RawAllocation` value from arbitrary field values is rejected unless the surrounding trusted context establishes the required allocation ownership conditions for those fields.
 
 `std.memory.allocate(layout)` calls or wraps `core.memory.allocate(bytes = layout.bytes, align = layout.align)`.
 
-On normal completion, `std.memory.allocate(layout)` returns a `RawAllocation` whose fields identify the allocation and whose value carries the allocation ownership facts.
+On normal completion, `std.memory.allocate(layout)` returns a `RawAllocation` whose fields identify the allocation and whose value carries the allocation ownership conditions.
 
 Allocation failure panics.
 
@@ -43,17 +43,17 @@ Allocation failure panics.
 
 `std.memory.deallocate(allocation)` consumes a `RawAllocation`.
 
-`std.memory.deallocate` releases the allocation ownership fact carried by the consumed value.
+`std.memory.deallocate` releases the allocation ownership condition carried by the consumed value.
 
-Before deallocation, every initialized typed value, borrow, scoped capability, finalization obligation, and trusted fact tied to the allocation must already be resolved or invalidated according to its contract.
+Before deallocation, every initialized typed value, borrow, scoped capability, finalization obligation, and trusted guarantee tied to the allocation must already be resolved or invalidated according to its contract.
 
-Destroying a live `RawAllocation` deallocates the allocation when its contract proves that no initialized typed value, borrow, scoped capability, finalization obligation, or unresolved trusted fact remains tied to the allocation.
+Destroying a live `RawAllocation` deallocates the allocation when its contract proves that no initialized typed value, borrow, scoped capability, finalization obligation, or unresolved trusted guarantee remains tied to the allocation.
 
 If those obligations cannot be proven resolved at the destruction point, destruction of the `RawAllocation` is rejected.
 
-Moving a `RawAllocation` transfers the allocation ownership fact.
+Moving a `RawAllocation` transfers the allocation ownership condition.
 
-Observing `allocation.pointer`, `allocation.bytes`, or `allocation.align` does not transfer the allocation ownership fact.
+Observing `allocation.pointer`, `allocation.bytes`, or `allocation.align` does not transfer the allocation ownership condition.
 
 Copying the raw pointer field does not copy allocation ownership.
 
@@ -137,11 +137,11 @@ The safe slice-producing helpers expose only the initialized prefix.
 
 Destroying a `RawBuffer<T>` destroys or finalizes initialized elements in increasing index order, then deallocates the raw allocation.
 
-Moving a `RawBuffer<T>` transfers the allocation ownership fact and the initialized-prefix contract.
+Moving a `RawBuffer<T>` transfers the allocation ownership condition and the initialized-prefix contract.
 
 Observing `buffer.pointer`, `buffer.capacity`, or `buffer.initialized` does not transfer ownership of the allocation or initialized elements.
 
-Constructing a `RawBuffer<T>` value from arbitrary field values is rejected unless the surrounding trusted context establishes the required allocation ownership, valid-write, and initialized-prefix facts for those fields.
+Constructing a `RawBuffer<T>` value from arbitrary field values is rejected unless the surrounding trusted context establishes the required allocation ownership, valid-write, and initialized-prefix conditions for those fields.
 
 `RawBuffer<T>` is a low-level storage owner, not a growable collection contract.
 

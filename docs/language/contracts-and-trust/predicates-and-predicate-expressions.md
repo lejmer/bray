@@ -16,7 +16,7 @@ Predicate expressions are used in:
 - `with(...)` clauses,
 - trusted obligations,
 - static constraint contexts,
-- contract-level fact reasoning.
+- contract-level condition reasoning.
 
 Predicate expressions are not ordinary runtime Bray expressions.
 

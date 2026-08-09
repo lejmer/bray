@@ -21,7 +21,7 @@ Patterns structurally match values, refine control flow, introduce bindings, and
 - [Pattern contexts](patterns/pattern-contexts.md)
 - [Pattern operation modes](patterns/pattern-operation-modes.md)
 - [Partial moves through patterns](patterns/partial-moves-through-patterns.md)
-- [Fact-context refinement](patterns/fact-context-refinement.md)
+- [Condition refinement](patterns/pattern-refinement.md)
 - [Guards](patterns/guards.md)
 - [Pattern evaluation](patterns/pattern-evaluation.md)
 - [Summary](patterns/summary.md)

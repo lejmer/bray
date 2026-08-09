@@ -124,11 +124,11 @@ The tuple expression’s effects are the combined effects of evaluating its elem
 
 The tuple expression’s finalization obligations are the combined finalization obligations of values produced by its element expressions and retained by the resulting tuple.
 
-A tuple expression can establish facts in the fact context.
+A tuple expression can establish conditions at that program point.
 
-Facts can include tuple arity, element initialization, element types, and facts established by element expressions.
+Conditions can include tuple arity, element initialization, element types, and conditions established by element expressions.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts about tuple elements or the tuple as a whole.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about tuple elements or the tuple as a whole.
 
 A tuple expression can be converted with `as` when the recursive explicit convertibility rules permit tuple conversion.
 

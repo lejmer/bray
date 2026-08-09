@@ -6,7 +6,7 @@ Compiler-provided declarations are compiler-known declarations whose implementat
 
 Compiler-known declarations are available without imports when target-available.
 
-The ambient `target` path exposes compiler-known target facts for the selected target profile without occupying `std`.
+The ambient `target` path exposes compiler-known target properties for the selected target profile without occupying `std`.
 
 Standard-library declarations are ordinary declarations supplied by standard-library packages.
 
@@ -14,7 +14,7 @@ Recognized standard-library declarations are recognized by stable declaration id
 
 Recognition does not make a standard-library declaration ambient and does not bypass ordinary import and path rules.
 
-Compiler-provided behavior, target facts, and recognized standard-library behavior are conforming only when their observable semantics match this specification.
+Compiler-provided behavior, target properties, and recognized standard-library behavior are conforming only when their observable semantics match this specification.
 
 ## Navigation
 

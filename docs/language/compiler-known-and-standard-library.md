@@ -10,7 +10,7 @@ Compiler-known and standard-library recognition rules define which declarations 
 - [Compiler-known declarations](compiler-known-and-standard-library/compiler-known-declarations.md)
 - [Compiler-provided declarations](compiler-known-and-standard-library/compiler-provided-declarations.md)
 - [Protected representation](compiler-known-and-standard-library/protected-representation.md)
-- [Target profiles and target facts](compiler-known-and-standard-library/target-profiles-and-target-facts.md)
+- [Target profiles and properties](compiler-known-and-standard-library/target-profiles-and-properties.md)
 - [Target-conditional declarations](compiler-known-and-standard-library/target-conditional-declarations.md)
 - [Compiler-known surface](compiler-known-and-standard-library/compiler-known-surface.md)
 - [Compiler-known trait implementations](compiler-known-and-standard-library/compiler-known-trait-implementations.md)

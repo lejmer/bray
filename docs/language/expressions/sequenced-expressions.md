@@ -17,7 +17,7 @@ Self-delimiting block-shaped expressions can instead appear directly as block it
 are block, conditional, match, while, for, loop, and with expressions. A trailing semicolon remains valid and makes such an
 expression a sequenced expression.
 
-A sequenced expression can be used for its value, effects, lifecycle behavior, control-flow outcome, fact-context changes, or `unit` completion according to the surrounding context.
+A sequenced expression can be used for its value, effects, lifecycle behavior, control-flow outcome, flow-sensitive contract changes, or `unit` completion according to the surrounding context.
 
 A `return` expression used in a sequence is terminated with a semicolon.
 

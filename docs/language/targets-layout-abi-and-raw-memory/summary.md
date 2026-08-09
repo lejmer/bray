@@ -1,6 +1,6 @@
 # Summary
 
-Target profiles define the selected compilation target through compiler-known target facts.
+Target profiles define the selected compilation target through compiler-known target properties.
 
 `@target(...)` gates module contributions using target-selection expressions.
 
@@ -18,7 +18,7 @@ Default physical layout is compiler-defined and not public ABI.
 
 `core.memory` is the compiler-known raw memory declaration scope and reserved path.
 
-Raw memory operations require trusted facts, trusted capabilities, or both.
+Raw memory operations require trusted guarantees, trusted capabilities, or both.
 
 `std.memory` provides ordinary standard-library wrappers over the raw memory substrate without making raw memory ambient.
 

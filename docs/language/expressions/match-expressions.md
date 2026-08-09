@@ -70,7 +70,8 @@ If the match expression result type is `unit`, an arm body can complete normally
 
 If the match expression result type is a value type other than `unit`, every reachable normal completion path in every selected arm body supplies a value with `yield` or ends in a `never` expression.
 
-All match arms must merge to a coherent type, ownership state, initialization state, destruction state, finalization state, capability state, and fact context.
+All match arms must merge to a coherent type, ownership state, initialization state, destruction state, finalization state,
+capability state, and set of available contract guarantees.
 
 A match expression can use refutable patterns.
 
@@ -82,9 +83,9 @@ Coverage analysis tracks the pattern coverage region for each arm.
 
 An unguarded arm contributes its whole pattern coverage region.
 
-A guarded arm contributes only the subregion where the guard is statically proven true by the shared fact and predicate system.
+A guarded arm contributes only the subregion where the guard is statically proven true by the shared condition and predicate system.
 
-If the guard is statically proven false for the arm's pattern facts, the arm is unreachable.
+If the guard is statically proven false for the arm's pattern conditions, the arm is unreachable.
 
 If the guard truth is statically unknown for some part of the arm's pattern coverage region, that part can still select the arm at runtime, but it does not contribute to exhaustiveness.
 
@@ -96,7 +97,7 @@ Later arms are checked against the subject space not already definitely covered 
 
 A later arm whose pattern can never be selected is unreachable.
 
-A successful arm pattern refines the fact context for the guard and the arm body.
+A successful arm pattern makes its structural guarantees available to the guard and the arm body.
 
 For union variants, refinement includes the active variant and initialized payload fields.
 

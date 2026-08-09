@@ -90,11 +90,11 @@ The array expression’s effects are the combined effects of evaluating its elem
 
 The array expression’s finalization obligations are the combined finalization obligations of values produced by its element expressions and retained by the resulting array.
 
-An array expression can establish facts in the fact context.
+An array expression can establish conditions at that program point.
 
-Facts can include array length, element initialization, element type, and facts established by element expressions.
+Conditions can include array length, element initialization, element type, and conditions established by element expressions.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts about array elements or the array as a whole.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about array elements or the array as a whole.
 
 An array expression can be converted with `as` when the recursive explicit convertibility rules permit array conversion.
 

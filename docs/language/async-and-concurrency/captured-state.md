@@ -1,6 +1,6 @@
 # Captured state
 
-Creation and suspension preserve every live value, borrow, capability, effect, fact dependency, execution requirement, and lifecycle
+Creation and suspension preserve every live value, borrow, capability, effect, contract dependency, execution requirement, and lifecycle
 obligation needed to begin, resume, cancel, or destroy an async computation.
 
 A receiver or argument moved into an async call is owned by the returned `Future<T>` until it is returned, moved elsewhere,
@@ -20,7 +20,7 @@ obligations.
 
 Captured-state analysis distinguishes lifetime from mobility. A task whose state is safe to migrate can execute on compatible
 runtime workers. A task containing thread-affine state remains pinned to a compatible execution lane. Thread affinity is an inferred
-dependency fact, not a separate public task type.
+dependency condition, not a separate public task type.
 
 ## Navigation
 

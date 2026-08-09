@@ -21,7 +21,7 @@ trusted func deallocate(pos pointer: RawPointer<u8>, bytes: usize, align: usize)
 
 `allocate` does not initialize typed values in the returned storage.
 
-On normal completion, `allocate` creates a distinct raw allocation described by the produced `owned_allocation` fact and writable by the produced `valid_write` fact.
+On normal completion, `allocate` creates a distinct raw allocation described by the produced `owned_allocation` condition and writable by the produced `valid_write` condition.
 
 If `allocate` cannot create an allocation satisfying its contract, it panics.
 
@@ -29,13 +29,13 @@ An allocation failure panic is an ordinary panic and can be caught by `catch`.
 
 `allocate` must not return a null pointer or any other sentinel value to report allocation failure.
 
-`deallocate` releases the allocation represented by its trusted ownership fact.
+`deallocate` releases the allocation represented by its trusted ownership condition.
 
 Before deallocation, the caller must satisfy all destruction, finalization, initialization, aliasing, and borrowing obligations for values stored in that allocation.
 
-After deallocation, trusted facts that depend on the allocation are invalidated.
+After deallocation, trusted guarantees that depend on the allocation are invalidated.
 
-Raw pointers into a deallocated allocation can still exist as raw pointer values, but they carry no valid access facts.
+Raw pointers into a deallocated allocation can still exist as raw pointer values, but they carry no valid access conditions.
 
 ## Navigation
 

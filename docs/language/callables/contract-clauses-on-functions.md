@@ -26,9 +26,10 @@ Bray does not support named result bindings.
 
 Contract clause semantics are defined in [Contract clauses](../contracts-and-trust/contract-clauses.md).
 
-Ordinary requirements and ensured facts are defined in [Ordinary requirements and ensured facts](../contracts-and-trust/ordinary-requirements-and-ensured-facts.md).
+Ordinary requirements and postconditions are defined in [Ordinary requirements and postconditions](../contracts-and-trust/preconditions-and-postconditions.md).
 
-Predicate expressions, fact contexts, and trusted obligations are defined in [Contracts and trust](../contracts-and-trust.md).
+Predicate expressions, flow-sensitive contract reasoning, and trusted obligations are defined in
+[Contracts and trust](../contracts-and-trust.md).
 
 ## Navigation
 

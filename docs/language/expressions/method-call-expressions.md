@@ -79,7 +79,7 @@ values.iterate()        // checks implementations for Vec<T>
 
 A method call first selects exactly one method through receiver compatibility, argument mapping and type compatibility, explicit
 generic substitution and static constraints, target availability, and overload resolution. Ordinary call checking then validates
-ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract facts for
+ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract guarantees for
 that selected method.
 
 For overloaded methods, receiver mode and compatibility, explicitly supplied argument mapping and type compatibility, explicit
@@ -127,14 +127,14 @@ A synchronous method call produces the method's declared result.
 A call to an async method whose declared result is `T` produces an owned `Future<T>`. This rule makes the compiler-provided
 `Task<T>.join()` and `Task<T>.cancel()` calls produce `Future<RunResult<T>>` through ordinary method-call typing.
 
-A synchronous method call can establish facts from the method's `ensures(...)` clause after successful completion. An async method
-call establishes those facts only after normal direct-await completion or within the `RunResult.Completed` arm after task
+A synchronous method call makes the method's `ensures(...)` guarantees available after successful completion. An async method
+call establishes those conditions only after normal direct-await completion or within the `RunResult.Completed` arm after task
 observation. Constructing its `Future<T>` establishes no body postcondition and carries body effects, capabilities, execution
 requirements, and lifecycle behavior until execution.
 
 A method call can require ordinary or trusted preconditions through `requires(...)`.
 
-Trusted caller obligations must be present in the fact context, acknowledged at a trust boundary, or exposed through the surrounding declaration’s contract.
+Trusted caller obligations must be present at that program point, acknowledged at a trust boundary, or exposed through the surrounding declaration’s contract.
 
 The receiver expression is evaluated before method argument expressions.
 

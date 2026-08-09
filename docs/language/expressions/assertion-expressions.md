@@ -36,17 +36,17 @@ An assertion expression has type `unit` on its normal continuation.
 
 On the failing path, the assertion expression has no normal continuation.
 
-After a successful assertion, facts established by the asserted condition enter the fact context when they remain valid after the
+After a successful assertion, the asserted guarantees are available when they remain valid after the
 assertion expression.
 
-Facts established by an assertion are ordinary facts, not trusted facts.
+An assertion establishes ordinary guarantees, not trusted guarantees.
 
-Fact-context rules are defined in [Fact context](../contracts-and-trust/fact-context.md).
+Condition-context rules are defined in [Contract reasoning](../contracts-and-trust/contract-reasoning.md).
 
 An assertion expression does not satisfy trusted caller obligations and does not grant trusted implementation capabilities.
 
 Assertion expressions participate in type checking, ownership checking, borrowing, mutation authority, effect checking,
-capability checking, trusted obligation checking, and fact-context refinement according to the expressions they evaluate.
+capability checking, trusted obligation checking, and condition refinement according to the expressions they evaluate.
 
 ## Navigation
 

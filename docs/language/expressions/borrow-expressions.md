@@ -36,13 +36,13 @@ A borrow expression can borrow a local binding, field access path, indexed acces
 
 [Reborrowing and borrow values](../ownership-and-borrowing/reborrowing-and-borrow-values.md) defines copying, movement, returning, reborrowing, nesting, and lifetime validity for borrow values.
 
-Borrow expressions participate in fact-context checking.
+Borrow expressions participate in flow-sensitive contract checking.
 
-Facts about borrowed storage can remain available through a borrow when observation preserves those facts.
+Conditions about borrowed storage can remain available through a borrow when observation preserves those conditions.
 
-Mutation through a mutable borrow invalidates facts that depend on the changed storage.
+Mutation through a mutable borrow invalidates conditions that depend on the changed storage.
 
-Movement, destruction, reinitialization, finalization, or capability loss invalidates facts that depend on the borrowed storage.
+Movement, destruction, reinitialization, finalization, or capability loss invalidates conditions that depend on the borrowed storage.
 
 ## Navigation
 

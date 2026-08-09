@@ -20,7 +20,7 @@ An async callable therefore has two checked contract phases:
 - its invocation contract covers callee and argument evaluation, ownership transfer, generic constraints, value preconditions, and
   construction of the inactive frame;
 - its execution contract covers body effects and capabilities, execution requirements, suspension, cancellation, lifecycle
-  behavior, and `ensures(...)` facts established by normal body completion.
+  behavior, and `ensures(...)` conditions established by normal body completion.
 
 The invocation expression must satisfy the first phase and stores the second in the produced `Future<T>`. Normal direct-await
 completion establishes the execution postconditions. Across a started task boundary, those postconditions are available only in a

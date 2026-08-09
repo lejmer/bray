@@ -18,7 +18,7 @@ They use ordinary import and path visibility rules.
 
 The compiler can recognize selected `std.memory` declarations by stable declaration identity.
 
-Recognition is used for checking, optimization, const evaluation, target availability, and trusted fact propagation.
+Recognition is used for checking, optimization, const evaluation, target availability, and trusted guarantee propagation.
 
 Recognition does not make a declaration ambient.
 
@@ -26,15 +26,15 @@ If the relevant `std.memory` declaration is not visible, the call is rejected by
 
 If a visible declaration has the same name but not the recognized standard-library identity, it is checked as an ordinary declaration.
 
-A `std.memory` declaration that directly wraps a `core.memory` declaration must preserve that declaration's trusted capability, trusted predicate, ownership, borrowing, initialization, destruction, finalization, aliasing, panic, cancellation, memory-ordering, evaluation-order, and fact-invalidation contract.
+A `std.memory` declaration that directly wraps a `core.memory` declaration must preserve that declaration's trusted capability, trusted predicate, ownership, borrowing, initialization, destruction, finalization, aliasing, panic, cancellation, memory-ordering, evaluation-order, and condition-invalidation contract.
 
-A `std.memory` declaration can expose an ordinary safe API only when it proves, owns, or establishes every trusted fact required by the `core.memory` operation it performs.
+A `std.memory` declaration can expose an ordinary safe API only when it proves, owns, or establishes every trusted guarantee required by the `core.memory` operation it performs.
 
 A `std.memory` declaration that exposes a trusted caller obligation must write that obligation in its own contract.
 
 Calling a trusted `std.memory` declaration follows the ordinary trust rules.
 
-The standard library cannot create new raw-memory trusted facts except through compiler-recognized declarations whose contracts are defined by this chapter.
+The standard library cannot create new raw-memory trusted guarantees except through compiler-recognized declarations whose contracts are defined by this chapter.
 
 ## Raw pointer helpers
 
@@ -117,7 +117,7 @@ The non-trusted pointer helpers preserve the same semantics as the matching `cor
 
 The trusted pointer helpers preserve the same caller obligations as the matching `core.memory` declarations.
 
-The helper declarations can add ordinary checked convenience around argument validation, but they cannot weaken the trusted facts required by the raw operation they perform.
+The helper declarations can add ordinary checked convenience around argument validation, but they cannot weaken the trusted guarantees required by the raw operation they perform.
 
 Examples of recognized helper calls:
 

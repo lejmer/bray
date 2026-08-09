@@ -25,7 +25,7 @@ Types participate in:
 - conversion,
 - callable checking,
 - contract checking,
-- fact-context refinement,
+- condition refinement,
 - layout selection,
 - public API compatibility.
 

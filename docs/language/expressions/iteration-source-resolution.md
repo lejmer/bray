@@ -85,8 +85,8 @@ The hidden cursor is destroyed or finalized when the iteration expression exits.
 
 For shared and mutable iteration, the source borrow ends when the cursor is destroyed or finalized.
 
-Iteration order, cardinality facts, finiteness facts, element borrowing behavior, and element ownership behavior come from the
-selected `Iterable` implementation, the selected `Iterator` implementation, and facts established for the source expression.
+Iteration order, cardinality conditions, finiteness conditions, element borrowing behavior, and element ownership behavior come from the
+selected `Iterable` implementation, the selected `Iterator` implementation, and conditions established for the source expression.
 
 ## Navigation
 

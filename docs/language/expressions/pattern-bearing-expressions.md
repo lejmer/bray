@@ -5,7 +5,7 @@ A **pattern-bearing expression** is an expression form that applies a pattern to
 The pattern-bearing expression forms are match expressions, for expressions, array generator expressions, general
 generator iteration expressions, and local destructuring constructs.
 
-Pattern syntax, resolution, refutability, operation modes, bindings, partial moves, fact refinement, and structural matching rules
+Pattern syntax, resolution, refutability, operation modes, bindings, partial moves, condition refinement, and structural matching rules
 are defined in [Patterns](../patterns.md).
 
 A pattern-bearing expression supplies a subject type to the pattern.
@@ -31,7 +31,7 @@ Pattern-introduced bindings are scoped to the region defined by the pattern-bear
 Pattern-introduced bindings are initialized when the pattern has successfully matched and the operation mode has produced the
 corresponding bound values or access paths.
 
-Pattern-introduced bindings participate in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and fact-context refinement.
+Pattern-introduced bindings participate in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and condition refinement.
 
 Additional boolean filtering is handled by guards when the surrounding expression form defines guards.
 

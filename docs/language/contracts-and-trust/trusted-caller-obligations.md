@@ -8,14 +8,14 @@ requires(
 )
 ```
 
-A trusted caller obligation represents a fact Bray cannot prove or check through ordinary semantics.
+A trusted caller obligation represents a condition Bray cannot prove or check through ordinary semantics.
 
 Trusted caller obligations must come from at least one of:
 
 - an explicit trust boundary,
 - an enclosing trusted obligation,
 - a live trusted witness value,
-- a trusted declaration that establishes the fact,
+- a trusted declaration that establishes the condition,
 - a compiler-recognized trusted source.
 
 Trusted caller obligations must not appear from nowhere.
@@ -46,7 +46,7 @@ trusted func copy_bytes_checked(
 
 Calling that function is ordinary because the function's public contract does not expose trusted caller obligations.
 
-A declaration exposes trusted caller obligations when its contract requires trusted facts.
+A declaration exposes trusted caller obligations when its contract requires trusted guarantees.
 
 ```bray
 trusted func copy_bytes_unchecked(
@@ -65,7 +65,7 @@ trusted func copy_bytes_unchecked(
 }
 ```
 
-The caller must provide, preserve, or acknowledge those facts.
+The caller must provide, preserve, or acknowledge those conditions.
 
 ## Navigation
 

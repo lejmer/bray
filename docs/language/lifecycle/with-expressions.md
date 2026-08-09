@@ -48,7 +48,7 @@ If `enter` does not complete successfully, the pattern is not matched, the `with
 
 The scoped bindings, borrows from them, and capabilities derived from them cannot escape the `with` body unless the selected `exit` contract explicitly transfers that obligation.
 
-A `with` expression participates in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, task-obligation checking, and fact-context refinement.
+A `with` expression participates in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, task-obligation checking, and condition refinement.
 
 ## Navigation
 

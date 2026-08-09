@@ -35,7 +35,7 @@ An extern trusted declaration is permitted only in a trusted module.
 
 The extern declaration's signature and contract are the Bray-visible contract for the linked symbol.
 
-If the foreign symbol requires pointer validity, initialization, alignment, lifetime, ownership, thread-affinity, callback, reentrancy, or resource-state facts, those facts must appear in the declaration's parameter types, result types, or contract clauses.
+If the foreign symbol requires pointer validity, initialization, alignment, lifetime, ownership, thread-affinity, callback, reentrancy, or resource-state conditions, those conditions must appear in the declaration's parameter types, result types, or contract clauses.
 
 Imported foreign failure modes are represented as ordinary ABI values.
 

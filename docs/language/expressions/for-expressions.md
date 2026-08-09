@@ -87,10 +87,10 @@ An else body is required when the for expression result type is not `unit` and n
 
 If the compiler proves natural exhaustion unreachable, a missing else body does not contribute a normal path.
 
-The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and fact state after a for
-expression is the merge of all reachable normal for exits.
+The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and available contract state
+after a for expression is the merge of all reachable normal for exits.
 
-Facts tied to an iteration binding expire at the end of that iteration unless they are transferred into another surviving storage
+Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into another surviving storage
 location.
 
 ```bray

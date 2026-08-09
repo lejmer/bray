@@ -240,13 +240,13 @@ A consuming `box(inner)` pattern consumes the box and moves through the owned in
 
 A borrowing `box(inner)` pattern projects a borrow of the contained value according to the box storage policy and the required storage behavior.
 
-A local binding declaration can establish facts in the fact context.
+A local binding declaration can establish conditions at that program point.
 
-Facts established by local binding patterns can include product field availability, tuple shape, fixed array shape, active union variant when the pattern is irrefutable for the subject, payload initialization, literal equality when an irrefutable literal context exists, and initialized local bindings.
+Conditions established by local binding patterns can include product field availability, tuple shape, fixed array shape, active union variant when the pattern is irrefutable for the subject, payload initialization, literal equality when an irrefutable literal context exists, and initialized local bindings.
 
-Facts established by the initializer expression also flow into the fact context when valid after the declaration.
+Guarantees established by the initializer expression remain available after the declaration when they remain valid.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts established by a local binding declaration.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions established by a local binding declaration.
 
 A local binding declaration participates in finalization tracking.
 

@@ -23,7 +23,7 @@ box(pattern)              // owned-indirection pattern
 pattern1 | pattern2       // alternative pattern
 ```
 
-Each pattern form preserves the same core rules: structural matching, explicit binding, refutability tracking, ownership-mode checking, and fact-context refinement.
+Each pattern form preserves the same core rules: structural matching, explicit binding, refutability tracking, ownership-mode checking, and condition refinement.
 
 ## Navigation
 

@@ -1,6 +1,6 @@
 # Trust boundaries
 
-Calling a declaration with trusted caller obligations requires the obligations to be established in the fact context or visibly acknowledged at a trust boundary.
+Calling a declaration with trusted caller obligations requires the obligations to be established at that program point or visibly acknowledged at a trust boundary.
 
 Expression-level trust boundary syntax is defined in [Trust boundary expressions](../expressions/trust-boundary-expressions.md).
 
@@ -14,7 +14,8 @@ It visibly accepts the trusted caller obligations required by that operand.
 
 The compiler records the exact trusted predicate requirements accepted at the boundary.
 
-The caller must visibly accept the trusted obligation unless it has already been established by the fact context.
+The caller must visibly accept the trusted obligation unless language-defined contract reasoning already establishes it at that
+program point.
 
 A call to a safe wrapper around trusted implementation code does not require caller acknowledgement.
 
@@ -24,9 +25,9 @@ The boundary scope is exactly the operand expression.
 
 For a block operand, the scope is the block.
 
-Trusted facts introduced solely by the boundary do not become facts after the operand completes.
+Trusted guarantees introduced solely by the boundary do not become conditions after the operand completes.
 
-Facts independently established by the operand's ordinary result, pattern, or `ensures(...)` behavior flow out according to ordinary fact-context rules.
+Conditions independently established by the operand's ordinary result, pattern, or `ensures(...)` behavior flow out according to ordinary guarantee-context rules.
 
 A trust boundary expression must acknowledge at least one trusted caller obligation required by its operand.
 

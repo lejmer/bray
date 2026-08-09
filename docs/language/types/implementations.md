@@ -526,7 +526,7 @@ A substitution is valid only when it satisfies the implementation’s `with(...)
 
 The implementation body is checked once under the implementation’s static constraints.
 
-The body can use only operations, type-valued members, constants, effects, capabilities, and facts established by the implementation’s `with(...)` clause and surrounding declaration context.
+The body can use only operations, type-valued members, constants, effects, capabilities, and conditions established by the implementation’s `with(...)` clause and surrounding declaration context.
 
 Generic implementation overlap is rejected.
 
@@ -634,10 +634,10 @@ The cursor cannot outlive or extend the source access it depends on.
 
 They do not require separate cardinality, boundedness, or finiteness members.
 
-Cardinality, boundedness, finiteness, iteration order, and element-borrowing facts are established by the selected implementation
-contracts, source type facts, cursor contracts, and compiler-known declarations.
+Cardinality, boundedness, finiteness, iteration order, and element-borrowing conditions are established by the selected implementation
+contracts, source type conditions, cursor contracts, and compiler-known declarations.
 
-An expression form that requires one of those facts is rejected when the fact is not established in the checking context.
+An expression form that requires one of those conditions is rejected when the condition is not established in the checking context.
 
 For example:
 
@@ -972,7 +972,7 @@ func zip_same<A, B>(left: A, right: B)
 }
 ```
 
-Constraint facts are unordered.
+Constraint conditions are unordered.
 
 The type-valued member equality can appear before or after the trait satisfaction constraint that makes the qualified reference valid.
 
@@ -1000,7 +1000,7 @@ Type equality does not choose an arm from an implementation overload family.
 
 Result type and expected type do not infer missing trait satisfaction constraints.
 
-A generic body can use only operations, type-valued members, constants, effects, capabilities, and facts established by its static constraints and by surrounding declaration context.
+A generic body can use only operations, type-valued members, constants, effects, capabilities, and conditions established by its static constraints and by surrounding declaration context.
 
 ## Trait method resolution
 

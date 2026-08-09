@@ -64,11 +64,11 @@ Effects of the iteration body occur once per executed iteration.
 
 Finalization obligations created inside an iteration body must be completed, transferred, converted into an explicit fallback ownership form, or moved into yielded values before the iteration body exits.
 
-Facts established by the source expression, pattern, and iteration body are scoped according to the iteration region.
+Conditions established by the source expression, pattern, and iteration body are scoped according to the iteration region.
 
-Facts tied to an iteration binding expire at the end of that iteration unless they are transferred into a yielded value or another surviving storage location.
+Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into a yielded value or another surviving storage location.
 
-A general generator iteration expression participates in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and fact-context refinement.
+A general generator iteration expression participates in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and condition refinement.
 
 The completion result of a generator iteration expression is `unit`.
 

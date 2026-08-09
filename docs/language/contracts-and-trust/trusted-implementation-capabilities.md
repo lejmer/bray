@@ -55,5 +55,5 @@ Trusted implementation capabilities cover low-level operations named by the trus
 
 - [Language index](../index.md)
 - [Contracts and trust index](../contracts-and-trust.md)
-- Previous: [Ordinary requirements and ensured facts](ordinary-requirements-and-ensured-facts.md)
+- Previous: [Ordinary requirements and postconditions](preconditions-and-postconditions.md)
 - Next: [Trusted caller obligations](trusted-caller-obligations.md)

@@ -42,10 +42,10 @@ A synchronous static function call produces the static function's declared resul
 
 A call to an async static function whose declared result is `T` produces an owned `Future<T>`.
 
-A static function call can use ordinary and trusted facts from the fact context to satisfy preconditions.
+A static function call can use ordinary and trusted guarantees available at that program point to satisfy preconditions.
 
-A synchronous static function call can establish facts from the static function's `ensures(...)` clause after successful
-completion. An async static function establishes those facts only after normal direct-await completion or within the
+A synchronous static function call makes the static function's `ensures(...)` guarantees available after successful
+completion. An async static function establishes those conditions only after normal direct-await completion or within the
 `RunResult.Completed` arm after task observation. Constructing its `Future<T>` establishes no body postcondition and carries body
 effects, capabilities, execution requirements, and lifecycle behavior until execution.
 
@@ -53,7 +53,7 @@ A static function call participates in overload resolution when the path resolve
 
 A static function call first selects exactly one callable through path resolution, argument mapping and type compatibility, explicit
 generic substitution and static constraints, target availability, and overload resolution. Ordinary call checking then validates
-ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract facts for
+ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations, and contract guarantees for
 that selected callable.
 
 Static callee path resolution is a checking step and has no runtime evaluation order.

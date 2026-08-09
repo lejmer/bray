@@ -26,7 +26,7 @@ The boundary is explicit source syntax.
 
 It does not perform a runtime check.
 
-It does not prove the trusted facts.
+It does not prove the trusted guarantees.
 
 It records that the programmer accepts the trusted caller obligations at that use site.
 

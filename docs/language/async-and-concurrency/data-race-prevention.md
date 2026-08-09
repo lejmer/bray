@@ -35,7 +35,7 @@ No other run can observe, mutate, move, destroy, finalize, reinitialize, or othe
 
 Raw pointers do not create an exception to the data-race rule.
 
-Raw memory access across concurrent runs requires the ordinary raw-memory trusted facts plus a synchronization or atomic contract covering the reached storage.
+Raw memory access across concurrent runs requires the ordinary raw-memory trusted guarantees plus a synchronization or atomic contract covering the reached storage.
 
 A child process does not directly participate in the parent process's ordinary storage graph. Values cross through an encoded
 protocol. Shared memory or inherited process resources reintroduce cross-process access only through an explicit type contract that

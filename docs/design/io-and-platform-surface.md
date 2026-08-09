@@ -36,6 +36,9 @@ library storage and are not part of the public package interface.
 Changes to these modules must preserve the names, parameter modes, result shapes, ownership behavior, and blocking requirements
 defined here unless the standard-library contract itself is revised.
 
+The `Arguments` sequence excludes the executable path. `Environment.entry_at` uses lexicographic unsigned target-native
+key-code-unit order.
+
 ### `std.io`
 
 ```bray
@@ -466,28 +469,30 @@ struct ChildCommand
 {
     internal state: ChildCommandState;
 
-    trusted construct(pos executable: std.path.Path) -> Result<Self, ChildError>;
-    trusted mut func argument(pos value: std.path.NativeText) -> Result<unit, ChildError>;
-    trusted mut func environment_policy(policy: EnvironmentPolicy) -> Result<unit, ChildError>;
+    construct(pos executable: std.path.Path) -> Result<Self, ChildError>;
+    mut func argument(pos value: std.path.NativeText) -> Result<unit, ChildError>;
+    mut func environment_policy(policy: EnvironmentPolicy) -> Result<unit, ChildError>;
 
-    trusted mut func set_environment(
+    mut func set_environment(
         pos key: std.path.NativeText,
         pos value: std.path.NativeText,
     ) -> Result<unit, ChildError>;
 
-    trusted mut func remove_environment(pos key: &std.path.NativeText) -> unit;
+    mut func remove_environment(pos key: &std.path.NativeText) -> unit;
     mut func working_directory(pos path: std.path.Path) -> unit;
     mut func standard_input(policy: ChildStreamPolicy) -> unit;
     mut func standard_output(policy: ChildStreamPolicy) -> unit;
     mut func standard_error(policy: ChildStreamPolicy) -> unit;
 
-    consume trusted func spawn() -> Result<ChildProcess, ChildError>
+    consume func spawn() -> Result<ChildProcess, ChildError>
         requires(blocking_execution());
 }
 
 struct ChildProcess
 {
     internal state: ChildProcessState;
+
+    func id() -> Id;
 
     mut func take_standard_input() -> ChildInput?;
     mut func take_standard_output() -> ChildOutput?;

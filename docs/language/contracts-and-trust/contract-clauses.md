@@ -20,9 +20,9 @@ ensures(
 uses(raw_memory, manual_alloc)
 ```
 
-A `requires(...)` clause lists facts that must hold before the declaration body executes.
+A `requires(...)` clause lists conditions that must hold before the declaration body executes.
 
-An `ensures(...)` clause lists facts established after the declaration completes normally.
+An `ensures(...)` clause lists conditions established after the declaration completes normally.
 
 Inside an `ensures(...)` clause for a declaration that completes with a value, `result` is the compiler-introduced postcondition binding for that normal completion value.
 
@@ -32,7 +32,7 @@ Inside an `ensures(...)` clause for a declaration that completes with a value, `
 
 Bray does not support named result bindings.
 
-A `with(...)` clause lists static constraint facts required by a generic declaration.
+A `with(...)` clause lists static constraint conditions required by a generic declaration.
 
 Predicate expressions in callable contract clauses are [declaration-owned expressions](../declarations/declaration-owned-expressions.md).
 They are checked with the declaration whose semantic contract they define.
@@ -46,4 +46,4 @@ Contract clauses are part of a declaration's semantic surface when they affect c
 - [Language index](../index.md)
 - [Contracts and trust index](../contracts-and-trust.md)
 - Previous: [Overview](overview.md)
-- Next: [Ordinary requirements and ensured facts](ordinary-requirements-and-ensured-facts.md)
+- Next: [Ordinary requirements and postconditions](preconditions-and-postconditions.md)

@@ -192,7 +192,7 @@ Shape.Circle(center = origin, radius = 1.0)
 Shape.Empty
 ```
 
-Expected-type propagation can make contextual unqualified variant references available inside type-form construction expressions such as `box(...)`.
+Expected-type propagation can make contextual unqualified variant references available inside `box(...)` construction expressions.
 
 ```bray
 let node: box List<i32> = box(Empty);
@@ -412,7 +412,7 @@ Assignment through a type-form projection requires the type form to permit assig
 
 On normal completion, assignment returns `unit`.
 
-Assignment invalidates facts that depend on the previous value or mutated storage.
+Assignment invalidates conditions that depend on the previous value or mutated storage.
 
 ---
 
@@ -438,21 +438,22 @@ A partially moved containing value cannot be used as a complete value until rein
 
 ---
 
-## Path expressions and fact context
+## Path expressions and contract reasoning
 
-A path expression can use and refine facts in the fact context.
+A path expression can use and refine conditions at that program point.
 
 Examples:
 
-- active union variant facts enable payload field access,
-- borrow facts determine whether a path can be borrowed or mutably borrowed,
-- initialization facts determine whether a path can be used,
-- trusted facts can permit trusted operations reached through paths,
-- visibility and internal-use facts determine access to internal declarations.
+- active union variant conditions enable payload field access,
+- borrow conditions determine whether a path can be borrowed or mutably borrowed,
+- initialization conditions determine whether a path can be used,
+- trusted guarantees can permit trusted operations reached through paths,
+- visibility and internal-use conditions determine access to internal declarations.
 
-A path expression can invalidate facts when it is used to move, consume, assign, mutably borrow, destroy, finalize, or otherwise change reached storage.
+A path expression can make guarantees unavailable when it is used to move, consume, assign, mutably borrow, destroy, finalize, or
+otherwise change reached storage.
 
-A path expression that only observes stable storage preserves facts that remain true under observation.
+A path expression that only observes stable storage preserves conditions that remain true under observation.
 
 ---
 
@@ -467,7 +468,7 @@ Resolution fails when:
 - the component is internal and lacks required acknowledgement,
 - the component is ambiguous,
 - the selected operation requires capabilities that are unavailable,
-- the selected operation requires facts that are absent,
+- the selected operation requires conditions that are absent,
 - the selected operation is not valid for the left-hand entity kind,
 - the path would expose an internal declaration through a public API without an explicit public wrapper.
 

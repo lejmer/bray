@@ -92,8 +92,9 @@ must not be used where reproducible ordering is required without an explicit nor
 
 ### Process Context And Child Processes
 
-Arguments, environment entries, startup working directory, and standard-stream capabilities form one immutable process-context
-snapshot. Public accessors observe that snapshot. They do not repeatedly query mutable host-global state.
+Source arguments, environment entries, startup working directory, and standard-stream capabilities form one immutable
+process-context snapshot. The source argument sequence excludes the executable path. Environment entries use lexicographic unsigned
+target-native key-code-unit order. Public accessors observe that snapshot and do not repeatedly query mutable host-global state.
 
 Environment values and arguments preserve target-native units losslessly and expose explicit fallible text conversion. The public
 surface does not expose mutation of the current process environment. A child-process request constructs an explicit environment
@@ -330,8 +331,8 @@ offsets:
 | `88` | complete block byte length as `u64` |
 
 Each argument table entry is a 16-byte payload offset and length pair. Each environment entry is a 32-byte key offset, key length,
-value offset, and value length tuple. Every range is within the complete block and ranges cannot overlap either table. Entries and
-payload retain product-start ordering; the public wrapper supplies target-aware lookup and deterministic ordered views.
+value offset, and value length tuple. Every range is within the complete block and ranges cannot overlap either table. Arguments
+retain source order and environment entries use lexicographic unsigned target-native key-code-unit order.
 
 The platform host fixes the block before the executable root starts. `platform.context.measure` and `platform.context.copy` observe
 the same bytes for the product lifetime. A provider cannot use these roles to expose later host-global mutations.

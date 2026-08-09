@@ -12,9 +12,9 @@ A trusted implementation capability is authority used inside a trusted declarati
 
 An ordinary contract requirement is a checkable condition expressed in predicate-expression context.
 
-A static constraint is a compile-time fact expressed in static predicate context.
+A static constraint is a compile-time condition expressed in static predicate context.
 
-A trusted caller obligation is a fact the ordinary checker cannot prove and that must be supplied, preserved, or acknowledged.
+A trusted caller obligation is a condition the ordinary checker cannot prove and that must be supplied, preserved, or acknowledged.
 
 A predicate is a named contract-level relation used in requirements, guarantees, constraints, and trusted obligations.
 

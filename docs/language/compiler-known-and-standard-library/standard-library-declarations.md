@@ -4,7 +4,7 @@ A **standard-library declaration** is an ordinary declaration supplied by a stan
 
 The standard-library root package is `std`.
 
-The `std` package namespace is reserved exclusively for standard-library packages. Compiler-known declarations, target facts, and
+The `std` package namespace is reserved exclusively for standard-library packages. Compiler-known declarations, target properties, and
 private runtime ABI symbols do not occupy `std` paths.
 
 User and vendored packages cannot declare the package identity `std` or an identity beneath the reserved `std` package namespace.

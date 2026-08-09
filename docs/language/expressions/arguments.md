@@ -76,7 +76,7 @@ Arguments can supply values constructed inline.
 draw(Point { x = 1.0, y = 2.0 })
 ```
 
-Argument expressions participate in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and fact-context refinement.
+Argument expressions participate in ownership, borrowing, mutation authority, initialization, destruction, finalization, capability checking, effect checking, and condition refinement.
 
 A function call, method call, or static function call cannot use positional syntax to satisfy parameters that are not marked `pos`.
 

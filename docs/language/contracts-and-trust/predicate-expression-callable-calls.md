@@ -42,9 +42,9 @@ The callable's parameters and result type must be valid predicate-expression val
 
 The call arguments must be predicate-valid expressions.
 
-The callable's `requires(...)` obligations must be satisfied by the current predicate fact context.
+The callable's `requires(...)` obligations must follow from the conditions available at the call.
 
-The callable's `ensures(...)` facts become available after the call inside the predicate-expression check.
+The callable's `ensures(...)` guarantees are available after the call inside the predicate-expression check.
 
 ## Navigation
 

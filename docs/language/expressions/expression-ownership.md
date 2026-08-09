@@ -8,7 +8,8 @@ The expression chapter defines which expression forms create values, move values
 
 Each expression form applies the ownership operation selected by that expression form.
 
-Reachable expression exits must merge to coherent ownership, borrowing, initialization, destruction, finalization, capability, effect, and fact-context state.
+Reachable expression exits must agree on ownership, borrowing, initialization, destruction, finalization, capabilities, effects,
+and which contract guarantees remain available.
 
 ## Navigation
 

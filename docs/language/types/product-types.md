@@ -328,7 +328,8 @@ Finalization obligations created by an evaluated field default become obligation
 
 Trusted capabilities used by a field default must be permitted by the declaration context and construction context according to the trusted capability rules.
 
-A field default participates in type checking, ownership checking, initialization checking, effect checking, capability checking, finalization tracking, and fact-context behavior.
+A field default participates in type checking, ownership checking, initialization checking, effect checking, capability checking,
+finalization tracking, and flow-sensitive contract checking.
 
 ## Product construction
 
@@ -404,7 +405,7 @@ point.y
 
 when `x` and `y` are distinct fields of the same product value.
 
-Disjointness analysis participates in borrow checking, mutation authority, movement, initialization, destruction, and fact-context refinement.
+Disjointness analysis participates in borrow checking, mutation authority, movement, initialization, destruction, and condition refinement.
 
 ## Product initialization state
 
@@ -628,7 +629,7 @@ Field shorthand binds a field to a binding with the same name. The shorthand bin
 
 Product pattern rules are defined in [Product patterns](../patterns/product-patterns.md).
 
-Product patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization, capability checking, and fact-context refinement according to the pattern operation mode.
+Product patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization, capability checking, and condition refinement according to the pattern operation mode.
 
 ## Product API compatibility
 

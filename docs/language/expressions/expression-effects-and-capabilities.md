@@ -10,7 +10,7 @@ An expression can use only the effects and capabilities available from:
 - execution mode,
 - lifecycle state,
 - trusted declarations,
-- fact context,
+- contract guarantees available at the program point,
 - surrounding context.
 
 Expressions participate in:
@@ -27,7 +27,7 @@ Expressions participate in:
 
 An expression that uses a trusted implementation capability must appear inside a trusted declaration with the matching `uses(...)` clause.
 
-An expression that depends on a trusted caller obligation must have that obligation in the fact context, acknowledge it at a trust boundary, or expose it through the surrounding declaration’s contract.
+An expression that depends on a trusted caller obligation must have that obligation at that program point, acknowledge it at a trust boundary, or expose it through the surrounding declaration’s contract.
 
 ## Navigation
 

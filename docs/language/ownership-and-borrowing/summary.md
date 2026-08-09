@@ -20,10 +20,10 @@ Partial moves are allowed only when the remaining partial state is accounted for
 
 Values can cross ownership boundaries only when the destination preserves every dependency contract carried by the value.
 
-Facts and borrows are invalidated when their storage, capability, ownership, initialization, or dependency requirements stop holding.
+Conditions and borrows are invalidated when their storage, capability, ownership, initialization, or dependency requirements stop holding.
 
 ## Navigation
 
 - [Language index](../index.md)
 - [Ownership and borrowing index](../ownership-and-borrowing.md)
-- Previous: [Fact and borrow invalidation](fact-and-borrow-invalidation.md)
+- Previous: [Condition and borrow invalidation](contract-and-borrow-validity.md)

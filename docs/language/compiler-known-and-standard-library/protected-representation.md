@@ -28,4 +28,4 @@ Copy behavior for a protected-representation type exists only when the owning la
 - [Language index](../index.md)
 - [Compiler-known and standard library index](../compiler-known-and-standard-library.md)
 - Previous: [Compiler-provided declarations](compiler-provided-declarations.md)
-- Next: [Target profiles and target facts](target-profiles-and-target-facts.md)
+- Next: [Target profiles and properties](target-profiles-and-properties.md)

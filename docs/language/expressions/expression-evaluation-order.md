@@ -76,9 +76,10 @@ Compile-time arguments, storage policy types, trait applications, overload decla
 
 The compiler may reorder implementation work only when the reordering preserves observable Bray semantics.
 
-Observable Bray semantics include effects, ownership, borrowing, mutation authority, destruction, finalization, capability checking, trusted obligations, fact-context behavior, and control-flow outcomes.
+Observable Bray semantics include effects, ownership, borrowing, mutation authority, destruction, finalization, capability checking,
+trusted obligations, contract-checking results, and control-flow outcomes.
 
-Specific expression forms also define these evaluation facts:
+Specific expression forms also define these evaluation conditions:
 
 - a match expression evaluates its subject once,
 - a for source expression is evaluated once before iteration,
@@ -93,5 +94,5 @@ Specific expression forms also define these evaluation facts:
 
 - [Language index](../index.md)
 - [Expressions index](../expressions.md)
-- Previous: [Expression fact-context behavior](expression-fact-context-behavior.md)
+- Previous: [Flow-sensitive contract reasoning](flow-sensitive-contract-reasoning.md)
 - Next: [Summary](summary.md)

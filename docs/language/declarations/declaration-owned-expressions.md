@@ -47,7 +47,7 @@ Later evaluation remains category-specific:
 
 - runtime defaults are evaluated only when the corresponding argument or field is omitted,
 - constant definitions are evaluated for concrete constant instances,
-- predicate definitions are applied during contract and static-fact reasoning,
+- predicate definitions are applied during contract and static-constraint reasoning,
 - executable callable and lifecycle bodies are evaluated only through their ordinary invocation rules.
 
 An invalid declaration-owned expression makes its declaration invalid even when every current use supplies an explicit value and
@@ -101,13 +101,13 @@ A constant initializer is checked as a constant definition template.
 A non-generic constant whose dependencies are fully concrete has one constant instance with an empty generic substitution. Checking
 that constant includes evaluating its value.
 
-A constant that depends on generic parameters, a trait application, trait-selected members, or target facts can have multiple
+A constant that depends on generic parameters, a trait application, trait-selected members, or target properties can have multiple
 concrete constant instances. The compiler checks the definition template under its declared constraints and evaluates each concrete
 instance lazily for its exact:
 
 - generic substitution,
 - selected implementation values,
-- target profile facts.
+- target-profile properties.
 
 Definition-level errors belong to the constant declaration. An error that can arise only for one concrete substitution or target
 belongs to that constant instance.
@@ -122,9 +122,9 @@ Constant initializers are never evaluated as runtime defaults.
 A predicate body is checked as a semantic predicate definition rather than evaluated once to one Boolean value.
 
 Predicate bodies, `requires(...)`, `ensures(...)`, `with(...)`, and other declaration contract expressions are checked with their
-owning declaration because downstream checking cannot use the declaration correctly without those facts.
+owning declaration because downstream checking cannot use the declaration correctly without those conditions.
 
-Applying a checked predicate to concrete arguments or asking a fact solver to prove it is a separate operation from checking its
+Applying a checked predicate to concrete arguments or asking a contract reasoning to prove it is a separate operation from checking its
 definition.
 
 A trusted opaque predicate has no predicate body. Its declared trusted relation and obligations form its declaration surface.
@@ -141,9 +141,9 @@ body remains ordinary callable body checking and is not required merely to descr
 
 The same separation applies to function, method, constructor, finalizer, destructor, scope-enter, scope-exit, and lambda bodies.
 
-A declaration-owned fact can request an executable body when its own semantics require execution. For example, evaluating a constant
-can request the checked body of a const callable invoked by the initializer. That dependency does not reclassify every executable body
-as declaration surface.
+Evaluating a declaration-owned expression can require an executable body. For example, evaluating a constant can require the checked
+body of a const callable invoked by the initializer. That dependency does not reclassify every executable body as declaration
+surface.
 
 ## Package interfaces and runtime default providers
 

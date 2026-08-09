@@ -15,5 +15,5 @@ Ownership and borrowing define how Bray tracks storage, values, access, movement
 - [Dependency contracts](ownership-and-borrowing/dependency-contracts.md)
 - [Partial moves](ownership-and-borrowing/partial-moves.md)
 - [Scope exits and ownership boundaries](ownership-and-borrowing/scope-exits-and-ownership-boundaries.md)
-- [Fact and borrow invalidation](ownership-and-borrowing/fact-and-borrow-invalidation.md)
+- [Condition and borrow invalidation](ownership-and-borrowing/contract-and-borrow-validity.md)
 - [Summary](ownership-and-borrowing/summary.md)

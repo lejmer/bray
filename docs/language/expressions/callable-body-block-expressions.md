@@ -134,7 +134,7 @@ A `yield` inside a nested value-producing block expression supplies that nested 
 Callable result values are supplied through `return`.
 
 A callable-body block expression introduces a scope for local bindings, ownership tracking, borrow tracking, destruction,
-finalization tracking, capability checking, effect checking, and fact-context refinement.
+finalization tracking, capability checking, effect checking, and condition refinement.
 
 Local bindings introduced inside the callable-body block expression are visible according to ordinary block-expression scope rules.
 
@@ -171,7 +171,8 @@ A callable body cannot return a borrow that outlives the storage it reaches.
 
 A callable body cannot return a value with unresolved finalization obligations unless the callable result type or surrounding contract transfers those obligations.
 
-A callable-body block expression must leave every reachable exit with coherent type, ownership state, initialization state, destruction state, finalization state, capability state, effect state, and fact-context state.
+A callable-body block expression must leave every reachable exit with compatible type, ownership, initialization, destruction,
+finalization, capability, and effect states and compatible available contract guarantees.
 
 For async callables, the callable-body block expression is checked in an active async execution context and is the root lexical task
 scope for that invocation. Every nested ordinary block is also a structured task ownership boundary.

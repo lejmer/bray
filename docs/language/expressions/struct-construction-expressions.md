@@ -104,13 +104,13 @@ A field default can use only the capabilities available to the declaration that 
 
 Trusted capabilities used by defaults or field initializers must be permitted by the surrounding trusted declaration or rejected according to the contract and trust rules.
 
-A struct construction expression can establish facts in the fact context.
+A struct construction expression can establish conditions at that program point.
 
-Facts can include the constructed type, full initialization of the constructed value, initialized fields, and facts established by field initializer expressions.
+Conditions can include the constructed type, full initialization of the constructed value, initialized fields, and conditions established by field initializer expressions.
 
-Facts about omitted defaulted fields can be established when the default expression establishes those facts and the facts remain valid after construction.
+Conditions about omitted defaulted fields can be established when the default expression establishes those conditions and the conditions remain valid after construction.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts about the constructed value or its fields.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions about the constructed value or its fields.
 
 A struct construction expression creates a new value. Initialization performed by the construction expression is initialization, not ordinary mutation.
 

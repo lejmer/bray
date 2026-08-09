@@ -12,8 +12,8 @@ An atomic operation contract must state:
 - the value produced by the operation, if any,
 - the memory ordering used by the operation,
 - the failure ordering for compare-exchange style operations,
-- the trusted facts and trusted implementation capabilities required when the operation reaches raw memory or target intrinsics,
-- the panic, cancellation, destruction, finalization, and fact-invalidation behavior.
+- the trusted guarantees and trusted implementation capabilities required when the operation reaches raw memory or target intrinsics,
+- the panic, cancellation, destruction, finalization, and condition-invalidation behavior.
 
 The required atomic ordering meanings are:
 

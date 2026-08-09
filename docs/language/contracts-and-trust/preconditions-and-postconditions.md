@@ -1,4 +1,4 @@
-# Ordinary requirements and ensured facts
+# Preconditions and postconditions
 
 An ordinary requirement is a predicate expression in a `requires(...)` clause.
 
@@ -14,11 +14,12 @@ They must be pure, deterministic, total, terminating, and observational.
 
 Calls inside ordinary requirements must resolve to predicates, compiler-known predicate-valid operations, or const callables valid in predicate-expression context.
 
-An ordinary requirement can be proven statically, established by previous facts, or checked through a runtime assertion mechanism where appropriate.
+An ordinary requirement can be established by the language-defined contract reasoning available at the call site or checked at
+runtime where the declaration permits a runtime check.
 
 A failed runtime check of an ordinary requirement panics.
 
-A declaration can establish ordinary facts in `ensures(...)`.
+A declaration states postconditions in `ensures(...)`.
 
 ```bray
 func clamp(pos value: i32, min: i32, max: i32) -> i32
@@ -34,11 +35,13 @@ func clamp(pos value: i32, min: i32, max: i32) -> i32
 }
 ```
 
-Ensured facts become available after successful normal completion when their referenced values, storage identities, lifetimes, capabilities, and versions remain valid.
+Postconditions are available after successful normal completion while their referenced values, storage identities, lifetimes,
+capabilities, and versions remain valid.
 
-Facts from `ensures(...)` are not available on panic, cancellation, propagation, or any path that does not complete normally through the declaration result described by the clause.
+Postconditions are not available on panic, cancellation, propagation, or any path that does not complete normally through the
+declaration result described by the clause.
 
-Assertion expressions can establish ordinary facts after a successful assertion.
+After a successful assertion, its asserted condition is available for subsequent contract reasoning.
 
 Assertion expressions are defined in [Assertion expressions](../expressions/assertion-expressions.md).
 

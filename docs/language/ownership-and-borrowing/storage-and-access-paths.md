@@ -46,7 +46,7 @@ Disjointness can be proven through distinct product fields, tuple elements, acti
 
 If overlap cannot be proven statically, the access paths are treated as potentially overlapping.
 
-Disjointness participates in borrow checking, mutation authority, movement, initialization, destruction, finalization, and fact-context refinement.
+Disjointness participates in borrow checking, mutation authority, movement, initialization, destruction, finalization, and condition refinement.
 
 ## Navigation
 

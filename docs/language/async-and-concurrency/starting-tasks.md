@@ -24,7 +24,7 @@ restriction.
 Starting performs these semantic steps:
 
 1. Evaluate and own the `Future<T>` receiver.
-2. Select a runtime lane satisfying its deferred execution requirements and affinity facts.
+2. Select a runtime lane satisfying its deferred execution requirements and affinity conditions.
 3. Obtain stable task-owned frame and control storage.
 4. Move the inactive frame into that storage before its first resume.
 5. Create the cancellation state, completion state, and join-waiter state.
@@ -32,8 +32,8 @@ Starting performs these semantic steps:
 7. Return `Task<T>` carrying the computation's dependency, execution, and normal-completion postcondition contracts.
 
 Observing `RunResult.Completed(value)` establishes the postcondition template preserved by that particular task and applies its
-`result` facts to `value`. Moving a task preserves the template. Merging tasks or computations from different producers retains only
-postconditions guaranteed by every reachable producer; the common source type `Task<T>` does not invent producer-specific facts.
+`result` conditions to `value`. Moving a task preserves the template. Merging tasks or computations from different producers retains only
+postconditions guaranteed by every reachable producer. The common source type `Task<T>` does not invent producer-specific conditions.
 
 If the selected product runtime cannot provide a required lane, product validation rejects the program before execution. If task
 storage or another runtime resource cannot be acquired before publication, `start()` panics in the calling task and resolves the

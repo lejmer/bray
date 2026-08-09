@@ -17,4 +17,4 @@ Ordinary destruction remains synchronous.
 - [Language index](../index.md)
 - [Expressions index](../expressions.md)
 - Previous: [Expression initialization behavior](expression-initialization-behavior.md)
-- Next: [Expression fact-context behavior](expression-fact-context-behavior.md)
+- Next: [Flow-sensitive contract reasoning](flow-sensitive-contract-reasoning.md)

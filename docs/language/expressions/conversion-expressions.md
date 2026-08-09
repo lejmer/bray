@@ -226,13 +226,13 @@ Conversion expressions do not create implicit conversions for calls, assignments
 
 Fallible conversion calls do not create implicit conversions for calls, assignments, operators, overload selection, construction, or pattern matching.
 
-Conversion expressions participate in type checking, ownership checking, initialization checking, destruction checking, finalization tracking, effect checking, capability checking, trusted obligation checking, and fact-context refinement.
+Conversion expressions participate in type checking, ownership checking, initialization checking, destruction checking, finalization tracking, effect checking, capability checking, trusted obligation checking, and condition refinement.
 
-A conversion expression can require facts declared by the selected conversion contract.
+A conversion expression can require conditions declared by the selected conversion contract.
 
-A conversion expression can establish facts declared by the selected conversion contract.
+A conversion expression can establish conditions declared by the selected conversion contract.
 
-Trusted caller obligations used by a conversion expression must be available in the fact context, explicitly acknowledged at a trust boundary, or exposed through the surrounding declaration's contract.
+Trusted caller obligations used by a conversion expression must be available at that program point, explicitly acknowledged at a trust boundary, or exposed through the surrounding declaration's contract.
 
 ## Navigation
 

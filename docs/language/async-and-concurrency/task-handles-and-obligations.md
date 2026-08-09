@@ -62,8 +62,8 @@ A synchronous scope cannot end ownership of an unresolved task because it cannot
 consume the task through an operation whose async result is transferred, or move the task to an owner whose contract preserves the
 obligation. Otherwise the program is rejected.
 
-The checker tracks task obligations with ownership, movement, partial initialization, lifecycle, borrow, capability, effect, and
-fact state. Tasks nested in aggregates carry the same obligation through their initialized access paths.
+Task-obligation checking follows ownership, movement, partial initialization, lifecycle, borrowing, capability, effect, and
+flow-sensitive contract rules. Tasks nested in aggregates carry the same obligation through their initialized access paths.
 
 ## Navigation
 

@@ -39,7 +39,8 @@ A default expression is evaluated when the corresponding argument is omitted.
 
 A defaulted argument participates in the call expression as if the omitted argument expression had been supplied by the declaration.
 
-Defaulted argument evaluation participates in type checking, ownership checking, effects, capability checking, finalization obligations, trusted capability checking, and fact-context behavior.
+Defaulted argument evaluation participates in type checking, ownership checking, effects, capability checking, finalization
+obligations, trusted capability checking, and flow-sensitive contract checking.
 
 Effects of a default expression become effects of the call expression when the default is used.
 

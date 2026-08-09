@@ -179,9 +179,9 @@ union Shape
 }
 ```
 
-A variant `requires(...)` clause declares facts that must hold when the variant is constructed.
+A variant `requires(...)` clause declares conditions that must hold when the variant is constructed.
 
-A variant `ensures(...)` clause declares facts established by successful construction of that variant.
+A variant `ensures(...)` clause declares conditions established by successful construction of that variant.
 
 Contract clauses use parenthesized comma-separated lists.
 
@@ -225,9 +225,9 @@ Payload field access requires active-variant refinement proving that the selecte
 
 A no-payload active variant introduces no payload field access paths.
 
-Active-variant facts participate in the fact context.
+Active-variant conditions participate at that program point.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate active-variant facts when they affect the union value or its storage.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate active-variant conditions when they affect the union value or its storage.
 
 ## Union access paths
 
@@ -274,9 +274,9 @@ Whole-union replacement ends the old active variant payload according to destruc
 
 Whole-union replacement initializes the new active variant tag and payload.
 
-Whole-union replacement changes the active variant fact for the union value.
+Whole-union replacement changes the active variant condition for the union value.
 
-Facts depending on the previous active variant or old payload are invalidated.
+Conditions depending on the previous active variant or old payload are invalidated.
 
 Whole-union replacement depends on mutation authority over the union value, not on payload field mutability.
 
@@ -538,7 +538,7 @@ Union variant pattern rules are defined in [Union variant patterns](../patterns/
 
 Match expressions over closed unions perform coverage checking against the union's closed variant set.
 
-Union patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization, capability checking, and fact-context refinement according to the pattern operation mode.
+Union patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization, capability checking, and condition refinement according to the pattern operation mode.
 
 ## Compiler-known result unions
 
@@ -721,7 +721,7 @@ Changing payload field mutability is a public API change.
 
 Changing payload defaults can be a public API change when construction behavior visible to users changes.
 
-Changing variant contracts can be a public API change when construction requirements or established facts visible to users change.
+Changing variant contracts can be a public API change when construction requirements or established conditions visible to users change.
 
 Changing union lifecycle declarations follows the public API compatibility rule defined in [API compatibility](../lifecycle/api-compatibility.md).
 

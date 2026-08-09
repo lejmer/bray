@@ -1,10 +1,10 @@
-# Target profiles and target facts
+# Target profiles and properties
 
-Target profiles and target facts are part of the target, layout, ABI, and raw memory rules.
+Target profiles and properties are part of the target, layout, ABI, and raw memory rules.
 
 `target` is a compiler-known path, and its declarations are available according to the compiler-known declaration rules.
 
-The target fact groups, target fact types, target-profile validation rules, and target-dependent constant rules are defined in [Target profiles and facts](../targets-layout-abi-and-raw-memory/target-profiles-and-facts.md).
+The target property groups, target property types, target-profile validation rules, and target-dependent constant rules are defined in [Target profiles and properties](../targets-layout-abi-and-raw-memory/target-profiles-and-properties.md).
 
 ## Navigation
 

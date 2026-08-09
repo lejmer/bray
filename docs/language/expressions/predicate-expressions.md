@@ -26,17 +26,17 @@ requires(
 
 Ordinary predicate expressions and trusted predicate calls are distinct contract requirements.
 
-Predicate expressions can establish value facts when used in `ensures(...)`.
+Predicate expressions can establish value conditions when used in `ensures(...)`.
 
-Predicate expressions can require value facts when used in `requires(...)`.
+Predicate expressions can require value conditions when used in `requires(...)`.
 
-Predicate expressions can require static constraint facts when used in `with(...)`.
+Predicate expressions can require static constraint conditions when used in `with(...)`.
 
-Value facts introduced by predicate expressions are tied to the values, storage identities, lifetimes, capabilities, and versions mentioned by the expression.
+Value conditions introduced by predicate expressions are tied to the values, storage identities, lifetimes, capabilities, and versions mentioned by the expression.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate facts that depend on the affected state.
+Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate conditions that depend on the affected state.
 
-Static constraint facts are compile-time facts scoped to the constrained declaration and its generic checking context.
+Static constraint conditions are compile-time conditions scoped to the constrained declaration and its generic checking context.
 
 Runtime assertions generated from predicate expressions must preserve predicate-expression semantics.
 

@@ -22,7 +22,9 @@ A compiler must not add additional `core.memory` declarations.
 
 A compiler must not remove, rename, shadow, overload, replace, or change the signature of a `core.memory` declaration.
 
-A compiler must not change parameter names, parameter modifiers, generic parameters, result types, contracts, trusted obligations, trusted capabilities, fact production rules, fact invalidation rules, ownership effects, borrowing effects, initialization effects, destruction effects, finalization effects, allocation effects, aliasing effects, panic behavior, or evaluation-order behavior.
+A compiler must not change parameter names, parameter modifiers, generic parameters, result types, contracts, trusted obligations,
+trusted capabilities, rules for establishing and retaining guarantees, ownership effects, borrowing effects, initialization effects,
+destruction effects, finalization effects, allocation effects, aliasing effects, panic behavior, or evaluation-order behavior.
 
 The observable semantics of `core.memory` declarations are the semantics in this chapter.
 
@@ -34,7 +36,7 @@ If a selected target cannot support any required `core.memory` declaration, the 
 
 The compiler must not silently substitute a different raw memory contract for that target.
 
-If a target has stricter alignment, address-space, allocation, or ABI constraints than another target, those constraints enter Bray through target facts used by this chapter's contracts.
+If a target has stricter alignment, address-space, allocation, or ABI constraints than another target, those constraints enter Bray through target properties used by this chapter's contracts.
 
 They do not change the declaration surface.
 
@@ -66,7 +68,7 @@ Creating a raw pointer from a borrow does not transfer ownership.
 
 Creating a raw pointer from a borrow does not create ordinary borrow protection for later raw pointer use.
 
-`null<T>()` produces a raw pointer value that carries no validity facts.
+`null<T>()` produces a raw pointer value that carries no validity conditions.
 
 `is_null` observes whether a raw pointer value is the null pointer value for its type.
 
@@ -80,7 +82,7 @@ Offset operations do not read or write memory.
 
 Offset operations do not prove that the resulting pointer is valid.
 
-Offset operations do not preserve trusted facts unless a trusted predicate or compiler-recognized rule explicitly states that the fact still holds for the resulting pointer.
+Offset operations do not preserve trusted guarantees unless a trusted predicate or compiler-recognized rule explicitly states that the condition still holds for the resulting pointer.
 
 Raw pointer reinterpretation changes the pointer's element type without reading or writing memory.
 
@@ -89,9 +91,9 @@ trusted func reinterpret<Target, Source>(pos pointer: RawPointer<Source>) -> Raw
     uses(layout_reinterpret);
 ```
 
-`reinterpret` creates no validity, alignment, initialization, ownership, or aliasing facts.
+`reinterpret` creates no validity, alignment, initialization, ownership, or aliasing conditions.
 
-Using the resulting pointer for memory access requires the ordinary trusted facts for the target type.
+Using the resulting pointer for memory access requires the ordinary trusted guarantees for the target type.
 
 ## Navigation
 

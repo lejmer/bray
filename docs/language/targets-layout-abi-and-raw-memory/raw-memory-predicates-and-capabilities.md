@@ -41,11 +41,11 @@ trusted predicate same_allocation<T>(left: RawPointer<T>, right: RawPointer<T>);
 
 `same_allocation` means both pointers are derived from the same allocation.
 
-An `owned_allocation` fact can establish `aligned_for<T>` for pointers into the allocation when the allocation alignment, offset, and target type alignment prove the typed pointer is aligned for `T`.
+An `owned_allocation` condition can establish `aligned_for<T>` for pointers into the allocation when the allocation alignment, offset, and target type alignment prove the typed pointer is aligned for `T`.
 
-Trusted raw memory facts are tied to the allocation, storage state, pointer value, element type, count, alignment, capability state, and epoch they mention.
+Trusted raw memory conditions are tied to the allocation, storage state, pointer value, element type, count, alignment, capability state, and epoch they mention.
 
-Trusted raw memory facts are invalidated by deallocation, reallocation, movement out of raw storage, destruction, finalization, initialization-state changes, layout reinterpretation, device transfer, foreign calls, unchecked aliasing, or any other operation whose contract can affect the mentioned storage.
+Trusted raw memory conditions are invalidated by deallocation, reallocation, movement out of raw storage, destruction, finalization, initialization-state changes, layout reinterpretation, device transfer, foreign calls, unchecked aliasing, or any other operation whose contract can affect the mentioned storage.
 
 ## Capability mapping
 
