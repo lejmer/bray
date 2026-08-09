@@ -1,0 +1,67 @@
+{
+  "format": 1,
+  "targets": [
+    {
+      "system": "darwin",
+      "sdk": {
+        "authority": "Apple macOS SDK",
+        "revision": "15.5"
+      },
+      "constants": [
+        { "name": "AT_FDCWD", "type": "i32", "value": -2 },
+        { "name": "MAP_ANONYMOUS", "type": "i32", "value": 4096 },
+        { "name": "MAP_PRIVATE", "type": "i32", "value": 2 },
+        { "name": "MAP_SHARED", "type": "i32", "value": 1 },
+        { "name": "O_CLOEXEC", "type": "i32", "value": 16777216 },
+        { "name": "O_RDONLY", "type": "i32", "value": 0 },
+        { "name": "O_RDWR", "type": "i32", "value": 2 },
+        { "name": "O_WRONLY", "type": "i32", "value": 1 },
+        { "name": "PROT_EXEC", "type": "i32", "value": 4 },
+        { "name": "PROT_NONE", "type": "i32", "value": 0 },
+        { "name": "PROT_READ", "type": "i32", "value": 1 },
+        { "name": "PROT_WRITE", "type": "i32", "value": 2 }
+      ]
+    },
+    {
+      "system": "linux",
+      "sdk": {
+        "authority": "Linux UAPI",
+        "revision": "6.12"
+      },
+      "constants": [
+        { "name": "AT_FDCWD", "type": "i32", "value": -100 },
+        { "name": "MAP_ANONYMOUS", "type": "i32", "value": 32 },
+        { "name": "MAP_PRIVATE", "type": "i32", "value": 2 },
+        { "name": "MAP_SHARED", "type": "i32", "value": 1 },
+        { "name": "O_CLOEXEC", "type": "i32", "value": 524288 },
+        { "name": "O_RDONLY", "type": "i32", "value": 0 },
+        { "name": "O_RDWR", "type": "i32", "value": 2 },
+        { "name": "O_WRONLY", "type": "i32", "value": 1 },
+        { "name": "PROT_EXEC", "type": "i32", "value": 4 },
+        { "name": "PROT_NONE", "type": "i32", "value": 0 },
+        { "name": "PROT_READ", "type": "i32", "value": 1 },
+        { "name": "PROT_WRITE", "type": "i32", "value": 2 }
+      ]
+    },
+    {
+      "system": "windows",
+      "sdk": {
+        "authority": "Microsoft Windows SDK",
+        "revision": "10.0.26100.0"
+      },
+      "constants": [
+        { "name": "CREATE_ALWAYS", "type": "u32", "value": 2 },
+        { "name": "CREATE_NEW", "type": "u32", "value": 1 },
+        { "name": "FILE_SHARE_DELETE", "type": "u32", "value": 4 },
+        { "name": "FILE_SHARE_READ", "type": "u32", "value": 1 },
+        { "name": "FILE_SHARE_WRITE", "type": "u32", "value": 2 },
+        { "name": "GENERIC_READ", "type": "u32", "value": 2147483648 },
+        { "name": "GENERIC_WRITE", "type": "u32", "value": 1073741824 },
+        { "name": "INFINITE", "type": "u32", "value": 4294967295 },
+        { "name": "OPEN_ALWAYS", "type": "u32", "value": 4 },
+        { "name": "OPEN_EXISTING", "type": "u32", "value": 3 },
+        { "name": "TRUNCATE_EXISTING", "type": "u32", "value": 5 }
+      ]
+    }
+  ]
+}

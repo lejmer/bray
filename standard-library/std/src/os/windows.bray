@@ -1,0 +1,27 @@
+@target(target.identity.SYSTEM == "windows")
+module std.os.windows;
+
+@copy
+@layout(transparent)
+struct Handle
+{
+    internal raw: usize;
+
+    func value() -> usize
+    {
+        return self.raw;
+    }
+}
+
+func handle(pos raw: usize) -> Handle
+{
+    return
+    {
+        raw = raw,
+    };
+}
+
+func invalid_handle_value() -> Handle
+{
+    return handle(~0);
+}

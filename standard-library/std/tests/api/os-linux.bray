@@ -1,0 +1,14 @@
+@target(target.identity.SYSTEM == "linux")
+module bray.standard_library_tests.os_linux;
+
+using std.os.linux;
+
+@test
+func linux_native_values_are_typed_and_target_gated()
+{
+    let descriptor: std.os.linux.FileDescriptor = std.os.linux.file_descriptor(7);
+
+    assert(descriptor.value() == 7);
+    assert(std.os.linux.AT_FDCWD == -100);
+    assert(std.os.linux.O_CLOEXEC == 524288);
+}

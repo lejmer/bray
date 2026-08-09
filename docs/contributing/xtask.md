@@ -172,6 +172,18 @@ Run native standard-library integration tests with:
 cargo xtask standard-library test
 ```
 
+Regenerate the checked-in target-specific operating-system constants from the pinned SDK description:
+
+```text
+cargo xtask standard-library os-constants generate
+```
+
+Check that the generated constants and their recorded input digest are current without modifying them:
+
+```text
+cargo xtask standard-library os-constants generate --check
+```
+
 Verify standard-library conformance and reproducible bundle production with:
 
 ```text

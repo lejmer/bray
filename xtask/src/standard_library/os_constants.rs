@@ -1,0 +1,258 @@
+use std::path::PathBuf;
+
+use bray_base::lowercase_hex;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+use crate::{command, workspace};
+
+const INPUT_PATH: &str = "standard-library/targets/os-constants.json";
+const OUTPUT_ROOT: &str = "standard-library/std/src/os/generated";
+const SYSTEMS: [&str; 3] = ["darwin", "linux", "windows"];
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Description {
+    format: u32,
+    targets: Vec<TargetDescription>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TargetDescription {
+    system: String,
+    sdk: SdkDescription,
+    constants: Vec<ConstantDescription>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SdkDescription {
+    authority: String,
+    revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConstantDescription {
+    name: String,
+    r#type: String,
+    value: i64,
+}
+
+pub(super) fn run(mut arguments: impl Iterator<Item = String>) -> Result<(), String> {
+    if arguments.next().as_deref() != Some("generate") {
+        return Err("expected `os-constants generate [--check]`".to_owned());
+    }
+
+    let check = match arguments.next().as_deref() {
+        None => false,
+        Some("--check") => true,
+        Some(argument) => return Err(format!("unexpected argument: {argument}")),
+    };
+
+    command::reject_trailing_argument(arguments)?;
+
+    generate(check)
+}
+
+pub(super) fn verify() -> Result<(), String> {
+    generate(true)
+}
+
+fn generate(check: bool) -> Result<(), String> {
+    let root = workspace::root()?;
+    let input = root.join(INPUT_PATH);
+    let bytes = std::fs::read(&input).map_err(|error| workspace::io_error("read", &input, error))?;
+
+    let description: Description = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("could not parse {}: {error}", input.display()))?;
+
+    validate(&description)?;
+
+    let digest = lowercase_hex(&Sha256::digest(&bytes));
+
+    let files = description
+        .targets
+        .iter()
+        .map(|target| {
+            let path = root
+                .join(OUTPUT_ROOT)
+                .join(format!("{}.bray", target.system));
+
+            (path, render(target, &digest))
+        })
+        .collect::<Vec<_>>();
+
+    if check {
+        check_files(&files)
+    } else {
+        write_files(&files)
+    }
+}
+
+fn validate(description: &Description) -> Result<(), String> {
+    if description.format != 1 {
+        return Err(format!("unsupported description format {}", description.format));
+    }
+
+    let actual_systems = description
+        .targets
+        .iter()
+        .map(|target| target.system.as_str())
+        .collect::<Vec<_>>();
+
+    if actual_systems != SYSTEMS {
+        return Err(format!(
+            "target descriptions must be ordered exactly as {}",
+            SYSTEMS.join(", ")
+        ));
+    }
+
+    for target in &description.targets {
+        validate_sdk(&target.sdk)?;
+        validate_constants(target)?;
+    }
+
+    Ok(())
+}
+
+fn validate_sdk(sdk: &SdkDescription) -> Result<(), String> {
+    for (field, value) in [("authority", &sdk.authority), ("revision", &sdk.revision)] {
+        if value.trim() != value
+            || value.is_empty()
+            || !value
+                .chars()
+                .all(|character| character.is_ascii_graphic() || character == ' ')
+        {
+            return Err(format!("SDK {field} must be nonempty single-line ASCII"));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_constants(target: &TargetDescription) -> Result<(), String> {
+    let mut previous = None;
+
+    for constant in &target.constants {
+        if !valid_constant_name(&constant.name) {
+            return Err(format!("invalid {} constant name {}", target.system, constant.name));
+        }
+
+        if previous.is_some_and(|name: &str| name >= constant.name.as_str()) {
+            return Err(format!("{} constants must be uniquely name-sorted", target.system));
+        }
+
+        match constant.r#type.as_str() {
+            "i32" if i32::try_from(constant.value).is_ok() => {}
+            "u32" if u32::try_from(constant.value).is_ok() => {}
+            _ => {
+                return Err(format!(
+                    "{} constant {} has an unsupported type or value",
+                    target.system, constant.name
+                ));
+            }
+        }
+
+        previous = Some(constant.name.as_str());
+    }
+
+    if target.constants.is_empty() {
+        return Err(format!("{} defines no constants", target.system));
+    }
+
+    Ok(())
+}
+
+fn valid_constant_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+        && name.as_bytes()[0].is_ascii_uppercase()
+}
+
+fn render(target: &TargetDescription, digest: &str) -> String {
+    let mut source = format!(
+        "// Generated by `cargo xtask standard-library os-constants generate`.\n\
+         // SDK: {} {}\n\
+         // Input SHA-256: {digest}\n\n\
+         @target(target.identity.SYSTEM == \"{}\")\n\
+         module std.os.{};\n",
+        target.sdk.authority, target.sdk.revision, target.system, target.system,
+    );
+
+    for constant in &target.constants {
+        source.push_str(&format!(
+            "\nconst {}: {} = {};\n",
+            constant.name, constant.r#type, constant.value
+        ));
+    }
+
+    source
+}
+
+fn check_files(files: &[(PathBuf, String)]) -> Result<(), String> {
+    let mut stale = Vec::new();
+
+    for (path, expected) in files {
+        match std::fs::read(path) {
+            Ok(actual) if actual == expected.as_bytes() => {}
+            Ok(_) => stale.push(path.display().to_string()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                stale.push(path.display().to_string());
+            }
+            Err(error) => return Err(workspace::io_error("read", path, error)),
+        }
+    }
+
+    if stale.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!("generated output is stale: {}", stale.join(", ")))
+}
+
+fn write_files(files: &[(PathBuf, String)]) -> Result<(), String> {
+    for (path, contents) in files {
+        let parent = path
+            .parent()
+            .ok_or_else(|| format!("{} has no parent", path.display()))?;
+
+        std::fs::create_dir_all(parent)
+            .map_err(|error| workspace::io_error("create", parent, error))?;
+
+        if std::fs::read(path).ok().as_deref() == Some(contents.as_bytes()) {
+            continue;
+        }
+
+        std::fs::write(path, contents)
+            .map_err(|error| workspace::io_error("write", path, error))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConstantDescription, valid_constant_name};
+
+    #[test]
+    fn constant_names_accept_only_canonical_native_spellings() {
+        assert!(valid_constant_name("FILE_SHARE_READ"));
+        assert!(!valid_constant_name("FileShareRead"));
+        assert!(!valid_constant_name("_FILE_SHARE_READ"));
+    }
+
+    #[test]
+    fn constant_description_retains_signed_values() {
+        let description = ConstantDescription {
+            name: "AT_FDCWD".to_owned(),
+            r#type: "i32".to_owned(),
+            value: -100,
+        };
+
+        assert_eq!(description.value, -100);
+    }
+}

@@ -33,11 +33,15 @@ use crate::bundle::{DirectoryPublication, NativeBuildOptions, NativeBuildOptions
 use crate::workspace;
 
 const USAGE: &str = "usage: cargo xtask standard-library \
-    <build --output <directory> [--source <directory>] [--target <triple>] | test | verify>";
+    <build --output <directory> [--source <directory>] [--target <triple>] | \
+    os-constants generate [--check] | test | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
         Some("build") => BuildOptions::parse(arguments).and_then(BuildOptions::build),
+        Some("os-constants") => crate::standard_library::os_constants::run(arguments)
+            .map(|()| PathBuf::new())
+            .map_err(BuildError::OsConstants),
         Some("test") => native_test(arguments).map(|()| PathBuf::new()),
         Some("verify") => verify(arguments).map(|()| PathBuf::new()),
         _ => Err(BuildError::Usage),
@@ -127,6 +131,8 @@ fn verify(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildError>
     if let Some(argument) = arguments.next() {
         return Err(BuildError::UnexpectedArgument(argument));
     }
+
+    crate::standard_library::os_constants::verify().map_err(BuildError::OsConstants)?;
 
     let directory = tempfile::Builder::new()
         .prefix("bray-standard-library-verification-")
