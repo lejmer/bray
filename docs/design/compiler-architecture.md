@@ -975,9 +975,21 @@ failed, cancelled, or abandoned outcomes. Report context identifies the canonica
 aggregate storage and bounded event buffers avoid a process-wide synchronization point. A report declares how many events were
 dropped after the configured bound was reached.
 
-Reports use a versioned machine-readable schema. Human summaries are rendered through `bray-messages`. `brayc` owns direct report
-publication, while Bray Tack forwards profiling to every compiler process, preserves each detailed report under a distinct product
-and target identity, and surfaces compiler-rendered summaries. Report I/O failures are structured diagnostics and fail the command.
+Reports use a versioned machine-readable schema. The report declares operation, query, and metric descriptors once, then references
+their stable numeric identities from sparse nonzero observations and trace events. This keeps aggregate reports proportional to the
+observed compiler surface and prevents trace events from repeating descriptor text. Machine artifacts use compact encoding because
+their supported human interface is the compiler profile tooling rather than manual JSON inspection.
+
+Human summaries are rendered through `bray-messages`. A summary identifies the package, product, and target, distinguishes elapsed
+time from worker time summed across parallel execution, reports active work and scheduler, dependency, and external waits separately,
+and ranks the dominant operations and queries. It also reports cache effectiveness and nonzero compiler unit, artifact, and byte
+measurements. Ranked tables have a fixed useful bound so terminal output remains usable for large compilations.
+
+`brayc` owns direct report publication, while Bray Tack forwards profiling to every compiler process, preserves each detailed report
+under a distinct product and target identity, and surfaces compiler-rendered summaries. Bray Tack can render a stored report and
+compare two compatible reports without invoking the compiler. Comparisons show elapsed and worker-time changes, the largest operation
+and query changes, and changed unit and artifact measurements. Report I/O, decoding, schema, and descriptor-reference failures are
+structured diagnostics and fail the command.
 
 Tests prove that profiling preserves compiler outcomes, summary mode emits no trace events, trace storage remains bounded, parallel
 aggregation is race-free, and the machine schema round-trips. Performance validation compares disabled profiling against an

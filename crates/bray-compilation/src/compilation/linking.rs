@@ -567,7 +567,11 @@ mod tests {
         let link = report
             .operations
             .iter()
-            .find(|operation| operation.name == "compiler.link")
+            .find(|operation| {
+                report
+                    .operation_descriptor(operation.id)
+                    .is_some_and(|descriptor| descriptor.name == "compiler.link")
+            })
             .unwrap_or_else(|| panic!("link operation statistics must be present"));
 
         let (completed, failed, cancelled) = match outcome {

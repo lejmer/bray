@@ -93,38 +93,21 @@ impl MessageCatalog {
         }
     }
 
-    pub(crate) fn compiler_profile_heading(self, elapsed_nanoseconds: u64) -> String {
-        match self.locale {
-            DiagnosticLocale::English => {
-                super::english::compiler_profile_heading(elapsed_nanoseconds)
-            }
-        }
-    }
-
-    pub(crate) fn compiler_profile_queries(
+    pub(crate) fn compiler_profile_summary(
         self,
-        requests: u64,
-        evaluations: u64,
-        cache_hits: u64,
-        cache_misses: u64,
+        report: &bray_profile::CompilationProfileReport,
     ) -> String {
         match self.locale {
-            DiagnosticLocale::English => {
-                super::english::compiler_profile_queries(
-                    requests,
-                    evaluations,
-                    cache_hits,
-                    cache_misses,
-                )
-            }
+            DiagnosticLocale::English => super::english::compiler_profile_summary(report),
         }
     }
 
-    pub(crate) fn compiler_profile_trace(self, events: usize, dropped_events: u64) -> String {
+    pub(crate) fn compiler_profile_comparison(
+        self,
+        comparison: bray_profile::CompilationProfileComparison<'_>,
+    ) -> String {
         match self.locale {
-            DiagnosticLocale::English => {
-                super::english::compiler_profile_trace(events, dropped_events)
-            }
+            DiagnosticLocale::English => super::english::compiler_profile_comparison(comparison),
         }
     }
 

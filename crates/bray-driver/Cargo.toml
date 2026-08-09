@@ -32,6 +32,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
+bray-profile = { path = "../bray-profile" }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
 [lints]

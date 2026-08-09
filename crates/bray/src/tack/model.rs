@@ -21,6 +21,8 @@ pub enum TackCommandKind {
     Format,
     /// Inspects the project graph or one compiler fact.
     Inspect,
+    /// Displays or compares compiler profile reports.
+    Profile,
     /// Runs the Bray language-server tool.
     LanguageServer,
     /// Explicitly installs one Git repository in the vendored tree.
@@ -186,6 +188,13 @@ pub(crate) enum TackCommand {
         source_id: u32,
         position: Option<u32>,
     },
+    ProfileShow {
+        report: PathBuf,
+    },
+    ProfileCompare {
+        before: PathBuf,
+        after: PathBuf,
+    },
     LanguageServer {
         target: Option<String>,
     },
@@ -205,6 +214,7 @@ impl TackCommand {
             Self::Test { .. } => TackCommandKind::Test,
             Self::Format { .. } => TackCommandKind::Format,
             Self::Inspect { .. } => TackCommandKind::Inspect,
+            Self::ProfileShow { .. } | Self::ProfileCompare { .. } => TackCommandKind::Profile,
             Self::LanguageServer { .. } => TackCommandKind::LanguageServer,
             Self::VendorInstall { .. } => TackCommandKind::VendorInstall,
         }
@@ -219,6 +229,8 @@ impl TackCommand {
             Self::Inspect { inspection, .. } => !matches!(inspection, TackInspection::Project),
             Self::Init { .. }
             | Self::Format { .. }
+            | Self::ProfileShow { .. }
+            | Self::ProfileCompare { .. }
             | Self::LanguageServer { .. }
             | Self::VendorInstall { .. } => false,
         }

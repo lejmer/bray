@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+/// Current compiler profile schema revision.
+pub const COMPILATION_PROFILE_SCHEMA_REVISION: u32 = 1;
+
 /// Profiling detail requested for one compiler invocation.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -137,9 +140,9 @@ pub struct CompilationProfileSubject {
     pub fingerprint: String,
 }
 
-/// Aggregate statistics for one stable compiler operation kind.
+/// Descriptor metadata declared once for one operation kind.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct CompilationProfileOperationStatistics {
+pub struct CompilationProfileOperationDescriptor {
     /// Stable numeric descriptor identity.
     pub id: u16,
     /// Canonical operation name.
@@ -152,6 +155,50 @@ pub struct CompilationProfileOperationStatistics {
     pub aggregation: CompilationProfileAggregation,
     /// Subject categories accepted by this operation.
     pub allowed_subjects: Vec<CompilationProfileSubjectKind>,
+}
+
+/// Descriptor metadata declared once for one query kind.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileQueryDescriptor {
+    /// Stable numeric descriptor identity.
+    pub id: u16,
+    /// Canonical query name.
+    pub name: String,
+}
+
+/// Descriptor metadata declared once for one metric kind.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileMetricDescriptor {
+    /// Stable numeric descriptor identity.
+    pub id: u16,
+    /// Canonical metric name.
+    pub name: String,
+    /// Canonical metric unit.
+    pub unit: CompilationProfileUnit,
+    /// Stable metric category.
+    pub category: CompilationProfileCategory,
+    /// Aggregation applied to metric observations.
+    pub aggregation: CompilationProfileAggregation,
+    /// Subject categories accepted by this metric.
+    pub allowed_subjects: Vec<CompilationProfileSubjectKind>,
+}
+
+/// Descriptor metadata referenced by sparse observations and events.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileDescriptorCatalog {
+    /// Operation descriptors available to this compiler.
+    pub operations: Vec<CompilationProfileOperationDescriptor>,
+    /// Query descriptors available to this compiler.
+    pub queries: Vec<CompilationProfileQueryDescriptor>,
+    /// Metric descriptors available to this compiler.
+    pub metrics: Vec<CompilationProfileMetricDescriptor>,
+}
+
+/// Aggregate statistics for one observed compiler operation kind.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileOperationStatistics {
+    /// Stable numeric descriptor identity.
+    pub id: u16,
     /// Number of observed operation executions.
     pub executions: u64,
     /// Number of normally completed executions.
@@ -170,22 +217,20 @@ pub struct CompilationProfileOperationStatistics {
     pub maximum_nanoseconds: u64,
 }
 
-/// Aggregate behavior for one stable compiler query kind.
+/// Aggregate behavior for one observed compiler query kind.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileQueryStatistics {
     /// Stable numeric query-kind identity.
     pub id: u16,
-    /// Canonical query-kind name.
-    pub name: String,
     /// Number of requests for this query kind.
     pub requests: u64,
     /// Number of requests served from an already-published value.
     pub cache_hits: u64,
     /// Number of requests that found no published value.
     pub cache_misses: u64,
-    /// Number of published facts retained from a preceding snapshot.
+    /// Number of published values retained from a preceding snapshot.
     pub cross_snapshot_reuses: u64,
-    /// Number of preceding-snapshot facts invalidated before reuse.
+    /// Number of preceding-snapshot values invalidated before reuse.
     pub invalidations: u64,
     /// Number of independently executed evaluations.
     pub evaluations: u64,
@@ -197,21 +242,11 @@ pub struct CompilationProfileQueryStatistics {
     pub wait_nanoseconds: u64,
 }
 
-/// One stable compiler unit or size statistic.
+/// One observed compiler unit or size statistic.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileMetric {
     /// Stable numeric descriptor identity.
     pub id: u16,
-    /// Canonical metric name.
-    pub name: String,
-    /// Canonical metric unit.
-    pub unit: CompilationProfileUnit,
-    /// Stable metric category.
-    pub category: CompilationProfileCategory,
-    /// Aggregation applied to metric observations.
-    pub aggregation: CompilationProfileAggregation,
-    /// Subject categories accepted by this metric.
-    pub allowed_subjects: Vec<CompilationProfileSubjectKind>,
     /// Aggregated metric value.
     pub value: u64,
 }
@@ -225,11 +260,6 @@ pub struct CompilationProfileEvent {
     pub start_nanoseconds: u64,
     /// Observed event duration.
     pub duration_nanoseconds: u64,
-    /// Canonical operation name.
-    pub operation: String,
-    /// Canonical query kind when this event describes a compiler query.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
     /// Stable numeric query-kind identity when this event describes a query.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query_id: Option<u16>,
@@ -275,15 +305,34 @@ pub struct CompilationProfileReport {
     pub elapsed_nanoseconds: u64,
     /// Derived time categories for parallel and nested work.
     pub time: CompilationProfileTimeBreakdown,
-    /// Stable operation aggregates.
+    /// Descriptor metadata declared once for this report.
+    pub descriptors: CompilationProfileDescriptorCatalog,
+    /// Sparse operation aggregates with zero-observation kinds omitted.
     pub operations: Vec<CompilationProfileOperationStatistics>,
-    /// Stable query-kind aggregates.
+    /// Sparse query aggregates with zero-observation kinds omitted.
     pub queries: Vec<CompilationProfileQueryStatistics>,
-    /// Stable unit and size statistics.
+    /// Sparse unit and size statistics with zero values omitted.
     pub metrics: Vec<CompilationProfileMetric>,
     /// Detailed events retained in trace mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<CompilationProfileEvent>,
     /// Detailed events discarded after bounded buffers became full.
     pub dropped_events: u64,
+}
+
+impl CompilationProfileReport {
+    /// Resolves an operation descriptor referenced by an observation or event.
+    pub fn operation_descriptor(&self, id: u16) -> Option<&CompilationProfileOperationDescriptor> {
+        self.descriptors.operations.iter().find(|entry| entry.id == id)
+    }
+
+    /// Resolves a query descriptor referenced by an observation or event.
+    pub fn query_descriptor(&self, id: u16) -> Option<&CompilationProfileQueryDescriptor> {
+        self.descriptors.queries.iter().find(|entry| entry.id == id)
+    }
+
+    /// Resolves a metric descriptor referenced by an observation.
+    pub fn metric_descriptor(&self, id: u16) -> Option<&CompilationProfileMetricDescriptor> {
+        self.descriptors.metrics.iter().find(|entry| entry.id == id)
+    }
 }

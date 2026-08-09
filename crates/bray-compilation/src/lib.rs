@@ -28,8 +28,10 @@ pub use fact::{
 };
 pub use profile::{
     CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileConfiguration,
-    CompilationProfileContext, CompilationProfileEvent, CompilationProfileMetric,
-    CompilationProfileMode, CompilationProfileOperationStatistics, CompilationProfileOutcome,
+    CompilationProfileContext, CompilationProfileDescriptorCatalog, CompilationProfileEvent,
+    CompilationProfileMetric, CompilationProfileMetricDescriptor, CompilationProfileMode,
+    CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
+    CompilationProfileOutcome, CompilationProfileQueryDescriptor,
     CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
     CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };

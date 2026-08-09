@@ -20,8 +20,7 @@ pub(crate) use diagnostics::{
 pub(crate) use label::{style as label_style, template as label_template};
 pub(crate) use language_server::message as language_server_message;
 pub(crate) use profile::{
-    heading as compiler_profile_heading, queries as compiler_profile_queries,
-    trace as compiler_profile_trace,
+    comparison as compiler_profile_comparison, summary as compiler_profile_summary,
 };
 pub(crate) use test_report::{
     activity_operation as test_report_activity_operation,

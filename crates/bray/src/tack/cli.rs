@@ -236,6 +236,7 @@ enum CliCommand {
     #[command(name = "fmt")]
     Format(CliFormat),
     Inspect(CliInspect),
+    Profile(CliProfile),
     #[command(name = "language-server")]
     LanguageServer(CliLanguageServer),
     Vendor(CliVendor),
@@ -309,12 +310,44 @@ impl CliCommand {
                 source_id: inspect.source_id,
                 position: inspect.offset,
             },
+            Self::Profile(profile) => profile.into_command(),
             Self::LanguageServer(server) => TackCommand::LanguageServer {
                 target: server.target,
             },
             Self::Vendor(vendor) => vendor.into_command(),
         }
     }
+}
+
+#[derive(Args, Debug)]
+struct CliProfile {
+    #[command(subcommand)]
+    command: CliProfileCommand,
+}
+
+impl CliProfile {
+    fn into_command(self) -> TackCommand {
+        match self.command {
+            CliProfileCommand::Show { report } => TackCommand::ProfileShow { report },
+            CliProfileCommand::Compare { before, after } => {
+                TackCommand::ProfileCompare { before, after }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+enum CliProfileCommand {
+    Show {
+        #[arg(value_name = "REPORT")]
+        report: PathBuf,
+    },
+    Compare {
+        #[arg(value_name = "BEFORE")]
+        before: PathBuf,
+        #[arg(value_name = "AFTER")]
+        after: PathBuf,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -516,6 +549,7 @@ mod tests {
             (vec!["test"], TackCommandKind::Test),
             (vec!["fmt"], TackCommandKind::Format),
             (vec!["inspect", "project"], TackCommandKind::Inspect),
+            (vec!["profile", "show", "profile.json"], TackCommandKind::Profile),
             (vec!["language-server"], TackCommandKind::LanguageServer),
             (
                 vec![

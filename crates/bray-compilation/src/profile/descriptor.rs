@@ -1,4 +1,4 @@
-use super::model::{
+use bray_profile::{
     CompilationProfileCategory, CompilationProfileMode, CompilationProfileOutcome,
     CompilationProfileSubjectKind, CompilationProfileUnit,
 };

@@ -10,6 +10,7 @@ bray-base = { path = "../bray-base" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-messages = { path = "../bray-messages" }
 bray-platform = { path = "../bray-platform" }
+bray-profile = { path = "../bray-profile" }
 bray-project = { path = "../bray-project" }
 bray-source = { path = "../bray-source" }
 bray-standard-library = { path = "../bray-standard-library" }

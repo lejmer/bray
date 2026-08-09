@@ -25,6 +25,7 @@ members = [
     "crates/bray-platform",
     "crates/bray-platform-abi",
     "crates/bray-project",
+    "crates/bray-profile",
     "crates/bray-runtime",
     "crates/bray-source",
     "crates/bray-standard-library",

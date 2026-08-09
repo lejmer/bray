@@ -64,7 +64,12 @@ fn enabled_compilations_report_queries_metrics_and_selected_detail() {
         report
             .metrics
             .iter()
-            .any(|metric| metric.name == "compiler.source.units" && metric.value == 1)
+            .any(|metric| {
+                metric.value == 1
+                    && report
+                        .metric_descriptor(metric.id)
+                        .is_some_and(|descriptor| descriptor.name == "compiler.source.units")
+            })
     );
 
     assert!(report.events.is_empty());

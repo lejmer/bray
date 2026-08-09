@@ -41,6 +41,9 @@ Compiler libraries and installed Bray tools.
 - `bray-project`
     - Bray workspace and package manifests, project-owned source discovery, and immutable deterministic package build graphs.
 
+- `bray-profile`
+    - Versioned compiler profile reports, descriptor catalogs, aggregate analysis, and report comparison.
+
 - `bray-standard-library`
     - Standard library identities, source authority, bundle manifests, and artifact validation.
 
@@ -96,7 +99,8 @@ Compiler libraries and installed Bray tools.
     - Typed native link plans, linker and archiver adapters, invocation, and linked artifact results.
 
 - `bray-compilation`
-    - The lazy compilation context, compiler fact coordination, phase orchestration, and top-level product emission.
+    - The lazy compilation context, compiler fact coordination, phase orchestration, profile collection, and top-level product
+      emission.
 
 - `bray-tooling`
     - Shared diagnostic presentation, compiler inspection, source-request, and product-request tooling for command drivers.

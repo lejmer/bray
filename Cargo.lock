@@ -132,6 +132,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-messages",
  "bray-platform",
+ "bray-profile",
  "bray-project",
  "bray-source",
  "bray-standard-library",
@@ -257,6 +258,7 @@ dependencies = [
  "bray-lowering",
  "bray-package-interface",
  "bray-parser",
+ "bray-profile",
  "bray-runtime-interface",
  "bray-source",
  "bray-standard-library",
@@ -311,6 +313,7 @@ dependencies = [
  "bray-emitter",
  "bray-messages",
  "bray-package-interface",
+ "bray-profile",
  "bray-runtime-interface",
  "bray-source",
  "bray-standard-library",
@@ -433,6 +436,7 @@ name = "bray-messages"
 version = "0.0.0"
 dependencies = [
  "bray-diagnostics",
+ "bray-profile",
  "bray-source",
  "bray-syntax",
 ]
@@ -483,6 +487,13 @@ dependencies = [
  "cc",
  "sha2",
  "windows-sys",
+]
+
+[[package]]
+name = "bray-profile"
+version = "0.0.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

@@ -21,6 +21,7 @@ use crate::tack::output::{
     failure, result_from_operation, result_from_output, result_from_outputs,
 };
 use crate::tack::progress::WorkflowProgress;
+use crate::tack::profile::run_profile_command;
 use crate::tack::project::{
     ProductSelectionKind, load_graph, root_source_files, select_products, select_target,
 };
@@ -205,6 +206,12 @@ fn execute_invocation_with_progress(
                 stdin.as_mut(),
             );
         }
+        TackCommand::ProfileShow { report } => {
+            return run_profile_command(report, None, output_format);
+        }
+        TackCommand::ProfileCompare { before, after } => {
+            return run_profile_command(before, Some(after), output_format);
+        }
         _ => {}
     }
 
@@ -308,6 +315,8 @@ fn execute_invocation_with_progress(
         ),
         TackCommand::Init { .. }
         | TackCommand::Format { .. }
+        | TackCommand::ProfileShow { .. }
+        | TackCommand::ProfileCompare { .. }
         | TackCommand::VendorInstall { .. } => {
             failure(operation_diagnostics("command_routing"), output_format)
         }

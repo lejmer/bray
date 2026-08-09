@@ -1,5 +1,6 @@
 use crate::DiagnosticLocale;
 use crate::catalog::MessageCatalog;
+use bray_profile::{CompilationProfileComparison, CompilationProfileReport};
 
 /// Locale-aware renderer for concise compiler profile summaries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,26 +21,14 @@ impl CompilerProfileMessageRenderer {
         Self::new(DiagnosticLocale::English)
     }
 
-    /// Renders the summary heading and total duration.
-    pub fn heading(self, elapsed_nanoseconds: u64) -> String {
-        self.catalog.compiler_profile_heading(elapsed_nanoseconds)
+    /// Renders a ranked human-readable summary of one compiler profile.
+    pub fn summary(self, report: &CompilationProfileReport) -> String {
+        self.catalog.compiler_profile_summary(report)
     }
 
-    /// Renders aggregate query request, evaluation, cache-hit, and cache-miss counts.
-    pub fn queries(
-        self,
-        requests: u64,
-        evaluations: u64,
-        cache_hits: u64,
-        cache_misses: u64,
-    ) -> String {
-        self.catalog
-            .compiler_profile_queries(requests, evaluations, cache_hits, cache_misses)
-    }
-
-    /// Renders trace event and dropped-event counts.
-    pub fn trace(self, events: usize, dropped_events: u64) -> String {
-        self.catalog.compiler_profile_trace(events, dropped_events)
+    /// Renders a ranked human-readable comparison of two compiler profiles.
+    pub fn comparison(self, comparison: CompilationProfileComparison<'_>) -> String {
+        self.catalog.compiler_profile_comparison(comparison)
     }
 }
 
@@ -48,16 +37,42 @@ mod tests {
     use super::CompilerProfileMessageRenderer;
 
     #[test]
-    fn english_profile_summary_is_rendered_from_structured_values() {
+    fn english_profile_summary_is_rendered_from_structured_report() {
         let renderer = CompilerProfileMessageRenderer::english();
 
-        assert_eq!(renderer.heading(1_250_000), "Compiler profile: 1.250 ms");
+        let report = bray_profile::CompilationProfileReport {
+            schema_revision: bray_profile::COMPILATION_PROFILE_SCHEMA_REVISION,
+            mode: bray_profile::CompilationProfileMode::Summary,
+            context: bray_profile::CompilationProfileContext {
+                package: "example".to_owned(),
+                product: "application".to_owned(),
+                target: "x86_64-test".to_owned(),
+            },
+            trace_event_limit: None,
+            elapsed_nanoseconds: 1_250_000,
+            time: bray_profile::CompilationProfileTimeBreakdown {
+                active_work_nanoseconds: 1_000_000,
+                same_thread_self_nanoseconds: 1_000_000,
+                scheduler_queue_nanoseconds: 0,
+                dependency_wait_nanoseconds: 0,
+                external_work_nanoseconds: 0,
+            },
+            descriptors: bray_profile::CompilationProfileDescriptorCatalog {
+                operations: Vec::new(),
+                queries: Vec::new(),
+                metrics: Vec::new(),
+            },
+            operations: Vec::new(),
+            queries: Vec::new(),
+            metrics: Vec::new(),
+            events: Vec::new(),
+            dropped_events: 0,
+        };
 
-        assert_eq!(
-            renderer.queries(12, 10, 2, 10),
-            "Queries: 12 requested, 10 evaluated, 2 cache hits, 10 cache misses"
-        );
+        let output = renderer.summary(&report);
 
-        assert_eq!(renderer.trace(8, 1), "Trace: 8 events, 1 dropped");
+        assert!(output.contains("Compiler profile: example/application"));
+        assert!(output.contains("Elapsed"));
+        assert!(output.contains("1.250 ms"));
     }
 }

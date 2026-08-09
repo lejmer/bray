@@ -5,17 +5,18 @@ use std::time::Instant;
 use super::descriptor::{
     ProfileMetricKind, ProfileOperation, ProfileQueryKind, records_trace,
 };
-use super::model::{
-    CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileConfiguration,
-    CompilationProfileContext, CompilationProfileEvent, CompilationProfileMetric,
-    CompilationProfileOperationStatistics, CompilationProfileOutcome,
+use bray_profile::{
+    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation,
+    CompilationProfileCategory, CompilationProfileConfiguration, CompilationProfileContext,
+    CompilationProfileDescriptorCatalog, CompilationProfileEvent,
+    CompilationProfileMetric, CompilationProfileMetricDescriptor,
+    CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
+    CompilationProfileOutcome, CompilationProfileQueryDescriptor,
     CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
     CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 use super::subject::{ProfileSubjectRecord, profile_subject};
 use crate::fact::CompilationFactKey;
-
-const PROFILE_SCHEMA_REVISION: u32 = 1;
 
 pub(crate) struct ProfileSession {
     configuration: CompilationProfileConfiguration,
@@ -210,13 +211,14 @@ impl ProfileSession {
         let context = self.context.clone();
 
         CompilationProfileReport {
-            schema_revision: PROFILE_SCHEMA_REVISION,
+            schema_revision: COMPILATION_PROFILE_SCHEMA_REVISION,
             mode: self.configuration.mode(),
             context,
             trace_event_limit: records_trace(self.configuration.mode())
                 .then_some(self.configuration.trace_event_limit()),
             elapsed_nanoseconds: self.clock.now_nanoseconds(),
             time: time_breakdown(&operations),
+            descriptors: descriptor_catalog(),
             operations: operation_reports(&operations),
             queries: query_reports(&queries),
             metrics: metric_reports(&metrics),
@@ -575,11 +577,6 @@ fn operation_reports(
         .filter(|(_, aggregate)| aggregate.executions > 0)
         .map(|(operation, aggregate)| CompilationProfileOperationStatistics {
             id: operation.id(),
-            name: operation.name().to_owned(),
-            category: operation.category(),
-            unit: CompilationProfileUnit::Nanoseconds,
-            aggregation: CompilationProfileAggregation::SumAndMaximum,
-            allowed_subjects: operation.allowed_subjects().to_vec(),
             executions: aggregate.executions,
             completed: aggregate.completed,
             failed: aggregate.failed,
@@ -605,7 +602,6 @@ fn query_reports(
         })
         .map(|(query, aggregate)| CompilationProfileQueryStatistics {
             id: query.id(),
-            name: query.name().to_owned(),
             requests: aggregate.requests,
             cache_hits: aggregate.cache_hits,
             cache_misses: aggregate.cache_misses,
@@ -624,18 +620,9 @@ fn metric_reports(values: &[u64; ProfileMetricKind::COUNT]) -> Vec<CompilationPr
         .into_iter()
         .zip(values)
         .filter(|(_, value)| **value > 0)
-        .map(|(metric, value)| {
-            let (name, unit) = metric.descriptor();
-
-            CompilationProfileMetric {
-                id: metric.id(),
-                name: name.to_owned(),
-                unit,
-                category: CompilationProfileCategory::Measurement,
-                aggregation: CompilationProfileAggregation::Sum,
-                allowed_subjects: metric.allowed_subjects().to_vec(),
-                value: *value,
-            }
+        .map(|(metric, value)| CompilationProfileMetric {
+            id: metric.id(),
+            value: *value,
         })
         .collect()
 }
@@ -647,8 +634,6 @@ fn event_reports(records: Vec<ProfileEventRecord>) -> Vec<CompilationProfileEven
             start_nanoseconds: record.started_at,
             duration_nanoseconds: record.duration,
             operation_id: record.operation.id(),
-            operation: record.operation.name().to_owned(),
-            query: record.query.map(|query| query.name().to_owned()),
             query_id: record.query.map(ProfileQueryKind::id),
             subject: record.subject.map(|subject| CompilationProfileSubject {
                 kind: subject.kind,
@@ -659,6 +644,50 @@ fn event_reports(records: Vec<ProfileEventRecord>) -> Vec<CompilationProfileEven
             sequence: record.sequence,
         })
         .collect()
+}
+
+fn descriptor_catalog() -> CompilationProfileDescriptorCatalog {
+    let operations = ProfileOperation::all()
+        .into_iter()
+        .map(|operation| CompilationProfileOperationDescriptor {
+            id: operation.id(),
+            name: operation.name().to_owned(),
+            category: operation.category(),
+            unit: CompilationProfileUnit::Nanoseconds,
+            aggregation: CompilationProfileAggregation::SumAndMaximum,
+            allowed_subjects: operation.allowed_subjects().to_vec(),
+        })
+        .collect();
+
+    let queries = ProfileQueryKind::all()
+        .into_iter()
+        .map(|query| CompilationProfileQueryDescriptor {
+            id: query.id(),
+            name: query.name().to_owned(),
+        })
+        .collect();
+
+    let metrics = ProfileMetricKind::all()
+        .into_iter()
+        .map(|metric| {
+            let (name, unit) = metric.descriptor();
+
+            CompilationProfileMetricDescriptor {
+                id: metric.id(),
+                name: name.to_owned(),
+                unit,
+                category: CompilationProfileCategory::Measurement,
+                aggregation: CompilationProfileAggregation::Sum,
+                allowed_subjects: metric.allowed_subjects().to_vec(),
+            }
+        })
+        .collect();
+
+    CompilationProfileDescriptorCatalog {
+        operations,
+        queries,
+        metrics,
+    }
 }
 
 fn time_breakdown(
@@ -859,7 +888,11 @@ mod tests {
         let codegen = report
             .operations
             .iter()
-            .find(|operation| operation.name == "compiler.codegen.generate")
+            .find(|operation| {
+                report
+                    .operation_descriptor(operation.id)
+                    .is_some_and(|descriptor| descriptor.name == "compiler.codegen.generate")
+            })
             .unwrap_or_else(|| panic!("code generation observations must be reported"));
 
         assert_eq!(codegen.executions, 256);

@@ -31,7 +31,7 @@ pub(crate) fn write_driver_output(
     }
 
     if let (Some(profile), Some(path)) = (result.profile(), result.profile_output()) {
-        let mut bytes = serde_json::to_vec_pretty(profile).map_err(|_| DriverOutputError::Terminal)?;
+        let mut bytes = serde_json::to_vec(profile).map_err(|_| DriverOutputError::Terminal)?;
 
         bytes.push(b'\n');
 
@@ -107,34 +107,6 @@ fn write_profile_summary(
     stderr: &mut impl Write,
 ) -> Result<(), DriverOutputError> {
     let renderer = CompilerProfileMessageRenderer::english();
-    let requests = profile.queries.iter().map(|query| query.requests).sum();
-    let evaluations = profile.queries.iter().map(|query| query.evaluations).sum();
-    let cache_hits = profile.queries.iter().map(|query| query.cache_hits).sum();
 
-    let cache_misses = profile
-        .queries
-        .iter()
-        .map(|query| query.cache_misses)
-        .sum();
-
-    writeln!(stderr, "{}", renderer.heading(profile.elapsed_nanoseconds))
-        .map_err(|_| DriverOutputError::Terminal)?;
-
-    writeln!(
-        stderr,
-        "{}",
-        renderer.queries(requests, evaluations, cache_hits, cache_misses)
-    )
-    .map_err(|_| DriverOutputError::Terminal)?;
-
-    if profile.mode == bray_compilation::CompilationProfileMode::Trace {
-        writeln!(
-            stderr,
-            "{}",
-            renderer.trace(profile.events.len(), profile.dropped_events)
-        )
-        .map_err(|_| DriverOutputError::Terminal)?;
-    }
-
-    Ok(())
+    write!(stderr, "{}", renderer.summary(profile)).map_err(|_| DriverOutputError::Terminal)
 }

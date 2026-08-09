@@ -664,7 +664,11 @@ mod tests {
         let query = report
             .queries
             .iter()
-            .find(|query| query.name == "syntax_tree")
+            .find(|query| {
+                report
+                    .query_descriptor(query.id)
+                    .is_some_and(|descriptor| descriptor.name == "syntax_tree")
+            })
             .unwrap_or_else(|| panic!("syntax-tree query statistics must be present"));
 
         assert_eq!(query.requests, 8);

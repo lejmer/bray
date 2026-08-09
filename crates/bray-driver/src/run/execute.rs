@@ -656,9 +656,16 @@ mod tests {
         let profile: bray_compilation::CompilationProfileReport = serde_json::from_slice(&bytes)
             .unwrap_or_else(|error| panic!("profile report must match its schema: {error:?}"));
 
-        assert_eq!(profile.schema_revision, 1);
+        assert_eq!(
+            profile.schema_revision,
+            bray_profile::COMPILATION_PROFILE_SCHEMA_REVISION
+        );
+
         assert_eq!(profile.mode, bray_compilation::CompilationProfileMode::Trace);
         assert_eq!(profile.context.product, "library");
+        assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 1);
+        assert!(!profile.descriptors.operations.is_empty());
+        assert!(!profile.descriptors.queries.is_empty());
         assert!(!profile.events.is_empty());
         assert!(profile.events.iter().any(|event| event.subject.is_some()));
 
@@ -666,6 +673,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("profile summary must be UTF-8: {error:?}"));
 
         assert!(stderr.contains("Compiler profile:"));
+        assert!(stderr.contains("Top operations by worker self time"));
+        assert!(stderr.contains("Top queries by evaluation time"));
         assert!(stderr.contains("Trace:"));
     }
 
