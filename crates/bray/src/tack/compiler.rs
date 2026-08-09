@@ -8,7 +8,9 @@ use bray_target::{NativeTarget, TargetIdentity, TargetOutputKind, TargetOutputNa
 use bray_tooling::OutputFormat;
 
 use crate::tack::error::{operation_diagnostics, selection_diagnostics};
-use crate::tack::model::{TackBuildConfiguration, TackInspection};
+use crate::tack::model::{
+    TackBuildConfiguration, TackInspection, TackProfileConfiguration,
+};
 use crate::tack::progress::{
     BuildProgressAction, BuildProgressPackage, BuildProgressPlan, BuildProgressSession,
 };
@@ -22,6 +24,7 @@ pub(crate) struct ProjectCompiler<'project> {
     toolchain: &'project Toolchain,
     worker_count: usize,
     output_format: OutputFormat,
+    profile: Option<&'project TackProfileConfiguration>,
     executor: &'project dyn ToolExecutor,
     interfaces: BTreeMap<(ProductIdentity, TargetIdentity), PathBuf>,
     checked: BTreeSet<(ProductIdentity, TargetIdentity)>,
@@ -46,6 +49,7 @@ impl<'project> ProjectCompiler<'project> {
         toolchain: &'project Toolchain,
         worker_count: usize,
         output_format: OutputFormat,
+        profile: Option<&'project TackProfileConfiguration>,
         executor: &'project dyn ToolExecutor,
     ) -> Self {
         Self {
@@ -54,6 +58,7 @@ impl<'project> ProjectCompiler<'project> {
             toolchain,
             worker_count,
             output_format,
+            profile,
             executor,
             interfaces: BTreeMap::new(),
             checked: BTreeSet::new(),
@@ -323,6 +328,16 @@ impl<'project> ProjectCompiler<'project> {
             request.arg("--standard-library-source");
         }
 
+        if let Some(profile) = self.profile {
+            request.arg("--profile").arg(profile.mode().as_str());
+
+            if let Some(output_directory) = profile.output_directory() {
+                request
+                    .arg("--profile-output")
+                    .arg(self.profile_report_path(output_directory, product, target, &action)?);
+            }
+        }
+
         for dependency in self.dependencies(product, target)? {
             request
                 .arg("--dependency-product")
@@ -360,6 +375,31 @@ impl<'project> ProjectCompiler<'project> {
         }
 
         output
+    }
+
+    fn profile_report_path(
+        &self,
+        output_directory: &Path,
+        product: &ProjectProduct,
+        target: &TargetIdentity,
+        action: &CompilerAction,
+    ) -> Result<PathBuf, DiagnosticBag> {
+        let output_directory = if output_directory.is_absolute() {
+            output_directory.to_path_buf()
+        } else {
+            self.workspace_root.join(output_directory)
+        };
+
+        std::fs::create_dir_all(&output_directory)
+            .map_err(|_| operation_diagnostics("compiler_profile_output_directory"))?;
+
+        Ok(output_directory.join(format!(
+            "{}-{}-{}-{}.json",
+            product.identity().package().as_str(),
+            product.identity().name(),
+            target.as_str(),
+            action.profile_name(),
+        )))
     }
 
     fn transitive_dependencies(
@@ -619,6 +659,14 @@ enum CompilerAction {
 }
 
 impl CompilerAction {
+    const fn profile_name(&self) -> &'static str {
+        match self {
+            Self::Check { .. } => "check",
+            Self::Build { .. } => "build",
+            Self::Inspect { .. } => "inspect",
+        }
+    }
+
     fn requires_runtime(&self, product_kind: ProductKind) -> bool {
         matches!(self, Self::Build { .. })
             && matches!(product_kind, ProductKind::Executable | ProductKind::Test)

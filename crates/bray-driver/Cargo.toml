@@ -10,6 +10,7 @@ bray-base = { path = "../bray-base" }
 bray-compilation = { path = "../bray-compilation" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-emitter = { path = "../bray-emitter" }
+bray-messages = { path = "../bray-messages" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-source = { path = "../bray-source" }
@@ -31,6 +32,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
+bray-profile = { path = "../bray-profile" }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
 [lints]

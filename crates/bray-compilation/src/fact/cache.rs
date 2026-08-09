@@ -8,6 +8,7 @@ use super::{
     CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime,
     FactTaskIdentity, QueryPriority, QueryPriorityDemand, SharedCancellation,
 };
+use crate::profile::CompilationProfileOutcome;
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -233,6 +234,16 @@ impl<T> FactCell<T> {
     {
         let mut compute = Some(compute);
 
+        let profile = runtime
+            .profile()
+            .map(|profile| (profile, crate::profile::ProfileQueryKind::from_key(&key)));
+
+        let mut cache_outcome_recorded = false;
+
+        if let Some((profile, query)) = profile {
+            profile.record_query_request(query);
+        }
+
         runtime.request_with_cycle_key(&key, &cycle_key)?;
 
         loop {
@@ -250,9 +261,13 @@ impl<T> FactCell<T> {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
+                    record_cache_outcome(profile, &mut cache_outcome_recorded, true);
+
                     return self.ready_value();
                 }
                 FactCellState::Vacant => {
+                    record_cache_outcome(profile, &mut cache_outcome_recorded, false);
+
                     // The task, cell state, and rollback guard independently retain this key.
                     let context = runtime.task_with_cycle_key(key.clone(), cycle_key.clone())?;
                     let task = context.identity();
@@ -280,7 +295,20 @@ impl<T> FactCell<T> {
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
                     let value = runtime.run_demand(&shared_priority, || {
-                        evaluation.run(|| compute(shared_cancellation.token()))
+                        let span = profile.map(|(profile, _)| {
+                            profile.start_query(
+                                crate::profile::ProfileOperation::QueryEvaluation,
+                                &key,
+                            )
+                        });
+
+                        let value = evaluation.run(|| compute(shared_cancellation.token()));
+
+                        if let Some(span) = span {
+                            span.finish(profile_outcome(&value));
+                        }
+
+                        value
                     })?;
 
                     #[cfg(test)]
@@ -321,6 +349,8 @@ impl<T> FactCell<T> {
                         return Err(FactQueryError::Cycle(runtime.same_task_cycle(&key)?));
                     }
 
+                    record_cache_outcome(profile, &mut cache_outcome_recorded, false);
+
                     drop(state);
 
                     let _interest = shared_cancellation.register(cancellation)?;
@@ -333,6 +363,10 @@ impl<T> FactCell<T> {
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Waiting)?;
+
+                    let wait_span = profile.map(|(profile, _)| {
+                        profile.start_query(crate::profile::ProfileOperation::DependencyWait, &key)
+                    });
 
                     let state = self
                         .storage
@@ -359,6 +393,10 @@ impl<T> FactCell<T> {
                         drop(waited);
                     } else {
                         drop(state);
+                    }
+
+                    if let Some(span) = wait_span {
+                        span.finish(CompilationProfileOutcome::Completed);
                     }
 
                     drop(waiting);
@@ -471,6 +509,34 @@ impl<T> FactCell<T> {
     }
 }
 
+fn record_cache_outcome(
+    profile: Option<(&crate::profile::ProfileSession, crate::profile::ProfileQueryKind)>,
+    recorded: &mut bool,
+    is_hit: bool,
+) {
+    if *recorded {
+        return;
+    }
+
+    if let Some((profile, query)) = profile {
+        if is_hit {
+            profile.record_query_cache_hit(query);
+        } else {
+            profile.record_query_cache_miss(query);
+        }
+    }
+
+    *recorded = true;
+}
+
+fn profile_outcome<T>(result: &Result<T, FactQueryError>) -> CompilationProfileOutcome {
+    match result {
+        Ok(_) => CompilationProfileOutcome::Completed,
+        Err(FactQueryError::Cancelled) => CompilationProfileOutcome::Cancelled,
+        Err(_) => CompilationProfileOutcome::Failed,
+    }
+}
+
 impl<T> Clone for FactCell<T> {
     fn clone(&self) -> Self {
         Self {
@@ -532,10 +598,25 @@ mod tests {
     use crate::fact::task::FactTaskContext;
     use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
     use crate::test_support::FactTestGate;
+    use crate::{
+        CompilationProfileConfiguration, CompilationProfileContext, CompilationProfileMode,
+        WorkerBudget,
+    };
 
     #[test]
     fn concurrent_requests_compute_one_value() {
-        let runtime = FactRuntime::default();
+        let runtime = FactRuntime::with_profile(
+            WorkerBudget::default(),
+            Some((
+                CompilationProfileConfiguration::new(CompilationProfileMode::Summary),
+                CompilationProfileContext {
+                    package: "test.package".to_owned(),
+                    product: "test.product".to_owned(),
+                    target: "test-target".to_owned(),
+                },
+            )),
+        );
+
         let cancellation = CancellationToken::new();
 
         let cell = FactCell::new();
@@ -575,6 +656,25 @@ mod tests {
         });
 
         assert_eq!(computations.load(Ordering::SeqCst), 1);
+
+        let report = runtime
+            .profile_report()
+            .unwrap_or_else(|| panic!("profiled fact runtime must report"));
+
+        let query = report
+            .queries
+            .iter()
+            .find(|query| {
+                report
+                    .query_descriptor(query.id)
+                    .is_some_and(|descriptor| descriptor.name == "syntax_tree")
+            })
+            .unwrap_or_else(|| panic!("syntax-tree query statistics must be present"));
+
+        assert_eq!(query.requests, 8);
+        assert_eq!(query.cache_hits, 0);
+        assert_eq!(query.cache_misses, 8);
+        assert_eq!(query.evaluations, 1);
     }
 
     #[test]

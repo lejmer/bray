@@ -49,6 +49,8 @@ define_diagnostic_kinds! {
     RequestUnsupportedProductEmission,
     /// An inspection report could not be written to its requested file.
     InspectionReportWriteFailed,
+    /// A compiler profile report could not be written to its requested file.
+    CompilerProfileWriteFailed,
     /// A required Bray project manifest could not be read.
     ProjectManifestReadFailed,
     /// A Bray project manifest does not match the serialized schema.
@@ -444,6 +446,7 @@ impl DiagnosticKind {
             Self::RequestInvalidWorkerBudget => 1103,
             Self::RequestDuplicateSourceInput => 1104,
             Self::InspectionReportWriteFailed => 1105,
+            Self::CompilerProfileWriteFailed => 1115,
             Self::RequestUnsupportedProductEmission => 1106,
             Self::RequestReservedPackageIdentity => 1107,
             Self::RequestStandardLibraryPackageIdentityRequired => 1108,
@@ -676,6 +679,7 @@ impl DiagnosticKind {
             Self::RequestUnsupportedProductEmission => REQUEST_PRODUCT_EMISSION_KEY,
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
             Self::InspectionReportWriteFailed => "inspection_report_write_failed",
+            Self::CompilerProfileWriteFailed => "compiler_profile_write_failed",
             Self::ProjectManifestReadFailed => "project_manifest_read_failed",
             Self::ProjectManifestParseFailed => "project_manifest_parse_failed",
             Self::ProjectManifestInvalid => "project_manifest_invalid",

@@ -17,6 +17,7 @@ pub struct InterfaceArtifact {
     identity: PackageInterfaceIdentity,
     bytes: Arc<[u8]>,
     byte_len: u64,
+    section_count: u64,
     content_hash: crate::InterfaceContentHash,
     artifact_hash: crate::InterfaceArtifactHash,
 }
@@ -26,6 +27,7 @@ impl InterfaceArtifact {
         identity: PackageInterfaceIdentity,
         bytes: Vec<u8>,
         byte_len: u64,
+        section_count: u64,
         content_hash: crate::InterfaceContentHash,
         artifact_hash: crate::InterfaceArtifactHash,
     ) -> Self {
@@ -33,6 +35,7 @@ impl InterfaceArtifact {
             identity,
             bytes: bytes.into(),
             byte_len,
+            section_count,
             content_hash,
             artifact_hash,
         }
@@ -56,6 +59,11 @@ impl InterfaceArtifact {
     /// Returns the exact artifact byte length.
     pub const fn byte_len(&self) -> u64 {
         self.byte_len
+    }
+
+    /// Returns the exact number of canonical interface sections.
+    pub const fn section_count(&self) -> u64 {
+        self.section_count
     }
 
     /// Returns the semantic content identity of the encoded interface.
@@ -304,11 +312,13 @@ fn finish_hashes(
         .copy_from_slice(artifact_hash.as_bytes());
 
     let byte_len = usize_to_u64(bytes.len())?;
+    let section_count = usize_to_u64(entries.len())?;
 
     Ok(InterfaceArtifact::new(
         identity,
         bytes,
         byte_len,
+        section_count,
         content_hash,
         artifact_hash,
     ))
@@ -384,6 +394,7 @@ mod tests {
 
         assert_eq!(artifact.identity(), bundle.surface().identity());
         assert_eq!(artifact.byte_len(), byte_len);
+        assert!(artifact.section_count() > 0);
         assert_eq!(artifact.validate_integrity(), Ok(()));
 
         let mut wrong_length = artifact.clone();

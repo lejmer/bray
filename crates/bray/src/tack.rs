@@ -9,6 +9,7 @@ mod inspection;
 mod install;
 mod model;
 mod output;
+mod profile;
 mod progress;
 mod project;
 mod result;

@@ -93,6 +93,24 @@ impl MessageCatalog {
         }
     }
 
+    pub(crate) fn compiler_profile_summary(
+        self,
+        report: &bray_profile::CompilationProfileReport,
+    ) -> String {
+        match self.locale {
+            DiagnosticLocale::English => super::english::compiler_profile_summary(report),
+        }
+    }
+
+    pub(crate) fn compiler_profile_comparison(
+        self,
+        comparison: bray_profile::CompilationProfileComparison<'_>,
+    ) -> String {
+        match self.locale {
+            DiagnosticLocale::English => super::english::compiler_profile_comparison(comparison),
+        }
+    }
+
     pub(crate) fn test_report_heading(self, count: usize) -> String {
         match self.locale {
             DiagnosticLocale::English => super::english::test_report_heading(count),

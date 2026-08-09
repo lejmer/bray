@@ -2,7 +2,9 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_compilation::WorkerBudget;
+use bray_compilation::{
+    CompilationProfileConfiguration, CompilationProfileMode, WorkerBudget,
+};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
 };
@@ -11,7 +13,7 @@ use bray_tooling::{
     InspectionTarget, OutputFormat, clap_styles, exit_code_from_diagnostics, render_styled_text,
 };
 use clap::error::ErrorKind as ClapErrorKind;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::command::{
     CliBuildCommand, CliCompilationOptions, DriverCommand, DriverInvocation, DriverOptions,
@@ -168,6 +170,16 @@ struct CliOptions {
     standard_library_root: Option<PathBuf>,
     #[arg(long = "standard-library-source", global = true, hide = true)]
     standard_library_source: bool,
+    #[arg(long, global = true, value_enum, value_name = "MODE")]
+    profile: Option<CliProfileMode>,
+    #[arg(
+        long,
+        global = true,
+        value_name = "FILE",
+        requires = "profile",
+        required_if_eq("profile", "trace")
+    )]
+    profile_output: Option<PathBuf>,
     #[command(flatten)]
     compilation: CliCompilationOptions,
 }
@@ -198,7 +210,7 @@ impl CliOptions {
             })
             .transpose()?;
 
-        Ok(DriverOptions::new(
+        let options = DriverOptions::new(
             worker_budget,
             self.format,
             compilation,
@@ -208,7 +220,30 @@ impl CliOptions {
             } else {
                 bray_compilation::PackageSourceAuthority::Ordinary
             },
-        ))
+        );
+
+        Ok(match self.profile {
+            Some(mode) => options.with_profile(
+                CompilationProfileConfiguration::new(mode.into()),
+                self.profile_output,
+            ),
+            None => options,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum CliProfileMode {
+    Summary,
+    Trace,
+}
+
+impl From<CliProfileMode> for CompilationProfileMode {
+    fn from(mode: CliProfileMode) -> Self {
+        match mode {
+            CliProfileMode::Summary => Self::Summary,
+            CliProfileMode::Trace => Self::Trace,
+        }
     }
 }
 

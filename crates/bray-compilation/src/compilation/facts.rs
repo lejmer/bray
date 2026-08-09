@@ -77,6 +77,7 @@ pub(super) struct CompilationState {
     pub(super) sources: SourceStore,
     pub(super) source_diagnostics: DiagnosticBag,
     pub(super) package_interface_export: Option<PackageInterfaceExportRequest>,
+    pub(super) profile_product: Option<ProductIdentity>,
     pub(super) dependency_interfaces: Box<[DependencyInterfaceInput]>,
     pub(super) platform_services: Box<[bray_runtime_interface::PlatformServiceBinding]>,
     pub(super) fact_runtime: FactRuntime,
@@ -241,7 +242,47 @@ impl Compilation {
             mut dependency_interfaces,
             platform_services,
             package_interface_export,
+            profile,
+            profile_product,
         ) = request.into_parts();
+
+        let worker_budget = options.worker_budget();
+
+        let profile = profile.map(|configuration| {
+            let product = profile_product
+                .as_ref()
+                .map(ProductIdentity::name)
+                .or_else(|| {
+                    package_interface_export
+                .as_ref()
+                .map(|export| export.identity().product().as_str())
+                })
+                .unwrap_or_else(|| match options.product_kind() {
+                    bray_symbols::ProductKind::Library => "library",
+                    bray_symbols::ProductKind::Executable => "executable",
+                    bray_symbols::ProductKind::Test => "test",
+                });
+
+            let context = crate::CompilationProfileContext {
+                package: package_identity.as_str().to_owned(),
+                product: product.to_owned(),
+                target: options
+                    .selected_target()
+                    .profile()
+                    .identity()
+                    .as_str()
+                    .to_owned(),
+            };
+
+            (configuration, context)
+        });
+
+        let fact_runtime = FactRuntime::with_profile(worker_budget, profile);
+        let profile_session = fact_runtime.profile_session();
+
+        let load_span = profile_session.as_deref().map(|profile| {
+            profile.start(crate::profile::ProfileOperation::CompilationLoad, None)
+        });
 
         let standard_library =
             standard_library_root.map(bray_standard_library::StandardLibraryResolver::new);
@@ -311,7 +352,23 @@ impl Compilation {
 
         let source_count = sources.len();
         let dependency_count = dependency_interfaces.len();
-        let worker_budget = options.worker_budget();
+
+        if let Some(profile) = fact_runtime.profile() {
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::SourceUnits,
+                u64::try_from(source_count).unwrap_or(u64::MAX),
+            );
+
+            let source_bytes = sources.iter().fold(0_u64, |total, source| {
+                total.saturating_add(u64::try_from(source.text().len()).unwrap_or(u64::MAX))
+            });
+
+            profile.add_metric(crate::profile::ProfileMetricKind::SourceBytes, source_bytes);
+        }
+
+        if let Some(span) = load_span {
+            span.finish(crate::CompilationProfileOutcome::Completed);
+        }
 
         Ok(Self {
             state: Arc::new(CompilationState {
@@ -322,9 +379,10 @@ impl Compilation {
                 sources,
                 source_diagnostics: diagnostics,
                 package_interface_export,
+                profile_product,
                 dependency_interfaces: dependency_interfaces.into_boxed_slice(),
                 platform_services: platform_services.into_boxed_slice(),
-                fact_runtime: FactRuntime::new(worker_budget),
+                fact_runtime,
                 cancellation: CancellationToken::new(),
                 source_unit_syntax: empty_fact_caches(source_count),
                 syntax_tree_result: FactCell::new(),
@@ -422,6 +480,11 @@ impl Compilation {
         self.state.package_source_authority
     }
 
+    /// Returns an immutable profile snapshot when profiling is enabled.
+    pub fn profile_report(&self) -> Option<crate::CompilationProfileReport> {
+        self.state.fact_runtime.profile_report()
+    }
+
     /// Returns the compilation options.
     pub fn options(&self) -> &CompilationOptions {
         &self.state.options
@@ -476,7 +539,25 @@ impl Compilation {
         Some(self.fact(
             CompilationFactKey::SourceUnitSyntax(source_id),
             cache,
-            || parse_source_unit(snapshot),
+            || {
+                let result = parse_source_unit(snapshot);
+
+                if let Some(profile) = self.state.fact_runtime.profile() {
+                    let mut tokens = 0_u64;
+
+                    bray_syntax::walk_source_unit(result.source_unit(), |event| {
+                        if matches!(event, bray_syntax::SyntaxWalkEvent::Token(_)) {
+                            tokens = tokens.saturating_add(1);
+                        }
+
+                        bray_syntax::SyntaxWalkControl::Continue
+                    });
+
+                    profile.add_metric(crate::profile::ProfileMetricKind::SyntaxTokens, tokens);
+                }
+
+                result
+            },
         ))
     }
 
@@ -548,7 +629,16 @@ impl Compilation {
                     }
                 });
 
-                merge_declaration_chunks(chunks.iter())
+                let result = merge_declaration_chunks(chunks.iter());
+
+                if let Some(profile) = self.state.fact_runtime.profile() {
+                    profile.add_metric(
+                        crate::profile::ProfileMetricKind::Declarations,
+                        u64::try_from(result.table().declarations().len()).unwrap_or(u64::MAX),
+                    );
+                }
+
+                result
             },
         )
     }

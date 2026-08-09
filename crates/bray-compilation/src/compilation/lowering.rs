@@ -175,7 +175,31 @@ impl Compilation {
         .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let mir = lower_unit(input).map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let span = self.state.fact_runtime.profile().map(|profile| {
+            profile.start(crate::profile::ProfileOperation::Lowering, None)
+        });
+
+        let result = lower_unit(input);
+
+        if let Some(span) = span {
+            span.finish(crate::profile::result_outcome(&result));
+        }
+
+        let mir = result.map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if let Some(profile) = self.state.fact_runtime.profile() {
+            profile.add_metric(crate::profile::ProfileMetricKind::MirUnits, 1);
+
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::MirBlocks,
+                u64::try_from(mir.blocks().len()).unwrap_or(u64::MAX),
+            );
+
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::MirOperations,
+                u64::try_from(mir.operations().len()).unwrap_or(u64::MAX),
+            );
+        }
 
         cancellation.check()?;
 

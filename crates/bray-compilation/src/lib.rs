@@ -5,6 +5,7 @@
 mod compilation;
 mod compiler_known;
 mod fact;
+mod profile;
 mod request;
 mod target;
 mod worker;
@@ -24,6 +25,15 @@ pub use compiler_known::{
 pub use fact::{
     CancellationToken, FactCycle, FactQueryError, ImportedSemanticFactKey, QueryPriority,
     SymbolCompletionError,
+};
+pub use profile::{
+    CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileConfiguration,
+    CompilationProfileContext, CompilationProfileDescriptorCatalog, CompilationProfileEvent,
+    CompilationProfileMetric, CompilationProfileMetricDescriptor, CompilationProfileMode,
+    CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
+    CompilationProfileOutcome, CompilationProfileQueryDescriptor,
+    CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
+    CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 pub use request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput,

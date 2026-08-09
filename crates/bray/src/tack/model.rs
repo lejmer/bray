@@ -21,6 +21,8 @@ pub enum TackCommandKind {
     Format,
     /// Inspects the project graph or one compiler fact.
     Inspect,
+    /// Displays or compares compiler profile reports.
+    Profile,
     /// Runs the Bray language-server tool.
     LanguageServer,
     /// Explicitly installs one Git repository in the vendored tree.
@@ -45,6 +47,47 @@ pub(crate) enum TackInspection {
     Bound,
     Lowered,
     Mir,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TackProfileMode {
+    Summary,
+    Trace,
+}
+
+impl TackProfileMode {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Summary => "summary",
+            Self::Trace => "trace",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TackProfileConfiguration {
+    mode: TackProfileMode,
+    output_directory: Option<PathBuf>,
+}
+
+impl TackProfileConfiguration {
+    pub(crate) const fn new(
+        mode: TackProfileMode,
+        output_directory: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            mode,
+            output_directory,
+        }
+    }
+
+    pub(crate) const fn mode(&self) -> TackProfileMode {
+        self.mode
+    }
+
+    pub(crate) fn output_directory(&self) -> Option<&Path> {
+        self.output_directory.as_deref()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize)]
@@ -145,6 +188,13 @@ pub(crate) enum TackCommand {
         source_id: u32,
         position: Option<u32>,
     },
+    ProfileShow {
+        report: PathBuf,
+    },
+    ProfileCompare {
+        before: PathBuf,
+        after: PathBuf,
+    },
     LanguageServer {
         target: Option<String>,
     },
@@ -164,8 +214,25 @@ impl TackCommand {
             Self::Test { .. } => TackCommandKind::Test,
             Self::Format { .. } => TackCommandKind::Format,
             Self::Inspect { .. } => TackCommandKind::Inspect,
+            Self::ProfileShow { .. } | Self::ProfileCompare { .. } => TackCommandKind::Profile,
             Self::LanguageServer { .. } => TackCommandKind::LanguageServer,
             Self::VendorInstall { .. } => TackCommandKind::VendorInstall,
+        }
+    }
+
+    pub(crate) const fn invokes_compiler(&self) -> bool {
+        match self {
+            Self::Check(_)
+            | Self::Build { .. }
+            | Self::Run { .. }
+            | Self::Test { .. } => true,
+            Self::Inspect { inspection, .. } => !matches!(inspection, TackInspection::Project),
+            Self::Init { .. }
+            | Self::Format { .. }
+            | Self::ProfileShow { .. }
+            | Self::ProfileCompare { .. }
+            | Self::LanguageServer { .. }
+            | Self::VendorInstall { .. } => false,
         }
     }
 }
@@ -179,6 +246,7 @@ pub struct TackInvocation {
     worker_count: usize,
     output_format: OutputFormat,
     verbose: bool,
+    profile: Option<TackProfileConfiguration>,
     command: TackCommand,
 }
 
@@ -190,6 +258,7 @@ impl TackInvocation {
         worker_count: usize,
         output_format: OutputFormat,
         verbose: bool,
+        profile: Option<TackProfileConfiguration>,
         command: TackCommand,
     ) -> Self {
         Self {
@@ -199,6 +268,7 @@ impl TackInvocation {
             worker_count,
             output_format,
             verbose,
+            profile,
             command,
         }
     }
@@ -241,6 +311,7 @@ impl TackInvocation {
         bool,
         usize,
         OutputFormat,
+        Option<TackProfileConfiguration>,
         TackCommand,
     ) {
         (
@@ -249,6 +320,7 @@ impl TackInvocation {
             self.standard_library_source,
             self.worker_count,
             self.output_format,
+            self.profile,
             self.command,
         )
     }

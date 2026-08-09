@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use bray_base::{FileReplacementMode, StagedFile};
-use bray_compilation::{Compilation, CompilationRequest};
+use bray_compilation::{Compilation, CompilationProfileReport, CompilationRequest};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
     SeverityKind,
@@ -30,6 +30,8 @@ pub struct DriverRunResult {
     stdout: String,
     stderr: String,
     report_file: Option<PathBuf>,
+    profile: Option<CompilationProfileReport>,
+    profile_output: Option<PathBuf>,
 }
 
 impl DriverRunResult {
@@ -62,6 +64,8 @@ impl DriverRunResult {
             stdout,
             stderr,
             report_file: None,
+            profile: None,
+            profile_output: None,
         }
     }
 
@@ -71,6 +75,8 @@ impl DriverRunResult {
         output_format: OutputFormat,
         compilation: Compilation,
     ) -> Self {
+        let profile = compilation.profile_report();
+
         Self {
             exit_code,
             diagnostics,
@@ -79,7 +85,23 @@ impl DriverRunResult {
             stdout: String::new(),
             stderr: String::new(),
             report_file: None,
+            profile,
+            profile_output: None,
         }
+    }
+
+    fn with_output_and_compilation(
+        exit_code: ExitCode,
+        diagnostics: DiagnosticBag,
+        output_format: OutputFormat,
+        stdout: String,
+        compilation: Compilation,
+    ) -> Self {
+        let mut result = Self::with_compilation(exit_code, diagnostics, output_format, compilation);
+
+        result.stdout = stdout;
+
+        result
     }
 
     /// Returns the process exit code selected by the driver.
@@ -116,6 +138,16 @@ impl DriverRunResult {
         self.report_file.as_deref()
     }
 
+    /// Returns the immutable compiler profile when profiling was enabled.
+    pub const fn profile(&self) -> Option<&CompilationProfileReport> {
+        self.profile.as_ref()
+    }
+
+    /// Returns the destination for the machine-readable compiler profile.
+    pub fn profile_output(&self) -> Option<&Path> {
+        self.profile_output.as_deref()
+    }
+
     /// Returns whether this result carries driver-owned terminal output.
     pub fn has_terminal_output(&self) -> bool {
         !self.stdout.is_empty() || !self.stderr.is_empty()
@@ -123,6 +155,12 @@ impl DriverRunResult {
 
     fn with_report_file(mut self, report_file: Option<PathBuf>) -> Self {
         self.report_file = report_file;
+
+        self
+    }
+
+    pub(super) fn with_profile_output(mut self, profile_output: Option<PathBuf>) -> Self {
+        self.profile_output = profile_output;
 
         self
     }
@@ -160,13 +198,15 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     let (options, command, report_file) = invocation.into_parts();
 
     let output_format = options.output_format();
+    let profile_output = options.profile_output().map(Path::to_path_buf);
 
     let command = match command {
         DriverCommand::Build {
             configuration,
             files,
         } => {
-            return run_build_command(&options, configuration, files, output_format);
+            return run_build_command(&options, configuration, files, output_format)
+                .with_profile_output(profile_output);
         }
         command => command,
     };
@@ -186,31 +226,38 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
         };
 
     if command_kind == DriverCommandKind::Check {
-        return run_check_command(request, interface_output, output_format);
+        return run_check_command(request, interface_output, output_format)
+            .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectSource {
-        return run_inspect_source_command(request, output_format).with_report_file(report_file);
+        return run_inspect_source_command(request, output_format)
+            .with_report_file(report_file)
+            .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectTokens {
         return run_fact_inspection_command(request, output_format, render_token_inspection)
-            .with_report_file(report_file);
+            .with_report_file(report_file)
+            .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectSyntax {
         return run_fact_inspection_command(request, output_format, render_syntax_inspection)
-            .with_report_file(report_file);
+            .with_report_file(report_file)
+            .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectDeclarations {
         return run_fact_inspection_command(request, output_format, render_declaration_inspection)
-            .with_report_file(report_file);
+            .with_report_file(report_file)
+            .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectSymbols {
         return run_fact_inspection_command(request, output_format, render_symbol_inspection)
-            .with_report_file(report_file);
+            .with_report_file(report_file)
+            .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectBound {
@@ -225,7 +272,8 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
                 render_bound_inspection(compilation, target, output_format)
             },
         )
-        .with_report_file(report_file);
+        .with_report_file(report_file)
+        .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectLowered {
@@ -240,7 +288,8 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
                 render_lowered_inspection(compilation, target, output_format)
             },
         )
-        .with_report_file(report_file);
+        .with_report_file(report_file)
+        .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectMir {
@@ -253,7 +302,8 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             output_format,
             |compilation, output_format| render_mir_inspection(compilation, target, output_format),
         )
-        .with_report_file(report_file);
+        .with_report_file(report_file)
+        .with_profile_output(profile_output);
     }
 
     match command_kind {
@@ -324,12 +374,12 @@ fn run_inspect_source_command(
         Err(_) => return compilation_load_failure_result(output_format),
     };
 
-    DriverRunResult::with_output(
+    DriverRunResult::with_output_and_compilation(
         ExitCode::SUCCESS,
         DiagnosticBag::new(),
         output_format,
         stdout,
-        String::new(),
+        compilation,
     )
 }
 
@@ -358,7 +408,13 @@ fn run_fact_inspection_command<E>(
 
     let exit_code = exit_code_from_diagnostics(&diagnostics);
 
-    DriverRunResult::with_output(exit_code, diagnostics, output_format, stdout, String::new())
+    DriverRunResult::with_output_and_compilation(
+        exit_code,
+        diagnostics,
+        output_format,
+        stdout,
+        compilation,
+    )
 }
 
 fn diagnostic_result_from_compilation(
@@ -408,6 +464,13 @@ pub(super) fn compilation_request(
         .collect::<Result<Vec<_>, _>>()?;
 
     request = request.with_dependency_interfaces(dependencies);
+
+    if let Some(profile) = options.profile() {
+        // The request retains immutable package-product identity beyond driver configuration.
+        request = request
+            .with_profile(profile)
+            .with_profile_product(configuration.product().clone());
+    }
 
     if let Some(root) = options.standard_library_root() {
         // Compilation requests retain the selected immutable bundle-root identity.
@@ -526,6 +589,94 @@ mod tests {
 
     use super::{run_result, run_with_writers};
     use crate::test_support::{TemporaryFile, unique_temporary_directory};
+
+    #[test]
+    fn profiling_is_absent_unless_explicitly_requested() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("check"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        assert!(result.profile().is_none());
+    }
+
+    #[test]
+    fn summary_profiling_returns_aggregates_without_trace_events() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("--profile=summary"),
+            OsString::from("check"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        let profile = result
+            .profile()
+            .unwrap_or_else(|| panic!("requested profile must be returned"));
+
+        assert_eq!(
+            profile.mode,
+            bray_compilation::CompilationProfileMode::Summary
+        );
+
+        assert!(!profile.queries.is_empty());
+        assert!(profile.events.is_empty());
+    }
+
+    #[test]
+    fn trace_profiling_writes_a_versioned_machine_report_and_human_summary() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+        let report = TemporaryFile::write("profile.json", b"stale");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("--profile=trace"),
+                OsString::from("--profile-output"),
+                report.path().as_os_str().to_os_string(),
+                OsString::from("check"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::SUCCESS);
+
+        let bytes = std::fs::read(report.path())
+            .unwrap_or_else(|error| panic!("profile report must be readable: {error:?}"));
+
+        let profile: bray_compilation::CompilationProfileReport = serde_json::from_slice(&bytes)
+            .unwrap_or_else(|error| panic!("profile report must match its schema: {error:?}"));
+
+        assert_eq!(
+            profile.schema_revision,
+            bray_profile::COMPILATION_PROFILE_SCHEMA_REVISION
+        );
+
+        assert_eq!(profile.mode, bray_compilation::CompilationProfileMode::Trace);
+        assert_eq!(profile.context.product, "library");
+        assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 1);
+        assert!(!profile.descriptors.operations.is_empty());
+        assert!(!profile.descriptors.queries.is_empty());
+        assert!(!profile.events.is_empty());
+        assert!(profile.events.iter().any(|event| event.subject.is_some()));
+
+        let stderr = String::from_utf8(stderr)
+            .unwrap_or_else(|error| panic!("profile summary must be UTF-8: {error:?}"));
+
+        assert!(stderr.contains("Compiler profile:"));
+        assert!(stderr.contains("Top operations by worker self time"));
+        assert!(stderr.contains("Top queries by evaluation time"));
+        assert!(stderr.contains("Trace:"));
+    }
 
     #[test]
     fn run_fails_when_check_diagnostics_have_errors() {

@@ -271,8 +271,28 @@ impl Compilation {
                 )
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-                codegen
-                    .generate(request)
+                let span = self.state.fact_runtime.profile().map(|profile| {
+                    profile.start(crate::profile::ProfileOperation::CodeGeneration, None)
+                });
+
+                let result = codegen.generate(request);
+
+                if let Some(span) = span {
+                    span.finish(crate::profile::result_outcome(&result));
+                }
+
+                if result.is_ok()
+                    && let Some(profile) = self.state.fact_runtime.profile()
+                {
+                    profile.add_metric(crate::profile::ProfileMetricKind::CodegenUnits, 1);
+
+                    profile.add_metric(
+                        crate::profile::ProfileMetricKind::ConcreteInstances,
+                        u64::try_from(unit.instances().len()).unwrap_or(u64::MAX),
+                    );
+                }
+
+                result
                     .map(Arc::new)
                     .map_err(|_| FactQueryError::InfrastructureFailure)
             },

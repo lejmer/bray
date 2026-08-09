@@ -4,7 +4,7 @@ use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, ArtifactPublisher,
     BackendContributionSet, EmissionBackend, EmissionOutcome, EmissionPlan, EmissionPlanner,
     EmissionPlanningError, EmissionRequest, LinkPlanConstructionError, LinkStaging,
-    LinkStagingError, OutputSinkResolver, ProductLinkFacts, construct_link_plan,
+    LinkStagingError, OutputSinkResolver, ProductLinkFacts, EmissionStatus, construct_link_plan,
 };
 use bray_linker::Linker;
 use bray_package_interface::{InterfaceValidationError, encode_package_interface};
@@ -189,6 +189,52 @@ impl Compilation {
 
     /// Emits one product while observing caller cancellation at every effectful boundary.
     pub fn emit_product_with_cancellation(
+        &self,
+        request: EmissionRequest,
+        inputs: ProductEmissionInputs<'_>,
+        cancellation: &CancellationToken,
+    ) -> Result<EmissionOutcome, ProductEmissionError> {
+        let span = self.state.fact_runtime.profile().map(|profile| {
+            profile.start(crate::profile::ProfileOperation::Emission, None)
+        });
+
+        let result = self.emit_product_with_cancellation_inner(request, inputs, cancellation);
+
+        if let Some(span) = span {
+            span.finish(match &result {
+                Ok(outcome) => match outcome.status() {
+                    EmissionStatus::Complete => crate::CompilationProfileOutcome::Completed,
+                    EmissionStatus::Failed(_) => crate::CompilationProfileOutcome::Failed,
+                    EmissionStatus::Cancelled => crate::CompilationProfileOutcome::Cancelled,
+                },
+                Err(error) if matches!(error.kind(), ProductEmissionErrorKind::Cancelled) => {
+                    crate::CompilationProfileOutcome::Cancelled
+                }
+                Err(_) => crate::CompilationProfileOutcome::Failed,
+            });
+        }
+
+        if let Ok(outcome) = &result
+            && let Some(profile) = self.state.fact_runtime.profile()
+        {
+            let artifacts = outcome.artifacts().artifacts();
+
+            let bytes = artifacts.iter().fold(0_u64, |total, artifact| {
+                total.saturating_add(artifact.byte_len())
+            });
+
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::EmittedArtifacts,
+                u64::try_from(artifacts.len()).unwrap_or(u64::MAX),
+            );
+
+            profile.add_metric(crate::profile::ProfileMetricKind::EmittedBytes, bytes);
+        }
+
+        result
+    }
+
+    fn emit_product_with_cancellation_inner(
         &self,
         request: EmissionRequest,
         inputs: ProductEmissionInputs<'_>,
@@ -410,6 +456,18 @@ impl Compilation {
 
         let artifact = encode_package_interface(bundle)
             .map_err(ProductEmissionErrorKind::PackageInterfaceEncoding)?;
+
+        if let Some(profile) = self.state.fact_runtime.profile() {
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::InterfaceSections,
+                artifact.section_count(),
+            );
+
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::InterfaceBytes,
+                artifact.byte_len(),
+            );
+        }
 
         let implementation = implementation_required
             .then(|| {

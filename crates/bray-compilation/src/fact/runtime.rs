@@ -1,12 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map::Entry};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[cfg(test)]
 use std::fmt;
-#[cfg(test)]
-use std::sync::Arc;
-
+use crate::profile::{
+    CompilationProfileConfiguration, CompilationProfileContext, CompilationProfileReport,
+    ProfileQueryKind, ProfileSession,
+};
 use crate::WorkerBudget;
 
 use super::scheduler::FactScheduler;
@@ -21,6 +22,7 @@ pub(crate) struct FactRuntime {
     next_task: AtomicU64,
     state: Mutex<RuntimeState>,
     scheduler: FactScheduler,
+    profile: Option<Arc<ProfileSession>>,
     #[cfg(test)]
     observer: Mutex<Option<FactEvaluationTestObserver>>,
 }
@@ -61,11 +63,27 @@ struct WaitEdge {
 }
 
 impl FactRuntime {
+    #[cfg(test)]
     pub(crate) fn new(worker_budget: WorkerBudget) -> Self {
+        Self::with_profile(worker_budget, None)
+    }
+
+    pub(crate) fn with_profile(
+        worker_budget: WorkerBudget,
+        profile: Option<(CompilationProfileConfiguration, CompilationProfileContext)>,
+    ) -> Self {
+        let profile = profile.map(|(configuration, context)| {
+            ProfileSession::new(configuration, worker_budget.get(), context)
+        });
+
         Self {
             next_task: AtomicU64::new(0),
             state: Mutex::new(RuntimeState::default()),
-            scheduler: FactScheduler::new(worker_budget),
+            scheduler: FactScheduler::with_profile(
+                worker_budget,
+                profile.as_ref().map(Arc::clone),
+            ),
+            profile,
             #[cfg(test)]
             observer: Mutex::new(None),
         }
@@ -75,6 +93,7 @@ impl FactRuntime {
         &self,
         worker_budget: WorkerBudget,
         invalidation_roots: impl IntoIterator<Item = CompilationFactKey>,
+        profile: Option<Arc<ProfileSession>>,
     ) -> (Self, BTreeSet<CompilationFactKey>) {
         let state = self
             .state
@@ -118,18 +137,52 @@ impl FactRuntime {
 
         let reusable = dependencies.keys().cloned().collect();
 
+        if let Some(profile) = &profile {
+            for fact in &reusable {
+                profile.record_cross_snapshot_reuse(ProfileQueryKind::from_key(fact));
+            }
+
+            for fact in invalidated
+                .iter()
+                .filter(|fact| state.dependencies.contains_key(*fact))
+            {
+                profile.record_invalidation(ProfileQueryKind::from_key(fact));
+            }
+        }
+
         let runtime = Self {
             next_task: AtomicU64::new(0),
             state: Mutex::new(RuntimeState {
                 dependencies,
                 ..RuntimeState::default()
             }),
-            scheduler: FactScheduler::new(worker_budget),
+            scheduler: FactScheduler::with_profile(
+                worker_budget,
+                profile.as_ref().map(Arc::clone),
+            ),
+            profile,
             #[cfg(test)]
             observer: Mutex::new(None),
         };
 
         (runtime, reusable)
+    }
+
+    #[inline(always)]
+    pub(crate) fn profile(&self) -> Option<&ProfileSession> {
+        self.profile.as_deref()
+    }
+
+    pub(crate) fn profile_session(&self) -> Option<Arc<ProfileSession>> {
+        self.profile.as_ref().map(Arc::clone)
+    }
+
+    pub(crate) fn profile_configuration(&self) -> Option<CompilationProfileConfiguration> {
+        self.profile.as_ref().map(|profile| profile.configuration())
+    }
+
+    pub(crate) fn profile_report(&self) -> Option<CompilationProfileReport> {
+        self.profile.as_ref().map(|profile| profile.report())
     }
 
     pub(crate) fn run<T>(
@@ -702,6 +755,7 @@ mod tests {
         let (_, reusable) = runtime.updated(
             WorkerBudget::serial(),
             [deep_root.clone(), wide_root.clone()],
+            None,
         );
 
         assert_eq!(reusable, BTreeSet::from([unrelated]));

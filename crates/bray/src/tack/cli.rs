@@ -11,7 +11,10 @@ use bray_tooling::{OutputFormat, clap_styles, exit_code_from_diagnostics, render
 use clap::error::ErrorKind as ClapErrorKind;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::tack::model::{TackCommand, TackInspection, TackInvocation, TackSelection};
+use crate::tack::model::{
+    TackCommand, TackInspection, TackInvocation, TackProfileConfiguration, TackProfileMode,
+    TackSelection,
+};
 
 /// Error returned when parsing Bray Tack command-line arguments.
 #[derive(Debug)]
@@ -140,6 +143,16 @@ struct Cli {
     output_format: OutputFormat,
     #[arg(short, long, global = true)]
     verbose: bool,
+    #[arg(long, global = true, value_enum, value_name = "MODE")]
+    profile: Option<CliProfileMode>,
+    #[arg(
+        long,
+        global = true,
+        value_name = "DIRECTORY",
+        requires = "profile",
+        required_if_eq("profile", "trace")
+    )]
+    profile_output: Option<PathBuf>,
     #[command(subcommand)]
     command: CliCommand,
 }
@@ -161,6 +174,17 @@ impl Cli {
             None => std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get),
         };
 
+        let command = self.command.into_command();
+
+        if self.profile.is_some() && !command.invokes_compiler() {
+            return Err(TackCliError {
+                kind: TackCliErrorKind::Diagnostics {
+                    diagnostics: invalid_profile_command(),
+                    output_format,
+                },
+            });
+        }
+
         Ok(TackInvocation::new(
             self.workspace,
             self.toolchain_root,
@@ -168,8 +192,37 @@ impl Cli {
             worker_count,
             output_format,
             self.verbose,
-            self.command.into_command(),
+            self.profile.map(|mode| {
+                TackProfileConfiguration::new(mode.into(), self.profile_output)
+            }),
+            command,
         ))
+    }
+}
+
+fn invalid_profile_command() -> DiagnosticBag {
+    DiagnosticBag::single(
+        Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::ProjectCommandSelectionInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("profile")),
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum CliProfileMode {
+    Summary,
+    Trace,
+}
+
+impl From<CliProfileMode> for TackProfileMode {
+    fn from(mode: CliProfileMode) -> Self {
+        match mode {
+            CliProfileMode::Summary => Self::Summary,
+            CliProfileMode::Trace => Self::Trace,
+        }
     }
 }
 
@@ -183,6 +236,7 @@ enum CliCommand {
     #[command(name = "fmt")]
     Format(CliFormat),
     Inspect(CliInspect),
+    Profile(CliProfile),
     #[command(name = "language-server")]
     LanguageServer(CliLanguageServer),
     Vendor(CliVendor),
@@ -256,12 +310,44 @@ impl CliCommand {
                 source_id: inspect.source_id,
                 position: inspect.offset,
             },
+            Self::Profile(profile) => profile.into_command(),
             Self::LanguageServer(server) => TackCommand::LanguageServer {
                 target: server.target,
             },
             Self::Vendor(vendor) => vendor.into_command(),
         }
     }
+}
+
+#[derive(Args, Debug)]
+struct CliProfile {
+    #[command(subcommand)]
+    command: CliProfileCommand,
+}
+
+impl CliProfile {
+    fn into_command(self) -> TackCommand {
+        match self.command {
+            CliProfileCommand::Show { report } => TackCommand::ProfileShow { report },
+            CliProfileCommand::Compare { before, after } => {
+                TackCommand::ProfileCompare { before, after }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+enum CliProfileCommand {
+    Show {
+        #[arg(value_name = "REPORT")]
+        report: PathBuf,
+    },
+    Compare {
+        #[arg(value_name = "BEFORE")]
+        before: PathBuf,
+        #[arg(value_name = "AFTER")]
+        after: PathBuf,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -450,7 +536,7 @@ mod tests {
         TestCaptureLimits, TestCapturePolicy, TestDuration, TestTimeoutPolicy,
     };
 
-    use crate::tack::model::{TackBuildConfiguration, TackCommand};
+    use crate::tack::model::{TackBuildConfiguration, TackCommand, TackProfileMode};
     use crate::tack::{TackCommandKind, TackInvocation};
 
     #[test]
@@ -463,6 +549,7 @@ mod tests {
             (vec!["test"], TackCommandKind::Test),
             (vec!["fmt"], TackCommandKind::Format),
             (vec!["inspect", "project"], TackCommandKind::Inspect),
+            (vec!["profile", "show", "profile.json"], TackCommandKind::Profile),
             (vec!["language-server"], TackCommandKind::LanguageServer),
             (
                 vec![
@@ -527,7 +614,7 @@ mod tests {
             let invocation = TackInvocation::try_from_arguments(["bray", command, "--release"])
                 .unwrap_or_else(|error| panic!("release {command} should parse: {error:?}"));
 
-            let (_, _, _, _, _, command) = invocation.into_parts();
+            let (_, _, _, _, _, _, command) = invocation.into_parts();
 
             let configuration = match command {
                 TackCommand::Build { configuration, .. }
@@ -557,7 +644,7 @@ mod tests {
         ])
         .unwrap_or_else(|error| panic!("test options should parse: {error:?}"));
 
-        let (_, _, _, _, _, command) = invocation.into_parts();
+        let (_, _, _, _, _, _, command) = invocation.into_parts();
 
         let TackCommand::Test { options, .. } = command else {
             panic!("expected test command");
@@ -610,7 +697,7 @@ mod tests {
         ])
         .unwrap_or_else(|error| panic!("formatter configuration should parse: {error:?}"));
 
-        let (_, _, _, _, _, command) = invocation.into_parts();
+        let (_, _, _, _, _, _, command) = invocation.into_parts();
 
         let TackCommand::Format { configuration, .. } = command else {
             panic!("expected formatter command");
@@ -620,5 +707,31 @@ mod tests {
             configuration,
             Some(PathBuf::from("configuration/brayfmt.json"))
         );
+    }
+
+    #[test]
+    fn profile_selection_is_forwarded_with_a_distinct_report_directory() {
+        let invocation = TackInvocation::try_from_arguments([
+            "bray",
+            "--profile=trace",
+            "--profile-output",
+            "profiles",
+            "build",
+        ])
+        .unwrap_or_else(|error| panic!("profile selection should parse: {error:?}"));
+
+        let (_, _, _, _, _, profile, _) = invocation.into_parts();
+
+        let profile = profile.unwrap_or_else(|| panic!("profile selection must be retained"));
+
+        assert_eq!(profile.mode(), TackProfileMode::Trace);
+        assert_eq!(profile.output_directory(), Some(Path::new("profiles")));
+    }
+
+    #[test]
+    fn trace_requires_a_machine_report_directory() {
+        let result = TackInvocation::try_from_arguments(["bray", "--profile=trace", "build"]);
+
+        assert!(result.is_err());
     }
 }
