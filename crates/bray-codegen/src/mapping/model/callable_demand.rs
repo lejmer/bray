@@ -108,6 +108,7 @@ fn operation_callable_instance(
             ..
         }) => call,
         MirOperationKind::AnonymousCallable(_)
+        | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::Unary { .. }

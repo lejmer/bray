@@ -27,7 +27,8 @@ use bray_bound_tree::{
     SelectedIterationSource, SelectedOperation, StorageFlowFacts, StoragePlan,
 };
 use bray_symbols::{
-    CallableSignatureFact, ConstantTermId, ConstantValueId, GenericConstraintsFact,
+    CallableSignatureFact, ConstantTermId, ConstantValueId, DeclarationDirectivesFact,
+    GenericConstraintsFact,
 };
 use bray_symbols::{StructFieldTypeFact, UnionPayloadFieldTypeFact};
 
@@ -278,7 +279,10 @@ impl<C> DependencyContractChecker<C> for DefaultDependencyContractChecker where
 /// Compiler-provided memory-operation checking over one selected bound unit.
 pub trait MemoryOperationChecker<C>: Sync
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<CallableSignatureFact>
+        + crate::CheckerSemanticFactProvider<DeclarationDirectivesFact>
+        + ?Sized,
 {
     /// Classifies checked memory calls and their ownership and fact effects.
     fn check_memory_operations(
@@ -291,7 +295,10 @@ where
 }
 
 impl<C> MemoryOperationChecker<C> for DefaultMemoryOperationChecker where
-    C: CheckerRequestContext + ?Sized
+    C: CheckerRequestContext
+        + crate::CheckerSemanticFactProvider<CallableSignatureFact>
+        + crate::CheckerSemanticFactProvider<DeclarationDirectivesFact>
+        + ?Sized
 {
 }
 

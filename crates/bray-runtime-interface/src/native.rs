@@ -6,6 +6,9 @@ pub const ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_root_execution_v1";
 /// Stable symbol executing one synchronous root behind a panic boundary.
 pub const SYNCHRONOUS_ROOT_EXECUTION_SYMBOL: &str = "bray_runtime_synchronous_root_execution_v1";
 
+/// Stable symbol executing one foreign callback behind a runtime boundary.
+pub const FOREIGN_CALLBACK_EXECUTION_SYMBOL: &str = "bray_runtime_foreign_callback_execution_v1";
+
 /// Stable symbol requesting cancellation of the host-owned root run.
 pub const ROOT_CANCELLATION_REQUEST_SYMBOL: &str = "bray_runtime_root_cancellation_request_v1";
 
@@ -270,6 +273,7 @@ pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&
     match role {
         Role::RootExecution => Some(ROOT_EXECUTION_SYMBOL),
         Role::SynchronousRootExecution => Some(SYNCHRONOUS_ROOT_EXECUTION_SYMBOL),
+        Role::ForeignCallbackExecution => Some(FOREIGN_CALLBACK_EXECUTION_SYMBOL),
         Role::RootCancellationRequest => Some(ROOT_CANCELLATION_REQUEST_SYMBOL),
         Role::TaskAllocation => Some(TASK_ALLOCATION_SYMBOL),
         Role::TaskStart => Some(TASK_START_SYMBOL),

@@ -13,6 +13,16 @@ func c_increment(pos value: std.ffi.c.Int) -> std.ffi.c.Int
     return std.ffi.c.int(value.value() + 1);
 }
 
+@symbol(name = "bray_test_stateful_callback")
+@abi(c)
+trusted func stateful_callback(pos context: RawPointer<i32>, pos value: i32) -> bool
+    uses(raw_memory)
+{
+    let state = trusted std.ffi.callback_state<i32>(context);
+
+    return state == value;
+}
+
 @test
 func c_scalar_wrappers_preserve_values_and_layouts()
 {
@@ -23,6 +33,45 @@ func c_scalar_wrappers_preserve_values_and_layouts()
     assert(std.memory.align_of<std.ffi.c.Int>() == std.memory.align_of<i32>());
     assert(std.ffi.c.boolean(true).value());
     assert(!std.ffi.c.boolean(false).value());
+}
+
+@test
+trusted func callback_bindings_preserve_state_ownership() -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let context: std.ffi.CallbackContext<i32> = try trusted std.ffi.CallbackContext<i32>(41);
+
+    let entry: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> bool
+        uses(raw_memory) = stateful_callback;
+
+    let callback = trusted std.ffi.borrow_callback(&context, entry);
+
+    assert(!std.memory.is_null<i32>(callback.context));
+
+    return Ok(unit);
+}
+
+@test
+trusted func callback_entries_recover_state() -> Result<unit, std.memory.MemoryLayoutError>
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    let context: std.ffi.CallbackContext<i32> = try trusted std.ffi.CallbackContext<i32>(41);
+
+    let exported: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> bool
+        uses(raw_memory) = stateful_callback;
+
+    let callback = trusted std.ffi.borrow_callback(&context, exported);
+
+    let entry: @abi(c)
+    trusted func(pos context: RawPointer<i32>, pos value: i32) -> bool
+        uses(raw_memory) = callback.entry;
+
+    assert(trusted entry(callback.context, 41));
+    let _: &std.ffi.CallbackContext<i32> = callback.owner;
+
+    return Ok(unit);
 }
 
 @test

@@ -46,7 +46,7 @@ impl MirUnit {
 
 fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<TypeId>) {
     match operation {
-        MirOperationKind::AnonymousCallable(_) => {}
+        MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
         MirOperationKind::Store {
             destination, value, ..
         } => {
@@ -118,6 +118,9 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         }
         CheckedMemoryOperationKind::LayoutQuery { ty, .. } => {
             types.insert(ty);
+        }
+        CheckedMemoryOperationKind::CallbackState { state } => {
+            types.insert(state);
         }
         CheckedMemoryOperationKind::RawBufferSparePointer { element }
         | CheckedMemoryOperationKind::RawBufferRelease { element }

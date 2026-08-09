@@ -1,18 +1,23 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    BoundCallableTarget, CheckedMemoryOperation, CheckedMemoryOperationKind,
-    CheckedMemoryOperations, CheckedSemanticSelections, MemoryAddressKind, MemoryCopyKind,
-    MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind, SelectedArgument, SemanticSelection,
+    BoundCallableTarget, BoundExpression, BoundReferenceTarget, CheckedMemoryOperation,
+    CheckedMemoryOperationKind, CheckedMemoryOperations, CheckedSemanticSelections,
+    MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind,
+    SelectedArgument, SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, DiagnosticResult, SeverityKind};
-use bray_symbols::{CallableInstanceData, GenericArgument, TypeId};
+use bray_symbols::{
+    CallableAbi, CallableInstanceData, CallableSignatureFact, CallableTrust,
+    DeclarationDirectivesFact, DirectiveKind, GenericArgument, SymbolFactRequest, TypeData,
+    TypeExpressionTemplate, TypeId,
+};
 
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView,
-    type_is_copyable,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticFactProvider, CheckerUnitView, type_is_copyable,
 };
 
 pub(crate) fn check_memory_operations<C>(
@@ -20,7 +25,10 @@ pub(crate) fn check_memory_operations<C>(
     selections: &CheckedSemanticSelections,
 ) -> CheckerOutcome<CheckedMemoryOperations>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<DeclarationDirectivesFact>
+        + ?Sized,
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;
@@ -103,6 +111,31 @@ where
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
         };
 
+        if matches!(kind, CheckedMemoryOperationKind::CallbackState { .. }) {
+            let valid = match valid_callback_state_entry(request, arguments.as_slice()) {
+                Ok(valid) => valid,
+                Err(outcome) => return outcome,
+            };
+
+            if !valid {
+                let span = match expression_span(request, entry.expression()) {
+                    Ok(span) => span,
+                    Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                };
+
+                diagnostics.add(
+                    Diagnostic::new(
+                        diagnostic_id(diagnostics.len()),
+                        DiagnosticKind::CheckingInvalidCallbackStateContext,
+                        SeverityKind::Error,
+                    )
+                    .with_primary_span(span),
+                );
+
+                continue;
+            }
+        }
+
         operations.push(CheckedMemoryOperation::new(
             entry.expression(),
             kind,
@@ -125,6 +158,102 @@ where
     };
 
     CheckerOutcome::Complete(DiagnosticResult::new(facts, diagnostics))
+}
+
+fn valid_callback_state_entry<C>(
+    request: CheckerUnitView<'_, C>,
+    arguments: &[bray_bound_tree::BoundExpressionId],
+) -> Result<bool, CheckerOutcome<CheckedMemoryOperations>>
+where
+    C: CheckerRequestContext
+        + CheckerSemanticFactProvider<CallableSignatureFact>
+        + CheckerSemanticFactProvider<DeclarationDirectivesFact>
+        + ?Sized,
+{
+    let [context] = arguments else {
+        return Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        ));
+    };
+
+    let Some(callable) = request.containing_callable() else {
+        return Ok(false);
+    };
+
+    let signature = match request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        callable,
+    )) {
+        Ok(signature) => signature,
+        Err(crate::CheckerFactError::Cancelled) => return Err(CheckerOutcome::Cancelled),
+        Err(crate::CheckerFactError::Infrastructure(error)) => {
+            return Err(CheckerOutcome::InfrastructureFailure(error));
+        }
+    };
+
+    let (abi, trust) = match signature.value().callable_type() {
+        TypeExpressionTemplate::Callable(callable) => (callable.abi(), callable.trust()),
+        TypeExpressionTemplate::Resolved(ty) => {
+            let data = request.semantic_values().type_data(*ty).map_err(|_| {
+                CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
+
+            let TypeData::Callable(callable) = data.as_ref() else {
+                return Err(CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                ));
+            };
+
+            (callable.abi(), callable.trust())
+        }
+        _ => {
+            return Err(CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            ));
+        }
+    };
+
+    if abi == CallableAbi::Bray
+        || trust != CallableTrust::Trusted
+        || signature.value().receiver().is_some()
+    {
+        return Ok(false);
+    }
+
+    let directives = match request.symbol_fact(SymbolFactRequest::<DeclarationDirectivesFact>::new(
+        callable.into_any(),
+    )) {
+        Ok(directives) => directives,
+        Err(crate::CheckerFactError::Cancelled) => return Err(CheckerOutcome::Cancelled),
+        Err(crate::CheckerFactError::Infrastructure(error)) => {
+            return Err(CheckerOutcome::InfrastructureFailure(error));
+        }
+    };
+
+    if !directives
+        .value()
+        .directives()
+        .iter()
+        .any(|directive| directive.kind() == DirectiveKind::Symbol)
+    {
+        return Ok(false);
+    }
+
+    let Some((parameters, None)) = request.symbols().callable_parameters_and_receiver(callable)
+    else {
+        return Ok(false);
+    };
+
+    let Some(first) = parameters.first().copied() else {
+        return Ok(false);
+    };
+
+    let Some(BoundExpression::Name(context)) = request.view().expression(*context) else {
+        return Ok(false);
+    };
+
+    Ok(context.target() == BoundReferenceTarget::Surface(first.into()))
 }
 
 fn selected_arguments(
@@ -157,7 +286,7 @@ fn type_arguments<C>(
     instance: CallableInstanceData,
 ) -> Result<Vec<TypeId>, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
     let substitution = request
         .semantic_values()
@@ -229,6 +358,9 @@ where
                 target: *target,
             }
         }
+        ImplementationHook::CallbackState => CheckedMemoryOperationKind::CallbackState {
+            state: one()?,
+        },
         ImplementationHook::RawPointerRead => {
             let pointee = one()?;
 

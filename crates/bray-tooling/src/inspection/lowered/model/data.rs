@@ -592,6 +592,11 @@ fn operation_parts(
 
             "anonymous_callable"
         }
+        MirOperationKind::DeclaredCallable(callable) => {
+            callable_reference("callable", *callable, parts, context);
+
+            "declared_callable"
+        }
         MirOperationKind::Store {
             kind,
             destination,
@@ -878,6 +883,9 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::ByteBufferCopy => ("byte_buffer_copy", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferRead => ("byte_buffer_read", Vec::new()),
         CheckedMemoryOperationKind::SliceLength => ("slice_length", Vec::new()),
+        CheckedMemoryOperationKind::CallbackState { state } => {
+            ("callback_state", vec![("state", state)])
+        }
     };
 
     parts.attribute("memory_operation", name);
@@ -2231,6 +2239,7 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
             ..
         } => Some("cleanup_lifecycle_resolution"),
         MirHelperReference::AnonymousCallable(_)
+        | MirHelperReference::DeclaredCallable(_)
         | MirHelperReference::CallableDefault(_)
         | MirHelperReference::ConstructionDefault(_)
         | MirHelperReference::TypeForm(_)

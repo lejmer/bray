@@ -9,8 +9,8 @@ use bray_runtime_interface::{ExecutableHostEntryId, ProtectedAsyncFrameId, RootE
 use bray_symbols::{BorrowKind, ConstantTermId, TypeId};
 
 use crate::{
-    MirCall, MirCleanupPhase, MirFrameReference, MirFrameStateId, MirOperand, MirOperationId,
-    MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirValueId,
+    MirCall, MirCallableReference, MirCleanupPhase, MirFrameReference, MirFrameStateId, MirOperand,
+    MirOperationId, MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirValueId,
 };
 
 /// The checked semantic role of one store operation.
@@ -586,6 +586,8 @@ pub enum MirHostOperation {
 pub enum MirOperationKind {
     /// Create a capture-free anonymous callable value for an independently lowered unit.
     AnonymousCallable(BoundUnitKey),
+    /// Materialize the address of one declared callable instance.
+    DeclaredCallable(MirCallableReference),
     /// Assign an operand into storage.
     Store {
         /// Checked initialization or assignment behavior.

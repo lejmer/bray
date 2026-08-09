@@ -70,6 +70,14 @@ fn translate_instance<'context, 'request>(
         .get_function(symbol.name().as_str())
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
+    let (function, trampoline) = super::callback::prepare(
+        module,
+        request,
+        symbol,
+        function,
+        types,
+    )?;
+
     let source = instance
         .mir()
         .blocks()
@@ -97,7 +105,21 @@ fn translate_instance<'context, 'request>(
         debug,
         debug_scope,
     )?
-    .translate()
+    .translate()?;
+
+    if let Some(trampoline) = trampoline {
+        super::callback::translate(
+            context,
+            module,
+            request,
+            symbol,
+            function,
+            trampoline,
+            types,
+        )?;
+    }
+
+    Ok(())
 }
 
 pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {

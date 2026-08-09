@@ -8,8 +8,8 @@ use bray_runtime_interface::{
     NativeFrameProgressKind, NativeInactiveFrame, NativePanicCause, NativeProtectedFrame,
     NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart, NativeRunOutcome,
     NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
-    NativeSourceAnchor, NativeStringView, NativeSynchronousRootCallback, NativeTaskAllocation,
-    NativeTaskHandle, NativeWakeCallback,
+    NativeSourceAnchor, NativeStringView, NativeTaskAllocation, NativeTaskHandle,
+    NativeWakeCallback,
 };
 
 const _: () = assert!(
@@ -19,21 +19,10 @@ const _: () = assert!(
 );
 
 use crate::current_run_cancellation_requested;
-use crate::root::{is_propagated_cancellation, propagate_current_run_cancellation};
-use crate::{RunOutcome, execute_synchronous_root};
+use crate::root::propagate_current_run_cancellation;
 
+use super::callback::PropagatedPanicReport;
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
-
-macro_rules! native_export {
-    ($item:item) => {
-        #[expect(
-            unsafe_code,
-            reason = "the native runtime artifact requires a stable exported ABI symbol"
-        )]
-        #[unsafe(no_mangle)]
-        $item
-    };
-}
 
 native_export! {
     pub extern "C" fn bray_runtime_root_execution_v1(
@@ -74,9 +63,6 @@ struct NativePanicReport {
     source: NativeSourceAnchor,
     message: String,
 }
-
-#[derive(Debug)]
-struct PropagatedPanicReport(usize);
 
 #[derive(Debug)]
 struct NativeMemoryAllocationFailure;
@@ -340,41 +326,6 @@ native_export! {
             with_runtime(|runtime| runtime.request_root_cancellation(root))
                 .unwrap_or_else(|status| status)
         })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_synchronous_root_execution_v1(
-        callback: NativeSynchronousRootCallback,
-        destination: usize,
-    ) -> NativeRunOutcome {
-        let outcome = execute_synchronous_root(
-            || {
-                super::test::with_output(|| {
-                    match catch_unwind(AssertUnwindSafe(|| callback(destination))) {
-                        Ok(()) => NativeRunOutcome::new(NativeRunState::COMPLETED, destination),
-                        Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
-                            NativeRunOutcome::new(NativeRunState::CANCELLED, 0)
-                        }
-                        Err(payload) => payload.downcast_ref::<PropagatedPanicReport>().map_or_else(
-                            || runtime_failure(NativeRuntimeStatus::PANICKED),
-                            |report| NativeRunOutcome::new(NativeRunState::PANICKED, report.0),
-                        ),
-                    }
-                })
-            },
-            super::test::register_timeout,
-        );
-
-        let outcome = match outcome {
-            RunOutcome::Completed(outcome) => outcome,
-            RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-            RunOutcome::Panicked(_) => runtime_failure(NativeRuntimeStatus::PANICKED),
-        };
-
-        super::test::record_outcome(outcome);
-
-        outcome
     }
 }
 
@@ -797,6 +748,11 @@ mod tests {
         NativeRuntimeConfiguration, NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
     };
 
+    use super::super::callback::{
+        bray_runtime_foreign_callback_execution_v1,
+        bray_runtime_synchronous_root_execution_v1,
+    };
+
     use super::{
         bray_runtime_character_from_scalar_value_v1, bray_runtime_character_is_alphabetic_v1,
         bray_runtime_character_is_numeric_v1, bray_runtime_character_is_whitespace_v1,
@@ -808,8 +764,8 @@ mod tests {
         bray_runtime_root_terminal_observation_v1, bray_runtime_string_equals_v1,
         bray_runtime_string_from_utf8_v1, bray_runtime_string_scalar_at_v1,
         bray_runtime_string_scalar_count_v1, bray_runtime_string_scalar_slice_v1,
-        bray_runtime_structured_shutdown_v1, bray_runtime_synchronous_root_execution_v1,
-        bray_runtime_task_allocation_v1, bray_runtime_task_start_v1,
+        bray_runtime_structured_shutdown_v1, bray_runtime_task_allocation_v1,
+        bray_runtime_task_start_v1,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -1470,6 +1426,40 @@ mod tests {
     }
 
     #[test]
+    fn foreign_callback_boundary_attaches_threads_for_the_callback_lifetime() {
+        let (outcome, attached_after_return) = std::thread::spawn(|| {
+            assert!(bray_platform::current_runtime_thread().is_none());
+
+            let outcome = bray_runtime_foreign_callback_execution_v1(
+                assert_callback_runtime_thread,
+                41,
+            );
+
+            (outcome, bray_platform::current_runtime_thread().is_some())
+        })
+        .join()
+        .unwrap_or_else(|_| panic!("foreign callback test thread must join"));
+
+        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+        assert_eq!(outcome.payload(), 41);
+        assert!(!attached_after_return);
+    }
+
+    #[test]
+    fn foreign_callback_boundary_reuses_an_attached_runtime_thread() {
+        let _thread = bray_platform::RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
+
+        let outcome = bray_runtime_foreign_callback_execution_v1(
+            assert_callback_runtime_thread,
+            41,
+        );
+
+        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+        assert_eq!(outcome.payload(), 41);
+    }
+
+    #[test]
     fn entry_failure_reporting_borrows_the_complete_payload() {
         let payload = 42_i32;
 
@@ -1548,6 +1538,11 @@ mod tests {
 
     extern "C-unwind" fn propagate_test_cancellation(_: usize) {
         super::bray_runtime_current_run_cancellation_propagation_v1()
+    }
+
+    extern "C-unwind" fn assert_callback_runtime_thread(destination: usize) {
+        assert_eq!(destination, 41);
+        assert!(bray_platform::current_runtime_thread().is_some());
     }
 
     extern "C-unwind" fn suspend_and_self_wake(_: usize) -> NativeFrameProgress {

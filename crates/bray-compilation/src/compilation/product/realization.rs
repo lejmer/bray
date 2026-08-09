@@ -413,6 +413,13 @@ impl Compilation {
             MirHelperReference::AnonymousCallable(unit) => {
                 self.concrete_codegen_bound_helper(owner, unit.clone())?
             }
+            MirHelperReference::DeclaredCallable(callable) => self
+                .concrete_codegen_callable_data(
+                    owner,
+                    &callable.instance(),
+                    target,
+                    cancellation,
+                )?,
             MirHelperReference::CallableDefault(provider) => {
                 let MirOperationKind::Call(call) = operation else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -489,6 +496,7 @@ impl Compilation {
                 ty: self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             },
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
@@ -766,6 +774,7 @@ impl Compilation {
                     .map_err(CodegenFactError::InvalidGeneratedLifecycleMir)?;
             }
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
@@ -874,6 +883,7 @@ impl Compilation {
                 )?;
             }
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
@@ -1610,6 +1620,7 @@ impl Compilation {
                 )?;
             }
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
             | MirHelperReference::TypeForm(_)
@@ -2101,7 +2112,7 @@ impl Compilation {
             ));
         }
 
-        for reference in codegen_runtime_references(unit, operations) {
+        for reference in codegen_runtime_references(unit, operations, &symbols) {
             let symbol_name = executable_host
                 .and_then(|host| host.role_binding(reference.role()))
                 .map(|binding| binding.symbol_name().clone())
@@ -4477,6 +4488,7 @@ fn direct_helper_symbol(
             helper_runtime_symbol(owner, RuntimeAbiRole::TaskDestruction)
         }
         MirHelperReference::AnonymousCallable(_)
+        | MirHelperReference::DeclaredCallable(_)
         | MirHelperReference::CallableDefault(_)
         | MirHelperReference::ConstructionDefault(_)
         | MirHelperReference::TypeForm(_)
@@ -4493,8 +4505,9 @@ fn direct_helper_symbol(
 fn codegen_runtime_references(
     unit: &CodegenUnit,
     operations: &[CodegenOperationMapping],
+    symbols: &[CodegenSymbolMapping],
 ) -> BTreeSet<MirRuntimeReference> {
-    mapped_runtime_references(unit, operations)
+    mapped_runtime_references(unit, operations, symbols)
 }
 
 fn dependency_symbol(

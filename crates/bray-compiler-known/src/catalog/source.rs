@@ -148,7 +148,7 @@ impl CatalogTokenSpelling {
 }
 
 #[cfg(any(test, feature = "generation"))]
-const SOURCES: [CatalogSource; 15] = [
+const SOURCES: [CatalogSource; 16] = [
     CatalogSource::new(
         CatalogSourceId::new(0),
         CatalogKind::CompilerKnown,
@@ -238,6 +238,12 @@ const SOURCES: [CatalogSource; 15] = [
         CatalogKind::CompilerKnown,
         "catalog/ambient/capabilities.braydef",
         include_str!("../../catalog/ambient/capabilities.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(15),
+        CatalogKind::RecognizedStandardLibrary,
+        "catalog/recognized/ffi.braydef",
+        include_str!("../../catalog/recognized/ffi.braydef"),
     ),
 ];
 

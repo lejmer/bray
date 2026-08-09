@@ -108,6 +108,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperationKind::AnonymousCallable(unit) => {
                 Some(self.translate_anonymous_callable(id, unit)?)
             }
+            MirOperationKind::DeclaredCallable(callable) => {
+                Some(self.translate_declared_callable(id, *callable)?)
+            }
             MirOperationKind::Generator(generator) => self.translate_generator(id, generator)?,
             MirOperationKind::Finalize(place) => {
                 self.translate_lifecycle_helper(
@@ -327,6 +330,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             helper.reference(),
             MirHelperReference::AnonymousCallable(helper_unit) if helper_unit == unit
         ) {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        self.helper_address(helper)?
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+    }
+
+    pub(super) fn translate_declared_callable(
+        &self,
+        operation: bray_ir::MirOperationId,
+        callable: bray_ir::MirCallableReference,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let helpers = self.operation_helpers(operation)?;
+
+        let [helper] = helpers.as_slice() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        if helper.reference() != &MirHelperReference::DeclaredCallable(callable) {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 

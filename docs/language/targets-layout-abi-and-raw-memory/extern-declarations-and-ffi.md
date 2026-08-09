@@ -168,6 +168,12 @@ struct CallbackPair
 
 A lambda can satisfy an ABI-qualified callable type only when the lambda expression explicitly carries the same `@abi(...)` directive and the selected ABI permits the required callable representation.
 
+An exported foreign callable address names a compiler-generated trampoline rather than the Bray body directly. The trampoline
+attaches an otherwise foreign thread to the runtime for the invocation, establishes a synchronous Bray run, and contains panic or
+cancellation at that boundary. Normal completion returns the body's ABI result. Abnormal completion returns the ABI-zero result
+for a value-returning callback and returns normally for a result-less callback; panic or cancellation never unwinds into foreign
+code.
+
 Bray callable values remain capture-free. The standard `std.ffi.CallbackContext<State>` owner supplies stable-address storage when
 a foreign API needs an explicit state pointer. Construction consumes the state value. A static exported ABI callable receives the
 opaque context as its first parameter and uses the trusted recognized `std.ffi.callback_state<State>(context)` operation to borrow

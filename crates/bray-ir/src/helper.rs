@@ -16,6 +16,8 @@ use crate::{
 pub enum MirHelperReference {
     /// Independently lowered capture-free anonymous callable.
     AnonymousCallable(BoundUnitKey),
+    /// Declared callable whose stable function address is materialized as a value.
+    DeclaredCallable(crate::MirCallableReference),
     /// Declaration-owned default for an omitted call argument.
     CallableDefault(CallableParameterDefaultProviderSymbolId),
     /// Declaration-owned default for a construction input.
@@ -58,7 +60,26 @@ pub enum MirHelperReference {
 impl MirHelperReference {
     /// Returns the calling convention required by this helper role.
     pub const fn abi(&self) -> CallableAbi {
-        CallableAbi::Bray
+        match self {
+            Self::DeclaredCallable(callable) => callable.abi(),
+            Self::AnonymousCallable(_)
+            | Self::CallableDefault(_)
+            | Self::ConstructionDefault(_)
+            | Self::TypeForm(_)
+            | Self::Conversion(_)
+            | Self::BeginGenerator
+            | Self::PushGenerator
+            | Self::FinishGenerator
+            | Self::PanicReport
+            | Self::Finalize(_)
+            | Self::Destroy(_)
+            | Self::Cleanup { .. }
+            | Self::CreateFrame(_)
+            | Self::MoveInactiveFrame(_)
+            | Self::ComposeAwaitedFrame(_)
+            | Self::CommitAwaitedCompletion(_)
+            | Self::DestroyTerminalTask => CallableAbi::Bray,
+        }
     }
 
     /// Returns the semantic value type retained by a lifecycle helper.
@@ -66,6 +87,7 @@ impl MirHelperReference {
         match self {
             Self::Finalize(ty) | Self::Destroy(ty) | Self::Cleanup { ty, .. } => Some(*ty),
             Self::AnonymousCallable(_)
+            | Self::DeclaredCallable(_)
             | Self::CallableDefault(_)
             | Self::ConstructionDefault(_)
             | Self::TypeForm(_)
@@ -91,6 +113,9 @@ impl MirOperationKind {
         match self {
             Self::AnonymousCallable(unit) => {
                 helpers.push(MirHelperReference::AnonymousCallable(unit.clone()));
+            }
+            Self::DeclaredCallable(callable) => {
+                helpers.push(MirHelperReference::DeclaredCallable(*callable));
             }
             Self::Construct(construction) => {
                 for input in construction.inputs() {

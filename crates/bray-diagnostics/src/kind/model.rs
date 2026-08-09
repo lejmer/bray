@@ -279,6 +279,8 @@ define_diagnostic_kinds! {
     CheckingUninitializedRawStorage,
     /// Deallocation would discard initialized raw storage.
     CheckingDeallocationWithOutstandingObligations,
+    /// Callback state reconstruction is outside its matching trusted foreign entry.
+    CheckingInvalidCallbackStateContext,
     /// The selected target cannot represent the required alignment.
     CheckingTargetAlignmentUnsupported,
     /// A pattern form cannot match values of its established input type.
@@ -567,6 +569,7 @@ impl DiagnosticKind {
             Self::CheckingMemoryOperationAfterDeallocation => 7085,
             Self::CheckingDeallocationWithOutstandingObligations => 7086,
             Self::CheckingUninitializedRawStorage => 7087,
+            Self::CheckingInvalidCallbackStateContext => 7093,
             Self::CheckingIncompatiblePattern => 7021,
             Self::CheckingRefutablePattern => 7022,
             Self::CheckingNonExhaustiveMatch => 7023,
@@ -824,6 +827,9 @@ impl DiagnosticKind {
             Self::CheckingUninitializedRawStorage => "checking_uninitialized_raw_storage",
             Self::CheckingDeallocationWithOutstandingObligations => {
                 "checking_deallocation_with_outstanding_obligations"
+            }
+            Self::CheckingInvalidCallbackStateContext => {
+                "checking_invalid_callback_state_context"
             }
             Self::CheckingIncompatiblePattern => "checking_incompatible_pattern",
             Self::CheckingRefutablePattern => "checking_refutable_pattern",

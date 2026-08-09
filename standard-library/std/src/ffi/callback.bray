@@ -1,0 +1,51 @@
+module std.ffi;
+
+using std.memory;
+
+struct CallbackContext<State>
+{
+    internal mut storage: std.memory.RawBuffer<State>;
+
+    trusted construct(pos state: State) -> Result<Self, std.memory.MemoryLayoutError>
+        uses(manual_alloc, raw_memory, unchecked_init)
+    {
+        let mut storage: std.memory.RawBuffer<State> = try trusted std.memory.RawBuffer<State>(capacity = 1);
+        let pointer: RawPointer<State> = trusted std.memory.spare_pointer<State>(&mut storage);
+
+        trusted std.memory.write<State>(pointer, state);
+        trusted std.memory.set_initialized_count<State>(buffer = &mut storage, count = 1);
+
+        let context: CallbackContext<State> =
+        {
+            storage = storage,
+        };
+
+        return Ok(context);
+    }
+}
+
+@copy
+struct BorrowedCallback<State, Entry>
+{
+    internal owner: &CallbackContext<State>;
+    internal entry: Entry;
+    internal context: RawPointer<State>;
+}
+
+trusted func borrow_callback<State, Entry>(
+    pos context: &CallbackContext<State>,
+    pos entry: Entry,
+) -> BorrowedCallback<State, Entry>
+{
+    let binding: BorrowedCallback<State, Entry> =
+    {
+        owner = context,
+        entry = entry,
+        context = std.memory.pointer<State>(&context.storage),
+    };
+
+    return binding;
+}
+
+extern trusted func callback_state<State>(pos context: RawPointer<State>) -> &State
+    uses(raw_memory);

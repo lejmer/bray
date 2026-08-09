@@ -96,7 +96,7 @@ pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = Constan
 
 fn collect_operation_values(operation: &MirOperationKind, demands: &mut ConstantDemands) {
     match operation {
-        MirOperationKind::AnonymousCallable(_) => {}
+        MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
         MirOperationKind::Store {
             destination, value, ..
         } => {

@@ -12,4 +12,5 @@ recognized/string.braydef
 recognized/character.braydef
 recognized/run.braydef
 recognized/testing.braydef
+recognized/ffi.braydef
 ambient/capabilities.braydef

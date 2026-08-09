@@ -9,6 +9,8 @@ pub enum RuntimeAbiRole {
     RootExecution,
     /// Execute one synchronous entry callback behind the product panic boundary.
     SynchronousRootExecution,
+    /// Execute one foreign callback behind a thread-entry and panic boundary.
+    ForeignCallbackExecution,
     /// Request cancellation of the root run from its host.
     RootCancellationRequest,
     /// Allocate stable task-owned storage.
@@ -89,9 +91,10 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 40] = [
+    pub const ALL: [Self; 41] = [
         Self::RootExecution,
         Self::SynchronousRootExecution,
+        Self::ForeignCallbackExecution,
         Self::RootCancellationRequest,
         Self::TaskAllocation,
         Self::TaskStart,
@@ -148,6 +151,7 @@ impl RuntimeAbiRole {
         match self {
             Self::RootExecution => "root_execution",
             Self::SynchronousRootExecution => "synchronous_root_execution",
+            Self::ForeignCallbackExecution => "foreign_callback_execution",
             Self::RootCancellationRequest => "root_cancellation_request",
             Self::TaskAllocation => "task_allocation",
             Self::TaskStart => "task_start",
@@ -393,6 +397,9 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
     match role {
         RuntimeAbiRole::RootExecution => &[Effect::EstablishRootRun, Effect::TransferFrame],
         RuntimeAbiRole::SynchronousRootExecution => {
+            &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]
+        }
+        RuntimeAbiRole::ForeignCallbackExecution => {
             &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]
         }
         RuntimeAbiRole::RootCancellationRequest | RuntimeAbiRole::TaskCancellationRequest => {
