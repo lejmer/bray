@@ -99,7 +99,11 @@ impl NativeTarget {
         let (vendor, system, environment, abi) = self.identity_facts();
 
         let facts = TargetFacts::try_portable(vendor, system, environment, abi, self.c_abi_facts())
-            .map(|facts| facts.with_operations(TargetOperationFacts::new(true, true)))
+            .map(|facts| {
+                facts
+                    .with_operations(TargetOperationFacts::new(true, true))
+                    .with_dynamic_loading(true)
+            })
             .unwrap_or_else(|| panic!("native target facts must be valid"));
 
         TargetProfile::try_new(self.identity(), machine, facts)
@@ -217,6 +221,7 @@ mod tests {
             assert_eq!(profile.machine().stack_alignment_bytes().get(), 16);
             assert!(profile.facts().operations().raw_memory());
             assert!(profile.facts().operations().allocation());
+            assert!(profile.facts().dynamic_loading());
 
             assert!(matches!(
                 profile.machine().architecture(),

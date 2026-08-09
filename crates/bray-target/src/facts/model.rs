@@ -213,6 +213,7 @@ pub struct TargetFacts {
     address_spaces: TargetAddressSpaceFacts,
     alignments: TargetAlignmentFacts,
     operations: TargetOperationFacts,
+    dynamic_loading: bool,
 }
 
 impl TargetFacts {
@@ -236,6 +237,7 @@ impl TargetFacts {
             address_spaces,
             alignments,
             operations,
+            dynamic_loading: false,
         }
     }
 
@@ -280,6 +282,13 @@ impl TargetFacts {
         self
     }
 
+    /// Returns these facts with the supplied dynamic-loading capability.
+    pub const fn with_dynamic_loading(mut self, dynamic_loading: bool) -> Self {
+        self.dynamic_loading = dynamic_loading;
+
+        self
+    }
+
     /// Returns stable target identity facts.
     pub const fn identity(&self) -> &TargetIdentityFacts {
         &self.identity
@@ -319,6 +328,11 @@ impl TargetFacts {
     pub const fn operations(&self) -> TargetOperationFacts {
         self.operations
     }
+
+    /// Returns whether the complete dynamic-library platform role family is available.
+    pub const fn dynamic_loading(&self) -> bool {
+        self.dynamic_loading
+    }
 }
 
 #[cfg(test)]
@@ -349,6 +363,11 @@ mod tests {
 
         assert_eq!(
             profile.fact(TargetFactKind::EndianBig),
+            TargetFactValue::Boolean(false)
+        );
+
+        assert_eq!(
+            profile.fact(TargetFactKind::PlatformDynamicLoading),
             TargetFactValue::Boolean(false)
         );
     }

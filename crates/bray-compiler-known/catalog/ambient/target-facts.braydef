@@ -265,3 +265,9 @@ scope TargetAlignment at target.alignment {
         surface { const MAX_ALLOCATION: usize = 0; }
     }
 }
+
+scope TargetPlatform at target.platform {
+    declaration TargetPlatformDynamicLoading {
+        surface { const dynamic_loading: bool = false; }
+    }
+}

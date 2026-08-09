@@ -85,6 +85,14 @@ pub enum PlatformServiceRole {
     TimeParse,
     /// Formats one strict standard temporal representation.
     TimeFormat,
+    /// Opens one dynamic library from an explicit path.
+    DynamicLibraryOpenPath,
+    /// Opens one target-defined system library.
+    DynamicLibraryOpenSystem,
+    /// Resolves one exact symbol from a borrowed dynamic library.
+    DynamicLibrarySymbol,
+    /// Closes one owned dynamic library.
+    DynamicLibraryClose,
 }
 
 impl PlatformServiceRole {
@@ -131,6 +139,10 @@ impl PlatformServiceRole {
             Self::TimeResolve => 0x0721,
             Self::TimeParse => 0x0730,
             Self::TimeFormat => 0x0731,
+            Self::DynamicLibraryOpenPath => 0x0801,
+            Self::DynamicLibraryOpenSystem => 0x0802,
+            Self::DynamicLibrarySymbol => 0x0803,
+            Self::DynamicLibraryClose => 0x0804,
         }
     }
 
@@ -177,6 +189,10 @@ impl PlatformServiceRole {
             Self::TimeResolve => "platform.time.resolve",
             Self::TimeParse => "platform.time.parse",
             Self::TimeFormat => "platform.time.format",
+            Self::DynamicLibraryOpenPath => "platform.dynamic_library.open_path",
+            Self::DynamicLibraryOpenSystem => "platform.dynamic_library.open_system",
+            Self::DynamicLibrarySymbol => "platform.dynamic_library.symbol",
+            Self::DynamicLibraryClose => "platform.dynamic_library.close",
         }
     }
 
@@ -223,6 +239,10 @@ impl PlatformServiceRole {
             "platform.time.resolve" => Some(Self::TimeResolve),
             "platform.time.parse" => Some(Self::TimeParse),
             "platform.time.format" => Some(Self::TimeFormat),
+            "platform.dynamic_library.open_path" => Some(Self::DynamicLibraryOpenPath),
+            "platform.dynamic_library.open_system" => Some(Self::DynamicLibraryOpenSystem),
+            "platform.dynamic_library.symbol" => Some(Self::DynamicLibrarySymbol),
+            "platform.dynamic_library.close" => Some(Self::DynamicLibraryClose),
             _ => None,
         }
     }
@@ -233,7 +253,8 @@ impl PlatformServiceRole {
             ChildRequest, ExitStatusPointer, FileMetadataPointer, FileOptions, I32, I64,
             NativeText, Path, PointerI64, PointerU8, PointerU32, PointerU64, Status,
             TemporalDateTime, TemporalDateTimePointer, TemporalObservationPointer,
-            TemporalResolutionPointer, TemporalValue, TemporalValuePointer, U32, U64,
+            RawAddressPointer, TemporalResolutionPointer, TemporalValue, TemporalValuePointer, U32,
+            U64,
         };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
@@ -313,6 +334,12 @@ impl PlatformServiceRole {
         const TIME_FORMAT: &[PlatformAbiType] =
             &[U32, TemporalValue, PointerU8, U64, PointerU64, PointerU32];
 
+        const DYNAMIC_LIBRARY_OPEN_PATH: &[PlatformAbiType] = &[Path, U32, PointerU64];
+        const DYNAMIC_LIBRARY_OPEN_SYSTEM: &[PlatformAbiType] = &[U32, U32, PointerU64];
+
+        const DYNAMIC_LIBRARY_SYMBOL: &[PlatformAbiType] =
+            &[U64, PointerU8, U64, RawAddressPointer];
+
         const CHILD_SPAWN: &[PlatformAbiType] =
             &[ChildRequest, PointerU64, PointerU64, PointerU64, PointerU64];
 
@@ -357,6 +384,10 @@ impl PlatformServiceRole {
             Self::TimeResolve => TIME_RESOLVE,
             Self::TimeParse => TIME_PARSE,
             Self::TimeFormat => TIME_FORMAT,
+            Self::DynamicLibraryOpenPath => DYNAMIC_LIBRARY_OPEN_PATH,
+            Self::DynamicLibraryOpenSystem => DYNAMIC_LIBRARY_OPEN_SYSTEM,
+            Self::DynamicLibrarySymbol => DYNAMIC_LIBRARY_SYMBOL,
+            Self::DynamicLibraryClose => STREAM_HANDLE,
         };
 
         PlatformServiceSignature::new(parameters, Status)
@@ -382,6 +413,8 @@ pub enum PlatformAbiType {
     PointerU64,
     /// Raw pointer to signed 64-bit storage.
     PointerI64,
+    /// Raw pointer to one target-native raw address output.
+    RawAddressPointer,
     /// Call-only target-native path bytes.
     Path,
     /// Call-only target-native text units.
@@ -719,6 +752,8 @@ impl NativePlatformStatus {
     pub const SUCCESS: Self = Self::new(0, 0);
     /// Unsupported platform operation.
     pub const UNSUPPORTED: Self = Self::new(1, 0);
+    /// Requested platform object is unavailable.
+    pub const NOT_FOUND: Self = Self::new(3, 0);
     /// Invalid platform-service input.
     pub const INVALID_INPUT: Self = Self::new(5, 0);
     /// Platform resource exhaustion.
@@ -791,6 +826,27 @@ mod tests {
                 PlatformAbiType::PointerU64,
                 PlatformAbiType::PointerU64,
                 PlatformAbiType::PointerU64,
+            ]
+        );
+
+        assert_eq!(role.signature().result(), PlatformAbiType::Status);
+    }
+
+    #[test]
+    fn dynamic_symbol_role_has_closed_handle_name_and_address_shape() {
+        let role = PlatformServiceRole::DynamicLibrarySymbol;
+
+        assert_eq!(role.id(), 0x0803);
+        assert_eq!(role.as_str(), "platform.dynamic_library.symbol");
+        assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
+
+        assert_eq!(
+            role.signature().parameters(),
+            [
+                PlatformAbiType::U64,
+                PlatformAbiType::PointerU8,
+                PlatformAbiType::U64,
+                PlatformAbiType::RawAddressPointer,
             ]
         );
 

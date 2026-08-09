@@ -125,6 +125,8 @@ pub enum TargetFactKind {
     AlignmentMaxStorage,
     /// `target.alignment.MAX_ALLOCATION`.
     AlignmentMaxAllocation,
+    /// `target.platform.dynamic_loading`.
+    PlatformDynamicLoading,
 }
 
 impl TargetFactKind {
@@ -192,6 +194,7 @@ impl TargetFactKind {
         Self::AddressSpaceDevice,
         Self::AlignmentMaxStorage,
         Self::AlignmentMaxAllocation,
+        Self::PlatformDynamicLoading,
     ];
 
     /// Returns the language-defined target-fact path.
@@ -259,6 +262,7 @@ impl TargetFactKind {
             Self::AddressSpaceDevice => "target.address_space.DEVICE",
             Self::AlignmentMaxStorage => "target.alignment.MAX_STORAGE",
             Self::AlignmentMaxAllocation => "target.alignment.MAX_ALLOCATION",
+            Self::PlatformDynamicLoading => "target.platform.dynamic_loading",
         }
     }
 }

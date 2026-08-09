@@ -108,6 +108,7 @@ impl<'profile> TargetFactValue<'profile> {
             TargetFactKind::AlignmentMaxAllocation => {
                 Self::Usize(facts.alignments().max_allocation().get())
             }
+            TargetFactKind::PlatformDynamicLoading => Self::Boolean(facts.dynamic_loading()),
         }
     }
 }

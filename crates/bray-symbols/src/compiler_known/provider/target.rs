@@ -98,5 +98,6 @@ const fn target_fact_catalog_key(fact: TargetFactKind) -> &'static str {
         TargetFactKind::AddressSpaceDevice => "TargetAddressSpaceDevice",
         TargetFactKind::AlignmentMaxStorage => "TargetAlignmentMaxStorage",
         TargetFactKind::AlignmentMaxAllocation => "TargetAlignmentMaxAllocation",
+        TargetFactKind::PlatformDynamicLoading => "TargetPlatformDynamicLoading",
     }
 }

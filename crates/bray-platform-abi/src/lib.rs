@@ -5,6 +5,7 @@
 #[macro_use]
 mod boundary;
 mod clock;
+mod dynamic;
 mod entropy;
 mod filesystem;
 mod platform;

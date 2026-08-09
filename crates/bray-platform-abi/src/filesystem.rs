@@ -604,7 +604,7 @@ fn file_metadata(metadata: &Metadata) -> NativePlatformFileMetadata {
     unsafe_code,
     reason = "the checked native path boundary reads one call-lifetime ABI byte span"
 )]
-fn native_path(path: NativePlatformPath) -> Result<PathBuf, NativePlatformStatus> {
+pub(super) fn native_path(path: NativePlatformPath) -> Result<PathBuf, NativePlatformStatus> {
     let Ok(length) = usize::try_from(path.length()) else {
         return Err(NativePlatformStatus::INVALID_INPUT);
     };

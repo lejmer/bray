@@ -1,0 +1,47 @@
+@target(target.platform.dynamic_loading)
+module bray.standard_library_tests.dynamic;
+
+using std.dynamic;
+using std.ffi;
+using std.memory;
+
+@test
+trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Result<unit, std.ffi.ForeignError>
+    uses(foreign_call, layout_reinterpret)
+{
+    let mut library: std.dynamic.DynamicLibrary = try std.dynamic.DynamicLibrary.open_system(
+        std.dynamic.SystemLibrary.CRuntime,
+        policy = std.dynamic.LoadPolicy.LocalImmediate,
+    );
+
+    let invalid: [u8; 1] = [0];
+
+    let invalid_result: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted std.dynamic.symbol<u8>(
+        &library,
+        &invalid[..]
+    );
+
+    match consume invalid_result
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error.kind()
+            {
+                case std.ffi.ForeignErrorKind.InvalidInput {}
+                case _ { assert(false); }
+            }
+        }
+    }
+
+    {
+        let name: [u8; 6] = [115, 116, 114, 108, 101, 110];
+        let symbol: std.dynamic.DynamicSymbol<u8> = try trusted std.dynamic.symbol<u8>(&library, &name[..]);
+        let address: RawPointer<u8> = symbol.pointer();
+
+        assert(!std.memory.is_null<u8>(address));
+        assert(trusted library.handle() != 0);
+    }
+
+    return library.close();
+}
