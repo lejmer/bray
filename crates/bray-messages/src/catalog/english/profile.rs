@@ -5,9 +5,14 @@ pub(crate) fn heading(elapsed_nanoseconds: u64) -> String {
     format!("Compiler profile: {milliseconds}.{fractional_milliseconds:03} ms")
 }
 
-pub(crate) fn queries(requests: u64, evaluations: u64, cache_hits: u64) -> String {
+pub(crate) fn queries(
+    requests: u64,
+    evaluations: u64,
+    cache_hits: u64,
+    cache_misses: u64,
+) -> String {
     format!(
-        "Queries: {requests} requested, {evaluations} evaluated, {cache_hits} cache hits"
+        "Queries: {requests} requested, {evaluations} evaluated, {cache_hits} cache hits, {cache_misses} cache misses"
     )
 }
 

@@ -718,10 +718,7 @@ fn time_breakdown(
         match operation.category() {
             CompilationProfileCategory::Work => {
                 active_work_nanoseconds =
-                    active_work_nanoseconds.saturating_add(aggregate.total_nanoseconds);
-
-                same_thread_self_nanoseconds = same_thread_self_nanoseconds
-                    .saturating_add(aggregate.self_nanoseconds);
+                    active_work_nanoseconds.saturating_add(aggregate.self_nanoseconds);
             }
             CompilationProfileCategory::External => {
                 external_work_nanoseconds =
@@ -731,6 +728,9 @@ fn time_breakdown(
             | CompilationProfileCategory::Cache
             | CompilationProfileCategory::Measurement => {}
         }
+
+        same_thread_self_nanoseconds =
+            same_thread_self_nanoseconds.saturating_add(aggregate.self_nanoseconds);
     }
 
     CompilationProfileTimeBreakdown {
@@ -872,7 +872,7 @@ mod tests {
         assert_eq!(load.self_nanoseconds, 10);
         assert_eq!(query.total_nanoseconds, 5);
         assert_eq!(query.self_nanoseconds, 5);
-        assert_eq!(report.time.active_work_nanoseconds, 20);
+        assert_eq!(report.time.active_work_nanoseconds, 15);
         assert_eq!(report.time.same_thread_self_nanoseconds, 15);
     }
 

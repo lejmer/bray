@@ -111,13 +111,19 @@ fn write_profile_summary(
     let evaluations = profile.queries.iter().map(|query| query.evaluations).sum();
     let cache_hits = profile.queries.iter().map(|query| query.cache_hits).sum();
 
+    let cache_misses = profile
+        .queries
+        .iter()
+        .map(|query| query.cache_misses)
+        .sum();
+
     writeln!(stderr, "{}", renderer.heading(profile.elapsed_nanoseconds))
         .map_err(|_| DriverOutputError::Terminal)?;
 
     writeln!(
         stderr,
         "{}",
-        renderer.queries(requests, evaluations, cache_hits)
+        renderer.queries(requests, evaluations, cache_hits, cache_misses)
     )
     .map_err(|_| DriverOutputError::Terminal)?;
 

@@ -244,12 +244,12 @@ pub struct CompilationProfileEvent {
     pub sequence: u64,
 }
 
-/// Non-overlapping time categories derived from nested operation spans.
+/// Time categories derived from nested operation spans.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileTimeBreakdown {
-    /// Inclusive duration of in-process compiler work.
+    /// In-process same-thread work summed across compiler workers.
     pub active_work_nanoseconds: u64,
-    /// In-process same-thread time after subtracting nested profiled operations.
+    /// Same-thread time across every operation after subtracting nested operations.
     pub same_thread_self_nanoseconds: u64,
     /// Scheduler queue delay.
     pub scheduler_queue_nanoseconds: u64,

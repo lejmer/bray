@@ -25,10 +25,16 @@ impl CompilerProfileMessageRenderer {
         self.catalog.compiler_profile_heading(elapsed_nanoseconds)
     }
 
-    /// Renders aggregate query request, evaluation, and cache-hit counts.
-    pub fn queries(self, requests: u64, evaluations: u64, cache_hits: u64) -> String {
+    /// Renders aggregate query request, evaluation, cache-hit, and cache-miss counts.
+    pub fn queries(
+        self,
+        requests: u64,
+        evaluations: u64,
+        cache_hits: u64,
+        cache_misses: u64,
+    ) -> String {
         self.catalog
-            .compiler_profile_queries(requests, evaluations, cache_hits)
+            .compiler_profile_queries(requests, evaluations, cache_hits, cache_misses)
     }
 
     /// Renders trace event and dropped-event counts.
@@ -48,8 +54,8 @@ mod tests {
         assert_eq!(renderer.heading(1_250_000), "Compiler profile: 1.250 ms");
 
         assert_eq!(
-            renderer.queries(12, 10, 2),
-            "Queries: 12 requested, 10 evaluated, 2 cache hits"
+            renderer.queries(12, 10, 2, 10),
+            "Queries: 12 requested, 10 evaluated, 2 cache hits, 10 cache misses"
         );
 
         assert_eq!(renderer.trace(8, 1), "Trace: 8 events, 1 dropped");

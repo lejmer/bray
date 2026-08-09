@@ -106,10 +106,16 @@ impl MessageCatalog {
         requests: u64,
         evaluations: u64,
         cache_hits: u64,
+        cache_misses: u64,
     ) -> String {
         match self.locale {
             DiagnosticLocale::English => {
-                super::english::compiler_profile_queries(requests, evaluations, cache_hits)
+                super::english::compiler_profile_queries(
+                    requests,
+                    evaluations,
+                    cache_hits,
+                    cache_misses,
+                )
             }
         }
     }
