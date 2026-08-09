@@ -31,8 +31,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let native_boundary = asynchronous
             || host
                 .requirements()
-                .roles()
-                .contains(&bray_runtime_interface::RuntimeAbiRole::SynchronousRootExecution);
+                .requires_role(bray_runtime_interface::RuntimeAbiRole::SynchronousRootExecution);
 
         let (completed, result) = self.take_host_result(entry_result, native_boundary, panic)?;
 

@@ -3583,7 +3583,7 @@ impl Compilation {
         Ok(CodegenParameterMapping::indirect(
             pointer,
             ty,
-            CodegenIndirectParameterKind::ByValue,
+            indirect_parameter_kind(abi, target),
             layout.alignment(),
             [CodegenValueAttribute::NonNull],
         ))
@@ -4600,6 +4600,25 @@ fn indirect_abi_value(
     }
 }
 
+fn indirect_parameter_kind(
+    abi: CallableAbi,
+    target: &CodegenTarget,
+) -> CodegenIndirectParameterKind {
+    if abi != CallableAbi::Bray
+        && (
+            target.profile().machine().architecture() == bray_target::TargetArchitecture::Aarch64
+                || matches!(
+                    bray_target::NativeTarget::for_profile(target.profile()),
+                    Some(bray_target::NativeTarget::X86_64WindowsMsvc)
+                )
+        )
+    {
+        return CodegenIndirectParameterKind::Reference;
+    }
+
+    CodegenIndirectParameterKind::ByValue
+}
+
 fn is_homogeneous_float_aggregate(
     root: &CodegenTypeKind,
     mappings: &BTreeMap<TypeId, CodegenTypeMapping>,
@@ -4774,8 +4793,8 @@ mod tests {
     use bray_testing::{test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration};
 
     use super::{
-        dependency_symbol, direct_helper_symbol, indirect_abi_value, named_type, pointer_layout,
-        receiver_codegen_type, substitute_contextual_self,
+        dependency_symbol, direct_helper_symbol, indirect_abi_value, indirect_parameter_kind,
+        named_type, pointer_layout, receiver_codegen_type, substitute_contextual_self,
     };
     use crate::compilation::CodegenFactError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
@@ -6084,6 +6103,7 @@ mod tests {
 
         let windows = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
         let linux = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
+        let aarch64 = CodegenTarget::for_native(NativeTarget::Aarch64LinuxGnu);
 
         assert!(indirect_abi_value(
             CallableAbi::C,
@@ -6108,6 +6128,26 @@ mod tests {
             &windows,
             &mappings,
         ));
+
+        assert_eq!(
+            indirect_parameter_kind(CallableAbi::C, &windows),
+            CodegenIndirectParameterKind::Reference
+        );
+
+        assert_eq!(
+            indirect_parameter_kind(CallableAbi::C, &linux),
+            CodegenIndirectParameterKind::ByValue
+        );
+
+        assert_eq!(
+            indirect_parameter_kind(CallableAbi::C, &aarch64),
+            CodegenIndirectParameterKind::Reference
+        );
+
+        assert_eq!(
+            indirect_parameter_kind(CallableAbi::Bray, &windows),
+            CodegenIndirectParameterKind::ByValue
+        );
     }
 
     #[test]

@@ -16,6 +16,7 @@ bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["gen
 bray-diagnostics = { path = "../crates/bray-diagnostics" }
 bray-emitter = { path = "../crates/bray-emitter" }
 bray-formatter = { path = "../crates/bray-formatter" }
+bray-linker = { path = "../crates/bray-linker" }
 bray-package-interface = { path = "../crates/bray-package-interface" }
 bray-project = { path = "../crates/bray-project" }
 bray-runtime-interface = { path = "../crates/bray-runtime-interface" }

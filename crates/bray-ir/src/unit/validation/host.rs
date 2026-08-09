@@ -17,9 +17,9 @@ pub(super) fn validate_host_operation(
     match host_operation {
         MirHostOperation::SelectTestEntry { entry, runtime } => {
             if host.entry(*entry).is_none()
-                || host
-                    .role_binding(RuntimeAbiRole::TestEntrySelection)
-                    .is_none()
+                || !host
+                    .requirements()
+                    .requires_role(RuntimeAbiRole::TestEntrySelection)
             {
                 return Err(MirUnitBuildError::InvalidHostOperation(operation));
             }
@@ -43,8 +43,7 @@ pub(super) fn validate_host_operation(
             let role = if *execution == bray_runtime_interface::RootExecution::Synchronous
                 && host
                     .requirements()
-                    .roles()
-                    .contains(&RuntimeAbiRole::SynchronousRootExecution)
+                    .requires_role(RuntimeAbiRole::SynchronousRootExecution)
             {
                 RuntimeAbiRole::SynchronousRootExecution
             } else {

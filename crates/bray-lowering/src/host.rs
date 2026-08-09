@@ -70,8 +70,7 @@ pub fn lower_executable_host(
         let root_role = if execution == bray_runtime_interface::RootExecution::Synchronous
             && contract
                 .requirements()
-                .roles()
-                .contains(&RuntimeAbiRole::SynchronousRootExecution)
+                .requires_role(RuntimeAbiRole::SynchronousRootExecution)
         {
             RuntimeAbiRole::SynchronousRootExecution
         } else {
@@ -85,8 +84,8 @@ pub fn lower_executable_host(
         };
 
         if contract
-            .role_binding(RuntimeAbiRole::TestEntrySelection)
-            .is_some()
+            .requirements()
+            .requires_role(RuntimeAbiRole::TestEntrySelection)
         {
             builder.push_operation(
                 entry,
@@ -231,6 +230,17 @@ mod tests {
             host.entries()[0].root(),
             RootExecution::Asynchronous { .. }
         ));
+
+        assert!(
+            host.role_binding(RuntimeAbiRole::TestEntrySelection)
+                .is_some()
+        );
+
+        assert!(
+            !host
+                .requirements()
+                .requires_role(RuntimeAbiRole::TestEntrySelection)
+        );
 
         for role in [
             RuntimeAbiRole::MainThreadLaneStartup,

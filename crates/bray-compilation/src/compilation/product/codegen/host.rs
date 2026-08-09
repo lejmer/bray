@@ -77,6 +77,10 @@ impl Compilation {
             None => BTreeSet::new(),
         };
 
+        if kind != ProductKind::Test {
+            runtime_roles.remove(&RuntimeAbiRole::TestEntrySelection);
+        }
+
         if has_async_entries {
             runtime_roles.insert(RuntimeAbiRole::RootExecution);
             runtime_roles.extend(RuntimeAbiRole::EXECUTABLE_HOST_CONTROL);
