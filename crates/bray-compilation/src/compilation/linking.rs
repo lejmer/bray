@@ -62,15 +62,36 @@ impl Compilation {
         plan: &LinkPlan,
         cancellation: &CancellationToken,
     ) -> Result<LinkOutcome, FactQueryError> {
+        if let Some(profile) = self.state.fact_runtime.profile() {
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::LinkInputs,
+                u64::try_from(plan.inputs().len()).unwrap_or(u64::MAX),
+            );
+        }
+
         let priority = self
             .state
             .fact_runtime
             .current_priority()?
             .unwrap_or(QueryPriority::Normal);
 
-        self.state
+        let span = self.state.fact_runtime.profile().map(|profile| {
+            profile.start(crate::profile::ProfileOperation::Linking, None)
+        });
+
+        let result = self.state
             .fact_runtime
-            .run(priority, || Ok(linker.link(plan, cancellation)))
+            .run(priority, || Ok(linker.link(plan, cancellation)));
+
+        if let Some(span) = span {
+            span.finish(match &result {
+                Ok(_) => crate::CompilationProfileOutcome::Completed,
+                Err(FactQueryError::Cancelled) => crate::CompilationProfileOutcome::Cancelled,
+                Err(_) => crate::CompilationProfileOutcome::Failed,
+            });
+        }
+
+        result
     }
 }
 

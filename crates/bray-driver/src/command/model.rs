@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use bray_compilation::{CompilationOptions, PackageSourceAuthority, WorkerBudget};
+use bray_compilation::{
+    CompilationOptions, CompilationProfileConfiguration, PackageSourceAuthority, WorkerBudget,
+};
 use bray_standard_library::StandardLibraryRoot;
 use bray_tooling::{InspectionTarget, OutputFormat};
 
@@ -14,6 +16,8 @@ pub struct DriverOptions {
     compilation: DriverCompilationConfiguration,
     standard_library_root: Option<StandardLibraryRoot>,
     package_source_authority: PackageSourceAuthority,
+    profile: Option<CompilationProfileConfiguration>,
+    profile_output: Option<PathBuf>,
 }
 
 impl DriverOptions {
@@ -31,7 +35,21 @@ impl DriverOptions {
             compilation,
             standard_library_root,
             package_source_authority,
+            profile: None,
+            profile_output: None,
         }
+    }
+
+    /// Enables compiler profiling and optionally selects a machine-report destination.
+    pub fn with_profile(
+        mut self,
+        profile: CompilationProfileConfiguration,
+        output: Option<PathBuf>,
+    ) -> Self {
+        self.profile = Some(profile);
+        self.profile_output = output;
+
+        self
     }
 
     /// Returns the compiler-owned CPU worker budget.
@@ -66,6 +84,16 @@ impl DriverOptions {
     /// Returns the authority governing source package identities.
     pub const fn package_source_authority(&self) -> PackageSourceAuthority {
         self.package_source_authority
+    }
+
+    /// Returns the selected compiler profiling configuration.
+    pub const fn profile(&self) -> Option<CompilationProfileConfiguration> {
+        self.profile
+    }
+
+    /// Returns the selected machine-report destination.
+    pub fn profile_output(&self) -> Option<&std::path::Path> {
+        self.profile_output.as_deref()
     }
 }
 

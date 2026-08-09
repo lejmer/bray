@@ -28,6 +28,7 @@ bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-target = { path = "../bray-target" }
 bray-test-protocol = { path = "../bray-test-protocol" }
 rayon = "1.11.0"
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 bray-bound-tree = { path = "../bray-bound-tree", features = ["test-support"] }
@@ -35,6 +36,7 @@ bray-codegen = { path = "../bray-codegen", features = ["test-support"] }
 bray-codegen-llvm = { path = "../bray-codegen-llvm" }
 bray-package-interface = { path = "../bray-package-interface", features = ["test-support"] }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
+serde_json = "1"
 tempfile = "3"
 
 [lints]

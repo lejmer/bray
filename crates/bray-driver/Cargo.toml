@@ -10,6 +10,7 @@ bray-base = { path = "../bray-base" }
 bray-compilation = { path = "../bray-compilation" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-emitter = { path = "../bray-emitter" }
+bray-messages = { path = "../bray-messages" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-source = { path = "../bray-source" }

@@ -7,6 +7,7 @@ mod build_progress;
 mod catalog;
 mod language_server;
 mod locale;
+mod profile;
 mod rendered_diagnostic;
 mod renderer;
 mod test_report;
@@ -17,6 +18,7 @@ pub use build_progress::{
 };
 pub use language_server::{LanguageServerMessage, LanguageServerMessageRenderer};
 pub use locale::DiagnosticLocale;
+pub use profile::CompilerProfileMessageRenderer;
 pub use rendered_diagnostic::{
     RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote, RenderedDiagnosticNoteKind,
 };

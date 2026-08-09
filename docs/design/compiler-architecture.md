@@ -946,6 +946,44 @@ were evaluated.
 
 Do not turn ordinary helper functions into queries merely because they are reusable.
 
+### Profiling And Measurement
+
+Compiler profiling is an explicit observation mode of one invocation. It is not part of source semantics, compilation identity,
+fact identity, cache validity, scheduling policy, or deterministic output. The same request must produce the same compiler results
+with profiling enabled or disabled.
+
+The disabled path does not create a profiling session, read a clock, update a counter, allocate event storage, enter a lock, access
+thread-local profiling state, or construct a report. An instrumented boundary performs at most one predictable optional-session
+check when profiling is disabled. Measurement code must stay behind that check so descriptor lookup and subject construction also
+disappear from the disabled path.
+
+Profiling uses a stable descriptor registry for operation kinds, query kinds, metric names, and metric units. Compiler code opens
+generic operation spans and adds typed counters through this registry. Phase implementations do not each invent clocks, report
+schemas, event buffers, or formatting logic.
+
+Summary mode records aggregate duration, execution outcome, query request, query evaluation, cache hit, cache miss,
+cross-snapshot reuse, invalidation, dependency wait, and compiler unit and byte statistics. The operation surface covers
+compilation loading, scheduling delay, query evaluation, dependency waiting, lowering, code generation, interface export, linking,
+and artifact emission. Nested spans retain inclusive and same-thread self time. External tool work, scheduler delay, and dependency
+wait remain separate from in-process work. Unit statistics cover the representations and products that the invocation actually
+constructs, including source input, semantic and MIR work, concrete code generation, interface sections, link input, and emitted
+artifact sizes.
+
+Trace mode includes the summary and a bounded event timeline. Events use monotonic session-relative timestamps, stable numeric and
+canonical operation and query identities, schema-scoped subject fingerprints, worker-local sequence, and explicit completed,
+failed, cancelled, or abandoned outcomes. Report context identifies the canonical package, product, and target. Per-worker fixed
+aggregate storage and bounded event buffers avoid a process-wide synchronization point. A report declares how many events were
+dropped after the configured bound was reached.
+
+Reports use a versioned machine-readable schema. Human summaries are rendered through `bray-messages`. `brayc` owns direct report
+publication, while Bray Tack forwards profiling to every compiler process, preserves each detailed report under a distinct product
+and target identity, and surfaces compiler-rendered summaries. Report I/O failures are structured diagnostics and fail the command.
+
+Tests prove that profiling preserves compiler outcomes, summary mode emits no trace events, trace storage remains bounded, parallel
+aggregation is race-free, and the machine schema round-trips. Performance validation compares disabled profiling against an
+uninstrumented invocation and guards against material regression in representative no-op, cache-hit, and ordinary compilation
+workloads.
+
 ### Snapshots, Invalidation, And Reuse
 
 Every compiler request evaluates against an immutable `CompilationSnapshot` identified by the selected project graph, source

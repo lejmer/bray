@@ -266,6 +266,8 @@ dependencies = [
  "bray-test-protocol",
  "bray-testing",
  "rayon",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
@@ -307,6 +309,7 @@ dependencies = [
  "bray-compilation",
  "bray-diagnostics",
  "bray-emitter",
+ "bray-messages",
  "bray-package-interface",
  "bray-runtime-interface",
  "bray-source",

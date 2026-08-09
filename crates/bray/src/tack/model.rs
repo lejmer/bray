@@ -47,6 +47,47 @@ pub(crate) enum TackInspection {
     Mir,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TackProfileMode {
+    Summary,
+    Trace,
+}
+
+impl TackProfileMode {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Summary => "summary",
+            Self::Trace => "trace",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TackProfileConfiguration {
+    mode: TackProfileMode,
+    output_directory: Option<PathBuf>,
+}
+
+impl TackProfileConfiguration {
+    pub(crate) const fn new(
+        mode: TackProfileMode,
+        output_directory: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            mode,
+            output_directory,
+        }
+    }
+
+    pub(crate) const fn mode(&self) -> TackProfileMode {
+        self.mode
+    }
+
+    pub(crate) fn output_directory(&self) -> Option<&Path> {
+        self.output_directory.as_deref()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum TackBuildConfiguration {
@@ -168,6 +209,20 @@ impl TackCommand {
             Self::VendorInstall { .. } => TackCommandKind::VendorInstall,
         }
     }
+
+    pub(crate) const fn invokes_compiler(&self) -> bool {
+        match self {
+            Self::Check(_)
+            | Self::Build { .. }
+            | Self::Run { .. }
+            | Self::Test { .. } => true,
+            Self::Inspect { inspection, .. } => !matches!(inspection, TackInspection::Project),
+            Self::Init { .. }
+            | Self::Format { .. }
+            | Self::LanguageServer { .. }
+            | Self::VendorInstall { .. } => false,
+        }
+    }
 }
 
 /// Parsed Bray Tack invocation.
@@ -179,6 +234,7 @@ pub struct TackInvocation {
     worker_count: usize,
     output_format: OutputFormat,
     verbose: bool,
+    profile: Option<TackProfileConfiguration>,
     command: TackCommand,
 }
 
@@ -190,6 +246,7 @@ impl TackInvocation {
         worker_count: usize,
         output_format: OutputFormat,
         verbose: bool,
+        profile: Option<TackProfileConfiguration>,
         command: TackCommand,
     ) -> Self {
         Self {
@@ -199,6 +256,7 @@ impl TackInvocation {
             worker_count,
             output_format,
             verbose,
+            profile,
             command,
         }
     }
@@ -241,6 +299,7 @@ impl TackInvocation {
         bool,
         usize,
         OutputFormat,
+        Option<TackProfileConfiguration>,
         TackCommand,
     ) {
         (
@@ -249,6 +308,7 @@ impl TackInvocation {
             self.standard_library_source,
             self.worker_count,
             self.output_format,
+            self.profile,
             self.command,
         )
     }

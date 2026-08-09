@@ -60,6 +60,15 @@ impl Compilation {
             request = request.with_package_interface_export(export);
         }
 
+        if let Some(profile) = self.state.fact_runtime.profile_configuration() {
+            request = request.with_profile(profile);
+        }
+
+        if let Some(product) = &self.state.profile_product {
+            // Product identities share immutable canonical strings across snapshots.
+            request = request.with_profile_product(product.clone());
+        }
+
         self.updated(request)
     }
 }
@@ -74,10 +83,11 @@ fn reuse_published_facts(
     let invalidation_roots = invalidation_roots(previous, updated, semantic_values_forked);
 
     let worker_budget = updated.options.worker_budget();
+    let profile = updated.fact_runtime.profile_session();
 
     let (runtime, reusable) = previous
         .fact_runtime
-        .updated(worker_budget, invalidation_roots);
+        .updated(worker_budget, invalidation_roots, profile);
 
     updated.fact_runtime = runtime;
 

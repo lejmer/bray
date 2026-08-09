@@ -5,12 +5,14 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
     SeverityKind,
 };
+use bray_messages::CompilerProfileMessageRenderer;
 use bray_tooling::{OutputFormat, write_diagnostics};
 
 use super::DriverRunResult;
 
 pub(crate) enum DriverOutputError {
     InspectionReport { path: PathBuf, kind: io::ErrorKind },
+    CompilerProfile { path: PathBuf, kind: io::ErrorKind },
     Terminal,
 }
 
@@ -28,6 +30,17 @@ pub(crate) fn write_driver_output(
         })?;
     }
 
+    if let (Some(profile), Some(path)) = (result.profile(), result.profile_output()) {
+        let mut bytes = serde_json::to_vec_pretty(profile).map_err(|_| DriverOutputError::Terminal)?;
+
+        bytes.push(b'\n');
+
+        std::fs::write(path, bytes).map_err(|error| DriverOutputError::CompilerProfile {
+            path: path.to_path_buf(),
+            kind: error.kind(),
+        })?;
+    }
+
     stdout
         .write_all(result.stdout().as_bytes())
         .map_err(|_| DriverOutputError::Terminal)?;
@@ -35,6 +48,10 @@ pub(crate) fn write_driver_output(
     stderr
         .write_all(result.stderr().as_bytes())
         .map_err(|_| DriverOutputError::Terminal)?;
+
+    if let Some(profile) = result.profile() {
+        write_profile_summary(profile, stderr)?;
+    }
 
     if result.has_terminal_output() {
         return Ok(());
@@ -56,13 +73,19 @@ pub(crate) fn write_driver_output_error(
     stdout: &mut impl Write,
     stderr: &mut impl Write,
 ) -> io::Result<()> {
-    let DriverOutputError::InspectionReport { path, kind } = error else {
-        return Ok(());
+    let (diagnostic_kind, path, kind) = match error {
+        DriverOutputError::InspectionReport { path, kind } => {
+            (DiagnosticKind::InspectionReportWriteFailed, path, kind)
+        }
+        DriverOutputError::CompilerProfile { path, kind } => {
+            (DiagnosticKind::CompilerProfileWriteFailed, path, kind)
+        }
+        DriverOutputError::Terminal => return Ok(()),
     };
 
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
-        DiagnosticKind::InspectionReportWriteFailed,
+        diagnostic_kind,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::file_path(path))
@@ -77,4 +100,35 @@ pub(crate) fn write_driver_output_error(
         stdout,
         stderr,
     )
+}
+
+fn write_profile_summary(
+    profile: &bray_compilation::CompilationProfileReport,
+    stderr: &mut impl Write,
+) -> Result<(), DriverOutputError> {
+    let renderer = CompilerProfileMessageRenderer::english();
+    let requests = profile.queries.iter().map(|query| query.requests).sum();
+    let evaluations = profile.queries.iter().map(|query| query.evaluations).sum();
+    let cache_hits = profile.queries.iter().map(|query| query.cache_hits).sum();
+
+    writeln!(stderr, "{}", renderer.heading(profile.elapsed_nanoseconds))
+        .map_err(|_| DriverOutputError::Terminal)?;
+
+    writeln!(
+        stderr,
+        "{}",
+        renderer.queries(requests, evaluations, cache_hits)
+    )
+    .map_err(|_| DriverOutputError::Terminal)?;
+
+    if profile.mode == bray_compilation::CompilationProfileMode::Trace {
+        writeln!(
+            stderr,
+            "{}",
+            renderer.trace(profile.events.len(), profile.dropped_events)
+        )
+        .map_err(|_| DriverOutputError::Terminal)?;
+    }
+
+    Ok(())
 }

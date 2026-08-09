@@ -1,9 +1,10 @@
 use std::cell::RefCell;
-use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use super::{FactQueryError, QueryPriority, QueryPriorityDemand};
+use crate::profile::{CompilationProfileOutcome, ProfileOperation, ProfileSession};
 use crate::WorkerBudget;
 
 const MAX_INTERACTIVE_STREAK: usize = 8;
@@ -18,10 +19,19 @@ pub(crate) struct FactScheduler {
     ordinary_pool: OnceLock<Result<ThreadPool, ()>>,
     interactive_pool: OnceLock<Result<ThreadPool, ()>>,
     slots: ExecutionSlots,
+    profile: Option<Arc<ProfileSession>>,
 }
 
 impl FactScheduler {
+    #[cfg(test)]
     pub(crate) fn new(worker_budget: WorkerBudget) -> Self {
+        Self::with_profile(worker_budget, None)
+    }
+
+    pub(crate) fn with_profile(
+        worker_budget: WorkerBudget,
+        profile: Option<Arc<ProfileSession>>,
+    ) -> Self {
         let worker_count = worker_budget.get();
 
         Self {
@@ -29,6 +39,7 @@ impl FactScheduler {
             ordinary_pool: OnceLock::new(),
             interactive_pool: OnceLock::new(),
             slots: ExecutionSlots::new(worker_count),
+            profile,
         }
     }
 
@@ -192,10 +203,19 @@ impl FactScheduler {
             return operation();
         }
 
+        let queue_span = self
+            .profile
+            .as_deref()
+            .map(|profile| profile.start(ProfileOperation::SchedulerQueue, None));
+
         let _slot = self
             .slots
             .acquire(priority)
             .unwrap_or_else(|_| panic!("scheduler slots must remain available"));
+
+        if let Some(span) = queue_span {
+            span.finish(CompilationProfileOutcome::Completed);
+        }
 
         let _active = ActiveSchedulerGuard::enter(self.identity(), priority.current())
             .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));
@@ -521,30 +541,22 @@ mod tests {
             let background_sender = order_sender.clone();
 
             scope.spawn(move || {
-                let priority = QueryPriorityDemand::new(QueryPriority::Background);
-
-                let _slot = background_slots
-                    .acquire(&priority)
-                    .unwrap_or_else(|error| panic!("background work must run: {error:?}"));
-
-                background_sender
-                    .send(QueryPriority::Background)
-                    .unwrap_or_else(|_| panic!("test must observe background work"));
+                acquire_and_report(
+                    background_slots,
+                    QueryPriorityDemand::new(QueryPriority::Background),
+                    background_sender,
+                );
             });
 
             let interactive_slots = Arc::clone(&slots);
             let interactive_sender = order_sender.clone();
 
             scope.spawn(move || {
-                let priority = QueryPriorityDemand::new(QueryPriority::Interactive);
-
-                let _slot = interactive_slots
-                    .acquire(&priority)
-                    .unwrap_or_else(|error| panic!("interactive work must run: {error:?}"));
-
-                interactive_sender
-                    .send(QueryPriority::Interactive)
-                    .unwrap_or_else(|_| panic!("test must observe interactive work"));
+                acquire_and_report(
+                    interactive_slots,
+                    QueryPriorityDemand::new(QueryPriority::Interactive),
+                    interactive_sender,
+                );
             });
 
             slots.wait_until_queued(1, 1);
@@ -581,28 +593,18 @@ mod tests {
             let shared_sender = order_sender.clone();
 
             scope.spawn(move || {
-                let _slot = shared_slots
-                    .acquire(&shared_demand)
-                    .unwrap_or_else(|error| panic!("shared work must run: {error:?}"));
-
-                shared_sender
-                    .send(shared_demand.current())
-                    .unwrap_or_else(|_| panic!("test must observe shared work"));
+                acquire_and_report(shared_slots, shared_demand, shared_sender);
             });
 
             let background_slots = Arc::clone(&slots);
             let background_sender = order_sender.clone();
 
             scope.spawn(move || {
-                let priority = QueryPriorityDemand::new(QueryPriority::Background);
-
-                let _slot = background_slots
-                    .acquire(&priority)
-                    .unwrap_or_else(|error| panic!("background work must run: {error:?}"));
-
-                background_sender
-                    .send(QueryPriority::Background)
-                    .unwrap_or_else(|_| panic!("test must observe background work"));
+                acquire_and_report(
+                    background_slots,
+                    QueryPriorityDemand::new(QueryPriority::Background),
+                    background_sender,
+                );
             });
 
             slots.wait_until_queued(0, 2);
@@ -687,5 +689,19 @@ mod tests {
     fn worker_budget(workers: usize) -> WorkerBudget {
         WorkerBudget::new(workers)
             .unwrap_or_else(|error| panic!("test worker budget must be valid: {error:?}"))
+    }
+
+    fn acquire_and_report(
+        slots: Arc<ExecutionSlots>,
+        priority: QueryPriorityDemand,
+        sender: mpsc::Sender<QueryPriority>,
+    ) {
+        let _slot = slots
+            .acquire(&priority)
+            .unwrap_or_else(|error| panic!("scheduled priority work must run: {error:?}"));
+
+        sender
+            .send(priority.current())
+            .unwrap_or_else(|_| panic!("test must observe scheduled priority work"));
     }
 }

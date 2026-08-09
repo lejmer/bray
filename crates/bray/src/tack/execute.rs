@@ -14,7 +14,9 @@ use crate::tack::error::{operation_diagnostics, selection_diagnostics};
 use crate::tack::init::initialize_project;
 use crate::tack::inspection::render_project_inspection;
 use crate::tack::install::{install_git_repository, run_project_process};
-use crate::tack::model::{TackCommand, TackInspection, TackInvocation, TackSelection};
+use crate::tack::model::{
+    TackCommand, TackInspection, TackInvocation, TackProfileConfiguration, TackSelection,
+};
 use crate::tack::output::{
     failure, result_from_operation, result_from_output, result_from_outputs,
 };
@@ -158,6 +160,7 @@ fn execute_invocation_with_progress(
         standard_library_source,
         worker_count,
         output_format,
+        profile,
         command,
     ) = invocation.into_parts();
 
@@ -222,6 +225,7 @@ fn execute_invocation_with_progress(
             &toolchain,
             worker_count,
             &selection,
+            profile.as_ref(),
             output_format,
             executor,
         ),
@@ -235,6 +239,7 @@ fn execute_invocation_with_progress(
             worker_count,
             &selection,
             configuration,
+            profile.as_ref(),
             output_format,
             executor,
             progress,
@@ -251,6 +256,7 @@ fn execute_invocation_with_progress(
             &selection,
             configuration,
             arguments,
+            profile.as_ref(),
             output_format,
             executor,
             progress,
@@ -267,6 +273,7 @@ fn execute_invocation_with_progress(
             &selection,
             configuration,
             options,
+            profile.as_ref(),
             output_format,
             executor,
             progress,
@@ -285,6 +292,7 @@ fn execute_invocation_with_progress(
             inspection,
             source_id,
             position,
+            profile.as_ref(),
             output_format,
             executor,
         ),
@@ -312,6 +320,7 @@ fn run_check(
     toolchain: &Toolchain,
     worker_count: usize,
     selection: &TackSelection,
+    profile: Option<&TackProfileConfiguration>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
 ) -> TackRunResult {
@@ -326,6 +335,7 @@ fn run_check(
         toolchain,
         worker_count,
         output_format,
+        profile,
         executor,
     );
 
@@ -352,6 +362,7 @@ fn run_build(
     worker_count: usize,
     selection: &TackSelection,
     configuration: crate::tack::model::TackBuildConfiguration,
+    profile: Option<&TackProfileConfiguration>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
     progress: &WorkflowProgress,
@@ -367,6 +378,7 @@ fn run_build(
         toolchain,
         worker_count,
         output_format,
+        profile,
         executor,
     );
 
@@ -412,6 +424,7 @@ fn run_one(
     selection: &TackSelection,
     configuration: crate::tack::model::TackBuildConfiguration,
     arguments: Vec<OsString>,
+    profile: Option<&TackProfileConfiguration>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
     progress: &WorkflowProgress,
@@ -431,6 +444,7 @@ fn run_one(
         toolchain,
         worker_count,
         output_format,
+        profile,
         executor,
     );
 
@@ -485,6 +499,7 @@ fn run_tests(
     selection: &TackSelection,
     configuration: crate::tack::model::TackBuildConfiguration,
     options: crate::tack::model::TackTestOptions,
+    profile: Option<&TackProfileConfiguration>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
     progress: &WorkflowProgress,
@@ -500,6 +515,7 @@ fn run_tests(
         toolchain,
         worker_count,
         output_format,
+        profile,
         executor,
     );
 
@@ -595,6 +611,7 @@ fn run_inspect(
     inspection: TackInspection,
     source_id: u32,
     position: Option<u32>,
+    profile: Option<&TackProfileConfiguration>,
     output_format: OutputFormat,
     executor: &dyn ToolExecutor,
 ) -> TackRunResult {
@@ -626,6 +643,7 @@ fn run_inspect(
         toolchain,
         worker_count,
         output_format,
+        profile,
         executor,
     );
 
@@ -983,6 +1001,51 @@ mod tests {
                 .iter()
                 .map(PathBuf::from)
                 .any(|argument| argument.ends_with("src/main.bray"))
+        );
+    }
+
+    #[test]
+    fn check_forwards_profiling_and_assigns_a_distinct_machine_report() {
+        let workspace = ProjectWorkspace::basic();
+        let executor = RecordingExecutor::default();
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "--profile=trace".into(),
+                "--profile-output".into(),
+                "profiles".into(),
+                "check".into(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
+
+        let requests = executor.requests();
+
+        let [request] = requests.as_slice() else {
+            panic!("check should invoke exactly one compiler: {requests:#?}");
+        };
+
+        assert!(has_argument_pair(&request.arguments, "--profile", "trace"));
+
+        let profile_output = request
+            .arguments
+            .windows(2)
+            .find(|pair| pair[0] == "--profile-output")
+            .map(|pair| PathBuf::from(&pair[1]))
+            .unwrap_or_else(|| panic!("compiler request must retain a profile output"));
+
+        assert_eq!(profile_output.parent(), Some(workspace.path().join("profiles").as_path()));
+
+        assert!(
+            profile_output
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().contains("application"))
         );
     }
 

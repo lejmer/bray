@@ -27,7 +27,19 @@ impl Compilation {
         Some(self.fact(
             CompilationFactKey::PackageInterfaceExportBundle,
             &self.state.package_interface_export_bundle,
-            || self.build_package_interface_export_bundle(request),
+            || {
+                let span = self.state.fact_runtime.profile().map(|profile| {
+                    profile.start(crate::profile::ProfileOperation::InterfaceExport, None)
+                });
+
+                let result = self.build_package_interface_export_bundle(request);
+
+                if let Some(span) = span {
+                    span.finish(crate::profile::result_outcome(&result));
+                }
+
+                result
+            },
         ))
     }
 

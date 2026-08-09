@@ -16,7 +16,7 @@ use bray_standard_library::{
 };
 use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 
-use crate::SelectedTarget;
+use crate::{CompilationProfileConfiguration, SelectedTarget};
 use crate::worker::WorkerBudget;
 
 /// Deterministic resource limits for semantic analysis requested by a compilation.
@@ -142,6 +142,8 @@ pub struct CompilationRequest {
     dependency_interfaces: Vec<DependencyInterfaceInput>,
     platform_services: Vec<PlatformServiceBinding>,
     package_interface_export: Option<PackageInterfaceExportRequest>,
+    profile: Option<CompilationProfileConfiguration>,
+    profile_product: Option<bray_symbols::ProductIdentity>,
 }
 
 /// Package-layer identity inputs for the current library product's interface export.
@@ -382,6 +384,8 @@ impl CompilationRequest {
             dependency_interfaces: Vec::new(),
             platform_services: Vec::new(),
             package_interface_export: None,
+            profile: None,
+            profile_product: None,
         }
     }
 
@@ -435,6 +439,20 @@ impl CompilationRequest {
         self
     }
 
+    /// Returns a copy with opt-in compiler profiling for this invocation.
+    pub const fn with_profile(mut self, profile: CompilationProfileConfiguration) -> Self {
+        self.profile = Some(profile);
+
+        self
+    }
+
+    /// Returns a copy whose profile uses the exact selected product identity.
+    pub fn with_profile_product(mut self, product: bray_symbols::ProductIdentity) -> Self {
+        self.profile_product = Some(product);
+
+        self
+    }
+
     /// Returns the source package identity selected for this compilation.
     pub const fn package_identity(&self) -> &PackageIdentity {
         &self.package_identity
@@ -477,6 +495,16 @@ impl CompilationRequest {
         self.package_interface_export.as_ref()
     }
 
+    /// Returns the requested compiler profiling configuration, when enabled.
+    pub const fn profile(&self) -> Option<CompilationProfileConfiguration> {
+        self.profile
+    }
+
+    /// Returns the exact product identity selected for profiling, when supplied.
+    pub const fn profile_product(&self) -> Option<&bray_symbols::ProductIdentity> {
+        self.profile_product.as_ref()
+    }
+
     /// Consumes the request into its parts.
     pub fn into_parts(
         self,
@@ -489,6 +517,8 @@ impl CompilationRequest {
         Vec<DependencyInterfaceInput>,
         Vec<PlatformServiceBinding>,
         Option<PackageInterfaceExportRequest>,
+        Option<CompilationProfileConfiguration>,
+        Option<bray_symbols::ProductIdentity>,
     ) {
         (
             self.package_identity,
@@ -499,6 +529,8 @@ impl CompilationRequest {
             self.dependency_interfaces,
             self.platform_services,
             self.package_interface_export,
+            self.profile,
+            self.profile_product,
         )
     }
 }

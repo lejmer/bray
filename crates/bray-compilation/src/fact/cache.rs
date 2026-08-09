@@ -8,6 +8,7 @@ use super::{
     CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime,
     FactTaskIdentity, QueryPriority, QueryPriorityDemand, SharedCancellation,
 };
+use crate::profile::CompilationProfileOutcome;
 
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -233,6 +234,10 @@ impl<T> FactCell<T> {
     {
         let mut compute = Some(compute);
 
+        if let Some(profile) = runtime.profile() {
+            profile.record_query_request(crate::profile::ProfileQueryKind::from_key(&key));
+        }
+
         runtime.request_with_cycle_key(&key, &cycle_key)?;
 
         loop {
@@ -250,9 +255,21 @@ impl<T> FactCell<T> {
                         return Err(FactQueryError::InfrastructureFailure);
                     }
 
+                    if let Some(profile) = runtime.profile() {
+                        profile.record_query_cache_hit(
+                            crate::profile::ProfileQueryKind::from_key(&key),
+                        );
+                    }
+
                     return self.ready_value();
                 }
                 FactCellState::Vacant => {
+                    if let Some(profile) = runtime.profile() {
+                        profile.record_query_cache_miss(
+                            crate::profile::ProfileQueryKind::from_key(&key),
+                        );
+                    }
+
                     // The task, cell state, and rollback guard independently retain this key.
                     let context = runtime.task_with_cycle_key(key.clone(), cycle_key.clone())?;
                     let task = context.identity();
@@ -280,7 +297,20 @@ impl<T> FactCell<T> {
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
                     let value = runtime.run_demand(&shared_priority, || {
-                        evaluation.run(|| compute(shared_cancellation.token()))
+                        let span = runtime.profile().map(|profile| {
+                            profile.start_query(
+                                crate::profile::ProfileOperation::QueryEvaluation,
+                                &key,
+                            )
+                        });
+
+                        let value = evaluation.run(|| compute(shared_cancellation.token()));
+
+                        if let Some(span) = span {
+                            span.finish(profile_outcome(&value));
+                        }
+
+                        value
                     })?;
 
                     #[cfg(test)]
@@ -334,6 +364,10 @@ impl<T> FactCell<T> {
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Waiting)?;
 
+                    let wait_span = runtime.profile().map(|profile| {
+                        profile.start_query(crate::profile::ProfileOperation::DependencyWait, &key)
+                    });
+
                     let state = self
                         .storage
                         .state
@@ -359,6 +393,10 @@ impl<T> FactCell<T> {
                         drop(waited);
                     } else {
                         drop(state);
+                    }
+
+                    if let Some(span) = wait_span {
+                        span.finish(CompilationProfileOutcome::Completed);
                     }
 
                     drop(waiting);
@@ -468,6 +506,14 @@ impl<T> FactCell<T> {
         };
 
         self.storage.changed.notify_all();
+    }
+}
+
+fn profile_outcome<T>(result: &Result<T, FactQueryError>) -> CompilationProfileOutcome {
+    match result {
+        Ok(_) => CompilationProfileOutcome::Completed,
+        Err(FactQueryError::Cancelled) => CompilationProfileOutcome::Cancelled,
+        Err(_) => CompilationProfileOutcome::Failed,
     }
 }
 

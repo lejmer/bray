@@ -36,6 +36,13 @@ const INSPECTION_REPORT_WRITE_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
+const COMPILER_PROFILE_WRITE_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not write compiler profile to "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
 const PROJECT_MANIFEST_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read Bray project manifest "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
@@ -1193,6 +1200,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::InspectionReportWriteFailed => {
             MessageTemplate::new(INSPECTION_REPORT_WRITE_FAILED)
+        }
+        DiagnosticKind::CompilerProfileWriteFailed => {
+            MessageTemplate::new(COMPILER_PROFILE_WRITE_FAILED)
         }
         DiagnosticKind::ProjectManifestReadFailed => {
             MessageTemplate::new(PROJECT_MANIFEST_READ_FAILED)
