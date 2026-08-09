@@ -67,7 +67,7 @@ Drivers own tool-specific flags, response-file syntax, quoting, environment requ
 ### Linked Artifact
 
 A linked artifact is the validated staging result produced by a successful linker or archiver invocation. It is not a published
-final output until `bray-emitter` atomically promotes it.
+final output until `bray-emitter` includes it in an atomically published product generation.
 
 ---
 
@@ -106,7 +106,7 @@ Input order is canonical where the platform permits it and language-defined wher
 The selected target profile and compiler host provide the available linker drivers. `bray-linker` validates the requested or default
 driver against the plan's target and product kind.
 
-Initial driver categories include:
+The driver categories are:
 
 - embedded LLD,
 - external LLD,
@@ -116,6 +116,13 @@ Initial driver categories include:
 
 The architecture does not require every compiler distribution to expose every driver. Missing required support is a structured
 target-toolchain diagnostic.
+
+Every driver publishes a typed immutable capability record covering target identities and object formats, product kinds, accepted
+input kinds, produced artifacts and companions, startup and runtime contract ownership, export and retention policy, response-file
+support, environment requirements, cancellation behavior, and determinism guarantees. Driver selection compares the complete link
+plan with that record before staging or invocation. A category name, executable spelling, or successful probe cannot imply an
+undeclared capability. Target-specific extensions use namespaced typed capability keys and cannot replace a required common
+capability.
 
 Driver identity and revision participate in linked-artifact cache or reproducibility metadata whenever they can affect output.
 
@@ -222,11 +229,12 @@ artifacts recorded in the link outcome and later published by the emitter.
 
 Compiled package interfaces are not linker inputs.
 
-`.brayi` publication can accompany a library product, but the interface artifact is produced by `bray-package-interface` and
-published independently by `bray-emitter`.
+`.brayi` publication can accompany a library product, but the interface artifact is constructed independently by
+`bray-package-interface` and staged by `bray-emitter` in the managed product generation.
 
-The linker must not inspect, rewrite, embed, hash, or validate `.brayi` content unless a future target defines a separate explicit
-container contract. Such a contract would not turn package interfaces into ordinary native linker inputs.
+The linker never inspects, rewrites, embeds, hashes, or validates `.brayi` content. A target-defined product container that carries
+an interface is a separate typed linked companion produced from an emitter-supplied opaque artifact reference, not an ordinary
+native link input.
 
 ---
 
@@ -243,8 +251,8 @@ The linker writes only to those staging destinations. It cannot choose or replac
 After successful invocation, `bray-linker` validates that every required output exists and returns `LinkedArtifact` records with
 kind, staging identity, observed length, and available tool metadata.
 
-`bray-emitter` validates expected output relationships and atomically publishes the linked artifacts. If invocation or validation
-fails, the emitter removes staging state and preserves existing final outputs.
+`bray-emitter` validates expected output relationships and includes the linked artifacts in the product generation transaction. If
+invocation or validation fails, the emitter removes private generation state and preserves the preceding published generation.
 
 ---
 
@@ -340,14 +348,14 @@ linkers.
 
 ---
 
-## Initial Implementation Order
+## Dependency And Conformance Order
 
-The linker should be implemented in this order:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
 
 1. Define typed plan, input, product, driver identity, outcome, and linked artifact contracts.
 2. Implement deterministic plan validation and ordering.
 3. Add an injectable external process boundary and recording test driver.
-4. Implement the first supported native linker driver.
+4. Implement each supported native linker driver against the complete capability contract.
 5. Implement deterministic static-library archiving.
 6. Integrate emitter-owned staging and linked artifact publication.
 7. Add structured diagnostics, cancellation, response files, and companion outputs.

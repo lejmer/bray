@@ -31,7 +31,7 @@ The binder and bound representation should:
 - preserve enough source correlation for precise diagnostics and tooling,
 - orchestrate checker services without owning their semantic rules,
 - represent erroneous source explicitly and continue without panics,
-- support lazy queries, independent parallel work, cancellation, and future incremental reuse,
+- support lazy queries, independent parallel work, cancellation, and incremental reuse,
 - give lowering every semantic decision it needs without requiring source reinterpretation,
 - keep declaration-surface symbols separate from region-scoped local symbols,
 - avoid cloning syntax, symbol records, or bound subtrees merely to cross phase boundaries.
@@ -103,7 +103,7 @@ A semantic unit is the smallest independently requested, checked, cached, and pu
 Not every binder query produces a semantic unit. A binding-dependent symbol fact can return an exact semantic value such as a
 resolved type, trait application, or overload target without publishing a bound tree.
 
-Initial semantic unit categories are:
+The semantic unit categories are:
 
 - a declared callable or lifecycle body,
 - an anonymous callable together with its signature, contracts, and body,
@@ -112,6 +112,10 @@ Initial semantic unit categories are:
 
 Patterns, blocks, match arms, and ordinary nested expressions belong to their containing unit. They are not independently published
 merely because they have their own lexical scopes.
+
+This category set is exhaustive for source constructs that own independently checked bodies or expressions. A new language
+construct must either map to one of these categories or extend the closed semantic-unit kind, root, query, lifecycle, interface,
+and lowering contracts together. It cannot create an ad hoc independently cached tree outside this model.
 
 ### Bound Tree
 
@@ -669,8 +673,8 @@ It constructs a private `Binder` with the injected fact context and rejects unit
 graph.
 
 The binder fact context also exposes the canonical `bray_target::TargetProfile`. Binding that depends on pointer width, machine
-properties, or another language-visible target fact must request that profile explicitly. It must not inspect the compiler host or
-accept a missing target value as a portable fallback.
+properties, or another language-visible target property must request that profile explicitly. It must not inspect the compiler
+host or accept a missing target value as a portable fallback.
 
 The typed bound-unit and semantic-fact accessors are the public demand model. `CheckerUnitView` is validated borrowed input to a
 focused checker service, not a query object or evidence that other domains completed. Dependency recording, scheduling, waiting,
@@ -1361,7 +1365,7 @@ other outcomes required by the unit contract instead of collapsing every termina
 The shared control-flow graph does not imply one universal data-flow state. Each analysis domain owns its lattice, transfer
 functions, merge rules, direction, diagnostics, and durable result projection.
 
-Initial domains include:
+The complete focused-domain set is:
 
 - reachability and control completion,
 - storage initialization and partial initialization,
@@ -1384,6 +1388,10 @@ graph. Dependency-contract propagation consumes the checked storage, capability,
 A reusable worklist engine is appropriate for domains that genuinely share fixed-point mechanics. Domain policy remains in concrete
 checker modules and typed state. The engine must not force unrelated facts into one optional-field record or erase outcomes behind
 untyped maps.
+
+A semantic rule that requires durable flow state must be assigned to one listed domain, folded into the composite storage-flow
+domain when it participates in that fixed point, or added as a new typed domain with explicit prerequisites, convergence rules,
+result projection, and diagnostic ownership. No checker rule may retain an unregistered parallel flow state.
 
 State propagation should use dense typed maps, bit sets, persistent sharing, deltas, or other representations appropriate to each
 domain. It must not clone the whole graph or an entire large state for every edge merely to simplify the worklist implementation.
@@ -1414,8 +1422,8 @@ Only durable facts promised by a semantic query are published. Full block-entry 
 counts, temporary alias sets, and intermediate fixed-point iterations are discarded after checking unless a separate tooling query
 explicitly requests a derived control-flow view.
 
-A future tooling control-flow query can publish an immutable source-correlated projection keyed by the bound unit. That projection
-is a separate lazy fact with its own stable contract. It does not expose checker-private IDs or make the control-flow graph canonical
+The tooling control-flow query publishes an immutable source-correlated projection keyed by the bound unit. That projection is a
+separate lazy fact with its own stable contract. It does not expose checker-private IDs or make the control-flow graph canonical
 compiler state.
 
 ### Determinism, Parallelism, And Recovery
@@ -1574,20 +1582,14 @@ Observable IDs, node order, lookup results, nested-unit order, and diagnostics m
 
 ## Incrementality And Reuse
 
-The first binder implementation does not require a complete incremental engine, but its contracts must allow one.
+Binding follows the compiler-wide snapshot, invalidation, and reuse contract in `compiler-architecture.md`. Each result records the
+syntax, symbols, target properties, compiler-known catalog entries, selected implementations, and semantic results it consumed.
+Published units, trees, and side facts structurally share unchanged syntax, symbols, bound arenas, and semantic results while
+preserving ownership and source correlation.
 
-Requirements:
-
-- query keys include every semantic input that can affect the result,
-- syntax, symbol facts, target facts, and selected implementation dependencies are recorded explicitly,
-- published units and trees are immutable,
-- unit and local IDs are interpreted only within their compilation snapshots,
-- persisted references use stable keys and source anchors rather than raw arena slots,
-- unchanged units can be reused only when their exact dependency fingerprints remain valid,
-- replacing one body does not rebuild the compilation-wide symbol graph or unrelated local snapshots.
-
-Structural sharing is permitted when ownership and source-correlation contracts remain clear. The binder should not clone a complete
-unchanged tree merely to attach one changed side fact.
+Replacing one body does not rebuild the compilation-wide symbol graph or unrelated local snapshots. Unit and local IDs remain
+snapshot-local and are remapped from stable keys and source anchors. The binder does not clone a complete unchanged tree merely to
+attach one changed side fact.
 
 ---
 
@@ -1726,9 +1728,10 @@ structured diagnostics, never memory unsafety or user-triggered panics.
 
 ---
 
-## Initial Implementation Sequence
+## Dependency And Conformance Order
 
-Implementation should proceed in dependency order:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined
+above:
 
 1. Define canonical type, constant, open-term, source type-expression template, substitution,
    dependency-contract-template, and semantic-store contracts in `bray-symbols`.
@@ -1741,10 +1744,10 @@ Implementation should proceed in dependency order:
 8. Define the task-local `Binder`, its builders, checkpoints, frozen output, and deterministic query-dependency recording.
 9. Implement typed name and path resolution over surface and local symbol APIs.
 10. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
-11. Add expression, call, member, conversion, and control-flow bound nodes incrementally by grammar category.
+11. Complete each grammar category against the closed bound-node registry and semantic-unit contract.
 12. Define the shared checker-internal control-flow graph, typed edge refinements, and reusable fixed-point mechanics.
 13. Integrate focused checker domains as typed side facts over canonical bound units.
 14. Add deterministic diagnostic aggregation, cancellation, speculation, recovery, convergence, and parallel-query tests.
-15. Establish the completed-HIR-to-`bray-ir` MIR boundary before implementing production lowering.
+15. Establish the completed-HIR-to-`bray-ir` MIR boundary and its complete lowering input contract.
 
 Each step must publish only complete immutable facts and must not add temporary eager workflow APIs.

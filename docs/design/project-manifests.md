@@ -11,6 +11,7 @@ part of the program, and the build, source, and dependency graphs are visible an
 - canonical portable project paths,
 - validation of package, product, source-root, feature, target, dependency, and output selections,
 - deterministic discovery of Bray source files beneath declared source roots,
+- generated-source plans, output validation, and immutable generated source nodes,
 - and the immutable package graph consumed by compilation and tooling.
 
 `bray-project` composes semantic package and product identities from `bray-symbols` and target identities and output categories from
@@ -20,20 +21,26 @@ user-facing orchestration.
 Bray Tack is the user-facing orchestrator over this contract. It is not the owner of project semantics. Compiler,
 inspection, and language-tooling entry points consume an already loaded explicit graph and must not perform dependency discovery.
 
-## Bootstrap Serialization
+## Manifest Serialization
 
-The bootstrap manifest serialization is strict UTF-8 JSON:
+The canonical manifest serialization is strict UTF-8 JSON:
 
 - `bray-workspace.json` is the single manifest at a workspace root.
 - `bray-package.json` is the single manifest in every directory listed by the workspace.
-- `format` is the explicit serialization revision. The only current revision is `1`.
+- `format` is the exact serialization revision. Revision `1` defines the schema in this document.
 - Unknown fields are rejected.
 
-JSON is a narrow serialization choice, not a package-management model. It gives the greenfield implementation a standard,
-deterministic parser, explicit arrays and objects, and strict unknown-field handling without introducing a manifest language,
-configuration evaluator, or second build DSL. The semantic contract is Bray-owned and independent of Rust or Cargo. A future
-serialization change requires a deliberate format revision or a replacement design; it must not silently reinterpret existing
-project files.
+Each compiler release has an explicit dispatch table of supported revisions. A revision defines the complete schema, validation,
+defaults, and canonical semantic projection, and a loader rejects unsupported revisions and unknown fields. The canonical writer
+emits no byte-order mark, uses LF line endings, two-space indentation, schema property order, canonical JSON escaping, normalized
+set-like array order, and one final newline. Input formatting and semantically irrelevant array order do not affect the immutable
+project graph or its content identity.
+
+JSON is a serialization choice, not a package-management model. It provides explicit arrays and objects and strict unknown-field
+handling without introducing a manifest language, configuration evaluator, or second build DSL. The semantic contract is
+Bray-owned and independent of Rust or Cargo. An incompatible JSON schema uses a new exact revision. A replacement serialization
+uses new canonical workspace and package filenames, forbids both serialization families at one manifest boundary, and provides an
+explicit converter rather than silently reinterpreting existing files.
 
 Package manifests declare semantic package versions. They do not contain version ranges, registries, repository URLs, lockfile
 references, resolution strategies, or acquisition instructions. There is no automatic dependency acquisition.
@@ -123,18 +130,22 @@ build products:
       "path": "src"
     }
   ],
-  "dependencies": [
-    {
-      "package": "example.math",
-      "product": "math"
-    }
-  ],
   "products": [
     {
       "name": "application",
       "kind": "executable",
       "source_roots": ["main"],
       "targets": ["native"],
+      "dependencies": [
+        {
+          "package": "example.math",
+          "product": "math",
+          "when": {
+            "property": "target.identity.SYSTEM",
+            "equals": "linux"
+          }
+        }
+      ],
       "outputs": ["dependency_metadata", "executable"]
     }
   ]
@@ -162,20 +173,92 @@ The graph stores workspace-relative source paths, not host-absolute paths. A pro
 deduplicated union of those roots' source nodes. Source-root declaration order and filesystem enumeration order have no semantic
 effect.
 
-Generated source is not implicit. A future generated-source design must represent the generator, inputs, output identity,
-permissions, and reproducibility contract as explicit graph nodes before generated files can participate.
+Generated source is represented by explicit generated-source graph nodes. Each node declares a package-local stable generator
+name, the exact tool artifact and toolchain identity, ordered source, data, and configuration inputs, target dependencies, declared
+output identities, and a closed permission set. Generated outputs use the exact `.bray` extension and cannot overlap another output
+from the same generated-source graph.
+
+Generator execution receives only its declared inputs, exact manifest-declared environment values, and declared capabilities. It
+runs in a sandbox without ambient filesystem or network discovery. Source generators cannot request network access. Their cache
+key covers the generator identity, tool artifact digest, toolchain identity, input content digests, environment values, selected
+target properties, permissions, and generator schema revision. Successful output bytes are hashed and become immutable source
+snapshots before the product source graph is frozen. Producing different bytes for the same key is a generator invariant failure.
+Missing, extra, colliding, or path-escaping outputs are errors. Failure or cancellation publishes no graph node or cache entry.
+
+`bray-project` owns generator semantics, cache identities, output validation, and graph publication. The compiler host supplies an
+injected sandbox executor and the exact resolved tool artifacts. That executor runs a closed request and returns bytes and typed
+host failure categories. It does not interpret manifests, discover inputs, choose permissions, or publish source nodes.
+
+Package manifests declare generators and products select them explicitly:
+
+```json
+{
+  "format": 1,
+  "identity": "example.application",
+  "version": "1.0.0",
+  "features": [],
+  "source_roots": [
+    {
+      "name": "main",
+      "path": "src"
+    }
+  ],
+  "generators": [
+    {
+      "name": "bindings",
+      "tool": {
+        "package": "example.binding-generator",
+        "product": "generator",
+        "target": "build-host"
+      },
+      "inputs": ["schema/service.json"],
+      "generated_inputs": [],
+      "outputs": ["generated/bindings.bray"],
+      "environment": {},
+      "permissions": {
+        "network": false
+      }
+    }
+  ],
+  "products": [
+    {
+      "name": "application",
+      "kind": "executable",
+      "source_roots": ["main"],
+      "generated_sources": ["bindings"],
+      "targets": ["native"],
+      "dependencies": [],
+      "outputs": ["executable"]
+    }
+  ]
+}
+```
+
+The tool names one exact workspace executable product built for a workspace target that is compatible with the compiler host and
+contributes a typed host-tool dependency to the graph. Tool dependencies and generated-source dependencies are acyclic. `inputs`
+are exact package-relative portable file identities. Each `generated_inputs` entry has the exact shape
+`{"generator": name, "output": identity}` and names another generator and one of its declared outputs. The resulting dependency
+graph determines execution order. `outputs` are exact generator-relative portable identities
+rather than globs, directories, or workspace paths. The graph identifies an output by package, generator, selected target, and
+output identity, and execution writes it only beneath a
+private managed generator root. Generated source never mutates or impersonates a source-tree file. `environment` maps names to exact
+UTF-8 values rather than reading the host environment. The revision-1 permission object has the single required field `network`,
+whose only valid value for a source generator is `false`. A product cannot select a generator whose tool or execution contract is
+unavailable on the compiler host.
 
 ### Dependencies
 
-Each dependency edge names one exact package identity and one exact library product. The selected package must appear in the
+Each product dependency edge names one exact package identity and one exact library product. The selected package must appear in the
 workspace inventory, and the product must appear in that package's manifest with kind `library`.
 
 Dependency edges contain no location, version requirement, range, registry, URL, or fallback. Location and the exact selected
 package version are supplied by the workspace's project-owned package inventory. A missing package or product is an error; it
 never starts a search.
 
-Package dependencies must be acyclic. A dependency package is built before its dependents. Independent packages are ordered by
-canonical package identity, so manifest ordering and parallel scheduling cannot affect the published build order.
+For each selected target, active product edges induce both an acyclic package dependency graph and an acyclic product dependency
+graph. A package cannot depend transitively on itself through different products. A dependency product is built before its
+dependents. Independent products are ordered by canonical package and product identity, so manifest ordering and parallel
+scheduling cannot affect the published build order.
 
 A test product may select one sibling library product through `tested_library`. The selected library is built first and its emitted
 public interface and implementation are supplied to the test compilation as an external dependency. The test product does not
@@ -187,9 +270,20 @@ configured standard-library root as a separate immutable build input under the
 [standard-library artifact contract](standard-library.md). When selected, `std` still enters the ordinary dependency graph and
 follows ordinary visibility rules. Workspace packages cannot claim the reserved `std` or `std.*` identities.
 
-The initial contract applies dependencies package-wide. It does not speculate about conditional, platform-specific, or
-product-specific dependency activation. Such behavior would require an explicit graph contract rather than hidden selection
-policy.
+Dependencies are product-scoped. An edge may carry an explicit target predicate expressed only over language-defined target
+properties. The predicate grammar is a closed normalized tree of `all`, `any`, `not`, equality, inequality, and membership tests
+over literal property values. Loading validates every referenced property and value against each selected target, evaluates the
+predicate deterministically, and retains both the normalized predicate and its evaluated property dependencies in graph identity.
+An omitted predicate means unconditional. Features, host properties, environment variables, filesystem presence, and dependency
+availability never activate an edge implicitly.
+
+The serialized shapes are `{"all": [predicate, ...]}`, `{"any": [predicate, ...]}`, `{"not": predicate}`,
+`{"property": name, "equals": value}`, `{"property": name, "not_equals": value}`, and
+`{"property": name, "in": [value, ...]}`. Empty `all` is true, empty `any` is false, membership values are sorted and unique in
+the canonical projection, and every other object shape or combination is invalid.
+
+Package-wide dependency syntax is not part of the manifest schema. The published graph and every downstream compiler contract
+contain only product-scoped edges.
 
 ### Products
 
@@ -199,24 +293,25 @@ Product `kind` is one of:
 - `library`,
 - or `test`.
 
-A product selects one or more declared source roots, one or more workspace target configurations, and one or more target output
-categories. Output category names correspond to `bray-target`'s backend-neutral output contract:
+A product selects one or more declared source roots, one or more workspace target configurations, and one or more external output
+categories. Output category names correspond to `bray-emitter`'s canonical external artifact taxonomy:
 
 - `assembly`,
 - `backend_ir`,
-- `backend_bitcode`,
+- `backend_opaque`,
 - `relocatable_object`,
 - `executable_module`,
 - `debug_companion`,
 - `package_interface`,
+- `package_implementation`,
 - `dependency_metadata`,
 - `executable`,
 - `static_library`,
 - `shared_library`,
 - and `linked_companion`.
 
-The manifest chooses required output categories; target policy later chooses external names, prefixes, and suffixes. Emission owns
-artifact planning and publication beneath `output_root`.
+The manifest chooses required output categories. `bray-target` supplies target-specific availability, names, prefixes, and suffixes,
+while emission owns artifact planning and publication beneath `output_root`.
 
 ## Immutable Graph Contract
 
@@ -224,11 +319,14 @@ A successful load publishes a `ProjectGraph` containing:
 
 - the canonical output root,
 - target configurations sorted by workspace-local name,
-- package nodes in dependency-first build order,
-- each package's identity, resolved semantic version, role, portable directory, declared and enabled features, source roots,
-  dependencies, and products,
+- package inventory nodes in canonical package identity order,
+- each package's identity, resolved semantic version, role, portable directory, declared and enabled features, source roots, and
+  products,
 - each source root's exact sorted source files,
-- and each product's exact source, target, and output selections.
+- each generated-source node's identity, declared inputs, permissions, cache identity, outputs, and output digests,
+- each product's exact source, target, dependency, and output selections,
+- active package nodes in dependency-first order for each target,
+- and selected product nodes in dependency-first order for each target.
 
 The graph has no mutable caches or ambient lookup hooks. Shared readers may safely use it from parallel compilation, inspection,
 and language-tooling work. Demand-driven compiler facts may retain or index graph values, but may not mutate project semantics.
@@ -247,7 +345,10 @@ Manifest loading emits locale-neutral structured diagnostics through `bray-diagn
 - invalid source roots,
 - missing dependency packages,
 - invalid dependency products,
-- and dependency cycles.
+- invalid target predicates,
+- invalid generator tools, inputs, outputs, environment, or permissions,
+- generated-source execution and reproducibility failures,
+- and product, host-tool, or generated-source dependency cycles.
 
 The loader retains exact validation categories in `ProjectLoadError`; localized prose is rendered only through `bray-messages`.
 Parser-library prose is not forwarded as a compiler diagnostic.
@@ -264,7 +365,7 @@ This contract does not define or imply:
 - version requirement solving,
 - lockfile generation,
 - repository synchronization,
-- build scripts,
+- unconstrained build scripts or arbitrary build-time commands,
 - compiler plugins,
 - or network behavior.
 

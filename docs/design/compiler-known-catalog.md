@@ -104,8 +104,8 @@ declaration surface. Checking, lowering, constant evaluation, and code generatio
 
 ### Availability Rule
 
-An availability rule is a closed Rust enum value identifying a language-defined predicate over target facts. The catalog selects the
-rule. Target-profile logic evaluates it for a compilation.
+An availability rule is a closed Rust enum value identifying a language-defined predicate over target properties. The catalog
+selects the rule. Target-profile logic evaluates it for a compilation.
 
 ---
 
@@ -165,7 +165,7 @@ Later consumers interpret typed metadata without adding reverse dependencies:
 
 ### Module Shape
 
-The initial crate layout should follow the thin-root module rule:
+The canonical crate layout follows the thin-root module rule:
 
 ```text
 crates/bray-compiler-known/
@@ -209,7 +209,7 @@ when that keeps generated diffs and incremental Rust compilation focused.
 Checked-in definitions live under `crates/bray-compiler-known/catalog/` because they are owned by the compiler-known catalog crate.
 They must not live under `bray-syntax/src/syntax/`, the language specification, or a source package directory.
 
-Files should be grouped by semantic domain rather than by implementation consumer. Expected groups include:
+Files are grouped by semantic domain rather than by implementation consumer. The canonical groups are:
 
 - ambient scalar and fundamental declarations,
 - compiler-known result, async computation, task, and execution-context declarations,
@@ -318,17 +318,21 @@ They do not become new public `SyntaxKind` values.
 Whitespace and comments are insignificant to catalog semantics but remain available in the internal source snapshot for developer
 diagnostics.
 
-Catalog files use UTF-8. Include paths are not part of the initial language because the canonical source manifest is owned by Rust.
-The generated catalog must work in an installed compiler without filesystem access.
+Catalog files use UTF-8. Include paths are not part of the catalog language. The canonical Rust-owned source manifest lists every
+catalog file and is the sole composition mechanism. The generated catalog works in an installed compiler without filesystem
+access.
 
 ### Grammar
 
-The initial outer grammar should be:
+The versioned outer grammar is:
 
 ```ebnf
 catalog-file =
-    "catalog" catalog-kind ";"
+    "catalog" catalog-kind "revision" catalog-revision ";"
     { scope-declaration } ;
+
+catalog-revision =
+    integer-literal ;
 
 catalog-kind =
       "compiler_known"
@@ -413,8 +417,10 @@ The `kind` field supplies a compiler-owned semantic category that Bray declarati
 capability uses a predicate-shaped declaration fragment only to carry its name through the private catalog grammar. Symbol
 construction must materialize it as a trusted capability, never as a callable predicate.
 
-The parser should reject unknown fields, duplicate fields, missing required fields, unsupported entry kinds, and trailing tokens.
-The initial format does not preserve unknown metadata for possible future interpretation.
+Every source file declares the same exact supported catalog revision. A revision defines the complete grammar, field registry,
+required fields, defaults, and descriptor projection. The parser rejects unsupported revisions, unknown fields, duplicate fields,
+missing required fields, unsupported entry kinds, non-canonical literals, and trailing tokens. Catalog semantics never depend on
+preserving unknown metadata for another compiler version.
 
 Every `recognized_standard_library` declaration requires an explicit `identity` field. Compiler-known declarations cannot use this
 field. Named and ordinal values are owner-relative external identity components, not catalog keys and not values inferred from the
@@ -461,7 +467,8 @@ without placing catalog-only annotations inside Bray syntax.
 
 Container declaration surfaces use syntactically empty bodies when their independently identified members are supplied by owned
 entries. Signature-owned children such as generic parameters and callable parameters remain in the declaration surface and do not
-need separate catalog entries unless a future language rule requires an independent catalog identity.
+need separate catalog entries. A language-specification change that gives one of them independent catalog identity must extend the
+closed descriptor and grammar contracts together.
 
 Ownership is resolved after all files have been parsed, so owners can be declared in another file or later in source order. The
 validated owner graph must be acyclic and compatible with the declaration contexts allowed by the Bray grammar.
@@ -584,7 +591,7 @@ They must not publish parallel string-keyed registries or move executable behavi
 Availability rule spellings map exhaustively to a Rust enum owned by `bray-compiler-known`.
 
 The catalog does not contain an arbitrary boolean expression evaluator. Rust implements each language-defined predicate over typed
-target facts. `Always` is the default when the field is absent.
+target properties. `Always` is the default when the field is absent.
 
 The global catalog retains every declaration. A target-specific catalog view filters or marks entries through a lazy compilation
 fact. Target selection must not mutate the process-wide catalog.
@@ -723,7 +730,7 @@ No partially validated catalog is emitted or observable to production compiler c
 
 ### Semantic Validation
 
-Some catalog validity requires symbols, binding, checking, or target facts and therefore cannot be implemented inside
+Some catalog validity requires symbols, binding, checking, or target properties and therefore cannot be implemented inside
 `bray-compiler-known` without creating dependency cycles.
 
 Those checks use ordinary later-phase APIs after the compiler-known identity skeleton exists. Examples include:
@@ -920,9 +927,9 @@ Tests should compare stable keys and typed relationships rather than relying on 
 
 ---
 
-## Initial Implementation Sequence
+## Dependency And Conformance Order
 
-Implementation should proceed in dependency order:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
 
 1. Add `bray-compiler-known` with stable keys, metadata enums, immutable descriptor types, and the canonical source manifest.
 2. Add the private catalog lexer cursor, parser, structural validation, and deterministic descriptor builder.

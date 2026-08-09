@@ -56,7 +56,7 @@ layout.
 Rule interaction and precedence must be deterministic and documented. Formatting the same source with the same configuration
 always produces the same result, and formatting that result again makes no changes.
 
-Initial rule names include:
+The canonical rule registry is exhaustive for independently configurable behavior:
 
 - `indentation`,
 - `block-braces`,
@@ -88,8 +88,17 @@ Initial rule names include:
 - `final-newline`,
 - `simplify-nested-if`.
 
-This registry grows when another independently configurable behavior is introduced. A broad rule must not hide unrelated style
-decisions merely to avoid assigning them stable names.
+Each registry entry declares its stable name, default state, typed parameter schema, owned formatting decisions, dependencies, and
+conflicts. Adding an independently configurable behavior requires adding a registry entry and configuration, documentation,
+idempotence, and interaction tests in the same change. A broad rule cannot hide unrelated style decisions merely to avoid assigning
+them stable names.
+
+Rule application has one canonical precedence. Recovery preservation decides whether formatting is allowed. Enabled syntax rewrites
+then produce the token sequence. Comment ownership and required structural breaks constrain layout groups. Delimiter and list rules
+choose group structure, spacing rules choose intra-group separation, line wrapping chooses among legal breaks, and line-ending and
+final-newline rules serialize the result. A lower stage cannot undo a constraint established by a higher stage. Rule descriptors
+record any same-stage ordering explicitly, and an unrecorded conflict is a formatter invariant failure rather than an order chosen
+by registry iteration.
 
 An explicitly selected formatter configuration is a JSON object with an optional positive `maximum_line_width` and an optional
 `rules` object whose keys are stable rule names and whose values are Booleans:

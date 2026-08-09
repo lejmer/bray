@@ -23,7 +23,7 @@ The design must provide:
 - and a narrow allocation of responsibility across source, compiler, runtime, platform, and native-shim layers.
 
 The design must preserve the existing language contracts for `@abi(...)`, `@layout(...)`, `@link(...)`, `@symbol(...)`, `extern`,
-raw pointers, trusted capabilities, target facts, and module contribution gates.
+raw pointers, trusted capabilities, target properties, and module contribution gates.
 
 ## Principles
 
@@ -54,8 +54,8 @@ The public surface belongs to the canonical `std` package:
 | `std.os.darwin` | Darwin-only low-level descriptors, constants, and direct system facilities |
 
 These are ordinary Bray modules. None becomes ambient or compiler-known merely because it wraps a foreign mechanism. The compiler
-recognizes only the language-owned ABI, layout, pointer, capability, target-fact, and runtime-role identities already assigned by
-their specifications.
+recognizes only the language-owned ABI, layout, pointer, capability, target-property, and runtime-role identities already assigned
+by their specifications.
 
 Portable facilities remain in their owning modules. Files stay in `std.fs`, child processes stay in `std.process`, sockets stay in
 `std.net`, clocks stay in `std.time`, and threads stay in `std.thread`. Those modules may use `std.ffi` internally but must not
@@ -73,8 +73,8 @@ them.
 
 ### C Values
 
-C scalar declarations are transparent standard-library value types selected by the exact `target.c` facts defined in the target
-profile language contract. The initial family covers:
+C scalar declarations are transparent standard-library value types selected by the exact `target.c` properties defined in the
+target-profile language contract. The complete family covers:
 
 - signed and unsigned `char`, `short`, `int`, `long`, and `long long`,
 - `size_t`, `ptrdiff_t`, and `wchar_t`,
@@ -86,10 +86,16 @@ explicit checked or wrapping operation according to the named conversion. Observ
 No general module-level type alias is introduced, and a C wrapper is not implicitly interchangeable with an equal-width Bray
 scalar.
 
-Each fact maps one C type to a canonical Bray scalar spelling or `"unavailable"`. The target profile validator guarantees equal
+Each property maps one C type to a canonical Bray scalar spelling or `"unavailable"`. The target-profile validator guarantees equal
 value representation, size, alignment, and C callable classification. The standard library then selects one target-gated
-transparent wrapper by an exact fact comparison. A wrapper is unavailable when its fact is `"unavailable"`. Compiled package
-interfaces record every `target.c` fact that affects a public representation.
+transparent wrapper by an exact property comparison. A wrapper is unavailable when its property is `"unavailable"`. Compiled
+package interfaces record every `target.c` property that affects a public representation.
+
+The wrapper registry is exhaustive for `CHAR`, `SIGNED_CHAR`, `UNSIGNED_CHAR`, `SHORT`, `UNSIGNED_SHORT`, `INT`, `UNSIGNED_INT`,
+`LONG`, `UNSIGNED_LONG`, `LONG_LONG`, `UNSIGNED_LONG_LONG`, `SIZE`, `PTRDIFF`, `WCHAR`, `BOOL`, `FLOAT`, `DOUBLE`, and
+`LONG_DOUBLE`. Each wrapper is generated or selected from its own exact property rather than inferred from width, a neighboring C
+type, or the compiler host. The registry validates availability, Bray scalar identity, transparent layout, and by-value C ABI
+classification together. An `"unavailable"` mapping produces no declaration and no approximate byte-product substitute.
 
 Fixed-width C APIs should use Bray's fixed-width scalar types directly when the C declaration guarantees that exact representation.
 The named C wrappers are for declarations whose ABI follows target C types rather than fixed widths.
@@ -182,10 +188,10 @@ obligations. Converting an untyped address to either form is trusted and rejects
 Closing consumes the library owner. Lookup failure does not close the library. A library with active symbol borrows cannot be
 closed or transferred. Destruction resolves an otherwise live library according to the foreign-resource rules.
 
-Dynamic loading is target-conditional through the boolean `target.platform.dynamic_loading` fact. The public value and error types
-can remain available for generic signatures, while open and lookup operations are unavailable when that fact is false. The fact is
-part of the language-defined closed `target.platform` surface and participates in target gates and compiled-interface dependencies
-like the existing filesystem and child-process facts.
+Dynamic loading is target-conditional through the boolean `target.platform.dynamic_loading` property. The public value and error
+types remain available for generic signatures, while open and lookup operations are unavailable when that property is false. The
+property is part of the language-defined closed `target.platform` surface and participates in target gates and compiled-interface
+dependencies like the existing filesystem and child-process properties.
 
 ## Foreign Callbacks
 
@@ -257,7 +263,7 @@ system-call-shaped records, and OS-specific control operations.
 
 Each source contribution uses an exact gate over `target.identity.SYSTEM`, for example a Windows contribution compares the selected
 system with `"windows"`. The gate is evaluated before declaration identity and body checking. Package interfaces retain the target
-facts that affect every public target-specific declaration.
+properties that affect every public target-specific declaration.
 
 Native constants have one authority: generated target-specific Bray source checked into the standard-library tree. `cargo xtask`
 generation reads only pinned target SDK descriptions, writes canonical source with its input digest, and fails verification when
@@ -283,7 +289,7 @@ The compiler owns:
 - target ABI and layout mapping,
 - `@link(...)` and `@symbol(...)` semantic contracts,
 - foreign import and export classification,
-- target-gate evaluation and target-fact dependency recording,
+- target-gate evaluation and target-property dependency recording,
 - checked callback-context transfer, affinity, effect, and lifetime facts,
 - exported-wrapper generation,
 - immutable native-link requirements,
@@ -392,14 +398,14 @@ Conformance coverage must include:
 Native conformance fixtures use fixed small C ABI surfaces and do not make host-specific behavior part of portable library
 semantics. Tests distinguish compiler diagnostics, typed operational failures, panic containment, and infrastructure failures.
 
-## Implementation Order
+## Dependency And Conformance Order
 
-The implementation follows the dependency direction encoded by this contract:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
 
 1. Publish C ABI value, string, error, and conversion conveniences over the existing language ABI machinery.
 2. Establish canonical foreign-resource and native-handle ownership helpers.
 3. Implement dynamic libraries, foreign callbacks, and target-specific operating-system modules over those foundations.
-4. Add end-to-end native conformance only after every mechanism and cleanup path exists.
+4. Add end-to-end native conformance for every mechanism and cleanup path.
 
 Dynamic libraries additionally depend on the handle ownership contract even though a loader can expose an address without it.
 Foreign callbacks depend on private runtime-thread entry, not on the public native-thread standard-library API.

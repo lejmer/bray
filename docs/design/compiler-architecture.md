@@ -2,6 +2,10 @@
 
 This document defines the goal-state architecture for the Bray compiler implementation.
 
+Design specifications describe the complete intended architecture and behavior. Delivery may proceed in dependency order, but a
+design requirement cannot be weakened for a delivery stage. Any staged delivery described here must preserve the final ownership
+boundaries, public contracts, identities, and sources of truth at every stage.
+
 The language design documents define Bray semantics.
 
 The compiler architecture defines how the implementation is organized so those semantics remain maintainable, testable, and
@@ -668,9 +672,9 @@ MIR validation failures indicate compiler bugs.
 Code generation converts validated Bray MIR into semantically complete backend-specific low-level IR through a coarse typed backend
 contract.
 
-LLVM is Bray's first production backend. LLVM bindings, types, modules, target machines, optimization pipelines, and diagnostics are
-isolated in `bray-codegen-llvm`. They must not appear in `bray-ir`, backend-neutral codegen contracts, compilation facts, or
-emission APIs.
+LLVM is Bray's primary conforming native backend. LLVM bindings, types, modules, target machines, optimization pipelines, and
+diagnostics are isolated in `bray-codegen-llvm`. They must not appear in `bray-ir`, backend-neutral codegen contracts, compilation
+facts, or emission APIs.
 
 `bray-codegen` owns backend selection, codegen-unit partitioning, reachable concrete monomorphized-instance collection, backend
 identity, capabilities, requests, and outcomes. It packages canonical layout, ABI, symbol, target, runtime, and linkage facts that
@@ -679,9 +683,10 @@ earlier phases already resolved. It does not reinterpret source directives or re
 The compiler composition root supplies the selected backend through that backend-neutral contract. `bray-compilation` coordinates
 its lazy facts without depending on `bray-codegen-llvm` or inspecting backend-private state.
 
-The first product model uses native ahead-of-time generation. `bray-codegen-llvm` constructs LLVM IR in task-local modules. An
-emitter-owned artifact request determines whether the backend serializes LLVM IR, bitcode, assembly, relocatable objects, or debug
-artifacts from those modules.
+Native ahead-of-time generation is a supported product model. `bray-codegen-llvm` constructs LLVM IR in task-local modules. An
+emitter-owned artifact request determines which supported artifacts the backend must serialize from those modules. Backend
+selection is valid only when the backend declares capabilities for the requested product kind, target, artifact kinds, runtime
+contract, debug policy, optimization policy, and reproducibility contract.
 
 Code generation does not own language semantics.
 
@@ -940,6 +945,22 @@ Fact contracts must be complete within their promised boundary. Do not model one
 were evaluated.
 
 Do not turn ordinary helper functions into queries merely because they are reusable.
+
+### Snapshots, Invalidation, And Reuse
+
+Every compiler request evaluates against an immutable `CompilationSnapshot` identified by the selected project graph, source
+snapshots, product, target profile, compiler semantic revision, and toolchain inputs. Every published fact has a typed key, content
+fingerprint, and exact typed dependency keys and fingerprints. The query graph retains reverse dependencies so replacing an input
+invalidates exactly its transitive consumers.
+
+Complete immutable facts may be structurally shared between snapshots or loaded from a process-local or persistent
+content-addressed store only when their schema, compiler semantic revision, typed key, direct inputs, target dependencies, and
+recorded dependency fingerprints match exactly. Cancellation, invariant failure, and incomplete computation publish no reusable
+entry. Discarding any cache cannot change compilation semantics.
+
+Numeric arena and semantic IDs are snapshot-local handles. Persistent data uses stable structural keys and source anchors, and a
+snapshot deterministically remaps reused values into its local IDs. Raw pointers, arena slots, request order, worker order, process
+identity, and process-global mutable state are never persistent identities.
 
 ### Context Handles
 

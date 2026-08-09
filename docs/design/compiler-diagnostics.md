@@ -51,7 +51,7 @@ Diagnostic records can be created through phase-local builders, but published re
 Diagnostic records must not contain pre-rendered user-facing sentences.
 
 Diagnostic records can contain compiler-owned typed references such as source IDs, spans, syntax kinds, symbol IDs, type IDs,
-declaration IDs, operator kinds, counts, literal kinds, and target fact names.
+declaration IDs, operator kinds, counts, literal kinds, and target property names.
 
 When a diagnostic needs a source spelling, it should carry a source reference or stable source slice, not an already quoted English
 phrase.
@@ -226,10 +226,15 @@ The diagnostics crate owns the structured records and rendering contracts.
 
 The `bray-messages` layer owns localized text.
 
-The initial supported locale is English.
+Locale identities are canonical BCP 47 language tags. A compiler distribution contains an installed catalog bundle with a manifest
+that records the exact supported locale identities, catalog schema revision, message-set digest, and English fallback catalog.
+Every catalog supplies every registered message ID with the exact typed argument signature declared by `bray-messages`. Catalog
+validation rejects missing or extra messages, argument mismatches, invalid plural categories, and invalid locale identities.
 
-Adding a locale should require adding message catalogs and locale rules, not changing parser, binder, checker, lowering, codegen,
-or emitter logic.
+Rendering receives an ordered explicit locale preference list. Negotiation tries an exact installed identity and then its
+less-specific language identity for each preference in order. If none match, it selects `en`, which every conforming distribution
+must install. The compiler does not read a host locale implicitly. Adding a locale changes only the catalog bundle and locale-owned
+rendering data, not parser, binder, checker, lowering, codegen, or emitter logic.
 
 Localization owns:
 
@@ -243,10 +248,11 @@ Localization owns:
 
 Typed message arguments must preserve meaning.
 
-Compiler logic should pass `TypeId`, `SymbolId`, `SyntaxKind`, `OperatorKind`, `usize`, `Span`, `TargetFactId`, or similar typed
+Compiler logic should pass `TypeId`, `SymbolId`, `SyntaxKind`, `OperatorKind`, `usize`, `Span`, `TargetPropertyId`, or similar typed
 values rather than pre-rendered phrases.
 
-If a requested locale is unavailable, fallback behavior must be explicit and deterministic.
+An unavailable requested locale therefore has the deterministic English fallback. A missing English message or argument-signature
+mismatch is a compiler distribution invariant failure, not user-authored diagnostic text assembled by compiler logic.
 
 ---
 

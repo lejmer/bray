@@ -340,7 +340,7 @@ the same bytes for the product lifetime. A provider cannot use these roles to ex
 `platform.context.environment_key_equals` compares two call-only native-text values using the target process environment's key
 comparison rules. It writes `1` for equality and `0` otherwise. This role does not query mutable host environment state.
 
-### Closed Initial Role Catalog
+### Canonical Closed Role Catalog
 
 All roles return `status`. Output storage is committed only for `Success`, except that byte-transfer counts are valid for every
 transfer status and required lengths are valid for `InsufficientBuffer`.
@@ -419,8 +419,9 @@ Read and write starts use `byte_transfer`; flush starts use `status_only`; child
 | `0x0213` | `platform.path.rename` | `path source`, `path destination` | none | `filesystem` | `may_block`; no handle transition |
 
 `platform.directory.next` sets `end` to one only for `Success` with no entry. `InsufficientBuffer` reports the required native path
-byte length and does not advance. Public asynchronous filesystem operations dispatch these same roles to a checked blocking lane;
-the initial contract does not require a second native asynchronous filesystem role family.
+byte length and does not advance. Public asynchronous filesystem operations deliberately dispatch these same roles to a checked
+blocking lane. The platform ABI has no second native asynchronous filesystem role family because the public completion,
+cancellation, borrowing, and scheduling contracts are already expressed by the runtime lane and common operation contracts.
 
 #### Child processes
 
@@ -463,7 +464,7 @@ common operation roles and forwards cancellation only after terminal operation c
 
 Each process-context, stream, filesystem, child-process, clock, and entropy role requires its same-named capability. The three
 operation roles require `wait_integration`. A target contract must advertise the capability and every role in that capability's
-initial catalog before a trusted binding can use it.
+canonical catalog before a trusted binding can use it.
 
 `platform.timer.start` always returns a pending operation. Its terminal `AbiOperationResult` leaves both values zero.
 
@@ -564,7 +565,7 @@ terminal completion. A successful required owner result changes from `absent` to
 successful optional owner result changes to `owned` when nonzero and remains `absent` when zero. A close role changes its input from
 `owned` to `consumed` on every terminal status. `operation.complete` changes its operation input to `retained_owner` while pending
 and `consumed` when terminal. The wait-source result is `borrowed` and becomes invalid with terminal operation completion. These
-rules cover every handle effect in the initial catalog and are part of the canonical descriptor.
+rules cover every handle effect in the canonical catalog and are part of the canonical descriptor.
 
 ### ABI Values
 

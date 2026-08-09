@@ -27,7 +27,7 @@ The emitter architecture should:
 - own deterministic output names, sinks, staging, atomic publication, and artifact bookkeeping,
 - construct complete typed link plans without performing the final native link,
 - preserve complete diagnostics when artifact construction or publication cannot continue,
-- retain exact records for artifacts published before later failure or cancellation,
+- publish every required product artifact as one generation or publish none of that generation,
 - publish no incomplete individual artifact and never report a partial product as complete.
 
 ---
@@ -64,15 +64,15 @@ It does not contain mutable compiler state or backend-private values.
 ### Emission Plan
 
 An `EmissionPlan` is the complete validated immutable plan derived from one request and the selected product, target, backend
-capabilities, and completed package-interface artifact.
+capabilities, completed package-interface artifact, and completed implementation bundle when the product requires one.
 
 It fixes artifact identities, required and optional artifact kinds, logical ordering, output names, sinks, per-unit backend artifact
 requests, package-interface output, staging requirements, and prospective link outputs before backend emission or publication begins.
 
 The planning boundary is an immutable `EmissionPlanner` composed from target-output facts, an optional selected backend with its
-canonical codegen-unit keys and output policy, and an optional completed `InterfaceArtifact` for the selected product. Planning
-consumes one `EmissionRequest` and returns either the complete `EmissionPlan` or a typed planning error. Callers do not preassemble
-planned artifacts or backend artifact requests.
+canonical codegen-unit keys and output policy, an optional completed `InterfaceArtifact`, and an optional completed
+`ImplementationBundle` for the selected product. Planning consumes one `EmissionRequest` and returns either the complete
+`EmissionPlan` or a typed planning error. Callers do not preassemble planned artifacts or backend artifact requests.
 
 ### Artifact Contribution
 
@@ -82,8 +82,9 @@ their owning compilation facts.
 
 ### Output Sink
 
-An output sink is a typed destination selected by the plan. Initial sinks include a filesystem artifact path and an explicitly
-supplied writable stream or in-memory collector for embedding and tests.
+An output sink is one of the closed typed destinations selected by the plan: a managed filesystem product root, a host-provided
+transactional stream, or an in-memory transactional collector. A separately requested inspection artifact may use an explicit
+filesystem artifact path.
 
 A sink defines where bytes go, not what those bytes mean.
 
@@ -98,8 +99,10 @@ content digest, producer identity, and relationship to a product or link plan.
 
 ### Emission Outcome
 
-An `EmissionOutcome` contains complete emitted artifact records, an optional link plan, and the emission-owned diagnostic bag. A
-cancelled or failed outcome exposes no product-level success claim.
+An `EmissionOutcome` contains complete emitted artifact records, the `PublishedProductGeneration` when product publication succeeds,
+an optional link plan, and the emission-owned diagnostic bag. `PublishedProductGeneration` records the stable generation identity,
+manifest digest, publication-reference identity, and resolved artifact records. A cancelled or failed outcome exposes no
+product-level success claim.
 
 ---
 
@@ -109,7 +112,7 @@ The logical lifecycle is:
 
 ```text
 EmissionRequest
-    -> request completed package-interface artifact when the request selects `.brayi`
+    -> request completed package-interface and implementation-bundle artifacts selected by the product
     -> validate product, target, backend capabilities, interface identity, and destinations
     -> freeze immutable EmissionPlan
     -> request required package and semantic diagnostics
@@ -121,7 +124,7 @@ EmissionRequest
     -> construct immutable LinkPlan when required
     -> invoke bray-linker through the product emission operation
     -> validate the complete product result
-    -> publish planned external artifacts in deterministic order
+    -> atomically publish the complete product generation
     -> return EmissionOutcome
 ```
 
@@ -220,9 +223,10 @@ does not call instruction-level backend APIs.
 
 ---
 
-## Package-Interface Integration
+## Package Interface And Implementation Integration
 
-`.brayi` is an independently produced artifact contribution.
+`.brayi` and `.brayimpl` are independently constructed artifact contributions that participate in the product publication
+transaction.
 
 `bray-package-interface` owns:
 
@@ -232,38 +236,47 @@ does not call instruction-level backend APIs.
 - semantic content and artifact hashes,
 - the immutable completed `InterfaceArtifact`.
 
+The same crate owns the corresponding `.brayimpl` template selection, encoding, revision, hashing, and immutable completed
+`ImplementationBundle` contracts defined in `compiled-package-interfaces.md`.
+
 `bray-emitter` owns:
 
-- whether the selected product request includes `.brayi`,
+- whether the selected product request includes `.brayi` and `.brayimpl`,
 - its logical artifact identity and deterministic output name,
 - its output sink,
 - validation that the completed interface artifact matches the planned product,
 - staging, atomic publication, emitted length and digest bookkeeping,
 - publication diagnostics.
 
-The interface artifact does not pass through `CodeGenerator`, does not participate in the native link plan, and is never rebuilt by
-the emitter.
+Neither artifact passes through `CodeGenerator` or participates in the native link plan, and the emitter never rebuilds either one.
 
-Final library emission publishes `.brayi` only after the complete library product check required by emission succeeds. A standalone
-interface artifact request still obtains all compilation diagnostics required by the package-interface contract.
+Library emission publishes these artifacts only as part of a complete validated product generation. A standalone independent
+inspection request still obtains every compilation diagnostic required by its package-interface or implementation-bundle contract.
 
 ---
 
 ## Artifact Policy
 
-Initial externally requestable artifact kinds include:
+The complete externally requestable artifact taxonomy is:
 
-- LLVM IR inspection output,
-- LLVM bitcode,
+- backend IR inspection output,
+- backend opaque representation,
 - assembly,
 - relocatable native object,
+- directly executable target module,
 - codegen-owned debug companion data,
 - compiled package interface,
+- compiled implementation bundle,
 - compiler-owned dependency metadata,
 - final executable,
 - static library,
 - shared library,
 - target-required linked companion artifacts.
+
+A backend can add a namespaced inspection kind through the typed extension contract in `codegen.md`. The emitter accepts it only
+for the same selected backend identity and never substitutes it for a required backend-neutral kind. Adding a compiler, linked, or
+product artifact kind requires extending this closed taxonomy, capability negotiation, naming, publication, and manifest encoding
+together.
 
 The emitter validates kinds against the selected backend, target, and product. An unavailable required format produces a
 structured capability diagnostic. An unavailable optional format is omitted deterministically rather than turning the complete
@@ -299,38 +312,44 @@ digests, diagnostics ordering, or cache keys.
 
 ---
 
-## Staging And Atomic Publication
+## Product Staging And Atomic Publication
 
-Filesystem artifacts are written to private staging paths on the destination filesystem whenever atomic replacement requires the
-same filesystem.
+Every filesystem product is published through one managed generation beneath its product and target output root. The emitter
+creates a private generation directory on that filesystem, stages every required compiler, backend, linker, interface,
+implementation bundle, and companion artifact there, and writes a canonical generation manifest containing their logical
+identities, relative paths, lengths, digests, permissions, producer identities, and relationships. No required artifact has a
+public path outside its generation.
 
 The publication sequence is:
 
-1. Validate the planned destination and replacement policy.
-2. Create a private staging artifact.
-3. Write the complete contribution or let the linker write its result to that staging path.
-4. Close and flush the producer boundary.
-5. Validate expected length, digest, and artifact kind where available.
-6. Apply the final artifact permission policy while the staging path remains private.
-7. Atomically promote or replace the final destination.
-8. Record the completed emitted artifact.
+1. Validate the complete plan, managed root, replacement policy, and every normalized relative path.
+2. Create a unique private generation that cannot replace an existing path.
+3. Write or link every required artifact into that generation.
+4. Close producers, flush content, and validate kinds, lengths, digests, permissions, and cross-artifact relationships.
+5. Write, flush, and validate the canonical generation manifest.
+6. Hash the canonical manifest to obtain the generation identity, make the generation immutable to emitter writers, and place it at
+   its content-addressed generation identity with atomic no-replace publication.
+7. Atomically replace the product's published-generation reference with a reference to the complete generation.
+8. Record the product and all emitted artifacts from the now-published manifest.
 
-Cancellation or failure removes private staging state and does not publish the planned artifact.
+Readers resolve product artifacts through the published-generation reference and manifest, so they observe either the preceding
+complete generation or the replacement complete generation, never a mixture. A host filesystem that cannot atomically replace the
+reference on the same filesystem does not support managed product publication and produces a structured capability diagnostic. A
+require-absent request uses an atomic no-replace operation or fails.
 
-New Unix filesystem outputs use artifact-appropriate executable or data modes subject to the process umask. Replacing an existing
-regular file preserves its permissions. A require-absent publication fails when the host filesystem cannot provide atomic
-no-replace promotion rather than using a non-atomic fallback.
+If the content-addressed generation already exists, the emitter validates its manifest and artifact identities and reuses it only
+when they match exactly. A collision or mismatched existing generation is a publication failure. The published-generation reference
+contains only the generation identity and canonical manifest digest, never private staging paths.
 
-Publication receives a read-only cancellation observer from its compilation-owned caller. It checks that observer while copying and
-validating staged content and immediately before promotion. Cancellation after another artifact has already been promoted does not
-delete or roll back that completed artifact.
+Cancellation or failure before step 7 leaves the preceding generation visible and removes only explicitly recorded private staging
+state. Cancellation after the atomic reference replacement cannot retract the published generation. New Unix artifacts use
+artifact-appropriate modes subject to the process umask. The manifest makes retention and garbage collection explicit, and the
+emitter never scans output directories to infer ownership or deletes an unreferenced generation without a host-selected retention
+operation.
 
-Atomicity is guaranteed per artifact. Product-wide atomic publication across unrelated filesystem paths is not claimed by ordinary
-file replacement. A future managed-generation layout can provide a stronger product transaction without weakening the per-artifact
-contract.
-
-The emitter never deletes unrelated files or scans output directories to infer ownership. Cleanup uses explicit staging and emitted
-artifact records.
+A separately requested inspection output that is explicitly marked independent of product success may use per-artifact atomic
+publication. Transactional streams and memory collectors expose the complete product generation only when their single host commit
+succeeds. Neither path can publish a partial product.
 
 ---
 
@@ -446,15 +465,15 @@ planning and publication.
 
 ---
 
-## Initial Implementation Order
+## Dependency And Conformance Order
 
-The emitter should be implemented in this order:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
 
 1. Define artifact identities, kinds, requests, plans, contributions, records, and outcomes.
 2. Implement deterministic planning and destination collision validation.
 3. Implement byte and stream publication with structured diagnostics.
-4. Implement filesystem staging and per-artifact atomic replacement.
-5. Integrate completed `.brayi` artifacts without moving encoding policy.
+4. Implement managed generation staging, manifest validation, and atomic product publication.
+5. Integrate completed `.brayi` and `.brayimpl` artifacts without moving encoding policy.
 6. Derive backend artifact requests and merge immutable codegen contributions.
 7. Construct typed link plans from emitted and canonical compilation inputs.
 8. Integrate linked staging results and complete product emission outcomes.

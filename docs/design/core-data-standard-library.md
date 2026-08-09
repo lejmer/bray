@@ -97,9 +97,9 @@ Text comparison is defined over Unicode scalar values unless an API explicitly s
 collation, normalization, grapheme segmentation, and case conversion are separate policy-bearing facilities and must not be hidden
 inside basic equality, ordering, indexing, or slicing.
 
-### Initial Text Surface
+### Canonical Text Surface
 
-The initial text surface uses `&string` as its borrowed text view and `&[u8]` as its borrowed UTF-8 byte view. It does not introduce
+The text surface uses `&string` as its borrowed text view and `&[u8]` as its borrowed UTF-8 byte view. It does not introduce
 `StringView`, `TextView`, `ByteView`, or index-wrapper types that add no invariant beyond those structural forms. Scalar positions
 and UTF-8 byte offsets use `usize` and remain distinguished by the operation that accepts them.
 
@@ -154,7 +154,7 @@ The cursor representation is private. The value returned by `scalars` carries th
 scalar order, and remains exhausted after returning `none`. Byte iteration uses the slice returned by `utf8` and the ordinary
 slice iteration contract rather than a second string-specific byte cursor.
 
-The initial `std.character` surface is:
+The canonical `std.character` surface is:
 
 ```bray
 module std.character;
@@ -174,12 +174,18 @@ extern func is_numeric(value: char) -> bool;
 extern func is_whitespace(value: char) -> bool;
 ```
 
-`from_scalar_value` returns `none` for values that are not Unicode scalar values. The initial character-classification contract
+`from_scalar_value` returns `none` for values that are not Unicode scalar values. The character-classification contract
 uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact and its private runtime ABI must
 agree on that exact Unicode data version. Changing the classification data requires a deliberate runtime ABI compatibility update
 and rebuilt standard-library artifacts, so an unchanged artifact and ABI cannot silently acquire new classification behavior from
 a host toolchain update. Case conversion and normalization remain separate policy-bearing additions because one input scalar can
 produce multiple output scalars.
+
+The standard-library artifact metadata records the Unicode data version, the digests of every Unicode Character Database input,
+and the revision of the deterministic table generator. Generated tables are checked against those identities during the standard
+library build. A Unicode update changes this metadata, generated tables, runtime ABI compatibility identity, conformance fixtures,
+and every affected semantic operation in one coordinated change. Host libraries and host locale data are never an alternate source
+of Unicode behavior.
 
 ## Bytes And Buffers
 
@@ -205,9 +211,9 @@ safe buffer invariant, but callers of the safe surface do not inherit raw-memory
 Encoding and decoding APIs name their encoding and failure policy. UTF-8 conversion uses the recognized `std.string` operations.
 No byte API silently assumes host endianness, native integer width, or null termination.
 
-### Initial Buffer Surface
+### Canonical Buffer Surface
 
-The initial owning byte-buffer identity is `std.bytes.Buffer`. Its representation is private and contains one
+The owning byte-buffer identity is `std.bytes.Buffer`. Its representation is private and contains one
 `std.memory.RawBuffer<u8>` whose initialized prefix is the buffer's byte sequence. The type is movable and not copyable.
 
 The public surface is:
@@ -515,9 +521,9 @@ native or compilation boundary, but it does not become visible through the publi
 
 ## Target And Artifact Contract
 
-Target-independent declarations produce equal observable results for equal semantic inputs on every target. Target-width behavior
-is explicit through types such as `usize`, `isize`, and target facts. Endianness, pointer width, native handles, and host locale do
-not leak into portable text, byte, collection, formatting, hashing, ordering, or numeric contracts.
+Target-independent declarations produce equal observable results for equal semantic inputs on every target. Behavior that depends
+on target width is explicit through types such as `usize`, `isize`, and target properties. Endianness, pointer width, native
+handles, and host locale do not leak into portable text, byte, collection, formatting, hashing, ordering, or numeric contracts.
 
 The core data modules compile as ordinary source in the canonical `std:library` product. Their public declarations are published
 through the standard package interface. Native implementation support, when required, is selected through the standard-library

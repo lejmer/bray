@@ -96,7 +96,7 @@ The table should contain:
 - source-order indexes for deterministic iteration,
 - lookup indexes needed by later phases.
 
-Initial record shapes should be close to:
+The canonical record contract is:
 
 ```text
 DeclarationRecord
@@ -125,7 +125,8 @@ ModulePartRecord
   declarations
 ```
 
-The exact Rust fields can be refined during implementation, but the ownership should stay the same:
+Concrete Rust storage may normalize repeated values into typed side tables, but every published view exposes this semantic contract
+without re-reading syntax:
 
 - declarations are source-backed,
 - containers own source-order member lists,
@@ -156,7 +157,7 @@ locations already captured by discovery.
 Containers are declaration-discovery concepts.
 They group declarations before symbols exist.
 
-Expected container kinds:
+The closed container kinds are:
 
 - package or compilation root,
 - logical module,
@@ -166,9 +167,10 @@ Expected container kinds:
 - callable, predicate, contract, and lifecycle signatures,
 - union variant payloads.
 
-Function and expression-local declarations can be added later if the binder needs a declaration surface before body binding.
-Signature containers record declaration-surface children such as generic parameters and callable or predicate parameters, but
-they do not imply that callable bodies are walked during discovery.
+Function and expression-local declarations are binder-owned because their identity depends on body binding and lexical control
+flow. Signature containers record declaration-surface children such as generic parameters and callable or predicate parameters,
+but callable bodies are never walked during discovery. A language construct that needs stable pre-body identity must extend this
+closed discovery record contract explicitly rather than being discovered opportunistically by the binder.
 
 Every declaration belongs to exactly one owning container.
 Declarations that introduce nested declaration spaces also point at a child container.
@@ -303,8 +305,8 @@ Table-wide validation reports duplicate identifier or keyword names within expli
 callable-parameter, and variant-payload domains. It also reports split module parts that disagree on effective visibility or
 trusted-module state. Path-shaped import/export names and implementation-shaped identities are not reduced to identifier duplicate
 keys. Recovered declarations and module parts are skipped so parser recovery does not produce cascading declaration diagnostics.
-Directive-bearing declarations and module contributions are deferred until contribution gates can be evaluated for a selected
-product and target, which prevents disabled contributions from producing false conflicts.
+Directive-bearing declarations and module contributions enter the selected declaration surface only after contribution gates are
+evaluated for a selected product and target, which prevents disabled contributions from producing false conflicts.
 
 When an error depends on symbol construction, name resolution, type binding, or body checking, discovery should record the
 surface and leave the diagnostic to the owning later phase.

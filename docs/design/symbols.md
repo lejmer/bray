@@ -116,7 +116,7 @@ A key can include:
 Keys must not include memory addresses, thread IDs, worker completion order, or lazy query order.
 
 Public symbol APIs should normally use typed IDs. Symbol keys are infrastructure for deterministic construction, caches, imported
-interfaces, and future incremental remapping.
+interfaces, and incremental remapping.
 
 ### Symbol Fact
 
@@ -238,7 +238,7 @@ persisting raw numeric IDs.
 
 Symbol origin is explicit and separate from symbol kind.
 
-The initial origin model should distinguish:
+`SymbolOrigin` is a closed exhaustive distinction between:
 
 - source symbols from the current package,
 - imported symbols loaded from compiled package interfaces,
@@ -251,6 +251,11 @@ compiler-known.
 
 Origin does not create parallel symbol class hierarchies. A source function and an imported function should provide the same
 `FunctionSymbol` contract, with origin-specific backing data hidden behind symbol fact providers.
+
+Every symbol is assigned exactly one of these origins. Adding an origin requires one coordinated design change covering its stable
+construction key, provider ownership, snapshot and reuse behavior, compiled-interface encoding when it can cross a package
+boundary, diagnostics, and conformance tests. Providers cannot introduce private origin categories or infer origin from missing
+source data.
 
 ---
 
@@ -364,7 +369,7 @@ The exact Rust API can use views, query methods, or another ownership-safe shape
 
 ## Symbol Categories
 
-The initial model should cover the full language even when implementation proceeds incrementally.
+The symbol categories below cover the complete language symbol model.
 
 ### Roots And Modules
 
@@ -856,7 +861,7 @@ and conflict diagnostics consume this key through checker-owned coherence querie
 An implementation candidate-set fact must be keyed by one exact checked subject type and trait application. Its immutable candidates
 must be origin-neutral across source, imported, and compiler-known declarations and must be ordered by stable semantic implementation
 key. Each candidate must retain its implementation identity, inferred generic substitution, declaration-ordered generic constraint
-templates, canonical target-fact dependencies, and coherence evidence.
+templates, canonical target-property dependencies, and coherence evidence.
 
 A candidate set must record declarations that require applicability checking. It must not prove generic constraints, target
 availability, or coherence, and it must not manufacture a selected implementation instance. `ImplementationSelectionFact` must
@@ -898,7 +903,7 @@ Body-bearing symbol views expose cheap body presence and lazy category-specific 
 
 ### Ordinary Lookup Namespace
 
-Bray currently has one general identifier lookup namespace: the ordinary lookup namespace.
+Bray has exactly one general identifier lookup namespace: the ordinary lookup namespace.
 
 The namespace determines whether the same spelling may identify more than one entity in the same lookup scope. Symbol kind and
 lookup context do not create additional namespaces. Types, values, traits, predicates, callable contracts, named implementations,
@@ -913,8 +918,9 @@ Packages and modules require specialized path indexes, but they are not addition
 module path component, or declaration that can occupy the same path position participates in the same ordinary name surface. A
 module remains a declaration container and lookup provider rather than a separate name-collision partition.
 
-The implementation need not introduce a one-variant `LookupNamespace` enum. Such an enum should be added only if the language later
-introduces a name category, such as labels, whose spelling may legally coexist with an ordinary name in the same scope.
+Symbol APIs represent the ordinary namespace directly and do not expose a one-variant `LookupNamespace` enum. Any change to the
+namespace model must begin as a language-specification change and update lookup, collision, interface, and diagnostic contracts
+together.
 
 Ambient compiler-known visibility is an explicit lookup relationship, not semantic containment. A source module remains contained
 by its package while its lookup context consults the compiler-known environment's ambient index. The compiler-known environment is
@@ -1011,8 +1017,8 @@ This is a dependency order, not a requirement to eagerly complete every step for
 Only enabled `@test` and `@target(...)` module contributions participate in source symbol identity, module surface agreement, name
 lookup, overload families, implementation coherence, and symbol diagnostics for the selected product.
 
-Gate evaluation is a prerequisite fact for the affected module contribution. It must use the selected product and target facts and
-the restricted semantic environment allowed by directive rules.
+Gate evaluation is a prerequisite fact for the affected module contribution. It must use the selected product, target profile,
+target properties, and the restricted semantic environment allowed by directive rules.
 
 Disabled declarations remain available through syntax and declaration-discovery APIs but do not produce active source symbols for
 that product.
@@ -1852,18 +1858,12 @@ The detailed representation, equality, ownership, and interning contract is defi
 
 ## Incrementality And Sharing
 
-The first implementation does not need a complete incremental compiler, but symbol contracts must not prevent one.
+Symbols follow the compiler-wide snapshot, invalidation, and reuse contract in `compiler-architecture.md`. Source, imported,
+compiler-known, compiler-provided, and synthesized records use the same reuse rule and retain their exact provider dependencies.
 
-Requirements:
-
-- symbol inputs and published outputs are immutable,
-- facts have explicit typed keys and dependencies,
-- raw pointers and process-global mutable state are not identities,
-- imported and compiler-known symbols can be shared when their inputs are unchanged,
-- compilation-local caches can be discarded without changing semantics,
-- a future compilation snapshot can reuse symbol records or fact results only when their dependency keys remain valid.
-
-Numeric symbol IDs need not survive edits. Stable keys and explicit remapping support tooling or cache reuse when needed.
+Numeric symbol IDs are snapshot-local and need not survive edits. Stable symbol keys establish deterministic remapping into each
+snapshot and provide persistent references for interfaces and tooling. Reuse never persists or compares raw numeric IDs across
+snapshots.
 
 ---
 
@@ -1960,9 +1960,9 @@ tables, the compiler-known catalog, and compiled dependency interfaces.
 
 ---
 
-## Initial Implementation Sequence
+## Dependency And Conformance Order
 
-Implementation should proceed in dependency order:
+Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
 
 1. Define symbol kinds, typed IDs, semantic value IDs, origins, keys, and common immutable identity data.
 2. Define canonical semantic type, constant value, open constant term, generic substitution, dependency-contract-template, and
@@ -1978,4 +1978,4 @@ Implementation should proceed in dependency order:
 9. Add local semantic-region snapshots, anonymous callable symbols, and checked-region integration.
 10. Add recursive force completion and deterministic symbol diagnostics.
 
-Each step should preserve lazy evaluation and avoid temporary eager APIs that callers would later depend on.
+Each step preserves lazy evaluation and does not add temporary eager APIs or duplicate semantic state.

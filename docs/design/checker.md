@@ -33,7 +33,7 @@ The checker architecture should:
 - retain only durable semantic facts after checking,
 - produce structured source-correlated diagnostics without user-facing English in checker logic,
 - recover conservatively from malformed bound input without panics or nontermination,
-- support deterministic cancellation, parallelism, and future incremental reuse,
+- support deterministic cancellation, parallelism, and incremental reuse,
 - leave lowering with no unresolved source-semantic decisions.
 
 ---
@@ -332,7 +332,7 @@ reach a stable state.
 
 Iteration source selection first consumes the source expression type, then contributes the selected element type to iteration
 pattern checking and final expression typing. The final expression-semantic fact must depend on those occurrence-specific
-selections without introducing a dependency cycle. Internal provisional inference may supply the source types required for
+selections without introducing a dependency cycle. Internal partial inference may supply the source types required for
 selection, but it must not be exposed as a complete checked fact or publish final diagnostics.
 
 The same fixed point resolves source type-expression templates when their embedded constant expressions depend on expression
@@ -596,11 +596,11 @@ Product constraints and module-contribution gates use the same target rule servi
 request point does not make target policy part of package loading or declaration discovery.
 
 Preselection target expressions use the closed target-selection context defined by the language. That context can reference only
-the selected profile, compiler-known target facts and values, literals, and the permitted built-in operations. It uses the canonical
-built-in scalar checks but cannot request source declaration lookup, user callable selection, or a source-owned constant fact. This
-closed bootstrap surface prevents a dependency cycle from target availability back into ordinary source selection.
+the selected profile, compiler-known target properties and values, literals, and the permitted built-in operations. It uses the
+canonical built-in scalar checks but cannot request source declaration lookup, user callable selection, or a source-owned constant
+fact. This closed foundational surface prevents a dependency cycle from target availability back into ordinary source selection.
 
-Public target-dependent facts record the exact target-fact dependencies required by compiled package interfaces and incremental
+Public target-dependent facts record the exact target-property dependencies required by compiled package interfaces and incremental
 queries.
 
 The post-selection validity layer consumes canonical selected types, substitutions, declarations, and operations. It owns:
