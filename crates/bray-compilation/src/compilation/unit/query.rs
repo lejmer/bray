@@ -1306,7 +1306,7 @@ mod tests {
             "module std.test;\n",
             "func main(pos bytes: & mut [u8]) -> RawPointer<u8>\n",
             "{\n",
-            "    if std.memory.byte_slice_length(&bytes) == 0\n",
+            "    if std.memory.slice_length<u8>(&bytes) == 0\n",
             "    {\n",
             "        return std.memory.null<u8>();\n",
             "    }\n",

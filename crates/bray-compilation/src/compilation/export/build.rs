@@ -1203,12 +1203,20 @@ mod tests {
                 "{\n",
                 "}\n",
             ),
-            concat!("module app;\n", "\n", "func enabled()\n", "{\n", "}\n",),
+            concat!(
+                "@target(target.pointer.BITS == 64)\n",
+                "module app;\n",
+                "\n",
+                "func enabled()\n",
+                "{\n",
+                "}\n",
+            ),
         ]);
 
         let bundle = export(&compilation);
 
         assert_eq!(bundle.surface().symbols().symbols().len(), 3);
+        assert_eq!(bundle.semantic_facts().target_dependencies().len(), 1);
     }
 
     #[test]

@@ -578,7 +578,7 @@ mod tests {
             "StandardMemoryByteBufferFill",
             "StandardMemoryByteBufferRead",
             "StandardMemoryByteOffset",
-            "StandardMemoryByteSliceLength",
+            "StandardMemorySliceLength",
             "StandardMemoryCapacity",
             "StandardMemoryCopy",
             "StandardMemoryCopyOverlapping",

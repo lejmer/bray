@@ -178,8 +178,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::ByteBufferRead => {
                 self.translate_byte_buffer_read(operation, memory).map(Some)
             }
-            CheckedMemoryOperationKind::ByteSliceLength => {
-                self.translate_byte_slice_length(memory).map(Some)
+            CheckedMemoryOperationKind::SliceLength => {
+                self.translate_slice_length(memory).map(Some)
             }
         }
     }
@@ -192,7 +192,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let available = match kind {
             CheckedMemoryOperationKind::LayoutQuery { .. }
-            | CheckedMemoryOperationKind::ByteSliceLength => true,
+            | CheckedMemoryOperationKind::SliceLength => true,
             CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawDeallocate
             | CheckedMemoryOperationKind::Allocate

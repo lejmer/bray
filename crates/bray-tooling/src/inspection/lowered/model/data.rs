@@ -877,7 +877,7 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::ByteBufferFill => ("byte_buffer_fill", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferCopy => ("byte_buffer_copy", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferRead => ("byte_buffer_read", Vec::new()),
-        CheckedMemoryOperationKind::ByteSliceLength => ("byte_slice_length", Vec::new()),
+        CheckedMemoryOperationKind::SliceLength => ("slice_length", Vec::new()),
     };
 
     parts.attribute("memory_operation", name);

@@ -19,7 +19,7 @@ struct StandardInput
 
 internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source>, pos destination: &mut [u8]) -> usize
 {
-    let destination_length: usize = internal std.memory.byte_slice_length(&destination);
+    let destination_length: usize = internal std.memory.slice_length<u8>(&destination);
 
     let available: usize = reader.length - reader.start;
     let copied: usize = smaller(destination_length, available);
@@ -94,7 +94,7 @@ internal func read_buffered<Source>(
         return Ok(copy_buffered_bytes(reader, destination));
     }
 
-    let destination_length: usize = internal std.memory.byte_slice_length(&destination);
+    let destination_length: usize = internal std.memory.slice_length<u8>(&destination);
 
     if destination_length == 0
     {
@@ -125,7 +125,7 @@ internal async func read_buffered_async<Source>(
         return Ok(copy_buffered_bytes(reader, destination));
     }
 
-    let destination_length: usize = internal std.memory.byte_slice_length(&destination);
+    let destination_length: usize = internal std.memory.slice_length<u8>(&destination);
 
     if destination_length == 0
     {

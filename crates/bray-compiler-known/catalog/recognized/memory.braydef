@@ -520,13 +520,13 @@ scope StandardMemory at std.memory {
         }
     }
 
-    declaration StandardMemoryByteSliceLength {
-        identity name byte_slice_length;
+    declaration StandardMemorySliceLength {
+        identity name slice_length;
         availability Allocation;
-        implementation ByteSliceLength;
+        implementation SliceLength;
 
         surface {
-            internal func byte_slice_length(pos bytes: &[u8]) -> usize;
+            internal func slice_length<T>(pos values: &[T]) -> usize;
         }
     }
 }

@@ -1191,7 +1191,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             22 => Ok(Kind::ByteBufferFill),
             23 => Ok(Kind::ByteBufferCopy),
             24 => Ok(Kind::ByteBufferRead),
-            25 => Ok(Kind::ByteSliceLength),
+            25 => Ok(Kind::SliceLength),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

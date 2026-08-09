@@ -300,7 +300,7 @@ where
             CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
-            | CheckedMemoryOperationKind::ByteSliceLength
+            | CheckedMemoryOperationKind::SliceLength
             | CheckedMemoryOperationKind::RawBufferCapacity
             | CheckedMemoryOperationKind::RawBufferInitializedCount
             | CheckedMemoryOperationKind::RawBufferPointer

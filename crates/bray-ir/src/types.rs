@@ -137,7 +137,7 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         | CheckedMemoryOperationKind::ByteBufferFill
         | CheckedMemoryOperationKind::ByteBufferCopy
         | CheckedMemoryOperationKind::ByteBufferRead
-        | CheckedMemoryOperationKind::ByteSliceLength => {}
+        | CheckedMemoryOperationKind::SliceLength => {}
     }
 }
 

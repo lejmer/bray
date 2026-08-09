@@ -363,10 +363,10 @@ where
 
             CheckedMemoryOperationKind::ByteBufferRead
         }
-        ImplementationHook::ByteSliceLength => {
-            ensure_no_type_arguments(types)?;
+        ImplementationHook::SliceLength => {
+            one()?;
 
-            CheckedMemoryOperationKind::ByteSliceLength
+            CheckedMemoryOperationKind::SliceLength
         }
         ImplementationHook::FutureStart
         | ImplementationHook::TaskJoin

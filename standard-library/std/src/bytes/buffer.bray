@@ -20,7 +20,7 @@ struct Buffer
 
     trusted construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>
     {
-        let byte_count: usize = internal std.memory.byte_slice_length(bytes);
+        let byte_count: usize = internal std.memory.slice_length<u8>(bytes);
 
         if byte_count == 0
         {
@@ -63,7 +63,7 @@ func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8]
 
 func slice_length(pos bytes: &[u8]) -> usize
 {
-    return internal std.memory.byte_slice_length(bytes);
+    return internal std.memory.slice_length<u8>(bytes);
 }
 
 func equals(pos left: &[u8], pos right: &[u8]) -> bool
@@ -185,7 +185,7 @@ trusted func push(pos buffer: &mut Buffer, value: u8) -> Result<unit, std.memory
 
 trusted func append(pos buffer: &mut Buffer, bytes: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let byte_count: usize = internal std.memory.byte_slice_length(bytes);
+    let byte_count: usize = internal std.memory.slice_length<u8>(bytes);
 
     if byte_count == 0
     {

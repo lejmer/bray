@@ -1,0 +1,133 @@
+module std.ffi.c;
+
+@copy
+struct WideCStr
+{
+    internal units_value: &[WideChar];
+
+    func units() -> &[WideChar]
+    {
+        let count: usize = std.memory.slice_length<WideChar>(self.units_value);
+
+        return &self.units_value[0.. count - 1];
+    }
+
+    func units_with_nul() -> &[WideChar]
+    {
+        return self.units_value;
+    }
+
+    func pointer() -> RawPointer<WideChar>
+    {
+        return std.memory.address_of<WideChar>(&self.units_value[0]);
+    }
+}
+
+func wide_c_str_from_terminated(pos units: &[WideChar]) -> Result<WideCStr, CStringError>
+{
+    let count: usize = std.memory.slice_length<WideChar>(units);
+
+    if count == 0 || !wide_unit_is_nul(&units[count - 1])
+    {
+        return Error(CStringError.MissingTerminator);
+    }
+
+    let mut index: usize = 0;
+
+    while index + 1 < count
+    {
+        if wide_unit_is_nul(&units[index])
+        {
+            return Error(CStringError.InteriorNul);
+        }
+
+        index += 1;
+    }
+
+    return Ok(
+        {
+            units_value = units,
+        }
+    );
+}
+
+struct WideCString
+{
+    internal storage: std.collection.List<WideChar>;
+
+    trusted construct from_units(pos units: &[WideChar]) -> Result<Self, CStringError>
+    {
+        if wide_contains_nul(units)
+        {
+            return Error(CStringError.InteriorNul);
+        }
+
+        let count: usize = std.memory.slice_length<WideChar>(units);
+
+        let created: Result<std.collection.List<WideChar>, std.memory.MemoryLayoutError> = trusted std.collection.List<
+            WideChar
+        >(capacity = count);
+
+        let mut storage: std.collection.List<WideChar> = match consume created
+        {
+            case Ok(list) { yield list; }
+            case Error(_) { return Error(CStringError.Allocation); }
+        };
+
+        let mut index: usize = 0;
+
+        while index < count
+        {
+            match trusted std.collection.push<WideChar>(&mut storage, units[index])
+            {
+                case Ok(_) {}
+                case Error(_) { return Error(CStringError.Allocation); }
+            }
+
+            index += 1;
+        }
+
+        match trusted std.collection.push<WideChar>(&mut storage, wide_char(0))
+        {
+            case Ok(_) {}
+            case Error(_) { return Error(CStringError.Allocation); }
+        }
+
+        return Ok(
+            {
+                storage = storage,
+            }
+        );
+    }
+
+    func as_wide_c_str() -> WideCStr
+    {
+        return
+        {
+            units_value = std.collection.as_slice<WideChar>(&self.storage),
+        };
+    }
+}
+
+internal func wide_contains_nul(pos units: &[WideChar]) -> bool
+{
+    let count: usize = std.memory.slice_length<WideChar>(units);
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        if wide_unit_is_nul(&units[index])
+        {
+            return true;
+        }
+
+        index += 1;
+    }
+
+    return false;
+}
+
+internal func wide_unit_is_nul(pos value: &WideChar) -> bool
+{
+    return value.value() == 0;
+}

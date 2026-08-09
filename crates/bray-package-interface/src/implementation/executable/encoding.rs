@@ -1461,7 +1461,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             Kind::ByteBufferFill => self.wire.write_u32(22),
             Kind::ByteBufferCopy => self.wire.write_u32(23),
             Kind::ByteBufferRead => self.wire.write_u32(24),
-            Kind::ByteSliceLength => self.wire.write_u32(25),
+            Kind::SliceLength => self.wire.write_u32(25),
         }
 
         Ok(())

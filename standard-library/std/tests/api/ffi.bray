@@ -4,6 +4,7 @@ using std.bytes;
 using std.ffi;
 using std.ffi.c;
 using std.memory;
+using std.string;
 
 @abi(c)
 func c_increment(pos value: std.ffi.c.Int) -> std.ffi.c.Int
@@ -43,6 +44,24 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
 
     assert(std.bytes.slice_length(from_terminated.bytes()) == 1);
 
+    let decoded: string = try from_terminated.decode_utf8();
+
+    assert(std.string.equals(&decoded, &"A"));
+
+    let wide_units: [std.ffi.c.WideChar; 2] = [std.ffi.c.wide_char(65), std.ffi.c.wide_char(66)];
+
+    let wide_owned: std.ffi.c.WideCString = try trusted std.ffi.c.WideCString.from_units(&wide_units[..]);
+
+    let wide_borrowed: std.ffi.c.WideCStr = wide_owned.as_wide_c_str();
+    let borrowed_units: &[std.ffi.c.WideChar] = wide_borrowed.units();
+    let terminated_units: &[std.ffi.c.WideChar] = wide_borrowed.units_with_nul();
+
+    assert(std.memory.slice_length<std.ffi.c.WideChar>(borrowed_units) == 2);
+    assert(std.memory.slice_length<std.ffi.c.WideChar>(terminated_units) == 3);
+    assert(borrowed_units[0].value() == 65);
+    assert(terminated_units[2].value() == 0);
+    assert(!std.memory.is_null<std.ffi.c.WideChar>(wide_borrowed.pointer()));
+
     return Ok(unit);
 }
 
@@ -59,6 +78,22 @@ trusted func c_strings_reject_interior_nul() -> Result<unit, std.ffi.c.CStringEr
             match error
             {
                 case std.ffi.c.CStringError.InteriorNul {}
+                case _ { assert(false); }
+            }
+        }
+    }
+
+    let invalid_utf8: [u8; 2] = [255, 0];
+    let encoded: std.ffi.c.CStr = try std.ffi.c.c_str_from_terminated(&invalid_utf8[..]);
+
+    match encoded.decode_utf8()
+    {
+        case Ok(_) { assert(false); }
+        case Error(error)
+        {
+            match error
+            {
+                case std.ffi.c.CStringError.InvalidEncoding {}
                 case _ { assert(false); }
             }
         }

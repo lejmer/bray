@@ -450,7 +450,7 @@ mod tests {
             (CheckedMemoryOperationKind::ByteBufferFill, 3, false),
             (CheckedMemoryOperationKind::ByteBufferCopy, 3, false),
             (CheckedMemoryOperationKind::ByteBufferRead, 2, true),
-            (CheckedMemoryOperationKind::ByteSliceLength, 1, true),
+            (CheckedMemoryOperationKind::SliceLength, 1, true),
         ];
 
         for (kind, operands, produces_value) in cases {

@@ -211,7 +211,7 @@ trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8])
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let maximum: usize = internal std.memory.byte_slice_length(&destination);
+    let maximum: usize = internal std.memory.slice_length<u8>(&destination);
     let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
@@ -235,7 +235,7 @@ trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Resu
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let maximum: usize = internal std.memory.byte_slice_length(source);
+    let maximum: usize = internal std.memory.slice_length<u8>(source);
     let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
