@@ -8,25 +8,21 @@ use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind
 use bray_target::{TargetIdentity, TargetOutputKind};
 
 use crate::manifest::{
-    DependencyManifest, OutputKindManifest, PackageManifest, PackageRoleManifest,
-    PackageVersionManifest, ProductKindManifest, ProductManifest, SourceRootManifest,
-    WorkspacePackageManifest,
+    DependencyManifest, OutputKindManifest, PackageRoleManifest, PackageVersionManifest,
+    ProductKindManifest, ProductManifest, SourceRootManifest, WorkspacePackageManifest,
+    decode_package_manifest,
 };
 use crate::{
-    FeatureName, PackageRole, ProjectLoadError, ProjectManifestProblem, ProjectPackage,
-    ProjectPath, ProjectProduct, ProjectSourceRoot, ProjectTarget,
+    FeatureName, PackageRole, ProjectDependency, ProjectLoadError, ProjectManifestProblem,
+    ProjectPackage, ProjectPath, ProjectProduct, ProjectSourceRoot, ProjectTarget,
 };
 
+use super::predicate::normalize_target_predicate;
 use super::source::collect_sources;
 use super::validation::{
-    local_name, manifest_path, package_identity, paths_overlap, project_path, read_manifest,
-    require_format, require_owned_package_path, sorted_unique_names,
+    local_name, manifest_path, package_identity, paths_overlap, project_path, read_manifest_source,
+    require_owned_package_path, sorted_unique_names,
 };
-
-pub(super) struct PendingDependency {
-    pub package: PackageIdentity,
-    pub product: Arc<str>,
-}
 
 pub(super) struct PendingPackage {
     pub identity: PackageIdentity,
@@ -37,12 +33,11 @@ pub(super) struct PendingPackage {
     pub declared_features: Arc<[FeatureName]>,
     pub enabled_features: Arc<[FeatureName]>,
     pub source_roots: Arc<[ProjectSourceRoot]>,
-    pub dependencies: Box<[PendingDependency]>,
     pub products: Arc<[ProjectProduct]>,
 }
 
 impl PendingPackage {
-    pub fn finish(self, dependencies: Arc<[crate::ProjectDependency]>) -> ProjectPackage {
+    pub fn finish(self) -> ProjectPackage {
         ProjectPackage::new(
             self.identity,
             self.version,
@@ -51,7 +46,6 @@ impl PendingPackage {
             self.declared_features,
             self.enabled_features,
             self.source_roots,
-            dependencies,
             self.products,
         )
     }
@@ -72,9 +66,8 @@ pub(super) fn load_package(
 
     let package_root = package_path.beneath(workspace_root);
     let manifest_path = manifest_path(&package_root);
-    let manifest: PackageManifest = read_manifest(&manifest_path)?;
-
-    require_format(manifest.format, &manifest_path)?;
+    let manifest_source = read_manifest_source(&manifest_path)?;
+    let manifest = decode_package_manifest(&manifest_source, &manifest_path)?;
 
     let identity = package_identity(manifest.identity, &manifest_path, source_authority)?;
     let version = package_version(manifest.version, workspace_package_version, &manifest_path)?;
@@ -119,9 +112,8 @@ pub(super) fn load_package(
         &source_roots,
         targets,
         &manifest_path,
+        source_authority,
     )?;
-
-    let dependencies = load_dependencies(manifest.dependencies, &manifest_path, source_authority)?;
 
     let role = match selection.role {
         PackageRoleManifest::Root => PackageRole::Root,
@@ -137,7 +129,6 @@ pub(super) fn load_package(
         declared_features,
         enabled_features,
         source_roots,
-        dependencies,
         products,
     })
 }
@@ -231,6 +222,7 @@ fn load_products(
     source_roots: &[ProjectSourceRoot],
     targets: &[ProjectTarget],
     manifest_path: &Path,
+    source_authority: PackageSourceAuthority,
 ) -> Result<Arc<[ProjectProduct]>, ProjectLoadError> {
     if manifests.is_empty() {
         return Err(missing_selection(manifest_path, "products"));
@@ -238,7 +230,16 @@ fn load_products(
 
     let mut products = manifests
         .into_iter()
-        .map(|manifest| load_product(package, manifest, source_roots, targets, manifest_path))
+        .map(|manifest| {
+            load_product(
+                package,
+                manifest,
+                source_roots,
+                targets,
+                manifest_path,
+                source_authority,
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     products.sort_unstable_by(|left, right| left.identity().name().cmp(right.identity().name()));
@@ -310,6 +311,7 @@ fn load_product(
     source_roots: &[ProjectSourceRoot],
     targets: &[ProjectTarget],
     manifest_path: &Path,
+    source_authority: PackageSourceAuthority,
 ) -> Result<ProjectProduct, ProjectLoadError> {
     let name = local_name(manifest.name, manifest_path)?;
 
@@ -340,7 +342,16 @@ fn load_product(
         .transpose()?;
 
     let sources = select_sources(manifest.source_roots, source_roots, manifest_path)?;
-    let targets = select_targets(manifest.targets, targets, manifest_path)?;
+    let selected_targets = select_targets(manifest.targets, targets, manifest_path)?;
+
+    let dependencies = load_dependencies(
+        manifest.dependencies,
+        &selected_targets,
+        targets,
+        manifest_path,
+        source_authority,
+    )?;
+
     let outputs = select_outputs(manifest.outputs, manifest_path)?;
     let platform_services = select_platform_services(manifest.platform_services, manifest_path)?;
 
@@ -348,8 +359,9 @@ fn load_product(
         identity,
         kind,
         tested_library,
+        dependencies,
         sources,
-        targets,
+        selected_targets,
         outputs,
         platform_services,
     ))
@@ -484,35 +496,82 @@ fn select_outputs(
 
 fn load_dependencies(
     manifests: Vec<DependencyManifest>,
+    selected_targets: &[TargetIdentity],
+    targets: &[ProjectTarget],
     manifest_path: &Path,
     source_authority: PackageSourceAuthority,
-) -> Result<Box<[PendingDependency]>, ProjectLoadError> {
+) -> Result<Arc<[ProjectDependency]>, ProjectLoadError> {
     let mut dependencies = manifests
         .into_iter()
         .map(|dependency| {
-            Ok(PendingDependency {
-                package: package_identity(dependency.package, manifest_path, source_authority)?,
-                product: local_name(dependency.product, manifest_path)?,
-            })
+            let package = package_identity(dependency.package, manifest_path, source_authority)?;
+
+            let product = local_name(dependency.product, manifest_path)?;
+
+            let Some(product) = ProductIdentity::try_new(package, product) else {
+                return Err(ProjectLoadError::invalid(
+                    manifest_path.to_path_buf(),
+                    ProjectManifestProblem::InvalidName,
+                    "dependency.product",
+                ));
+            };
+
+            let predicate = dependency
+                .when
+                .map(|predicate| {
+                    normalize_target_predicate(predicate, selected_targets, targets, manifest_path)
+                })
+                .transpose()?;
+
+            let mut property_dependencies = Vec::new();
+
+            if let Some(predicate) = &predicate {
+                predicate.collect_properties(&mut property_dependencies);
+            }
+
+            let property_dependencies = sorted_unique_shared_slice(property_dependencies);
+
+            let active_targets = selected_targets
+                .iter()
+                .filter(|target| {
+                    predicate.as_ref().is_none_or(|predicate| {
+                        targets
+                            .iter()
+                            .find(|candidate| candidate.identity() == *target)
+                            .is_some_and(|target| predicate.evaluate(target.profile()))
+                    })
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+                .into();
+
+            Ok(ProjectDependency::new(
+                product,
+                predicate,
+                property_dependencies,
+                active_targets,
+            ))
         })
         .collect::<Result<Vec<_>, ProjectLoadError>>()?;
 
-    dependencies.sort_unstable_by(|left, right| {
-        (&left.package, &left.product).cmp(&(&right.package, &right.product))
-    });
+    dependencies.sort_unstable();
 
     if let Some(pair) = dependencies
         .windows(2)
-        .find(|pair| pair[0].package == pair[1].package && pair[0].product == pair[1].product)
+        .find(|pair| pair[0].product() == pair[1].product())
     {
         return Err(ProjectLoadError::invalid(
             manifest_path.to_path_buf(),
             ProjectManifestProblem::DuplicateSelection,
-            format!("{}/{}", pair[0].package.as_str(), pair[0].product),
+            format!(
+                "{}/{}",
+                pair[0].product().package().as_str(),
+                pair[0].product().name()
+            ),
         ));
     }
 
-    Ok(dependencies.into_boxed_slice())
+    Ok(dependencies.into())
 }
 
 fn require_names(

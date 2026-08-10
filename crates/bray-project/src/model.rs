@@ -4,9 +4,9 @@ use bray_runtime_interface::PlatformServiceBinding;
 use bray_standard_library::PackageSourceAuthority;
 
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
-use bray_target::{TargetIdentity, TargetOutputKind};
+use bray_target::{TargetFactKind, TargetIdentity, TargetOutputKind, TargetProfile};
 
-use crate::ProjectPath;
+use crate::{ProjectPath, TargetPredicate};
 
 /// A canonical package feature name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -42,12 +42,12 @@ pub enum PackageRole {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProjectTarget {
     name: Arc<str>,
-    identity: TargetIdentity,
+    profile: TargetProfile,
 }
 
 impl ProjectTarget {
-    pub(crate) fn new(name: Arc<str>, identity: TargetIdentity) -> Self {
-        Self { name, identity }
+    pub(crate) fn new(name: Arc<str>, profile: TargetProfile) -> Self {
+        Self { name, profile }
     }
 
     /// Returns the workspace-local target name.
@@ -57,7 +57,12 @@ impl ProjectTarget {
 
     /// Returns the compiler-facing target identity selected by this configuration.
     pub const fn identity(&self) -> &TargetIdentity {
-        &self.identity
+        self.profile.identity()
+    }
+
+    /// Returns the complete language-defined profile selected by this target.
+    pub const fn profile(&self) -> &TargetProfile {
+        &self.profile
     }
 }
 
@@ -98,16 +103,49 @@ impl ProjectSourceRoot {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProjectDependency {
     product: ProductIdentity,
+    predicate: Option<TargetPredicate>,
+    property_dependencies: Arc<[TargetFactKind]>,
+    active_targets: Arc<[TargetIdentity]>,
 }
 
 impl ProjectDependency {
-    pub(crate) const fn new(product: ProductIdentity) -> Self {
-        Self { product }
+    pub(crate) const fn new(
+        product: ProductIdentity,
+        predicate: Option<TargetPredicate>,
+        property_dependencies: Arc<[TargetFactKind]>,
+        active_targets: Arc<[TargetIdentity]>,
+    ) -> Self {
+        Self {
+            product,
+            predicate,
+            property_dependencies,
+            active_targets,
+        }
     }
 
     /// Returns the exact package and product selected by this edge.
     pub const fn product(&self) -> &ProductIdentity {
         &self.product
+    }
+
+    /// Returns the normalized target predicate when the edge is conditional.
+    pub const fn predicate(&self) -> Option<&TargetPredicate> {
+        self.predicate.as_ref()
+    }
+
+    /// Returns every language-defined target property read by the predicate.
+    pub fn property_dependencies(&self) -> &[TargetFactKind] {
+        &self.property_dependencies
+    }
+
+    /// Returns the product targets for which this dependency edge is active.
+    pub fn active_targets(&self) -> &[TargetIdentity] {
+        &self.active_targets
+    }
+
+    /// Returns whether this dependency edge is active for the supplied target.
+    pub fn is_active_for(&self, target: &TargetIdentity) -> bool {
+        self.active_targets.binary_search(target).is_ok()
     }
 }
 
@@ -117,6 +155,7 @@ pub struct ProjectProduct {
     identity: ProductIdentity,
     kind: ProductKind,
     tested_library: Option<ProductIdentity>,
+    dependencies: Arc<[ProjectDependency]>,
     sources: Arc<[ProjectPath]>,
     targets: Arc<[TargetIdentity]>,
     outputs: Arc<[TargetOutputKind]>,
@@ -128,6 +167,7 @@ impl ProjectProduct {
         identity: ProductIdentity,
         kind: ProductKind,
         tested_library: Option<ProductIdentity>,
+        dependencies: Arc<[ProjectDependency]>,
         sources: Arc<[ProjectPath]>,
         targets: Arc<[TargetIdentity]>,
         outputs: Arc<[TargetOutputKind]>,
@@ -137,6 +177,7 @@ impl ProjectProduct {
             identity,
             kind,
             tested_library,
+            dependencies,
             sources,
             targets,
             outputs,
@@ -157,6 +198,11 @@ impl ProjectProduct {
     /// Returns the sibling library whose public surface this test product consumes.
     pub const fn tested_library(&self) -> Option<&ProductIdentity> {
         self.tested_library.as_ref()
+    }
+
+    /// Returns this product's exact external dependency edges in canonical order.
+    pub fn dependencies(&self) -> &[ProjectDependency] {
+        &self.dependencies
     }
 
     /// Returns the product's workspace-relative sources in canonical path order.
@@ -190,8 +236,44 @@ pub struct ProjectPackage {
     declared_features: Arc<[FeatureName]>,
     enabled_features: Arc<[FeatureName]>,
     source_roots: Arc<[ProjectSourceRoot]>,
-    dependencies: Arc<[ProjectDependency]>,
     products: Arc<[ProjectProduct]>,
+}
+
+/// Canonical dependency-first package and product order for one workspace target.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ProjectTargetBuildPlan {
+    target: TargetIdentity,
+    packages: Arc<[PackageIdentity]>,
+    products: Arc<[ProductIdentity]>,
+}
+
+impl ProjectTargetBuildPlan {
+    pub(crate) const fn new(
+        target: TargetIdentity,
+        packages: Arc<[PackageIdentity]>,
+        products: Arc<[ProductIdentity]>,
+    ) -> Self {
+        Self {
+            target,
+            packages,
+            products,
+        }
+    }
+
+    /// Returns the target whose active dependency graph this plan orders.
+    pub const fn target(&self) -> &TargetIdentity {
+        &self.target
+    }
+
+    /// Returns active packages in deterministic dependency-first order.
+    pub fn packages(&self) -> &[PackageIdentity] {
+        &self.packages
+    }
+
+    /// Returns selected products in deterministic dependency-first order.
+    pub fn products(&self) -> &[ProductIdentity] {
+        &self.products
+    }
 }
 
 impl ProjectPackage {
@@ -207,7 +289,6 @@ impl ProjectPackage {
         declared_features: Arc<[FeatureName]>,
         enabled_features: Arc<[FeatureName]>,
         source_roots: Arc<[ProjectSourceRoot]>,
-        dependencies: Arc<[ProjectDependency]>,
         products: Arc<[ProjectProduct]>,
     ) -> Self {
         Self {
@@ -218,7 +299,6 @@ impl ProjectPackage {
             declared_features,
             enabled_features,
             source_roots,
-            dependencies,
             products,
         }
     }
@@ -258,18 +338,13 @@ impl ProjectPackage {
         &self.source_roots
     }
 
-    /// Returns exact dependency products in canonical identity order.
-    pub fn dependencies(&self) -> &[ProjectDependency] {
-        &self.dependencies
-    }
-
     /// Returns products in canonical product-name order.
     pub fn products(&self) -> &[ProjectProduct] {
         &self.products
     }
 }
 
-/// Immutable project contract ordered for deterministic dependency-first builds.
+/// Immutable project contract with deterministic per-target build plans.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectGraph {
     source_authority: PackageSourceAuthority,
@@ -277,6 +352,7 @@ pub struct ProjectGraph {
     output_root: ProjectPath,
     targets: Arc<[ProjectTarget]>,
     packages: Arc<[ProjectPackage]>,
+    build_plans: Arc<[ProjectTargetBuildPlan]>,
 }
 
 impl ProjectGraph {
@@ -286,6 +362,7 @@ impl ProjectGraph {
         output_root: ProjectPath,
         targets: Arc<[ProjectTarget]>,
         packages: Arc<[ProjectPackage]>,
+        build_plans: Arc<[ProjectTargetBuildPlan]>,
     ) -> Self {
         Self {
             source_authority,
@@ -293,6 +370,7 @@ impl ProjectGraph {
             output_root,
             targets,
             packages,
+            build_plans,
         }
     }
 
@@ -316,9 +394,19 @@ impl ProjectGraph {
         &self.targets
     }
 
-    /// Returns packages in stable dependency-first build order.
+    /// Returns package inventory nodes in canonical package-identity order.
     pub fn packages(&self) -> &[ProjectPackage] {
         &self.packages
+    }
+
+    /// Returns per-target dependency-first build plans in workspace target order.
+    pub fn build_plans(&self) -> &[ProjectTargetBuildPlan] {
+        &self.build_plans
+    }
+
+    /// Finds the dependency-first build plan for one target.
+    pub fn build_plan(&self, target: &TargetIdentity) -> Option<&ProjectTargetBuildPlan> {
+        self.build_plans.iter().find(|plan| plan.target() == target)
     }
 
     /// Finds a package by canonical identity.

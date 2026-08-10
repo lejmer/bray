@@ -1,4 +1,5 @@
 mod package;
+mod predicate;
 mod source;
 mod validation;
 mod workspace;

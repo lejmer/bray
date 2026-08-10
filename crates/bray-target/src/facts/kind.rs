@@ -265,4 +265,9 @@ impl TargetFactKind {
             Self::PlatformDynamicLoading => "target.platform.dynamic_loading",
         }
     }
+
+    /// Finds the language-defined target fact with the supplied exact path.
+    pub fn from_path(path: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|kind| kind.as_str() == path)
+    }
 }

@@ -140,7 +140,7 @@ impl<'project> ProjectCompiler<'project> {
         configuration: TackBuildConfiguration,
     ) -> Result<BuildProgressPlan, DiagnosticBag> {
         let product = self.project_product(planned)?;
-        let dependencies = self.transitive_dependencies(product)?;
+        let dependencies = self.transitive_dependencies(product, planned.target())?;
 
         let output_directory =
             self.output_directory(product.identity(), planned.target_name(), configuration);
@@ -207,7 +207,7 @@ impl<'project> ProjectCompiler<'project> {
         outputs: &mut Vec<ToolOutput>,
         progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<bool, DiagnosticBag> {
-        let dependencies = self.direct_dependencies(product)?;
+        let dependencies = self.direct_dependencies(product, target)?;
 
         for dependency in dependencies {
             if !self.ensure_dependency(&dependency, target, outputs, progress)? {
@@ -403,10 +403,11 @@ impl<'project> ProjectCompiler<'project> {
     fn transitive_dependencies(
         &self,
         product: &ProjectProduct,
+        target: &TargetIdentity,
     ) -> Result<BTreeSet<ProductIdentity>, DiagnosticBag> {
         let mut dependencies = BTreeSet::new();
 
-        let mut pending = self.direct_dependencies(product)?;
+        let mut pending = self.direct_dependencies(product, target)?;
 
         while let Some(identity) = pending.pop() {
             if !dependencies.insert(identity.clone()) {
@@ -421,7 +422,7 @@ impl<'project> ProjectCompiler<'project> {
                 .find(|product| product.identity() == &identity)
                 .ok_or_else(|| selection_diagnostics(identity.name()))?;
 
-            pending.extend(self.direct_dependencies(product)?);
+            pending.extend(self.direct_dependencies(product, target)?);
         }
 
         Ok(dependencies)
@@ -480,7 +481,7 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProjectProduct,
         target: &TargetIdentity,
     ) -> Result<Vec<DependencyArtifact>, DiagnosticBag> {
-        self.direct_dependencies(product)?
+        self.direct_dependencies(product, target)?
             .into_iter()
             .map(|identity| {
                 let key = (identity.clone(), target.clone());
@@ -502,12 +503,12 @@ impl<'project> ProjectCompiler<'project> {
     fn direct_dependencies(
         &self,
         product: &ProjectProduct,
+        target: &TargetIdentity,
     ) -> Result<Vec<ProductIdentity>, DiagnosticBag> {
-        let package = self.project_package(product.identity().package())?;
-
-        let mut dependencies = package
+        let mut dependencies = product
             .dependencies()
             .iter()
+            .filter(|dependency| dependency.is_active_for(target))
             .map(|dependency| dependency.product().clone())
             .collect::<BTreeSet<_>>();
 

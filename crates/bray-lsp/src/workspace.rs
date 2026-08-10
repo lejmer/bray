@@ -533,13 +533,10 @@ impl Workspace {
         &self,
         product: &ProjectProduct,
     ) -> Result<Vec<DependencyInterfaceInput>, WorkspaceError> {
-        let Some(package) = self.graph.package(product.identity().package()) else {
-            return Err(WorkspaceError::ProductNotFound);
-        };
-
-        package
+        product
             .dependencies()
             .iter()
+            .filter(|dependency| dependency.is_active_for(&self.target))
             .map(|dependency| {
                 let identity = dependency.product();
 
@@ -588,16 +585,12 @@ impl Workspace {
         &self,
         product: &ProjectProduct,
     ) -> Result<Vec<ProductIdentity>, WorkspaceError> {
-        self.graph
-            .package(product.identity().package())
-            .map(|package| {
-                package
-                    .dependencies()
-                    .iter()
-                    .map(|dependency| dependency.product().clone())
-                    .collect()
-            })
-            .ok_or(WorkspaceError::ProductNotFound)
+        Ok(product
+            .dependencies()
+            .iter()
+            .filter(|dependency| dependency.is_active_for(&self.target))
+            .map(|dependency| dependency.product().clone())
+            .collect())
     }
 
     fn documents_for_products(
@@ -991,18 +984,18 @@ mod tests {
                         "path": "src"
                     }
                 ],
-                "dependencies": [
-                    {
-                        "package": "example.math",
-                        "product": "math"
-                    }
-                ],
                 "products": [
                     {
                         "name": "application",
                         "kind": "executable",
                         "source_roots": ["main"],
                         "targets": ["native"],
+                        "dependencies": [
+                            {
+                                "package": "example.math",
+                                "product": "math"
+                            }
+                        ],
                         "outputs": ["executable"]
                     }
                 ]
@@ -1023,13 +1016,13 @@ mod tests {
                         "path": "src"
                     }
                 ],
-                "dependencies": [],
                 "products": [
                     {
                         "name": "math",
                         "kind": "library",
                         "source_roots": ["library"],
                         "targets": ["native"],
+                        "dependencies": [],
                         "outputs": ["package_interface"]
                     }
                 ]
