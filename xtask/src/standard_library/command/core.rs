@@ -589,6 +589,9 @@ fn emitted_path(
         .iter()
         .find(|artifact| artifact.id().kind() == kind)
         .and_then(|artifact| match artifact.sink() {
+            OutputSink::ManagedFilesystem { .. } => outcome
+                .generation()
+                .and_then(|generation| generation.artifact_path(artifact.id())),
             OutputSink::Filesystem(path) => Some(path.clone()),
             OutputSink::Memory { .. } | OutputSink::Stream(_) => None,
         })

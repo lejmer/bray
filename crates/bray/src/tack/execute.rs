@@ -831,8 +831,9 @@ fn run_format(
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
+    use std::hash::Hasher;
     use std::io::{Cursor, Read, Write};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::ExitCode;
     use std::sync::Mutex;
 
@@ -874,10 +875,91 @@ mod tests {
                     input: request.input_bytes().map(<[u8]>::to_vec),
                 });
         }
+
+        fn publish_compiler_outputs(&self, request: &ToolRequest) -> Result<(), ()> {
+            if request.tool() != Tool::Compiler
+                || !has_argument_pair(request.arguments(), "--artifact", "executable")
+            {
+                return Ok(());
+            }
+
+            let output = argument_value(request.arguments(), "--output").ok_or(())?;
+            let package = argument_value(request.arguments(), "--package").ok_or(())?;
+            let product = argument_value(request.arguments(), "--product").ok_or(())?;
+            let output = Path::new(output);
+
+            std::fs::create_dir_all(output).map_err(|_| ())?;
+
+            let staged_artifact = output.join("test-executable");
+            let artifact_bytes = b"test executable";
+
+            std::fs::write(&staged_artifact, artifact_bytes).map_err(|_| ())?;
+
+            let artifact_digest = stable_digest(artifact_bytes);
+            let artifact_mode = unix_mode(&std::fs::metadata(&staged_artifact).map_err(|_| ())?);
+
+            let manifest = serde_json::to_vec(&serde_json::json!({
+                "revision": 1,
+                "product": {
+                    "package": package.to_string_lossy(),
+                    "name": product.to_string_lossy(),
+                },
+                "artifacts": [{
+                    "kind": "executable",
+                    "ordinal": 0,
+                    "requirement": "required",
+                    "role": "product",
+                    "path": "artifacts/application",
+                    "byte_len": artifact_bytes.len(),
+                    "digest_algorithm": "blake3",
+                    "digest": bray_base::lowercase_hex(&artifact_digest),
+                    "permissions": {
+                        "logical": "executable",
+                        "unix_mode": artifact_mode,
+                    },
+                    "producer": {
+                        "kind": "linker",
+                        "ordinal": 0,
+                    },
+                }],
+            }))
+            .map_err(|_| ())?;
+
+            let generation_digest = stable_digest(&manifest);
+            let generation = bray_base::lowercase_hex(&generation_digest);
+
+            let generation_directory = output
+                .join(".bray")
+                .join("generations")
+                .join(&generation);
+
+            let artifact_directory = generation_directory.join("artifacts");
+
+            std::fs::create_dir_all(&artifact_directory).map_err(|_| ())?;
+
+            std::fs::rename(staged_artifact, artifact_directory.join("application"))
+                .map_err(|_| ())?;
+
+            std::fs::write(generation_directory.join("manifest.json"), manifest)
+                .map_err(|_| ())?;
+
+            let reference = serde_json::to_vec(&serde_json::json!({
+                "revision": 1,
+                "generation": generation,
+                "manifest_digest": bray_base::lowercase_hex(&generation_digest),
+            }))
+            .map_err(|_| ())?;
+
+            std::fs::write(output.join(".bray").join("published-generation.json"), reference)
+                .map_err(|_| ())?;
+
+            Ok(())
+        }
     }
 
     impl ToolExecutor for RecordingExecutor {
         fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()> {
+            self.publish_compiler_outputs(&request)?;
             self.record(&request);
 
             let json = request
@@ -908,6 +990,36 @@ mod tests {
 
             Ok(ToolOutput::new(true, String::new(), String::new()))
         }
+    }
+
+    fn argument_value<'arguments>(
+        arguments: &'arguments [OsString],
+        name: &str,
+    ) -> Option<&'arguments OsStr> {
+        arguments
+            .windows(2)
+            .find(|pair| pair[0] == name)
+            .map(|pair| pair[1].as_os_str())
+    }
+
+    fn stable_digest(bytes: &[u8]) -> [u8; 32] {
+        let mut digest = bray_base::StableDigestHasher::new();
+
+        digest.write(bytes);
+
+        digest.finalize()
+    }
+
+    #[cfg(unix)]
+    fn unix_mode(metadata: &std::fs::Metadata) -> Option<u32> {
+        use std::os::unix::fs::PermissionsExt;
+
+        Some(metadata.permissions().mode() & 0o777)
+    }
+
+    #[cfg(not(unix))]
+    const fn unix_mode(_: &std::fs::Metadata) -> Option<u32> {
+        None
     }
 
     #[test]

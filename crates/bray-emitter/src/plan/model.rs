@@ -7,7 +7,7 @@ use bray_codegen::{
 };
 use bray_package_interface::{InterfaceArtifact, InterfaceProductKind};
 
-use crate::sink::OutputSinkCollisionKey;
+use crate::sink::{FilesystemCollisionKey, OutputSinkCollisionKey};
 
 use crate::{
     ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole, EmissionRequest,
@@ -201,6 +201,12 @@ pub(crate) enum EmissionPlanBuildError {
     DuplicateSink(OutputSink),
     /// An in-memory sink uses a key other than its planned artifact identity.
     MemoryArtifactIdentityMismatch(ArtifactId),
+    /// A product or companion artifact uses an independent filesystem sink.
+    IndependentProductFilesystemSink(ArtifactId),
+    /// One product plan names more than one managed filesystem root.
+    MultipleManagedRoots,
+    /// One plan mixes a managed generation with independently committed sinks.
+    MixedPublicationModes,
     /// A required external artifact category has no published artifact.
     MissingRequestedArtifact(ArtifactKind),
     /// A published artifact category was not present in the host request.
@@ -284,6 +290,8 @@ fn validate_artifacts(
     }
 
     let mut sinks = BTreeSet::new();
+    let mut managed_root = None;
+    let mut has_independent_publication = false;
 
     for (index, artifact) in artifacts.iter().enumerate() {
         if artifact.id().product() != request.product() {
@@ -301,7 +309,15 @@ fn validate_artifacts(
         }
 
         validate_role(artifact)?;
-        validate_destination(request, artifact, &mut sinks)?;
+
+        validate_destination(
+            request,
+            artifact,
+            &mut sinks,
+            &mut managed_root,
+            &mut has_independent_publication,
+        )?;
+
         validate_producer(backend, artifact)?;
     }
 
@@ -329,6 +345,8 @@ fn validate_destination(
     request: &EmissionRequest,
     artifact: &PlannedArtifact,
     sinks: &mut BTreeSet<OutputSinkCollisionKey>,
+    managed_root: &mut Option<FilesystemCollisionKey>,
+    has_independent_publication: &mut bool,
 ) -> Result<(), EmissionPlanBuildError> {
     let PlannedArtifactDestination::Publish(sink) = artifact.destination() else {
         return Ok(());
@@ -358,6 +376,35 @@ fn validate_destination(
         return Err(EmissionPlanBuildError::MemoryArtifactIdentityMismatch(
             artifact.id().clone(),
         ));
+    }
+
+    if matches!(sink, OutputSink::Filesystem(_)) && artifact.role() != ArtifactRole::Inspection {
+        // Plan errors retain Arc-backed artifact identities after validation returns.
+        return Err(EmissionPlanBuildError::IndependentProductFilesystemSink(
+            artifact.id().clone(),
+        ));
+    }
+
+    if let OutputSink::ManagedFilesystem { root, .. } = sink {
+        if *has_independent_publication {
+            return Err(EmissionPlanBuildError::MixedPublicationModes);
+        }
+
+        let root = FilesystemCollisionKey::new(root);
+
+        match managed_root {
+            Some(current) if *current != root => {
+                return Err(EmissionPlanBuildError::MultipleManagedRoots);
+            }
+            Some(_) => {}
+            None => *managed_root = Some(root),
+        }
+    } else {
+        if managed_root.is_some() {
+            return Err(EmissionPlanBuildError::MixedPublicationModes);
+        }
+
+        *has_independent_publication = true;
     }
 
     if !sinks.insert(sink.collision_key()) {
@@ -598,8 +645,59 @@ mod tests {
         assert_eq!(
             EmissionPlan::try_new(request, None, None, [first, second], [], None),
             Err(EmissionPlanBuildError::DuplicateSink(
-                OutputSink::Filesystem("same-output".into())
+                OutputSink::ManagedFilesystem {
+                    root: ".".into(),
+                    artifact: crate::ManagedArtifactPath::try_new("artifacts/same-output")
+                        .unwrap_or_else(|| panic!("test managed path must be valid")),
+                }
             ))
+        );
+    }
+
+    #[test]
+    fn product_plans_require_one_managed_filesystem_generation() {
+        let request = crate::test_support::emission_request([
+            RequestedArtifact::new(ArtifactKind::Executable, ArtifactRequirement::Required),
+            RequestedArtifact::new(ArtifactKind::LinkedCompanion, ArtifactRequirement::Required),
+        ]);
+
+        let product = linked_artifact(
+            ArtifactKind::Executable,
+            ArtifactRole::Product,
+            "first/application",
+            0,
+        );
+
+        let companion = linked_artifact(
+            ArtifactKind::LinkedCompanion,
+            ArtifactRole::Companion,
+            "second/companion",
+            1,
+        );
+
+        assert_eq!(
+            EmissionPlan::try_new(request, None, None, [product, companion], [], None),
+            Err(EmissionPlanBuildError::MultipleManagedRoots)
+        );
+
+        let request = crate::test_support::emission_request([RequestedArtifact::new(
+            ArtifactKind::Executable,
+            ArtifactRequirement::Required,
+        )]);
+
+        let artifact = PlannedArtifact::new(
+            ArtifactId::new(request.product().clone(), ArtifactKind::Executable, 0),
+            ArtifactRequirement::Required,
+            ArtifactRole::Product,
+            ArtifactProducer::Linker(crate::LinkerProducerId::new(0)),
+            PlannedArtifactDestination::Publish(OutputSink::Filesystem("application".into())),
+        );
+
+        let id = artifact.id().clone();
+
+        assert_eq!(
+            EmissionPlan::try_new(request, None, None, [artifact], [], None),
+            Err(EmissionPlanBuildError::IndependentProductFilesystemSink(id))
         );
     }
 

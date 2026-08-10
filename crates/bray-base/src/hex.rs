@@ -17,6 +17,29 @@ pub fn is_lowercase_hex(text: &str) -> bool {
         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+/// Decodes exact-width lowercase hexadecimal text.
+pub fn decode_lowercase_hex<const BYTE_COUNT: usize>(text: &str) -> Option<[u8; BYTE_COUNT]> {
+    if text.len() != BYTE_COUNT.checked_mul(2)? || !is_lowercase_hex(text) {
+        return None;
+    }
+
+    let mut bytes = [0_u8; BYTE_COUNT];
+
+    for (destination, pair) in bytes.iter_mut().zip(text.as_bytes().chunks_exact(2)) {
+        *destination = decode_hex_digit(pair[0])? << 4 | decode_hex_digit(pair[1])?;
+    }
+
+    Some(bytes)
+}
+
+const fn decode_hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -29,5 +52,12 @@ mod tests {
         assert!(super::is_lowercase_hex("0123456789abcdef"));
         assert!(!super::is_lowercase_hex("ABCDEF"));
         assert!(!super::is_lowercase_hex("not-hex"));
+    }
+
+    #[test]
+    fn lowercase_hex_decoding_requires_exact_width_and_canonical_digits() {
+        assert_eq!(super::decode_lowercase_hex::<3>("000aff"), Some([0, 10, 255]));
+        assert_eq!(super::decode_lowercase_hex::<3>("000a"), None);
+        assert_eq!(super::decode_lowercase_hex::<3>("000aFF"), None);
     }
 }

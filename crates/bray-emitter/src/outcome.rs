@@ -1,6 +1,6 @@
 use bray_diagnostics::DiagnosticBag;
 
-use crate::{ArtifactId, EmittedArtifactSet};
+use crate::{ArtifactId, EmittedArtifactSet, PublishedProductGeneration};
 
 /// Structured reason one emission operation could not publish a complete product.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,17 +37,20 @@ pub enum EmissionStatus {
 pub struct EmissionOutcome {
     status: EmissionStatus,
     artifacts: EmittedArtifactSet,
+    generation: Option<PublishedProductGeneration>,
     diagnostics: DiagnosticBag,
 }
 
 impl EmissionOutcome {
     pub(crate) const fn complete(
         artifacts: EmittedArtifactSet,
+        generation: Option<PublishedProductGeneration>,
         diagnostics: DiagnosticBag,
     ) -> Self {
         Self {
             status: EmissionStatus::Complete,
             artifacts,
+            generation,
             diagnostics,
         }
     }
@@ -61,6 +64,7 @@ impl EmissionOutcome {
         Self {
             status: EmissionStatus::Failed(failure),
             artifacts,
+            generation: None,
             diagnostics,
         }
     }
@@ -73,6 +77,7 @@ impl EmissionOutcome {
         Self {
             status: EmissionStatus::Cancelled,
             artifacts,
+            generation: None,
             diagnostics,
         }
     }
@@ -90,6 +95,11 @@ impl EmissionOutcome {
     /// Returns every artifact published before the operation reached its final status.
     pub const fn artifacts(&self) -> &EmittedArtifactSet {
         &self.artifacts
+    }
+
+    /// Returns the complete managed generation after successful filesystem publication.
+    pub const fn generation(&self) -> Option<&PublishedProductGeneration> {
+        self.generation.as_ref()
     }
 
     /// Prepends diagnostics produced by compiler facts before emitter publication.
@@ -113,7 +123,7 @@ mod tests {
         let artifact = emitted_artifact(&plan);
 
         let artifacts = crate::EmittedArtifactSet::from_publication(&plan, [artifact]);
-        let complete = EmissionOutcome::complete(artifacts, DiagnosticBag::new());
+        let complete = EmissionOutcome::complete(artifacts, None, DiagnosticBag::new());
 
         assert!(matches!(complete.status(), EmissionStatus::Complete));
         assert_eq!(complete.artifacts().artifacts().len(), 1);

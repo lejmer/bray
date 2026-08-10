@@ -260,6 +260,9 @@ fn reserve_output(
     builder.prefix(LINK_OUTPUT_PREFIX);
 
     let directory = match planned.destination() {
+        PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { root, .. }) => {
+            builder.tempdir_in(root)
+        }
         PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) => {
             let directory = destination
                 .parent()
@@ -278,6 +281,14 @@ fn reserve_output(
     .map_err(|error| LinkStagingError::Create(error.kind()))?;
 
     let name = match planned.destination() {
+        PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { artifact, .. }) => {
+            artifact
+                .to_path_buf()
+                .file_name()
+                .filter(|name| !name.is_empty())
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| LinkStagingError::InvalidStagingPath(planned.id().clone()))?
+        }
         PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) => destination
             .file_name()
             .filter(|name| !name.is_empty())
@@ -460,9 +471,8 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
 
-        let destination = directory.path().join("application");
-        let destination_name = destination.file_name().map(ToOwned::to_owned);
-        let plan = linked_plan(destination);
+        let destination_name = Some(std::ffi::OsString::from("application"));
+        let plan = linked_plan(directory.path().to_owned());
         let contribution = staged_contribution(&plan, b"object bytes");
 
         let first = LinkStaging::prepare(&plan, [contribution.clone()], &never_cancelled)
@@ -522,7 +532,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
 
-        let plan = linked_plan(directory.path().join("application"));
+        let plan = linked_plan(directory.path().to_owned());
         let contribution = staged_contribution(&plan, b"object bytes");
 
         assert!(matches!(
@@ -536,7 +546,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
 
-        let plan = linked_plan(directory.path().join("application"));
+        let plan = linked_plan(directory.path().to_owned());
         let contribution = staged_contribution(&plan, b"object bytes");
         let observations = AtomicUsize::new(0);
         let cancellation = || observations.fetch_add(1, Ordering::AcqRel) >= 2;
@@ -573,7 +583,7 @@ mod tests {
             crate::ProductKind::Executable,
             Some(executable_host_contract()),
             target_identity(),
-            RequestedArtifactDestination::FilesystemFile(destination),
+            RequestedArtifactDestination::FilesystemDirectory(destination),
             [RequestedArtifact::new(
                 ArtifactKind::Executable,
                 ArtifactRequirement::Required,

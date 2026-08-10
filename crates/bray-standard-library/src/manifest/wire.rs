@@ -147,16 +147,8 @@ pub(super) fn decode_digest(
         return Err(StandardLibraryManifestError::InvalidDigest);
     }
 
-    let mut bytes = [0_u8; 32];
-
-    for (destination, pair) in bytes
-        .iter_mut()
-        .zip(digest.bytes.as_bytes().chunks_exact(2))
-    {
-        *destination = decode_hex_byte(pair).ok_or(StandardLibraryManifestError::InvalidDigest)?;
-    }
-
-    Ok(bytes)
+    bray_base::decode_lowercase_hex(&digest.bytes)
+        .ok_or(StandardLibraryManifestError::InvalidDigest)
 }
 
 pub(super) const fn runtime_abi(wire: RuntimeAbiWire) -> RuntimeAbiVersion {
@@ -218,21 +210,5 @@ fn digest_wire(bytes: [u8; 32]) -> DigestWire {
     DigestWire {
         algorithm: DIGEST_ALGORITHM,
         bytes: encoded,
-    }
-}
-
-fn decode_hex_byte(pair: &[u8]) -> Option<u8> {
-    let [high, low] = pair else {
-        return None;
-    };
-
-    Some(decode_hex_digit(*high)? << 4 | decode_hex_digit(*low)?)
-}
-
-const fn decode_hex_digit(value: u8) -> Option<u8> {
-    match value {
-        b'0'..=b'9' => Some(value - b'0'),
-        b'a'..=b'f' => Some(value - b'a' + 10),
-        _ => None,
     }
 }

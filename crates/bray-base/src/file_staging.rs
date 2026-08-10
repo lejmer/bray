@@ -33,14 +33,19 @@ impl StagedFile {
         replacement: FileReplacementMode,
         default_permissions: Option<Permissions>,
     ) -> io::Result<Self> {
-        let final_permissions =
-            replacement_permissions(destination, replacement)?.or(default_permissions);
+        let final_permissions = replacement_permissions(destination, replacement)?;
 
         let directory = destination_directory(destination);
 
-        let file = Builder::new()
-            .prefix(STAGING_FILE_PREFIX)
-            .tempfile_in(directory)?;
+        let mut builder = Builder::new();
+
+        builder.prefix(STAGING_FILE_PREFIX);
+
+        if let Some(permissions) = default_permissions {
+            builder.permissions(permissions);
+        }
+
+        let file = builder.tempfile_in(directory)?;
 
         Ok(Self {
             file,
@@ -57,6 +62,7 @@ impl StagedFile {
     /// Flushes staged bytes and completes preparation for publication.
     pub fn finish(mut self) -> io::Result<CompletedStagedFile> {
         self.file.flush()?;
+        self.file.as_file().sync_all()?;
 
         Ok(CompletedStagedFile {
             path: self.file.into_temp_path(),

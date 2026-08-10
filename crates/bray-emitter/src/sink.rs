@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::NonEmptySharedStr;
+use bray_base::{NonEmptySharedStr, is_canonical_relative_path};
 
 use crate::ArtifactId;
 
@@ -26,10 +26,39 @@ impl OutputSinkId {
     }
 }
 
+/// Canonical portable path of one artifact within a managed product generation.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ManagedArtifactPath(NonEmptySharedStr);
+
+impl ManagedArtifactPath {
+    /// Creates a generation-relative path without traversal or host-specific components.
+    pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
+        let value = NonEmptySharedStr::try_new(value)?;
+
+        is_canonical_relative_path(value.as_str()).then_some(Self(value))
+    }
+
+    /// Returns the canonical `/`-separated relative path.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    pub(crate) fn to_path_buf(&self) -> PathBuf {
+        self.as_str().split('/').collect()
+    }
+}
+
 /// Exact immutable publication destination of one planned external artifact.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum OutputSink {
-    /// Final filesystem artifact path.
+    /// Artifact path within one atomically published managed filesystem generation.
+    ManagedFilesystem {
+        /// Pre-existing durable product root that owns the generation store and reference.
+        root: PathBuf,
+        /// Canonical artifact path within every complete generation.
+        artifact: ManagedArtifactPath,
+    },
+    /// Independent filesystem artifact path outside product generation publication.
     Filesystem(PathBuf),
     /// Host-owned in-memory collector and deterministic artifact key.
     Memory {
@@ -78,6 +107,12 @@ pub trait OutputSinkResolver: Send + Sync {
 impl OutputSink {
     pub(crate) fn collision_key(&self) -> OutputSinkCollisionKey {
         match self {
+            Self::ManagedFilesystem { root, artifact } => {
+                OutputSinkCollisionKey::ManagedFilesystem {
+                    root: FilesystemCollisionKey::new(root),
+                    artifact: FilesystemCollisionKey::new(&artifact.to_path_buf()),
+                }
+            }
             Self::Filesystem(path) => {
                 OutputSinkCollisionKey::Filesystem(FilesystemCollisionKey::new(path))
             }
@@ -101,6 +136,10 @@ impl OutputSink {
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum OutputSinkCollisionKey {
+    ManagedFilesystem {
+        root: FilesystemCollisionKey,
+        artifact: FilesystemCollisionKey,
+    },
     Filesystem(FilesystemCollisionKey),
     Memory {
         collector: OutputSinkId,
@@ -113,7 +152,7 @@ pub(crate) enum OutputSinkCollisionKey {
 pub(crate) struct FilesystemCollisionKey(Vec<FilesystemCollisionComponent>);
 
 impl FilesystemCollisionKey {
-    fn new(path: &Path) -> Self {
+    pub(crate) fn new(path: &Path) -> Self {
         let mut components = Vec::new();
 
         for component in path.components() {
@@ -217,9 +256,21 @@ pub enum ReplacementPolicy {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
     use std::ffi::OsStr;
 
-    use super::{OutputSink, OutputSinkId, is_valid_host_file_name};
+    use super::{ManagedArtifactPath, OutputSink, OutputSinkId};
+    #[cfg(windows)]
+    use super::is_valid_host_file_name;
+
+    #[test]
+    fn managed_artifact_paths_require_canonical_portable_relatives() {
+        assert!(ManagedArtifactPath::try_new("artifacts/application.exe").is_some());
+
+        for path in ["", "/artifacts/output", "../output", "artifacts\\output"] {
+            assert!(ManagedArtifactPath::try_new(path).is_none(), "{path}");
+        }
+    }
 
     #[test]
     fn indirect_sinks_are_immutable_identities_without_open_handles() {

@@ -145,6 +145,9 @@ pub(super) enum PublicationErrorKind {
     Write(io::ErrorKind),
     Flush(io::ErrorKind),
     Commit(io::ErrorKind),
+    ManagedPublicationUnsupported,
+    GenerationCollision,
+    InvalidGenerationManifest,
 }
 
 impl PublicationErrorKind {
@@ -163,6 +166,11 @@ impl PublicationErrorKind {
             Self::Write(_) => DiagnosticKind::EmissionArtifactWriteFailed,
             Self::Flush(_) => DiagnosticKind::EmissionArtifactFlushFailed,
             Self::Commit(_) => DiagnosticKind::EmissionArtifactCommitFailed,
+            Self::ManagedPublicationUnsupported => {
+                DiagnosticKind::EmissionManagedPublicationUnsupported
+            }
+            Self::GenerationCollision => DiagnosticKind::EmissionGenerationCollision,
+            Self::InvalidGenerationManifest => DiagnosticKind::EmissionGenerationManifestInvalid,
         }
     }
 
@@ -176,7 +184,10 @@ impl PublicationErrorKind {
             Self::MissingContribution
             | Self::InvalidContribution
             | Self::LengthMismatch { .. }
-            | Self::DigestMismatch(_) => None,
+            | Self::DigestMismatch(_)
+            | Self::ManagedPublicationUnsupported
+            | Self::GenerationCollision
+            | Self::InvalidGenerationManifest => None,
         }
     }
 
@@ -187,7 +198,13 @@ impl PublicationErrorKind {
             | Self::Read(_)
             | Self::LengthMismatch { .. }
             | Self::DigestMismatch(_) => PublicationFailureKind::InvalidContribution,
-            Self::Open(_) | Self::Write(_) | Self::Flush(_) | Self::Commit(_) => {
+            Self::Open(_)
+            | Self::Write(_)
+            | Self::Flush(_)
+            | Self::Commit(_)
+            | Self::ManagedPublicationUnsupported
+            | Self::GenerationCollision
+            | Self::InvalidGenerationManifest => {
                 PublicationFailureKind::Publication
             }
         }
@@ -211,7 +228,10 @@ impl PublicationErrorKind {
             | Self::Open(_)
             | Self::Write(_)
             | Self::Flush(_)
-            | Self::Commit(_) => diagnostic,
+            | Self::Commit(_)
+            | Self::ManagedPublicationUnsupported
+            | Self::GenerationCollision
+            | Self::InvalidGenerationManifest => diagnostic,
         }
     }
 }
@@ -241,6 +261,7 @@ impl PublicationFailureKind {
 
 fn diagnostic_sink(sink: OutputSink) -> DiagnosticOutputSink {
     match sink {
+        OutputSink::ManagedFilesystem { root, .. } => DiagnosticOutputSink::Filesystem(root),
         OutputSink::Filesystem(path) => DiagnosticOutputSink::Filesystem(path),
         OutputSink::Memory { collector, .. } => {
             DiagnosticOutputSink::Memory(collector.as_str().to_owned())

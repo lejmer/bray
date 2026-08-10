@@ -498,21 +498,22 @@ mod tests {
         );
 
         assert!(result.diagnostics().is_empty());
-        assert!(output.join("library.brayi").is_file());
-        assert!(output.join("library.brayimpl").is_file());
-        assert!(output.join("liblibrary.a").is_file());
 
-        std::fs::remove_file(output.join("library.brayi"))
+        let product = command_product("library");
+
+        for kind in [
+            ArtifactKind::PackageInterface,
+            ArtifactKind::PackageImplementation,
+            ArtifactKind::StaticLibrary,
+        ] {
+            let path = bray_emitter::resolve_published_artifact(&output, &product, kind, 0)
+                .unwrap_or_else(|error| panic!("published artifact must resolve: {error:?}"));
+
+            assert!(path.is_file(), "{}", path.display());
+        }
+
+        std::fs::remove_dir_all(&output)
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
-
-        std::fs::remove_file(output.join("library.brayimpl"))
-            .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
-
-        std::fs::remove_file(output.join("liblibrary.a"))
-            .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
-
-        std::fs::remove_dir(&output)
-            .unwrap_or_else(|error| panic!("build output directory must be removed: {error:?}"));
     }
 
     #[test]
@@ -546,14 +547,31 @@ mod tests {
         );
 
         assert!(result.diagnostics().is_empty());
-        assert!(output.join("library.brayi").is_file());
-        assert!(!output.join("liblibrary.a").exists());
 
-        std::fs::remove_file(output.join("library.brayi"))
+        let product = command_product("library");
+
+        let interface = bray_emitter::resolve_published_artifact(
+            &output,
+            &product,
+            ArtifactKind::PackageInterface,
+            0,
+        )
+        .unwrap_or_else(|error| panic!("published interface must resolve: {error:?}"));
+
+        assert!(interface.is_file());
+
+        assert_eq!(
+            bray_emitter::resolve_published_artifact(
+                &output,
+                &product,
+                ArtifactKind::StaticLibrary,
+                0,
+            ),
+            Err(bray_emitter::PublishedGenerationReadError::ArtifactUnavailable)
+        );
+
+        std::fs::remove_dir_all(&output)
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
-
-        std::fs::remove_dir(&output)
-            .unwrap_or_else(|error| panic!("build output directory must be removed: {error:?}"));
     }
 
     #[test]
@@ -642,13 +660,19 @@ mod tests {
         );
 
         assert!(result.diagnostics().is_empty());
-        assert!(output.join("application").is_file());
 
-        std::fs::remove_file(output.join("application"))
+        let executable = bray_emitter::resolve_published_artifact(
+            &output,
+            &command_product("application"),
+            ArtifactKind::Executable,
+            0,
+        )
+        .unwrap_or_else(|error| panic!("published executable must resolve: {error:?}"));
+
+        assert!(executable.is_file());
+
+        std::fs::remove_dir_all(&output)
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));
-
-        std::fs::remove_dir(&output)
-            .unwrap_or_else(|error| panic!("build output directory must be removed: {error:?}"));
     }
 
     #[test]
@@ -684,5 +708,13 @@ mod tests {
             "{:#?}",
             result.diagnostics()
         );
+    }
+
+    fn command_product(name: &str) -> bray_symbols::ProductIdentity {
+        let package = bray_symbols::PackageIdentity::try_new("command.line")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        bray_symbols::ProductIdentity::try_new(package, name)
+            .unwrap_or_else(|| panic!("test product identity must be valid"))
     }
 }

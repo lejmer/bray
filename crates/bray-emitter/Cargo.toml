@@ -16,6 +16,8 @@ bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 blake3 = "1"
 sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tempfile = "3"
 
 [dev-dependencies]

@@ -1,4 +1,4 @@
-use std::fs::Permissions;
+use std::fs::{File, OpenOptions, Permissions};
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -47,6 +47,16 @@ impl Write for FilesystemStaging {
     }
 }
 
+pub(super) fn create_new_artifact_file(path: &Path, kind: ArtifactKind) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+
+    options.write(true).create_new(true);
+
+    configure_creation_permissions(&mut options, kind);
+
+    options.open(path)
+}
+
 pub(super) struct CompletedFilesystemStaging {
     file: CompletedStagedFile,
 }
@@ -61,7 +71,7 @@ impl CompletedFilesystemStaging {
     }
 }
 
-fn replacement_mode(replacement: ReplacementPolicy) -> FileReplacementMode {
+pub(super) const fn replacement_mode(replacement: ReplacementPolicy) -> FileReplacementMode {
     match replacement {
         ReplacementPolicy::RequireAbsent => FileReplacementMode::RequireAbsent,
         ReplacementPolicy::ReplaceExisting => FileReplacementMode::ReplaceExisting,
@@ -69,10 +79,27 @@ fn replacement_mode(replacement: ReplacementPolicy) -> FileReplacementMode {
 }
 
 #[cfg(unix)]
-fn default_permissions(kind: ArtifactKind) -> Option<Permissions> {
+pub(super) fn default_permissions(kind: ArtifactKind) -> Option<Permissions> {
     use std::os::unix::fs::PermissionsExt;
 
-    let mode = match kind {
+    Some(Permissions::from_mode(artifact_mode(kind)))
+}
+
+#[cfg(not(unix))]
+pub(super) fn default_permissions(_: ArtifactKind) -> Option<Permissions> {
+    None
+}
+
+#[cfg(unix)]
+fn configure_creation_permissions(options: &mut OpenOptions, kind: ArtifactKind) {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    options.mode(artifact_mode(kind));
+}
+
+#[cfg(unix)]
+const fn artifact_mode(kind: ArtifactKind) -> u32 {
+    match kind {
         ArtifactKind::Executable | ArtifactKind::ExecutableModule => 0o755,
         ArtifactKind::Assembly
         | ArtifactKind::BackendIr
@@ -80,19 +107,16 @@ fn default_permissions(kind: ArtifactKind) -> Option<Permissions> {
         | ArtifactKind::RelocatableObject
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::StaticLibrary
         | ArtifactKind::SharedLibrary
         | ArtifactKind::LinkedCompanion => 0o644,
-    };
-
-    Some(Permissions::from_mode(mode))
+    }
 }
 
 #[cfg(not(unix))]
-fn default_permissions(_: ArtifactKind) -> Option<Permissions> {
-    None
-}
+fn configure_creation_permissions(_: &mut OpenOptions, _: ArtifactKind) {}
 
 #[cfg(test)]
 mod tests {
@@ -331,5 +355,56 @@ mod tests {
         };
 
         bytes
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifact_creation_preserves_a_restrictive_process_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        const CHILD_PATH: &str = "BRAY_TEST_RESTRICTIVE_UMASK_PATH";
+
+        const TEST_NAME: &str =
+            "publication::staging::tests::artifact_creation_preserves_a_restrictive_process_umask";
+
+        if let Some(path) = std::env::var_os(CHILD_PATH) {
+            let file = super::create_new_artifact_file(
+                PathBuf::from(path).as_path(),
+                ArtifactKind::Executable,
+            )
+            .unwrap_or_else(|error| panic!("child artifact must be created: {error}"));
+
+            drop(file);
+
+            return;
+        }
+
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let path = directory.path().join("application");
+
+        let executable = std::env::current_exe()
+            .unwrap_or_else(|error| panic!("test executable must resolve: {error}"));
+
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg("umask 077; exec \"$1\" --exact \"$2\"")
+            .arg("bray-umask-test")
+            .arg(executable)
+            .arg(TEST_NAME)
+            .env(CHILD_PATH, &path)
+            .status()
+            .unwrap_or_else(|error| panic!("child test must run: {error}"));
+
+        assert!(status.success());
+
+        let permissions = std::fs::metadata(path)
+            .unwrap_or_else(|error| panic!("child artifact metadata must be readable: {error}"))
+            .permissions();
+
+        assert_eq!(permissions.mode() & 0o777, 0o700);
     }
 }

@@ -128,6 +128,8 @@ pub enum EmissionPlanningError {
     InvalidExplicitFileName,
     /// An explicit filesystem output name conflicts with target suffix policy.
     ExplicitOutputSuffixMismatch(ArtifactKind),
+    /// A product or companion artifact selected an independent filesystem file.
+    ManagedProductDestinationRequired,
     /// One artifact category exceeds the logical ordinal range.
     ArtifactOrdinalOverflow(ArtifactKind),
     /// Two published artifacts resolve to the same exact sink.

@@ -766,6 +766,22 @@ const EMISSION_ARTIFACT_COMMIT_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
+const EMISSION_MANAGED_PUBLICATION_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("filesystem output "),
+    MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
+    MessageTemplatePart::Text(" does not support atomic managed product publication"),
+];
+
+const EMISSION_GENERATION_COLLISION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("content-addressed product generation conflicts at "),
+    MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
+];
+
+const EMISSION_GENERATION_MANIFEST_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("managed product generation manifest is invalid at "),
+    MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
+];
+
 const EMISSION_ARTIFACT_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
     MessageTemplatePart::Text(" artifact declared digest "),
@@ -1741,6 +1757,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::EmissionArtifactCommitFailed => {
             MessageTemplate::new(EMISSION_ARTIFACT_COMMIT_FAILED)
+        }
+        DiagnosticKind::EmissionManagedPublicationUnsupported => {
+            MessageTemplate::new(EMISSION_MANAGED_PUBLICATION_UNSUPPORTED)
+        }
+        DiagnosticKind::EmissionGenerationCollision => {
+            MessageTemplate::new(EMISSION_GENERATION_COLLISION)
+        }
+        DiagnosticKind::EmissionGenerationManifestInvalid => {
+            MessageTemplate::new(EMISSION_GENERATION_MANIFEST_INVALID)
         }
         DiagnosticKind::LinkerUnsupportedTarget => {
             MessageTemplate::new(LINKER_UNSUPPORTED_TARGET)
