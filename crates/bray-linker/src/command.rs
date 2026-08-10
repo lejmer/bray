@@ -564,10 +564,10 @@ mod tests {
     use super::{LldFlavor, arguments_for, system_arguments_for};
     use crate::test_support::{link_input, link_plan_builder, planned_output, product};
     use crate::{
-        LinkInput, LinkInputId, LinkInputProvenance, LinkModel, LinkPlan, LinkPlanBuilder,
-        LinkPolicy, LinkSearchPath, LinkSearchPathKind, LinkTarget, LinkedArtifactKind,
-        LinkedArtifactRequirement, LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind,
-        SystemLinkerFamily,
+        LinkInput, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource,
+        LinkModel, LinkPlan, LinkPlanBuilder, LinkPolicy, LinkSearchPath, LinkSearchPathKind,
+        LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
+        LinkerDriverIdentity, LinkerDriverKind, SystemLinkerFamily,
     };
 
     #[test]
@@ -643,6 +643,7 @@ mod tests {
                     OsString::from("/out:library.dll"),
                     OsString::from("/implib:library.lib"),
                     OsString::from("/opt:noref"),
+                    OsString::from("crt/start.o"),
                     OsString::from("member.o"),
                 ],
             ),
@@ -661,6 +662,7 @@ mod tests {
                     OsString::from("arm64"),
                     OsString::from("-o"),
                     OsString::from("library.dylib"),
+                    OsString::from("crt/start.o"),
                     OsString::from("member.o"),
                 ],
             ),
@@ -754,11 +756,12 @@ mod tests {
 
     #[test]
     fn raw_macho_arguments_use_object_symbol_spelling() {
-        let mut plan = executable_plan(
+        let mut plan = executable_plan_with_startup(
             TargetArchitecture::X86_64,
             ObjectFormat::MachO,
             "application",
             "main.o",
+            crate::LinkStartupMode::ExplicitInputs,
         );
 
         let mut builder = LinkPlanBuilder::new(
@@ -766,6 +769,7 @@ mod tests {
             plan.product_kind(),
             plan.target().clone(),
             plan.driver().clone(),
+            plan.startup_mode(),
             plan.policy(),
         );
 
@@ -829,6 +833,7 @@ mod tests {
             LinkedProductKind::SharedLibrary,
             target,
             driver,
+            crate::LinkStartupMode::ExplicitInputs,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
@@ -836,6 +841,8 @@ mod tests {
                 None,
             ),
         );
+
+        builder.push_input(startup_input(1, "crt/start.o"));
 
         builder.push_input(link_input(0, "member.o"));
 
@@ -866,6 +873,22 @@ mod tests {
         output: &str,
         input: &str,
     ) -> LinkPlan {
+        executable_plan_with_startup(
+            architecture,
+            object_format,
+            output,
+            input,
+            crate::LinkStartupMode::PlatformCompilerDriver,
+        )
+    }
+
+    fn executable_plan_with_startup(
+        architecture: TargetArchitecture,
+        object_format: ObjectFormat,
+        output: &str,
+        input: &str,
+        startup_mode: crate::LinkStartupMode,
+    ) -> LinkPlan {
         let identity = TargetIdentity::try_new("test-target")
             .unwrap_or_else(|| panic!("test target identity must be valid"));
 
@@ -888,6 +911,7 @@ mod tests {
             LinkedProductKind::Executable,
             target.clone(),
             driver,
+            startup_mode,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
@@ -895,6 +919,10 @@ mod tests {
                 None,
             ),
         );
+
+        if startup_mode == crate::LinkStartupMode::ExplicitInputs {
+            builder.push_input(startup_input(1, "crt/start.o"));
+        }
 
         builder.push_input(link_input(0, input));
 
@@ -939,6 +967,7 @@ mod tests {
             LinkedProductKind::Executable,
             target.clone(),
             driver,
+            crate::LinkStartupMode::ExplicitInputs,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
@@ -946,6 +975,8 @@ mod tests {
                 None,
             ),
         );
+
+        builder.push_input(startup_input(1, "crt/start.o"));
 
         let object_name = bray_target::TargetOutputName::for_native(
             native.object_format(),
@@ -978,5 +1009,16 @@ mod tests {
         builder
             .finish()
             .unwrap_or_else(|error| panic!("native executable plan must be valid: {error:?}"))
+    }
+
+    fn startup_input(ordinal: u32, path: &str) -> LinkInput {
+        LinkInput::try_new(
+            LinkInputId::new(ordinal),
+            LinkInputKind::StartupObject,
+            LinkInputSource::file(path),
+            LinkInputProvenance::TargetProfile,
+            LinkInputMode::Ordinary,
+        )
+        .unwrap_or_else(|error| panic!("test startup input must be valid: {error:?}"))
     }
 }

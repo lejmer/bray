@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_linker::{
-    BinarySymbolName, LinkInputSpec, LinkPolicy, LinkSearchPath, LinkTarget, LinkerDriverIdentity,
+    BinarySymbolName, LinkInputSpec, LinkPolicy, LinkSearchPath, LinkTarget,
 };
 use bray_runtime_interface::RuntimeArtifact;
 
@@ -9,7 +9,6 @@ use bray_runtime_interface::RuntimeArtifact;
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProductLinkFacts {
     pub(super) target: LinkTarget,
-    pub(super) driver: LinkerDriverIdentity,
     pub(super) policy: LinkPolicy,
     pub(super) startup_inputs: Arc<[LinkInputSpec]>,
     pub(super) native_inputs: Arc<[LinkInputSpec]>,
@@ -22,11 +21,10 @@ pub struct ProductLinkFacts {
 }
 
 impl ProductLinkFacts {
-    /// Creates product link facts from the selected target, driver, and platform policy.
-    pub fn new(target: LinkTarget, driver: LinkerDriverIdentity, policy: LinkPolicy) -> Self {
+    /// Creates product link facts from the selected target and platform policy.
+    pub fn new(target: LinkTarget, policy: LinkPolicy) -> Self {
         Self {
             target,
-            driver,
             policy,
             startup_inputs: Arc::from([]),
             native_inputs: Arc::from([]),

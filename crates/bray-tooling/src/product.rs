@@ -12,8 +12,8 @@ use bray_compilation::{
 #[cfg(feature = "compiler")]
 use bray_linker::{
     ExternalToolHost, ExternalToolProcessBudget, Linker, LinkerDriver, LinkerDriverIdentity,
-    LinkerDriverKind, LlvmArchiveDriver, NativeExternalToolHost, SystemLinkerConfiguration,
-    SystemLinkerDriver, SystemLinkerFamily,
+    LinkerDriverKind, LinkerTargetIdentity, LlvmArchiveDriver, NativeExternalToolHost,
+    SystemLinkerConfiguration, SystemLinkerDriver, SystemLinkerFamily,
 };
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
@@ -135,8 +135,21 @@ pub fn native_linker(target: NativeTarget) -> Option<Linker> {
             "1",
         )?;
 
-        let configuration =
-            SystemLinkerConfiguration::try_new(family, program, environment, None).ok()?;
+        let linker_target = LinkerTargetIdentity::try_new(
+            target.identity(),
+            target.as_str(),
+            target.architecture(),
+            target.object_format(),
+        )?;
+
+        let configuration = SystemLinkerConfiguration::try_new(
+            family,
+            linker_target,
+            program,
+            environment,
+            None,
+        )
+        .ok()?;
 
         let system = SystemLinkerDriver::try_new(
             system_identity,

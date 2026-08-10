@@ -5,17 +5,18 @@ use bray_diagnostics::DiagnosticBag;
 
 use super::response::{SystemLinkerInvocationBuildError, invocation};
 use super::{SystemLinkerConfiguration, SystemLinkerFamily};
+use crate::capability::system_driver_capabilities;
 use crate::command::system_arguments_for;
 use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
-    ExternalToolHost, LinkFailure, LinkOutcome, LinkPlan, LinkedProductKind, LinkerDriver,
-    LinkerDriverIdentity, LinkerDriverKind,
+    ExternalToolHost, LinkFailure, LinkOutcome, LinkPlan, LinkerDriver, LinkerDriverCapabilities,
+    LinkerDriverCapabilitiesBuildError, LinkerDriverIdentity, LinkerDriverKind,
 };
 
 /// Driver for one explicitly configured platform system linker.
 pub struct SystemLinkerDriver {
-    identity: LinkerDriverIdentity,
+    capabilities: LinkerDriverCapabilities,
     configuration: SystemLinkerConfiguration,
     host: Arc<dyn ExternalToolHost>,
 }
@@ -31,8 +32,14 @@ impl SystemLinkerDriver {
             return Err(SystemLinkerDriverBuildError::DriverKindMismatch);
         }
 
+        // Capabilities retain their exact target after configuration moves into the driver.
+        let target = configuration.target().clone();
+
+        let capabilities = system_driver_capabilities(identity, configuration.family(), target)
+            .map_err(SystemLinkerDriverBuildError::Capabilities)?;
+
         Ok(Self {
-            identity,
+            capabilities,
             configuration,
             host,
         })
@@ -45,12 +52,8 @@ impl SystemLinkerDriver {
 }
 
 impl LinkerDriver for SystemLinkerDriver {
-    fn identity(&self) -> &LinkerDriverIdentity {
-        &self.identity
-    }
-
-    fn supports(&self, target: &crate::LinkTarget, product: LinkedProductKind) -> bool {
-        self.family().supports(target, product)
+    fn capabilities(&self) -> &LinkerDriverCapabilities {
+        &self.capabilities
     }
 
     fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation) -> LinkOutcome {
@@ -58,8 +61,12 @@ impl LinkerDriver for SystemLinkerDriver {
             return LinkOutcome::cancelled(DiagnosticBag::new());
         }
 
-        if plan.driver() != &self.identity || !self.supports(plan.target(), plan.product_kind()) {
+        if plan.driver() != self.capabilities.identity() {
             return failed_outcome(LinkFailure::DriverIncompatible);
+        }
+
+        if let Err(requirement) = self.capabilities.validate(plan) {
+            return failed_outcome(LinkFailure::UnsupportedRequirement(requirement));
         }
 
         if let Err(failure) = validate_file_inputs(plan) {
@@ -100,6 +107,8 @@ impl LinkerDriver for SystemLinkerDriver {
 pub enum SystemLinkerDriverBuildError {
     /// The supplied identity does not select a configured system linker.
     DriverKindMismatch,
+    /// The driver's immutable capability record is invalid.
+    Capabilities(LinkerDriverCapabilitiesBuildError),
 }
 
 fn outcome_from_invocation_error(error: SystemLinkerInvocationBuildError) -> LinkOutcome {
@@ -158,7 +167,14 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
         let identity = driver_identity(LinkerDriverKind::System);
         let target = target(TargetArchitecture::X86_64, ObjectFormat::Elf);
-        let plan = executable_plan(&identity, target, input.path(), output.path());
+
+        let plan = executable_plan(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::ExplicitInputs,
+        );
 
         let driver = SystemLinkerDriver::try_new(
             identity,
@@ -216,8 +232,9 @@ mod tests {
         assert_eq!(
             invocation.response_files()[0].contents(),
             format!(
-                "\"--build-id=none\"\n\"--pie\"\n\"-o\"\n\"{}\"\n\"--entry=_bray_host_start\"\n\"{}\"\n",
+                "\"--build-id=none\"\n\"--pie\"\n\"-o\"\n\"{}\"\n\"--entry=_bray_host_start\"\n\"{}\"\n\"{}\"\n",
                 escaped_output,
+                escaped_input,
                 escaped_input,
             )
             .as_bytes()
@@ -231,7 +248,14 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
         let identity = driver_identity(LinkerDriverKind::System);
         let target = target(TargetArchitecture::X86_64, ObjectFormat::Coff);
-        let plan = executable_plan(&identity, target, input.path(), output.path());
+
+        let plan = executable_plan(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::ExplicitInputs,
+        );
 
         let driver = system_driver(
             identity,
@@ -258,7 +282,14 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
         let identity = driver_identity(LinkerDriverKind::System);
         let target = target(TargetArchitecture::X86_64, ObjectFormat::Coff);
-        let plan = executable_plan(&identity, target, input.path(), output.path());
+
+        let plan = executable_plan(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::PlatformCompilerDriver,
+        );
 
         let driver = system_driver(
             identity,
@@ -290,7 +321,14 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::writing(output.path()));
         let identity = driver_identity(LinkerDriverKind::System);
         let target = target(TargetArchitecture::Aarch64, ObjectFormat::MachO);
-        let plan = executable_plan(&identity, target, input.path(), output.path());
+
+        let plan = executable_plan(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::ExplicitInputs,
+        );
 
         let driver = system_driver(
             identity,
@@ -318,7 +356,14 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::default());
         let identity = driver_identity(LinkerDriverKind::System);
         let target = target(TargetArchitecture::X86_64, ObjectFormat::Coff);
-        let plan = executable_plan(&identity, target, input.path(), output.path());
+
+        let plan = executable_plan(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::ExplicitInputs,
+        );
 
         let driver = system_driver(
             identity,
@@ -328,7 +373,14 @@ mod tests {
 
         assert_eq!(
             driver.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::DriverIncompatible)
+            &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(
+                crate::UnsupportedLinkRequirement::Target {
+                    identity: plan.target().identity().clone(),
+                    triple: Arc::from(plan.target().triple()),
+                    architecture: TargetArchitecture::X86_64,
+                    object_format: ObjectFormat::Coff,
+                }
+            ))
         );
 
         assert!(host.invocations().is_empty());
@@ -340,7 +392,14 @@ mod tests {
         let output = TestOutput::new("application.stage");
         let identity = driver_identity(LinkerDriverKind::System);
         let target = target(TargetArchitecture::X86_64, ObjectFormat::Elf);
-        let plan = executable_plan(&identity, target, input.path(), output.path());
+
+        let plan = executable_plan(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::ExplicitInputs,
+        );
 
         let failed = system_driver(
             identity.clone(),
@@ -394,7 +453,14 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::default());
         let identity = driver_identity(LinkerDriverKind::System);
         let target = target(TargetArchitecture::X86_64, ObjectFormat::Elf);
-        let plan = executable_plan(&identity, target, input.path(), output.path());
+
+        let plan = executable_plan(
+            &identity,
+            target,
+            input.path(),
+            output.path(),
+            crate::LinkStartupMode::ExplicitInputs,
+        );
 
         let driver = system_driver(
             identity,
@@ -415,6 +481,7 @@ mod tests {
         target: LinkTarget,
         input_path: &Path,
         output_path: &Path,
+        startup_mode: crate::LinkStartupMode,
     ) -> LinkPlan {
         let host =
             bray_testing::test_executable_host_contract_for(product(), target.identity().clone());
@@ -424,6 +491,7 @@ mod tests {
             LinkedProductKind::Executable,
             target,
             driver.clone(),
+            startup_mode,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
@@ -431,6 +499,19 @@ mod tests {
                 None,
             ),
         );
+
+        if startup_mode == crate::LinkStartupMode::ExplicitInputs {
+            builder.push_input(
+                LinkInput::try_new(
+                    LinkInputId::new(1),
+                    LinkInputKind::StartupObject,
+                    LinkInputSource::file(input_path),
+                    LinkInputProvenance::TargetProfile,
+                    LinkInputMode::Ordinary,
+                )
+                .unwrap_or_else(|error| panic!("test startup input must be valid: {error:?}")),
+            );
+        }
 
         builder.push_input(
             LinkInput::try_new(
@@ -461,8 +542,36 @@ mod tests {
         family: SystemLinkerFamily,
         environment: impl IntoIterator<Item = (OsString, OsString)>,
     ) -> SystemLinkerConfiguration {
+        let object_format = match family {
+            SystemLinkerFamily::Gnu
+            | SystemLinkerFamily::GnuCompiler
+            | SystemLinkerFamily::WslGnuCompiler => ObjectFormat::Elf,
+            SystemLinkerFamily::Microsoft | SystemLinkerFamily::MicrosoftCompiler => {
+                ObjectFormat::Coff
+            }
+            SystemLinkerFamily::Apple | SystemLinkerFamily::AppleCompiler => ObjectFormat::MachO,
+        };
+
+        let architecture = match family {
+            SystemLinkerFamily::Apple | SystemLinkerFamily::AppleCompiler => {
+                TargetArchitecture::Aarch64
+            }
+            _ => TargetArchitecture::X86_64,
+        };
+
+        let target = crate::LinkerTargetIdentity::try_new(
+            crate::test_support::target(architecture, object_format)
+                .identity()
+                .clone(),
+            "test-target-triple",
+            architecture,
+            object_format,
+        )
+        .unwrap_or_else(|| panic!("test linker target must be valid"));
+
         SystemLinkerConfiguration::try_new(
             family,
+            target,
             "toolchain/system-linker",
             environment,
             Some(PathBuf::from("toolchain")),

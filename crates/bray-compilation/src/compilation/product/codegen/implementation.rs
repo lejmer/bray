@@ -291,12 +291,11 @@ impl Compilation {
         .map_err(NativeProductFactError::InvalidEmissionBackend)?;
 
         let link = linker
-            .map(|linker| {
+            .map(|_| {
                 self.product_link_facts(
                     semantic.value().kind(),
                     host.as_ref(),
                     runtime,
-                    linker,
                     &target,
                     configuration,
                 )
@@ -619,7 +618,8 @@ mod tests {
     };
     use bray_linker::{
         LinkFailure, LinkInputKind, LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome,
-        LinkPlan, LinkedProductKind, Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
+        LinkPlan, Linker, LinkerDriver, LinkerDriverCapabilities, LinkerDriverIdentity,
+        LinkerDriverKind,
     };
     use bray_package_interface::{
         InterfaceExecutableTemplate, InterfaceLanguageRevision, InterfaceProductIdentity,
@@ -2197,17 +2197,22 @@ mod tests {
     struct TestLinkerDriver;
 
     impl LinkerDriver for TestLinkerDriver {
-        fn identity(&self) -> &LinkerDriverIdentity {
-            static IDENTITY: std::sync::OnceLock<LinkerDriverIdentity> = std::sync::OnceLock::new();
+        fn capabilities(&self) -> &LinkerDriverCapabilities {
+            static CAPABILITIES: std::sync::OnceLock<LinkerDriverCapabilities> =
+                std::sync::OnceLock::new();
 
-            IDENTITY.get_or_init(|| {
-                LinkerDriverIdentity::try_new(LinkerDriverKind::EmbeddedLld, "test-lld", "1", "22")
-                    .unwrap_or_else(|| panic!("test linker identity must be valid"))
+            CAPABILITIES.get_or_init(|| {
+                let identity = LinkerDriverIdentity::try_new(
+                    LinkerDriverKind::EmbeddedLld,
+                    "test-lld",
+                    "1",
+                    "22",
+                )
+                .unwrap_or_else(|| panic!("test linker identity must be valid"));
+
+                LinkerDriverCapabilities::try_for_lld(identity)
+                    .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"))
             })
-        }
-
-        fn supports(&self, _target: &bray_linker::LinkTarget, _product: LinkedProductKind) -> bool {
-            true
         }
 
         fn link(

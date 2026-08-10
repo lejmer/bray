@@ -6,18 +6,20 @@ use bray_base::Cancellation;
 use bray_diagnostics::DiagnosticBag;
 
 use super::{EmbeddedLldHost, LldFlavor};
+use crate::capability::lld_driver_capabilities;
 use crate::command::{LldPlanError, arguments_for};
 use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
     ExternalToolInvocationBuildError, ExternalToolOutput, LinkFailure, LinkOutcome, LinkPlan,
-    LinkedProductKind, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
+    LinkerDriver, LinkerDriverCapabilities, LinkerDriverCapabilitiesBuildError,
+    LinkerDriverIdentity, LinkerDriverKind,
 };
 
 /// LLD driver using either a packaging-provided embedded library or an explicit executable.
 pub struct LldDriver {
-    identity: LinkerDriverIdentity,
+    capabilities: LinkerDriverCapabilities,
     host: LldHost,
 }
 
@@ -31,8 +33,11 @@ impl LldDriver {
             return Err(LldDriverBuildError::DriverKindMismatch);
         }
 
+        let capabilities =
+            lld_driver_capabilities(identity).map_err(LldDriverBuildError::Capabilities)?;
+
         Ok(Self {
-            identity,
+            capabilities,
             host: LldHost::Embedded(host),
         })
     }
@@ -53,8 +58,11 @@ impl LldDriver {
             return Err(LldDriverBuildError::EmptyExternalProgram);
         }
 
+        let capabilities =
+            lld_driver_capabilities(identity).map_err(LldDriverBuildError::Capabilities)?;
+
         Ok(Self {
-            identity,
+            capabilities,
             host: LldHost::External { program, host },
         })
     }
@@ -86,12 +94,8 @@ impl LldDriver {
 }
 
 impl LinkerDriver for LldDriver {
-    fn identity(&self) -> &LinkerDriverIdentity {
-        &self.identity
-    }
-
-    fn supports(&self, target: &crate::LinkTarget, product: LinkedProductKind) -> bool {
-        LldFlavor::for_target(target, product).is_some()
+    fn capabilities(&self) -> &LinkerDriverCapabilities {
+        &self.capabilities
     }
 
     fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation) -> LinkOutcome {
@@ -99,8 +103,12 @@ impl LinkerDriver for LldDriver {
             return LinkOutcome::cancelled(DiagnosticBag::new());
         }
 
-        if plan.driver() != &self.identity {
+        if plan.driver() != self.capabilities.identity() {
             return failed_outcome(LinkFailure::DriverIncompatible);
+        }
+
+        if let Err(requirement) = self.capabilities.validate(plan) {
+            return failed_outcome(LinkFailure::UnsupportedRequirement(requirement));
         }
 
         let Some(flavor) = LldFlavor::for_target(plan.target(), plan.product_kind()) else {
@@ -135,6 +143,8 @@ pub enum LldDriverBuildError {
     DriverKindMismatch,
     /// The configured external LLD executable path is empty.
     EmptyExternalProgram,
+    /// The driver's immutable capability record is invalid.
+    Capabilities(LinkerDriverCapabilitiesBuildError),
 }
 
 enum LldHost {
@@ -296,7 +306,7 @@ mod tests {
         let driver = LldDriver::try_embedded(identity.clone(), host as Arc<dyn EmbeddedLldHost>)
             .unwrap_or_else(|error| panic!("test LLD driver must be valid: {error:?}"));
 
-        assert!(!driver.supports(
+        assert!(!driver.capabilities().supports_target_product(
             &target(
                 "powerpc64-ibm-aix",
                 TargetArchitecture::PowerPc64,
@@ -310,7 +320,7 @@ mod tests {
 
         assert_eq!(
             driver.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::MissingInput(LinkInputId::new(0)))
+            &LinkStatus::Failed(LinkFailure::MissingInput(LinkInputId::new(1)))
         );
     }
 
@@ -346,12 +356,24 @@ mod tests {
                 ObjectFormat::Elf,
             ),
             driver.clone(),
+            crate::LinkStartupMode::ExplicitInputs,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
                 crate::DebugLinkPolicy::None,
                 None,
             ),
+        );
+
+        builder.push_input(
+            LinkInput::try_new(
+                LinkInputId::new(1),
+                LinkInputKind::StartupObject,
+                LinkInputSource::file(input_path),
+                LinkInputProvenance::TargetProfile,
+                LinkInputMode::Ordinary,
+            )
+            .unwrap_or_else(|error| panic!("test startup input must be valid: {error:?}")),
         );
 
         builder.push_input(

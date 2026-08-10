@@ -7,17 +7,19 @@ use bray_diagnostics::DiagnosticBag;
 
 use super::command::{ArchiveInvocationBuildError, invocation};
 use super::format::ArchiveFormat;
+use crate::capability::archive_driver_capabilities;
 use crate::external_tool::is_explicit_program_path;
 use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
     ExternalToolHost, ExternalToolInvocation, ExternalToolInvocationBuildError, LinkFailure,
-    LinkOutcome, LinkPlan, LinkedProductKind, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
+    LinkOutcome, LinkPlan, LinkerDriver, LinkerDriverCapabilities,
+    LinkerDriverCapabilitiesBuildError, LinkerDriverIdentity, LinkerDriverKind,
 };
 
 /// Linker-domain driver for deterministic LLVM static-library archives.
 pub struct LlvmArchiveDriver {
-    identity: LinkerDriverIdentity,
+    capabilities: LinkerDriverCapabilities,
     invocation_template: ExternalToolInvocation,
     host: Arc<dyn ExternalToolHost>,
 }
@@ -45,8 +47,11 @@ impl LlvmArchiveDriver {
             ExternalToolInvocation::try_new(program, [], environment, current_directory, [])
                 .map_err(LlvmArchiveDriverBuildError::Invocation)?;
 
+        let capabilities = archive_driver_capabilities(identity)
+            .map_err(LlvmArchiveDriverBuildError::Capabilities)?;
+
         Ok(Self {
-            identity,
+            capabilities,
             invocation_template,
             host,
         })
@@ -54,12 +59,8 @@ impl LlvmArchiveDriver {
 }
 
 impl LinkerDriver for LlvmArchiveDriver {
-    fn identity(&self) -> &LinkerDriverIdentity {
-        &self.identity
-    }
-
-    fn supports(&self, target: &crate::LinkTarget, product: LinkedProductKind) -> bool {
-        product == LinkedProductKind::StaticLibrary && ArchiveFormat::for_target(target).is_some()
+    fn capabilities(&self) -> &LinkerDriverCapabilities {
+        &self.capabilities
     }
 
     fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation) -> LinkOutcome {
@@ -67,8 +68,12 @@ impl LinkerDriver for LlvmArchiveDriver {
             return LinkOutcome::cancelled(DiagnosticBag::new());
         }
 
-        if plan.driver() != &self.identity || !self.supports(plan.target(), plan.product_kind()) {
+        if plan.driver() != self.capabilities.identity() {
             return failed_outcome(LinkFailure::DriverIncompatible);
+        }
+
+        if let Err(requirement) = self.capabilities.validate(plan) {
+            return failed_outcome(LinkFailure::UnsupportedRequirement(requirement));
         }
 
         if let Err(failure) = validate_file_inputs(plan) {
@@ -114,6 +119,8 @@ impl LinkerDriver for LlvmArchiveDriver {
 pub enum LlvmArchiveDriverBuildError {
     /// The supplied identity does not select the archiver category.
     DriverKindMismatch,
+    /// The driver's immutable capability record is invalid.
+    Capabilities(LinkerDriverCapabilitiesBuildError),
     /// The archiver program would require implicit host tool discovery.
     ProgramPathNotExplicit,
     /// The external-tool invocation configuration is invalid.
@@ -339,7 +346,14 @@ mod tests {
 
         assert_eq!(
             driver.link(&unsupported_plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::DriverIncompatible)
+            &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(
+                crate::UnsupportedLinkRequirement::Target {
+                    identity: unsupported_plan.target().identity().clone(),
+                    triple: Arc::from(unsupported_plan.target().triple()),
+                    architecture: TargetArchitecture::Arm,
+                    object_format: ObjectFormat::MachO,
+                }
+            ))
         );
 
         let bitcode_plan = archive_plan(
@@ -351,7 +365,9 @@ mod tests {
 
         assert_eq!(
             driver.link(&bitcode_plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::DriverIncompatible)
+            &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(
+                crate::UnsupportedLinkRequirement::Input(LinkInputKind::Bitcode)
+            ))
         );
 
         assert!(host.invocations().is_empty());
@@ -364,42 +380,62 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::default());
         let identity = driver_identity(LinkerDriverKind::Archiver);
 
-        let cases: [fn(&mut LinkPlanBuilder); 6] = [
-            |builder| {
-                builder.push_exported_symbol(binary_symbol_name("exported"));
-            },
-            |builder| {
-                builder.push_retained_symbol(binary_symbol_name("retained"));
-            },
-            |builder| {
-                builder.push_search_path(
-                    LinkSearchPath::try_new(LinkSearchPathKind::Library, "native-libraries")
-                        .unwrap_or_else(|error| {
-                            panic!("test search path must be valid: {error:?}")
-                        }),
-                );
-            },
-            |builder| {
-                builder.set_policy(archive_policy(
-                    DeadStripPolicy::RemoveUnreachable,
-                    SectionGarbageCollectionPolicy::Preserve,
-                    None,
-                ));
-            },
-            |builder| {
-                builder.set_policy(archive_policy(
-                    DeadStripPolicy::Preserve,
+        let cases: [(fn(&mut LinkPlanBuilder), crate::UnsupportedLinkRequirement); 6] = [
+            (
+                |builder| builder.push_exported_symbol(binary_symbol_name("exported")),
+                crate::UnsupportedLinkRequirement::Symbol(
+                    crate::LinkSymbolRequirement::ExportedSymbols,
+                ),
+            ),
+            (
+                |builder| builder.push_retained_symbol(binary_symbol_name("retained")),
+                crate::UnsupportedLinkRequirement::Symbol(
+                    crate::LinkSymbolRequirement::RetainedSymbols,
+                ),
+            ),
+            (
+                |builder| {
+                    builder.push_search_path(
+                        LinkSearchPath::try_new(LinkSearchPathKind::Library, "native-libraries")
+                            .unwrap_or_else(|error| {
+                                panic!("test search path must be valid: {error:?}")
+                            }),
+                    );
+                },
+                crate::UnsupportedLinkRequirement::SearchPath(LinkSearchPathKind::Library),
+            ),
+            (
+                |builder| {
+                    builder.set_policy(archive_policy(
+                        DeadStripPolicy::RemoveUnreachable,
+                        SectionGarbageCollectionPolicy::Preserve,
+                        None,
+                    ));
+                },
+                crate::UnsupportedLinkRequirement::DeadStrip(DeadStripPolicy::RemoveUnreachable),
+            ),
+            (
+                |builder| {
+                    builder.set_policy(archive_policy(
+                        DeadStripPolicy::Preserve,
+                        SectionGarbageCollectionPolicy::RemoveUnreferenced,
+                        None,
+                    ));
+                },
+                crate::UnsupportedLinkRequirement::SectionGarbageCollection(
                     SectionGarbageCollectionPolicy::RemoveUnreferenced,
-                    None,
-                ));
-            },
-            |builder| {
-                builder.set_policy(archive_policy(
-                    DeadStripPolicy::Preserve,
-                    SectionGarbageCollectionPolicy::Preserve,
-                    Some(LinkSubsystem::Console),
-                ));
-            },
+                ),
+            ),
+            (
+                |builder| {
+                    builder.set_policy(archive_policy(
+                        DeadStripPolicy::Preserve,
+                        SectionGarbageCollectionPolicy::Preserve,
+                        Some(LinkSubsystem::Console),
+                    ));
+                },
+                crate::UnsupportedLinkRequirement::Subsystem(LinkSubsystem::Console),
+            ),
         ];
 
         let driver = driver(
@@ -407,7 +443,7 @@ mod tests {
             Arc::clone(&host) as Arc<dyn ExternalToolHost>,
         );
 
-        for configure in cases {
+        for (configure, unsupported) in cases {
             let plan = archive_plan_with(
                 &identity,
                 target(TargetArchitecture::X86_64, ObjectFormat::Elf),
@@ -418,7 +454,7 @@ mod tests {
 
             assert_eq!(
                 driver.link(&plan, &|| false).status(),
-                &LinkStatus::Failed(LinkFailure::DriverIncompatible)
+                &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(unsupported))
             );
         }
 
@@ -576,6 +612,7 @@ mod tests {
             LinkedProductKind::StaticLibrary,
             target,
             driver.clone(),
+            crate::LinkStartupMode::NotApplicable,
             archive_policy(
                 DeadStripPolicy::Preserve,
                 SectionGarbageCollectionPolicy::Preserve,

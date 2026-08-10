@@ -68,6 +68,7 @@ pub struct LinkPlanBuilder {
     product_kind: LinkedProductKind,
     target: LinkTarget,
     driver: LinkerDriverIdentity,
+    startup_mode: crate::LinkStartupMode,
     inputs: Vec<LinkInput>,
     outputs: Vec<PlannedLinkedArtifact>,
     entry_point: Option<BinarySymbolName>,
@@ -85,6 +86,7 @@ impl LinkPlanBuilder {
         product_kind: LinkedProductKind,
         target: LinkTarget,
         driver: LinkerDriverIdentity,
+        startup_mode: crate::LinkStartupMode,
         policy: LinkPolicy,
     ) -> Self {
         Self {
@@ -92,6 +94,7 @@ impl LinkPlanBuilder {
             product_kind,
             target,
             driver,
+            startup_mode,
             inputs: Vec::new(),
             outputs: Vec::new(),
             entry_point: None,
@@ -156,6 +159,7 @@ pub struct LinkPlan {
     product_kind: LinkedProductKind,
     target: LinkTarget,
     driver: LinkerDriverIdentity,
+    startup_mode: crate::LinkStartupMode,
     inputs: Arc<[LinkInput]>,
     outputs: Arc<[PlannedLinkedArtifact]>,
     entry_point: Option<BinarySymbolName>,
@@ -185,6 +189,14 @@ impl LinkPlan {
             builder.executable_host.as_ref(),
         )?;
 
+        validate_startup_mode(builder.product_kind, builder.startup_mode)?;
+
+        validate_startup_inputs(
+            builder.product_kind,
+            builder.startup_mode,
+            &builder.inputs,
+        )?;
+
         builder
             .outputs
             .sort_unstable_by_key(|output| output.destination().id());
@@ -196,6 +208,7 @@ impl LinkPlan {
             product_kind: builder.product_kind,
             target: builder.target,
             driver: builder.driver,
+            startup_mode: builder.startup_mode,
             inputs: builder.inputs.into(),
             outputs: builder.outputs.into(),
             entry_point: builder.entry_point,
@@ -225,6 +238,11 @@ impl LinkPlan {
     /// Returns the selected linker-driver identity.
     pub const fn driver(&self) -> &LinkerDriverIdentity {
         &self.driver
+    }
+
+    /// Returns the selected native startup-contract ownership mode.
+    pub const fn startup_mode(&self) -> crate::LinkStartupMode {
+        self.startup_mode
     }
 
     /// Returns inputs in exact driver-visible source order.
@@ -332,6 +350,14 @@ pub enum LinkPlanBuildError {
     ExecutableHostTargetMismatch,
     /// An executable or static-library product contains an inapplicable explicit entry point.
     UnexpectedEntryPoint,
+    /// A linked product does not select a native startup contract.
+    MissingStartupMode,
+    /// A static-library product selects an inapplicable native startup contract.
+    UnexpectedStartupMode,
+    /// Explicit startup ownership was selected without a startup object.
+    MissingStartupInput,
+    /// A compiler-owned or inapplicable startup contract also supplies an explicit input.
+    UnexpectedStartupInput(LinkInputId),
     /// Companion debug output was requested without a staged debug destination.
     MissingDebugCompanion,
     /// A debug companion was staged without companion debug policy.
@@ -343,6 +369,64 @@ pub enum LinkPlanBuildError {
         /// Incompatible staged artifact category.
         artifact: LinkedArtifactKind,
     },
+}
+
+fn validate_startup_mode(
+    product_kind: LinkedProductKind,
+    startup_mode: crate::LinkStartupMode,
+) -> Result<(), LinkPlanBuildError> {
+    match (product_kind, startup_mode) {
+        (
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary,
+            crate::LinkStartupMode::NotApplicable,
+        ) => Err(LinkPlanBuildError::MissingStartupMode),
+        (
+            LinkedProductKind::StaticLibrary,
+            crate::LinkStartupMode::ExplicitInputs | crate::LinkStartupMode::PlatformCompilerDriver,
+        ) => Err(LinkPlanBuildError::UnexpectedStartupMode),
+        (
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary,
+            crate::LinkStartupMode::ExplicitInputs | crate::LinkStartupMode::PlatformCompilerDriver,
+        )
+        | (LinkedProductKind::StaticLibrary, crate::LinkStartupMode::NotApplicable) => Ok(()),
+    }
+}
+
+fn validate_startup_inputs(
+    product_kind: LinkedProductKind,
+    startup_mode: crate::LinkStartupMode,
+    inputs: &[LinkInput],
+) -> Result<(), LinkPlanBuildError> {
+    let explicit = inputs.iter().find(|input| {
+        matches!(
+            input.kind(),
+            crate::LinkInputKind::StartupObject | crate::LinkInputKind::TerminationObject
+        )
+    });
+
+    match (product_kind, startup_mode, explicit) {
+        (
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary,
+            crate::LinkStartupMode::ExplicitInputs,
+            _,
+        ) if !inputs
+            .iter()
+            .any(|input| input.kind() == crate::LinkInputKind::StartupObject) =>
+        {
+            Err(LinkPlanBuildError::MissingStartupInput)
+        }
+        (
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary,
+            crate::LinkStartupMode::ExplicitInputs,
+            Some(_),
+        )
+        | (_, crate::LinkStartupMode::NotApplicable, None)
+        | (_, crate::LinkStartupMode::PlatformCompilerDriver, None) => Ok(()),
+        (_, crate::LinkStartupMode::ExplicitInputs, None) => {
+            Err(LinkPlanBuildError::MissingStartupInput)
+        }
+        (_, _, Some(input)) => Err(LinkPlanBuildError::UnexpectedStartupInput(input.id())),
+    }
 }
 
 fn validate_inputs(
@@ -468,12 +552,13 @@ mod tests {
 
     use crate::test_support::{
         async_executable_host_contract, executable_host_contract, link_input, link_plan_builder,
-        planned_output, planned_output_with_key,
+        link_plan_builder_for, planned_output, planned_output_with_key,
     };
     use crate::{
         BinarySymbolName, DebugLinkPolicy, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
-        LinkInputProvenance, LinkInputSource, LinkPlanBuildError, LinkPolicy, LinkedArtifactKind,
-        LinkedArtifactRequirement, StagingDestinationId,
+        LinkInputProvenance, LinkInputSource, LinkPlanBuildError, LinkPolicy, LinkStartupMode,
+        LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind, LinkerDriverIdentity,
+        LinkerDriverKind, StagingDestinationId,
     };
 
     #[test]
@@ -603,6 +688,85 @@ mod tests {
         assert_eq!(
             missing_primary.finish(),
             Err(LinkPlanBuildError::MissingPrimaryOutput)
+        );
+    }
+
+    #[test]
+    fn startup_ownership_must_match_the_product_category() {
+        let driver = LinkerDriverIdentity::try_new(
+            LinkerDriverKind::EmbeddedLld,
+            "test-linker",
+            "1",
+            "test-toolchain",
+        )
+        .unwrap_or_else(|| panic!("test linker identity must be valid"));
+
+        let mut missing = link_plan_builder_for(
+            LinkedProductKind::Executable,
+            driver.clone(),
+            LinkStartupMode::NotApplicable,
+        );
+
+        missing.push_input(link_input(0, "main.o"));
+        missing.set_executable_host(executable_host_contract());
+
+        assert_eq!(
+            missing.finish(),
+            Err(LinkPlanBuildError::MissingStartupMode)
+        );
+
+        let mut unexpected = link_plan_builder_for(
+            LinkedProductKind::StaticLibrary,
+            driver,
+            LinkStartupMode::ExplicitInputs,
+        );
+
+        unexpected.push_input(link_input(0, "member.o"));
+
+        assert_eq!(
+            unexpected.finish(),
+            Err(LinkPlanBuildError::UnexpectedStartupMode)
+        );
+
+        let mut missing_input = link_plan_builder_for(
+            LinkedProductKind::Executable,
+            LinkerDriverIdentity::try_new(
+                LinkerDriverKind::EmbeddedLld,
+                "test-linker",
+                "1",
+                "test-toolchain",
+            )
+            .unwrap_or_else(|| panic!("test linker identity must be valid")),
+            LinkStartupMode::ExplicitInputs,
+        );
+
+        missing_input.push_input(link_input(0, "main.o"));
+        missing_input.set_executable_host(executable_host_contract());
+
+        assert_eq!(
+            missing_input.finish(),
+            Err(LinkPlanBuildError::MissingStartupInput)
+        );
+
+        let mut compiler_owned = link_plan_builder();
+
+        compiler_owned.push_input(
+            LinkInput::try_new(
+                LinkInputId::new(1),
+                LinkInputKind::StartupObject,
+                LinkInputSource::file("crt/start.o"),
+                LinkInputProvenance::TargetProfile,
+                LinkInputMode::Ordinary,
+            )
+            .unwrap_or_else(|error| panic!("test startup input must be valid: {error:?}")),
+        );
+
+        compiler_owned.push_input(link_input(0, "main.o"));
+        compiler_owned.set_executable_host(executable_host_contract());
+
+        assert_eq!(
+            compiler_owned.finish(),
+            Err(LinkPlanBuildError::UnexpectedStartupInput(LinkInputId::new(1)))
         );
     }
 

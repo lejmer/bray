@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod archive;
+mod capability;
 mod command;
 mod driver;
 mod execution;
@@ -22,7 +23,16 @@ mod test_support;
 
 pub use archive::{LlvmArchiveDriver, LlvmArchiveDriverBuildError};
 pub use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
-pub use driver::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
+pub use capability::{
+    LinkCancellationCapability, LinkDeterminismCapability, LinkEnvironmentCapability,
+    LinkPlanCapability, LinkResponseFileCapability, LinkRuntimeMode, LinkStartupMode,
+    LinkSymbolRequirement, LinkerDriverCapabilities, LinkerDriverCapabilitiesBuildError,
+    LinkerOperationalCapabilities, LinkerTargetCapabilities, UnsupportedLinkRequirement,
+};
+pub use driver::{
+    LinkPlanSelectionError, Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity,
+    LinkerDriverKind,
+};
 pub use external_tool::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
     ExternalToolInvocationBuildError, ExternalToolOutput, ExternalToolProcessBudget,
@@ -36,7 +46,7 @@ pub use input::{
 pub use lld::{EmbeddedLldHost, LldDriver, LldDriverBuildError, LldFlavor};
 pub use outcome::{
     LinkFailure, LinkOutcome, LinkOutcomeBuildError, LinkStatus, LinkedArtifactSet,
-    LinkedArtifactSetBuildError,
+    LinkedArtifactSetBuildError, link_failure_diagnostics,
 };
 pub use output::{
     LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
@@ -54,4 +64,4 @@ pub use system::{
     SystemLinkerConfiguration, SystemLinkerConfigurationBuildError, SystemLinkerDriver,
     SystemLinkerDriverBuildError, SystemLinkerFamily,
 };
-pub use target::{LinkModel, LinkTarget, LinkTargetBuildError};
+pub use target::{LinkModel, LinkTarget, LinkTargetBuildError, LinkerTargetIdentity};

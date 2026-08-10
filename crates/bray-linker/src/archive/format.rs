@@ -3,7 +3,7 @@ use bray_target::{ObjectFormat, TargetArchitecture};
 use crate::LinkTarget;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ArchiveFormat {
+pub(crate) enum ArchiveFormat {
     Coff,
     Darwin,
     Gnu,
@@ -11,42 +11,50 @@ pub(super) enum ArchiveFormat {
 }
 
 impl ArchiveFormat {
-    pub(super) const fn for_target(target: &LinkTarget) -> Option<Self> {
-        match (target.object_format(), target.architecture()) {
-            (
-                ObjectFormat::Coff,
-                TargetArchitecture::X86
-                | TargetArchitecture::X86_64
-                | TargetArchitecture::Arm
-                | TargetArchitecture::Aarch64,
-            ) => Some(Self::Coff),
-            (
-                ObjectFormat::Elf,
-                TargetArchitecture::X86
-                | TargetArchitecture::X86_64
-                | TargetArchitecture::Arm
-                | TargetArchitecture::Aarch64
-                | TargetArchitecture::Riscv32
-                | TargetArchitecture::Riscv64
-                | TargetArchitecture::PowerPc64,
-            )
-            | (
-                ObjectFormat::WebAssembly,
-                TargetArchitecture::Wasm32 | TargetArchitecture::Wasm64,
-            ) => Some(Self::Gnu),
-            (ObjectFormat::MachO, TargetArchitecture::X86_64 | TargetArchitecture::Aarch64) => {
-                Some(Self::Darwin)
-            }
-            (ObjectFormat::Xcoff, TargetArchitecture::PowerPc64) => Some(Self::BigArchive),
-            (
-                ObjectFormat::Coff
-                | ObjectFormat::Elf
-                | ObjectFormat::MachO
-                | ObjectFormat::WebAssembly
-                | ObjectFormat::Xcoff,
-                _,
-            ) => None,
-        }
+    pub(crate) const TARGETS: [(TargetArchitecture, ObjectFormat, Self); 16] = [
+        (TargetArchitecture::X86, ObjectFormat::Coff, Self::Coff),
+        (TargetArchitecture::X86_64, ObjectFormat::Coff, Self::Coff),
+        (TargetArchitecture::Arm, ObjectFormat::Coff, Self::Coff),
+        (TargetArchitecture::Aarch64, ObjectFormat::Coff, Self::Coff),
+        (TargetArchitecture::X86, ObjectFormat::Elf, Self::Gnu),
+        (TargetArchitecture::X86_64, ObjectFormat::Elf, Self::Gnu),
+        (TargetArchitecture::Arm, ObjectFormat::Elf, Self::Gnu),
+        (TargetArchitecture::Aarch64, ObjectFormat::Elf, Self::Gnu),
+        (TargetArchitecture::Riscv32, ObjectFormat::Elf, Self::Gnu),
+        (TargetArchitecture::Riscv64, ObjectFormat::Elf, Self::Gnu),
+        (TargetArchitecture::PowerPc64, ObjectFormat::Elf, Self::Gnu),
+        (
+            TargetArchitecture::Wasm32,
+            ObjectFormat::WebAssembly,
+            Self::Gnu,
+        ),
+        (
+            TargetArchitecture::Wasm64,
+            ObjectFormat::WebAssembly,
+            Self::Gnu,
+        ),
+        (
+            TargetArchitecture::X86_64,
+            ObjectFormat::MachO,
+            Self::Darwin,
+        ),
+        (
+            TargetArchitecture::Aarch64,
+            ObjectFormat::MachO,
+            Self::Darwin,
+        ),
+        (
+            TargetArchitecture::PowerPc64,
+            ObjectFormat::Xcoff,
+            Self::BigArchive,
+        ),
+    ];
+
+    pub(super) fn for_target(target: &LinkTarget) -> Option<Self> {
+        Self::TARGETS.iter().find_map(|candidate| {
+            (candidate.0 == target.architecture() && candidate.1 == target.object_format())
+                .then_some(candidate.2)
+        })
     }
 
     pub(super) const fn llvm_name(self) -> &'static str {

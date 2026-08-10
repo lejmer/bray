@@ -18,6 +18,50 @@ const SOURCE_INVALID_UTF8: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "source input contains invalid UTF-8",
 )];
 
+const LINKER_UNSUPPORTED_TARGET: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support the exact target",
+)];
+const LINKER_UNSUPPORTED_PRODUCT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support the product category",
+)];
+const LINKER_UNSUPPORTED_INPUT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support a link input category",
+)];
+const LINKER_UNSUPPORTED_INPUT_MODE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support a link input treatment mode",
+)];
+const LINKER_UNSUPPORTED_OUTPUT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support a linked output category",
+)];
+const LINKER_UNSUPPORTED_SEARCH_PATH: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support a search-path category",
+)];
+const LINKER_UNSUPPORTED_LINK_MODEL: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support the linkage model",
+)];
+const LINKER_UNSUPPORTED_DEAD_STRIP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support the dead-code removal policy",
+)];
+const LINKER_UNSUPPORTED_SECTION_GARBAGE_COLLECTION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "selected linker does not support the section garbage-collection policy",
+    )];
+const LINKER_UNSUPPORTED_DEBUG: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support the debug-information policy",
+)];
+const LINKER_UNSUPPORTED_SUBSYSTEM: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support the target subsystem",
+)];
+const LINKER_UNSUPPORTED_SYMBOL: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support a symbol-control requirement",
+)];
+const LINKER_UNSUPPORTED_STARTUP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support the startup ownership mode",
+)];
+const LINKER_UNSUPPORTED_RUNTIME: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "selected linker does not support the runtime ownership mode",
+)];
+
 const SOURCE_TOO_MANY_INPUTS: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("too many source inputs: "),
     MessageTemplatePart::Arg(DiagnosticArgName::SourceCount),
@@ -1697,6 +1741,48 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::EmissionArtifactCommitFailed => {
             MessageTemplate::new(EMISSION_ARTIFACT_COMMIT_FAILED)
+        }
+        DiagnosticKind::LinkerUnsupportedTarget => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_TARGET)
+        }
+        DiagnosticKind::LinkerUnsupportedProduct => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_PRODUCT)
+        }
+        DiagnosticKind::LinkerUnsupportedInput => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_INPUT)
+        }
+        DiagnosticKind::LinkerUnsupportedInputMode => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_INPUT_MODE)
+        }
+        DiagnosticKind::LinkerUnsupportedOutput => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_OUTPUT)
+        }
+        DiagnosticKind::LinkerUnsupportedSearchPath => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_SEARCH_PATH)
+        }
+        DiagnosticKind::LinkerUnsupportedLinkModel => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_LINK_MODEL)
+        }
+        DiagnosticKind::LinkerUnsupportedDeadStrip => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_DEAD_STRIP)
+        }
+        DiagnosticKind::LinkerUnsupportedSectionGarbageCollection => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_SECTION_GARBAGE_COLLECTION)
+        }
+        DiagnosticKind::LinkerUnsupportedDebug => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_DEBUG)
+        }
+        DiagnosticKind::LinkerUnsupportedSubsystem => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_SUBSYSTEM)
+        }
+        DiagnosticKind::LinkerUnsupportedSymbol => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_SYMBOL)
+        }
+        DiagnosticKind::LinkerUnsupportedStartup => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_STARTUP)
+        }
+        DiagnosticKind::LinkerUnsupportedRuntime => {
+            MessageTemplate::new(LINKER_UNSUPPORTED_RUNTIME)
         }
         DiagnosticKind::InterfaceInvalidMagic
         | DiagnosticKind::InterfaceUnsupportedFormatRevision

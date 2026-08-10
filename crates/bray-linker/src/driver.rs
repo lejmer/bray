@@ -4,7 +4,7 @@ use bray_base::{Cancellation, NonEmptySharedStr};
 use bray_diagnostics::DiagnosticBag;
 
 use crate::outcome::failed_outcome;
-use crate::{LinkFailure, LinkOutcome, LinkPlan, LinkTarget, LinkedProductKind};
+use crate::{LinkFailure, LinkOutcome, LinkPlan, LinkerDriverCapabilities};
 
 /// Supported category of one selected linker or archiver driver.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -26,7 +26,7 @@ pub enum LinkerDriverKind {
 pub struct LinkerDriverIdentity {
     kind: LinkerDriverKind,
     name: NonEmptySharedStr,
-    revision: NonEmptySharedStr,
+    capability_revision: NonEmptySharedStr,
     toolchain_revision: NonEmptySharedStr,
 }
 
@@ -35,13 +35,13 @@ impl LinkerDriverIdentity {
     pub fn try_new(
         kind: LinkerDriverKind,
         name: impl Into<Arc<str>>,
-        revision: impl Into<Arc<str>>,
+        capability_revision: impl Into<Arc<str>>,
         toolchain_revision: impl Into<Arc<str>>,
     ) -> Option<Self> {
         Some(Self {
             kind,
             name: NonEmptySharedStr::try_new(name)?,
-            revision: NonEmptySharedStr::try_new(revision)?,
+            capability_revision: NonEmptySharedStr::try_new(capability_revision)?,
             toolchain_revision: NonEmptySharedStr::try_new(toolchain_revision)?,
         })
     }
@@ -56,9 +56,9 @@ impl LinkerDriverIdentity {
         self.name.as_str()
     }
 
-    /// Returns the Bray driver implementation revision.
-    pub fn revision(&self) -> &str {
-        self.revision.as_str()
+    /// Returns the revision of the published capability contract.
+    pub fn capability_revision(&self) -> &str {
+        self.capability_revision.as_str()
     }
 
     /// Returns the compatible linker or archiver toolchain revision.
@@ -69,11 +69,8 @@ impl LinkerDriverIdentity {
 
 /// Target-specific translation and invocation for one linker or archiver.
 pub trait LinkerDriver: Send + Sync {
-    /// Returns the exact driver and toolchain identity.
-    fn identity(&self) -> &LinkerDriverIdentity;
-
-    /// Returns whether the driver supports the selected target and product.
-    fn supports(&self, target: &LinkTarget, product: LinkedProductKind) -> bool;
+    /// Returns the complete immutable capability record without probing ambient tools.
+    fn capabilities(&self) -> &LinkerDriverCapabilities;
 
     /// Links one validated plan without publishing final destinations.
     fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation) -> LinkOutcome;
@@ -91,11 +88,15 @@ impl Linker {
     ) -> Result<Self, LinkerBuildError> {
         let mut drivers: Vec<_> = drivers.into_iter().collect();
 
-        drivers.sort_unstable_by(|left, right| left.identity().cmp(right.identity()));
+        drivers.sort_unstable_by(|left, right| {
+            left.capabilities()
+                .identity()
+                .cmp(right.capabilities().identity())
+        });
 
         if drivers
             .windows(2)
-            .any(|pair| pair[0].identity() == pair[1].identity())
+            .any(|pair| pair[0].capabilities().identity() == pair[1].capabilities().identity())
         {
             return Err(LinkerBuildError::DuplicateDriver);
         }
@@ -109,34 +110,64 @@ impl Linker {
     pub fn select(&self, plan: &LinkPlan) -> Result<&dyn LinkerDriver, LinkFailure> {
         let driver = self
             .drivers
-            .binary_search_by(|driver| driver.identity().cmp(plan.driver()))
+            .binary_search_by(|driver| driver.capabilities().identity().cmp(plan.driver()))
             .ok()
             .map(|index| self.drivers[index].as_ref())
             .ok_or(LinkFailure::DriverUnavailable)?;
 
-        if !driver.supports(plan.target(), plan.product_kind()) {
-            return Err(LinkFailure::DriverIncompatible);
-        }
+        driver
+            .capabilities()
+            .validate(plan)
+            .map_err(LinkFailure::UnsupportedRequirement)?;
 
         Ok(driver)
     }
 
-    /// Selects the first compatible driver in canonical identity order.
-    pub fn select_identity(
+    /// Selects a driver only after constructing and validating its complete immutable plan.
+    pub fn select_plan<E>(
         &self,
-        target: &LinkTarget,
-        product: LinkedProductKind,
-    ) -> Result<&LinkerDriverIdentity, LinkFailure> {
-        self.drivers
-            .iter()
-            .find(|driver| driver.supports(target, product))
-            .map(|driver| driver.identity())
-            .ok_or(LinkFailure::DriverUnavailable)
+        mut construct: impl FnMut(&LinkerDriverIdentity) -> Result<LinkPlan, E>,
+    ) -> Result<LinkPlan, LinkPlanSelectionError<E>> {
+        let mut first_unsupported = None;
+
+        for driver in self.drivers.iter() {
+            let capabilities = driver.capabilities();
+
+            let plan = construct(capabilities.identity())
+                .map_err(LinkPlanSelectionError::Construction)?;
+
+            if plan.driver() != capabilities.identity() {
+                return Err(LinkPlanSelectionError::Link(
+                    LinkFailure::DriverIncompatible,
+                ));
+            }
+
+            match capabilities.validate(&plan) {
+                Ok(()) => return Ok(plan),
+                Err(unsupported) if first_unsupported.is_none() => {
+                    first_unsupported = Some(unsupported);
+                }
+                Err(_) => {}
+            }
+        }
+
+        Err(LinkPlanSelectionError::Link(
+            first_unsupported.map_or(LinkFailure::DriverUnavailable, |unsupported| {
+                LinkFailure::UnsupportedRequirement(unsupported)
+            }),
+        ))
     }
 
     /// Returns configured driver identities in deterministic selection order.
     pub fn driver_identities(&self) -> impl Iterator<Item = &LinkerDriverIdentity> {
-        self.drivers.iter().map(|driver| driver.identity())
+        self.drivers
+            .iter()
+            .map(|driver| driver.capabilities().identity())
+    }
+
+    /// Returns complete driver capability records in deterministic selection order.
+    pub fn driver_capabilities(&self) -> impl Iterator<Item = &LinkerDriverCapabilities> {
+        self.drivers.iter().map(|driver| driver.capabilities())
     }
 
     /// Links one plan through its selected driver.
@@ -169,6 +200,15 @@ pub enum LinkerBuildError {
     DuplicateDriver,
 }
 
+/// A failure to construct or select one complete immutable link plan.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LinkPlanSelectionError<E> {
+    /// Complete plan construction failed independently of driver capabilities.
+    Construction(E),
+    /// No configured driver accepted the complete plan.
+    Link(LinkFailure),
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -179,7 +219,14 @@ mod tests {
 
     use super::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
     use crate::test_support::{link_plan, link_plan_with_driver};
-    use crate::{LinkFailure, LinkOutcome, LinkPlan, LinkStatus, LinkTarget, LinkedProductKind};
+    use crate::{
+        DeadStripPolicy, DebugLinkPolicy, LinkCancellationCapability, LinkDeterminismCapability,
+        LinkEnvironmentCapability, LinkFailure, LinkInputKind, LinkInputMode, LinkModel,
+        LinkOutcome, LinkPlan, LinkPlanCapability, LinkResponseFileCapability, LinkStartupMode,
+        LinkStatus, LinkedArtifactKind, LinkedProductKind, LinkerDriverCapabilities,
+        LinkerOperationalCapabilities, LinkerTargetCapabilities, SectionGarbageCollectionPolicy,
+    };
+    use bray_target::{ObjectFormat, TargetArchitecture};
 
     #[test]
     fn driver_identities_require_complete_revision_metadata() {
@@ -206,7 +253,7 @@ mod tests {
 
         assert_eq!(identity.kind(), LinkerDriverKind::EmbeddedLld);
         assert_eq!(identity.name(), "lld");
-        assert_eq!(identity.revision(), "1");
+        assert_eq!(identity.capability_revision(), "1");
         assert_eq!(identity.toolchain_revision(), "20");
     }
 
@@ -259,7 +306,14 @@ mod tests {
 
         assert_eq!(
             incompatible.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::DriverIncompatible)
+            &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(
+                crate::UnsupportedLinkRequirement::Target {
+                    identity: plan.target().identity().clone(),
+                    triple: Arc::from(plan.target().triple()),
+                    architecture: TargetArchitecture::X86_64,
+                    object_format: ObjectFormat::Elf,
+                }
+            ))
         );
     }
 
@@ -273,6 +327,57 @@ mod tests {
             Linker::try_new([first, second]).err(),
             Some(LinkerBuildError::DuplicateDriver)
         );
+    }
+
+    #[test]
+    fn linker_selects_only_after_complete_plan_validation() {
+        let first_identity = LinkerDriverIdentity::try_new(
+            LinkerDriverKind::System,
+            "a-incompatible-startup",
+            "1",
+            "1",
+        )
+        .unwrap_or_else(|| panic!("test driver identity must be valid"));
+
+        let second_identity = LinkerDriverIdentity::try_new(
+            LinkerDriverKind::System,
+            "b-compatible-plan",
+            "1",
+            "1",
+        )
+        .unwrap_or_else(|| panic!("test driver identity must be valid"));
+
+        let first = Arc::new(TestDriver {
+            capabilities: test_capabilities_with_startup(
+                first_identity,
+                true,
+                LinkStartupMode::ExplicitInputs,
+            ),
+            calls: Arc::new(AtomicUsize::new(0)),
+            cancel_during_link: None,
+        });
+
+        let second = Arc::new(TestDriver {
+            capabilities: test_capabilities_with_startup(
+                second_identity.clone(),
+                true,
+                LinkStartupMode::PlatformCompilerDriver,
+            ),
+            calls: Arc::new(AtomicUsize::new(0)),
+            cancel_during_link: None,
+        });
+
+        let linker = Linker::try_new([
+            first as Arc<dyn LinkerDriver>,
+            second as Arc<dyn LinkerDriver>,
+        ])
+        .unwrap_or_else(|error| panic!("test linker must be valid: {error:?}"));
+
+        let selected = linker
+            .select_plan(|identity| Ok::<_, ()>(link_plan_with_driver(identity.clone())))
+            .unwrap_or_else(|error| panic!("one complete plan must be supported: {error:?}"));
+
+        assert_eq!(selected.driver(), &second_identity);
     }
 
     #[test]
@@ -296,8 +401,7 @@ mod tests {
     }
 
     struct TestDriver {
-        identity: LinkerDriverIdentity,
-        supported: bool,
+        capabilities: LinkerDriverCapabilities,
         calls: Arc<AtomicUsize>,
         cancel_during_link: Option<Arc<AtomicBool>>,
     }
@@ -310,8 +414,7 @@ mod tests {
             cancel_during_link: Option<Arc<AtomicBool>>,
         ) -> Self {
             Self {
-                identity,
-                supported,
+                capabilities: test_capabilities(identity, supported),
                 calls,
                 cancel_during_link,
             }
@@ -319,12 +422,8 @@ mod tests {
     }
 
     impl LinkerDriver for TestDriver {
-        fn identity(&self) -> &LinkerDriverIdentity {
-            &self.identity
-        }
-
-        fn supports(&self, _target: &LinkTarget, _product: LinkedProductKind) -> bool {
-            self.supported
+        fn capabilities(&self) -> &LinkerDriverCapabilities {
+            &self.capabilities
         }
 
         fn link(&self, _plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
@@ -336,6 +435,60 @@ mod tests {
 
             LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new())
         }
+    }
+
+    fn test_capabilities(
+        identity: LinkerDriverIdentity,
+        supported: bool,
+    ) -> LinkerDriverCapabilities {
+        test_capabilities_with_startup(
+            identity,
+            supported,
+            LinkStartupMode::PlatformCompilerDriver,
+        )
+    }
+
+    fn test_capabilities_with_startup(
+        identity: LinkerDriverIdentity,
+        supported: bool,
+        startup: LinkStartupMode,
+    ) -> LinkerDriverCapabilities {
+        let (architecture, object_format) = if supported {
+            (TargetArchitecture::X86_64, ObjectFormat::Elf)
+        } else {
+            (TargetArchitecture::Wasm32, ObjectFormat::WebAssembly)
+        };
+
+        let target = LinkerTargetCapabilities::new(
+            architecture,
+            object_format,
+            [
+                LinkPlanCapability::Product(LinkedProductKind::Executable),
+                LinkPlanCapability::Input(LinkInputKind::RelocatableObject),
+                LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
+                LinkPlanCapability::Output(LinkedArtifactKind::Executable),
+                LinkPlanCapability::LinkModel(LinkModel::Dynamic),
+                LinkPlanCapability::DeadStrip(DeadStripPolicy::Preserve),
+                LinkPlanCapability::SectionGarbageCollection(
+                    SectionGarbageCollectionPolicy::Preserve,
+                ),
+                LinkPlanCapability::Debug(DebugLinkPolicy::None),
+                LinkPlanCapability::Symbol(crate::LinkSymbolRequirement::EntryPoint),
+                LinkPlanCapability::Startup(startup),
+            ],
+        );
+
+        LinkerDriverCapabilities::try_new(
+            identity,
+            [target],
+            LinkerOperationalCapabilities::new(
+                LinkResponseFileCapability::InlineArguments,
+                LinkEnvironmentCapability::NotApplicable,
+                LinkCancellationCapability::Cooperative,
+                LinkDeterminismCapability::ToolchainDependent,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"))
     }
 
     struct TestCancellation(Arc<AtomicBool>);
