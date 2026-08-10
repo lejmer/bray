@@ -431,6 +431,34 @@ define_diagnostic_kinds! {
     EmissionArtifactLengthMismatch,
     /// A complete indirect artifact write could not be committed.
     EmissionArtifactCommitFailed,
+    /// The selected linker does not support the exact target.
+    LinkerUnsupportedTarget,
+    /// The selected linker does not support the product category.
+    LinkerUnsupportedProduct,
+    /// The selected linker does not support an input category.
+    LinkerUnsupportedInput,
+    /// The selected linker does not support an input treatment mode.
+    LinkerUnsupportedInputMode,
+    /// The selected linker does not support an output category.
+    LinkerUnsupportedOutput,
+    /// The selected linker does not support a search-path category.
+    LinkerUnsupportedSearchPath,
+    /// The selected linker does not support the linkage model.
+    LinkerUnsupportedLinkModel,
+    /// The selected linker does not support the dead-code removal policy.
+    LinkerUnsupportedDeadStrip,
+    /// The selected linker does not support the section garbage-collection policy.
+    LinkerUnsupportedSectionGarbageCollection,
+    /// The selected linker does not support the debug-information policy.
+    LinkerUnsupportedDebug,
+    /// The selected linker does not support the target subsystem.
+    LinkerUnsupportedSubsystem,
+    /// The selected linker does not support a symbol-control requirement.
+    LinkerUnsupportedSymbol,
+    /// The selected linker does not support the startup ownership mode.
+    LinkerUnsupportedStartup,
+    /// The selected linker does not support the runtime ownership mode.
+    LinkerUnsupportedRuntime,
 }
 
 impl DiagnosticKind {
@@ -646,6 +674,20 @@ impl DiagnosticKind {
             Self::EmissionArtifactDigestMismatch => 9007,
             Self::EmissionArtifactLengthMismatch => 9008,
             Self::EmissionArtifactCommitFailed => 9009,
+            Self::LinkerUnsupportedTarget => 9101,
+            Self::LinkerUnsupportedProduct => 9102,
+            Self::LinkerUnsupportedInput => 9103,
+            Self::LinkerUnsupportedInputMode => 9104,
+            Self::LinkerUnsupportedOutput => 9105,
+            Self::LinkerUnsupportedSearchPath => 9106,
+            Self::LinkerUnsupportedLinkModel => 9107,
+            Self::LinkerUnsupportedDeadStrip => 9108,
+            Self::LinkerUnsupportedSectionGarbageCollection => 9109,
+            Self::LinkerUnsupportedDebug => 9110,
+            Self::LinkerUnsupportedSubsystem => 9111,
+            Self::LinkerUnsupportedSymbol => 9112,
+            Self::LinkerUnsupportedStartup => 9113,
+            Self::LinkerUnsupportedRuntime => 9114,
         };
 
         DiagnosticCode::new(raw)
@@ -948,6 +990,22 @@ impl DiagnosticKind {
             Self::EmissionArtifactDigestMismatch => "emission_artifact_digest_mismatch",
             Self::EmissionArtifactLengthMismatch => "emission_artifact_length_mismatch",
             Self::EmissionArtifactCommitFailed => "emission_artifact_commit_failed",
+            Self::LinkerUnsupportedTarget => "linker_unsupported_target",
+            Self::LinkerUnsupportedProduct => "linker_unsupported_product",
+            Self::LinkerUnsupportedInput => "linker_unsupported_input",
+            Self::LinkerUnsupportedInputMode => "linker_unsupported_input_mode",
+            Self::LinkerUnsupportedOutput => "linker_unsupported_output",
+            Self::LinkerUnsupportedSearchPath => "linker_unsupported_search_path",
+            Self::LinkerUnsupportedLinkModel => "linker_unsupported_link_model",
+            Self::LinkerUnsupportedDeadStrip => "linker_unsupported_dead_strip",
+            Self::LinkerUnsupportedSectionGarbageCollection => {
+                "linker_unsupported_section_garbage_collection"
+            }
+            Self::LinkerUnsupportedDebug => "linker_unsupported_debug",
+            Self::LinkerUnsupportedSubsystem => "linker_unsupported_subsystem",
+            Self::LinkerUnsupportedSymbol => "linker_unsupported_symbol",
+            Self::LinkerUnsupportedStartup => "linker_unsupported_startup",
+            Self::LinkerUnsupportedRuntime => "linker_unsupported_runtime",
         }
     }
 }

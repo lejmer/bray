@@ -111,8 +111,17 @@ mod tests {
 
         let plan = link_plan_with_driver(driver);
 
+        let target = crate::LinkerTargetIdentity::try_new(
+            plan.target().identity().clone(),
+            plan.target().triple(),
+            plan.target().architecture(),
+            plan.target().object_format(),
+        )
+        .unwrap_or_else(|| panic!("test linker target must be valid"));
+
         let configuration = SystemLinkerConfiguration::try_new(
             SystemLinkerFamily::Gnu,
+            target,
             "toolchain/system-linker",
             [],
             Some(PathBuf::from("toolchain")),

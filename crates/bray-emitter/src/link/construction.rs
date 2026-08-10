@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use bray_linker::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,
     LinkInputSource, LinkInputSpec, LinkPlan, LinkPlanBuildError, LinkPlanBuilder,
-    LinkedArtifactKind, LinkedProductKind, PlannedLinkedArtifact, StagingDestination,
-    StagingDestinationBuildError, StagingDestinationId, StagingPathKey,
+    LinkPlanSelectionError, LinkStartupMode, LinkedArtifactKind, LinkedProductKind, Linker,
+    LinkerDriverIdentity, PlannedLinkedArtifact, StagingDestination, StagingDestinationBuildError,
+    StagingDestinationId, StagingPathKey,
 };
 use bray_target::TargetIdentity;
 
@@ -18,6 +19,7 @@ pub fn construct_link_plan(
     staged_artifacts: impl IntoIterator<Item = StagedArtifact>,
     output_staging: impl IntoIterator<Item = LinkOutputStaging>,
     facts: &ProductLinkFacts,
+    linker: &Linker,
 ) -> Result<LinkPlan, LinkPlanConstructionError> {
     if emission.request().target() != facts.target.identity() {
         return Err(LinkPlanConstructionError::TargetMismatch {
@@ -31,15 +33,27 @@ pub fn construct_link_plan(
     let staged_artifacts = staged_artifacts_by_id(staged_artifacts)?;
     let output_staging = output_staging_by_id(output_staging)?;
 
-    let constructor = LinkPlanConstructor::new(
-        emission,
-        product_kind,
-        staged_artifacts,
-        output_staging,
-        facts,
-    );
+    let startup_mode = startup_mode(product_kind, facts);
 
-    constructor.build()
+    linker
+        .select_plan(|driver| {
+            // Every candidate owns its small path maps and Arc-backed driver identity so it
+            // remains a complete immutable plan independently of selection.
+            LinkPlanConstructor::new(
+                emission,
+                product_kind,
+                staged_artifacts.clone(),
+                output_staging.clone(),
+                facts,
+                driver.clone(),
+                startup_mode,
+            )
+            .build()
+        })
+        .map_err(|error| match error {
+            LinkPlanSelectionError::Construction(error) => error,
+            LinkPlanSelectionError::Link(failure) => LinkPlanConstructionError::Linker(failure),
+        })
 }
 
 /// A conflict between an emission plan, staged artifacts, and resolved product link facts.
@@ -93,6 +107,8 @@ pub enum LinkPlanConstructionError {
     InvalidOutputStaging(StagingDestinationBuildError),
     /// The mapped inputs and outputs violate the native link-plan contract.
     InvalidLinkPlan(LinkPlanBuildError),
+    /// No configured linker driver accepts the complete immutable plan.
+    Linker(bray_linker::LinkFailure),
 }
 
 struct LinkPlanConstructor<'plan> {
@@ -111,6 +127,8 @@ impl<'plan> LinkPlanConstructor<'plan> {
         staged_artifacts: BTreeMap<ArtifactId, PathBuf>,
         output_staging: BTreeMap<ArtifactId, (LinkedArtifactKind, PathBuf, StagingPathKey)>,
         facts: &'plan ProductLinkFacts,
+        driver: LinkerDriverIdentity,
+        startup_mode: LinkStartupMode,
     ) -> Self {
         let builder = LinkPlanBuilder::new(
             // The link plan owns the Arc-backed product identity independently of the emission plan.
@@ -118,9 +136,8 @@ impl<'plan> LinkPlanConstructor<'plan> {
             product_kind,
             // The link plan owns target facts independently of the supplied product facts.
             facts.target.clone(),
-            // Driver identity participates in the immutable plan and its cache identity.
-            facts.driver.clone(),
-            facts.startup_mode,
+            driver,
+            startup_mode,
             facts.policy,
         );
 
@@ -371,6 +388,20 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 }
 
+fn startup_mode(product: LinkedProductKind, facts: &ProductLinkFacts) -> LinkStartupMode {
+    match product {
+        LinkedProductKind::StaticLibrary => LinkStartupMode::NotApplicable,
+        LinkedProductKind::Executable | LinkedProductKind::SharedLibrary
+            if facts.startup_inputs.is_empty() && facts.termination_inputs.is_empty() =>
+        {
+            LinkStartupMode::PlatformCompilerDriver
+        }
+        LinkedProductKind::Executable | LinkedProductKind::SharedLibrary => {
+            LinkStartupMode::ExplicitInputs
+        }
+    }
+}
+
 fn is_archive_input(kind: LinkInputKind) -> bool {
     kind == LinkInputKind::Archive
 }
@@ -472,9 +503,10 @@ mod tests {
         DeadStripPolicy, DebugLinkPolicy, LinkCancellationCapability, LinkDeterminismCapability,
         LinkEnvironmentCapability, LinkFailure, LinkInputKind, LinkInputMode, LinkInputProvenance,
         LinkInputSource, LinkInputSpec, LinkModel, LinkOutcome, LinkPlanCapability, LinkPolicy,
-        LinkResponseFileCapability, LinkSearchPath, LinkSearchPathKind, LinkSubsystem, LinkTarget,
-        LinkedArtifactKind, LinkedProductKind, Linker, LinkerDriver, LinkerDriverCapabilities,
-        LinkerDriverIdentity, LinkerDriverKind, LinkerOperationalCapabilities,
+        LinkResponseFileCapability, LinkSearchPath, LinkSearchPathKind, LinkStartupMode,
+        LinkSubsystem, LinkTarget, LinkedArtifactKind, LinkedProductKind, Linker, LinkerDriver,
+        LinkerDriverCapabilities, LinkerDriverIdentity, LinkerDriverKind,
+        LinkerOperationalCapabilities,
         LinkerTargetCapabilities, SectionGarbageCollectionPolicy, StagingPathKey,
     };
     use bray_runtime_interface::{
@@ -503,7 +535,7 @@ mod tests {
         let staged = staged_artifacts(&plan);
         let outputs = output_staging(&plan);
 
-        let facts = product_link_facts_for(bray_linker::LinkStartupMode::ExplicitInputs)
+        let facts = product_link_facts()
             .with_startup_inputs([file_input(
                 LinkInputKind::StartupObject,
                 "crt/start.o",
@@ -534,6 +566,7 @@ mod tests {
             staged.iter().cloned().rev(),
             outputs.iter().cloned().rev(),
             &facts,
+            &linker_for(LinkStartupMode::ExplicitInputs),
         )
         .unwrap_or_else(|error| panic!("link plan must construct: {error:?}"));
 
@@ -596,7 +629,7 @@ mod tests {
             .executable_host()
             .unwrap_or_else(|| panic!("async executable must have a host contract"));
 
-        let facts = product_link_facts_for(bray_linker::LinkStartupMode::ExplicitInputs)
+        let facts = product_link_facts()
             .with_runtime(runtime.clone())
             .with_native_inputs([
                 native_library("pthread"),
@@ -612,6 +645,7 @@ mod tests {
             staged_artifacts(&plan),
             output_staging(&plan),
             &facts,
+            &linker_for(LinkStartupMode::PlatformCompilerDriver),
         )
         .unwrap_or_else(|error| panic!("async link plan must construct: {error:?}"));
 
@@ -686,7 +720,13 @@ mod tests {
             .unwrap_or_else(|| panic!("test plan must have staged inputs"));
 
         assert_eq!(
-            construct_link_plan(&plan, staged, output_staging(&plan), &product_link_facts(),),
+            construct_link_plan(
+                &plan,
+                staged,
+                output_staging(&plan),
+                &product_link_facts(),
+                &linker_for(LinkStartupMode::PlatformCompilerDriver),
+            ),
             Err(LinkPlanConstructionError::MissingStagedArtifact(
                 missing.artifact().clone()
             ))
@@ -704,6 +744,7 @@ mod tests {
                 staged_artifacts(&plan),
                 outputs,
                 &product_link_facts(),
+                &linker_for(LinkStartupMode::PlatformCompilerDriver),
             ),
             Err(LinkPlanConstructionError::MissingOutputStaging(
                 missing_output.artifact().clone()
@@ -725,6 +766,7 @@ mod tests {
                 staged_artifacts(&plan).into_iter().chain([foreign]),
                 output_staging(&plan),
                 &product_link_facts(),
+                &linker_for(LinkStartupMode::PlatformCompilerDriver),
             ),
             Err(LinkPlanConstructionError::UnexpectedStagedArtifact(
                 interface.id().clone()
@@ -741,7 +783,10 @@ mod tests {
         let invocations = Arc::new(AtomicUsize::new(0));
 
         let driver = Arc::new(CountingDriver {
-            capabilities: counting_capabilities(facts.driver.clone()),
+            capabilities: counting_capabilities(
+                linker_driver_identity(),
+                LinkStartupMode::PlatformCompilerDriver,
+            ),
             invocations: Arc::clone(&invocations),
         });
 
@@ -753,6 +798,7 @@ mod tests {
             staged.iter().cloned(),
             outputs.iter().cloned(),
             &facts,
+            &linker,
         );
 
         let second = construct_link_plan(
@@ -760,6 +806,7 @@ mod tests {
             staged.into_iter().rev(),
             outputs.into_iter().rev(),
             &facts,
+            &linker,
         );
 
         assert_eq!(first, second);
@@ -903,14 +950,8 @@ mod tests {
     }
 
     fn product_link_facts() -> ProductLinkFacts {
-        product_link_facts_for(bray_linker::LinkStartupMode::PlatformCompilerDriver)
-    }
-
-    fn product_link_facts_for(startup_mode: bray_linker::LinkStartupMode) -> ProductLinkFacts {
         ProductLinkFacts::new(
             link_target(),
-            linker_driver_identity(),
-            startup_mode,
             LinkPolicy::new(
                 DeadStripPolicy::RemoveUnreachable,
                 SectionGarbageCollectionPolicy::RemoveUnreferenced,
@@ -989,7 +1030,10 @@ mod tests {
         invocations: Arc<AtomicUsize>,
     }
 
-    fn counting_capabilities(identity: LinkerDriverIdentity) -> LinkerDriverCapabilities {
+    fn counting_capabilities(
+        identity: LinkerDriverIdentity,
+        startup: LinkStartupMode,
+    ) -> LinkerDriverCapabilities {
         let target = link_target();
 
         let target = LinkerTargetCapabilities::new(
@@ -997,10 +1041,19 @@ mod tests {
             target.object_format(),
             [
                 LinkPlanCapability::Product(LinkedProductKind::SharedLibrary),
+                LinkPlanCapability::Product(LinkedProductKind::Executable),
                 LinkPlanCapability::Input(LinkInputKind::RelocatableObject),
+                LinkPlanCapability::Input(LinkInputKind::StartupObject),
+                LinkPlanCapability::Input(LinkInputKind::TerminationObject),
+                LinkPlanCapability::Input(LinkInputKind::Archive),
+                LinkPlanCapability::Input(LinkInputKind::NativeLibrary),
+                LinkPlanCapability::Input(LinkInputKind::RuntimeComponent),
                 LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
                 LinkPlanCapability::Output(LinkedArtifactKind::SharedLibrary),
+                LinkPlanCapability::Output(LinkedArtifactKind::Executable),
                 LinkPlanCapability::Output(LinkedArtifactKind::PlatformCompanion),
+                LinkPlanCapability::SearchPath(LinkSearchPathKind::Library),
+                LinkPlanCapability::SearchPath(LinkSearchPathKind::Framework),
                 LinkPlanCapability::LinkModel(LinkModel::Dynamic),
                 LinkPlanCapability::DeadStrip(DeadStripPolicy::RemoveUnreachable),
                 LinkPlanCapability::SectionGarbageCollection(
@@ -1008,7 +1061,11 @@ mod tests {
                 ),
                 LinkPlanCapability::Debug(DebugLinkPolicy::None),
                 LinkPlanCapability::Subsystem(LinkSubsystem::Console),
-                LinkPlanCapability::Startup(bray_linker::LinkStartupMode::PlatformCompilerDriver),
+                LinkPlanCapability::Symbol(bray_linker::LinkSymbolRequirement::EntryPoint),
+                LinkPlanCapability::Symbol(bray_linker::LinkSymbolRequirement::ExportedSymbols),
+                LinkPlanCapability::Symbol(bray_linker::LinkSymbolRequirement::RetainedSymbols),
+                LinkPlanCapability::Startup(startup),
+                LinkPlanCapability::Runtime(bray_linker::LinkRuntimeMode::ExplicitInput),
             ],
         );
 
@@ -1023,6 +1080,16 @@ mod tests {
             ),
         )
         .unwrap_or_else(|error| panic!("test capabilities must construct: {error:?}"))
+    }
+
+    fn linker_for(startup: LinkStartupMode) -> Linker {
+        let driver = Arc::new(CountingDriver {
+            capabilities: counting_capabilities(linker_driver_identity(), startup),
+            invocations: Arc::new(AtomicUsize::new(0)),
+        });
+
+        Linker::try_new([driver as Arc<dyn LinkerDriver>])
+            .unwrap_or_else(|error| panic!("test linker must construct: {error:?}"))
     }
 
     impl LinkerDriver for CountingDriver {

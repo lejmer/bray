@@ -1528,7 +1528,7 @@ mod tests {
             linked_driver_identity(),
             match case.product {
                 LinkedProductKind::Executable | LinkedProductKind::SharedLibrary => {
-                    bray_linker::LinkStartupMode::ExplicitInputs
+                    bray_linker::LinkStartupMode::PlatformCompilerDriver
                 }
                 LinkedProductKind::StaticLibrary => bray_linker::LinkStartupMode::NotApplicable,
             },

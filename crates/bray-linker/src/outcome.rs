@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
@@ -10,11 +10,50 @@ use crate::{
 };
 
 pub(crate) fn failed_outcome(failure: LinkFailure) -> LinkOutcome {
-    LinkOutcome::failed(failure, DiagnosticBag::new())
+    let diagnostics = link_failure_diagnostics(&failure);
+
+    LinkOutcome::failed(failure, diagnostics)
+}
+
+/// Creates stable structured diagnostics for one typed native link failure.
+pub fn link_failure_diagnostics(failure: &LinkFailure) -> DiagnosticBag {
+    match failure {
+        LinkFailure::UnsupportedRequirement(requirement) => DiagnosticBag::single(
+            Diagnostic::new(
+                DiagnosticId::new(0),
+                unsupported_requirement_diagnostic(requirement),
+                SeverityKind::Error,
+            ),
+        ),
+        _ => DiagnosticBag::new(),
+    }
+}
+
+const fn unsupported_requirement_diagnostic(
+    requirement: &UnsupportedLinkRequirement,
+) -> DiagnosticKind {
+    match requirement {
+        UnsupportedLinkRequirement::Target { .. } => DiagnosticKind::LinkerUnsupportedTarget,
+        UnsupportedLinkRequirement::Product(_) => DiagnosticKind::LinkerUnsupportedProduct,
+        UnsupportedLinkRequirement::Input(_) => DiagnosticKind::LinkerUnsupportedInput,
+        UnsupportedLinkRequirement::InputMode(_) => DiagnosticKind::LinkerUnsupportedInputMode,
+        UnsupportedLinkRequirement::Output(_) => DiagnosticKind::LinkerUnsupportedOutput,
+        UnsupportedLinkRequirement::SearchPath(_) => DiagnosticKind::LinkerUnsupportedSearchPath,
+        UnsupportedLinkRequirement::LinkModel(_) => DiagnosticKind::LinkerUnsupportedLinkModel,
+        UnsupportedLinkRequirement::DeadStrip(_) => DiagnosticKind::LinkerUnsupportedDeadStrip,
+        UnsupportedLinkRequirement::SectionGarbageCollection(_) => {
+            DiagnosticKind::LinkerUnsupportedSectionGarbageCollection
+        }
+        UnsupportedLinkRequirement::Debug(_) => DiagnosticKind::LinkerUnsupportedDebug,
+        UnsupportedLinkRequirement::Subsystem(_) => DiagnosticKind::LinkerUnsupportedSubsystem,
+        UnsupportedLinkRequirement::Symbol(_) => DiagnosticKind::LinkerUnsupportedSymbol,
+        UnsupportedLinkRequirement::Startup(_) => DiagnosticKind::LinkerUnsupportedStartup,
+        UnsupportedLinkRequirement::Runtime(_) => DiagnosticKind::LinkerUnsupportedRuntime,
+    }
 }
 
 /// Structured reason one native link operation could not produce complete staged outputs.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum LinkFailure {
     /// No configured linker driver is available for the request.
     DriverUnavailable,
@@ -264,9 +303,13 @@ mod tests {
 
     use super::{
         LinkFailure, LinkOutcome, LinkOutcomeBuildError, LinkStatus, LinkedArtifactSetBuildError,
+        link_failure_diagnostics,
     };
     use crate::test_support::{link_plan, linked_artifact};
-    use crate::{LinkedArtifact, LinkedArtifactKind, StagingDestinationId};
+    use crate::{
+        LinkInputKind, LinkedArtifact, LinkedArtifactKind, StagingDestinationId,
+        UnsupportedLinkRequirement,
+    };
 
     #[test]
     fn complete_outcomes_publish_only_plan_validated_artifacts() {
@@ -348,5 +391,23 @@ mod tests {
         assert!(matches!(cancelled.status(), LinkStatus::Cancelled));
         assert_eq!(cancelled.artifacts(), None);
         assert_eq!(cancelled.diagnostics(), &diagnostics);
+    }
+
+    #[test]
+    fn unsupported_requirements_produce_stable_error_diagnostics() {
+        let failure = LinkFailure::UnsupportedRequirement(UnsupportedLinkRequirement::Input(
+            LinkInputKind::Bitcode,
+        ));
+
+        let diagnostics = link_failure_diagnostics(&failure);
+
+        assert!(diagnostics.has_errors());
+
+        assert_eq!(
+            diagnostics
+                .by_kind(DiagnosticKind::LinkerUnsupportedInput)
+                .count(),
+            1
+        );
     }
 }

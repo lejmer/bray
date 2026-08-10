@@ -4,9 +4,7 @@ use bray_base::{Cancellation, NonEmptySharedStr};
 use bray_diagnostics::DiagnosticBag;
 
 use crate::outcome::failed_outcome;
-use crate::{
-    LinkFailure, LinkOutcome, LinkPlan, LinkTarget, LinkedProductKind, LinkerDriverCapabilities,
-};
+use crate::{LinkFailure, LinkOutcome, LinkPlan, LinkerDriverCapabilities};
 
 /// Supported category of one selected linker or archiver driver.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -125,31 +123,39 @@ impl Linker {
         Ok(driver)
     }
 
-    /// Selects the first compatible driver in canonical identity order.
-    pub fn select_identity(
+    /// Selects a driver only after constructing and validating its complete immutable plan.
+    pub fn select_plan<E>(
         &self,
-        target: &LinkTarget,
-        product: LinkedProductKind,
-    ) -> Result<&LinkerDriverIdentity, LinkFailure> {
-        self.select_capabilities(target, product)
-            .map(LinkerDriverCapabilities::identity)
-    }
+        mut construct: impl FnMut(&LinkerDriverIdentity) -> Result<LinkPlan, E>,
+    ) -> Result<LinkPlan, LinkPlanSelectionError<E>> {
+        let mut first_unsupported = None;
 
-    /// Selects the first compatible complete capability record in canonical identity order.
-    pub fn select_capabilities(
-        &self,
-        target: &LinkTarget,
-        product: LinkedProductKind,
-    ) -> Result<&LinkerDriverCapabilities, LinkFailure> {
-        self.drivers
-            .iter()
-            .find(|driver| {
-                driver
-                    .capabilities()
-                    .supports_target_product(target, product)
-            })
-            .map(|driver| driver.capabilities())
-            .ok_or(LinkFailure::DriverUnavailable)
+        for driver in self.drivers.iter() {
+            let capabilities = driver.capabilities();
+
+            let plan = construct(capabilities.identity())
+                .map_err(LinkPlanSelectionError::Construction)?;
+
+            if plan.driver() != capabilities.identity() {
+                return Err(LinkPlanSelectionError::Link(
+                    LinkFailure::DriverIncompatible,
+                ));
+            }
+
+            match capabilities.validate(&plan) {
+                Ok(()) => return Ok(plan),
+                Err(unsupported) if first_unsupported.is_none() => {
+                    first_unsupported = Some(unsupported);
+                }
+                Err(_) => {}
+            }
+        }
+
+        Err(LinkPlanSelectionError::Link(
+            first_unsupported.map_or(LinkFailure::DriverUnavailable, |unsupported| {
+                LinkFailure::UnsupportedRequirement(unsupported)
+            }),
+        ))
     }
 
     /// Returns configured driver identities in deterministic selection order.
@@ -192,6 +198,15 @@ impl Linker {
 pub enum LinkerBuildError {
     /// More than one driver has the same exact identity.
     DuplicateDriver,
+}
+
+/// A failure to construct or select one complete immutable link plan.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LinkPlanSelectionError<E> {
+    /// Complete plan construction failed independently of driver capabilities.
+    Construction(E),
+    /// No configured driver accepted the complete plan.
+    Link(LinkFailure),
 }
 
 #[cfg(test)]
@@ -293,6 +308,8 @@ mod tests {
             incompatible.link(&plan, &|| false).status(),
             &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(
                 crate::UnsupportedLinkRequirement::Target {
+                    identity: plan.target().identity().clone(),
+                    triple: Arc::from(plan.target().triple()),
                     architecture: TargetArchitecture::X86_64,
                     object_format: ObjectFormat::Elf,
                 }
@@ -310,6 +327,57 @@ mod tests {
             Linker::try_new([first, second]).err(),
             Some(LinkerBuildError::DuplicateDriver)
         );
+    }
+
+    #[test]
+    fn linker_selects_only_after_complete_plan_validation() {
+        let first_identity = LinkerDriverIdentity::try_new(
+            LinkerDriverKind::System,
+            "a-incompatible-startup",
+            "1",
+            "1",
+        )
+        .unwrap_or_else(|| panic!("test driver identity must be valid"));
+
+        let second_identity = LinkerDriverIdentity::try_new(
+            LinkerDriverKind::System,
+            "b-compatible-plan",
+            "1",
+            "1",
+        )
+        .unwrap_or_else(|| panic!("test driver identity must be valid"));
+
+        let first = Arc::new(TestDriver {
+            capabilities: test_capabilities_with_startup(
+                first_identity,
+                true,
+                LinkStartupMode::ExplicitInputs,
+            ),
+            calls: Arc::new(AtomicUsize::new(0)),
+            cancel_during_link: None,
+        });
+
+        let second = Arc::new(TestDriver {
+            capabilities: test_capabilities_with_startup(
+                second_identity.clone(),
+                true,
+                LinkStartupMode::PlatformCompilerDriver,
+            ),
+            calls: Arc::new(AtomicUsize::new(0)),
+            cancel_during_link: None,
+        });
+
+        let linker = Linker::try_new([
+            first as Arc<dyn LinkerDriver>,
+            second as Arc<dyn LinkerDriver>,
+        ])
+        .unwrap_or_else(|error| panic!("test linker must be valid: {error:?}"));
+
+        let selected = linker
+            .select_plan(|identity| Ok::<_, ()>(link_plan_with_driver(identity.clone())))
+            .unwrap_or_else(|error| panic!("one complete plan must be supported: {error:?}"));
+
+        assert_eq!(selected.driver(), &second_identity);
     }
 
     #[test]
@@ -373,6 +441,18 @@ mod tests {
         identity: LinkerDriverIdentity,
         supported: bool,
     ) -> LinkerDriverCapabilities {
+        test_capabilities_with_startup(
+            identity,
+            supported,
+            LinkStartupMode::PlatformCompilerDriver,
+        )
+    }
+
+    fn test_capabilities_with_startup(
+        identity: LinkerDriverIdentity,
+        supported: bool,
+        startup: LinkStartupMode,
+    ) -> LinkerDriverCapabilities {
         let (architecture, object_format) = if supported {
             (TargetArchitecture::X86_64, ObjectFormat::Elf)
         } else {
@@ -394,7 +474,7 @@ mod tests {
                 ),
                 LinkPlanCapability::Debug(DebugLinkPolicy::None),
                 LinkPlanCapability::Symbol(crate::LinkSymbolRequirement::EntryPoint),
-                LinkPlanCapability::Startup(LinkStartupMode::ExplicitInputs),
+                LinkPlanCapability::Startup(startup),
             ],
         );
 

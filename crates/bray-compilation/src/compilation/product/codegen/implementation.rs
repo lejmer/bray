@@ -291,12 +291,11 @@ impl Compilation {
         .map_err(NativeProductFactError::InvalidEmissionBackend)?;
 
         let link = linker
-            .map(|linker| {
+            .map(|_| {
                 self.product_link_facts(
                     semantic.value().kind(),
                     host.as_ref(),
                     runtime,
-                    linker,
                     &target,
                     configuration,
                 )

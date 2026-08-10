@@ -320,7 +320,7 @@ mod tests {
 
         assert_eq!(
             driver.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::MissingInput(LinkInputId::new(0)))
+            &LinkStatus::Failed(LinkFailure::MissingInput(LinkInputId::new(1)))
         );
     }
 
@@ -363,6 +363,17 @@ mod tests {
                 crate::DebugLinkPolicy::None,
                 None,
             ),
+        );
+
+        builder.push_input(
+            LinkInput::try_new(
+                LinkInputId::new(1),
+                LinkInputKind::StartupObject,
+                LinkInputSource::file(input_path),
+                LinkInputProvenance::TargetProfile,
+                LinkInputMode::Ordinary,
+            )
+            .unwrap_or_else(|error| panic!("test startup input must be valid: {error:?}")),
         );
 
         builder.push_input(

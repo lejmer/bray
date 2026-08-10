@@ -14,6 +14,52 @@ pub enum LinkModel {
     Dynamic,
 }
 
+/// Exact target identity and machine pair supplied by the compiler host.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LinkerTargetIdentity {
+    identity: TargetIdentity,
+    triple: NonEmptySharedStr,
+    architecture: TargetArchitecture,
+    object_format: ObjectFormat,
+}
+
+impl LinkerTargetIdentity {
+    /// Creates an exact target scope when its canonical target triple is non-empty.
+    pub fn try_new(
+        identity: TargetIdentity,
+        triple: impl Into<Arc<str>>,
+        architecture: TargetArchitecture,
+        object_format: ObjectFormat,
+    ) -> Option<Self> {
+        Some(Self {
+            identity,
+            triple: NonEmptySharedStr::try_new(triple)?,
+            architecture,
+            object_format,
+        })
+    }
+
+    /// Returns the exact target-profile identity.
+    pub const fn identity(&self) -> &TargetIdentity {
+        &self.identity
+    }
+
+    /// Returns the canonical target triple passed to the linker driver.
+    pub fn triple(&self) -> &str {
+        self.triple.as_str()
+    }
+
+    /// Returns the target processor architecture.
+    pub const fn architecture(&self) -> TargetArchitecture {
+        self.architecture
+    }
+
+    /// Returns the target native object format.
+    pub const fn object_format(&self) -> ObjectFormat {
+        self.object_format
+    }
+}
+
 /// Complete backend-neutral target facts needed by linker drivers.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LinkTarget {

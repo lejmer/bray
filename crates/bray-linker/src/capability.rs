@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
-use bray_target::{ObjectFormat, TargetArchitecture};
+use bray_target::{ObjectFormat, TargetArchitecture, TargetIdentity};
 
 use crate::{
     DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkModel, LinkPlan,
     LinkSearchPathKind, LinkSubsystem, LinkedArtifactKind, LinkedProductKind, LinkerDriverIdentity,
-    SectionGarbageCollectionPolicy,
+    LinkerTargetIdentity, SectionGarbageCollectionPolicy,
 };
 
 use crate::archive::ArchiveFormat;
@@ -160,6 +160,7 @@ impl LinkerOperationalCapabilities {
 /// Complete plan support for one exact architecture and object-format pair.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LinkerTargetCapabilities {
+    exact_target: Option<LinkerTargetIdentity>,
     architecture: TargetArchitecture,
     object_format: ObjectFormat,
     plan: Arc<[LinkPlanCapability]>,
@@ -173,10 +174,29 @@ impl LinkerTargetCapabilities {
         plan: impl IntoIterator<Item = LinkPlanCapability>,
     ) -> Self {
         Self {
+            exact_target: None,
             architecture,
             object_format,
             plan: sorted_unique_shared_slice(plan),
         }
+    }
+
+    /// Creates a capability contract scoped to one exact target identity and triple.
+    pub fn for_target(
+        target: LinkerTargetIdentity,
+        plan: impl IntoIterator<Item = LinkPlanCapability>,
+    ) -> Self {
+        Self {
+            architecture: target.architecture(),
+            object_format: target.object_format(),
+            exact_target: Some(target),
+            plan: sorted_unique_shared_slice(plan),
+        }
+    }
+
+    /// Returns the exact target scope or `None` for a machine-wide contract.
+    pub const fn exact_target(&self) -> Option<&LinkerTargetIdentity> {
+        self.exact_target.as_ref()
     }
 
     /// Returns the supported processor architecture.
@@ -196,6 +216,14 @@ impl LinkerTargetCapabilities {
 
     fn supports(&self, capability: LinkPlanCapability) -> bool {
         self.plan.binary_search(&capability).is_ok()
+    }
+
+    fn matches(&self, target: &crate::LinkTarget) -> bool {
+        self.architecture == target.architecture()
+            && self.object_format == target.object_format()
+            && self.exact_target.as_ref().is_none_or(|exact| {
+                exact.identity() == target.identity() && exact.triple() == target.triple()
+            })
     }
 }
 
@@ -219,8 +247,9 @@ impl LinkerDriverCapabilities {
     pub fn try_for_system(
         identity: LinkerDriverIdentity,
         family: SystemLinkerFamily,
+        target: LinkerTargetIdentity,
     ) -> Result<Self, LinkerDriverCapabilitiesBuildError> {
-        system_driver_capabilities(identity, family)
+        system_driver_capabilities(identity, family, target)
     }
 
     /// Declares the complete capability record of the deterministic LLVM archiver.
@@ -238,7 +267,13 @@ impl LinkerDriverCapabilities {
     ) -> Result<Self, LinkerDriverCapabilitiesBuildError> {
         let mut targets = targets.into_iter().collect::<Vec<_>>();
 
-        targets.sort_unstable_by_key(|target| (target.architecture, target.object_format));
+        targets.sort_unstable_by(|left, right| {
+            (left.architecture, left.object_format, &left.exact_target).cmp(&(
+                right.architecture,
+                right.object_format,
+                &right.exact_target,
+            ))
+        });
 
         if targets.is_empty() {
             return Err(LinkerDriverCapabilitiesBuildError::MissingTargets);
@@ -247,6 +282,7 @@ impl LinkerDriverCapabilities {
         if targets.windows(2).any(|pair| {
             pair[0].architecture == pair[1].architecture
                 && pair[0].object_format == pair[1].object_format
+                && pair[0].exact_target == pair[1].exact_target
         }) {
             return Err(LinkerDriverCapabilitiesBuildError::DuplicateTarget);
         }
@@ -297,6 +333,9 @@ impl LinkerDriverCapabilities {
     pub fn validate(&self, plan: &LinkPlan) -> Result<(), UnsupportedLinkRequirement> {
         let Some(target) = self.target(plan.target()) else {
             return Err(UnsupportedLinkRequirement::Target {
+                // The failure can outlive the borrowed link plan.
+                identity: plan.target().identity().clone(),
+                triple: Arc::from(plan.target().triple()),
                 architecture: plan.target().architecture(),
                 object_format: plan.target().object_format(),
             });
@@ -382,12 +421,13 @@ impl LinkerDriverCapabilities {
 
     fn target(&self, target: &crate::LinkTarget) -> Option<&LinkerTargetCapabilities> {
         self.targets
-            .binary_search_by_key(
-                &(target.architecture(), target.object_format()),
-                |candidate| (candidate.architecture, candidate.object_format),
-            )
-            .ok()
-            .map(|index| &self.targets[index])
+            .iter()
+            .find(|candidate| candidate.exact_target.is_some() && candidate.matches(target))
+            .or_else(|| {
+                self.targets
+                    .iter()
+                    .find(|candidate| candidate.exact_target.is_none() && candidate.matches(target))
+            })
     }
 }
 
@@ -424,9 +464,18 @@ pub(crate) fn lld_driver_capabilities(
 pub(crate) fn system_driver_capabilities(
     identity: LinkerDriverIdentity,
     family: SystemLinkerFamily,
+    target: LinkerTargetIdentity,
 ) -> Result<LinkerDriverCapabilities, LinkerDriverCapabilitiesBuildError> {
     if identity.kind() != LinkerDriverKind::System {
         return Err(LinkerDriverCapabilitiesBuildError::DriverKindMismatch);
+    }
+
+    if !LldFlavor::TARGETS.iter().any(|candidate| {
+        candidate.0 == target.architecture()
+            && candidate.1 == target.object_format()
+            && candidate.2 == family.flavor()
+    }) {
+        return Err(LinkerDriverCapabilitiesBuildError::UnsupportedTarget);
     }
 
     let response_files = match family.response_file_encoding() {
@@ -445,7 +494,10 @@ pub(crate) fn system_driver_capabilities(
 
     LinkerDriverCapabilities::try_new(
         identity,
-        linked_target_capabilities_for_format(family.flavor().object_format(), startup, false),
+        [LinkerTargetCapabilities::for_target(
+            target,
+            linked_plan_capabilities(family.flavor().object_format(), startup, false),
+        )],
         LinkerOperationalCapabilities::new(
             response_files,
             LinkEnvironmentCapability::Explicit,
@@ -510,23 +562,6 @@ fn linked_target_capabilities(
         })
 }
 
-fn linked_target_capabilities_for_format(
-    object_format: ObjectFormat,
-    startup: LinkStartupMode,
-    accepts_bitcode: bool,
-) -> impl Iterator<Item = LinkerTargetCapabilities> {
-    LldFlavor::TARGETS
-        .into_iter()
-        .filter(move |candidate| candidate.1 == object_format)
-        .map(move |(architecture, object_format, _)| {
-            LinkerTargetCapabilities::new(
-                architecture,
-                object_format,
-                linked_plan_capabilities(object_format, startup, accepts_bitcode),
-            )
-        })
-}
-
 fn linked_plan_capabilities(
     object_format: ObjectFormat,
     startup: LinkStartupMode,
@@ -564,10 +599,6 @@ fn linked_plan_capabilities(
 
     if accepts_bitcode {
         capabilities.push(LinkPlanCapability::Input(LinkInputKind::Bitcode));
-    }
-
-    if startup == LinkStartupMode::PlatformCompilerDriver {
-        capabilities.push(LinkPlanCapability::Startup(LinkStartupMode::ExplicitInputs));
     }
 
     match object_format {
@@ -613,6 +644,8 @@ fn linked_plan_capabilities(
 pub enum LinkerDriverCapabilitiesBuildError {
     /// The driver category cannot publish the requested capability family.
     DriverKindMismatch,
+    /// The configured target is incompatible with the driver command family.
+    UnsupportedTarget,
     /// No supported target contract was declared.
     MissingTargets,
     /// One architecture and object-format pair was declared more than once.
@@ -620,10 +653,14 @@ pub enum LinkerDriverCapabilitiesBuildError {
 }
 
 /// One typed plan requirement rejected before linker invocation.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum UnsupportedLinkRequirement {
-    /// The architecture and object-format pair is unsupported.
+    /// The exact target identity and machine pair is unsupported.
     Target {
+        /// Exact target-profile identity.
+        identity: TargetIdentity,
+        /// Canonical target triple.
+        triple: Arc<str>,
         /// Requested processor architecture.
         architecture: TargetArchitecture,
         /// Requested native object format.

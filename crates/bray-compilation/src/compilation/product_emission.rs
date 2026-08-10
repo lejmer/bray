@@ -327,7 +327,7 @@ impl Compilation {
                 inputs.sink_resolver,
                 cancellation,
             )
-            .map_err(|kind| ProductEmissionError::new(kind, diagnostics.clone()))?;
+            .map_err(|kind| super::linking::product_emission_error(kind, &diagnostics))?;
 
         Ok(outcome.with_prior_diagnostics(&diagnostics))
     }
@@ -582,6 +582,7 @@ impl Compilation {
                     staging.inputs().iter().cloned(),
                     staging.outputs().iter().cloned(),
                     linking.facts,
+                    linking.linker,
                 )
                 .map_err(ProductEmissionErrorKind::LinkPlan)?;
 
@@ -657,7 +658,7 @@ pub struct ProductEmissionError {
 }
 
 impl ProductEmissionError {
-    fn new(kind: ProductEmissionErrorKind, diagnostics: DiagnosticBag) -> Self {
+    pub(super) fn new(kind: ProductEmissionErrorKind, diagnostics: DiagnosticBag) -> Self {
         Self { kind, diagnostics }
     }
 

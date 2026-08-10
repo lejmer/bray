@@ -1,5 +1,6 @@
 use bray_emitter::{
-    ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan, OutputSinkResolver,
+    ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan,
+    LinkPlanConstructionError, OutputSinkResolver,
 };
 use bray_linker::{LinkOutcome, LinkPlan, LinkStatus, Linker};
 
@@ -113,6 +114,20 @@ const fn emission_profile_outcome(outcome: &EmissionOutcome) -> crate::Compilati
         bray_emitter::EmissionStatus::Failed(_) => crate::CompilationProfileOutcome::Failed,
         bray_emitter::EmissionStatus::Cancelled => crate::CompilationProfileOutcome::Cancelled,
     }
+}
+
+pub(super) fn product_emission_error(
+    kind: super::ProductEmissionErrorKind,
+    prior: &bray_diagnostics::DiagnosticBag,
+) -> super::ProductEmissionError {
+    let diagnostics = match &kind {
+        super::ProductEmissionErrorKind::LinkPlan(LinkPlanConstructionError::Linker(failure)) => {
+            bray_linker::link_failure_diagnostics(failure)
+        }
+        _ => bray_diagnostics::DiagnosticBag::new(),
+    };
+
+    super::ProductEmissionError::new(kind, prior.merged(&diagnostics))
 }
 
 #[cfg(test)]
@@ -253,7 +268,11 @@ mod tests {
             runtime.clone(),
         );
 
-        let mut builder = plan_builder(LinkedProductKind::Executable, DebugLinkPolicy::Companion);
+        let mut builder = plan_builder_with_startup(
+            LinkedProductKind::Executable,
+            DebugLinkPolicy::Companion,
+            LinkStartupMode::ExplicitInputs,
+        );
 
         builder.push_input(file_input(
             0,
@@ -745,17 +764,27 @@ mod tests {
     }
 
     fn plan_builder(product_kind: LinkedProductKind, debug: DebugLinkPolicy) -> LinkPlanBuilder {
+        let startup = match product_kind {
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary => {
+                LinkStartupMode::PlatformCompilerDriver
+            }
+            LinkedProductKind::StaticLibrary => LinkStartupMode::NotApplicable,
+        };
+
+        plan_builder_with_startup(product_kind, debug, startup)
+    }
+
+    fn plan_builder_with_startup(
+        product_kind: LinkedProductKind,
+        debug: DebugLinkPolicy,
+        startup: LinkStartupMode,
+    ) -> LinkPlanBuilder {
         LinkPlanBuilder::new(
             product(),
             product_kind,
             link_target(),
             driver_identity(),
-            match product_kind {
-                LinkedProductKind::Executable | LinkedProductKind::SharedLibrary => {
-                    bray_linker::LinkStartupMode::ExplicitInputs
-                }
-                LinkedProductKind::StaticLibrary => bray_linker::LinkStartupMode::NotApplicable,
-            },
+            startup,
             LinkPolicy::new(
                 bray_linker::DeadStripPolicy::Preserve,
                 SectionGarbageCollectionPolicy::Preserve,

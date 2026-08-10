@@ -128,7 +128,7 @@ pub(crate) fn link_plan_builder() -> LinkPlanBuilder {
     link_plan_builder_for(
         LinkedProductKind::Executable,
         driver(),
-        crate::LinkStartupMode::ExplicitInputs,
+        crate::LinkStartupMode::PlatformCompilerDriver,
     )
 }
 
@@ -136,7 +136,7 @@ pub(crate) fn link_plan_builder_with_driver(driver: LinkerDriverIdentity) -> Lin
     link_plan_builder_for(
         LinkedProductKind::Executable,
         driver,
-        crate::LinkStartupMode::ExplicitInputs,
+        crate::LinkStartupMode::PlatformCompilerDriver,
     )
 }
 

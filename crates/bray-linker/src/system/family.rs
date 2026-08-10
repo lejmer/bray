@@ -58,7 +58,8 @@ mod tests {
     use crate::test_support::target;
     use crate::{
         LinkInputKind, LinkPlanCapability, LinkedProductKind, LinkerDriverCapabilities,
-        LinkerDriverIdentity, LinkerDriverKind,
+        LinkerDriverCapabilitiesBuildError, LinkerDriverIdentity, LinkerDriverKind,
+        LinkerTargetIdentity,
     };
 
     #[test]
@@ -100,13 +101,25 @@ mod tests {
             )
             .unwrap_or_else(|| panic!("test driver identity must be valid"));
 
-            let capabilities = LinkerDriverCapabilities::try_for_system(identity, family)
-                .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"));
-
-            assert_eq!(
-                capabilities.supports_target_product(&target, LinkedProductKind::Executable),
-                expected
+            let selected = LinkerDriverCapabilities::try_for_system(
+                identity,
+                family,
+                linker_target(&target),
             );
+
+            if expected {
+                let capabilities = selected.unwrap_or_else(|error| {
+                    panic!("compatible test capabilities must be valid: {error:?}")
+                });
+
+                assert!(capabilities
+                    .supports_target_product(&target, LinkedProductKind::Executable));
+            } else {
+                assert_eq!(
+                    selected,
+                    Err(LinkerDriverCapabilitiesBuildError::UnsupportedTarget)
+                );
+            }
         }
     }
 
@@ -119,8 +132,19 @@ mod tests {
                 .unwrap_or_else(|| panic!("test driver identity must be valid"));
 
         let capabilities =
-            LinkerDriverCapabilities::try_for_system(identity, SystemLinkerFamily::Gnu)
-                .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"));
+            LinkerDriverCapabilities::try_for_system(
+                identity,
+                SystemLinkerFamily::Gnu,
+                linker_target(&target),
+            )
+            .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"));
+
+        let exact = capabilities.targets()[0]
+            .exact_target()
+            .unwrap_or_else(|| panic!("system linker capabilities must retain exact targets"));
+
+        assert_eq!(exact.identity(), target.identity());
+        assert_eq!(exact.triple(), target.triple());
 
         assert!(!capabilities.supports_target_product(&target, LinkedProductKind::StaticLibrary));
 
@@ -130,5 +154,15 @@ mod tests {
                 LinkPlanCapability::Input(LinkInputKind::Bitcode)
             )
         );
+    }
+
+    fn linker_target(target: &crate::LinkTarget) -> LinkerTargetIdentity {
+        LinkerTargetIdentity::try_new(
+            target.identity().clone(),
+            target.triple(),
+            target.architecture(),
+            target.object_format(),
+        )
+        .unwrap_or_else(|| panic!("test linker target must be valid"))
     }
 }

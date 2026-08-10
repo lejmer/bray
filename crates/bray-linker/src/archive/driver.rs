@@ -348,6 +348,8 @@ mod tests {
             driver.link(&unsupported_plan, &|| false).status(),
             &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(
                 crate::UnsupportedLinkRequirement::Target {
+                    identity: unsupported_plan.target().identity().clone(),
+                    triple: Arc::from(unsupported_plan.target().triple()),
                     architecture: TargetArchitecture::Arm,
                     object_format: ObjectFormat::MachO,
                 }

@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use crate::external_tool::is_explicit_program_path;
-use crate::{ExternalToolInvocation, ExternalToolInvocationBuildError};
+use crate::{ExternalToolInvocation, ExternalToolInvocationBuildError, LinkerTargetIdentity};
 
 use super::SystemLinkerFamily;
 
@@ -10,6 +10,7 @@ use super::SystemLinkerFamily;
 #[derive(Debug, Eq, PartialEq)]
 pub struct SystemLinkerConfiguration {
     family: SystemLinkerFamily,
+    target: LinkerTargetIdentity,
     invocation_template: ExternalToolInvocation,
 }
 
@@ -17,6 +18,7 @@ impl SystemLinkerConfiguration {
     /// Creates a configuration after validating its program, environment, and working directory.
     pub fn try_new(
         family: SystemLinkerFamily,
+        target: LinkerTargetIdentity,
         program: impl Into<PathBuf>,
         environment: impl IntoIterator<Item = (OsString, OsString)>,
         current_directory: Option<PathBuf>,
@@ -33,6 +35,7 @@ impl SystemLinkerConfiguration {
 
         Ok(Self {
             family,
+            target,
             invocation_template,
         })
     }
@@ -40,6 +43,11 @@ impl SystemLinkerConfiguration {
     /// Returns the configured platform linker family.
     pub const fn family(&self) -> SystemLinkerFamily {
         self.family
+    }
+
+    /// Returns the exact target configured for this system linker.
+    pub const fn target(&self) -> &LinkerTargetIdentity {
+        &self.target
     }
 
     /// Returns the exact configured linker executable path.
@@ -70,13 +78,31 @@ pub enum SystemLinkerConfigurationBuildError {
 #[cfg(test)]
 mod tests {
     use super::{SystemLinkerConfiguration, SystemLinkerConfigurationBuildError};
-    use crate::SystemLinkerFamily;
+    use crate::{LinkerTargetIdentity, SystemLinkerFamily};
+    use bray_target::{ObjectFormat, TargetArchitecture, TargetIdentity};
 
     #[test]
     fn configurations_reject_program_names_that_require_path_discovery() {
         assert_eq!(
-            SystemLinkerConfiguration::try_new(SystemLinkerFamily::Gnu, "ld", [], None,),
+            SystemLinkerConfiguration::try_new(
+                SystemLinkerFamily::Gnu,
+                target(),
+                "ld",
+                [],
+                None,
+            ),
             Err(SystemLinkerConfigurationBuildError::ProgramPathNotExplicit)
         );
+    }
+
+    fn target() -> LinkerTargetIdentity {
+        LinkerTargetIdentity::try_new(
+            TargetIdentity::try_new("test-target")
+                .unwrap_or_else(|| panic!("test target identity must be valid")),
+            "x86_64-unknown-linux-gnu",
+            TargetArchitecture::X86_64,
+            ObjectFormat::Elf,
+        )
+        .unwrap_or_else(|| panic!("test linker target must be valid"))
     }
 }

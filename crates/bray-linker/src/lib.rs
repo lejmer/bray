@@ -29,7 +29,10 @@ pub use capability::{
     LinkSymbolRequirement, LinkerDriverCapabilities, LinkerDriverCapabilitiesBuildError,
     LinkerOperationalCapabilities, LinkerTargetCapabilities, UnsupportedLinkRequirement,
 };
-pub use driver::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
+pub use driver::{
+    LinkPlanSelectionError, Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity,
+    LinkerDriverKind,
+};
 pub use external_tool::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,
     ExternalToolInvocationBuildError, ExternalToolOutput, ExternalToolProcessBudget,
@@ -43,7 +46,7 @@ pub use input::{
 pub use lld::{EmbeddedLldHost, LldDriver, LldDriverBuildError, LldFlavor};
 pub use outcome::{
     LinkFailure, LinkOutcome, LinkOutcomeBuildError, LinkStatus, LinkedArtifactSet,
-    LinkedArtifactSetBuildError,
+    LinkedArtifactSetBuildError, link_failure_diagnostics,
 };
 pub use output::{
     LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
@@ -61,4 +64,4 @@ pub use system::{
     SystemLinkerConfiguration, SystemLinkerConfigurationBuildError, SystemLinkerDriver,
     SystemLinkerDriverBuildError, SystemLinkerFamily,
 };
-pub use target::{LinkModel, LinkTarget, LinkTargetBuildError};
+pub use target::{LinkModel, LinkTarget, LinkTargetBuildError, LinkerTargetIdentity};

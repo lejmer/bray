@@ -191,6 +191,12 @@ impl LinkPlan {
 
         validate_startup_mode(builder.product_kind, builder.startup_mode)?;
 
+        validate_startup_inputs(
+            builder.product_kind,
+            builder.startup_mode,
+            &builder.inputs,
+        )?;
+
         builder
             .outputs
             .sort_unstable_by_key(|output| output.destination().id());
@@ -348,6 +354,10 @@ pub enum LinkPlanBuildError {
     MissingStartupMode,
     /// A static-library product selects an inapplicable native startup contract.
     UnexpectedStartupMode,
+    /// Explicit startup ownership was selected without a startup object.
+    MissingStartupInput,
+    /// A compiler-owned or inapplicable startup contract also supplies an explicit input.
+    UnexpectedStartupInput(LinkInputId),
     /// Companion debug output was requested without a staged debug destination.
     MissingDebugCompanion,
     /// A debug companion was staged without companion debug policy.
@@ -379,6 +389,43 @@ fn validate_startup_mode(
             crate::LinkStartupMode::ExplicitInputs | crate::LinkStartupMode::PlatformCompilerDriver,
         )
         | (LinkedProductKind::StaticLibrary, crate::LinkStartupMode::NotApplicable) => Ok(()),
+    }
+}
+
+fn validate_startup_inputs(
+    product_kind: LinkedProductKind,
+    startup_mode: crate::LinkStartupMode,
+    inputs: &[LinkInput],
+) -> Result<(), LinkPlanBuildError> {
+    let explicit = inputs.iter().find(|input| {
+        matches!(
+            input.kind(),
+            crate::LinkInputKind::StartupObject | crate::LinkInputKind::TerminationObject
+        )
+    });
+
+    match (product_kind, startup_mode, explicit) {
+        (
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary,
+            crate::LinkStartupMode::ExplicitInputs,
+            _,
+        ) if !inputs
+            .iter()
+            .any(|input| input.kind() == crate::LinkInputKind::StartupObject) =>
+        {
+            Err(LinkPlanBuildError::MissingStartupInput)
+        }
+        (
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary,
+            crate::LinkStartupMode::ExplicitInputs,
+            Some(_),
+        )
+        | (_, crate::LinkStartupMode::NotApplicable, None)
+        | (_, crate::LinkStartupMode::PlatformCompilerDriver, None) => Ok(()),
+        (_, crate::LinkStartupMode::ExplicitInputs, None) => {
+            Err(LinkPlanBuildError::MissingStartupInput)
+        }
+        (_, _, Some(input)) => Err(LinkPlanBuildError::UnexpectedStartupInput(input.id())),
     }
 }
 
@@ -679,6 +726,47 @@ mod tests {
         assert_eq!(
             unexpected.finish(),
             Err(LinkPlanBuildError::UnexpectedStartupMode)
+        );
+
+        let mut missing_input = link_plan_builder_for(
+            LinkedProductKind::Executable,
+            LinkerDriverIdentity::try_new(
+                LinkerDriverKind::EmbeddedLld,
+                "test-linker",
+                "1",
+                "test-toolchain",
+            )
+            .unwrap_or_else(|| panic!("test linker identity must be valid")),
+            LinkStartupMode::ExplicitInputs,
+        );
+
+        missing_input.push_input(link_input(0, "main.o"));
+        missing_input.set_executable_host(executable_host_contract());
+
+        assert_eq!(
+            missing_input.finish(),
+            Err(LinkPlanBuildError::MissingStartupInput)
+        );
+
+        let mut compiler_owned = link_plan_builder();
+
+        compiler_owned.push_input(
+            LinkInput::try_new(
+                LinkInputId::new(1),
+                LinkInputKind::StartupObject,
+                LinkInputSource::file("crt/start.o"),
+                LinkInputProvenance::TargetProfile,
+                LinkInputMode::Ordinary,
+            )
+            .unwrap_or_else(|error| panic!("test startup input must be valid: {error:?}")),
+        );
+
+        compiler_owned.push_input(link_input(0, "main.o"));
+        compiler_owned.set_executable_host(executable_host_contract());
+
+        assert_eq!(
+            compiler_owned.finish(),
+            Err(LinkPlanBuildError::UnexpectedStartupInput(LinkInputId::new(1)))
         );
     }
 
