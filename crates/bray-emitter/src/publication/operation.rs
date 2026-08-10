@@ -1512,7 +1512,7 @@ mod tests {
             });
         }
 
-        let Ok(emission) = EmissionPlan::try_new(request, None, planned, [], None) else {
+        let Ok(emission) = EmissionPlan::try_new(request, None, None, planned, [], None) else {
             panic!("test linked emission plan must be valid");
         };
 
@@ -1710,7 +1710,9 @@ mod tests {
             )
         });
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, planned, [], package_interface) else {
+        let Ok(plan) =
+            EmissionPlan::try_new(request, None, None, planned, [], package_interface)
+        else {
             panic!("test filesystem publication plan must be valid");
         };
 
@@ -1749,7 +1751,7 @@ mod tests {
             PlannedArtifactDestination::Publish(sink),
         );
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, [artifact], [], None) else {
+        let Ok(plan) = EmissionPlan::try_new(request, None, None, [artifact], [], None) else {
             panic!("test publication plan must be valid");
         };
 
@@ -1800,7 +1802,9 @@ mod tests {
             )
         });
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, planned, [], package_interface) else {
+        let Ok(plan) =
+            EmissionPlan::try_new(request, None, None, planned, [], package_interface)
+        else {
             panic!("test memory publication plan must be valid");
         };
 

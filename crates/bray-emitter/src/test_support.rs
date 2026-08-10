@@ -2,16 +2,13 @@ use bray_codegen::{
     ArtifactDigest, ArtifactDigestAlgorithm, AssemblySyntaxKind, BackendArtifactId,
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
     BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendSerializationOptions,
-    BackendTargetPlatform, CodegenPartitionPolicy, CodegenUnit, DebugInformationMode,
-    DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
+    CodegenPartitionPolicy, CodegenUnit, DebugInformationOutputMode, LinkableArtifactKind,
+    LinkableArtifactRequirement,
 };
 use bray_runtime_interface::ExecutableHostContract;
 use bray_symbols::PackageIdentity;
 use bray_target::test_support::test_target_profile;
-use bray_target::{
-    ObjectFormat, TargetArchitecture, TargetIdentity, TargetOutputDescription, TargetOutputKind,
-    TargetOutputName,
-};
+use bray_target::{TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName};
 use bray_testing::test_mir_unit;
 
 use crate::{
@@ -92,30 +89,11 @@ pub(crate) fn backend_identity() -> BackendIdentity {
 }
 
 pub(crate) fn backend_capabilities() -> BackendCapabilities {
-    BackendCapabilities::new(
-        [BackendTargetPlatform::new(
-            TargetArchitecture::X86_64,
-            ObjectFormat::Elf,
-        )],
-        [
-            BackendArtifactKind::RelocatableObject,
-            BackendArtifactKind::Assembly,
-            BackendArtifactKind::BackendIr,
-            BackendArtifactKind::BackendBitcode,
-            BackendArtifactKind::ExecutableModule,
-            BackendArtifactKind::DebugCompanion,
-        ],
-        [
-            DebugInformationMode::None,
-            DebugInformationMode::LineTables,
-            DebugInformationMode::Full,
-        ],
-        [
-            AssemblySyntaxKind::TargetDefault,
-            AssemblySyntaxKind::Intel,
-            AssemblySyntaxKind::Att,
-        ],
-    )
+    bray_codegen::test_support::codegen_backend_capabilities()
+}
+
+pub(crate) fn backend_capability_revision() -> bray_codegen::BackendCapabilityRevision {
+    backend_capabilities().revision()
 }
 
 pub(crate) fn codegen_unit_key(seed: u32) -> bray_codegen::CodegenUnitKey {
@@ -179,7 +157,8 @@ pub(crate) fn emission_plan() -> EmissionPlan {
         PlannedArtifactDestination::Publish(OutputSink::Filesystem("application.brayi".into())),
     );
 
-    let Ok(plan) = EmissionPlan::try_new(request, None, [artifact], [], Some(interface_artifact()))
+    let Ok(plan) =
+        EmissionPlan::try_new(request, None, None, [artifact], [], Some(interface_artifact()))
     else {
         panic!("test emission plan must be valid");
     };

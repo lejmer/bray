@@ -104,6 +104,8 @@ pub enum BackendContributionMergeErrorKind {
     UnrequestedUnit(CodegenUnitKey),
     /// A completed set was produced by another backend.
     BackendMismatch(CodegenUnitKey),
+    /// A completed set was produced under another backend capability contract.
+    CapabilityRevisionMismatch(CodegenUnitKey),
     /// A completed set was produced for another target.
     TargetMismatch(CodegenUnitKey),
     /// A required planned artifact was not produced.
@@ -167,6 +169,12 @@ fn validate_sets(
         {
             return Err(unit_error(
                 BackendContributionMergeErrorKind::BackendMismatch(set.unit().clone()),
+            ));
+        }
+
+        if plan.capability_revision() != Some(set.capability_revision()) {
+            return Err(unit_error(
+                BackendContributionMergeErrorKind::CapabilityRevisionMismatch(set.unit().clone()),
             ));
         }
 
@@ -289,12 +297,12 @@ mod tests {
     use bray_codegen::test_support::{codegen_request_for_backend, contribution};
     use bray_codegen::{
         ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm, BackendArtifactContribution,
-        CodegenOutcome, CodegenRuntimeMetadata,
+        BackendCapabilityRevision, CodegenOutcome, CodegenRuntimeMetadata,
     };
     use bray_diagnostics::DiagnosticBag;
 
     use super::BackendContributionMergeErrorKind;
-    use crate::test_support::backend_artifact_plan_parts;
+    use crate::test_support::{backend_artifact_plan_parts, backend_capability_revision};
     use crate::{
         ArtifactId, ArtifactKind, ArtifactRequirement, ArtifactRole, BackendContributionSet,
         EmissionPlan, PlannedArtifact, PlannedArtifactDestination,
@@ -319,6 +327,7 @@ mod tests {
         let Ok(plan) = EmissionPlan::try_new(
             request,
             Some(backend.clone()),
+            Some(backend_capability_revision()),
             [staged, published],
             [backend_request],
             None,
@@ -363,6 +372,7 @@ mod tests {
         let Ok(plan) = EmissionPlan::try_new(
             request,
             Some(backend.clone()),
+            Some(backend_capability_revision()),
             [artifact],
             [backend_request],
             None,
@@ -413,6 +423,7 @@ mod tests {
             fixture.required_artifact().clone(),
             content,
             backend,
+            fixture.request().capability_revision(),
             fixture.request().target().identity().clone(),
             Some(digest),
         );
@@ -432,6 +443,44 @@ mod tests {
                 if matches!(
                     error.kind(),
                     BackendContributionMergeErrorKind::DigestMismatch { .. }
+                )
+        ));
+    }
+
+    #[test]
+    fn merge_rejects_artifacts_from_another_capability_contract() {
+        let (request, backend, artifact, backend_request) = backend_artifact_plan_parts();
+
+        let revision = BackendCapabilityRevision::try_new(2)
+            .unwrap_or_else(|| panic!("test capability revision must be valid"));
+
+        let Ok(plan) = EmissionPlan::try_new(
+            request,
+            Some(backend.clone()),
+            Some(revision),
+            [artifact],
+            [backend_request],
+            None,
+        ) else {
+            panic!("test backend plan must be valid");
+        };
+
+        let fixture = codegen_request_for_backend(backend);
+        let contribution = contribution(&fixture, fixture.required_artifact().clone());
+        let outcome = complete_outcome(&fixture, [contribution]);
+
+        let Some(artifacts) = outcome.artifacts() else {
+            panic!("test code generation must complete");
+        };
+
+        let merged = BackendContributionSet::try_from_backend(&plan, [artifacts], &never_cancelled);
+
+        assert!(matches!(
+            merged,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    BackendContributionMergeErrorKind::CapabilityRevisionMismatch(_)
                 )
         ));
     }

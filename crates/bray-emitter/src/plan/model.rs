@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_codegen::{
-    BackendArtifactId, BackendArtifactRequest, BackendArtifactRequirement, BackendIdentity,
-    CodegenUnitKey,
+    BackendArtifactId, BackendArtifactRequest, BackendArtifactRequirement,
+    BackendCapabilityRevision, BackendIdentity, CodegenUnitKey,
 };
 use bray_package_interface::{InterfaceArtifact, InterfaceProductKind};
 
@@ -82,6 +82,7 @@ impl PlannedArtifact {
 pub struct EmissionPlan {
     request: EmissionRequest,
     backend: Option<BackendIdentity>,
+    capability_revision: Option<BackendCapabilityRevision>,
     package_interface: Option<InterfaceArtifact>,
     artifacts: Arc<[PlannedArtifact]>,
     backend_requests: Arc<[BackendArtifactRequest]>,
@@ -92,6 +93,7 @@ impl EmissionPlan {
     pub(crate) fn try_new(
         request: EmissionRequest,
         backend: Option<BackendIdentity>,
+        capability_revision: Option<BackendCapabilityRevision>,
         artifacts: impl IntoIterator<Item = PlannedArtifact>,
         backend_requests: impl IntoIterator<Item = BackendArtifactRequest>,
         package_interface: Option<InterfaceArtifact>,
@@ -102,6 +104,10 @@ impl EmissionPlan {
         artifacts.sort_unstable_by(|left, right| left.id().cmp(right.id()));
         backend_requests.sort_unstable_by(|left, right| left.unit().cmp(right.unit()));
 
+        if backend.is_some() != capability_revision.is_some() {
+            return Err(EmissionPlanBuildError::BackendCapabilityIdentityMismatch);
+        }
+
         validate_artifacts(&request, backend.as_ref(), &artifacts)?;
         validate_package_interface(&request, &artifacts, package_interface.as_ref())?;
         validate_backend_requests(&artifacts, &backend_requests)?;
@@ -109,6 +115,7 @@ impl EmissionPlan {
         Ok(Self {
             request,
             backend,
+            capability_revision,
             package_interface,
             artifacts: artifacts.into(),
             backend_requests: backend_requests.into(),
@@ -123,6 +130,11 @@ impl EmissionPlan {
     /// Returns the selected backend identity when code generation participates in the plan.
     pub const fn backend(&self) -> Option<&BackendIdentity> {
         self.backend.as_ref()
+    }
+
+    /// Returns the selected backend capability contract when code generation participates.
+    pub const fn capability_revision(&self) -> Option<BackendCapabilityRevision> {
+        self.capability_revision
     }
 
     /// Returns the completed package interface included in this plan.
@@ -179,6 +191,8 @@ impl EmissionPlan {
 pub(crate) enum EmissionPlanBuildError {
     /// The plan contains no artifacts.
     Empty,
+    /// Backend identity and capability revision presence disagree.
+    BackendCapabilityIdentityMismatch,
     /// One artifact belongs to another selected product.
     ForeignProduct(ArtifactId),
     /// One logical artifact identity appears more than once.
@@ -536,8 +550,8 @@ fn validate_backend_requests(
 mod tests {
     use super::{EmissionPlan, EmissionPlanBuildError};
     use crate::test_support::{
-        backend_artifact_plan_parts, emission_plan, interface_artifact, linked_artifact,
-        product_identity, target_identity,
+        backend_artifact_plan_parts, backend_capability_revision, emission_plan,
+        interface_artifact, linked_artifact, product_identity, target_identity,
     };
     use crate::{
         ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole,
@@ -553,6 +567,7 @@ mod tests {
         let reversed = EmissionPlan::try_new(
             plan.request().clone(),
             plan.backend().cloned(),
+            plan.capability_revision(),
             plan.artifacts().iter().cloned().rev(),
             plan.backend_requests().iter().cloned().rev(),
             plan.package_interface().cloned(),
@@ -581,7 +596,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            EmissionPlan::try_new(request, None, [first, second], [], None),
+            EmissionPlan::try_new(request, None, None, [first, second], [], None),
             Err(EmissionPlanBuildError::DuplicateSink(
                 OutputSink::Filesystem("same-output".into())
             ))
@@ -596,6 +611,7 @@ mod tests {
             EmissionPlan::try_new(
                 request.clone(),
                 Some(backend.clone()),
+                Some(backend_capability_revision()),
                 [artifact.clone()],
                 [],
                 None,
@@ -606,7 +622,14 @@ mod tests {
         );
 
         let Ok(plan) =
-            EmissionPlan::try_new(request, Some(backend), [artifact], [backend_request], None)
+            EmissionPlan::try_new(
+                request,
+                Some(backend),
+                Some(backend_capability_revision()),
+                [artifact],
+                [backend_request],
+                None,
+            )
         else {
             panic!("matching test backend request must produce a valid plan");
         };
@@ -667,6 +690,7 @@ mod tests {
         let Ok(plan) = EmissionPlan::try_new(
             request,
             None,
+            None,
             [metadata, interface],
             [],
             Some(interface_artifact()),
@@ -694,7 +718,7 @@ mod tests {
         )]);
 
         assert_eq!(
-            EmissionPlan::try_new(request, None, [artifact], [], None),
+            EmissionPlan::try_new(request, None, None, [artifact], [], None),
             Err(EmissionPlanBuildError::KindRoleMismatch(artifact_id))
         );
     }
@@ -718,6 +742,7 @@ mod tests {
         let Ok(plan) = EmissionPlan::try_new(
             request,
             Some(backend),
+            Some(backend_capability_revision()),
             [staged, published],
             [backend_request],
             None,

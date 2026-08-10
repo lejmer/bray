@@ -40,6 +40,7 @@ pub struct CodegenOptions {
     optimization: OptimizationLevel,
     size_preference: SizePreference,
     debug_information: DebugInformationMode,
+    reproducibility: crate::ReproducibilityLevel,
 }
 
 impl CodegenOptions {
@@ -48,11 +49,13 @@ impl CodegenOptions {
         optimization: OptimizationLevel,
         size_preference: SizePreference,
         debug_information: DebugInformationMode,
+        reproducibility: crate::ReproducibilityLevel,
     ) -> Self {
         Self {
             optimization,
             size_preference,
             debug_information,
+            reproducibility,
         }
     }
 
@@ -69,5 +72,10 @@ impl CodegenOptions {
     /// Returns the requested debug-information mode.
     pub const fn debug_information(self) -> DebugInformationMode {
         self.debug_information
+    }
+
+    /// Returns the required reproducibility strength.
+    pub const fn reproducibility(self) -> crate::ReproducibilityLevel {
+        self.reproducibility
     }
 }

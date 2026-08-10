@@ -109,10 +109,9 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
 
     use bray_base::Cancellation;
-    use bray_codegen::test_support::codegen_unit_key;
+    use bray_codegen::test_support::{codegen_backend_capabilities, codegen_unit_key};
     use bray_codegen::{
-        AssemblySyntaxKind, BackendArtifactKind, BackendCapabilities, BackendIdentity,
-        BackendSerializationOptions, BackendTargetPlatform, DebugInformationMode,
+        AssemblySyntaxKind, BackendIdentity, BackendSerializationOptions, DebugInformationMode,
         DebugInformationOutputMode, LinkableArtifactKind,
     };
     use bray_diagnostics::DiagnosticBag;
@@ -632,15 +631,7 @@ mod tests {
         let backend = BackendIdentity::try_new("llvm", "bray-1", "llvm-22")
             .unwrap_or_else(|| panic!("test backend identity must be valid"));
 
-        let capabilities = BackendCapabilities::new(
-            [BackendTargetPlatform::new(
-                TargetArchitecture::X86_64,
-                ObjectFormat::Elf,
-            )],
-            [BackendArtifactKind::RelocatableObject],
-            [DebugInformationMode::None],
-            [AssemblySyntaxKind::TargetDefault],
-        );
+        let capabilities = codegen_backend_capabilities();
 
         let policy = BackendEmissionPolicy::new(
             DebugInformationMode::None,

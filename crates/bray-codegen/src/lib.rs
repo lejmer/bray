@@ -4,6 +4,7 @@
 
 mod artifact;
 mod backend;
+mod capability;
 mod mapping;
 mod options;
 mod outcome;
@@ -25,7 +26,12 @@ pub use artifact::{
     BackendArtifactSetBuildError, BackendSerializationOptions, DebugInformationOutputMode,
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
-pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
+pub use backend::{BackendIdentity, CodeGenerator};
+pub use capability::{
+    BackendCapabilities, BackendCapabilityRevision, BackendOptimizationCapabilities,
+    BackendOutputCapabilities, BackendRuntimeCapabilities, BackendTargetCapabilities,
+    ReproducibilityLevel,
+};
 pub use mapping::{
     CodegenCallSite, CodegenCallableMapping, CodegenCallableSignature, CodegenCallableTarget,
     CodegenConstantMapping, CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout,

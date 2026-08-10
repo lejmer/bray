@@ -233,6 +233,10 @@ fn validate_debug_policy(
         ));
     }
 
+    if !backend.capabilities().supports_debug_output(output) {
+        return Err(EmissionPlanningError::UnsupportedDebugOutput(output));
+    }
+
     let output_is_valid = matches!(
         (information, output),
         (DebugInformationMode::None, DebugInformationOutputMode::Omit)

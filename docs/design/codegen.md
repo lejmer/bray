@@ -264,6 +264,8 @@ This is a design contract, not a requirement to preserve these exact method sign
 
 - its stable codegen-unit key,
 - a validated immutable Bray MIR view,
+- the selected product kind,
+- the selected backend identity and required capability revision,
 - a validated codegen target,
 - backend-neutral generation options,
 - an immutable backend artifact request derived from the emission plan,
@@ -567,7 +569,7 @@ A codegen fact key includes every input that can affect output, including:
 
 - stable codegen-unit identity and MIR dependency keys,
 - target profile and validated codegen target,
-- backend identity and compatible backend-library revision,
+- backend identity, capability revision, and compatible backend-library revision,
 - optimization level and code generation options,
 - debug-information mode,
 - panic, relocation, and code model where applicable,

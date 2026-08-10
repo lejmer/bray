@@ -15,21 +15,26 @@ use crate::mapping::{demanded_debug_sources, demanded_types};
 use crate::{
     ArtifactContent, BackendArtifactContribution, BackendArtifactId, BackendArtifactKind,
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
-    BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenCallableSignature,
-    CodegenDebugLocation, CodegenDefinitionVisibility, CodegenLinkage, CodegenMappings,
-    CodegenOptions, CodegenPartitionCompatibility, CodegenPartitionPolicy, CodegenRequest,
-    CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnit, CodegenUnitKey, DebugInformationMode,
+    BackendCapabilities, BackendCapabilityRevision, BackendIdentity,
+    BackendOptimizationCapabilities, BackendOutputCapabilities, BackendRuntimeCapabilities,
+    BackendSerializationOptions, BackendTargetCapabilities, CallableAbiMapping,
+    CodegenCallableSignature, CodegenDebugLocation, CodegenDefinitionVisibility,
+    CodegenLinkage, CodegenMappings, CodegenOptions, CodegenPartitionCompatibility,
+    CodegenPartitionPolicy, CodegenRequest, CodegenResultMapping, CodegenSourceFile,
+    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeKind,
+    CodegenTypeMapping, CodegenUnit, CodegenUnitKey, DebugInformationMode,
     DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
-    OptimizationLevel, SizePreference, TargetAbi, TargetAddressSpace, TargetAddressSpaceKind,
-    TargetCallingConvention, TargetCompatibility, TargetContract, TargetDataLayout,
-    TargetMachineSelection, TargetScalarKind, TargetScalarLayout, TargetSymbolConvention,
+    OptimizationLevel, ReproducibilityLevel, SizePreference, TargetAbi, TargetAddressSpace,
+    TargetAddressSpaceKind, TargetCallingConvention, TargetCompatibility, TargetContract,
+    TargetDataLayout, TargetMachineSelection, TargetScalarKind, TargetScalarLayout,
+    TargetSymbolConvention,
 };
 
 /// Complete validated code generation request fixture.
 pub struct CodegenRequestFixture {
     unit: CodegenUnit,
     backend: BackendIdentity,
+    capability_revision: BackendCapabilityRevision,
     target: CodegenTarget,
     mappings: CodegenMappings,
     options: CodegenOptions,
@@ -53,6 +58,8 @@ impl CodegenRequestFixture {
         let Ok(request) = CodegenRequest::try_new(
             &self.unit,
             &self.backend,
+            self.capability_revision,
+            bray_symbols::ProductKind::Executable,
             &self.target,
             &self.mappings,
             &self.options,
@@ -163,12 +170,15 @@ pub fn codegen_request_for_unit(
     CodegenRequestFixture {
         unit,
         backend,
+        capability_revision: BackendCapabilityRevision::try_new(1)
+            .unwrap_or_else(|| panic!("test capability revision must be valid")),
         target,
         mappings,
         options: CodegenOptions::new(
             OptimizationLevel::None,
             SizePreference::None,
             DebugInformationMode::None,
+            crate::ReproducibilityLevel::ByteForByte,
         ),
         artifacts,
         required_artifact,
@@ -307,6 +317,7 @@ pub fn contribution(
         id,
         artifact_content(),
         fixture.request().backend().clone(),
+        fixture.request().capability_revision(),
         fixture.request().target().identity().clone(),
         None,
     )
@@ -335,6 +346,67 @@ pub fn codegen_partition_compatibility() -> CodegenPartitionCompatibility {
         package,
         CodegenLinkage::Internal,
         CodegenDefinitionVisibility::Product,
+    )
+}
+
+/// Creates complete capabilities for test code generation targets and requests.
+pub fn codegen_backend_capabilities() -> BackendCapabilities {
+    let target = codegen_target();
+
+    let revision = BackendCapabilityRevision::try_new(1)
+        .unwrap_or_else(|| panic!("test capability revision must be valid"));
+
+    BackendCapabilities::new(
+        revision,
+        [
+            bray_symbols::ProductKind::Executable,
+            bray_symbols::ProductKind::Library,
+            bray_symbols::ProductKind::Test,
+        ],
+        BackendTargetCapabilities::new(
+            [target.machine().clone()],
+            [target.relocation_model()],
+            [target.code_model()],
+        ),
+        BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
+        BackendOptimizationCapabilities::new(
+            [
+                OptimizationLevel::None,
+                OptimizationLevel::Basic,
+                OptimizationLevel::Full,
+            ],
+            [
+                SizePreference::None,
+                SizePreference::Size,
+                SizePreference::MinimumSize,
+            ],
+        ),
+        BackendOutputCapabilities::new(
+            [
+                BackendArtifactKind::RelocatableObject,
+                BackendArtifactKind::Assembly,
+                BackendArtifactKind::BackendIr,
+                BackendArtifactKind::BackendBitcode,
+                BackendArtifactKind::ExecutableModule,
+                BackendArtifactKind::DebugCompanion,
+            ],
+            [
+                DebugInformationMode::None,
+                DebugInformationMode::LineTables,
+                DebugInformationMode::Full,
+            ],
+            [
+                DebugInformationOutputMode::Omit,
+                DebugInformationOutputMode::Embedded,
+                DebugInformationOutputMode::Separate,
+            ],
+            [
+                crate::AssemblySyntaxKind::TargetDefault,
+                crate::AssemblySyntaxKind::Intel,
+                crate::AssemblySyntaxKind::Att,
+            ],
+        ),
+        ReproducibilityLevel::ByteForByte,
     )
 }
 

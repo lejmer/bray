@@ -5,8 +5,8 @@ use std::sync::Arc;
 use bray_diagnostics::DiagnosticBag;
 
 use crate::{
-    AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequirement, BackendCapabilities,
-    BackendIdentity, CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest,
+    BackendArtifactKind, BackendArtifactRequirement, BackendCapabilities, BackendIdentity,
+    CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest,
 };
 
 /// Immutable code generators available to one compiler composition.
@@ -154,7 +154,13 @@ fn validate_capabilities(
 ) -> Result<(), CodegenFailure> {
     let capabilities = generator.capabilities();
 
-    if !capabilities.supports_platform(request.target()) {
+    if capabilities.revision() != request.capability_revision()
+        || !capabilities.supports_product(request.product())
+    {
+        return Err(CodegenFailure::InvalidConfiguration);
+    }
+
+    if !capabilities.supports_target(request.target()) {
         return Err(CodegenFailure::UnsupportedTarget);
     }
 
@@ -166,7 +172,37 @@ fn validate_capabilities(
         }
     }
 
+    let protected_frames = request
+        .unit()
+        .mir_units()
+        .any(|unit| matches!(unit.kind(), bray_ir::MirUnitKind::ProtectedAsyncFrame(_)));
+
+    let executable_hosts = request
+        .unit()
+        .mir_units()
+        .any(|unit| matches!(unit.kind(), bray_ir::MirUnitKind::ExecutableHost(_)));
+
+    if !capabilities.runtime().supports(
+        request.unit().target().runtime_abi(),
+        protected_frames,
+        executable_hosts,
+    ) {
+        return Err(CodegenFailure::InvalidConfiguration);
+    }
+
+    if !capabilities.optimization().supports(
+        request.options().optimization(),
+        request.options().size_preference(),
+    ) || capabilities.reproducibility() < request.options().reproducibility()
+    {
+        return Err(CodegenFailure::InvalidConfiguration);
+    }
+
     if !capabilities.supports_debug_information(request.options().debug_information()) {
+        return Err(CodegenFailure::InvalidConfiguration);
+    }
+
+    if !capabilities.supports_debug_output(request.artifacts().debug_information()) {
         return Err(CodegenFailure::InvalidConfiguration);
     }
 
@@ -177,10 +213,7 @@ fn validate_capabilities(
             && entry.requirement() == BackendArtifactRequirement::Required
     });
 
-    if requires_assembly
-        && syntax != AssemblySyntaxKind::TargetDefault
-        && !capabilities.supports_assembly_syntax_kind(syntax)
-    {
+    if requires_assembly && !capabilities.supports_assembly_syntax_kind(syntax) {
         return Err(CodegenFailure::InvalidConfiguration);
     }
 
@@ -195,8 +228,8 @@ mod tests {
 
     use super::{CodeGeneratorRegistry, CodeGeneratorRegistryBuildError, CodegenConfiguration};
     use crate::{
-        BackendCapabilities, BackendIdentity, CodeGenerator, CodegenFailure, CodegenOutcome,
-        CodegenRequest, CodegenStatus,
+        BackendCapabilities, BackendCapabilityRevision, BackendIdentity, CodeGenerator,
+        CodegenFailure, CodegenOutcome, CodegenRequest, CodegenStatus,
     };
 
     #[test]
@@ -232,7 +265,7 @@ mod tests {
 
     #[test]
     fn registries_validate_capabilities_before_invoking_backends() {
-        let generator = Arc::new(TestCodeGenerator::new("unsupported"));
+        let generator = Arc::new(TestCodeGenerator::without_target("unsupported"));
 
         let fixture =
             crate::test_support::codegen_request_for_backend(generator.identity().clone());
@@ -248,6 +281,27 @@ mod tests {
         assert!(matches!(
             outcome.status(),
             CodegenStatus::Failed(CodegenFailure::UnsupportedTarget)
+        ));
+    }
+
+    #[test]
+    fn registries_reject_stale_capability_contracts_before_invoking_backends() {
+        let generator = Arc::new(TestCodeGenerator::with_capability_revision("stale", 2));
+
+        let fixture =
+            crate::test_support::codegen_request_for_backend(generator.identity().clone());
+
+        let registry =
+            CodeGeneratorRegistry::try_new([Arc::clone(&generator) as Arc<dyn CodeGenerator>])
+                .unwrap_or_else(|error| panic!("unique backend must register: {error:?}"));
+
+        let outcome = registry
+            .generate(fixture.request())
+            .unwrap_or_else(|error| panic!("registered backend must be selected: {error:?}"));
+
+        assert!(matches!(
+            outcome.status(),
+            CodegenStatus::Failed(CodegenFailure::InvalidConfiguration)
         ));
     }
 
@@ -289,8 +343,45 @@ mod tests {
 
             Self {
                 identity,
-                capabilities: BackendCapabilities::default(),
+                capabilities: crate::test_support::codegen_backend_capabilities(),
             }
+        }
+
+        fn without_target(revision: &str) -> Self {
+            let mut generator = Self::new(revision);
+            let complete = &generator.capabilities;
+
+            generator.capabilities = BackendCapabilities::new(
+                complete.revision(),
+                complete.product_kinds().iter().copied(),
+                crate::BackendTargetCapabilities::default(),
+                complete.runtime().clone(),
+                complete.optimization().clone(),
+                complete.outputs().clone(),
+                complete.reproducibility(),
+            );
+
+            generator
+        }
+
+        fn with_capability_revision(identity_revision: &str, revision: u32) -> Self {
+            let mut generator = Self::new(identity_revision);
+            let complete = &generator.capabilities;
+
+            let revision = BackendCapabilityRevision::try_new(revision)
+                .unwrap_or_else(|| panic!("test capability revision must be valid"));
+
+            generator.capabilities = BackendCapabilities::new(
+                revision,
+                complete.product_kinds().iter().copied(),
+                complete.targets().clone(),
+                complete.runtime().clone(),
+                complete.optimization().clone(),
+                complete.outputs().clone(),
+                complete.reproducibility(),
+            );
+
+            generator
         }
     }
 
@@ -309,11 +400,11 @@ mod tests {
 
         fn generate(&self, _request: CodegenRequest<'_>) -> CodegenOutcome {
             let outcome =
-                CodegenOutcome::failed(CodegenFailure::InvalidConfiguration, DiagnosticBag::new());
+                CodegenOutcome::failed(CodegenFailure::BackendLibrary, DiagnosticBag::new());
 
             assert!(matches!(
                 outcome.status(),
-                CodegenStatus::Failed(CodegenFailure::InvalidConfiguration)
+                CodegenStatus::Failed(CodegenFailure::BackendLibrary)
             ));
 
             outcome

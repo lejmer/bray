@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_target::TargetIdentity;
 
 use crate::{
-    ArtifactContent, ArtifactDigest, BackendArtifactId, BackendIdentity, CodegenRequest,
-    CodegenRuntimeMetadata, CodegenUnitKey,
+    ArtifactContent, ArtifactDigest, BackendArtifactId, BackendCapabilityRevision, BackendIdentity,
+    CodegenRequest, CodegenRuntimeMetadata, CodegenUnitKey,
 };
 
 /// One immutable logically identified artifact contribution produced by a backend.
@@ -13,6 +13,7 @@ pub struct BackendArtifactContribution {
     id: BackendArtifactId,
     content: ArtifactContent,
     backend: BackendIdentity,
+    capability_revision: BackendCapabilityRevision,
     target: TargetIdentity,
     digest: Option<ArtifactDigest>,
 }
@@ -23,6 +24,7 @@ impl BackendArtifactContribution {
         id: BackendArtifactId,
         content: ArtifactContent,
         backend: BackendIdentity,
+        capability_revision: BackendCapabilityRevision,
         target: TargetIdentity,
         digest: Option<ArtifactDigest>,
     ) -> Self {
@@ -30,6 +32,7 @@ impl BackendArtifactContribution {
             id,
             content,
             backend,
+            capability_revision,
             target,
             digest,
         }
@@ -50,6 +53,11 @@ impl BackendArtifactContribution {
         &self.backend
     }
 
+    /// Returns the capability contract used to produce the artifact.
+    pub const fn capability_revision(&self) -> BackendCapabilityRevision {
+        self.capability_revision
+    }
+
     /// Returns the target identity used to produce the artifact.
     pub const fn target(&self) -> &TargetIdentity {
         &self.target
@@ -66,6 +74,7 @@ impl BackendArtifactContribution {
 pub struct BackendArtifactSet {
     unit: CodegenUnitKey,
     backend: BackendIdentity,
+    capability_revision: BackendCapabilityRevision,
     target: TargetIdentity,
     runtime_metadata: CodegenRuntimeMetadata,
     contributions: Arc<[BackendArtifactContribution]>,
@@ -115,6 +124,7 @@ impl BackendArtifactSet {
             // Complete sets retain Arc-backed structural identities after the request borrow ends.
             unit: request.unit().key().clone(),
             backend: request.backend().clone(),
+            capability_revision: request.capability_revision(),
             target: request.target().identity().clone(),
             runtime_metadata,
             contributions: contributions.into(),
@@ -129,6 +139,11 @@ impl BackendArtifactSet {
     /// Returns the backend that produced every contribution.
     pub const fn backend(&self) -> &BackendIdentity {
         &self.backend
+    }
+
+    /// Returns the capability contract shared by every contribution.
+    pub const fn capability_revision(&self) -> BackendCapabilityRevision {
+        self.capability_revision
     }
 
     /// Returns the target shared by every contribution.
@@ -160,6 +175,8 @@ pub enum BackendArtifactSetBuildError {
     UnrequestedArtifact(BackendArtifactId),
     /// A contribution was produced by another backend identity.
     BackendMismatch(BackendArtifactId),
+    /// A contribution was produced under another capability contract.
+    CapabilityRevisionMismatch(BackendArtifactId),
     /// A contribution was produced for another target identity.
     TargetMismatch(BackendArtifactId),
 }
@@ -181,6 +198,12 @@ fn validate_contribution(
         return Err(BackendArtifactSetBuildError::BackendMismatch(id.clone()));
     }
 
+    if contribution.capability_revision() != request.capability_revision() {
+        return Err(BackendArtifactSetBuildError::CapabilityRevisionMismatch(
+            id.clone(),
+        ));
+    }
+
     if contribution.target() != request.target().identity() {
         return Err(BackendArtifactSetBuildError::TargetMismatch(id.clone()));
     }
@@ -192,7 +215,10 @@ fn validate_contribution(
 mod tests {
     use super::{BackendArtifactContribution, BackendArtifactSet, BackendArtifactSetBuildError};
     use crate::test_support::{artifact_content, codegen_request, contribution};
-    use crate::{BackendArtifactId, BackendArtifactKind, CodegenRuntimeMetadata};
+    use crate::{
+        BackendArtifactId, BackendArtifactKind, BackendCapabilityRevision,
+        CodegenRuntimeMetadata,
+    };
 
     #[test]
     fn artifact_sets_validate_against_authoritative_request_identities() {
@@ -215,6 +241,7 @@ mod tests {
             foreign_id.clone(),
             artifact_content(),
             fixture.request().backend().clone(),
+            fixture.request().capability_revision(),
             fixture.request().target().identity().clone(),
             None,
         );
@@ -248,5 +275,33 @@ mod tests {
         assert_eq!(set.contributions().len(), 2);
         assert_eq!(set.contributions()[0].id(), fixture.required_artifact());
         assert_eq!(set.contributions()[1].id(), fixture.optional_artifact());
+    }
+
+    #[test]
+    fn artifact_sets_reject_contributions_from_another_capability_contract() {
+        let fixture = codegen_request();
+
+        let revision = BackendCapabilityRevision::try_new(2)
+            .unwrap_or_else(|| panic!("test capability revision must be valid"));
+
+        let contribution = BackendArtifactContribution::new(
+            fixture.required_artifact().clone(),
+            artifact_content(),
+            fixture.request().backend().clone(),
+            revision,
+            fixture.request().target().identity().clone(),
+            None,
+        );
+
+        assert_eq!(
+            BackendArtifactSet::try_new(
+                fixture.request(),
+                [contribution],
+                CodegenRuntimeMetadata::default(),
+            ),
+            Err(BackendArtifactSetBuildError::CapabilityRevisionMismatch(
+                fixture.required_artifact().clone()
+            ))
+        );
     }
 }

@@ -224,10 +224,14 @@ impl Compilation {
         };
 
         let backend = codegen.selected();
+        let capability_revision = codegen.selected_capabilities().revision();
+        let product = self.product_kind();
 
         CodegenRequest::try_new(
             unit,
             backend,
+            capability_revision,
+            product,
             target,
             mappings,
             options,
@@ -241,6 +245,8 @@ impl Compilation {
             mappings.clone(),
             target.clone(),
             backend.clone(),
+            capability_revision,
+            product,
             *options,
             artifacts.clone(),
         );
@@ -264,6 +270,8 @@ impl Compilation {
                 let request = CodegenRequest::try_new(
                     unit,
                     backend,
+                    capability_revision,
+                    product,
                     target,
                     mappings,
                     options,
@@ -464,11 +472,12 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
 
-    use bray_codegen::test_support::{codegen_partition_compatibility, codegen_request};
+    use bray_codegen::test_support::{
+        codegen_backend_capabilities, codegen_partition_compatibility, codegen_request,
+    };
     use bray_codegen::{
-        AssemblySyntaxKind, BackendCapabilities, BackendTargetPlatform, CodeGenerator,
-        CodeGeneratorRegistry, CodegenConfiguration, CodegenFailure, CodegenOutcome,
-        CodegenPartitionPolicy, CodegenRequest,
+        BackendCapabilities, CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration,
+        CodegenFailure, CodegenOutcome, CodegenPartitionPolicy, CodegenRequest,
     };
     use bray_diagnostics::DiagnosticBag;
 
@@ -667,22 +676,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("code generation fact must publish: {error:?}"))
     }
 
-    fn capabilities(request: CodegenRequest<'_>) -> BackendCapabilities {
-        let machine = request.target().machine();
-
-        BackendCapabilities::new(
-            [BackendTargetPlatform::new(
-                machine.architecture(),
-                machine.object_format(),
-            )],
-            request
-                .artifacts()
-                .entries()
-                .iter()
-                .map(|entry| entry.id().kind()),
-            [request.options().debug_information()],
-            [AssemblySyntaxKind::TargetDefault],
-        )
+    fn capabilities(_request: CodegenRequest<'_>) -> BackendCapabilities {
+        codegen_backend_capabilities()
     }
 
     struct CountingCodeGenerator {

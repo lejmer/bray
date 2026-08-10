@@ -2145,6 +2145,8 @@ mod tests {
                 let request = CodegenRequest::try_new(
                     unit,
                     backend.identity(),
+                    backend.capabilities().revision(),
+                    ProductKind::Executable,
                     facts.target(),
                     mappings,
                     facts.options(),

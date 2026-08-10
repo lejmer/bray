@@ -11,6 +11,7 @@ mod mapping;
 mod native;
 mod optimization;
 mod serialization;
+mod session;
 mod translation;
 
 pub use backend::LlvmCodeGenerator;

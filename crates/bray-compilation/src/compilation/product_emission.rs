@@ -1205,14 +1205,6 @@ mod tests {
     }
 
     fn test_backend_capabilities() -> bray_codegen::BackendCapabilities {
-        bray_codegen::BackendCapabilities::new(
-            [bray_codegen::BackendTargetPlatform::new(
-                bray_target::TargetArchitecture::X86_64,
-                bray_target::ObjectFormat::Elf,
-            )],
-            [bray_codegen::BackendArtifactKind::RelocatableObject],
-            [bray_codegen::DebugInformationMode::None],
-            [bray_codegen::AssemblySyntaxKind::TargetDefault],
-        )
+        bray_codegen::test_support::codegen_backend_capabilities()
     }
 }

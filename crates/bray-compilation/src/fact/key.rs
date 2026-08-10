@@ -1,8 +1,8 @@
 use bray_bound_tree::{BoundExpressionId, BoundUnitKey};
 use bray_checker::TargetValidityRequest;
 use bray_codegen::{
-    BackendArtifactRequest, BackendIdentity, CodegenMappings, CodegenOptions, CodegenTarget,
-    CodegenUnitKey,
+    BackendArtifactRequest, BackendCapabilityRevision, BackendIdentity, CodegenMappings,
+    CodegenOptions, CodegenTarget, CodegenUnitKey,
 };
 use bray_declarations::ModulePartId;
 use bray_linker::LinkerDriverIdentity;
@@ -166,6 +166,8 @@ pub(crate) struct CodegenArtifactFactKey {
     mappings: CodegenMappings,
     target: CodegenTarget,
     backend: BackendIdentity,
+    capability_revision: BackendCapabilityRevision,
+    product: bray_symbols::ProductKind,
     options: CodegenOptions,
     artifacts: BackendArtifactRequest,
 }
@@ -176,6 +178,8 @@ impl CodegenArtifactFactKey {
         mappings: CodegenMappings,
         target: CodegenTarget,
         backend: BackendIdentity,
+        capability_revision: BackendCapabilityRevision,
+        product: bray_symbols::ProductKind,
         options: CodegenOptions,
         artifacts: BackendArtifactRequest,
     ) -> Self {
@@ -184,6 +188,8 @@ impl CodegenArtifactFactKey {
             mappings,
             target,
             backend,
+            capability_revision,
+            product,
             options,
             artifacts,
         }

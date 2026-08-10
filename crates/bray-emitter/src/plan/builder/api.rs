@@ -95,6 +95,8 @@ pub enum EmissionPlanningError {
     UnsupportedBackendArtifact(BackendArtifactKind),
     /// The selected backend does not support the requested debug-information mode.
     UnsupportedDebugInformation(DebugInformationMode),
+    /// The selected backend does not support the requested debug-information output placement.
+    UnsupportedDebugOutput(DebugInformationOutputMode),
     /// The selected backend does not support the requested assembly syntax.
     UnsupportedAssemblySyntax(AssemblySyntaxKind),
     /// Debug generation and serialization policy are incompatible.
