@@ -9,7 +9,9 @@ use super::diagnostic::{
     executable_template_decode_diagnostics, executable_template_diagnostics,
     implementation_body_diagnostics,
 };
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
+use crate::fact::{
+    CancellationToken, CompilationFactKey, FactQueryError, ImportedExecutableTemplateAddress,
+};
 
 impl super::super::Compilation {
     pub(in crate::compilation) fn loaded_dependency_implementation_with_cancellation(
@@ -126,7 +128,7 @@ impl super::super::Compilation {
 
     pub(in crate::compilation) fn imported_executable_template_with_cancellation(
         &self,
-        address: ImportedSymbolFactAddress,
+        address: ImportedExecutableTemplateAddress,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>>, FactQueryError> {
         let cell = self.state.imported_executable_templates.cell(address)?;
@@ -146,15 +148,17 @@ impl super::super::Compilation {
 
     fn compute_imported_executable_template(
         &self,
-        address: ImportedSymbolFactAddress,
+        address: ImportedExecutableTemplateAddress,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>, FactQueryError> {
+        let symbol_address = address.symbol();
+
         let input = self
-            .dependency_interface_input(address.interface())
+            .dependency_interface_input(symbol_address.interface())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let loaded = self
-            .loaded_dependency_interface_with_cancellation(address.interface(), cancellation)?
+            .loaded_dependency_interface_with_cancellation(symbol_address.interface(), cancellation)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let Some(validated) = loaded.validated() else {
@@ -162,7 +166,10 @@ impl super::super::Compilation {
         };
 
         let artifact = self
-            .loaded_dependency_implementation_with_cancellation(address.interface(), cancellation)?
+            .loaded_dependency_implementation_with_cancellation(
+                symbol_address.interface(),
+                cancellation,
+            )?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let Some(artifact) = artifact.value() else {
@@ -184,7 +191,7 @@ impl super::super::Compilation {
             ));
         }
 
-        let template = match artifact.executable_template(address.symbol()) {
+        let template = match artifact.executable_template(symbol_address.symbol(), address.template()) {
             Ok(Some(template)) => template,
             Ok(None) | Err(_) => {
                 return Ok(DiagnosticResult::new(
@@ -201,7 +208,10 @@ impl super::super::Compilation {
         };
 
         let graph = self
-            .imported_semantic_graph_result_with_cancellation(address.interface(), cancellation)?
+            .imported_semantic_graph_result_with_cancellation(
+                symbol_address.interface(),
+                cancellation,
+            )?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let Some(graph) = graph.value() else {
@@ -215,7 +225,7 @@ impl super::super::Compilation {
         let current = interfaces
             .iter()
             .copied()
-            .find(|loaded| loaded.interface() == address.interface())
+            .find(|loaded| loaded.interface() == symbol_address.interface())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let symbols = self.symbol_graph()?;
@@ -230,7 +240,7 @@ impl super::super::Compilation {
 
         let owner = resolver
             .resolve(&bray_package_interface::InterfaceSymbolReference::Local(
-                address.symbol(),
+                symbol_address.symbol(),
             ))
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -266,7 +276,7 @@ impl super::super::Compilation {
 
     pub(in crate::compilation) fn imported_executable_mir(
         &self,
-        owner: AnySymbolId,
+        key: bray_ir::MirImportedExecutableKey,
         unit: bray_ir::MirUnitId,
         target: bray_ir::MirTargetFacts,
         cancellation: &CancellationToken,
@@ -277,19 +287,20 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        let Some(address) = skeleton.imported_fact_address(owner) else {
+        let Some(address) = skeleton.imported_fact_address(key.owner()) else {
             return Ok(None);
         };
 
-        let template =
-            self.imported_executable_template_with_cancellation(address, cancellation)?;
+        let address = ImportedExecutableTemplateAddress::new(address, key.template());
+
+        let template = self.imported_executable_template_with_cancellation(address, cancellation)?;
 
         let Some(template) = template.value() else {
             return Ok(None);
         };
 
         if template.unit() != unit
-            || template.key() != &bray_ir::MirUnitKey::ImportedExecutable(owner)
+            || template.key() != &bray_ir::MirUnitKey::ImportedExecutable(key)
             || template.target() != &target
         {
             return Err(FactQueryError::InfrastructureFailure);

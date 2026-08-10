@@ -1602,7 +1602,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(imported.len(), 2);
+        assert_eq!(imported.len(), 3);
 
         assert!(imported.iter().all(|instance| {
             matches!(
@@ -1622,12 +1622,57 @@ mod tests {
                 )
             })
         }));
+
+        let roots = reachability
+            .graph()
+            .roots()
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let compatibility = reachability
+            .graph()
+            .instances()
+            .iter()
+            .map(|instance| {
+                compilation
+                    .codegen_partition_compatibility(
+                        instance,
+                        compilation.package_identity(),
+                        &roots,
+                        &cancellation,
+                    )
+                    .map(|compatibility| (instance.key().clone(), compatibility))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()
+            .unwrap_or_else(|error| panic!("consumer partition facts must resolve: {error:?}"));
+
+        let units = partition_codegen_units(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            reachability.graph(),
+            |instance| compatibility.get(instance.key()).cloned(),
+        )
+        .unwrap_or_else(|error| panic!("consumer units must partition: {error:?}"));
+
+        for unit in units.iter() {
+            compilation
+                .codegen_mappings_for_product(
+                    unit,
+                    None,
+                    &target,
+                    &roots,
+                    &reachability,
+                    false,
+                    &cancellation,
+                )
+                .unwrap_or_else(|error| panic!("consumer mappings must realize: {error:?}"));
+        }
     }
 
     #[test]
     fn imported_generic_templates_are_shared_by_concurrent_requests() {
         let compilation = generic_consumer(generic_dependency(true));
-        let address = first_imported_function_address(&compilation);
+        let address = imported_nested_template_address(&compilation);
 
         std::thread::scope(|scope| {
             let first = scope.spawn(|| {
@@ -1679,7 +1724,9 @@ mod tests {
 
         let result = compilation
             .imported_executable_template_with_cancellation(
-                first_imported_function_address(&compilation),
+                crate::fact::ImportedExecutableTemplateAddress::root(
+                    first_imported_function_address(&compilation),
+                ),
                 &compilation.state.cancellation,
             )
             .unwrap_or_else(|error| panic!("target mismatch must be diagnosed: {error:?}"));
@@ -1701,7 +1748,9 @@ mod tests {
 
         let result = compilation
             .imported_executable_template_with_cancellation(
-                first_imported_function_address(&compilation),
+                crate::fact::ImportedExecutableTemplateAddress::root(
+                    first_imported_function_address(&compilation),
+                ),
                 &compilation.state.cancellation,
             )
             .unwrap_or_else(|error| panic!("malformed template must be diagnosed: {error:?}"));
@@ -2559,7 +2608,12 @@ mod tests {
                     "\n",
                     "public func identity<T>(pos value: T) -> T\n",
                     "{\n",
-                    "    return helper<T>(value);\n",
+                    "    let invoke = lambda(pos item: T) -> T\n",
+                    "    {\n",
+                    "        return helper<T>(item);\n",
+                    "    };\n",
+                    "\n",
+                    "    return invoke(value);\n",
                     "}\n",
                 ),
                 0,
@@ -2599,7 +2653,12 @@ mod tests {
             .iter()
             .map(|template| {
                 if malformed_templates {
-                    InterfaceExecutableTemplate::new(template.owner(), [0_u8])
+                    InterfaceExecutableTemplate::new(
+                        template.owner(),
+                        template.identity(),
+                        template.family_size(),
+                        [0_u8],
+                    )
                         .unwrap_or_else(|| panic!("malformed test payload must remain nonempty"))
                 } else {
                     template.clone()
@@ -2618,7 +2677,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("dependency implementation must encode: {error:?}"));
 
-        assert_eq!(bundle.executable_templates().len(), 2);
+        assert_eq!(bundle.executable_templates().len(), 3);
 
         let dependency = DependencyInterfaceInput::new(
             package,
@@ -2653,5 +2712,46 @@ mod tests {
             .filter_map(|function| skeleton.imported_fact_address(function.id().into()))
             .next()
             .unwrap_or_else(|| panic!("imported generic function must have a fact address"))
+    }
+
+    fn imported_nested_template_address(
+        compilation: &crate::Compilation,
+    ) -> crate::fact::ImportedExecutableTemplateAddress {
+        let skeleton = compilation
+            .imported_symbol_skeleton_result()
+            .unwrap_or_else(|error| panic!("imported skeleton must load: {error:?}"));
+
+        let skeleton = skeleton
+            .value()
+            .as_deref()
+            .unwrap_or_else(|| panic!("valid dependency must publish a symbol skeleton"));
+
+        skeleton
+            .functions()
+            .iter()
+            .filter_map(|function| skeleton.imported_fact_address(function.id().into()))
+            .find_map(|symbol| {
+                let root = compilation
+                    .imported_executable_template_with_cancellation(
+                        crate::fact::ImportedExecutableTemplateAddress::root(symbol),
+                        &compilation.state.cancellation,
+                    )
+                    .ok()?;
+
+                root.value().as_ref()?.operations().iter().find_map(|operation| {
+                    let MirOperationKind::AnonymousCallable(
+                        bray_ir::MirAnonymousCallableReference::Imported(key),
+                    ) = operation.kind()
+                    else {
+                        return None;
+                    };
+
+                    Some(crate::fact::ImportedExecutableTemplateAddress::new(
+                        symbol,
+                        key.template(),
+                    ))
+                })
+            })
+            .unwrap_or_else(|| panic!("imported generic callable must reference a nested template"))
     }
 }

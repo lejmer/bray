@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_bound_tree::BoundUnitKey;
-use bray_symbols::{CallableDefinitionId, ProductIdentity};
+use bray_symbols::{AnySymbolId, CallableDefinitionId, ProductIdentity};
 
 use crate::{
     MirBlock, MirBlockId, MirCleanupPhase, MirFrameDescriptor, MirHelperReference, MirOperation,
@@ -106,6 +106,49 @@ impl MirGeneratedLifecycleKey {
     }
 }
 
+/// Artifact-local identity of one independently encoded executable template.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MirExecutableTemplateId(u32);
+
+impl MirExecutableTemplateId {
+    /// The declaration-owned root body in an executable-template family.
+    pub const ROOT: Self = Self(0);
+
+    /// Creates an executable-template identity from its canonical family ordinal.
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Returns the canonical family ordinal.
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+/// Stable identity of one imported root or nested executable template.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MirImportedExecutableKey {
+    owner: AnySymbolId,
+    template: MirExecutableTemplateId,
+}
+
+impl MirImportedExecutableKey {
+    /// Creates one imported executable identity within a declaration-owned template family.
+    pub const fn new(owner: AnySymbolId, template: MirExecutableTemplateId) -> Self {
+        Self { owner, template }
+    }
+
+    /// Returns the imported declaration that owns the template family.
+    pub const fn owner(&self) -> AnySymbolId {
+        self.owner
+    }
+
+    /// Returns the artifact-local template identity.
+    pub const fn template(&self) -> MirExecutableTemplateId {
+        self.template
+    }
+}
+
 /// Stable semantic key of one MIR unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirUnitKey {
@@ -118,7 +161,7 @@ pub enum MirUnitKey {
     /// A bodyless callable referenced by generated MIR.
     ExternalCallable(CallableDefinitionId),
     /// A body reconstructed from a dependency's checked executable template.
-    ImportedExecutable(bray_symbols::AnySymbolId),
+    ImportedExecutable(MirImportedExecutableKey),
     /// A bodyless runtime-default provider referenced from another package.
     ExternalRuntimeDefault(bray_symbols::AnySymbolId),
 }

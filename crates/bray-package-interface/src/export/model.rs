@@ -182,8 +182,10 @@ pub enum PackageInterfaceExportBuildError {
     MissingSemanticFacts(ExternalSymbolKey),
     /// Structural semantic or support-graph validation rejected the bundle.
     Validation(InterfaceValidationError),
-    /// Two executable templates claim the same callable owner.
+    /// Two executable templates claim the same callable owner and artifact-local identity.
     DuplicateExecutableTemplate(bray_symbols::InterfaceSymbolId),
+    /// Executable templates for one owner do not form one contiguous root-first family.
+    InvalidExecutableTemplateFamily(bray_symbols::InterfaceSymbolId),
     /// Two native boundaries claim the same function owner.
     DuplicateNativeBoundary(bray_symbols::InterfaceSymbolId),
 }
@@ -225,21 +227,27 @@ impl PackageInterfaceExportBundle {
         })
     }
 
-    /// Attaches executable templates in canonical owner order.
+    /// Attaches executable templates in canonical owner and family-identity order.
     pub fn with_executable_templates(
         mut self,
         templates: impl IntoIterator<Item = crate::InterfaceExecutableTemplate>,
     ) -> Result<Self, PackageInterfaceExportBuildError> {
         let mut templates = templates.into_iter().collect::<Vec<_>>();
 
-        templates.sort_by_key(crate::InterfaceExecutableTemplate::owner);
+        templates.sort_by_key(|template| (template.owner(), template.identity()));
 
         for pair in templates.windows(2) {
-            if pair[0].owner() == pair[1].owner() {
+            if (pair[0].owner(), pair[0].identity())
+                == (pair[1].owner(), pair[1].identity())
+            {
                 return Err(
                     PackageInterfaceExportBuildError::DuplicateExecutableTemplate(pair[0].owner()),
                 );
             }
+        }
+
+        if let Some(owner) = crate::implementation::invalid_executable_template_family(&templates) {
+            return Err(PackageInterfaceExportBuildError::InvalidExecutableTemplateFamily(owner));
         }
 
         self.executable_templates = templates.into();
@@ -257,7 +265,7 @@ impl PackageInterfaceExportBundle {
         &self.semantic_facts
     }
 
-    /// Returns executable templates in canonical owner order.
+    /// Returns executable templates in canonical owner and family-identity order.
     pub fn executable_templates(&self) -> &[crate::InterfaceExecutableTemplate] {
         &self.executable_templates
     }

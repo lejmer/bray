@@ -913,7 +913,9 @@ mod tests {
                 .iter()
                 .any(|operation| matches!(
                     operation.kind(),
-                    MirOperationKind::AnonymousCallable(key) if key == &nested
+                    MirOperationKind::AnonymousCallable(
+                        bray_ir::MirAnonymousCallableReference::Bound(key)
+                    ) if key == &nested
                 ))
         );
 

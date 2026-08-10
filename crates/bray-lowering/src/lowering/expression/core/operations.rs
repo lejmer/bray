@@ -166,10 +166,10 @@ impl Lowerer<'_> {
                     id,
                     current,
                     Self::retained_source(&source),
-                    MirOperationKind::AnonymousCallable(
+                    MirOperationKind::AnonymousCallable(bray_ir::MirAnonymousCallableReference::bound(
                         // MIR owns the same immutable nested-unit identity independently of HIR.
                         expression.unit().clone(),
-                    ),
+                    )),
                 )?;
 
                 Ok(LoweredExpression::continuing(current, Some(value), source))

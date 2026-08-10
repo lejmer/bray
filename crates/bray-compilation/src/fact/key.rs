@@ -20,6 +20,38 @@ use bray_symbols::{
 };
 use bray_target::TargetProfile;
 
+/// Exact declaration-owned executable template selected from an imported implementation artifact.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ImportedExecutableTemplateAddress {
+    symbol: ImportedSymbolFactAddress,
+    template: bray_ir::MirExecutableTemplateId,
+}
+
+impl ImportedExecutableTemplateAddress {
+    /// Creates the root executable-template address for one imported declaration.
+    pub(crate) const fn root(symbol: ImportedSymbolFactAddress) -> Self {
+        Self::new(symbol, bray_ir::MirExecutableTemplateId::ROOT)
+    }
+
+    /// Creates one imported root or nested executable-template address.
+    pub(crate) const fn new(
+        symbol: ImportedSymbolFactAddress,
+        template: bray_ir::MirExecutableTemplateId,
+    ) -> Self {
+        Self { symbol, template }
+    }
+
+    /// Returns the declaration's imported interface address.
+    pub(crate) const fn symbol(self) -> ImportedSymbolFactAddress {
+        self.symbol
+    }
+
+    /// Returns the artifact-local template identity.
+    pub(crate) const fn template(self) -> bray_ir::MirExecutableTemplateId {
+        self.template
+    }
+}
+
 /// Exact host selections that determine one native product fact.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct NativeProductFactKey {
@@ -428,7 +460,7 @@ pub(crate) enum CompilationFactKey {
     /// One checked imported const-callable body selected from an implementation artifact.
     ImportedConstantCallableBody(ImportedSymbolFactAddress),
     /// One imported executable template selected from an implementation artifact.
-    ImportedExecutableTemplate(ImportedSymbolFactAddress),
+    ImportedExecutableTemplate(ImportedExecutableTemplateAddress),
     /// Implementations participating in one package coherence domain.
     ImplementationParticipation(ImplementationCoherenceDomainKey),
     /// Declaration-level coherence and overload-family validity for the source package.

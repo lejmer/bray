@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundCallResult, CheckedMemoryOperationKind, ConstructionInputId, ConstructionTarget,
-    ConversionTarget, PatternOperation, PatternProjection, SelectedConversion,
+    BoundCallResult, BoundUnitKey, CheckedMemoryOperationKind, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, PatternOperation, PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirBinaryOperator, MirBlockKind, MirCall, MirCallArgument, MirCallTarget,
@@ -79,6 +79,12 @@ pub trait ExecutableTemplateEncodeContext {
         &mut self,
         id: AnySymbolId,
     ) -> Result<InterfaceSymbolReference, Self::Error>;
+
+    /// Maps one source-owned nested executable unit into its artifact-local identity.
+    fn nested_executable_id(
+        &mut self,
+        key: &BoundUnitKey,
+    ) -> Result<bray_ir::MirExecutableTemplateId, Self::Error>;
 }
 
 /// Failure while encoding one checked executable template.
@@ -86,8 +92,6 @@ pub trait ExecutableTemplateEncodeContext {
 pub enum ExecutableTemplateEncodeError<E> {
     /// Completing one referenced semantic fact failed.
     Semantic(E),
-    /// The MIR contains a source-owned nested unit that requires its own template entry.
-    NestedUnit,
     /// Compiler-generated product-host MIR cannot be exported as a callable template.
     InvalidUnitKind,
 }
@@ -304,8 +308,16 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         operation: &MirOperationKind,
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         match operation {
-            MirOperationKind::AnonymousCallable(_) => {
-                return Err(ExecutableTemplateEncodeError::NestedUnit);
+            MirOperationKind::AnonymousCallable(reference) => {
+                let bray_ir::MirAnonymousCallableReference::Bound(unit) = reference else {
+                    return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
+                };
+
+                let identity =
+                    Self::semantic(self.context.nested_executable_id(unit))?;
+
+                self.wire.write_u32(20);
+                self.wire.write_u32(identity.raw());
             }
             MirOperationKind::DeclaredCallable(callable) => {
                 self.wire.write_u32(19);

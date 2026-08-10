@@ -2,8 +2,8 @@ use super::super::core::UnitTranslator;
 use super::super::support::{extract_value, insert_value, int_value, llvm, next_helper};
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
-    BoundUnitKey, MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation,
-    MirOperationKind, MirPlace, MirSourceAnchor,
+    MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation, MirOperationKind,
+    MirPlace, MirSourceAnchor,
 };
 use inkwell::values::BasicValueEnum;
 
@@ -318,7 +318,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn translate_anonymous_callable(
         &self,
         operation: bray_ir::MirOperationId,
-        unit: &BoundUnitKey,
+        unit: &bray_ir::MirAnonymousCallableReference,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let helpers = self.operation_helpers(operation)?;
 

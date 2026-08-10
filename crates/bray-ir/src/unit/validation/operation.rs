@@ -28,7 +28,11 @@ pub(super) fn validate_operation(
 
     match operation.kind() {
         MirOperationKind::AnonymousCallable(key) => {
-            if key.kind() != BoundUnitKind::AnonymousCallable {
+            if matches!(
+                key,
+                crate::MirAnonymousCallableReference::Bound(key)
+                    if key.kind() != BoundUnitKind::AnonymousCallable
+            ) {
                 return Err(MirUnitBuildError::InvalidAnonymousCallable(id));
             }
         }

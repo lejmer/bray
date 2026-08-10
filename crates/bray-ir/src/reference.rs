@@ -11,7 +11,28 @@ use bray_symbols::{
 
 use bray_bound_tree::{BoundCallResult, SelectedImplementationWitness};
 
-use crate::MirOperand;
+use crate::{MirImportedExecutableKey, MirOperand};
+
+/// Stable reference to one source-backed or imported anonymous callable body.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirAnonymousCallableReference {
+    /// A nested source semantic unit.
+    Bound(bray_bound_tree::BoundUnitKey),
+    /// A nested executable template reconstructed from a package implementation artifact.
+    Imported(MirImportedExecutableKey),
+}
+
+impl MirAnonymousCallableReference {
+    /// Creates a reference to one nested source semantic unit.
+    pub const fn bound(unit: bray_bound_tree::BoundUnitKey) -> Self {
+        Self::Bound(unit)
+    }
+
+    /// Creates a reference to one nested imported executable template.
+    pub const fn imported(key: MirImportedExecutableKey) -> Self {
+        Self::Imported(key)
+    }
+}
 
 /// Exact declared field selected by a MIR projection.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
