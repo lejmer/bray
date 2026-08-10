@@ -261,9 +261,6 @@ fn reserve_output(
 
     let directory = match planned.destination() {
         PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { root, .. }) => {
-            std::fs::create_dir_all(root)
-                .map_err(|error| LinkStagingError::Create(error.kind()))?;
-
             builder.tempdir_in(root)
         }
         PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) => {

@@ -130,6 +130,7 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-diagnostics",
+ "bray-emitter",
  "bray-messages",
  "bray-platform",
  "bray-profile",

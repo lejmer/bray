@@ -123,9 +123,15 @@ impl<'project> ProjectCompiler<'project> {
             progress,
         )?;
 
+        let success = output.success();
+
         outputs.push(output);
 
-        let executable = self.executable_path(&output_directory, &product, planned.target())?;
+        let executable = if success {
+            self.published_executable_path(&output_directory, &product)?
+        } else {
+            None
+        };
 
         Ok(ProductBuild {
             outputs,
@@ -599,6 +605,25 @@ impl<'project> ProjectCompiler<'project> {
                 .ok_or_else(|| operation_diagnostics("executable_output_name"))?;
 
         Ok(Some(output_directory.join(name)))
+    }
+
+    fn published_executable_path(
+        &self,
+        output_directory: &Path,
+        product: &ProjectProduct,
+    ) -> Result<Option<PathBuf>, DiagnosticBag> {
+        if !product.outputs().contains(&TargetOutputKind::Executable) {
+            return Ok(None);
+        }
+
+        bray_emitter::resolve_published_artifact(
+            output_directory,
+            product.identity(),
+            bray_emitter::ArtifactKind::Executable,
+            0,
+        )
+        .map(Some)
+        .map_err(|_| operation_diagnostics("published_executable"))
     }
 
     fn test_catalog_path(&self, output_directory: &Path, product: &ProjectProduct) -> PathBuf {

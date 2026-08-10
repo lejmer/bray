@@ -53,7 +53,7 @@ impl ManagedArtifactPath {
 pub enum OutputSink {
     /// Artifact path within one atomically published managed filesystem generation.
     ManagedFilesystem {
-        /// Product and target output root that owns the generation store and reference.
+        /// Pre-existing durable product root that owns the generation store and reference.
         root: PathBuf,
         /// Canonical artifact path within every complete generation.
         artifact: ManagedArtifactPath,
@@ -256,9 +256,12 @@ pub enum ReplacementPolicy {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
     use std::ffi::OsStr;
 
-    use super::{ManagedArtifactPath, OutputSink, OutputSinkId, is_valid_host_file_name};
+    use super::{ManagedArtifactPath, OutputSink, OutputSinkId};
+    #[cfg(windows)]
+    use super::is_valid_host_file_name;
 
     #[test]
     fn managed_artifact_paths_require_canonical_portable_relatives() {

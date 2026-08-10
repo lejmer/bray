@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 bray-base = { path = "../bray-base" }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-emitter = { path = "../bray-emitter" }
 bray-messages = { path = "../bray-messages" }
 bray-platform = { path = "../bray-platform" }
 bray-profile = { path = "../bray-profile" }

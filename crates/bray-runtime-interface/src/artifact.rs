@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::{NonEmptySharedStr, is_lowercase_hex, shared_slice};
+use bray_base::{NonEmptySharedStr, decode_lowercase_hex, lowercase_hex, shared_slice};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::TargetIdentity;
 use serde::{Deserialize, Serialize};
@@ -33,32 +33,11 @@ impl RuntimeArtifactDigest {
 
     /// Returns the lowercase hexadecimal digest.
     pub fn to_hex(self) -> String {
-        let mut output = String::with_capacity(64);
-
-        for byte in self.0 {
-            use std::fmt::Write as _;
-
-            let _ = write!(output, "{byte:02x}");
-        }
-
-        output
+        lowercase_hex(&self.0)
     }
 
     fn from_hex(value: &str) -> Option<Self> {
-        if value.len() != 64 || !is_lowercase_hex(value) {
-            return None;
-        }
-
-        let mut bytes = [0; 32];
-
-        for (index, output) in bytes.iter_mut().enumerate() {
-            let offset = index * 2;
-            let digits = value.get(offset..offset + 2)?;
-
-            *output = u8::from_str_radix(digits, 16).ok()?;
-        }
-
-        Some(Self(bytes))
+        decode_lowercase_hex(value).map(Self)
     }
 }
 

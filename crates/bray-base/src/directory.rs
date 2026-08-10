@@ -20,10 +20,10 @@ pub fn sync_directory(path: &Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
 
-/// Validates the directory boundary on Windows where Rust exposes no directory flush operation.
+/// Flushes directory-entry changes to the filesystem's durable storage boundary.
 #[cfg(windows)]
 pub fn sync_directory(path: &Path) -> io::Result<()> {
-    open_directory(path).map(drop)
+    open_directory(path)?.sync_all()
 }
 
 #[cfg(windows)]
@@ -34,6 +34,7 @@ fn open_directory(path: &Path) -> io::Result<File> {
 
     OpenOptions::new()
         .read(true)
+        .write(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)
 }

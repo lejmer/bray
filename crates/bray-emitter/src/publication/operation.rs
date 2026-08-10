@@ -188,11 +188,17 @@ impl<'host> ArtifactPublisher<'host> {
                 plan.request().replacement(),
                 self.cancellation,
             ) {
-                Ok(publication) => EmissionOutcome::complete(
-                    publication.artifacts,
-                    Some(publication.generation),
-                    diagnostics.into_bag(),
-                ),
+                Ok(publication) => {
+                    if let Some(warning) = publication.warning {
+                        diagnostics.warning(warning);
+                    }
+
+                    EmissionOutcome::complete(
+                        publication.artifacts,
+                        Some(publication.generation),
+                        diagnostics.into_bag(),
+                    )
+                }
                 Err(ArtifactPublicationFailure::Cancelled) => {
                     diagnostics.cancelled(publication_set(plan, []))
                 }
@@ -743,7 +749,10 @@ fn contribution_error(
     PublicationError::new(artifact.clone(), sink, kind)
 }
 
-fn planned_error(planned: &PlannedArtifact, kind: PublicationErrorKind) -> PublicationError {
+pub(super) fn planned_error(
+    planned: &PlannedArtifact,
+    kind: PublicationErrorKind,
+) -> PublicationError {
     let sink = match planned.destination() {
         // Publication errors own the destination after the plan borrow ends.
         PlannedArtifactDestination::Publish(sink) => Some(sink.clone()),
@@ -933,6 +942,16 @@ mod tests {
             .unwrap_or_else(|| panic!("managed artifact path must resolve"));
 
         assert_eq!(file_bytes(&path), b"second");
+
+        let resolved = crate::resolve_published_artifact(
+            output.path(),
+            replace.request().product(),
+            ArtifactKind::DependencyMetadata,
+            0,
+        )
+        .unwrap_or_else(|error| panic!("published manifest must resolve: {error:?}"));
+
+        assert_eq!(resolved, path);
     }
 
     #[test]
@@ -1012,6 +1031,49 @@ mod tests {
 
         assert!(outcome.artifacts().artifacts().is_empty());
         assert!(outcome.generation().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_generation_reuse_requires_manifest_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let first = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"stable", None)]);
+
+        assert_complete_artifact(&first, b"stable");
+
+        let generation = first
+            .generation()
+            .unwrap_or_else(|| panic!("managed generation must exist"));
+
+        let artifact = &first.artifacts().artifacts()[0];
+
+        let path = generation
+            .artifact_path(artifact.id())
+            .unwrap_or_else(|| panic!("managed artifact path must resolve"));
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .unwrap_or_else(|error| panic!("test permissions must be changed: {error}"));
+
+        let outcome = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"stable", None)]);
+
+        assert_eq!(
+            outcome.diagnostics().diagnostics()[0].kind(),
+            DiagnosticKind::EmissionGenerationCollision
+        );
+
+        assert!(matches!(
+            outcome.status(),
+            EmissionStatus::Failed(EmissionFailure::Publication(_))
+        ));
     }
 
     #[test]
