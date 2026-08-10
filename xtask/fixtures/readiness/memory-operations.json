@@ -203,7 +203,7 @@
     { "name": "closed hook inventory", "test": "memory_operation_inventory_partitions_the_closed_hook_set" },
     { "name": "checker classification", "test": "hooks_classify_without_source_name_matching" },
     { "name": "lowering coverage", "test": "lowering_replaces_every_checked_memory_family_with_explicit_mir" },
-    { "name": "code generation coverage", "test": "raw_memory_and_allocation_operations_generate_verified_llvm" },
+    { "name": "code generation coverage", "test": "every_memory_operation_family_generates_verified_llvm" },
     { "name": "unavailable target rejection", "test": "unavailable_memory_operations_publish_structured_target_diagnostics" },
     { "name": "invalid obligation rejection", "test": "invalid_memory_obligations_publish_structured_semantic_diagnostics" },
     { "name": "same-name isolation", "test": "same_named_source_callables_are_not_memory_operations" }

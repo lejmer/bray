@@ -236,14 +236,16 @@ mod tests {
     use bray_codegen::test_support::{codegen_request_for_unit, codegen_target_with_profile};
     use bray_codegen::{
         CodeGenerator, CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout,
-        CodegenLinkage, CodegenMappings, CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey,
-        CodegenSymbolMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
-        CodegenUnit, TargetAddressSpaceKind,
+        CodegenHelperMapping, CodegenLinkage, CodegenMappings, CodegenOperationMapping,
+        CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
+        CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout, CodegenUnit,
+        TargetAddressSpaceKind,
     };
     use bray_ir::{
-        MirAggregate, MirAggregateKind, MirBlockKind, MirMemoryOperation, MirOperand,
-        MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirTargetFacts,
-        MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
+        MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
+        MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationId, MirOperationKind,
+        MirPlace, MirSourceAnchor, MirStorageKind, MirTargetFacts, MirTerminatorKind, MirUnitBuilder,
+        MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::{
@@ -270,10 +272,14 @@ mod tests {
         layout_error: TypeId,
         layout_result: TypeId,
         allocation: TypeId,
+        byte: TypeId,
+        raw_buffer: TypeId,
+        raw_buffer_borrow: TypeId,
+        slice: TypeId,
     }
 
     #[test]
-    fn raw_memory_and_allocation_operations_generate_verified_llvm() {
+    fn every_memory_operation_family_generates_verified_llvm() {
         let Ok(backend) = LlvmCodeGenerator::try_new() else {
             panic!("LLVM backend constants must be valid");
         };
@@ -325,7 +331,7 @@ mod tests {
             })
             .count();
 
-        assert_eq!(deallocations, 2);
+        assert_eq!(deallocations, 4);
     }
 
     #[test]
@@ -380,19 +386,14 @@ mod tests {
 
         let place = MirPlace::new(storage, [], types.value);
 
-        let borrowed = builder
-            .push_operation(
-                entry,
-                source.clone(),
-                MirOperationKind::Borrow {
-                    kind: BorrowKind::Shared,
-                    place,
-                },
-                Some(types.borrow),
-            )
-            .unwrap_or_else(|error| panic!("memory test borrow must be valid: {error:?}"))
-            .result()
-            .unwrap_or_else(|| panic!("memory test borrow must produce a value"));
+        let borrowed = push_borrow(
+            &mut builder,
+            entry,
+            &source,
+            BorrowKind::Shared,
+            place,
+            types.borrow,
+        );
 
         let address = push_memory(
             &mut builder,
@@ -406,6 +407,7 @@ mod tests {
             [types.borrow],
             Some(types.pointer),
         )
+        .result()
         .unwrap_or_else(|| panic!("memory address operation must produce a value"));
 
         let null = push_memory(
@@ -419,6 +421,7 @@ mod tests {
             [],
             Some(types.pointer),
         )
+        .result()
         .unwrap_or_else(|| panic!("memory null operation must produce a value"));
 
         let size = push_memory(
@@ -433,6 +436,7 @@ mod tests {
             [],
             Some(types.usize),
         )
+        .result()
         .unwrap_or_else(|| panic!("memory size operation must produce a value"));
 
         let raw_allocation = push_memory(
@@ -444,6 +448,7 @@ mod tests {
             [types.usize, types.usize],
             Some(types.pointer),
         )
+        .result()
         .unwrap_or_else(|| panic!("raw memory allocation must produce a value"));
 
         push_memory(
@@ -512,6 +517,7 @@ mod tests {
             [types.pointer],
             Some(types.value),
         )
+        .result()
         .unwrap_or_else(|| panic!("memory read operation must produce a value"));
 
         push_memory(
@@ -599,6 +605,7 @@ mod tests {
             [types.layout],
             Some(types.allocation),
         )
+        .result()
         .unwrap_or_else(|| panic!("memory allocation operation must produce a value"));
 
         push_memory(
@@ -609,6 +616,16 @@ mod tests {
             [MirOperand::Value(allocation)],
             [types.allocation],
             None,
+        );
+
+        let cleanup_operations = push_buffer_and_byte_operations(
+            &mut builder,
+            entry,
+            &source,
+            types,
+            address,
+            null,
+            size,
         );
 
         builder
@@ -626,7 +643,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("memory test codegen unit must be valid: {error:?}"));
 
-        let mappings = memory_mappings(&unit, &target, types, source);
+        let mappings = memory_mappings(&unit, &target, types, source, cleanup_operations);
 
         codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
     }
@@ -639,7 +656,7 @@ mod tests {
         operands: [MirOperand; OPERANDS],
         operand_types: [TypeId; TYPES],
         result_type: Option<TypeId>,
-    ) -> Option<MirValueId> {
+    ) -> MirOperationCommit {
         let operation = MirMemoryOperation::new(kind, operands, operand_types, result_type);
 
         let committed = builder
@@ -651,7 +668,218 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("memory test operation must be valid: {error:?}"));
 
-        committed.result()
+        committed
+    }
+
+    fn push_borrow(
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        kind: BorrowKind,
+        place: MirPlace,
+        result_type: TypeId,
+    ) -> MirValueId {
+        builder
+            .push_operation(
+                block,
+                source.clone(),
+                MirOperationKind::Borrow { kind, place },
+                Some(result_type),
+            )
+            .unwrap_or_else(|error| panic!("memory test borrow must be valid: {error:?}"))
+            .result()
+            .unwrap_or_else(|| panic!("memory test borrow must produce a value"))
+    }
+
+    fn push_buffer_and_byte_operations(
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        types: MemoryTypes,
+        address: MirValueId,
+        null: MirValueId,
+        size: MirValueId,
+    ) -> Vec<MirOperationId> {
+        let buffer = push_borrowed_storage(builder, block, source, types);
+        let source_buffer = push_borrowed_storage(builder, block, source, types);
+
+        for kind in [
+            CheckedMemoryOperationKind::RawBufferCapacity,
+            CheckedMemoryOperationKind::RawBufferInitializedCount,
+        ] {
+            push_memory(
+                builder,
+                block,
+                source,
+                kind,
+                [MirOperand::Value(buffer)],
+                [types.raw_buffer_borrow],
+                Some(types.usize),
+            );
+        }
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferPointer,
+            [MirOperand::Value(buffer)],
+            [types.raw_buffer_borrow],
+            Some(types.pointer),
+        );
+
+        for kind in [
+            CheckedMemoryOperationKind::RawBufferInitializedSlice,
+            CheckedMemoryOperationKind::RawBufferInitializedSliceMut,
+        ] {
+            let slice = push_memory(
+                builder,
+                block,
+                source,
+                kind,
+                [MirOperand::Value(buffer)],
+                [types.raw_buffer_borrow],
+                Some(types.slice),
+            )
+            .result()
+            .unwrap_or_else(|| panic!("raw buffer slice must produce a value"));
+
+            push_memory(
+                builder,
+                block,
+                source,
+                CheckedMemoryOperationKind::SliceLength,
+                [MirOperand::Value(slice)],
+                [types.slice],
+                Some(types.usize),
+            );
+        }
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferSparePointer {
+                element: types.value,
+            },
+            [MirOperand::Value(buffer)],
+            [types.raw_buffer_borrow],
+            Some(types.pointer),
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferSetInitializedCount,
+            [MirOperand::Value(buffer), MirOperand::Value(size)],
+            [types.raw_buffer_borrow, types.usize],
+            None,
+        );
+
+        let byte = push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::ByteBufferRead,
+            [MirOperand::Value(address), MirOperand::Value(size)],
+            [types.pointer, types.usize],
+            Some(types.byte),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("byte buffer read must produce a value"));
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::ByteBufferFill,
+            [
+                MirOperand::Value(null),
+                MirOperand::Value(byte),
+                MirOperand::Value(size),
+            ],
+            [types.pointer, types.byte, types.usize],
+            None,
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::ByteBufferCopy,
+            [
+                MirOperand::Value(address),
+                MirOperand::Value(null),
+                MirOperand::Value(size),
+            ],
+            [types.pointer, types.pointer, types.usize],
+            None,
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::CallbackState { state: types.value },
+            [MirOperand::Value(null)],
+            [types.pointer],
+            Some(types.borrow),
+        );
+
+        let release = push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferRelease {
+                element: types.value,
+            },
+            [MirOperand::Value(buffer)],
+            [types.raw_buffer_borrow],
+            None,
+        );
+
+        let replace = push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferReplace {
+                element: types.value,
+            },
+            [
+                MirOperand::Value(buffer),
+                MirOperand::Value(source_buffer),
+                MirOperand::Value(size),
+            ],
+            [
+                types.raw_buffer_borrow,
+                types.raw_buffer_borrow,
+                types.usize,
+            ],
+            None,
+        );
+
+        vec![release.operation(), replace.operation()]
+    }
+
+    fn push_borrowed_storage(
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        types: MemoryTypes,
+    ) -> MirValueId {
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Local, types.raw_buffer)
+            .unwrap_or_else(|error| panic!("raw buffer storage must be valid: {error:?}"));
+
+        push_borrow(
+            builder,
+            block,
+            source,
+            BorrowKind::Mutable,
+            MirPlace::new(storage, [], types.raw_buffer),
+            types.raw_buffer_borrow,
+        )
     }
 
     fn memory_types() -> MemoryTypes {
@@ -668,6 +896,10 @@ mod tests {
         let layout_error = intern_type(&store, TypeData::tuple([layout]));
         let layout_result = intern_type(&store, TypeData::tuple([layout_error]));
         let allocation = intern_type(&store, TypeData::tuple([layout_result]));
+        let byte = intern_type(&store, TypeData::tuple([allocation]));
+        let raw_buffer = intern_type(&store, TypeData::tuple([byte]));
+        let raw_buffer_borrow = intern_type(&store, TypeData::tuple([raw_buffer]));
+        let slice = intern_type(&store, TypeData::tuple([raw_buffer_borrow]));
 
         MemoryTypes {
             value,
@@ -680,6 +912,10 @@ mod tests {
             layout_error,
             layout_result,
             allocation,
+            byte,
+            raw_buffer,
+            raw_buffer_borrow,
+            slice,
         }
     }
 
@@ -711,6 +947,7 @@ mod tests {
         target: &bray_codegen::CodegenTarget,
         types: MemoryTypes,
         source: MirSourceAnchor,
+        cleanup_operations: Vec<MirOperationId>,
     ) -> CodegenMappings {
         let align1 = NonZeroU64::MIN;
         let align4 = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
@@ -812,6 +1049,36 @@ mod tests {
                     CodegenFieldLayout::new(None, types.usize, 16),
                 ]),
             ),
+            CodegenTypeMapping::new(
+                types.byte,
+                layout(1, align1),
+                CodegenTypeKind::UnsignedInteger(width8),
+            ),
+            CodegenTypeMapping::new(
+                types.raw_buffer,
+                layout(24, align8),
+                CodegenTypeKind::aggregate([
+                    CodegenFieldLayout::new(None, types.pointer, 0),
+                    CodegenFieldLayout::new(None, types.usize, 8),
+                    CodegenFieldLayout::new(None, types.usize, 16),
+                ]),
+            ),
+            CodegenTypeMapping::new(
+                types.raw_buffer_borrow,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.raw_buffer,
+                    address_space: TargetAddressSpaceKind::Default,
+                },
+            ),
+            CodegenTypeMapping::new(
+                types.slice,
+                layout(16, align8),
+                CodegenTypeKind::aggregate([
+                    CodegenFieldLayout::new(None, types.pointer, 0),
+                    CodegenFieldLayout::new(None, types.usize, 8),
+                ]),
+            ),
         ];
 
         let instance = unit
@@ -830,6 +1097,19 @@ mod tests {
             CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false),
         );
 
+        let cleanup_reference = MirHelperReference::Cleanup {
+            phase: MirCleanupPhase::LifecycleResolution,
+            ty: types.value,
+        };
+
+        let operation_mappings = cleanup_operations.into_iter().map(|operation| {
+            CodegenOperationMapping::new(
+                instance.key().clone(),
+                operation,
+                [CodegenHelperMapping::lowered(cleanup_reference.clone())],
+            )
+        });
+
         let Some(file) = CodegenSourceFile::try_new("memory-operations.bray") else {
             panic!("memory test source file must be valid");
         };
@@ -845,7 +1125,7 @@ mod tests {
             [],
             [],
             [],
-            [],
+            operation_mappings,
             [],
             [debug],
         )

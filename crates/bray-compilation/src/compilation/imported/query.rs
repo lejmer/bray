@@ -580,7 +580,7 @@ mod tests {
     use std::sync::Arc;
 
     use bray_bound_tree::CheckedTemplateKind;
-    use bray_diagnostics::{DiagnosticArgName, DiagnosticArgValue, DiagnosticKind};
+    use bray_diagnostics::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticKind};
     use bray_package_interface::{
         ImportedSemanticFact, InterfaceLanguageRevision, InterfacePredicateDefinitionState,
         InterfaceProductIdentity, InterfaceSemanticFactKind, InterfaceValidationPolicy,
@@ -716,10 +716,19 @@ mod tests {
             [DiagnosticKind::StandardLibraryManifestInvalid]
         );
 
+        let [malformed_diagnostic] = malformed_result.diagnostics().diagnostics() else {
+            panic!("malformed manifest must produce one diagnostic");
+        };
+
+        assert!(malformed_diagnostic.args().is_empty());
+
         let unavailable_directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
 
-        let unavailable_target = TargetIdentity::try_new("aarch64-unknown-linux-gnu")
+        let selected_target_name = "x86_64-unknown-linux-gnu";
+        let unavailable_target_name = "aarch64-unknown-linux-gnu";
+
+        let unavailable_target = TargetIdentity::try_new(unavailable_target_name)
             .unwrap_or_else(|| panic!("test target identity must be valid"));
 
         let unavailable_root = write_standard_library_fixture(
@@ -745,14 +754,14 @@ mod tests {
         );
 
         assert_eq!(
-            unavailable_diagnostic.args()[0].name(),
-            DiagnosticArgName::ReferencedName
+            unavailable_diagnostic.args(),
+            [DiagnosticArg::referenced_name(selected_target_name)]
         );
 
         let mismatch_directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
 
-        let selected_target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+        let selected_target = TargetIdentity::try_new(selected_target_name)
             .unwrap_or_else(|| panic!("test target identity must be valid"));
 
         let mismatch_root = write_standard_library_fixture(
