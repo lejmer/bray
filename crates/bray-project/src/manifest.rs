@@ -220,14 +220,18 @@ pub(crate) fn decode_workspace_manifest(
     source: &str,
     path: &Path,
 ) -> Result<WorkspaceManifest, ProjectLoadError> {
-    decode_manifest(source, path)
+    match manifest_revision(source, path)? {
+        ManifestRevision::Revision1 => decode_revision_1(source, path),
+    }
 }
 
 pub(crate) fn decode_package_manifest(
     source: &str,
     path: &Path,
 ) -> Result<PackageManifest, ProjectLoadError> {
-    decode_manifest(source, path)
+    match manifest_revision(source, path)? {
+        ManifestRevision::Revision1 => decode_revision_1(source, path),
+    }
 }
 
 /// Decodes and writes one workspace manifest in the canonical supported serialization.
@@ -254,31 +258,29 @@ pub fn canonicalize_package_manifest(
     encode_manifest(&manifest, path)
 }
 
-fn decode_manifest<T>(source: &str, path: &Path) -> Result<T, ProjectLoadError>
-where
-    T: serde::de::DeserializeOwned,
-{
+fn manifest_revision(source: &str, path: &Path) -> Result<ManifestRevision, ProjectLoadError> {
     let probe = serde_json::from_str::<ManifestRevisionProbe>(source).map_err(|_| {
         ProjectLoadError::ParseManifest {
             path: path.to_path_buf(),
         }
     })?;
 
-    let Some(revision) = ManifestRevision::from_number(probe.format) else {
-        return Err(ProjectLoadError::invalid(
+    ManifestRevision::from_number(probe.format).ok_or_else(|| {
+        ProjectLoadError::invalid(
             path.to_path_buf(),
             ProjectManifestProblem::UnsupportedFormat,
             probe.format.to_string(),
-        ));
-    };
+        )
+    })
+}
 
-    match revision {
-        ManifestRevision::Revision1 => {
-            serde_json::from_str(source).map_err(|_| ProjectLoadError::ParseManifest {
-                path: path.to_path_buf(),
-            })
-        }
-    }
+fn decode_revision_1<T>(source: &str, path: &Path) -> Result<T, ProjectLoadError>
+where
+    T: serde::de::DeserializeOwned,
+{
+    serde_json::from_str(source).map_err(|_| ProjectLoadError::ParseManifest {
+        path: path.to_path_buf(),
+    })
 }
 
 fn encode_manifest<T>(manifest: &T, path: &Path) -> Result<String, ProjectLoadError>

@@ -747,6 +747,39 @@ fn dependency_edges_must_select_declared_library_products() {
 }
 
 #[test]
+fn dependencies_are_isolated_to_the_declaring_product() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""outputs": ["executable", "dependency_metadata"]
+                }]"#,
+        r#""outputs": ["executable", "dependency_metadata"]
+                }, {
+                    "name": "independent",
+                    "kind": "library",
+                    "source_roots": ["main"],
+                    "targets": ["native", "portable"],
+                    "dependencies": [],
+                    "outputs": ["package_interface"]
+                }]"#,
+    );
+
+    let graph = load_project_graph(workspace.path())
+        .unwrap_or_else(|error| panic!("product-scoped dependencies must load: {error:?}"));
+
+    let package = &graph.packages()[0];
+    let application = &package.products()[0];
+    let independent = &package.products()[1];
+
+    assert_eq!(application.identity().name(), "application");
+    assert_eq!(application.dependencies().len(), 1);
+    assert_eq!(independent.identity().name(), "independent");
+    assert!(independent.dependencies().is_empty());
+}
+
+#[test]
 fn dependency_cycles_are_reported_deterministically() {
     let workspace = TestWorkspace::new();
     write_valid_workspace(workspace.path(), false);
