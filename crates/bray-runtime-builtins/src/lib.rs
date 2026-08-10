@@ -2,6 +2,7 @@
 
 #![deny(unsafe_code)]
 
+#[cfg(any(feature = "character", feature = "memory", feature = "string"))]
 #[macro_use]
 mod export;
 #[cfg(any(feature = "memory", feature = "string"))]
