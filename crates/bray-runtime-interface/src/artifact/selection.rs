@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::Sha256Reader;
 use bray_symbols::NativeLinkRequirement;
 
+use super::archive::{ArchiveValidationError, authenticate_archive};
 use super::catalog::{
     RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactMetadata,
     RuntimeArtifactPurpose,
@@ -221,122 +221,6 @@ impl RuntimeArtifact {
             .ok_or(RuntimeArtifactSelectionError::MissingCapabilityOwner(
                 capability,
             ))
-    }
-}
-
-enum ArchiveValidationError {
-    Unreadable(io::ErrorKind),
-    Invalid,
-}
-
-fn authenticate_archive(path: &Path) -> Result<RuntimeArtifactDigest, ArchiveValidationError> {
-    let archive = std::fs::File::open(path)
-        .map_err(|error| ArchiveValidationError::Unreadable(error.kind()))?;
-
-    let metadata = archive
-        .metadata()
-        .map_err(|error| ArchiveValidationError::Unreadable(error.kind()))?;
-
-    if !metadata.is_file() {
-        return Err(ArchiveValidationError::Invalid);
-    }
-
-    let mut archive = Sha256Reader::new(archive);
-    let mut magic = [0; 8];
-
-    read_archive_exact(&mut archive, &mut magic)?;
-
-    if magic != *b"!<arch>\n" {
-        return Err(ArchiveValidationError::Invalid);
-    }
-
-    loop {
-        let mut header = [0; 60];
-
-        match archive.read(&mut header[..1]) {
-            Ok(0) => break,
-            Ok(1) => read_archive_exact(&mut archive, &mut header[1..])?,
-            Ok(_) => unreachable!("a one-byte read cannot return more than one byte"),
-            Err(error) => return Err(ArchiveValidationError::Unreadable(error.kind())),
-        }
-
-        let member_size = archive_member_size(&header)?;
-
-        consume_archive_bytes(&mut archive, member_size)?;
-
-        if member_size % 2 == 1 {
-            let mut padding = [0];
-
-            read_archive_exact(&mut archive, &mut padding)?;
-
-            if padding != [b'\n'] {
-                return Err(ArchiveValidationError::Invalid);
-            }
-        }
-    }
-
-    let digest = archive.finalize();
-
-    Ok(RuntimeArtifactDigest::new(digest))
-}
-
-fn archive_member_size(header: &[u8; 60]) -> Result<u64, ArchiveValidationError> {
-    if header[58..] != *b"`\n" {
-        return Err(ArchiveValidationError::Invalid);
-    }
-
-    let size = std::str::from_utf8(&header[48..58])
-        .map_err(|_| ArchiveValidationError::Invalid)?
-        .trim_end_matches(' ');
-
-    if size.is_empty() || !size.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(ArchiveValidationError::Invalid);
-    }
-
-    size.parse()
-        .map_err(|_| ArchiveValidationError::Invalid)
-}
-
-fn consume_archive_bytes(
-    archive: &mut impl Read,
-    mut remaining: u64,
-) -> Result<(), ArchiveValidationError> {
-    const BUFFER_LENGTH: usize = 64 * 1024;
-
-    let mut buffer = [0; BUFFER_LENGTH];
-
-    let buffer_length = u64::try_from(BUFFER_LENGTH)
-        .unwrap_or_else(|_| unreachable!("archive buffer length must fit u64"));
-
-    while remaining != 0 {
-        let requested = usize::try_from(remaining.min(buffer_length))
-            .unwrap_or_else(|_| unreachable!("bounded archive read length must fit usize"));
-
-        let length = archive
-            .read(&mut buffer[..requested])
-            .map_err(|error| ArchiveValidationError::Unreadable(error.kind()))?;
-
-        if length == 0 {
-            return Err(ArchiveValidationError::Invalid);
-        }
-
-        remaining -= u64::try_from(length)
-            .unwrap_or_else(|_| unreachable!("archive read length must fit u64"));
-    }
-
-    Ok(())
-}
-
-fn read_archive_exact(
-    archive: &mut impl Read,
-    bytes: &mut [u8],
-) -> Result<(), ArchiveValidationError> {
-    match archive.read_exact(bytes) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
-            Err(ArchiveValidationError::Invalid)
-        }
-        Err(error) => Err(ArchiveValidationError::Unreadable(error.kind())),
     }
 }
 

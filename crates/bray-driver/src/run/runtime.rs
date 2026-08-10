@@ -5,11 +5,13 @@ use bray_compilation::SelectedTarget;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, SeverityKind,
+    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
+    DiagnosticRuntimeArtifactPurpose, SeverityKind,
 };
 use bray_runtime_interface::{
-    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactMetadataDecodeError,
-    RuntimeArtifactSelectionError,
+    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactMetadataBuildError,
+    RuntimeArtifactMetadataDecodeError, RuntimeArtifactPurpose, RuntimeArtifactSelectionError,
+    RuntimeContractBuildError,
 };
 use bray_tooling::{RuntimeArtifactLoadError, load_runtime_artifact};
 
@@ -143,7 +145,7 @@ fn runtime_load_diagnostics(error: RuntimeArtifactLoadError) -> DiagnosticBag {
     DiagnosticBag::single(diagnostic)
 }
 
-const fn metadata_problem(
+fn metadata_problem(
     error: &RuntimeArtifactMetadataDecodeError,
 ) -> DiagnosticRuntimeArtifactProblem {
     match error {
@@ -195,12 +197,100 @@ const fn metadata_problem(
         RuntimeArtifactMetadataDecodeError::InvalidArchiveDigest => {
             DiagnosticRuntimeArtifactProblem::InvalidArchiveDigest
         }
-        RuntimeArtifactMetadataDecodeError::InvalidContract(_) => {
-            DiagnosticRuntimeArtifactProblem::InvalidContract
+        RuntimeArtifactMetadataDecodeError::InvalidContract(error) => contract_problem(*error),
+        RuntimeArtifactMetadataDecodeError::InvalidMetadata(error) => catalog_problem(error),
+    }
+}
+
+fn contract_problem(error: RuntimeContractBuildError) -> DiagnosticRuntimeArtifactProblem {
+    match error {
+        RuntimeContractBuildError::DuplicateRole(role) => {
+            DiagnosticRuntimeArtifactProblem::DuplicateContractRole(role.as_str().to_owned())
         }
-        RuntimeArtifactMetadataDecodeError::InvalidMetadata(_) => {
-            DiagnosticRuntimeArtifactProblem::InvalidCatalog
+        RuntimeContractBuildError::CompilerOwnedRole(role) => {
+            DiagnosticRuntimeArtifactProblem::CompilerOwnedRole(role.as_str().to_owned())
         }
+        RuntimeContractBuildError::MissingCooperativeExecution => {
+            DiagnosticRuntimeArtifactProblem::MissingCooperativeExecution
+        }
+    }
+}
+
+fn catalog_problem(
+    error: &RuntimeArtifactMetadataBuildError,
+) -> DiagnosticRuntimeArtifactProblem {
+    match error {
+        RuntimeArtifactMetadataBuildError::InvalidArchiveFileName => {
+            DiagnosticRuntimeArtifactProblem::InvalidArchiveFileName
+        }
+        RuntimeArtifactMetadataBuildError::UnreferencedSupportComponent(component) => {
+            DiagnosticRuntimeArtifactProblem::UnreferencedSupportComponent(
+                component.as_str().to_owned(),
+            )
+        }
+        RuntimeArtifactMetadataBuildError::DuplicateComponent(component) => {
+            DiagnosticRuntimeArtifactProblem::DuplicateComponent(component.as_str().to_owned())
+        }
+        RuntimeArtifactMetadataBuildError::InvalidComponentDependency {
+            component,
+            dependency,
+        } => DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
+            component: component.as_str().to_owned(),
+            dependency: dependency.as_str().to_owned(),
+        },
+        RuntimeArtifactMetadataBuildError::ComponentDependencyCycle(component) => {
+            DiagnosticRuntimeArtifactProblem::ComponentDependencyCycle(
+                component.as_str().to_owned(),
+            )
+        }
+        RuntimeArtifactMetadataBuildError::UnknownComponentRole(role) => {
+            DiagnosticRuntimeArtifactProblem::UnknownComponentRole(role.as_str().to_owned())
+        }
+        RuntimeArtifactMetadataBuildError::UnknownComponentCapability(capability) => {
+            DiagnosticRuntimeArtifactProblem::UnknownComponentCapability(
+                capability.as_str().to_owned(),
+            )
+        }
+        RuntimeArtifactMetadataBuildError::TestRoleInProductComponent(component) => {
+            DiagnosticRuntimeArtifactProblem::TestRoleInProductComponent(
+                component.as_str().to_owned(),
+            )
+        }
+        RuntimeArtifactMetadataBuildError::MissingRoleOwner { purpose, role } => {
+            DiagnosticRuntimeArtifactProblem::MissingRoleOwner {
+                purpose: diagnostic_purpose(*purpose),
+                role: role.as_str().to_owned(),
+            }
+        }
+        RuntimeArtifactMetadataBuildError::DuplicateRoleOwner { purpose, role } => {
+            DiagnosticRuntimeArtifactProblem::DuplicateRoleOwner {
+                purpose: diagnostic_purpose(*purpose),
+                role: role.as_str().to_owned(),
+            }
+        }
+        RuntimeArtifactMetadataBuildError::MissingCapabilityOwner {
+            purpose,
+            capability,
+        } => DiagnosticRuntimeArtifactProblem::MissingCapabilityOwner {
+            purpose: diagnostic_purpose(*purpose),
+            capability: capability.as_str().to_owned(),
+        },
+        RuntimeArtifactMetadataBuildError::DuplicateCapabilityOwner {
+            purpose,
+            capability,
+        } => DiagnosticRuntimeArtifactProblem::DuplicateCapabilityOwner {
+            purpose: diagnostic_purpose(*purpose),
+            capability: capability.as_str().to_owned(),
+        },
+    }
+}
+
+const fn diagnostic_purpose(
+    purpose: RuntimeArtifactPurpose,
+) -> DiagnosticRuntimeArtifactPurpose {
+    match purpose {
+        RuntimeArtifactPurpose::Product => DiagnosticRuntimeArtifactPurpose::Product,
+        RuntimeArtifactPurpose::TestRunner => DiagnosticRuntimeArtifactPurpose::TestRunner,
     }
 }
 
@@ -257,8 +347,13 @@ mod tests {
     use bray_compilation::SelectedTarget;
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticRuntimeArtifactProblem,
+        DiagnosticRuntimeArtifactPurpose,
     };
-    use bray_runtime_interface::{RuntimeArtifactBuildError, RuntimeArtifactMetadataDecodeError};
+    use bray_runtime_interface::{
+        RuntimeAbiRole, RuntimeArtifactBuildError, RuntimeArtifactId,
+        RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
+        RuntimeArtifactPurpose, RuntimeCapability, RuntimeContractBuildError,
+    };
     use bray_tooling::RuntimeArtifactLoadError;
 
     use super::{resolve_runtime, runtime_load_diagnostics};
@@ -309,6 +404,12 @@ mod tests {
     fn invalid_runtime_metadata_preserves_typed_decode_and_build_failures() {
         let path = std::path::PathBuf::from("runtime.brayrt");
 
+        let component = RuntimeArtifactId::try_new("runtime.scheduler")
+            .unwrap_or_else(|| panic!("test component identity must be valid"));
+
+        let dependency = RuntimeArtifactId::try_new("runtime.reactor")
+            .unwrap_or_else(|| panic!("test dependency identity must be valid"));
+
         let decode_cases = [
             (
                 RuntimeArtifactMetadataDecodeError::Malformed,
@@ -325,6 +426,36 @@ mod tests {
             (
                 RuntimeArtifactMetadataDecodeError::InvalidArchiveDigest,
                 DiagnosticRuntimeArtifactProblem::InvalidArchiveDigest,
+            ),
+            (
+                RuntimeArtifactMetadataDecodeError::InvalidContract(
+                    RuntimeContractBuildError::DuplicateRole(RuntimeAbiRole::Wake),
+                ),
+                DiagnosticRuntimeArtifactProblem::DuplicateContractRole("wake".to_owned()),
+            ),
+            (
+                RuntimeArtifactMetadataDecodeError::InvalidMetadata(
+                    RuntimeArtifactMetadataBuildError::InvalidComponentDependency {
+                        component: component.clone(),
+                        dependency: dependency.clone(),
+                    },
+                ),
+                DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
+                    component: "runtime.scheduler".to_owned(),
+                    dependency: "runtime.reactor".to_owned(),
+                },
+            ),
+            (
+                RuntimeArtifactMetadataDecodeError::InvalidMetadata(
+                    RuntimeArtifactMetadataBuildError::MissingCapabilityOwner {
+                        purpose: RuntimeArtifactPurpose::TestRunner,
+                        capability: RuntimeCapability::Reactor,
+                    },
+                ),
+                DiagnosticRuntimeArtifactProblem::MissingCapabilityOwner {
+                    purpose: DiagnosticRuntimeArtifactPurpose::TestRunner,
+                    capability: "reactor".to_owned(),
+                },
             ),
         ];
 

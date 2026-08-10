@@ -19,8 +19,8 @@ pub use argument::{
     DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
     DiagnosticCallableAbi, DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind,
     DiagnosticNamedType, DiagnosticOutputSink, DiagnosticRuntimeAbiVersion,
-    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind, DiagnosticTargetRepresentation, DiagnosticType,
-    DiagnosticTypeArgument, DiagnosticVisibility,
+    DiagnosticRuntimeArtifactProblem, DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
+    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use code::DiagnosticCode;

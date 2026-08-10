@@ -58,7 +58,7 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::IoErrorKind(kind) => format_english_io_error_kind(*kind).to_owned(),
         DiagnosticArgValue::OutputSink(sink) => format_english_output_sink(sink),
         DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
-            format_english_runtime_artifact_problem(*problem).to_owned()
+            format_english_runtime_artifact_problem(problem)
         }
         DiagnosticArgValue::Visibility(visibility) => visibility.as_str().to_owned(),
         DiagnosticArgValue::ModuleTrust(trust) => format_english_module_trust(*trust).to_owned(),
@@ -82,45 +82,138 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
     }
 }
 
-const fn format_english_runtime_artifact_problem(
-    problem: bray_diagnostics::DiagnosticRuntimeArtifactProblem,
-) -> &'static str {
+fn format_english_runtime_artifact_problem(
+    problem: &bray_diagnostics::DiagnosticRuntimeArtifactProblem,
+) -> String {
     use bray_diagnostics::DiagnosticRuntimeArtifactProblem;
 
     match problem {
         DiagnosticRuntimeArtifactProblem::MetadataSizeLimitExceeded => {
-            "metadata exceeds the size limit"
+            "metadata exceeds the size limit".to_owned()
         }
-        DiagnosticRuntimeArtifactProblem::MalformedMetadata => "malformed metadata",
-        DiagnosticRuntimeArtifactProblem::UnsupportedFormat => "unsupported metadata format",
-        DiagnosticRuntimeArtifactProblem::InvalidRuntimeIdentity => "invalid runtime identity",
-        DiagnosticRuntimeArtifactProblem::InvalidArtifactIdentity => "invalid artifact identity",
-        DiagnosticRuntimeArtifactProblem::InvalidTarget => "invalid target identity",
-        DiagnosticRuntimeArtifactProblem::InvalidPanicAbi => "invalid panic ABI identity",
-        DiagnosticRuntimeArtifactProblem::UnknownCapability => "unknown runtime capability",
-        DiagnosticRuntimeArtifactProblem::UnknownRole => "unknown runtime role",
-        DiagnosticRuntimeArtifactProblem::InvalidRoleSymbol => "invalid runtime role symbol",
+        DiagnosticRuntimeArtifactProblem::MalformedMetadata => "malformed metadata".to_owned(),
+        DiagnosticRuntimeArtifactProblem::UnsupportedFormat => {
+            "unsupported metadata format".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::InvalidRuntimeIdentity => {
+            "invalid runtime identity".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::InvalidArtifactIdentity => {
+            "invalid artifact identity".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::InvalidTarget => "invalid target identity".to_owned(),
+        DiagnosticRuntimeArtifactProblem::InvalidPanicAbi => {
+            "invalid panic ABI identity".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::UnknownCapability => {
+            "unknown runtime capability".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::UnknownRole => "unknown runtime role".to_owned(),
+        DiagnosticRuntimeArtifactProblem::InvalidRoleSymbol => {
+            "invalid runtime role symbol".to_owned()
+        }
         DiagnosticRuntimeArtifactProblem::UnknownRoleImplementation => {
-            "unknown runtime role implementation"
+            "unknown runtime role implementation".to_owned()
         }
         DiagnosticRuntimeArtifactProblem::InvalidNativeLinkName => {
-            "invalid native link name"
+            "invalid native link name".to_owned()
         }
-        DiagnosticRuntimeArtifactProblem::UnknownNativeLinkKind => "unknown native link kind",
+        DiagnosticRuntimeArtifactProblem::UnknownNativeLinkKind => {
+            "unknown native link kind".to_owned()
+        }
         DiagnosticRuntimeArtifactProblem::UnknownComponentPurpose => {
-            "unknown runtime component purpose"
+            "unknown runtime component purpose".to_owned()
         }
         DiagnosticRuntimeArtifactProblem::InvalidComponentIdentity => {
-            "invalid runtime component identity"
+            "invalid runtime component identity".to_owned()
         }
-        DiagnosticRuntimeArtifactProblem::InvalidArchiveDigest => "invalid archive digest",
-        DiagnosticRuntimeArtifactProblem::InvalidContract => "invalid runtime contract",
-        DiagnosticRuntimeArtifactProblem::InvalidCatalog => "invalid runtime component catalog",
-        DiagnosticRuntimeArtifactProblem::MissingComponent => "missing runtime component",
-        DiagnosticRuntimeArtifactProblem::UnexpectedComponent => "unexpected runtime component",
+        DiagnosticRuntimeArtifactProblem::InvalidArchiveDigest => {
+            "invalid archive digest".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::DuplicateContractRole(role) => {
+            format!("duplicate runtime contract role `{role}`")
+        }
+        DiagnosticRuntimeArtifactProblem::CompilerOwnedRole(role) => {
+            format!("compiler-owned role `{role}` is published by the runtime")
+        }
+        DiagnosticRuntimeArtifactProblem::MissingCooperativeExecution => {
+            "runtime contract omits cooperative execution".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::InvalidArchiveFileName => {
+            "invalid runtime component archive file name".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::UnreferencedSupportComponent(component) => {
+            format!("support component `{component}` is unreferenced")
+        }
+        DiagnosticRuntimeArtifactProblem::DuplicateComponent(component) => {
+            format!("duplicate runtime component `{component}`")
+        }
+        DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
+            component,
+            dependency,
+        } => {
+            format!("component `{component}` has invalid dependency `{dependency}`")
+        }
+        DiagnosticRuntimeArtifactProblem::ComponentDependencyCycle(component) => {
+            format!("component dependency cycle includes `{component}`")
+        }
+        DiagnosticRuntimeArtifactProblem::UnknownComponentRole(role) => {
+            format!("component claims unknown runtime role `{role}`")
+        }
+        DiagnosticRuntimeArtifactProblem::UnknownComponentCapability(capability) => {
+            format!("component claims unknown runtime capability `{capability}`")
+        }
+        DiagnosticRuntimeArtifactProblem::TestRoleInProductComponent(component) => {
+            format!("product component `{component}` claims the test-entry role")
+        }
+        DiagnosticRuntimeArtifactProblem::MissingRoleOwner { purpose, role } => {
+            format!(
+                "{} runtime surface has no owner for role `{role}`",
+                format_english_runtime_artifact_purpose(*purpose)
+            )
+        }
+        DiagnosticRuntimeArtifactProblem::DuplicateRoleOwner { purpose, role } => {
+            format!(
+                "{} runtime surface has multiple owners for role `{role}`",
+                format_english_runtime_artifact_purpose(*purpose)
+            )
+        }
+        DiagnosticRuntimeArtifactProblem::MissingCapabilityOwner {
+            purpose,
+            capability,
+        } => {
+            format!(
+                "{} runtime surface has no owner for capability `{capability}`",
+                format_english_runtime_artifact_purpose(*purpose)
+            )
+        }
+        DiagnosticRuntimeArtifactProblem::DuplicateCapabilityOwner {
+            purpose,
+            capability,
+        } => {
+            format!(
+                "{} runtime surface has multiple owners for capability `{capability}`",
+                format_english_runtime_artifact_purpose(*purpose)
+            )
+        }
+        DiagnosticRuntimeArtifactProblem::MissingComponent => {
+            "missing runtime component".to_owned()
+        }
+        DiagnosticRuntimeArtifactProblem::UnexpectedComponent => {
+            "unexpected runtime component".to_owned()
+        }
         DiagnosticRuntimeArtifactProblem::ArchiveFileNameMismatch => {
-            "archive file name does not match metadata"
+            "archive file name does not match metadata".to_owned()
         }
+    }
+}
+
+const fn format_english_runtime_artifact_purpose(
+    purpose: bray_diagnostics::DiagnosticRuntimeArtifactPurpose,
+) -> &'static str {
+    match purpose {
+        bray_diagnostics::DiagnosticRuntimeArtifactPurpose::Product => "product",
+        bray_diagnostics::DiagnosticRuntimeArtifactPurpose::TestRunner => "test-runner",
     }
 }
 

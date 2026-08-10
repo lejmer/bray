@@ -992,6 +992,48 @@ mod tests {
     }
 
     #[test]
+    fn runtime_selection_accepts_aix_big_archive_framing() {
+        assert_valid_archive(&big_archive_with_member(b"body"));
+    }
+
+    #[test]
+    fn runtime_selection_accepts_supported_unix_archive_framing() {
+        assert_valid_archive(&archive_with_member(b"body"));
+        assert_valid_archive(&coff_archive_with_string_table());
+        assert_valid_archive(&darwin_archive_with_member(b"body"));
+    }
+
+    #[test]
+    fn runtime_selection_rejects_malformed_aix_big_archive_framing() {
+        let mut malformed_fixed_offset = big_archive_with_member(b"body");
+        malformed_fixed_offset[8] = b'x';
+
+        let mut malformed_member_size = big_archive_with_member(b"body");
+        malformed_member_size[128] = b'x';
+
+        let mut invalid_name_terminator = big_archive_with_member(b"body");
+        invalid_name_terminator[128 + 112 + 6] = 0;
+
+        let mut truncated_member = big_archive_with_member(b"body");
+        truncated_member.pop();
+
+        let mut broken_previous_link = big_archive_with_member(b"body");
+        let member_table = 128 + 112 + 6 + 2 + 4;
+        broken_previous_link[member_table + 40] = b'0';
+
+        for bytes in [
+            b"<bigaf>\n".to_vec(),
+            malformed_fixed_offset,
+            malformed_member_size,
+            invalid_name_terminator,
+            truncated_member,
+            broken_previous_link,
+        ] {
+            assert_invalid_archive(&bytes);
+        }
+    }
+
+    #[test]
     fn runtime_catalogs_reject_missing_and_duplicate_capability_owners() {
         let components = metadata().components().to_vec();
 
@@ -1226,9 +1268,32 @@ mod tests {
     }
 
     fn archive_with_member(contents: &[u8]) -> Vec<u8> {
+        unix_archive_member("member/", contents)
+    }
+
+    fn coff_archive_with_string_table() -> Vec<u8> {
+        unix_archive_member("//", b"long_name\0")
+    }
+
+    fn darwin_archive_with_member(contents: &[u8]) -> Vec<u8> {
+        let name = b"member";
+        let name_padding = 6;
+        let member_padding = (8 - contents.len() % 8) % 8;
+        let encoded_name_length = name.len() + name_padding;
+        let mut member = Vec::new();
+
+        member.extend_from_slice(name);
+        member.resize(encoded_name_length, 0);
+        member.extend_from_slice(contents);
+        member.resize(member.len() + member_padding, 0);
+
+        unix_archive_member(&format!("#1/{encoded_name_length}"), &member)
+    }
+
+    fn unix_archive_member(name: &str, contents: &[u8]) -> Vec<u8> {
         let header = format!(
             "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
-            "member/",
+            name,
             0,
             0,
             0,
@@ -1248,6 +1313,123 @@ mod tests {
         }
 
         archive
+    }
+
+    fn big_archive_with_member(contents: &[u8]) -> Vec<u8> {
+        const FIXED_HEADER_LENGTH: usize = 128;
+
+        let name = b"member";
+        let member_length = 112 + name.len() + 2 + contents.len() + contents.len() % 2;
+        let member_table_offset = FIXED_HEADER_LENGTH + member_length;
+
+        let member_table_contents = [
+            fixed_width_decimal(1, 20),
+            fixed_width_decimal(FIXED_HEADER_LENGTH, 20),
+            b"member\0".to_vec(),
+        ]
+        .concat();
+
+        let mut archive = b"<bigaf>\n".to_vec();
+
+        for offset in [
+            member_table_offset,
+            0,
+            0,
+            FIXED_HEADER_LENGTH,
+            FIXED_HEADER_LENGTH,
+            0,
+        ] {
+            archive.extend_from_slice(&fixed_width_decimal(offset, 20));
+        }
+
+        archive.extend_from_slice(&big_archive_member(
+            name,
+            contents,
+            member_table_offset,
+            0,
+        ));
+
+        archive.extend_from_slice(&big_archive_member(
+            b"",
+            &member_table_contents,
+            0,
+            FIXED_HEADER_LENGTH,
+        ));
+
+        archive
+    }
+
+    fn big_archive_member(
+        name: &[u8],
+        contents: &[u8],
+        next: usize,
+        previous: usize,
+    ) -> Vec<u8> {
+        let mut member = Vec::new();
+
+        for (value, width) in [
+            (contents.len(), 20),
+            (next, 20),
+            (previous, 20),
+            (0, 12),
+            (0, 12),
+            (0, 12),
+        ] {
+            member.extend_from_slice(&fixed_width_decimal(value, width));
+        }
+
+        member.extend_from_slice(format!("{:<12}", "100644").as_bytes());
+        member.extend_from_slice(&fixed_width_decimal(name.len(), 4));
+        member.extend_from_slice(name);
+
+        if name.len() % 2 == 1 {
+            member.push(0);
+        }
+
+        member.extend_from_slice(b"`\n");
+        member.extend_from_slice(contents);
+
+        if contents.len() % 2 == 1 {
+            member.push(0);
+        }
+
+        member
+    }
+
+    fn fixed_width_decimal(value: usize, width: usize) -> Vec<u8> {
+        format!("{value:<width$}").into_bytes()
+    }
+
+    fn assert_valid_archive(bytes: &[u8]) {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(bytes)
+                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
+        );
+
+        let components = resolved_components(directory.path());
+
+        for (_, archive) in &components {
+            std::fs::write(archive, bytes)
+                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
+        }
+
+        let artifact = RuntimeArtifact::try_new(
+            metadata_with_digest("bray.runtime.reference", digest),
+            components,
+        )
+        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+
+        assert!(
+            artifact
+                .select(
+                    RuntimeArtifactPurpose::Product,
+                    &requirements([], [RuntimeCapability::MainThreadLane]),
+                )
+                .is_ok()
+        );
     }
 
     fn assert_invalid_archive(bytes: &[u8]) {

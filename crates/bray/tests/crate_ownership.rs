@@ -65,19 +65,52 @@ fn assert_no_dependency(manifest: &str, dependency: &str) {
     );
 }
 
+#[test]
+fn target_specific_regular_dependencies_are_part_of_the_ownership_contract() {
+    let regular = "[target.'cfg(windows)'.dependencies]\nbray-driver = { path = '../bray-driver' }";
+    let table = "[target.x86_64-pc-windows-msvc.dependencies.bray-driver]\npath = '../bray-driver'";
+
+    let development =
+        "[target.'cfg(windows)'.dev-dependencies]\nbray-driver = { path = '../bray-driver' }";
+
+    assert!(has_regular_dependency(regular, "bray-driver"));
+    assert!(has_regular_dependency(table, "bray-driver"));
+    assert!(!has_regular_dependency(development, "bray-driver"));
+}
+
 fn assert_no_regular_dependency(manifest: &str, dependency: &str) {
+    assert!(
+        !has_regular_dependency(manifest, dependency),
+        "unexpected regular dependency {dependency}"
+    );
+}
+
+fn has_regular_dependency(manifest: &str, dependency: &str) -> bool {
     let mut section = "";
+    let dependency_table = format!("[dependencies.{dependency}]");
+    let target_dependency_table_suffix = format!(".dependencies.{dependency}]");
 
     for line in manifest.lines() {
         if line.starts_with('[') && line.ends_with(']') {
             section = line;
 
+            if section == dependency_table
+                || (section.starts_with("[target.")
+                    && section.ends_with(&target_dependency_table_suffix))
+            {
+                return true;
+            }
+
             continue;
         }
 
-        assert!(
-            section != "[dependencies]" || !line.starts_with(&format!("{dependency} = ")),
-            "unexpected regular dependency {dependency}"
-        );
+        let regular_dependencies = section == "[dependencies]"
+            || (section.starts_with("[target.") && section.ends_with(".dependencies]"));
+
+        if regular_dependencies && line.starts_with(&format!("{dependency} = ")) {
+            return true;
+        }
     }
+
+    false
 }
