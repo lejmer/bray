@@ -5,6 +5,7 @@ use blake3::Hasher;
 use crate::header::InterfaceHeader;
 use crate::section::DirectoryEntry;
 use crate::wire::WireEncoder;
+use crate::{InterfaceSectionRevision, InterfaceSectionTag};
 
 const CONTENT_HASH_DOMAIN: &[u8] = b"bray.package-interface.content.v1";
 const SECTION_HASH_DOMAIN: &[u8] = b"bray.package-interface.section.v1";
@@ -59,8 +60,12 @@ pub(crate) fn compute_section_hash(entry: &DirectoryEntry, payload: &[u8]) -> In
     let mut prefix = WireEncoder::new();
 
     prefix.write_u32(entry.raw_tag());
+    prefix.write_u16(entry.section_revision().raw());
+    prefix.write_u8(entry.raw_compatibility());
+    prefix.write_u8(entry.raw_encoding());
     prefix.write_u64(entry.record_count());
-    prefix.write_u64(entry.length());
+    prefix.write_u64(entry.encoded_length());
+    prefix.write_u64(entry.decoded_length());
 
     let mut hasher = Hasher::new();
 
@@ -71,11 +76,10 @@ pub(crate) fn compute_section_hash(entry: &DirectoryEntry, payload: &[u8]) -> In
     InterfaceSectionHash::from_bytes(*hasher.finalize().as_bytes())
 }
 
-pub(crate) fn compute_content_hash(
+pub(crate) fn compute_content_hash<'bytes>(
     header: &InterfaceHeader,
-    entries: &[DirectoryEntry],
-    bytes: &[u8],
-) -> Option<InterfaceContentHash> {
+    sections: impl IntoIterator<Item = (InterfaceSectionTag, InterfaceSectionRevision, &'bytes [u8])>,
+) -> InterfaceContentHash {
     let mut prefix = WireEncoder::new();
 
     prefix.write_u16(header.format_revision().raw());
@@ -87,25 +91,22 @@ pub(crate) fn compute_content_hash(
     hasher.update(CONTENT_HASH_DOMAIN);
     hasher.update(prefix.bytes());
 
-    for entry in entries {
-        if !entry.contributes_to_content_hash() {
+    for (tag, revision, payload) in sections {
+        if !tag.contributes_to_content_hash() {
             continue;
         }
 
-        let payload = entry.payload(bytes)?;
-
         let mut section_prefix = WireEncoder::new();
 
-        section_prefix.write_u32(entry.raw_tag());
-        section_prefix.write_u64(entry.length());
+        section_prefix.write_u32(tag.wire_value());
+        section_prefix.write_u16(revision.raw());
+        section_prefix.write_u64(u64::try_from(payload.len()).unwrap_or(u64::MAX));
 
         hasher.update(section_prefix.bytes());
         hasher.update(payload);
     }
 
-    Some(InterfaceContentHash::from_bytes(
-        *hasher.finalize().as_bytes(),
-    ))
+    InterfaceContentHash::from_bytes(*hasher.finalize().as_bytes())
 }
 
 pub(crate) fn compute_artifact_hash(bytes: &[u8]) -> Option<InterfaceArtifactHash> {

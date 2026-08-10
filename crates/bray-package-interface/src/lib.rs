@@ -6,6 +6,7 @@ mod artifact;
 mod construction;
 mod decode;
 mod diagnostic;
+mod encoding;
 mod export;
 mod hash;
 mod header;
@@ -28,6 +29,7 @@ pub use construction::{
     construct_imported_symbol_skeletons,
 };
 pub use diagnostic::InterfaceValidationError;
+pub use encoding::InterfaceSectionEncoding;
 pub use export::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
     PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
@@ -49,7 +51,10 @@ pub use inspection::{
     InterfaceSectionIndexEntry, PackageInterfaceInspection,
 };
 pub use limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
-pub use section::{InterfaceSectionTag, ValidatedInterfaceSection};
+pub use section::{
+    InterfaceSectionCompatibility, InterfaceSectionRevision, InterfaceSectionTag,
+    ValidatedInterfaceSection,
+};
 pub use semantic::{
     EncodedSemanticSection, ImportedAbiDependency, ImportedCallableContractFact,
     ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact, ImportedConstraintFact,

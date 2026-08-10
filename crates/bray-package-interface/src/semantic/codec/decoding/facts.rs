@@ -87,7 +87,7 @@ pub(crate) fn decode_selected_semantic_fact_graph(
     selection::decode_selected_fact_graph(sections, surface, owner, kind, limits).map(Some)
 }
 
-fn selected_fact_sections(
+pub(crate) fn selected_fact_sections(
     kind: crate::InterfaceSemanticFactKind,
 ) -> Option<&'static [InterfaceSectionTag]> {
     const GENERIC_CONSTRAINT_SECTIONS: &[InterfaceSectionTag] = &[

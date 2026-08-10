@@ -18,6 +18,7 @@ bray-ir = { path = "../bray-ir" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
+zstd = { version = "=0.13.3", default-features = false }
 
 [dev-dependencies]
 bray-messages = { path = "../bray-messages" }

@@ -7,8 +7,8 @@ pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_f
 pub(crate) use codec::{
     SemanticDecodeContext, decode_inspection_records, decode_selected_semantic_fact_graph,
     decode_semantic_fact_graph, decode_template_payload, encode_template_payload,
-    encode_validated_semantic_facts, read_symbol_reference, validate_decode_allocation,
-    write_symbol_reference,
+    encode_validated_semantic_facts, read_symbol_reference, selected_fact_sections,
+    validate_decode_allocation, write_symbol_reference,
 };
 pub use interning::{
     ImportedAbiDependency, ImportedCallableContractFact, ImportedCallableParameterDefaultFact,
