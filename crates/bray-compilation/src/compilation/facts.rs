@@ -34,7 +34,7 @@ use bray_symbols::{
     ImplementationSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
     PackageIdentity, ProductIdentity, ProductSemanticFacts, ProofOutcome, SemanticFactResult,
     SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
-    TraitImplementationConformanceFact, TypeAssociatedSurface,
+    TraitImplementationConformanceFact, TypeAssociatedSurface, TypeId,
 };
 use bray_syntax::SyntaxTree;
 
@@ -138,6 +138,8 @@ pub(super) struct CompilationState {
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
     pub(super) declared_type_representations:
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<DeclaredTypeRepresentation>>>,
+    pub(super) codegen_lifecycle_needs:
+        Mutex<BTreeMap<TypeId, super::product::CodegenLifecycleNeeds>>,
     pub(super) type_associated_implementation_index:
         FactCell<super::type_surface::InherentImplementationAssociationIndex>,
     pub(super) implementation_index:
@@ -429,6 +431,7 @@ impl Compilation {
                 foreign_callable_validation: FactCell::new(),
                 type_associated_surfaces: FactCellMap::new(),
                 declared_type_representations: FactCellMap::new(),
+                codegen_lifecycle_needs: Mutex::new(BTreeMap::new()),
                 type_associated_implementation_index: FactCell::new(),
                 implementation_index: FactCell::new(),
                 implementation_candidate_sets: FactCellMap::new(),
