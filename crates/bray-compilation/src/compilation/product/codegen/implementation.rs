@@ -1025,7 +1025,7 @@ mod tests {
         assert!(!host.requirements().requires_implementation());
         assert_eq!(host.runtime_artifact(), None);
 
-        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\nruntime archive");
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let available_runtime = runtime_artifact(&compilation, archive.path());
 
         compilation
@@ -1256,7 +1256,7 @@ mod tests {
             "../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
         ));
 
-        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\nruntime archive");
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
 
         let roles = RuntimeAbiRole::ALL
             .into_iter()
@@ -1940,7 +1940,7 @@ mod tests {
     ) {
         let (backend, compilation) = codegen_compilation(source);
 
-        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\nruntime archive");
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let runtime = runtime_artifact(&compilation, archive.path());
 
         let product = test_product_identity();
@@ -1993,7 +1993,7 @@ mod tests {
 
         let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Test);
 
-        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\nruntime archive");
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let runtime = runtime_artifact(&compilation, archive.path());
 
         let facts = compilation

@@ -57,6 +57,9 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         }
         DiagnosticArgValue::IoErrorKind(kind) => format_english_io_error_kind(*kind).to_owned(),
         DiagnosticArgValue::OutputSink(sink) => format_english_output_sink(sink),
+        DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
+            format_english_runtime_artifact_problem(*problem).to_owned()
+        }
         DiagnosticArgValue::Visibility(visibility) => visibility.as_str().to_owned(),
         DiagnosticArgValue::ModuleTrust(trust) => format_english_module_trust(*trust).to_owned(),
         DiagnosticArgValue::SourceName(name) => name.clone(),
@@ -76,6 +79,48 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         }
         DiagnosticArgValue::Type(ty) => format_english_type(ty),
         DiagnosticArgValue::SelectionKind(kind) => format_english_selection_kind(*kind).to_owned(),
+    }
+}
+
+const fn format_english_runtime_artifact_problem(
+    problem: bray_diagnostics::DiagnosticRuntimeArtifactProblem,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticRuntimeArtifactProblem;
+
+    match problem {
+        DiagnosticRuntimeArtifactProblem::MetadataSizeLimitExceeded => {
+            "metadata exceeds the size limit"
+        }
+        DiagnosticRuntimeArtifactProblem::MalformedMetadata => "malformed metadata",
+        DiagnosticRuntimeArtifactProblem::UnsupportedFormat => "unsupported metadata format",
+        DiagnosticRuntimeArtifactProblem::InvalidRuntimeIdentity => "invalid runtime identity",
+        DiagnosticRuntimeArtifactProblem::InvalidArtifactIdentity => "invalid artifact identity",
+        DiagnosticRuntimeArtifactProblem::InvalidTarget => "invalid target identity",
+        DiagnosticRuntimeArtifactProblem::InvalidPanicAbi => "invalid panic ABI identity",
+        DiagnosticRuntimeArtifactProblem::UnknownCapability => "unknown runtime capability",
+        DiagnosticRuntimeArtifactProblem::UnknownRole => "unknown runtime role",
+        DiagnosticRuntimeArtifactProblem::InvalidRoleSymbol => "invalid runtime role symbol",
+        DiagnosticRuntimeArtifactProblem::UnknownRoleImplementation => {
+            "unknown runtime role implementation"
+        }
+        DiagnosticRuntimeArtifactProblem::InvalidNativeLinkName => {
+            "invalid native link name"
+        }
+        DiagnosticRuntimeArtifactProblem::UnknownNativeLinkKind => "unknown native link kind",
+        DiagnosticRuntimeArtifactProblem::UnknownComponentPurpose => {
+            "unknown runtime component purpose"
+        }
+        DiagnosticRuntimeArtifactProblem::InvalidComponentIdentity => {
+            "invalid runtime component identity"
+        }
+        DiagnosticRuntimeArtifactProblem::InvalidArchiveDigest => "invalid archive digest",
+        DiagnosticRuntimeArtifactProblem::InvalidContract => "invalid runtime contract",
+        DiagnosticRuntimeArtifactProblem::InvalidCatalog => "invalid runtime component catalog",
+        DiagnosticRuntimeArtifactProblem::MissingComponent => "missing runtime component",
+        DiagnosticRuntimeArtifactProblem::UnexpectedComponent => "unexpected runtime component",
+        DiagnosticRuntimeArtifactProblem::ArchiveFileNameMismatch => {
+            "archive file name does not match metadata"
+        }
     }
 }
 

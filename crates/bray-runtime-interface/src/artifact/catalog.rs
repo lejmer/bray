@@ -829,7 +829,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"!<arch>\nruntime archive";
+        let bytes = b"!<arch>\n";
         let components = resolved_components(directory.path());
 
         for (_, archive) in &components {
@@ -881,7 +881,7 @@ mod tests {
 
         std::fs::write(
             directory.path().join("bray_runtime_product.lib"),
-            b"!<arch>\ntampered archive",
+            archive_with_member(b"tampered archive"),
         )
         .unwrap_or_else(|error| panic!("test runtime archive must be replaced: {error}"));
 
@@ -915,7 +915,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"!<arch>\nruntime archive";
+        let bytes = b"!<arch>\n";
 
         let digest = RuntimeArtifactDigest::new(
             bray_base::sha256_reader(bytes.as_slice())
@@ -951,7 +951,7 @@ mod tests {
             })
         );
 
-        std::fs::write(&archive, b"not an archive")
+        std::fs::write(&archive, b"!<arch>\ntruncated member header")
             .unwrap_or_else(|error| panic!("invalid test archive must be written: {error}"));
 
         assert_eq!(
@@ -962,6 +962,33 @@ mod tests {
                 path: archive,
             })
         );
+    }
+
+    #[test]
+    fn runtime_selection_rejects_malformed_member_framing() {
+        let mut malformed_size = archive_with_member(&[]);
+        malformed_size[8 + 48] = b'x';
+
+        let mut truncated_member = archive_with_member(b"body");
+        truncated_member.pop();
+
+        let mut invalid_padding = archive_with_member(b"x");
+
+        *invalid_padding
+            .last_mut()
+            .unwrap_or_else(|| panic!("odd archive member must have padding")) = 0;
+
+        let mut incomplete_trailing_header = b"!<arch>\n".to_vec();
+        incomplete_trailing_header.push(b'x');
+
+        for bytes in [
+            malformed_size,
+            truncated_member,
+            invalid_padding,
+            incomplete_trailing_header,
+        ] {
+            assert_invalid_archive(&bytes);
+        }
     }
 
     #[test]
@@ -1007,7 +1034,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"!<arch>\nruntime archive";
+        let bytes = b"!<arch>\n";
         let digest_path = directory.path().join("digest.lib");
 
         std::fs::write(&digest_path, bytes)
@@ -1196,6 +1223,62 @@ mod tests {
             )
         })
         .collect()
+    }
+
+    fn archive_with_member(contents: &[u8]) -> Vec<u8> {
+        let header = format!(
+            "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+            "member/",
+            0,
+            0,
+            0,
+            "100644",
+            contents.len()
+        );
+
+        assert_eq!(header.len(), 60);
+
+        let mut archive = b"!<arch>\n".to_vec();
+
+        archive.extend_from_slice(header.as_bytes());
+        archive.extend_from_slice(contents);
+
+        if contents.len() % 2 == 1 {
+            archive.push(b'\n');
+        }
+
+        archive
+    }
+
+    fn assert_invalid_archive(bytes: &[u8]) {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(bytes)
+                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
+        );
+
+        let components = resolved_components(directory.path());
+
+        for (_, archive) in &components {
+            std::fs::write(archive, bytes)
+                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
+        }
+
+        let artifact = RuntimeArtifact::try_new(
+            metadata_with_digest("bray.runtime.reference", digest),
+            components,
+        )
+        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+
+        assert!(matches!(
+            artifact.select(
+                RuntimeArtifactPurpose::Product,
+                &requirements([], [RuntimeCapability::MainThreadLane]),
+            ),
+            Err(RuntimeArtifactSelectionError::InvalidArchive { .. })
+        ));
     }
 
     fn contract(identity: &str) -> RuntimeContract {

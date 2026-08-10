@@ -97,6 +97,8 @@ const RUNTIME_ARTIFACT_METADATA_READ_FAILED: &[MessageTemplatePart] = &[
 const RUNTIME_ARTIFACT_METADATA_INVALID: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("runtime artifact metadata is invalid: "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::RuntimeArtifactProblem),
 ];
 
 const RUNTIME_ARTIFACT_TARGET_MISMATCH: &[MessageTemplatePart] = &[

@@ -208,6 +208,7 @@ enum DiagnosticArgValueJson {
     InterfaceSection(&'static str),
     IoErrorKind(&'static str),
     OutputSink(DiagnosticOutputSinkJson),
+    RuntimeArtifactProblem(&'static str),
     Visibility(&'static str),
     ModuleTrust(&'static str),
     SourceName(String),
@@ -263,6 +264,9 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::IoErrorKind(kind) => Self::IoErrorKind((*kind).as_str()),
             DiagnosticArgValue::OutputSink(sink) => {
                 Self::OutputSink(DiagnosticOutputSinkJson::from_sink(sink))
+            }
+            DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
+                Self::RuntimeArtifactProblem((*problem).as_str())
             }
             DiagnosticArgValue::Visibility(visibility) => Self::Visibility((*visibility).as_str()),
             DiagnosticArgValue::ModuleTrust(trust) => Self::ModuleTrust((*trust).as_str()),
@@ -483,7 +487,8 @@ mod tests {
         DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticId, DiagnosticInterfaceLimit,
         DiagnosticInterfaceSection, DiagnosticKind, DiagnosticModuleTrust, DiagnosticNameKind,
         DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
-        DiagnosticRuntimeAbiVersion, DiagnosticSelectionKind, DiagnosticType,
+        DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind,
+        DiagnosticType,
         DiagnosticTypeArgument, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
@@ -751,6 +756,32 @@ mod tests {
         assert_eq!(args[1]["name"], "actual_runtime_abi");
         assert_eq!(args[1]["value"]["value"]["major"], 1);
         assert_eq!(args[1]["value"]["value"]["minor"], 4);
+    }
+
+    #[test]
+    fn json_output_serializes_runtime_artifact_problems_as_stable_categories() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::RuntimeArtifactMetadataInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::runtime_artifact_problem(
+            DiagnosticRuntimeArtifactProblem::UnsupportedFormat,
+        ));
+
+        let mut output = Vec::new();
+
+        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+            .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+        let output: serde_json::Value = serde_json::from_slice(&output)
+            .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+        let argument = &output["diagnostics"][0]["args"][0];
+
+        assert_eq!(argument["name"], "runtime_artifact_problem");
+        assert_eq!(argument["value"]["kind"], "runtime_artifact_problem");
+        assert_eq!(argument["value"]["value"], "unsupported_format");
     }
 
     #[test]

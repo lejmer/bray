@@ -19,7 +19,7 @@ pub use argument::{
     DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
     DiagnosticCallableAbi, DiagnosticIoErrorKind, DiagnosticModuleTrust, DiagnosticNameKind,
     DiagnosticNamedType, DiagnosticOutputSink, DiagnosticRuntimeAbiVersion,
-    DiagnosticSelectionKind, DiagnosticTargetRepresentation, DiagnosticType,
+    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind, DiagnosticTargetRepresentation, DiagnosticType,
     DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;

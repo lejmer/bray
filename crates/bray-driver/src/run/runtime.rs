@@ -5,9 +5,12 @@ use bray_compilation::SelectedTarget;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticRuntimeAbiVersion, SeverityKind,
+    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, SeverityKind,
 };
-use bray_runtime_interface::{RuntimeArtifact, RuntimeArtifactSelectionError};
+use bray_runtime_interface::{
+    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactMetadataDecodeError,
+    RuntimeArtifactSelectionError,
+};
 use bray_tooling::{RuntimeArtifactLoadError, load_runtime_artifact};
 
 use crate::command::{DriverRuntimeProfile, DriverRuntimeSelection};
@@ -93,13 +96,24 @@ fn runtime_load_diagnostics(error: RuntimeArtifactLoadError) -> DiagnosticBag {
         .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
             kind,
         ))),
-        RuntimeArtifactLoadError::InvalidMetadata { path, .. }
-        | RuntimeArtifactLoadError::InvalidArtifact { path, .. } => Diagnostic::new(
+        RuntimeArtifactLoadError::InvalidMetadata { path, source } => Diagnostic::new(
             DiagnosticId::new(0),
             DiagnosticKind::RuntimeArtifactMetadataInvalid,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::artifact_path(path)),
+        .with_arg(DiagnosticArg::artifact_path(path))
+        .with_arg(DiagnosticArg::runtime_artifact_problem(
+            metadata_problem(&source),
+        )),
+        RuntimeArtifactLoadError::InvalidArtifact { path, source } => Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::RuntimeArtifactMetadataInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::artifact_path(path))
+        .with_arg(DiagnosticArg::runtime_artifact_problem(build_problem(
+            source,
+        ))),
         RuntimeArtifactLoadError::IncompatibleTarget {
             path,
             expected,
@@ -127,6 +141,81 @@ fn runtime_load_diagnostics(error: RuntimeArtifactLoadError) -> DiagnosticBag {
     };
 
     DiagnosticBag::single(diagnostic)
+}
+
+const fn metadata_problem(
+    error: &RuntimeArtifactMetadataDecodeError,
+) -> DiagnosticRuntimeArtifactProblem {
+    match error {
+        RuntimeArtifactMetadataDecodeError::SizeLimitExceeded => {
+            DiagnosticRuntimeArtifactProblem::MetadataSizeLimitExceeded
+        }
+        RuntimeArtifactMetadataDecodeError::Malformed => {
+            DiagnosticRuntimeArtifactProblem::MalformedMetadata
+        }
+        RuntimeArtifactMetadataDecodeError::UnsupportedFormat => {
+            DiagnosticRuntimeArtifactProblem::UnsupportedFormat
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidRuntimeIdentity => {
+            DiagnosticRuntimeArtifactProblem::InvalidRuntimeIdentity
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidArtifactIdentity => {
+            DiagnosticRuntimeArtifactProblem::InvalidArtifactIdentity
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidTarget => {
+            DiagnosticRuntimeArtifactProblem::InvalidTarget
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidPanicAbi => {
+            DiagnosticRuntimeArtifactProblem::InvalidPanicAbi
+        }
+        RuntimeArtifactMetadataDecodeError::UnknownCapability => {
+            DiagnosticRuntimeArtifactProblem::UnknownCapability
+        }
+        RuntimeArtifactMetadataDecodeError::UnknownRole => {
+            DiagnosticRuntimeArtifactProblem::UnknownRole
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidRoleSymbol => {
+            DiagnosticRuntimeArtifactProblem::InvalidRoleSymbol
+        }
+        RuntimeArtifactMetadataDecodeError::UnknownRoleImplementation => {
+            DiagnosticRuntimeArtifactProblem::UnknownRoleImplementation
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidNativeLinkName => {
+            DiagnosticRuntimeArtifactProblem::InvalidNativeLinkName
+        }
+        RuntimeArtifactMetadataDecodeError::UnknownNativeLinkKind => {
+            DiagnosticRuntimeArtifactProblem::UnknownNativeLinkKind
+        }
+        RuntimeArtifactMetadataDecodeError::UnknownComponentPurpose => {
+            DiagnosticRuntimeArtifactProblem::UnknownComponentPurpose
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidComponentIdentity => {
+            DiagnosticRuntimeArtifactProblem::InvalidComponentIdentity
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidArchiveDigest => {
+            DiagnosticRuntimeArtifactProblem::InvalidArchiveDigest
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidContract(_) => {
+            DiagnosticRuntimeArtifactProblem::InvalidContract
+        }
+        RuntimeArtifactMetadataDecodeError::InvalidMetadata(_) => {
+            DiagnosticRuntimeArtifactProblem::InvalidCatalog
+        }
+    }
+}
+
+const fn build_problem(error: RuntimeArtifactBuildError) -> DiagnosticRuntimeArtifactProblem {
+    match error {
+        RuntimeArtifactBuildError::MissingComponent => {
+            DiagnosticRuntimeArtifactProblem::MissingComponent
+        }
+        RuntimeArtifactBuildError::UnexpectedComponent => {
+            DiagnosticRuntimeArtifactProblem::UnexpectedComponent
+        }
+        RuntimeArtifactBuildError::ArchiveFileNameMismatch => {
+            DiagnosticRuntimeArtifactProblem::ArchiveFileNameMismatch
+        }
+    }
 }
 
 fn runtime_profile_metadata(
@@ -166,9 +255,13 @@ fn unsupported_product_diagnostic() -> Diagnostic {
 #[cfg(test)]
 mod tests {
     use bray_compilation::SelectedTarget;
-    use bray_diagnostics::{DiagnosticArg, DiagnosticIoErrorKind, DiagnosticKind};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticRuntimeArtifactProblem,
+    };
+    use bray_runtime_interface::{RuntimeArtifactBuildError, RuntimeArtifactMetadataDecodeError};
+    use bray_tooling::RuntimeArtifactLoadError;
 
-    use super::resolve_runtime;
+    use super::{resolve_runtime, runtime_load_diagnostics};
     use crate::command::DriverRuntimeSelection;
 
     #[test]
@@ -210,5 +303,82 @@ mod tests {
         assert!(diagnostic.args().contains(&DiagnosticArg::io_error_kind(
             DiagnosticIoErrorKind::NotFound
         )));
+    }
+
+    #[test]
+    fn invalid_runtime_metadata_preserves_typed_decode_and_build_failures() {
+        let path = std::path::PathBuf::from("runtime.brayrt");
+
+        let decode_cases = [
+            (
+                RuntimeArtifactMetadataDecodeError::Malformed,
+                DiagnosticRuntimeArtifactProblem::MalformedMetadata,
+            ),
+            (
+                RuntimeArtifactMetadataDecodeError::UnsupportedFormat,
+                DiagnosticRuntimeArtifactProblem::UnsupportedFormat,
+            ),
+            (
+                RuntimeArtifactMetadataDecodeError::UnknownCapability,
+                DiagnosticRuntimeArtifactProblem::UnknownCapability,
+            ),
+            (
+                RuntimeArtifactMetadataDecodeError::InvalidArchiveDigest,
+                DiagnosticRuntimeArtifactProblem::InvalidArchiveDigest,
+            ),
+        ];
+
+        for (source, expected) in decode_cases {
+            let diagnostics = runtime_load_diagnostics(
+                RuntimeArtifactLoadError::InvalidMetadata {
+                    path: path.clone(),
+                    source,
+                },
+            );
+
+            assert_runtime_problem(&diagnostics, expected);
+        }
+
+        let build_cases = [
+            (
+                RuntimeArtifactBuildError::MissingComponent,
+                DiagnosticRuntimeArtifactProblem::MissingComponent,
+            ),
+            (
+                RuntimeArtifactBuildError::UnexpectedComponent,
+                DiagnosticRuntimeArtifactProblem::UnexpectedComponent,
+            ),
+            (
+                RuntimeArtifactBuildError::ArchiveFileNameMismatch,
+                DiagnosticRuntimeArtifactProblem::ArchiveFileNameMismatch,
+            ),
+        ];
+
+        for (source, expected) in build_cases {
+            let diagnostics = runtime_load_diagnostics(
+                RuntimeArtifactLoadError::InvalidArtifact {
+                    path: path.clone(),
+                    source,
+                },
+            );
+
+            assert_runtime_problem(&diagnostics, expected);
+        }
+    }
+
+    fn assert_runtime_problem(
+        diagnostics: &bray_diagnostics::DiagnosticBag,
+        expected: DiagnosticRuntimeArtifactProblem,
+    ) {
+        let diagnostic = diagnostics
+            .by_kind(DiagnosticKind::RuntimeArtifactMetadataInvalid)
+            .next()
+            .unwrap_or_else(|| panic!("invalid runtime metadata diagnostic must exist"));
+
+        assert!(
+            diagnostic
+                .args()
+                .contains(&DiagnosticArg::runtime_artifact_problem(expected))
+        );
     }
 }

@@ -13,8 +13,8 @@ pub fn sha256_file(path: &Path) -> io::Result<[u8; 32]> {
 }
 
 /// Computes the SHA-256 digest of one byte stream without loading it into memory.
-pub fn sha256_reader(mut reader: impl Read) -> io::Result<[u8; 32]> {
-    let mut hasher = Sha256::new();
+pub fn sha256_reader(reader: impl Read) -> io::Result<[u8; 32]> {
+    let mut reader = Sha256Reader::new(reader);
     let mut buffer = [0; 64 * 1024];
 
     loop {
@@ -23,11 +23,40 @@ pub fn sha256_reader(mut reader: impl Read) -> io::Result<[u8; 32]> {
         if length == 0 {
             break;
         }
-
-        hasher.update(&buffer[..length]);
     }
 
-    Ok(hasher.finalize().into())
+    Ok(reader.finalize())
+}
+
+/// A byte reader that computes SHA-256 over exactly the bytes consumed from it.
+pub struct Sha256Reader<R> {
+    reader: R,
+    hasher: Sha256,
+}
+
+impl<R> Sha256Reader<R> {
+    /// Wraps one source byte stream.
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            hasher: Sha256::new(),
+        }
+    }
+
+    /// Finalizes the digest of every byte read through this wrapper.
+    pub fn finalize(self) -> [u8; 32] {
+        self.hasher.finalize().into()
+    }
+}
+
+impl<R: Read> Read for Sha256Reader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let length = self.reader.read(buffer)?;
+
+        self.hasher.update(&buffer[..length]);
+
+        Ok(length)
+    }
 }
 
 /// Incremental BLAKE3 state with platform-independent primitive encoding.

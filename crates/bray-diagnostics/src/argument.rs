@@ -188,6 +188,14 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates a runtime-artifact problem argument.
+    pub const fn runtime_artifact_problem(problem: DiagnosticRuntimeArtifactProblem) -> Self {
+        Self::new(
+            DiagnosticArgName::RuntimeArtifactProblem,
+            DiagnosticArgValue::RuntimeArtifactProblem(problem),
+        )
+    }
+
     /// Creates an output-sink argument.
     pub const fn output_sink(sink: DiagnosticOutputSink) -> Self {
         Self::new(
@@ -519,6 +527,8 @@ pub enum DiagnosticArgName {
     IoErrorKind,
     /// Typed external output destination.
     OutputSink,
+    /// Typed runtime-artifact metadata or catalog failure.
+    RuntimeArtifactProblem,
     /// Maximum accepted count or size.
     MaximumCount,
     /// Expected interface or language revision.
@@ -596,6 +606,7 @@ impl DiagnosticArgName {
             Self::InterfaceSection => "interface_section",
             Self::IoErrorKind => "io_error_kind",
             Self::OutputSink => "output_sink",
+            Self::RuntimeArtifactProblem => "runtime_artifact_problem",
             Self::MaximumCount => "maximum_count",
             Self::ExpectedRevision => "expected_revision",
             Self::ExpectedRuntimeAbi => "expected_runtime_abi",
@@ -661,6 +672,8 @@ pub enum DiagnosticArgValue {
     IoErrorKind(DiagnosticIoErrorKind),
     /// Typed external output destination.
     OutputSink(DiagnosticOutputSink),
+    /// Runtime-artifact metadata or catalog failure category.
+    RuntimeArtifactProblem(DiagnosticRuntimeArtifactProblem),
     /// Effective declaration visibility.
     Visibility(DiagnosticVisibility),
     /// Effective module trust state.
@@ -691,6 +704,82 @@ pub enum DiagnosticArgValue {
     Type(DiagnosticType),
     /// Semantic operation category being selected.
     SelectionKind(DiagnosticSelectionKind),
+}
+
+/// Locale-neutral runtime-artifact metadata and catalog failure categories.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticRuntimeArtifactProblem {
+    /// Metadata exceeds its fixed decoding resource limit.
+    MetadataSizeLimitExceeded,
+    /// Metadata does not match the serialized schema.
+    MalformedMetadata,
+    /// Metadata declares an unsupported format identity or revision.
+    UnsupportedFormat,
+    /// Metadata declares an invalid runtime identity.
+    InvalidRuntimeIdentity,
+    /// Metadata declares an invalid artifact identity.
+    InvalidArtifactIdentity,
+    /// Metadata declares an invalid target identity.
+    InvalidTarget,
+    /// Metadata declares an invalid panic ABI identity.
+    InvalidPanicAbi,
+    /// Metadata names a capability outside the closed runtime contract.
+    UnknownCapability,
+    /// Metadata names a role outside the closed runtime contract.
+    UnknownRole,
+    /// Metadata declares an invalid runtime role symbol.
+    InvalidRoleSymbol,
+    /// Metadata declares an unknown runtime role implementation boundary.
+    UnknownRoleImplementation,
+    /// Metadata declares an invalid native link name.
+    InvalidNativeLinkName,
+    /// Metadata declares an unknown native link category.
+    UnknownNativeLinkKind,
+    /// Metadata declares an unknown component purpose.
+    UnknownComponentPurpose,
+    /// Metadata declares an invalid component identity.
+    InvalidComponentIdentity,
+    /// Metadata declares an invalid archive digest.
+    InvalidArchiveDigest,
+    /// Metadata contains an internally inconsistent runtime contract.
+    InvalidContract,
+    /// Metadata contains an internally inconsistent component catalog.
+    InvalidCatalog,
+    /// A declared component has no resolved archive path.
+    MissingComponent,
+    /// A resolved archive path has no declared component.
+    UnexpectedComponent,
+    /// A resolved archive path does not use its declared file name.
+    ArchiveFileNameMismatch,
+}
+
+impl DiagnosticRuntimeArtifactProblem {
+    /// Returns the stable machine key for this failure category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MetadataSizeLimitExceeded => "metadata_size_limit_exceeded",
+            Self::MalformedMetadata => "malformed_metadata",
+            Self::UnsupportedFormat => "unsupported_format",
+            Self::InvalidRuntimeIdentity => "invalid_runtime_identity",
+            Self::InvalidArtifactIdentity => "invalid_artifact_identity",
+            Self::InvalidTarget => "invalid_target",
+            Self::InvalidPanicAbi => "invalid_panic_abi",
+            Self::UnknownCapability => "unknown_capability",
+            Self::UnknownRole => "unknown_role",
+            Self::InvalidRoleSymbol => "invalid_role_symbol",
+            Self::UnknownRoleImplementation => "unknown_role_implementation",
+            Self::InvalidNativeLinkName => "invalid_native_link_name",
+            Self::UnknownNativeLinkKind => "unknown_native_link_kind",
+            Self::UnknownComponentPurpose => "unknown_component_purpose",
+            Self::InvalidComponentIdentity => "invalid_component_identity",
+            Self::InvalidArchiveDigest => "invalid_archive_digest",
+            Self::InvalidContract => "invalid_contract",
+            Self::InvalidCatalog => "invalid_catalog",
+            Self::MissingComponent => "missing_component",
+            Self::UnexpectedComponent => "unexpected_component",
+            Self::ArchiveFileNameMismatch => "archive_file_name_mismatch",
+        }
+    }
 }
 
 /// Locale-neutral private runtime ABI version used by diagnostics.

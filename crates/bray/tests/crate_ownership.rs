@@ -9,7 +9,7 @@ fn command_packages_depend_only_on_their_owned_driver() {
     let tooling = read_manifest("bray-tooling");
 
     assert_dependency(&bray, "bray-tooling");
-    assert_no_dependency(&bray, "bray-driver");
+    assert_no_regular_dependency(&bray, "bray-driver");
     assert_no_dependency(&bray, "bray-compilation");
     assert_no_dependency(&bray, "bray-formatter");
     assert_no_dependency(&bray, "bray-lsp");
@@ -63,4 +63,21 @@ fn assert_no_dependency(manifest: &str, dependency: &str) {
             .all(|line| !line.starts_with(&format!("{dependency} = "))),
         "unexpected dependency {dependency}"
     );
+}
+
+fn assert_no_regular_dependency(manifest: &str, dependency: &str) {
+    let mut section = "";
+
+    for line in manifest.lines() {
+        if line.starts_with('[') && line.ends_with(']') {
+            section = line;
+
+            continue;
+        }
+
+        assert!(
+            section != "[dependencies]" || !line.starts_with(&format!("{dependency} = ")),
+            "unexpected regular dependency {dependency}"
+        );
+    }
 }

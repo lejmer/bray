@@ -141,7 +141,7 @@ mod tests {
         DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
         DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind,
         DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
-        DiagnosticRuntimeAbiVersion, DiagnosticSelectionKind, DiagnosticType,
+        DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind, DiagnosticType,
         DiagnosticTypeArgument, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
@@ -205,6 +205,24 @@ mod tests {
         assert_eq!(
             note.message(),
             "source files must be readable before compilation"
+        );
+    }
+
+    #[test]
+    fn renderer_localizes_typed_runtime_metadata_failures() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::RuntimeArtifactMetadataInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::artifact_path("runtime/bray-runtime.brayrt"))
+        .with_arg(DiagnosticArg::runtime_artifact_problem(
+            DiagnosticRuntimeArtifactProblem::UnsupportedFormat,
+        ));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            "runtime artifact metadata is invalid: runtime/bray-runtime.brayrt: unsupported metadata format"
         );
     }
 

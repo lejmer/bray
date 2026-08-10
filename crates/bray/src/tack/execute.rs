@@ -837,11 +837,6 @@ mod tests {
     use std::process::ExitCode;
     use std::sync::Mutex;
 
-    use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind,
-        DiagnosticKind, SeverityKind,
-    };
-
     use super::run_tack_result_with_input;
     use crate::tack::tool::{Tool, ToolExecutor, ToolOutput, ToolRequest};
     use crate::test_support::{ProjectWorkspace, unique_temporary_directory};
@@ -996,46 +991,33 @@ mod tests {
         }
     }
 
-    struct MissingRuntimeExecutor;
+    struct DriverExecutor;
 
-    impl ToolExecutor for MissingRuntimeExecutor {
+    impl ToolExecutor for DriverExecutor {
         fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()> {
             if request.tool() != Tool::Compiler {
                 return Err(());
             }
 
-            let runtime = argument_value(request.arguments(), "--runtime-artifact")
-                .map(PathBuf::from)
-                .ok_or(())?;
-
-            if runtime.exists() {
-                return Err(());
-            }
-
-            let diagnostics = DiagnosticBag::single(
-                Diagnostic::new(
-                    DiagnosticId::new(0),
-                    DiagnosticKind::RuntimeArtifactMetadataReadFailed,
-                    SeverityKind::Error,
-                )
-                .with_arg(DiagnosticArg::artifact_path(runtime))
-                .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::NotFound)),
+            let result = bray_driver::run_result(
+                std::iter::once(OsString::from("brayc"))
+                    .chain(request.arguments().iter().cloned()),
             );
 
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
 
             bray_tooling::write_diagnostics(
-                &diagnostics,
+                result.diagnostics(),
                 None,
-                bray_tooling::OutputFormat::Text,
+                result.output_format(),
                 &mut stdout,
                 &mut stderr,
             )
             .map_err(|_| ())?;
 
             Ok(ToolOutput::new(
-                false,
+                result.exit_code() == ExitCode::SUCCESS,
                 String::from_utf8(stdout).map_err(|_| ())?,
                 String::from_utf8(stderr).map_err(|_| ())?,
             ))
@@ -1418,7 +1400,7 @@ mod tests {
                     toolchain.as_os_str().to_os_string(),
                     OsString::from(command),
                 ],
-                &MissingRuntimeExecutor,
+                &DriverExecutor,
                 Cursor::new(Vec::new()),
             );
 

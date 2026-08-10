@@ -13,7 +13,7 @@ mod slice;
 mod text;
 
 pub use cancellation::Cancellation;
-pub use digest::{StableDigestHasher, sha256_file, sha256_reader};
+pub use digest::{Sha256Reader, StableDigestHasher, sha256_file, sha256_reader};
 pub use directory::{
     atomic_rename_exclusive, atomic_rename_exclusive_is_supported, sync_directory,
 };
