@@ -40,51 +40,86 @@ pub enum ReproducibilityLevel {
     ByteForByte,
 }
 
-/// Exact target-machine policies supported by one backend.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub struct BackendTargetCapabilities {
-    machines: Arc<[TargetMachineProperties]>,
-    relocation_models: Arc<[RelocationModel]>,
-    code_models: Arc<[CodeModel]>,
+/// One exact target-machine configuration supported by a backend.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct BackendTargetConfiguration {
+    machine: TargetMachineProperties,
+    relocation_model: RelocationModel,
+    code_model: CodeModel,
 }
 
-impl BackendTargetCapabilities {
-    /// Creates canonical target-machine capabilities.
-    pub fn new(
-        machines: impl IntoIterator<Item = TargetMachineProperties>,
-        relocation_models: impl IntoIterator<Item = RelocationModel>,
-        code_models: impl IntoIterator<Item = CodeModel>,
+impl BackendTargetConfiguration {
+    /// Creates one indivisible supported target configuration.
+    pub const fn new(
+        machine: TargetMachineProperties,
+        relocation_model: RelocationModel,
+        code_model: CodeModel,
     ) -> Self {
         Self {
-            machines: sorted_unique_shared_slice(machines),
-            relocation_models: sorted_unique_shared_slice(relocation_models),
-            code_models: sorted_unique_shared_slice(code_models),
+            machine,
+            relocation_model,
+            code_model,
         }
     }
 
-    /// Returns supported target machine property sets.
-    pub fn machines(&self) -> &[TargetMachineProperties] {
-        &self.machines
+    /// Returns the exact supported machine properties.
+    pub const fn machine(&self) -> &TargetMachineProperties {
+        &self.machine
     }
 
-    /// Returns supported relocation policies.
-    pub fn relocation_models(&self) -> &[RelocationModel] {
-        &self.relocation_models
+    /// Returns the relocation policy supported with this machine and code model.
+    pub const fn relocation_model(&self) -> RelocationModel {
+        self.relocation_model
     }
 
-    /// Returns supported code models.
-    pub fn code_models(&self) -> &[CodeModel] {
-        &self.code_models
+    /// Returns the code model supported with this machine and relocation policy.
+    pub const fn code_model(&self) -> CodeModel {
+        self.code_model
+    }
+}
+
+/// Exact target-machine configurations supported by one backend.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct BackendTargetCapabilities {
+    configurations: Arc<[BackendTargetConfiguration]>,
+}
+
+impl BackendTargetCapabilities {
+    /// Creates canonical indivisible target-machine capabilities.
+    pub fn new(
+        configurations: impl IntoIterator<Item = BackendTargetConfiguration>,
+    ) -> Self {
+        Self {
+            configurations: sorted_unique_shared_slice(configurations),
+        }
     }
 
-    /// Returns whether every target-machine requirement is declared.
+    /// Returns supported target configurations in canonical order.
+    pub fn configurations(&self) -> &[BackendTargetConfiguration] {
+        &self.configurations
+    }
+
+    /// Returns whether the exact target-machine configuration is declared.
     pub fn supports(&self, target: &CodegenTarget) -> bool {
-        self.machines.binary_search(target.machine()).is_ok()
-            && self
-                .relocation_models
-                .binary_search(&target.relocation_model())
-                .is_ok()
-            && self.code_models.binary_search(&target.code_model()).is_ok()
+        self.configurations
+            .binary_search_by(|configuration| {
+                configuration
+                    .machine()
+                    .cmp(target.machine())
+                    .then_with(|| {
+                        configuration
+                            .relocation_model()
+                            .cmp(&target.relocation_model())
+                    })
+                    .then_with(|| configuration.code_model().cmp(&target.code_model()))
+            })
+            .is_ok()
+    }
+
+    fn supports_machine(&self, machine: &TargetMachineProperties) -> bool {
+        self.configurations
+            .iter()
+            .any(|configuration| configuration.machine() == machine)
     }
 }
 
@@ -298,7 +333,7 @@ impl BackendCapabilities {
 
     /// Returns whether the target machine properties are declared.
     pub fn supports_target_machine(&self, machine: &TargetMachineProperties) -> bool {
-        self.targets.machines.binary_search(machine).is_ok()
+        self.targets.supports_machine(machine)
     }
 
     /// Returns whether an artifact kind is supported.
@@ -349,7 +384,7 @@ mod tests {
     use super::{
         BackendCapabilities, BackendCapabilityRevision, BackendOptimizationCapabilities,
         BackendOutputCapabilities, BackendRuntimeCapabilities, BackendTargetCapabilities,
-        ReproducibilityLevel,
+        BackendTargetConfiguration, ReproducibilityLevel,
     };
     use crate::{
         AssemblySyntaxKind, BackendArtifactKind, DebugInformationMode,
@@ -366,11 +401,18 @@ mod tests {
         let capabilities = BackendCapabilities::new(
             revision,
             [ProductKind::Library, ProductKind::Library],
-            BackendTargetCapabilities::new(
-                [machine.clone(), machine],
-                [RelocationModel::Static, RelocationModel::Static],
-                [CodeModel::Small],
-            ),
+            BackendTargetCapabilities::new([
+                BackendTargetConfiguration::new(
+                    machine.clone(),
+                    RelocationModel::Static,
+                    CodeModel::Small,
+                ),
+                BackendTargetConfiguration::new(
+                    machine,
+                    RelocationModel::Static,
+                    CodeModel::Small,
+                ),
+            ]),
             BackendRuntimeCapabilities::new(
                 [RuntimeAbiVersion::new(1, 0), RuntimeAbiVersion::new(1, 0)],
                 true,
@@ -391,7 +433,7 @@ mod tests {
 
         assert_eq!(capabilities.revision(), revision);
         assert_eq!(capabilities.product_kinds(), &[ProductKind::Library]);
-        assert_eq!(capabilities.targets().machines().len(), 1);
+        assert_eq!(capabilities.targets().configurations().len(), 1);
         assert_eq!(capabilities.runtime().abi_versions().len(), 1);
 
         assert_eq!(

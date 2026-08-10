@@ -5,9 +5,10 @@ use bray_codegen::{
     ArtifactContent, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
     BackendArtifactRequirement, BackendCapabilities, BackendCapabilityRevision, BackendIdentity,
     BackendOptimizationCapabilities, BackendOutputCapabilities, BackendRuntimeCapabilities,
-    BackendTargetCapabilities, CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest,
-    CodegenRuntimeMetadata, CodegenTarget, DebugInformationMode, OptimizationLevel,
-    DebugInformationOutputMode, ProtectedAsyncFrameMetadata, ReproducibilityLevel, SizePreference,
+    BackendTargetCapabilities, BackendTargetConfiguration, CodeGenerator, CodegenFailure,
+    CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata, CodegenTarget, DebugInformationMode,
+    DebugInformationOutputMode, OptimizationLevel, ProtectedAsyncFrameMetadata,
+    ReproducibilityLevel, SizePreference,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_runtime_interface::RuntimeAbiVersion;
@@ -266,33 +267,22 @@ fn capabilities() -> Result<BackendCapabilities, CodegenFailure> {
         return Err(CodegenFailure::InvalidConfiguration);
     };
 
-    let machines = NativeTarget::ALL
+    let targets = NativeTarget::ALL
         .into_iter()
         .filter(|target| llvm_target_is_built(target.architecture()))
         .map(|target| {
             // The capability record owns exact machine policy independently of target profiles.
-            target.profile().machine().clone()
+            BackendTargetConfiguration::new(
+                target.profile().machine().clone(),
+                RelocationModel::PositionIndependent,
+                CodeModel::Small,
+            )
         });
 
     Ok(BackendCapabilities::new(
         revision,
         [ProductKind::Executable, ProductKind::Library, ProductKind::Test],
-        BackendTargetCapabilities::new(
-            machines,
-            [
-                RelocationModel::Default,
-                RelocationModel::Static,
-                RelocationModel::PositionIndependent,
-                RelocationModel::DynamicNoPic,
-            ],
-            [
-                CodeModel::Default,
-                CodeModel::Small,
-                CodeModel::Medium,
-                CodeModel::Large,
-                CodeModel::Kernel,
-            ],
-        ),
+        BackendTargetCapabilities::new(targets),
         BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
         BackendOptimizationCapabilities::new(
             [
@@ -313,11 +303,7 @@ fn capabilities() -> Result<BackendCapabilities, CodegenFailure> {
             BackendArtifactKind::BackendIr,
             BackendArtifactKind::BackendBitcode,
             ],
-            [
-            DebugInformationMode::None,
-            DebugInformationMode::LineTables,
-            DebugInformationMode::Full,
-            ],
+            [DebugInformationMode::None, DebugInformationMode::LineTables],
             [
                 DebugInformationOutputMode::Omit,
                 DebugInformationOutputMode::Embedded,
@@ -501,6 +487,18 @@ mod tests {
         assert_eq!(
             backend.capabilities().outputs().assembly_syntax(),
             &[bray_codegen::AssemblySyntaxKind::TargetDefault]
+        );
+
+        assert!(
+            backend
+                .capabilities()
+                .supports_debug_information(bray_codegen::DebugInformationMode::LineTables)
+        );
+
+        assert!(
+            !backend
+                .capabilities()
+                .supports_debug_information(bray_codegen::DebugInformationMode::Full)
         );
 
         assert_eq!(backend.validate_target(&codegen_target()), Ok(()));
@@ -770,8 +768,16 @@ mod tests {
             panic!("LLVM backend constants must be valid");
         };
 
-        for machine in backend.capabilities().targets().machines() {
+        for configuration in backend.capabilities().targets().configurations() {
+            let machine = configuration.machine();
             let triple = TargetTriple::create(representative_triple(machine));
+
+            assert_eq!(
+                configuration.relocation_model(),
+                bray_target::RelocationModel::PositionIndependent
+            );
+
+            assert_eq!(configuration.code_model(), bray_target::CodeModel::Small);
 
             let Ok(target) = Target::from_triple(&triple) else {
                 panic!("{machine:?} must have a compiled LLVM target");
@@ -784,8 +790,8 @@ mod tests {
                         "",
                         "",
                         OptimizationLevel::None,
-                        RelocMode::Default,
-                        CodeModel::Default,
+                        RelocMode::PIC,
+                        CodeModel::Small,
                     )
                     .is_some(),
                 "{machine:?} must construct an LLVM target machine"

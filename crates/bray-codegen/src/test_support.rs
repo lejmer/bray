@@ -17,7 +17,8 @@ use crate::{
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
     BackendCapabilities, BackendCapabilityRevision, BackendIdentity,
     BackendOptimizationCapabilities, BackendOutputCapabilities, BackendRuntimeCapabilities,
-    BackendSerializationOptions, BackendTargetCapabilities, CallableAbiMapping,
+    BackendSerializationOptions, BackendTargetCapabilities, BackendTargetConfiguration,
+    CallableAbiMapping,
     CodegenCallableSignature, CodegenDebugLocation, CodegenDefinitionVisibility,
     CodegenLinkage, CodegenMappings, CodegenOptions, CodegenPartitionCompatibility,
     CodegenPartitionPolicy, CodegenRequest, CodegenResultMapping, CodegenSourceFile,
@@ -363,11 +364,11 @@ pub fn codegen_backend_capabilities() -> BackendCapabilities {
             bray_symbols::ProductKind::Library,
             bray_symbols::ProductKind::Test,
         ],
-        BackendTargetCapabilities::new(
-            [target.machine().clone()],
-            [target.relocation_model()],
-            [target.code_model()],
-        ),
+        BackendTargetCapabilities::new([BackendTargetConfiguration::new(
+            target.machine().clone(),
+            target.relocation_model(),
+            target.code_model(),
+        )]),
         BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
         BackendOptimizationCapabilities::new(
             [

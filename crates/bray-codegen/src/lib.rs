@@ -30,7 +30,7 @@ pub use backend::{BackendIdentity, CodeGenerator};
 pub use capability::{
     BackendCapabilities, BackendCapabilityRevision, BackendOptimizationCapabilities,
     BackendOutputCapabilities, BackendRuntimeCapabilities, BackendTargetCapabilities,
-    ReproducibilityLevel,
+    BackendTargetConfiguration, ReproducibilityLevel,
 };
 pub use mapping::{
     CodegenCallSite, CodegenCallableMapping, CodegenCallableSignature, CodegenCallableTarget,
