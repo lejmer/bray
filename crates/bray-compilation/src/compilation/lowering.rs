@@ -566,6 +566,17 @@ mod tests {
         "}\n",
     );
 
+    const CONSTANT_REFERENCE_LOWERING_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "const value: i32 = 7;\n",
+        "\n",
+        "func main() -> i32\n",
+        "{\n",
+        "    return value;\n",
+        "}\n",
+    );
+
     const ASYNC_LOWERING_SOURCE: &str = concat!(
         "module app;\n",
         "\n",
@@ -847,6 +858,24 @@ mod tests {
         let result = compilation
             .lowered_unit(key)
             .unwrap_or_else(|error| panic!("runtime default MIR must publish: {error:?}"));
+
+        assert!(matches!(
+            lowered_mir(&result)
+                .blocks()
+                .last()
+                .map(|block| block.terminator().kind()),
+            Some(MirTerminatorKind::Return(Some(MirOperand::Constant { .. })))
+        ));
+    }
+
+    #[test]
+    fn constant_references_lower_to_closed_mir_operands() {
+        let compilation = compilation(CONSTANT_REFERENCE_LOWERING_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let result = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("constant reference MIR must publish: {error:?}"));
 
         assert!(matches!(
             lowered_mir(&result)

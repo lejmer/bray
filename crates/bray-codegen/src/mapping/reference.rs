@@ -14,7 +14,7 @@ pub enum IntrinsicCall {
     /// A scalar binary operation.
     Binary(bray_ir::MirBinaryOperator),
     /// An exact compiler-defined conversion plan.
-    Conversion(bray_bound_tree::SelectedConversion),
+    Conversion(bray_ir::SelectedConversion),
 }
 
 /// Maps one semantic callable reference in MIR to its concrete generated definition.

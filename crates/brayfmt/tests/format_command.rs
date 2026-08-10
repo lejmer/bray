@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
+use bray_diagnostics::DiagnosticKind;
 use bray_testing::TemporaryFile;
 
 const UNFORMATTED: &[u8] = b"module app;func main(){return;}";
@@ -147,6 +148,81 @@ fn invalid_configuration_is_available_as_structured_json() {
     );
 
     assert!(json.contains("actual_count"), "{output:?}");
+}
+
+#[test]
+fn every_configuration_failure_preserves_its_structured_diagnostic_contract() {
+    let anchor = TemporaryFile::write("configuration-anchor.json", b"{}");
+    let missing = anchor.path().with_extension("missing");
+    let malformed = TemporaryFile::write("malformed-brayfmt.json", b"{");
+
+    let unknown = TemporaryFile::write(
+        "unknown-structured-brayfmt.json",
+        br#"{"rules":{"unknown-rule":true}}"#,
+    );
+
+    let invalid = TemporaryFile::write(
+        "invalid-structured-brayfmt.json",
+        br#"{"maximum_line_width":0}"#,
+    );
+
+    let cases = [
+        (
+            missing.as_path(),
+            DiagnosticKind::FormatterConfigurationReadFailed,
+            &["file_path", "io_error_kind"][..],
+        ),
+        (
+            malformed.path(),
+            DiagnosticKind::FormatterConfigurationMalformed,
+            &["file_path"][..],
+        ),
+        (
+            unknown.path(),
+            DiagnosticKind::FormatterConfigurationUnknownRule,
+            &["file_path", "referenced_name"][..],
+        ),
+        (
+            invalid.path(),
+            DiagnosticKind::FormatterConfigurationInvalidMaximumWidth,
+            &["file_path", "actual_count"][..],
+        ),
+    ];
+
+    for (path, kind, expected_argument_names) in cases {
+        let output = run(
+            [
+                OsStr::new("--format"),
+                OsStr::new("json"),
+                OsStr::new("--config"),
+                path.as_os_str(),
+                OsStr::new("-"),
+            ],
+            UNFORMATTED,
+        );
+
+        assert!(!output.status.success(), "{kind:?}: {output:?}");
+        assert!(output.stderr.is_empty(), "{kind:?}: {output:?}");
+
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|error| panic!("{kind:?} must publish JSON diagnostics: {error:?}"));
+
+        let diagnostic = &json["diagnostics"][0];
+
+        let argument_names = diagnostic["args"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{kind:?} arguments must be an array"))
+            .iter()
+            .map(|argument| {
+                argument["name"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{kind:?} argument name must be text"))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(diagnostic["kind"], kind.as_str(), "{kind:?}: {output:?}");
+        assert_eq!(argument_names, expected_argument_names);
+    }
 }
 
 fn run<I, S>(arguments: I, stdin: &[u8]) -> Output
