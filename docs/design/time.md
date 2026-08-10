@@ -158,9 +158,15 @@ database version.
 Compiled package interfaces expose only ordinary public `std.time` declarations. They do not contain native provider identities,
 timezone handles, C++ names, source paths, or the physical timezone database location.
 
-Every standard-library target artifact set includes temporal-provider provenance. The record identifies the provider source,
-timezone database, host-zone mapping data, and verified content digests used to build that target. It is toolchain metadata rather
-than a runtime dependency.
+Every standard-library target artifact set includes temporal-provider provenance. The record identifies the shared provider source,
+the capability partition for each native translation unit, the timezone database, host-zone mapping data, and verified content
+digests used to build that target. The canonical partition inventory drives native provider construction. It is toolchain metadata
+rather than a runtime dependency.
+
+Civil-date operations, deterministic parsing and formatting, and named-timezone operations occupy separate native retention
+partitions. The embedded timezone database belongs only to the named-timezone partition. Native provider compilation emits
+independently discardable function and immutable-data contributions for COFF, ELF, and Mach-O so a product retains only demanded
+provider capabilities and their data.
 
 ## Testing
 

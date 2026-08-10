@@ -47,6 +47,7 @@ pub(super) fn test() -> Result<(), BuildError> {
     crate::native_toolchain::assemble(&root, target, &runtime, &toolchain)
         .map_err(|error| BuildError::conformance("native toolchain", error))?;
 
+    super::provider_retention::audit(&root, directory, &toolchain, target)?;
     super::interoperability::audit(&root, directory, &toolchain, &runtime, target)?;
 
     let workspace = directory.join("workspace");

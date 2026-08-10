@@ -487,6 +487,8 @@ dependencies = [
  "bray-runtime-interface",
  "bray-testing",
  "cc",
+ "serde",
+ "serde_json",
  "sha2",
  "windows-sys",
 ]
