@@ -142,6 +142,18 @@ These measurements distinguish a slow implementation from unexpectedly large wor
 
 Large changes in these counts often explain timing changes more directly than a timing row does.
 
+### Selected runtime artifacts
+
+Builds that select runtime components list each stable component identity and authenticated archive size. This makes runtime
+selection attributable without opening the compact report or inspecting linker inputs. A synchronous program that needs no
+runtime-owned role or capability has no selected-runtime section. Unexpected identities identify an over-broad requirement or
+component ownership declaration. Unexpected bytes identify a packaging or partitioning regression even when the final linker later
+discards unused archive members.
+
+Compare both the identities and their sizes. A component can be selected correctly while its physical archive grows because shared
+support was duplicated into it. Conversely, a smaller archive set is not an improvement if a required semantic component has
+disappeared.
+
 ## Compare two reports
 
 Collect reports into separate directories while holding the command and environment constant:

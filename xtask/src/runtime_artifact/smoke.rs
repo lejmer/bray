@@ -1,4 +1,5 @@
 use std::fs;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -16,16 +17,21 @@ pub(super) fn smoke_test(
 ) -> Result<(), CommandError> {
     audit_runtime_archives(package)?;
 
-    let product = package
-        .components
-        .iter()
-        .find(|component| component.kind == RuntimeArchiveKind::ProductExecution)
-        .ok_or(CommandError::MetadataContract)?;
+    let archives = component_archives(
+        package,
+        &[
+            RuntimeArchiveKind::Host,
+            RuntimeArchiveKind::Scheduler,
+            RuntimeArchiveKind::Cancellation,
+            RuntimeArchiveKind::Event,
+            RuntimeArchiveKind::Common,
+        ],
+    )?;
 
     let executable = compile_smoke(
         SMOKE_SOURCE,
         "runtime-smoke",
-        &product.archive,
+        &archives,
         target,
         directory,
         None,
@@ -47,10 +53,15 @@ pub(super) fn smoke_test(
 
     let map = directory.join("runtime-sync-smoke.map");
 
+    let synchronous_archives = component_archives(
+        package,
+        &[RuntimeArchiveKind::Host, RuntimeArchiveKind::Common],
+    )?;
+
     let executable = compile_smoke(
         SYNC_SMOKE_SOURCE,
         "runtime-sync-smoke",
-        &product.archive,
+        &synchronous_archives,
         target,
         directory,
         Some(&map),
@@ -72,7 +83,7 @@ pub(super) fn smoke_test(
 fn compile_smoke(
     source_text: &str,
     name: &str,
-    archive: &Path,
+    archives: &[&Path],
     target: NativeTarget,
     directory: &Path,
     map: Option<&Path>,
@@ -87,7 +98,6 @@ fn compile_smoke(
 
     fs::write(&source, source_text).map_err(|error| CommandError::write(&source, error))?;
 
-    let archive = archive.to_str().ok_or(CommandError::NonUtf8Path)?;
     let mut command = Command::new("rustc");
 
     command.args([
@@ -95,9 +105,12 @@ fn compile_smoke(
         "2024",
         "--target",
         target.as_str(),
-        "-C",
-        &format!("link-arg={archive}"),
     ]);
+
+    for archive in archives {
+        let archive = archive.to_str().ok_or(CommandError::NonUtf8Path)?;
+        command.arg("-C").arg(format!("link-arg={archive}"));
+    }
 
     if let Some(map) = map {
         command
@@ -117,6 +130,23 @@ fn compile_smoke(
     }
 
     Ok(executable)
+}
+
+fn component_archives<'package>(
+    package: &'package Package,
+    kinds: &[RuntimeArchiveKind],
+) -> Result<Vec<&'package Path>, CommandError> {
+    kinds
+        .iter()
+        .map(|kind| {
+            package
+                .components
+                .iter()
+                .find(|component| component.kind == *kind)
+                .map(|component| component.archive.as_path())
+                .ok_or(CommandError::MetadataContract)
+        })
+        .collect()
 }
 
 fn linker_map_argument(target: NativeTarget, map: &Path) -> Result<String, CommandError> {
@@ -145,15 +175,37 @@ fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
         bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
         bray_runtime_abi::STRING_SCALAR_COUNT_SYMBOL,
         bray_runtime_abi::CHARACTER_SCALAR_VALUE_SYMBOL,
+        "blake3",
     ];
 
-    if required.iter().any(|symbol| !contents.contains(symbol))
-        || forbidden.iter().any(|symbol| contents.contains(symbol))
+    if let Some(symbol) = required
+        .iter()
+        .find(|symbol| !contains_link_symbol(&contents, symbol))
     {
-        return Err(CommandError::SynchronousLinkMapBoundary);
+        return Err(CommandError::SynchronousLinkMapBoundary(format!(
+            "missing {symbol}"
+        )));
+    }
+
+    if let Some(symbol) = forbidden.iter().find(|symbol| {
+        if **symbol == "blake3" {
+            contents.contains(*symbol)
+        } else {
+            contains_link_symbol(&contents, symbol)
+        }
+    }) {
+        return Err(CommandError::SynchronousLinkMapBoundary(format!(
+            "retained {symbol}"
+        )));
     }
 
     Ok(())
+}
+
+fn contains_link_symbol(contents: &str, symbol: &str) -> bool {
+    contents
+        .split_whitespace()
+        .any(|token| token == symbol || token.strip_prefix('_') == Some(symbol))
 }
 
 fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
@@ -161,6 +213,17 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
         let symbols = defined_symbols(&component.archive)?;
 
         let (required, forbidden): (&[&str], &[&str]) = match component.kind {
+            RuntimeArchiveKind::Common => (
+                &[],
+                &[
+                    "bray_runtime_memory_",
+                    "bray_runtime_string_",
+                    "bray_runtime_character_",
+                    "bray_runtime_root_",
+                    "bray_runtime_task_",
+                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                ],
+            ),
             RuntimeArchiveKind::Memory => (
                 &[
                     bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
@@ -190,16 +253,48 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                 ],
                 &["bray_runtime_memory_", "bray_runtime_string_"],
             ),
-            RuntimeArchiveKind::ProductExecution => (
-                &[],
+            RuntimeArchiveKind::Host => (
+                &[
+                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::STRUCTURED_SHUTDOWN_SYMBOL,
+                ],
                 &[
                     "bray_runtime_memory_",
                     "bray_runtime_string_",
                     "bray_runtime_character_",
+                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::TASK_START_SYMBOL,
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
                 ],
             ),
-            RuntimeArchiveKind::TestExecution => (
+            RuntimeArchiveKind::Scheduler => (
+                &[
+                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::TASK_START_SYMBOL,
+                ],
+                &[
+                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                    "bray_runtime_memory_",
+                    "bray_runtime_string_",
+                    "bray_runtime_character_",
+                ],
+            ),
+            RuntimeArchiveKind::Cancellation => (
+                &[bray_runtime_abi::ROOT_CANCELLATION_REQUEST_SYMBOL],
+                &[
+                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                ],
+            ),
+            RuntimeArchiveKind::Event => (
+                &[bray_runtime_abi::RUNTIME_EVENT_SYMBOL],
+                &[
+                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
+                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                ],
+            ),
+            RuntimeArchiveKind::TestHost => (
                 &[bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL],
                 &[
                     "bray_runtime_memory_",
@@ -209,8 +304,10 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
             ),
         };
 
-        if required.iter().any(|symbol| !symbols.contains(symbol))
-            || forbidden.iter().any(|symbol| symbols.contains(symbol))
+        if required.iter().any(|symbol| !symbols.contains(*symbol))
+            || forbidden
+                .iter()
+                .any(|prefix| symbols.iter().any(|symbol| symbol.starts_with(prefix)))
         {
             return Err(CommandError::RuntimeComponentBoundary(component.kind));
         }
@@ -219,7 +316,7 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn defined_symbols(archive: &Path) -> Result<String, CommandError> {
+fn defined_symbols(archive: &Path) -> Result<BTreeSet<String>, CommandError> {
     let tool =
         bray_tooling::llvm_tool_path("llvm-nm").ok_or(CommandError::NativeSymbolToolUnavailable)?;
 
@@ -233,5 +330,9 @@ fn defined_symbols(archive: &Path) -> Result<String, CommandError> {
         return Err(CommandError::NativeSymbolInspectionFailed);
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().last())
+        .map(str::to_owned)
+        .collect())
 }

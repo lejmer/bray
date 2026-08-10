@@ -5,6 +5,8 @@
 mod artifact;
 mod binding;
 mod compatibility;
+mod component_dependency;
+mod component_validation;
 mod contract;
 mod platform;
 mod role;

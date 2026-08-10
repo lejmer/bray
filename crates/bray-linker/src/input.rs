@@ -447,13 +447,11 @@ mod tests {
                     RuntimeArtifactId::try_new("runtime.product")
                         .unwrap_or_else(|| panic!("component identity must be valid")),
                     "runtime/bray_runtime_product.lib".into(),
-                    RuntimeArtifactDigest::new([1; 32]),
                 ),
                 (
                     RuntimeArtifactId::try_new("runtime.test")
                         .unwrap_or_else(|| panic!("component identity must be valid")),
                     "runtime/bray_runtime_test.lib".into(),
-                    RuntimeArtifactDigest::new([1; 32]),
                 ),
             ],
         )

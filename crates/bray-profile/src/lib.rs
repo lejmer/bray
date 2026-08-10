@@ -21,6 +21,7 @@ pub use model::{
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
     CompilationProfileOutcome, CompilationProfileQueryDescriptor,
     CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
-    CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileRuntimeArtifact, CompilationProfileSubjectKind, CompilationProfileTimeBreakdown,
+    CompilationProfileUnit,
 };
 pub use validation::CompilationProfileValidationError;

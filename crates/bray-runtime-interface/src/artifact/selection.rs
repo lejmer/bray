@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use bray_base::sha256_file;
 use bray_symbols::NativeLinkRequirement;
 
 use super::catalog::{
@@ -37,20 +38,17 @@ pub struct RuntimeArtifact {
 }
 
 impl RuntimeArtifact {
-    /// Resolves every catalog component to an exact path and digest.
+    /// Resolves every catalog component to its published archive path.
     pub fn try_new(
         metadata: RuntimeArtifactMetadata,
-        components: impl IntoIterator<Item = (RuntimeArtifactId, PathBuf, RuntimeArtifactDigest)>,
+        components: impl IntoIterator<Item = (RuntimeArtifactId, PathBuf)>,
     ) -> Result<Self, RuntimeArtifactBuildError> {
-        let mut supplied: BTreeMap<_, _> = components
-            .into_iter()
-            .map(|(identity, path, digest)| (identity, (path, digest)))
-            .collect();
+        let mut supplied: BTreeMap<_, _> = components.into_iter().collect();
 
         let mut resolved = Vec::with_capacity(metadata.components().len());
 
         for component in metadata.components() {
-            let Some((archive, digest)) = supplied.remove(component.identity()) else {
+            let Some(archive) = supplied.remove(component.identity()) else {
                 return Err(RuntimeArtifactBuildError::MissingComponent);
             };
 
@@ -58,10 +56,6 @@ impl RuntimeArtifact {
                 != Some(component.archive_file_name())
             {
                 return Err(RuntimeArtifactBuildError::ArchiveFileNameMismatch);
-            }
-
-            if digest != component.archive_digest() {
-                return Err(RuntimeArtifactBuildError::ArchiveDigestMismatch);
             }
 
             resolved.push(RuntimeArtifactComponent {
@@ -121,6 +115,53 @@ impl RuntimeArtifact {
 
         for capability in required_capabilities {
             selected.insert(self.owner_of_capability(purpose, capability)?);
+        }
+
+        let mut pending = selected.iter().copied().collect::<Vec<_>>();
+
+        while let Some(index) = pending.pop() {
+            for dependency in self.components[index].metadata().dependencies() {
+                let Some(dependency) = self
+                    .components
+                    .iter()
+                    .position(|component| component.metadata().identity() == dependency)
+                else {
+                    continue;
+                };
+
+                if selected.insert(dependency) {
+                    pending.push(dependency);
+                }
+            }
+        }
+
+        let mut authenticated = BTreeMap::new();
+
+        for index in &selected {
+            let component = &self.components[*index];
+            let archive = component.archive();
+
+            let digest = match authenticated.get(archive) {
+                Some(digest) => *digest,
+                None => {
+                    let digest = sha256_file(archive).map_err(|_| {
+                        RuntimeArtifactSelectionError::UnreadableArchive(
+                            component.metadata().identity().clone(),
+                        )
+                    })?;
+
+                    let digest = RuntimeArtifactDigest::new(digest);
+                    authenticated.insert(archive.to_path_buf(), digest);
+
+                    digest
+                }
+            };
+
+            if digest != component.metadata().archive_digest() {
+                return Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch(
+                    component.metadata().identity().clone(),
+                ));
+            }
         }
 
         let components = selected
@@ -212,12 +253,10 @@ pub enum RuntimeArtifactBuildError {
     UnexpectedComponent,
     /// The selected path does not end with the published archive file name.
     ArchiveFileNameMismatch,
-    /// The selected archive content does not match the published digest.
-    ArchiveDigestMismatch,
 }
 
 /// Failure to select a complete physical runtime surface for one product.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeArtifactSelectionError {
     /// The runtime contract is incompatible with reachable requirements.
     IncompatibleRuntime(crate::RuntimeCompatibilityError),
@@ -225,4 +264,8 @@ pub enum RuntimeArtifactSelectionError {
     MissingRoleOwner(RuntimeAbiRole),
     /// No component for this product category owns a required capability.
     MissingCapabilityOwner(RuntimeCapability),
+    /// A selected archive could not be read for authentication.
+    UnreadableArchive(RuntimeArtifactId),
+    /// A selected archive does not match its published content digest.
+    ArchiveDigestMismatch(RuntimeArtifactId),
 }

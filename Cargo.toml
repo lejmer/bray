@@ -15,6 +15,7 @@ members = [
     "crates/bray-formatter",
     "crates/brayfmt",
     "crates/bray-runtime-abi",
+    "crates/bray-runtime-adapter",
     "crates/bray-runtime-builtins",
     "crates/bray-runtime-interface",
     "crates/bray-runtime-model",

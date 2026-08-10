@@ -537,14 +537,23 @@ dependencies = [
  "bray-platform-abi",
  "bray-runtime-abi",
  "bray-runtime-model",
- "bray-source",
- "bray-test-protocol",
  "bray-testing",
 ]
 
 [[package]]
 name = "bray-runtime-abi"
 version = "0.0.0"
+
+[[package]]
+name = "bray-runtime-adapter"
+version = "0.0.0"
+dependencies = [
+ "bray-platform",
+ "bray-runtime",
+ "bray-runtime-abi",
+ "bray-source",
+ "bray-test-protocol",
+]
 
 [[package]]
 name = "bray-runtime-builtins"
@@ -564,6 +573,7 @@ dependencies = [
  "bray-target",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

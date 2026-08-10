@@ -410,18 +410,23 @@ The role set and each role's semantic effect are closed compiler contracts. A ru
 roles but cannot publish replacement semantics for them. Compiler-lowering roles remain compiler-owned and cannot be claimed by a
 runtime artifact.
 
-Each native runtime is packaged as a target-specific component catalog plus bounded compiler-readable metadata. The metadata records
+Each native runtime is packaged as a target-specific component catalog plus bounded compiler-readable metadata. Semantic adapter
+components separately own host, scheduler, cancellation, event, test-host, memory, string, and character roles or capabilities.
+Support components own no semantic surface and are reachable only as explicit dependencies of those adapters. The metadata records
 the runtime and artifact identities, target and panic ABI, runtime and protected-frame ABI versions, capabilities, exact
-role-to-symbol bindings, component purposes, archive file names, archive digests, and exact role and capability ownership. Catalog
-validation requires one owner for every advertised role and capability in each product category. Product formation derives
-requirements from reachable MIR, selects only their owning components, and resolves those archives before link-plan construction.
-The linker receives the selected archives as opaque typed runtime inputs and does not run the runtime's build system or depend on
-its implementation language.
+role-to-symbol bindings, component purposes, archive file names, archive digests, component dependencies, and exact role and
+capability ownership. Catalog validation requires one owner for every advertised role and capability in each product category and a
+complete acyclic dependency graph. Product formation derives requirements from reachable MIR, selects only their owning components
+and transitive dependencies, then authenticates those archives before link-plan construction. Unselected archives are not read or
+hashed. The linker receives the selected archives as opaque typed runtime inputs and does not run the runtime's build system or
+depend on its implementation language.
 
-Ordinary-product execution components contain no test-runner protocol implementation and publish no test-entry selection symbol.
-Test products select test-host execution components whose metadata includes that role and whose build explicitly includes the
-bounded test protocol. Memory, string, and character operations occupy separate capability components. Artifact construction
-validates dependency graphs and exported archive symbols so these boundaries do not regress silently.
+Ordinary-product components contain no test-runner protocol implementation and publish no test-entry selection symbol. Test
+products select a test-host adapter whose metadata includes that role and whose build explicitly includes the bounded test protocol.
+The runtime implementation crate publishes no stable native symbols itself. Each semantic adapter publishes only its assigned ABI
+surface and delegates to the shared implementation support selected through its component dependency. Artifact construction
+deduplicates archive members, produces deterministic archives, validates dependency graphs, and audits exact exported symbols so
+these boundaries do not regress silently.
 
 The runtime receives compiler-generated frame descriptors and never parses source types or compiled package interfaces.
 
@@ -500,8 +505,8 @@ repeat their lifecycle resolution. Root observation never creates a source `Task
 The linker validates every selected component against the runtime artifact identity named by the plan. It does not choose a runtime,
 inspect source names, or infer requirements from unresolved symbols.
 
-A product with no reachable async root or task start omits the async runtime unless another selected dependency explicitly requires
-it.
+A product with no reachable runtime-owned role or capability omits the runtime artifact entirely. Runtime selection is therefore
+absent rather than an empty artifact selection.
 
 ---
 

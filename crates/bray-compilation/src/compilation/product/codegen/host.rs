@@ -129,10 +129,16 @@ impl Compilation {
             capabilities.insert(RuntimeCapability::MainThreadLane);
         }
 
+        let requires_runtime = !runtime_roles.is_empty() || !capabilities.is_empty();
+
         let requirements = RuntimeRequirements::new(
-            runtime_contract.map(|runtime| runtime.identity().clone()),
+            runtime_contract
+                .filter(|_| requires_runtime)
+                .map(|runtime| runtime.identity().clone()),
             self.selected_target().target().runtime_abi(),
-            runtime_contract.map(|runtime| runtime.frame_abi()),
+            runtime_contract
+                .filter(|_| requires_runtime)
+                .map(|runtime| runtime.frame_abi()),
             target.identity().clone(),
             target.panic_abi().clone(),
             runtime_roles.iter().copied(),
@@ -161,7 +167,7 @@ impl Compilation {
             builder.push_entry(entry);
         }
 
-        if let Some(runtime) = runtime_contract {
+        if let Some(runtime) = runtime_contract.filter(|_| requires_runtime) {
             builder.select_runtime(runtime.clone());
         }
 

@@ -115,6 +115,15 @@ impl RuntimeRequirements {
         &self.lanes
     }
 
+    /// Returns whether reachable behavior requires a linked runtime implementation.
+    pub fn requires_implementation(&self) -> bool {
+        self.runtime.is_some()
+            || self.frame_abi.is_some()
+            || !self.roles.is_empty()
+            || !self.capabilities.is_empty()
+            || !self.lanes.is_empty()
+    }
+
     fn merge(&mut self, other: Self) -> Result<(), RuntimeRequirementsMergeError> {
         self.runtime = merge_optional_exact(
             self.runtime.take(),

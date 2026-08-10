@@ -11,7 +11,9 @@ use bray_codegen::{
 use bray_emitter::{BackendEmissionPolicy, EmissionBackend};
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 use bray_linker::Linker;
-use bray_runtime_interface::{RuntimeArtifact, RuntimeArtifactPurpose, RuntimeCapability};
+use bray_runtime_interface::{
+    RuntimeArtifact, RuntimeArtifactPurpose, RuntimeArtifactSelection, RuntimeCapability,
+};
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ProductIdentity, ProductKind,
 };
@@ -299,44 +301,9 @@ impl Compilation {
         )
         .map_err(NativeProductFactError::InvalidEmissionBackend)?;
 
-        let runtime = match (runtime, host.as_ref()) {
-            (Some(runtime), Some(host)) => {
-                let purpose = match semantic.value().kind() {
-                    ProductKind::Test => RuntimeArtifactPurpose::TestRunner,
-                    ProductKind::Executable => RuntimeArtifactPurpose::Product,
-                    ProductKind::Library => unreachable!("library products have no host"),
-                };
+        let runtime = self.select_runtime(semantic.value().kind(), runtime, host.as_ref())?;
 
-                Some(
-                    runtime
-                        .select(purpose, host.requirements())
-                        .map_err(NativeProductFactError::InvalidRuntimeSelection)?,
-                )
-            }
-            (None, _) | (_, None) => None,
-        };
-
-        if let Some(profile) = self.state.fact_runtime.profile()
-            && let Some(runtime) = runtime.as_ref()
-        {
-            profile.add_metric(
-                crate::profile::ProfileMetricKind::RuntimeComponents,
-                u64::try_from(runtime.components().len()).unwrap_or(u64::MAX),
-            );
-
-            let bytes = runtime
-                .components()
-                .iter()
-                .filter_map(|component| component.archive().metadata().ok())
-                .fold(0_u64, |total, metadata| {
-                    total.saturating_add(metadata.len())
-                });
-
-            profile.add_metric(
-                crate::profile::ProfileMetricKind::RuntimeArchiveBytes,
-                bytes,
-            );
-        }
+        self.profile_runtime_selection(runtime.as_ref());
 
         let link = linker
             .map(|_| {
@@ -360,6 +327,72 @@ impl Compilation {
             units,
             mappings: shared_slice(mappings),
         })
+    }
+
+    fn select_runtime(
+        &self,
+        kind: ProductKind,
+        runtime: Option<RuntimeArtifact>,
+        host: Option<&bray_runtime_interface::ExecutableHostContract>,
+    ) -> Result<Option<RuntimeArtifactSelection>, NativeProductFactError> {
+        let (Some(runtime), Some(host)) = (runtime, host) else {
+            return Ok(None);
+        };
+
+        if !host.requirements().requires_implementation() {
+            return Ok(None);
+        }
+
+        let purpose = match kind {
+            ProductKind::Test => RuntimeArtifactPurpose::TestRunner,
+            ProductKind::Executable => RuntimeArtifactPurpose::Product,
+            ProductKind::Library => unreachable!("library products have no host"),
+        };
+
+        runtime
+            .select(purpose, host.requirements())
+            .map(Some)
+            .map_err(NativeProductFactError::InvalidRuntimeSelection)
+    }
+
+    fn profile_runtime_selection(&self, runtime: Option<&RuntimeArtifactSelection>) {
+        let Some(profile) = self.state.fact_runtime.profile() else {
+            return;
+        };
+
+        let Some(runtime) = runtime else {
+            return;
+        };
+
+        profile.add_metric(
+            crate::profile::ProfileMetricKind::RuntimeComponents,
+            u64::try_from(runtime.components().len()).unwrap_or(u64::MAX),
+        );
+
+        let bytes = runtime
+            .components()
+            .iter()
+            .filter_map(|component| component.archive().metadata().ok())
+            .fold(0_u64, |total, metadata| {
+                total.saturating_add(metadata.len())
+            });
+
+        for component in runtime.components() {
+            let component_bytes = component
+                .archive()
+                .metadata()
+                .map_or(0, |metadata| metadata.len());
+
+            profile.add_runtime_artifact(
+                component.metadata().identity().as_str(),
+                component_bytes,
+            );
+        }
+
+        profile.add_metric(
+            crate::profile::ProfileMetricKind::RuntimeArchiveBytes,
+            bytes,
+        );
     }
 
     fn product_root_instances(
@@ -977,13 +1010,35 @@ mod tests {
 
         let release = compilation
             .native_product_facts(
-                product,
+                product.clone(),
                 crate::BuildConfiguration::Release,
                 None,
                 [],
                 Some(&test_linker()),
             )
             .unwrap_or_else(|error| panic!("release native facts must resolve: {error:?}"));
+
+        let host = facts
+            .executable_host()
+            .unwrap_or_else(|| panic!("executable must retain its host"));
+
+        assert!(!host.requirements().requires_implementation());
+        assert_eq!(host.runtime_artifact(), None);
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"runtime archive");
+        let available_runtime = runtime_artifact(&compilation, archive.path());
+
+        compilation
+            .native_product_facts(
+                product,
+                crate::BuildConfiguration::Development,
+                Some(available_runtime),
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| {
+                panic!("unused available runtime must not create an empty selection: {error:?}")
+            });
 
         assert_eq!(facts.options().optimization(), OptimizationLevel::Basic);
 
@@ -2149,7 +2204,10 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test runtime contract must validate: {error:?}"));
 
-        let digest = RuntimeArtifactDigest::new([11; 32]);
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_file(archive)
+                .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
+        );
 
         let capabilities = [
             RuntimeCapability::CooperativeExecution,
@@ -2189,20 +2247,23 @@ mod tests {
             .unwrap_or_else(|error| panic!("test runtime metadata must validate: {error:?}"));
 
         let directory = archive.parent().unwrap_or_else(|| std::path::Path::new(""));
+        let product_archive = directory.join("libbray_runtime_product.a");
+        let test_archive = directory.join("libbray_runtime_test.a");
+
+        std::fs::copy(archive, &product_archive)
+            .unwrap_or_else(|error| panic!("test product runtime archive must copy: {error}"));
+
+        std::fs::copy(archive, &test_archive)
+            .unwrap_or_else(|error| panic!("test runner runtime archive must copy: {error}"));
 
         RuntimeArtifact::try_new(
             metadata,
             [
-                (
-                    product_component,
-                    directory.join("libbray_runtime_product.a"),
-                    digest,
-                ),
+                (product_component, product_archive),
                 (
                     RuntimeArtifactId::try_new("runtime.test")
                         .unwrap_or_else(|| panic!("test component identity must be valid")),
-                    directory.join("libbray_runtime_test.a"),
-                    digest,
+                    test_archive,
                 ),
             ],
         )

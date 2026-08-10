@@ -84,6 +84,10 @@ Compiler libraries and installed Bray tools.
     - Dependency-free native symbol names, status values, fixed-layout records, handles, and callback signatures shared by
       generated code and linked runtime components.
 
+- `bray-runtime-adapter`
+    - Link-isolated native ABI adapters for host, scheduler, cancellation, event, and test-host runtime components. Each selected
+      adapter publishes only the stable symbols for its semantic component and delegates their implementation to `bray-runtime`.
+
 - `bray-runtime-builtins`
     - Link-isolated native implementations of compiler-lowered memory, string, and character operations, partitioned by their
       runtime capability contracts.
@@ -112,8 +116,8 @@ Compiler libraries and installed Bray tools.
 
 - `bray-runtime`
     - Target-independent protected-frame execution, task storage, scheduling, cancellation, observation, and executable-root
-      services over `bray-platform` mechanisms. Test-runner protocol integration is present only in explicitly selected test-host
-      artifacts.
+      services over `bray-platform` mechanisms. Its implementation symbols remain internal. Stable native symbols and test-runner
+      protocol integration are present only in explicitly selected `bray-runtime-adapter` artifacts.
 
 - `bray-linker`
     - Typed native link plans, linker and archiver adapters, invocation, and linked artifact results.

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::ThreadId;
 use std::time::Instant;
@@ -12,7 +13,8 @@ use bray_profile::{
     CompilationProfileMetricDescriptor, CompilationProfileOperationDescriptor,
     CompilationProfileOperationStatistics, CompilationProfileOutcome,
     CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics, CompilationProfileReport,
-    CompilationProfileSubject, CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileRuntimeArtifact, CompilationProfileSubject, CompilationProfileTimeBreakdown,
+    CompilationProfileUnit,
 };
 
 #[inline(always)]
@@ -39,6 +41,7 @@ pub(crate) struct ProfileSession {
     context: CompilationProfileContext,
     clock: Arc<dyn ProfileClock>,
     shards: Box<[Mutex<ProfileShard>]>,
+    runtime_artifacts: Mutex<BTreeMap<String, u64>>,
 }
 
 impl std::fmt::Debug for ProfileSession {
@@ -94,6 +97,7 @@ impl ProfileSession {
             context,
             clock,
             shards,
+            runtime_artifacts: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -201,6 +205,15 @@ impl ProfileSession {
         *current = current.saturating_add(value);
     }
 
+    pub(crate) fn add_runtime_artifact(&self, identity: &str, bytes: u64) {
+        let mut artifacts = self
+            .runtime_artifacts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        artifacts.insert(identity.to_owned(), bytes);
+    }
+
     pub(crate) fn report(&self) -> CompilationProfileReport {
         let mut operations = [ProfileAggregate::default(); ProfileOperation::COUNT];
         let mut queries = [ProfileQueryAggregate::default(); ProfileQueryKind::COUNT];
@@ -224,6 +237,17 @@ impl ProfileSession {
         // Reports own stable context text independently of the active profiling session.
         let context = self.context.clone();
 
+        let runtime_artifacts = self
+            .runtime_artifacts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .map(|(identity, bytes)| CompilationProfileRuntimeArtifact {
+                identity: identity.clone(),
+                bytes: *bytes,
+            })
+            .collect();
+
         CompilationProfileReport {
             schema_revision: COMPILATION_PROFILE_SCHEMA_REVISION,
             mode: self.configuration.mode(),
@@ -236,6 +260,7 @@ impl ProfileSession {
             operations: operation_reports(&operations),
             queries: query_reports(&queries),
             metrics: metric_reports(&metrics),
+            runtime_artifacts,
             events: event_reports(events),
             dropped_events,
         }

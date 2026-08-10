@@ -874,7 +874,9 @@ mod tests {
             runtime_id,
         );
 
-        let runtime = runtime_artifact(&host)
+        let (runtime, _runtime_directory) = runtime_artifact(&host);
+
+        let runtime = runtime
             .select(RuntimeArtifactPurpose::Product, host.requirements())
             .unwrap_or_else(|error| panic!("test runtime must select: {error:?}"));
 
@@ -1019,13 +1021,28 @@ mod tests {
             .unwrap_or_else(|| panic!("test binary symbol name must be valid"))
     }
 
-    fn runtime_artifact(host: &bray_runtime_interface::ExecutableHostContract) -> RuntimeArtifact {
+    fn runtime_artifact(
+        host: &bray_runtime_interface::ExecutableHostContract,
+    ) -> (RuntimeArtifact, tempfile::TempDir) {
         let contract = host
             .runtime()
             .cloned()
             .unwrap_or_else(|| panic!("async test host must select a runtime"));
 
-        let digest = RuntimeArtifactDigest::new([7; 32]);
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+
+        let bytes = b"runtime archive";
+
+        for archive in ["bray_runtime_product.a", "bray_runtime_test.a"] {
+            std::fs::write(directory.path().join(archive), bytes)
+                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
+        }
+
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_file(&directory.path().join("bray_runtime_product.a"))
+                .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
+        );
 
         let roles = contract
             .role_bindings()
@@ -1063,23 +1080,23 @@ mod tests {
         let metadata = RuntimeArtifactMetadata::try_new(contract, [component, test_component])
             .unwrap_or_else(|error| panic!("test runtime metadata must be valid: {error:?}"));
 
-        RuntimeArtifact::try_new(
+        let artifact = RuntimeArtifact::try_new(
             metadata,
             [
                 (
                     component_id,
-                    "runtime/bray_runtime_product.a".into(),
-                    digest,
+                    directory.path().join("bray_runtime_product.a"),
                 ),
                 (
                     RuntimeArtifactId::try_new("runtime.test")
                         .unwrap_or_else(|| panic!("test component identity must be valid")),
-                    "runtime/bray_runtime_test.a".into(),
-                    digest,
+                    directory.path().join("bray_runtime_test.a"),
                 ),
             ],
         )
-        .unwrap_or_else(|error| panic!("test runtime artifact must be valid: {error:?}"))
+        .unwrap_or_else(|error| panic!("test runtime artifact must be valid: {error:?}"));
+
+        (artifact, directory)
     }
 
     struct CountingDriver {

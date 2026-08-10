@@ -1,0 +1,26 @@
+[package]
+name = "bray-runtime-adapter"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[features]
+cancellation = []
+event = []
+host = []
+scheduler = []
+test-host = ["dep:bray-platform", "dep:bray-source", "dep:bray-test-protocol"]
+
+[dependencies]
+bray-platform = { path = "../bray-platform", optional = true }
+bray-runtime = { path = "../bray-runtime" }
+bray-runtime-abi = { path = "../bray-runtime-abi" }
+bray-source = { path = "../bray-source", optional = true }
+bray-test-protocol = { path = "../bray-test-protocol", optional = true }
+
+[lints]
+workspace = true

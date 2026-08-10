@@ -85,6 +85,9 @@ pub(super) fn initialize(configuration: NativeRuntimeConfiguration) -> NativeRun
             [
                 RuntimeCapability::CooperativeExecution,
                 RuntimeCapability::LocalLanes,
+                RuntimeCapability::MigratableLanes,
+                RuntimeCapability::BlockingLanes,
+                RuntimeCapability::ComputeLanes,
                 RuntimeCapability::MainThreadLane,
             ],
             thread.runtime().id(),

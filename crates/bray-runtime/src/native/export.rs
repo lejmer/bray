@@ -42,13 +42,6 @@ native_export! {
     }
 }
 
-#[cfg(feature = "test-host")]
-native_export! {
-    pub extern "C" fn bray_runtime_test_entry_selection_v1(entry: u32) -> u8 {
-        u8::from(super::test::select_entry(entry))
-    }
-}
-
 #[derive(Debug)]
 struct NativePanicReport {
     cause: NativePanicCause,
@@ -95,6 +88,10 @@ native_export! {
 }
 
 native_export! {
+    #[expect(
+        unsafe_code,
+        reason = "the reporting role receives the exact owned report allocation"
+    )]
     pub extern "C" fn bray_runtime_panic_reporting_v1(
         payload: usize,
     ) -> NativeRuntimeStatus {
@@ -124,6 +121,10 @@ native_export! {
 }
 
 native_export! {
+    #[expect(
+        unsafe_code,
+        reason = "the entry failure role borrows the validated native payload for this call"
+    )]
     pub extern "C" fn bray_runtime_entry_failure_reporting_v1(
         payload: usize,
         size: usize,
@@ -154,6 +155,10 @@ native_export! {
 }
 
 native_export! {
+    #[expect(
+        unsafe_code,
+        reason = "the construction role borrows the validated native string view for this call"
+    )]
     pub extern "C" fn bray_runtime_panic_report_construction_v1(
         cause: NativePanicCause,
         source: NativeSourceAnchor,
@@ -474,8 +479,7 @@ fn execute_root(
 
 #[cfg(test)]
 mod tests {
-    use std::mem::{align_of, size_of};
-    use std::panic::catch_unwind;
+    use std::mem::size_of;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{

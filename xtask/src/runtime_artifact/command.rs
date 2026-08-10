@@ -24,18 +24,25 @@ const USAGE: &str = "usage: cargo xtask runtime-artifact \
 const METADATA_FILE_NAME: &str = "bray-runtime.brayrt";
 const RUNTIME_IDENTITY: &str = "bray.runtime.reference";
 const PANIC_ABI: &str = "bray.panic.unwind";
-const EXECUTION_CAPABILITIES: [RuntimeCapability; 3] = [
+const SCHEDULER_CAPABILITIES: [RuntimeCapability; 6] = [
     RuntimeCapability::CooperativeExecution,
     RuntimeCapability::LocalLanes,
+    RuntimeCapability::MigratableLanes,
+    RuntimeCapability::BlockingLanes,
+    RuntimeCapability::ComputeLanes,
     RuntimeCapability::MainThreadLane,
 ];
-const SUPPORTED_CAPABILITIES: [RuntimeCapability; 6] = [
+const SUPPORTED_CAPABILITIES: [RuntimeCapability; 10] = [
     RuntimeCapability::MemoryOperations,
     RuntimeCapability::StringOperations,
     RuntimeCapability::CharacterOperations,
     RuntimeCapability::CooperativeExecution,
     RuntimeCapability::LocalLanes,
+    RuntimeCapability::MigratableLanes,
+    RuntimeCapability::BlockingLanes,
+    RuntimeCapability::ComputeLanes,
     RuntimeCapability::MainThreadLane,
+    RuntimeCapability::Reactor,
 ];
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
@@ -134,18 +141,45 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
 
     audit_dependency_boundaries(&root)?;
 
-    let mut components = Vec::new();
+    let mut partitioner = super::partition::RuntimeArchivePartitioner::new(&root)?;
+    let mut native_links = Vec::new();
     let metadata_path = output.join(METADATA_FILE_NAME);
 
-    for kind in RuntimeArchiveKind::ALL {
-        let archive_file_name = archive_file_name(target, kind);
-
-        let (crate_name, features) = match kind {
-            RuntimeArchiveKind::Memory => ("bray-runtime-builtins", &["memory"][..]),
-            RuntimeArchiveKind::String => ("bray-runtime-builtins", &["string"][..]),
-            RuntimeArchiveKind::Character => ("bray-runtime-builtins", &["character"][..]),
-            RuntimeArchiveKind::ProductExecution => ("bray-runtime", &[][..]),
-            RuntimeArchiveKind::TestExecution => ("bray-runtime", &["test-host"][..]),
+    for kind in RuntimeArchiveKind::OWNING {
+        let (crate_name, features, member_prefix) = match kind {
+            RuntimeArchiveKind::Memory => {
+                ("bray-runtime-builtins", &["memory"][..], "bray_runtime_builtins-")
+            }
+            RuntimeArchiveKind::String => {
+                ("bray-runtime-builtins", &["string"][..], "bray_runtime_builtins-")
+            }
+            RuntimeArchiveKind::Character => (
+                "bray-runtime-builtins",
+                &["character"][..],
+                "bray_runtime_builtins-",
+            ),
+            RuntimeArchiveKind::Host => {
+                ("bray-runtime-adapter", &["host"][..], "bray_runtime_adapter-")
+            }
+            RuntimeArchiveKind::Scheduler => (
+                "bray-runtime-adapter",
+                &["scheduler"][..],
+                "bray_runtime_adapter-",
+            ),
+            RuntimeArchiveKind::Cancellation => (
+                "bray-runtime-adapter",
+                &["cancellation"][..],
+                "bray_runtime_adapter-",
+            ),
+            RuntimeArchiveKind::Event => {
+                ("bray-runtime-adapter", &["event"][..], "bray_runtime_adapter-")
+            }
+            RuntimeArchiveKind::TestHost => (
+                "bray-runtime-adapter",
+                &["test-host"][..],
+                "bray_runtime_adapter-",
+            ),
+            RuntimeArchiveKind::Common => unreachable!("common support is derived from owners"),
         };
 
         let built = crate::native_archive::build_rust_static_library(
@@ -157,18 +191,41 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         )
         .map_err(CommandError::NativeArchive)?;
 
-        let archive = output.join(archive_file_name);
-
-        fs::copy(built.archive(), &archive)
-            .map_err(|error| CommandError::copy(built.archive(), &archive, error))?;
-
-        components.push(BuiltComponent {
+        partitioner.add(
             kind,
-            digest: digest_file(&archive)?,
-            native_links: built.native_links().to_vec(),
-            archive,
-        });
+            built.archive(),
+            member_prefix,
+            kind == RuntimeArchiveKind::TestHost,
+        )?;
+
+        native_links.extend(built.native_links().iter().cloned());
     }
+
+    partitioner.write(target, output)?;
+
+    native_links.sort_by(|left, right| {
+        (left.kind(), left.name()).cmp(&(right.kind(), right.name()))
+    });
+
+    native_links.dedup();
+
+    let components = RuntimeArchiveKind::ALL
+        .into_iter()
+        .map(|kind| {
+            let archive = output.join(archive_file_name(target, kind));
+
+            Ok(BuiltComponent {
+                kind,
+                digest: digest_file(&archive)?,
+                native_links: if kind == RuntimeArchiveKind::Common {
+                    native_links.clone()
+                } else {
+                    Vec::new()
+                },
+                archive,
+            })
+        })
+        .collect::<Result<Vec<_>, CommandError>>()?;
 
     let metadata_value = metadata(target, &components)?;
 
@@ -284,29 +341,72 @@ fn metadata(
             )?);
         }
 
-        let execution = match purpose {
-            RuntimeArtifactPurpose::Product => RuntimeArchiveKind::ProductExecution,
-            RuntimeArtifactPurpose::TestRunner => RuntimeArchiveKind::TestExecution,
-        };
+        let common_identity = component_identity(target, purpose, "common")?;
 
-        let roles = contract
-            .role_bindings()
-            .iter()
-            .map(RuntimeRoleBinding::role)
-            .filter(|role| {
-                purpose == RuntimeArtifactPurpose::TestRunner
-                    || *role != RuntimeAbiRole::TestEntrySelection
-            });
-
-        metadata_components.push(component_metadata(
+        let common = component_metadata(
             target,
             purpose,
-            component(components, execution)?,
-            "execution",
-            roles,
-            EXECUTION_CAPABILITIES,
+            component(components, RuntimeArchiveKind::Common)?,
+            "common",
+            [],
+            [],
             true,
-        )?);
+        )?;
+
+        metadata_components.push(common);
+
+        for (kind, name, capabilities) in [
+            (RuntimeArchiveKind::Host, "host", &[][..]),
+            (
+                RuntimeArchiveKind::Scheduler,
+                "scheduler",
+                &SCHEDULER_CAPABILITIES[..],
+            ),
+            (
+                RuntimeArchiveKind::Cancellation,
+                "cancellation",
+                &[][..],
+            ),
+            (
+                RuntimeArchiveKind::Event,
+                "event",
+                &[RuntimeCapability::Reactor][..],
+            ),
+        ] {
+            let roles = contract
+                .role_bindings()
+                .iter()
+                .map(RuntimeRoleBinding::role)
+                .filter(|role| runtime_role_archive(*role) == Some(kind));
+
+            metadata_components.push(
+                component_metadata(
+                    target,
+                    purpose,
+                    component(components, kind)?,
+                    name,
+                    roles,
+                    capabilities.iter().copied(),
+                    false,
+                )?
+                .with_dependencies([common_identity.clone()]),
+            );
+        }
+
+        if purpose == RuntimeArtifactPurpose::TestRunner {
+            metadata_components.push(
+                component_metadata(
+                    target,
+                    purpose,
+                    component(components, RuntimeArchiveKind::TestHost)?,
+                    "test_host",
+                    [RuntimeAbiRole::TestEntrySelection],
+                    [],
+                    false,
+                )?
+                .with_dependencies([common_identity.clone()]),
+            );
+        }
     }
 
     RuntimeArtifactMetadata::try_new(contract, metadata_components)
@@ -317,22 +417,16 @@ fn metadata(
     clippy::too_many_arguments,
     reason = "runtime component publication keeps each ownership dimension explicit"
 )]
-fn component_metadata<const C: usize>(
+fn component_metadata(
     target: NativeTarget,
     purpose: RuntimeArtifactPurpose,
     component: &BuiltComponent,
     name: &str,
     roles: impl IntoIterator<Item = RuntimeAbiRole>,
-    capabilities: [RuntimeCapability; C],
+    capabilities: impl IntoIterator<Item = RuntimeCapability>,
     embeds_platform_services: bool,
 ) -> Result<RuntimeArtifactComponentMetadata, CommandError> {
-    let identity = RuntimeArtifactId::try_new(format!(
-        "{RUNTIME_IDENTITY}.{}.{}.{}",
-        target.as_str(),
-        purpose.as_str(),
-        name,
-    ))
-    .ok_or(CommandError::MetadataContract)?;
+    let identity = component_identity(target, purpose, name)?;
 
     let metadata = RuntimeArtifactComponentMetadata::try_new(
         identity,
@@ -354,7 +448,61 @@ fn component_metadata<const C: usize>(
         metadata
     };
 
-    Ok(metadata.with_native_links(component.native_links.iter().cloned()))
+    let native_links = if component.kind == RuntimeArchiveKind::Common {
+        super::native_link::common_support_requirements(target, &component.native_links)
+    } else {
+        component.native_links.clone()
+    };
+
+    Ok(metadata.with_native_links(native_links))
+}
+
+fn component_identity(
+    target: NativeTarget,
+    purpose: RuntimeArtifactPurpose,
+    name: &str,
+) -> Result<RuntimeArtifactId, CommandError> {
+    RuntimeArtifactId::try_new(format!(
+        "{RUNTIME_IDENTITY}.{}.{}.{}",
+        target.as_str(),
+        purpose.as_str(),
+        name,
+    ))
+    .ok_or(CommandError::MetadataContract)
+}
+
+fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
+    Some(match role {
+        RuntimeAbiRole::SynchronousRootExecution
+        | RuntimeAbiRole::ForeignCallbackExecution
+        | RuntimeAbiRole::CleanupIncidentReporting
+        | RuntimeAbiRole::RootTerminalObservation
+        | RuntimeAbiRole::RootCompletionResolution
+        | RuntimeAbiRole::PanicReporting
+        | RuntimeAbiRole::EntryFailureReporting
+        | RuntimeAbiRole::StructuredShutdown
+        | RuntimeAbiRole::PanicReportConstruction
+        | RuntimeAbiRole::PanicPropagation => RuntimeArchiveKind::Host,
+        RuntimeAbiRole::RootExecution
+        | RuntimeAbiRole::TaskAllocation
+        | RuntimeAbiRole::TaskStart
+        | RuntimeAbiRole::SuspensionRegistration
+        | RuntimeAbiRole::Wake
+        | RuntimeAbiRole::JoinRegistration
+        | RuntimeAbiRole::TerminalPublication
+        | RuntimeAbiRole::CompatibleLaneSelection
+        | RuntimeAbiRole::MainThreadLaneStartup
+        | RuntimeAbiRole::MainThreadLaneDrive
+        | RuntimeAbiRole::AwaitedFrameComposition
+        | RuntimeAbiRole::FrameCompletionMove => RuntimeArchiveKind::Scheduler,
+        RuntimeAbiRole::RootCancellationRequest
+        | RuntimeAbiRole::TaskCancellationRequest
+        | RuntimeAbiRole::CurrentRunCancellationObservation
+        | RuntimeAbiRole::CurrentRunCancellationPropagation => RuntimeArchiveKind::Cancellation,
+        RuntimeAbiRole::RuntimeEvent => RuntimeArchiveKind::Event,
+        RuntimeAbiRole::TestEntrySelection => RuntimeArchiveKind::TestHost,
+        _ => return None,
+    })
 }
 
 fn component(
@@ -391,7 +539,7 @@ fn digest_file(path: &Path) -> Result<RuntimeArtifactDigest, CommandError> {
     Ok(RuntimeArtifactDigest::new(digest))
 }
 
-fn archive_file_name(target: NativeTarget, kind: RuntimeArchiveKind) -> String {
+pub(super) fn archive_file_name(target: NativeTarget, kind: RuntimeArchiveKind) -> String {
     let name = TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
         .file_name(kind.archive_stem());
 
@@ -455,31 +603,54 @@ struct BuiltComponent {
     native_links: Vec<NativeLinkRequirement>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum RuntimeArchiveKind {
+    Common,
     Memory,
     String,
     Character,
-    ProductExecution,
-    TestExecution,
+    Host,
+    Scheduler,
+    Cancellation,
+    Event,
+    TestHost,
 }
 
 impl RuntimeArchiveKind {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 9] = [
+        Self::Common,
         Self::Memory,
         Self::String,
         Self::Character,
-        Self::ProductExecution,
-        Self::TestExecution,
+        Self::Host,
+        Self::Scheduler,
+        Self::Cancellation,
+        Self::Event,
+        Self::TestHost,
+    ];
+
+    const OWNING: [Self; 8] = [
+        Self::Memory,
+        Self::String,
+        Self::Character,
+        Self::Host,
+        Self::Scheduler,
+        Self::Cancellation,
+        Self::Event,
+        Self::TestHost,
     ];
 
     const fn archive_stem(self) -> &'static str {
         match self {
+            Self::Common => "bray_runtime_common",
             Self::Memory => "bray_runtime_memory",
             Self::String => "bray_runtime_string",
             Self::Character => "bray_runtime_character",
-            Self::ProductExecution => "bray_runtime_product",
-            Self::TestExecution => "bray_runtime_test",
+            Self::Host => "bray_runtime_host",
+            Self::Scheduler => "bray_runtime_scheduler",
+            Self::Cancellation => "bray_runtime_cancellation",
+            Self::Event => "bray_runtime_event",
+            Self::TestHost => "bray_runtime_test_host",
         }
     }
 }
@@ -502,11 +673,6 @@ pub(super) enum CommandError {
         path: PathBuf,
         error: std::io::Error,
     },
-    Copy {
-        source: PathBuf,
-        destination: PathBuf,
-        error: std::io::Error,
-    },
     MetadataContract,
     MetadataEncoding,
     TemporaryDirectory(std::io::Error),
@@ -516,7 +682,11 @@ pub(super) enum CommandError {
     NativeSymbolInspection(std::io::Error),
     NativeSymbolInspectionFailed,
     RuntimeComponentBoundary(RuntimeArchiveKind),
-    SynchronousLinkMapBoundary,
+    RuntimePartitionTool(std::io::Error),
+    RuntimePartitionToolUnavailable,
+    RuntimePartitionFailed,
+    RuntimePartitionMissingOwner(RuntimeArchiveKind),
+    SynchronousLinkMapBoundary(String),
     HostTarget,
     SmokeLinkFailed,
     SmokeExecution(std::io::Error),
@@ -539,13 +709,6 @@ impl CommandError {
         }
     }
 
-    fn copy(source: &Path, destination: &Path, error: std::io::Error) -> Self {
-        Self::Copy {
-            source: source.to_path_buf(),
-            destination: destination.to_path_buf(),
-            error,
-        }
-    }
 }
 
 impl fmt::Display for CommandError {
@@ -572,16 +735,6 @@ impl fmt::Display for CommandError {
             Self::Write { path, error } => {
                 write!(formatter, "could not write {}: {error}", path.display())
             }
-            Self::Copy {
-                source,
-                destination,
-                error,
-            } => write!(
-                formatter,
-                "could not copy {} to {}: {error}",
-                source.display(),
-                destination.display()
-            ),
             Self::MetadataContract => {
                 formatter.write_str("runtime artifact metadata contract is invalid")
             }
@@ -608,8 +761,20 @@ impl fmt::Display for CommandError {
             Self::RuntimeComponentBoundary(kind) => {
                 write!(formatter, "runtime {kind:?} archive has an invalid exported surface")
             }
-            Self::SynchronousLinkMapBoundary => {
-                formatter.write_str("synchronous runtime link map has capability leakage")
+            Self::RuntimePartitionTool(error) => {
+                write!(formatter, "could not run runtime archive partition tool: {error}")
+            }
+            Self::RuntimePartitionToolUnavailable => {
+                formatter.write_str("llvm-ar is unavailable for runtime archive partitioning")
+            }
+            Self::RuntimePartitionFailed => {
+                formatter.write_str("runtime archive partitioning failed")
+            }
+            Self::RuntimePartitionMissingOwner(kind) => {
+                write!(formatter, "runtime {kind:?} partition owns no archive members")
+            }
+            Self::SynchronousLinkMapBoundary(detail) => {
+                write!(formatter, "synchronous runtime link map is invalid: {detail}")
             }
             Self::HostTarget => formatter.write_str("could not determine rustc host target"),
             Self::SmokeLinkFailed => formatter.write_str("runtime artifact smoke link failed"),
@@ -672,17 +837,17 @@ mod tests {
         assert_eq!(
             archive_file_name(
                 NativeTarget::Aarch64WindowsMsvc,
-                RuntimeArchiveKind::TestExecution
+                RuntimeArchiveKind::TestHost
             ),
-            "bray_runtime_test.lib"
+            "bray_runtime_test_host.lib"
         );
 
         assert_eq!(
             archive_file_name(
                 NativeTarget::X86_64LinuxGnu,
-                RuntimeArchiveKind::ProductExecution
+                RuntimeArchiveKind::Host
             ),
-            "libbray_runtime_product.a"
+            "libbray_runtime_host.a"
         );
 
         assert_eq!(
@@ -693,17 +858,17 @@ mod tests {
         assert_eq!(
             archive_file_name(
                 NativeTarget::X86_64MacOs,
-                RuntimeArchiveKind::ProductExecution
+                RuntimeArchiveKind::Scheduler
             ),
-            "libbray_runtime_product.a"
+            "libbray_runtime_scheduler.a"
         );
 
         assert_eq!(
             archive_file_name(
                 NativeTarget::Aarch64MacOs,
-                RuntimeArchiveKind::TestExecution
+                RuntimeArchiveKind::TestHost
             ),
-            "libbray_runtime_test.a"
+            "libbray_runtime_test_host.a"
         );
     }
 
@@ -727,7 +892,26 @@ mod tests {
 
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
-            assert_eq!(first.components().len(), 8);
+            assert_eq!(first.components().len(), 17);
+
+            let common = first
+                .components()
+                .iter()
+                .find(|component| component.identity().as_str().ends_with("product.common"))
+                .unwrap_or_else(|| panic!("runtime metadata must contain product support"));
+
+            let has_synchronization = common
+                .native_links()
+                .iter()
+                .any(|requirement| requirement.name() == "synchronization");
+
+            assert_eq!(
+                has_synchronization,
+                matches!(
+                    target,
+                    NativeTarget::X86_64WindowsMsvc | NativeTarget::Aarch64WindowsMsvc
+                )
+            );
 
             assert_eq!(
                 first
