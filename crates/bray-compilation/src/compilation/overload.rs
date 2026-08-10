@@ -61,10 +61,7 @@ impl Compilation {
         let mut memberships = BTreeMap::new();
         let mut reported_membership_conflicts = BTreeSet::new();
 
-        let maximum_comparisons = self
-            .options()
-            .semantic_analysis_limits()
-            .pairwise_comparisons();
+        let maximum_comparisons = self.semantic_pairwise_limit();
 
         let mut comparisons = 0;
 

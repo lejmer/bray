@@ -309,7 +309,7 @@ impl MemoryOperationDecision {
 }
 
 /// Compiler-provided memory operations selected within one checked bound unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedMemoryOperations {
     unit: BoundUnitId,
     kind: BoundUnitKind,

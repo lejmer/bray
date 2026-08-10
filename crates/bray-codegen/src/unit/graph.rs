@@ -137,7 +137,7 @@ impl CodegenReachabilityBuilder {
 }
 
 /// A contract violation that prevents publication of a closed reachability graph.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenReachabilityBuildError {
     /// No product or inspection roots were requested.
     EmptyRoots,

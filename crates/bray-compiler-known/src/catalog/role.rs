@@ -117,7 +117,7 @@ impl CompilerKnownImplementationBinding {
 }
 
 /// Immutable typed indexes over compiler-known semantic roles.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownCatalogRoleRegistry {
     pub(super) representations: Cow<'static, [CompilerKnownRepresentationBinding]>,
     pub(super) implementations: Cow<'static, [CompilerKnownImplementationBinding]>,

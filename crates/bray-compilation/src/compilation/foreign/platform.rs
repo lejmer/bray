@@ -34,16 +34,12 @@ pub(super) fn platform_service_role(
         .and_then(bray_declarations::ContainerRecord::module_path)
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let mut matched = compilation
-        .state
-        .platform_services
-        .iter()
-        .filter(|binding| {
-            binding.declaration() == name
-                && binding
-                    .module()
-                    .eq(module.segments().iter().map(String::as_str))
-        });
+    let mut matched = compilation.platform_services().iter().filter(|binding| {
+        binding.declaration() == name
+            && binding
+                .module()
+                .eq(module.segments().iter().map(String::as_str))
+    });
 
     let role = matched
         .next()

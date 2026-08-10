@@ -1,9 +1,12 @@
 use std::fmt;
 use std::fs::{File, OpenOptions};
+use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use bray_base::StableDigestHasher;
 
 static NEXT_SPOOL_ID: AtomicU64 = AtomicU64::new(0);
 const SPOOL_CREATE_ATTEMPTS: usize = 128;
@@ -57,10 +60,10 @@ impl ArtifactSpoolError {
 }
 
 /// Writable compiler-owned artifact content.
-#[derive(Debug)]
 pub struct ArtifactSpoolWriter {
     path: Option<PathBuf>,
     file: Option<File>,
+    content_hasher: Option<StableDigestHasher>,
 }
 
 impl ArtifactSpoolWriter {
@@ -79,6 +82,7 @@ impl ArtifactSpoolWriter {
                     return Ok(Self {
                         path: Some(path),
                         file: Some(file),
+                        content_hasher: Some(StableDigestHasher::new()),
                     });
                 }
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -123,6 +127,10 @@ impl ArtifactSpoolWriter {
             return Err(ArtifactSpoolError::invalid_state());
         };
 
+        let Some(content_hasher) = self.content_hasher.take() else {
+            return Err(ArtifactSpoolError::invalid_state());
+        };
+
         let reader = match OpenOptions::new().read(true).open(&path) {
             Ok(reader) => reader,
             Err(error) => {
@@ -139,6 +147,7 @@ impl ArtifactSpoolWriter {
             path,
             reader: Some(reader),
             byte_len,
+            content_identity: content_hasher.finalize(),
         })))
     }
 }
@@ -149,7 +158,15 @@ impl Write for ArtifactSpoolWriter {
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
         };
 
-        file.write(bytes)
+        let written = file.write(bytes)?;
+
+        let Some(hasher) = &mut self.content_hasher else {
+            return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+        };
+
+        hasher.write(&bytes[..written]);
+
+        Ok(written)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -175,6 +192,7 @@ struct ArtifactSpoolStorage {
     path: PathBuf,
     reader: Option<File>,
     byte_len: u64,
+    content_identity: [u8; 32],
 }
 
 impl Drop for ArtifactSpoolStorage {
@@ -193,6 +211,10 @@ impl ArtifactSpool {
     /// Returns the validated final spool length.
     pub fn byte_len(&self) -> u64 {
         self.0.byte_len
+    }
+
+    fn content_identity(&self) -> [u8; 32] {
+        self.0.content_identity
     }
 
     /// Opens an independent read-only view without exposing the physical spool path.
@@ -241,6 +263,7 @@ pub enum ArtifactContentSource<'content> {
 pub struct ArtifactContent {
     storage: ArtifactContentStorage,
     byte_len: u64,
+    content_identity: [u8; 32],
 }
 
 impl ArtifactContent {
@@ -253,6 +276,7 @@ impl ArtifactContent {
         };
 
         Ok(Self {
+            content_identity: content_identity(&bytes),
             storage: ArtifactContentStorage::Memory(bytes),
             byte_len,
         })
@@ -263,6 +287,7 @@ impl ArtifactContent {
         let byte_len = spool.byte_len();
 
         Self {
+            content_identity: spool.content_identity(),
             storage: ArtifactContentStorage::CompilerSpool(spool),
             byte_len,
         }
@@ -282,6 +307,31 @@ impl ArtifactContent {
             }
         }
     }
+}
+
+impl fmt::Debug for ArtifactSpoolWriter {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ArtifactSpoolWriter")
+            .field("has_path", &self.path.is_some())
+            .field("has_file", &self.file.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Hash for ArtifactContent {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.byte_len.hash(state);
+        self.content_identity.hash(state);
+    }
+}
+
+fn content_identity(bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = StableDigestHasher::new();
+
+    hasher.write(bytes);
+
+    hasher.finalize()
 }
 
 /// A contract violation that prevents immutable artifact content construction.
@@ -352,6 +402,8 @@ impl ArtifactDigest {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
     use std::io::{Read, Write};
 
     use super::{ArtifactContent, ArtifactContentSource, ArtifactSpoolWriter};
@@ -388,5 +440,36 @@ mod tests {
 
         assert_eq!(bytes, b"object bytes");
         assert_eq!(content.byte_len(), 12);
+    }
+
+    #[test]
+    fn content_hashes_are_independent_of_storage() {
+        let Ok(memory) = ArtifactContent::try_memory(&b"object bytes"[..]) else {
+            panic!("test memory content must be valid");
+        };
+
+        let Ok(mut writer) = ArtifactSpoolWriter::create() else {
+            panic!("test spool must be created");
+        };
+
+        if writer.write_all(b"object bytes").is_err() {
+            panic!("test spool bytes must be written");
+        }
+
+        let Ok(spool) = writer.finish() else {
+            panic!("test spool must be finalized");
+        };
+
+        let spooled = ArtifactContent::compiler_spool(spool);
+
+        assert_eq!(hash(&memory), hash(&spooled));
+    }
+
+    fn hash(content: &ArtifactContent) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        content.hash(&mut hasher);
+
+        hasher.finish()
     }
 }

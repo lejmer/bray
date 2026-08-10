@@ -2,7 +2,7 @@ use bray_bound_tree::{BoundUnitKey, BoundUnitKind};
 use bray_ir::MirUnit;
 
 /// One semantic unit after its lowering policy has been applied.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum LoweredUnit {
     /// A runtime unit represented by validated MIR.
     Mir(Box<MirUnit>),
@@ -29,7 +29,7 @@ impl LoweredUnit {
 }
 
 /// A checked semantic unit that requires no runtime representation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompileTimeUnit {
     key: BoundUnitKey,
 }

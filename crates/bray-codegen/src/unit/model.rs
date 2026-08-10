@@ -5,11 +5,16 @@ use std::sync::Arc;
 use bray_base::{StableDigestHasher, shared_slice, sorted_unique_shared_slice};
 use bray_ir::{MirTargetFacts, MirUnit, MirUnitId};
 
-use super::{CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey};
+use super::{
+    CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenOversizedUnit,
+    CodegenPartitionCompatibility, CodegenPartitionPolicy, CodegenWork,
+};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct CodegenUnitKeyData {
-    partition_revision: u32,
+    partition_policy: CodegenPartitionPolicy,
+    estimated_work: CodegenWork,
+    oversized: Option<CodegenOversizedUnit>,
     content_identity: [u8; 32],
     target: MirTargetFacts,
     recipe: Arc<CodegenUnitRecipe>,
@@ -22,14 +27,38 @@ pub struct CodegenUnitKey(Arc<CodegenUnitKeyData>);
 #[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct CodegenUnitRecipe {
     instances: Arc<[CodegenInstanceKey]>,
+    compatibilities: Arc<[CodegenPartitionCompatibility]>,
     mir_units: Arc<[MirUnitId]>,
     dependencies: Arc<[Arc<[CodegenInstanceDependency]>]>,
 }
 
 impl CodegenUnitKey {
-    /// Returns the code generation partition-policy revision.
-    pub fn partition_revision(&self) -> u32 {
-        self.0.partition_revision
+    /// Returns the complete code generation partition policy.
+    pub fn partition_policy(&self) -> CodegenPartitionPolicy {
+        self.0.partition_policy
+    }
+
+    /// Returns the package, linkage, and visibility class of one contained definition.
+    pub fn compatibility(
+        &self,
+        instance: &CodegenInstanceKey,
+    ) -> Option<&CodegenPartitionCompatibility> {
+        self.0
+            .recipe
+            .instances
+            .binary_search(instance)
+            .ok()
+            .map(|index| &self.0.recipe.compatibilities[index])
+    }
+
+    /// Returns deterministic estimated generation work.
+    pub fn estimated_work(&self) -> CodegenWork {
+        self.0.estimated_work
+    }
+
+    /// Returns metadata when an indivisible unit exceeds the policy upper bound.
+    pub fn oversized(&self) -> Option<CodegenOversizedUnit> {
+        self.0.oversized
     }
 
     /// Returns the stable identity of complete MIR structure and dependency edges.
@@ -72,10 +101,12 @@ impl CodegenUnitKey {
 }
 
 /// One immutable independently generated collection of concrete MIR definitions.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CodegenUnit {
     key: CodegenUnitKey,
     target: MirTargetFacts,
+    estimated_work: CodegenWork,
+    oversized: Option<CodegenOversizedUnit>,
     instances: Arc<[CodegenInstance]>,
     external_instances: Arc<[CodegenInstanceKey]>,
 }
@@ -83,19 +114,65 @@ pub struct CodegenUnit {
 impl CodegenUnit {
     /// Creates a unit from non-generic MIR definitions without external dependencies.
     pub fn try_new(
-        partition_revision: u32,
+        partition_policy: CodegenPartitionPolicy,
+        compatibility: CodegenPartitionCompatibility,
         mir_units: impl IntoIterator<Item = MirUnit>,
     ) -> Result<Self, CodegenUnitBuildError> {
         Self::try_from_instances(
-            partition_revision,
+            partition_policy,
+            compatibility,
             mir_units.into_iter().map(CodegenInstance::non_generic),
         )
     }
 
     /// Creates a unit from one or more concrete instances.
     pub fn try_from_instances(
-        partition_revision: u32,
+        partition_policy: CodegenPartitionPolicy,
+        compatibility: CodegenPartitionCompatibility,
         instances: impl IntoIterator<Item = CodegenInstance>,
+    ) -> Result<Self, CodegenUnitBuildError> {
+        // Every recipe entry owns the Arc-backed package identity after this call returns.
+        Self::try_from_partition(
+            partition_policy,
+            instances,
+            |_| Some(compatibility.clone()),
+            false,
+        )
+    }
+
+    /// Reconstructs an exact planned unit from its concrete definition payloads.
+    pub fn try_from_key(
+        key: &CodegenUnitKey,
+        instances: impl IntoIterator<Item = CodegenInstance>,
+    ) -> Result<Self, CodegenUnitBuildError> {
+        let unit = Self::try_from_partition(
+            key.partition_policy(),
+            instances,
+            // The reconstructed recipe owns compatibility independently of the plan key borrow.
+            |instance| key.compatibility(instance.key()).cloned(),
+            key.oversized().is_some(),
+        )?;
+
+        if unit.key() != key {
+            return Err(CodegenUnitBuildError::RecipeMismatch);
+        }
+
+        Ok(unit)
+    }
+
+    pub(super) fn try_from_indivisible_group(
+        partition_policy: CodegenPartitionPolicy,
+        instances: impl IntoIterator<Item = CodegenInstance>,
+        compatibility: impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
+    ) -> Result<Self, CodegenUnitBuildError> {
+        Self::try_from_partition(partition_policy, instances, compatibility, true)
+    }
+
+    fn try_from_partition(
+        partition_policy: CodegenPartitionPolicy,
+        instances: impl IntoIterator<Item = CodegenInstance>,
+        compatibility: impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
+        indivisible: bool,
     ) -> Result<Self, CodegenUnitBuildError> {
         let mut instances: Vec<_> = instances.into_iter().collect();
 
@@ -112,6 +189,15 @@ impl CodegenUnit {
             return Err(CodegenUnitBuildError::DuplicateInstance);
         }
 
+        let Some(compatibilities) = instances
+            .iter()
+            .map(compatibility)
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Err(CodegenUnitBuildError::MissingCompatibility);
+        };
+
+        // The unit owns target facts independently of its instance collection.
         let target = instances[0].key().target().clone();
 
         if instances
@@ -123,6 +209,7 @@ impl CodegenUnit {
 
         let membership: BTreeSet<_> = instances.iter().map(|instance| instance.key()).collect();
 
+        // The unit recipe owns dependency identities beyond each instance borrow.
         let external_instances = sorted_unique_shared_slice(
             instances
                 .iter()
@@ -132,7 +219,9 @@ impl CodegenUnit {
                 .cloned(),
         );
 
+        // The structural recipe owns identities independently of retained instance payloads.
         let instance_keys = shared_slice(instances.iter().map(|instance| instance.key().clone()));
+        let compatibilities = shared_slice(compatibilities);
         let mir_units = shared_slice(instances.iter().map(|instance| instance.mir().unit()));
 
         let dependencies = shared_slice(
@@ -141,20 +230,52 @@ impl CodegenUnit {
                 .map(|instance| Arc::from(instance.dependencies())),
         );
 
-        let content_identity = content_identity(partition_revision, &instances);
+        let estimated_work = instances
+            .iter()
+            .fold(CodegenWork::new(0), |work, instance| {
+                work.saturating_add(partition_policy.estimate(instance))
+            });
+
+        let oversized = if estimated_work > partition_policy.upper_bound() {
+            if !indivisible {
+                return Err(CodegenUnitBuildError::WorkBoundExceeded);
+            }
+
+            Some(CodegenOversizedUnit::indivisible(
+                instances.len(),
+                estimated_work,
+                partition_policy.upper_bound(),
+            ))
+        } else {
+            None
+        };
+
+        let content_identity = content_identity(
+            partition_policy,
+            &compatibilities,
+            estimated_work,
+            oversized,
+            &instances,
+        );
 
         Ok(Self {
             key: CodegenUnitKey(Arc::new(CodegenUnitKeyData {
-                partition_revision,
+                partition_policy,
+                estimated_work,
+                oversized,
                 content_identity,
+                // The key retains target identity independently of the unit payload.
                 target: target.clone(),
                 recipe: Arc::new(CodegenUnitRecipe {
                     instances: instance_keys,
+                    compatibilities,
                     mir_units,
                     dependencies,
                 }),
             })),
             target,
+            estimated_work,
+            oversized,
             instances: instances.into(),
             external_instances,
         })
@@ -168,6 +289,24 @@ impl CodegenUnit {
     /// Returns the stable structural unit key.
     pub const fn key(&self) -> &CodegenUnitKey {
         &self.key
+    }
+
+    /// Returns the package, linkage, and visibility class of one contained definition.
+    pub fn compatibility(
+        &self,
+        instance: &CodegenInstanceKey,
+    ) -> Option<&CodegenPartitionCompatibility> {
+        self.key.compatibility(instance)
+    }
+
+    /// Returns deterministic estimated generation work.
+    pub const fn estimated_work(&self) -> CodegenWork {
+        self.estimated_work
+    }
+
+    /// Returns metadata when an indivisible unit exceeds the policy upper bound.
+    pub const fn oversized(&self) -> Option<CodegenOversizedUnit> {
+        self.oversized
     }
 
     /// Returns concrete definitions in canonical identity order.
@@ -186,25 +325,40 @@ impl CodegenUnit {
     }
 }
 
-fn content_identity(partition_revision: u32, instances: &[CodegenInstance]) -> [u8; 32] {
+fn content_identity(
+    partition_policy: CodegenPartitionPolicy,
+    compatibilities: &[CodegenPartitionCompatibility],
+    estimated_work: CodegenWork,
+    oversized: Option<CodegenOversizedUnit>,
+    instances: &[CodegenInstance],
+) -> [u8; 32] {
     let mut hasher = StableDigestHasher::new();
 
     hasher.write(b"bray.codegen-unit-content");
-    hasher.write_u32(partition_revision);
+    partition_policy.hash(&mut hasher);
+    compatibilities.hash(&mut hasher);
+    estimated_work.hash(&mut hasher);
+    oversized.hash(&mut hasher);
     instances.hash(&mut hasher);
 
     hasher.finalize()
 }
 
 /// A contract violation that prevents creation of a code generation unit.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenUnitBuildError {
     /// The partition contains no definitions.
     Empty,
     /// Two entries describe the same concrete definition.
     DuplicateInstance,
+    /// One concrete definition has no package, linkage, or visibility class.
+    MissingCompatibility,
     /// Concrete definitions were lowered for different targets.
     TargetMismatch,
+    /// Divisible membership exceeds the selected policy upper bound.
+    WorkBoundExceeded,
+    /// Concrete payloads do not reproduce the supplied structural unit recipe.
+    RecipeMismatch,
 }
 
 #[cfg(test)]
@@ -219,12 +373,19 @@ mod tests {
     };
 
     use super::{CodegenUnit, CodegenUnitBuildError};
-    use crate::{CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey};
+    use crate::test_support::codegen_partition_compatibility;
+    use crate::{
+        CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenPartitionPolicy,
+    };
 
     #[test]
     fn units_reject_empty_and_duplicate_instance_membership() {
         assert_eq!(
-            CodegenUnit::try_new(1, []),
+            CodegenUnit::try_new(
+                CodegenPartitionPolicy::NATIVE_BALANCED,
+                codegen_partition_compatibility(),
+                [],
+            ),
             Err(CodegenUnitBuildError::Empty)
         );
 
@@ -232,18 +393,28 @@ mod tests {
         let duplicate = first.clone();
 
         assert_eq!(
-            CodegenUnit::try_from_instances(1, [first, duplicate]),
+            CodegenUnit::try_from_instances(
+                CodegenPartitionPolicy::NATIVE_BALANCED,
+                codegen_partition_compatibility(),
+                [first, duplicate],
+            ),
             Err(CodegenUnitBuildError::DuplicateInstance)
         );
     }
 
     #[test]
     fn units_derive_equal_keys_independently_of_input_order() {
-        let first =
-            CodegenUnit::try_new(1, [test_mir_unit_with_declaration(8, 1), test_mir_unit(4)]);
+        let first = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [test_mir_unit_with_declaration(8, 1), test_mir_unit(4)],
+        );
 
-        let second =
-            CodegenUnit::try_new(1, [test_mir_unit(4), test_mir_unit_with_declaration(8, 1)]);
+        let second = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [test_mir_unit(4), test_mir_unit_with_declaration(8, 1)],
+        );
 
         assert_eq!(first, second);
     }
@@ -255,11 +426,19 @@ mod tests {
 
         assert_eq!(without_storage.key(), with_storage.key());
 
-        let without_storage = CodegenUnit::try_new(1, [without_storage])
-            .unwrap_or_else(|error| panic!("storage-free unit must validate: {error:?}"));
+        let without_storage = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [without_storage],
+        )
+        .unwrap_or_else(|error| panic!("storage-free unit must validate: {error:?}"));
 
-        let with_storage = CodegenUnit::try_new(1, [with_storage])
-            .unwrap_or_else(|error| panic!("storage-owning unit must validate: {error:?}"));
+        let with_storage = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [with_storage],
+        )
+        .unwrap_or_else(|error| panic!("storage-owning unit must validate: {error:?}"));
 
         assert_ne!(
             without_storage.key().content_identity(),
@@ -296,7 +475,11 @@ mod tests {
             panic!("second test instance must validate");
         };
 
-        let Ok(unit) = CodegenUnit::try_from_instances(1, [first, second]) else {
+        let Ok(unit) = CodegenUnit::try_from_instances(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [first, second],
+        ) else {
             panic!("test unit must validate");
         };
 

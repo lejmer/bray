@@ -66,6 +66,11 @@ mod tests {
         optimization: OptimizationLevel,
         size_preference: SizePreference,
     ) -> CodegenOptions {
-        CodegenOptions::new(optimization, size_preference, DebugInformationMode::None)
+        CodegenOptions::new(
+            optimization,
+            size_preference,
+            DebugInformationMode::None,
+            bray_codegen::ReproducibilityLevel::ByteForByte,
+        )
     }
 }

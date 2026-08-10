@@ -157,8 +157,7 @@ impl Compilation {
             ));
         }
 
-        let test_enabled =
-            test_directive.is_none_or(|_| self.options().product_kind() == ProductKind::Test);
+        let test_enabled = test_directive.is_none_or(|_| self.product_kind() == ProductKind::Test);
 
         let target_gate = match first_directive(&directives, DirectiveKind::Target) {
             Some(directive) => match directive.arguments().first() {
@@ -320,7 +319,7 @@ impl Compilation {
         &self,
         fact: TargetFactKind,
     ) -> Result<ConstantValueId, FactQueryError> {
-        let fact_value = self.options().selected_target().profile().fact(fact);
+        let fact_value = self.requested_target().profile().fact(fact);
 
         let value = match fact_value {
             TargetFactValue::String(value) => ConstantValueKind::String(Arc::from(value)),
@@ -339,7 +338,7 @@ impl Compilation {
         &self,
         fact: TargetFactKind,
     ) -> Result<TypeId, FactQueryError> {
-        let role = match self.options().selected_target().profile().fact(fact) {
+        let role = match self.requested_target().profile().fact(fact) {
             TargetFactValue::String(_) => RepresentationRole::String,
             TargetFactValue::Usize(_) => RepresentationRole::ScalarUsize,
             TargetFactValue::Boolean(_) => RepresentationRole::ScalarBool,

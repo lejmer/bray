@@ -251,10 +251,9 @@ impl PlatformServiceRole {
     pub const fn signature(self) -> PlatformServiceSignature {
         use PlatformAbiType::{
             ChildRequest, ExitStatusPointer, FileMetadataPointer, FileOptions, I32, I64,
-            NativeText, Path, PointerI64, PointerU8, PointerU32, PointerU64, Status,
-            TemporalDateTime, TemporalDateTimePointer, TemporalObservationPointer,
-            RawAddressPointer, TemporalResolutionPointer, TemporalValue, TemporalValuePointer, U32,
-            U64,
+            NativeText, Path, PointerI64, PointerU8, PointerU32, PointerU64, RawAddressPointer,
+            Status, TemporalDateTime, TemporalDateTimePointer, TemporalObservationPointer,
+            TemporalResolutionPointer, TemporalValue, TemporalValuePointer, U32, U64,
         };
 
         const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];

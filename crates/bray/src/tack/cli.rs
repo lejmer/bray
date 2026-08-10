@@ -192,9 +192,8 @@ impl Cli {
             worker_count,
             output_format,
             self.verbose,
-            self.profile.map(|mode| {
-                TackProfileConfiguration::new(mode.into(), self.profile_output)
-            }),
+            self.profile
+                .map(|mode| TackProfileConfiguration::new(mode.into(), self.profile_output)),
             command,
         ))
     }
@@ -549,7 +548,10 @@ mod tests {
             (vec!["test"], TackCommandKind::Test),
             (vec!["fmt"], TackCommandKind::Format),
             (vec!["inspect", "project"], TackCommandKind::Inspect),
-            (vec!["profile", "show", "profile.json"], TackCommandKind::Profile),
+            (
+                vec!["profile", "show", "profile.json"],
+                TackCommandKind::Profile,
+            ),
             (vec!["language-server"], TackCommandKind::LanguageServer),
             (
                 vec![

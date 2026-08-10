@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// The exact checked semantic choice attached to one expression occurrence.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SemanticSelection {
     /// The exact value selected for a subject-dependent pattern reference.
     Reference(BoundReferenceTarget),
@@ -40,7 +40,7 @@ impl SemanticSelection {
 }
 
 /// One source-correlated expression and its exact semantic selection.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SemanticSelectionEntry {
     expression: BoundExpressionId,
     selection: SemanticSelection,
@@ -86,7 +86,7 @@ pub enum SemanticSelectionTableBuildError {
 }
 
 /// Complete immutable semantic selections for one checked bound unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedSemanticSelections {
     unit: crate::BoundUnitId,
     kind: crate::BoundUnitKind,

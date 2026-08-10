@@ -81,7 +81,7 @@ impl SyntaxAnchor {
 }
 
 /// Syntax-backed declaration metadata needed before symbol construction.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DeclarationSurface {
     visibility: Option<SyntaxKind>,
     modifiers: Box<[SyntaxKind]>,

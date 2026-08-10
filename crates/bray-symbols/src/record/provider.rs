@@ -4,7 +4,7 @@ use crate::{AnySymbolId, ImportedSymbolFactKey, SymbolKey, SymbolOrigin};
 macro_rules! define_default_provider_record {
     ($record:ident, $id:ident, $subject:ident) => {
         #[doc = concat!("The synthesized declaration record for a `", stringify!($record), "`.")]
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
         pub struct $record {
             id: crate::$id,
             key: SymbolKey,

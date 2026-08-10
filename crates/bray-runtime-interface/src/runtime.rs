@@ -197,7 +197,7 @@ pub enum RuntimeContractBuildError {
 }
 
 /// Deterministic incompatibility between reachable requirements and a selected runtime.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeCompatibilityError {
     /// Product policy requires another runtime implementation.
     RuntimeIdentity,

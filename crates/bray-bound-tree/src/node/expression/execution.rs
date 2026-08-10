@@ -48,7 +48,7 @@ impl BoundAwaitResolution {
 }
 
 /// A direct await that composes one lazy future into the current run.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundAwaitExpression {
     origin: BoundNodeOrigin,
     operand: BoundExpressionId,

@@ -177,7 +177,11 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("test C ABI facts must be valid"));
 
-        assert_eq!(facts.mapping(TargetCScalarKind::Long), Some(TargetScalarKind::I64));
+        assert_eq!(
+            facts.mapping(TargetCScalarKind::Long),
+            Some(TargetScalarKind::I64)
+        );
+
         assert_eq!(facts.mapping(TargetCScalarKind::LongDouble), None);
     }
 }

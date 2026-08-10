@@ -88,8 +88,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
 
             let dependency = self
                 .compilation
-                .state
-                .dependency_interfaces
+                .dependency_interfaces()
                 .binary_search_by(|dependency| {
                     dependency.package().as_str().cmp(package_prefix.as_str())
                 })
@@ -104,7 +103,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
             return Ok(None);
         };
 
-        let identity = self.compilation.state.dependency_interfaces[dependency].package();
+        let identity = self.compilation.dependency_interfaces()[dependency].package();
 
         let Some(symbols) = self.imported_symbols()? else {
             return Ok(None);

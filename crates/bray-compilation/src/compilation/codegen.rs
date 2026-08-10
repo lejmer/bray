@@ -75,20 +75,16 @@ impl Compilation {
                     return Err(CodegenFactError::UnitMismatch(key.clone()));
                 };
 
-                CodegenInstance::try_new(instance.clone(), mir, dependencies.iter().cloned())
-                    .map_err(CodegenFactError::InvalidInstance)
+                let instance =
+                    CodegenInstance::try_new(instance.clone(), mir, dependencies.iter().cloned())
+                        .map_err(CodegenFactError::InvalidInstance)?;
+
+                Ok(instance)
             })?
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        let unit = CodegenUnit::try_from_instances(key.partition_revision(), instances)
-            .map_err(CodegenFactError::InvalidUnit)?;
-
-        if unit.key() != key {
-            return Err(CodegenFactError::UnitMismatch(key.clone()));
-        }
-
-        Ok(unit)
+        CodegenUnit::try_from_key(key, instances).map_err(CodegenFactError::InvalidUnit)
     }
 
     pub(in crate::compilation) fn codegen_mir_for_plan(
@@ -225,10 +221,14 @@ impl Compilation {
         };
 
         let backend = codegen.selected();
+        let capability_revision = codegen.selected_capabilities().revision();
+        let product = self.product_kind();
 
         CodegenRequest::try_new(
             unit,
             backend,
+            capability_revision,
+            product,
             target,
             mappings,
             options,
@@ -242,6 +242,8 @@ impl Compilation {
             mappings.clone(),
             target.clone(),
             backend.clone(),
+            capability_revision,
+            product,
             *options,
             artifacts.clone(),
         );
@@ -260,9 +262,13 @@ impl Compilation {
             cancellation,
             priority,
             |shared_cancellation| {
+                self.record_codegen_configuration();
+
                 let request = CodegenRequest::try_new(
                     unit,
                     backend,
+                    capability_revision,
+                    product,
                     target,
                     mappings,
                     options,
@@ -402,7 +408,7 @@ fn symbol_mapping(
 }
 
 /// A failure to request one lazy code generation contribution fact.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenFactError {
     /// This compilation was composed without a code generation backend.
     CodegenUnavailable,
@@ -463,11 +469,12 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
 
-    use bray_codegen::test_support::codegen_request;
+    use bray_codegen::test_support::{
+        codegen_backend_capabilities, codegen_partition_compatibility, codegen_request,
+    };
     use bray_codegen::{
-        AssemblySyntaxKind, BackendCapabilities, BackendTargetPlatform, CodeGenerator,
-        CodeGeneratorRegistry, CodegenConfiguration, CodegenFailure, CodegenOutcome,
-        CodegenRequest,
+        BackendCapabilities, CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration,
+        CodegenFailure, CodegenOutcome, CodegenPartitionPolicy, CodegenRequest,
     };
     use bray_diagnostics::DiagnosticBag;
 
@@ -493,8 +500,12 @@ mod tests {
             .cloned()
             .unwrap_or_else(|| panic!("test source unit must publish MIR"));
 
-        let expected = bray_codegen::CodegenUnit::try_new(1, [mir])
-            .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
+        let expected = bray_codegen::CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [mir],
+        )
+        .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
 
         let actual = compilation
             .codegen_unit_for_plan(expected.key(), None, &crate::CancellationToken::new())
@@ -662,22 +673,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("code generation fact must publish: {error:?}"))
     }
 
-    fn capabilities(request: CodegenRequest<'_>) -> BackendCapabilities {
-        let machine = request.target().machine();
-
-        BackendCapabilities::new(
-            [BackendTargetPlatform::new(
-                machine.architecture(),
-                machine.object_format(),
-            )],
-            request
-                .artifacts()
-                .entries()
-                .iter()
-                .map(|entry| entry.id().kind()),
-            [request.options().debug_information()],
-            [AssemblySyntaxKind::TargetDefault],
-        )
+    fn capabilities(_request: CodegenRequest<'_>) -> BackendCapabilities {
+        codegen_backend_capabilities()
     }
 
     struct CountingCodeGenerator {

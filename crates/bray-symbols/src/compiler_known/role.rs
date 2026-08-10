@@ -12,7 +12,7 @@ use crate::{
     TraitTypeMemberSymbolId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) enum RepresentationTarget {
     Symbol(AnySymbolId),
     Value(CompilerKnownValueId),
@@ -270,7 +270,7 @@ impl CompilerKnownOperationContract {
 }
 
 /// Compilation-local typed routes from compiler roles to semantic identities.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownSymbolRoleRegistry {
     representations: BTreeMap<RepresentationRole, RepresentationTarget>,
     symbol_representations: BTreeMap<AnySymbolId, RepresentationRole>,

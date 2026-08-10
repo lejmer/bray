@@ -139,7 +139,7 @@ impl TraitRequirementConformance {
 }
 
 /// Immutable fulfillment validity for one trait implementation declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TraitImplementationConformance {
     implementation: ImplementationSymbolId,
     trait_application: TraitApplicationId,

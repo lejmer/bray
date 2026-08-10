@@ -97,13 +97,9 @@ impl Compilation {
             ),
         };
 
-        let configured_inputs = self
-            .options()
-            .native_link_inputs()
-            .iter()
-            .map(|requirement| {
-                native_link_input(requirement, LinkInputProvenance::HostConfiguration)
-            });
+        let configured_inputs = self.native_link_inputs().iter().map(|requirement| {
+            native_link_input(requirement, LinkInputProvenance::HostConfiguration)
+        });
 
         let runtime_inputs = runtime.iter().flat_map(|runtime| {
             // Every input retains the Arc-backed runtime artifact provenance.
@@ -158,11 +154,11 @@ impl Compilation {
             return Ok(Vec::new());
         }
 
-        let Some(resolver) = self.state.standard_library.as_ref() else {
+        let Some(resolver) = self.standard_library() else {
             return Ok(Vec::new());
         };
 
-        let selected = self.options().selected_target();
+        let selected = self.requested_target();
 
         let artifacts = resolver
             .target_artifacts(selected.profile().identity(), selected.runtime_abi())

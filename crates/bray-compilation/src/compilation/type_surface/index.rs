@@ -15,6 +15,7 @@ use crate::compilation::source_graph::{
 };
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
+#[derive(Hash)]
 pub(in crate::compilation) struct InherentImplementationAssociationIndex {
     by_subject: BTreeMap<NamedTypeSymbolId, Arc<[InherentImplementationSymbolId]>>,
 }

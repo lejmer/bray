@@ -13,7 +13,7 @@ pub enum SelectedPropagationBoundary {
 }
 
 /// The exact checked behavior of one propagation expression.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SelectedPropagation {
     /// Propagate absence to one nullable boundary.
     Nullable {

@@ -12,7 +12,7 @@ use bray_symbols::{SymbolKey, TypeId};
 
 use crate::fact::FactQueryError;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::compilation) struct OperationResolution {
     expression: BoundExpressionId,
     result_type: TypeId,

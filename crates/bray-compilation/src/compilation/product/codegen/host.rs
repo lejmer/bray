@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use bray_codegen::{CodegenLinkage, CodegenTarget, CodegenUnit, demanded_runtime_references};
+use bray_codegen::{
+    CodegenDefinitionVisibility, CodegenLinkage, CodegenPartitionCompatibility,
+    CodegenPartitionPolicy, CodegenTarget, CodegenUnit, demanded_runtime_references,
+};
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
@@ -12,7 +15,6 @@ use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 use super::super::super::Compilation;
 use super::super::specialization::ConcreteCodegenInstance;
 use super::error::NativeProductFactError;
-use super::implementation::CODEGEN_PARTITION_REVISION;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -73,7 +75,7 @@ impl Compilation {
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
 
         let mut runtime_roles = match reachability {
-            Some(reachability) => demanded_product_runtime_roles(reachability)?,
+            Some(reachability) => demanded_product_runtime_roles(product, reachability)?,
             None => BTreeSet::new(),
         };
 
@@ -274,13 +276,26 @@ impl Compilation {
 }
 
 fn demanded_product_runtime_roles(
+    product: &ProductIdentity,
     reachability: &bray_codegen::CodegenReachability,
 ) -> Result<BTreeSet<RuntimeAbiRole>, NativeProductFactError> {
     let mut roles = BTreeSet::new();
 
     for instance in reachability.instances() {
-        let unit = CodegenUnit::try_new(CODEGEN_PARTITION_REVISION, [instance.mir().clone()])
-            .map_err(NativeProductFactError::InvalidCodegenUnit)?;
+        let compatibility = CodegenPartitionCompatibility::new(
+            // The temporary unit owns its package identity beyond the product borrow.
+            product.package().clone(),
+            CodegenLinkage::Internal,
+            CodegenDefinitionVisibility::Product,
+        );
+
+        let unit = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            compatibility,
+            // Runtime-reference analysis owns the MIR payload in its temporary unit.
+            [instance.mir().clone()],
+        )
+        .map_err(NativeProductFactError::InvalidCodegenUnit)?;
 
         roles.extend(
             demanded_runtime_references(&unit)

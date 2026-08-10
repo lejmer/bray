@@ -1,3 +1,4 @@
+use std::hash::Hash;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -85,18 +86,6 @@ impl<T> FactCell<T> {
         self.storage.value.get()
     }
 
-    pub(crate) fn ready(key: CompilationFactKey, value: T) -> Self {
-        Self {
-            storage: Arc::new(FactCellStorage {
-                value: OnceLock::from(value),
-                state: Mutex::new(FactCellState::Ready(key)),
-                changed: Condvar::new(),
-                #[cfg(test)]
-                observer: Mutex::new(None),
-            }),
-        }
-    }
-
     #[cfg(test)]
     pub(crate) fn shares_storage_with(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.storage, &other.storage)
@@ -148,7 +137,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Send,
+        T: Hash + Send,
     {
         let priority = runtime.current_priority()?.unwrap_or(QueryPriority::Normal);
 
@@ -164,7 +153,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Send,
+        T: Hash + Send,
     {
         self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
@@ -185,7 +174,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Send,
+        T: Hash + Send,
     {
         self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
@@ -206,7 +195,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Send,
+        T: Hash + Send,
     {
         let priority = runtime.current_priority()?.unwrap_or(QueryPriority::Normal);
 
@@ -230,7 +219,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Send,
+        T: Hash + Send,
     {
         let mut compute = Some(compute);
 
@@ -316,7 +305,7 @@ impl<T> FactCell<T> {
 
                     shared_cancellation.token().check()?;
 
-                    let commit = evaluation.prepare()?;
+                    let commit = evaluation.prepare(&value)?;
 
                     self.publish(value, task, key, commit)?;
 
@@ -510,7 +499,10 @@ impl<T> FactCell<T> {
 }
 
 fn record_cache_outcome(
-    profile: Option<(&crate::profile::ProfileSession, crate::profile::ProfileQueryKind)>,
+    profile: Option<(
+        &crate::profile::ProfileSession,
+        crate::profile::ProfileQueryKind,
+    )>,
     recorded: &mut bool,
     is_hit: bool,
 ) {

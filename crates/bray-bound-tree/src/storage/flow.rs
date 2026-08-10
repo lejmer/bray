@@ -215,7 +215,7 @@ pub enum StorageFlowFactsBuildError {
 }
 
 /// Immutable storage, ownership, and borrow decisions for one bound unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct StorageFlowFacts {
     unit: BoundUnitId,
     kind: BoundUnitKind,

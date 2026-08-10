@@ -16,8 +16,8 @@ use bray_symbols::{
 
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerUnitView, type_is_copyable,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
+    CheckerUnitView, type_is_copyable,
 };
 
 pub(crate) fn check_memory_operations<C>(
@@ -180,15 +180,14 @@ where
         return Ok(false);
     };
 
-    let signature = match request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
-        callable,
-    )) {
-        Ok(signature) => signature,
-        Err(crate::CheckerFactError::Cancelled) => return Err(CheckerOutcome::Cancelled),
-        Err(crate::CheckerFactError::Infrastructure(error)) => {
-            return Err(CheckerOutcome::InfrastructureFailure(error));
-        }
-    };
+    let signature =
+        match request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable)) {
+            Ok(signature) => signature,
+            Err(crate::CheckerFactError::Cancelled) => return Err(CheckerOutcome::Cancelled),
+            Err(crate::CheckerFactError::Infrastructure(error)) => {
+                return Err(CheckerOutcome::InfrastructureFailure(error));
+            }
+        };
 
     let (abi, trust) = match signature.value().callable_type() {
         TypeExpressionTemplate::Callable(callable) => (callable.abi(), callable.trust()),
@@ -358,9 +357,9 @@ where
                 target: *target,
             }
         }
-        ImplementationHook::CallbackState => CheckedMemoryOperationKind::CallbackState {
-            state: one()?,
-        },
+        ImplementationHook::CallbackState => {
+            CheckedMemoryOperationKind::CallbackState { state: one()? }
+        }
         ImplementationHook::RawPointerRead => {
             let pointee = one()?;
 

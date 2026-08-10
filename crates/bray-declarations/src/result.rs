@@ -4,7 +4,7 @@ use crate::chunk::DeclarationChunk;
 use crate::table::DeclarationTable;
 
 /// Immutable declarations and diagnostics discovered from one source unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DeclarationChunkResult {
     chunk: DeclarationChunk,
     diagnostics: DiagnosticBag,
@@ -32,7 +32,7 @@ impl DeclarationChunkResult {
 }
 
 /// Immutable merged declaration table and declaration-discovery diagnostics.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DeclarationTableResult {
     table: DeclarationTable,
     diagnostics: DiagnosticBag,

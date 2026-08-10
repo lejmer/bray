@@ -85,7 +85,7 @@ impl DeclaredValueTypeConstraint {
 }
 
 /// Immutable declared value-type inputs for one bound semantic unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DeclaredValueTypeTemplates {
     unit: BoundUnitId,
     kind: BoundUnitKind,

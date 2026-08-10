@@ -79,7 +79,7 @@ pub enum TestCatalogBuildError {
 }
 
 /// Canonically ordered metadata for every test in one package product.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TestCatalog {
     product: ProductIdentity,
     entries: Arc<[TestEntryMetadata]>,

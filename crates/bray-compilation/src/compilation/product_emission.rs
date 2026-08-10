@@ -3,8 +3,8 @@ use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, ArtifactPublisher,
     BackendContributionSet, EmissionBackend, EmissionOutcome, EmissionPlan, EmissionPlanner,
-    EmissionPlanningError, EmissionRequest, LinkPlanConstructionError, LinkStaging,
-    LinkStagingError, OutputSinkResolver, ProductLinkFacts, EmissionStatus, construct_link_plan,
+    EmissionPlanningError, EmissionRequest, EmissionStatus, LinkPlanConstructionError, LinkStaging,
+    LinkStagingError, OutputSinkResolver, ProductLinkFacts, construct_link_plan,
 };
 use bray_linker::Linker;
 use bray_package_interface::{InterfaceValidationError, encode_package_interface};
@@ -194,9 +194,11 @@ impl Compilation {
         inputs: ProductEmissionInputs<'_>,
         cancellation: &CancellationToken,
     ) -> Result<EmissionOutcome, ProductEmissionError> {
-        let span = self.state.fact_runtime.profile().map(|profile| {
-            profile.start(crate::profile::ProfileOperation::Emission, None)
-        });
+        let span = self
+            .state
+            .fact_runtime
+            .profile()
+            .map(|profile| profile.start(crate::profile::ProfileOperation::Emission, None));
 
         let result = self.emit_product_with_cancellation_inner(request, inputs, cancellation);
 
@@ -335,7 +337,7 @@ impl Compilation {
         request: &EmissionRequest,
         target_outputs: &TargetOutputDescription,
     ) -> Result<(), ProductEmissionError> {
-        if request.product_kind() != self.options().product_kind()
+        if request.product_kind() != self.product_kind()
             || (request.product().package() != self.package_identity()
                 && request.product_kind() != bray_symbols::ProductKind::Test)
         {
@@ -567,8 +569,13 @@ impl Compilation {
                     .flat_map(|contributions| contributions.staged(plan))
                     .cloned();
 
-                let staging = LinkStaging::prepare(plan, staged, cancellation)
-                    .map_err(product_staging_error)?;
+                let staging = crate::profile::profile_operation(
+                    self.state.fact_runtime.profile(),
+                    crate::profile::ProfileOperation::LinkInputStaging,
+                    || LinkStaging::prepare(plan, staged, cancellation),
+                    crate::profile::result_outcome,
+                )
+                .map_err(product_staging_error)?;
 
                 let link_plan = construct_link_plan(
                     plan,
@@ -578,13 +585,20 @@ impl Compilation {
                 )
                 .map_err(ProductEmissionErrorKind::LinkPlan)?;
 
-                self.emit_linked_product_with_cancellation(
-                    linking.linker,
-                    plan,
-                    &link_plan,
-                    published,
-                    resolver,
-                    cancellation,
+                crate::profile::profile_operation(
+                    self.state.fact_runtime.profile(),
+                    crate::profile::ProfileOperation::EmissionLinking,
+                    || {
+                        self.emit_linked_product_with_cancellation(
+                            linking.linker,
+                            plan,
+                            &link_plan,
+                            published,
+                            resolver,
+                            cancellation,
+                        )
+                    },
+                    crate::profile::result_outcome,
                 )
                 .map_err(product_query_error)
             }
@@ -785,6 +799,8 @@ fn product_query_error(error: FactQueryError) -> ProductEmissionErrorKind {
 
 #[cfg(test)]
 mod tests {
+    use bray_codegen::CodegenPartitionPolicy;
+    use bray_codegen::test_support::codegen_partition_compatibility;
     use bray_emitter::{
         ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionPlanner,
         EmissionRequest, EmissionStatus, ReplacementPolicy, RequestedArtifact,
@@ -962,8 +978,12 @@ mod tests {
 
         let host_mir = executable_host_mir(host.clone());
 
-        let complete_unit = bray_codegen::CodegenUnit::try_new(1, [host_mir.clone(), frame_mir])
-            .unwrap_or_else(|error| panic!("complete test unit must be valid: {error:?}"));
+        let complete_unit = bray_codegen::CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [host_mir.clone(), frame_mir],
+        )
+        .unwrap_or_else(|error| panic!("complete test unit must be valid: {error:?}"));
 
         let complete_plan = async_plan(product.clone(), host.clone(), &complete_unit);
 
@@ -972,8 +992,12 @@ mod tests {
             Ok(()),
         );
 
-        let host_only = bray_codegen::CodegenUnit::try_new(1, [host_mir.clone()])
-            .unwrap_or_else(|error| panic!("host-only test unit must be valid: {error:?}"));
+        let host_only = bray_codegen::CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [host_mir.clone()],
+        )
+        .unwrap_or_else(|error| panic!("host-only test unit must be valid: {error:?}"));
 
         let host_only_plan = async_plan(product.clone(), host.clone(), &host_only);
 
@@ -985,7 +1009,8 @@ mod tests {
         let other_frame = ProtectedAsyncFrameId::new([8; 32]);
 
         let wrong_frame = bray_codegen::CodegenUnit::try_new(
-            1,
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
             [host_mir.clone(), protected_frame_mir(other_frame)],
         )
         .unwrap_or_else(|error| panic!("wrong-frame test unit must be valid: {error:?}"));
@@ -1008,7 +1033,8 @@ mod tests {
         );
 
         let wrong_host = bray_codegen::CodegenUnit::try_new(
-            1,
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
             [
                 executable_host_mir(mismatched_host),
                 protected_frame_mir(frame),
@@ -1193,14 +1219,6 @@ mod tests {
     }
 
     fn test_backend_capabilities() -> bray_codegen::BackendCapabilities {
-        bray_codegen::BackendCapabilities::new(
-            [bray_codegen::BackendTargetPlatform::new(
-                bray_target::TargetArchitecture::X86_64,
-                bray_target::ObjectFormat::Elf,
-            )],
-            [bray_codegen::BackendArtifactKind::RelocatableObject],
-            [bray_codegen::DebugInformationMode::None],
-            [bray_codegen::AssemblySyntaxKind::TargetDefault],
-        )
+        bray_codegen::test_support::codegen_backend_capabilities()
     }
 }

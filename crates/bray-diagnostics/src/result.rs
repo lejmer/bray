@@ -1,7 +1,7 @@
 use crate::DiagnosticBag;
 
 /// An immutable compiler fact value and the diagnostics owned by that fact.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DiagnosticResult<T> {
     value: T,
     diagnostics: DiagnosticBag,

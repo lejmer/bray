@@ -3,7 +3,7 @@ use bray_runtime_interface::RuntimeAbiRole;
 use crate::{MirBlockId, MirCleanupPhase, MirOperationId, MirStorageId, MirUnitId, MirValueId};
 
 /// A contract violation that prevents creation of a MIR unit.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum MirUnitBuildError {
     /// An element's source provenance does not belong to the MIR unit.
     SourceOriginMismatch,

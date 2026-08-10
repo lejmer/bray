@@ -31,7 +31,7 @@ pub enum TypeAssociatedMemberOrigin {
 }
 
 /// One member retained by a named type's associated surface.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeAssociatedMember {
     id: AnySymbolId,
     entry: Option<MemberEntry<AnySymbolId>>,
@@ -176,7 +176,7 @@ impl TypeAssociatedLifecycleMember {
 }
 
 /// Members and applicability metadata contributed by one inherent implementation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeAssociatedImplementation {
     implementation: InherentImplementationSymbolId,
     generic: GenericDeclarationTemplate,
@@ -253,7 +253,7 @@ pub enum TypeAssociatedSurfaceBuildError {
 }
 
 /// The immutable declaration-level member surface associated with one named type.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct TypeAssociatedSurface {
     subject: NamedTypeSymbolId,
     generic: GenericDeclarationTemplate,

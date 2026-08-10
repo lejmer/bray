@@ -63,7 +63,7 @@ impl Default for BackendEmissionPolicy {
 }
 
 /// Selected backend facts and codegen-unit membership available to emission planning.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct EmissionBackend {
     identity: BackendIdentity,
     capabilities: BackendCapabilities,
@@ -117,7 +117,7 @@ impl EmissionBackend {
 }
 
 /// A contract violation in a selected emission backend.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum EmissionBackendBuildError {
     /// One structural codegen unit was supplied more than once.
     DuplicateCodegenUnit,

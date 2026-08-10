@@ -175,9 +175,11 @@ impl Compilation {
         .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let span = self.state.fact_runtime.profile().map(|profile| {
-            profile.start(crate::profile::ProfileOperation::Lowering, None)
-        });
+        let span = self
+            .state
+            .fact_runtime
+            .profile()
+            .map(|profile| profile.start(crate::profile::ProfileOperation::Lowering, None));
 
         let result = lower_unit(input);
 

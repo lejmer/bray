@@ -29,11 +29,13 @@ impl BuildConfiguration {
                 OptimizationLevel::Basic,
                 SizePreference::None,
                 DebugInformationMode::LineTables,
+                bray_codegen::ReproducibilityLevel::ByteForByte,
             ),
             Self::Release => CodegenOptions::new(
                 OptimizationLevel::Full,
                 SizePreference::None,
                 DebugInformationMode::None,
+                bray_codegen::ReproducibilityLevel::ByteForByte,
             ),
         }
     }

@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// One generator iteration with its exact source, pattern, body, and region.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundGeneratorExpression {
     origin: BoundNodeOrigin,
     source: BoundExpressionId,

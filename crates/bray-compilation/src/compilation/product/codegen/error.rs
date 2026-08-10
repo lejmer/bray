@@ -1,6 +1,6 @@
 use bray_codegen::{
-    CodegenInstanceBuildError, CodegenReachabilityBuildError, CodegenTargetBuildError,
-    CodegenUnitBuildError,
+    CodegenInstanceBuildError, CodegenPartitionError, CodegenReachabilityBuildError,
+    CodegenTargetBuildError, CodegenUnitBuildError,
 };
 use bray_emitter::EmissionBackendBuildError;
 use bray_linker::LinkTargetBuildError;
@@ -9,7 +9,7 @@ use bray_runtime_interface::ExecutableHostContractBuildError;
 use crate::fact::FactQueryError;
 
 /// A failure to derive complete native product facts.
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub enum NativeProductFactError {
     /// The compilation has no selected code generation backend.
     CodegenUnavailable,
@@ -33,6 +33,8 @@ pub enum NativeProductFactError {
     InvalidCodegenInstance(CodegenInstanceBuildError),
     /// One code generation unit is invalid.
     InvalidCodegenUnit(CodegenUnitBuildError),
+    /// Reachable definitions cannot be partitioned under the selected policy.
+    InvalidCodegenPartition(CodegenPartitionError),
     /// The compiler-generated executable host MIR is invalid.
     InvalidHostMir(bray_ir::MirUnitBuildError),
     /// The compiler-generated executable host contract is invalid.

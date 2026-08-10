@@ -21,10 +21,7 @@ use super::wire::{
 pub fn encode_standard_library_manifest(
     manifest: &StandardLibraryBundleManifest,
 ) -> Result<Vec<u8>, StandardLibraryManifestError> {
-    encode_published(
-        manifest.targets(),
-        manifest.bundle_digest(),
-    )
+    encode_published(manifest.targets(), manifest.bundle_digest())
 }
 
 /// Decodes and validates one canonical standard library bundle manifest.

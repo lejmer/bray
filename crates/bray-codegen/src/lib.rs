@@ -4,6 +4,7 @@
 
 mod artifact;
 mod backend;
+mod capability;
 mod mapping;
 mod options;
 mod outcome;
@@ -25,7 +26,12 @@ pub use artifact::{
     BackendArtifactSetBuildError, BackendSerializationOptions, DebugInformationOutputMode,
     LinkableArtifactKind, LinkableArtifactRequirement,
 };
-pub use backend::{BackendCapabilities, BackendIdentity, BackendTargetPlatform, CodeGenerator};
+pub use backend::{BackendIdentity, CodeGenerator};
+pub use capability::{
+    BackendCapabilities, BackendCapabilityRevision, BackendOptimizationCapabilities,
+    BackendOutputCapabilities, BackendRuntimeCapabilities, BackendTargetCapabilities,
+    BackendTargetConfiguration, ReproducibilityLevel,
+};
 pub use mapping::{
     CodegenCallSite, CodegenCallableMapping, CodegenCallableSignature, CodegenCallableTarget,
     CodegenConstantMapping, CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout,
@@ -57,9 +63,11 @@ pub use target::{
     TargetSymbolConvention, TargetSymbolConventionBuildError,
 };
 pub use unit::{
-    CodegenGenericArgument, CodegenImplementationWitness, CodegenInstance,
-    CodegenInstanceBuildError, CodegenInstanceDependency, CodegenInstanceDependencyKind,
-    CodegenInstanceKey, CodegenReachability, CodegenReachabilityBuildError,
-    CodegenReachabilityBuilder, CodegenSpecialization, CodegenUnit, CodegenUnitBuildError,
-    CodegenUnitKey, CodegenValueKey, partition_codegen_units,
+    CodegenDefinitionVisibility, CodegenGenericArgument, CodegenImplementationWitness,
+    CodegenInstance, CodegenInstanceBuildError, CodegenInstanceDependency,
+    CodegenInstanceDependencyKind, CodegenInstanceKey, CodegenOversizedUnit,
+    CodegenOversizedUnitReason, CodegenPartitionCompatibility, CodegenPartitionError,
+    CodegenPartitionPolicy, CodegenPartitionPolicyBuildError, CodegenReachability,
+    CodegenReachabilityBuildError, CodegenReachabilityBuilder, CodegenSpecialization, CodegenUnit,
+    CodegenUnitBuildError, CodegenUnitKey, CodegenValueKey, CodegenWork, partition_codegen_units,
 };

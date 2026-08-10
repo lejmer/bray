@@ -421,7 +421,7 @@ impl CodegenMappings {
 }
 
 /// A contract violation that prevents creation of code generation mappings.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenMappingsBuildError {
     /// MIR and mapping target contracts do not identify the same target.
     TargetMismatch,
@@ -718,12 +718,12 @@ mod tests {
 
     use super::{CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources};
     use crate::demanded_types;
-    use crate::test_support::codegen_request;
+    use crate::test_support::{codegen_partition_compatibility, codegen_request};
     use crate::{
         CodegenCallableSignature, CodegenConstantMapping, CodegenGenericArgument, CodegenInstance,
-        CodegenInstanceKey, CodegenInstanceTypeMapping, CodegenLinkage, CodegenResultMapping,
-        CodegenSpecialization, CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind,
-        CodegenTypeMapping, CodegenUnit, CodegenValueKey,
+        CodegenInstanceKey, CodegenInstanceTypeMapping, CodegenLinkage, CodegenPartitionPolicy,
+        CodegenResultMapping, CodegenSpecialization, CodegenSymbolKey, CodegenSymbolMapping,
+        CodegenTypeKind, CodegenTypeMapping, CodegenUnit, CodegenValueKey,
     };
 
     #[test]
@@ -830,8 +830,12 @@ mod tests {
         let second = CodegenInstance::try_new(second_key.clone(), mir, [])
             .unwrap_or_else(|error| panic!("second instance must validate: {error:?}"));
 
-        let unit = CodegenUnit::try_from_instances(1, [first, second])
-            .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
+        let unit = CodegenUnit::try_from_instances(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [first, second],
+        )
+        .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
 
         let fixture = codegen_request();
         let target = fixture.request().target();
@@ -1253,7 +1257,11 @@ mod tests {
             panic!("test runtime MIR must be valid");
         };
 
-        let Ok(unit) = CodegenUnit::try_new(1, [mir]) else {
+        let Ok(unit) = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [mir],
+        ) else {
             panic!("test runtime code generation unit must be valid");
         };
 

@@ -9,7 +9,7 @@ use bray_symbols::{
     SymbolKey, TargetFactDependency, TraitApplicationId, TraitSymbolId, TypeData, TypeId,
 };
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 enum SubjectBucket {
     Generic,
     Named(NamedTypeSymbolId),
@@ -42,13 +42,13 @@ impl ImplementationFamilyKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct HeaderBucket {
     trait_definition: TraitSymbolId,
     subject: SubjectBucket,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash)]
 pub(in crate::compilation) struct ImplementationHeader {
     key: SymbolKey,
     implementation: ImplementationSymbolId,
@@ -127,7 +127,7 @@ impl ImplementationHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub(in crate::compilation) struct ImplementationHeaderIndex {
     buckets: BTreeMap<HeaderBucket, Arc<[ImplementationHeader]>>,
     positions: BTreeMap<ImplementationSymbolId, (HeaderBucket, usize)>,

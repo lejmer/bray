@@ -21,7 +21,7 @@ pub enum BoundLiteralKind {
 }
 
 /// A source literal awaiting or retaining its checked type.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundLiteralExpression {
     origin: BoundNodeOrigin,
     spelling_range: TextRange,

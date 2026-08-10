@@ -1,26 +1,31 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map::Entry};
+use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-#[cfg(test)]
-use std::fmt;
+use crate::WorkerBudget;
 use crate::profile::{
     CompilationProfileConfiguration, CompilationProfileContext, CompilationProfileReport,
     ProfileQueryKind, ProfileSession,
 };
-use crate::WorkerBudget;
+#[cfg(test)]
+use std::fmt;
 
 use super::scheduler::FactScheduler;
 use super::task::{
     FactTaskContext, FactTaskIdentity, RuntimeIdentity, capture_evaluations, current_context,
-    current_cycle, record_request_with_cycle_key, run_with_evaluations,
+    current_cycle, record_input, record_request_with_cycle_key, run_with_evaluations,
 };
-use super::{CompilationFactKey, FactCycle, FactQueryError, QueryPriority, QueryPriorityDemand};
+use super::{
+    CompilationFactKey, CompilationInputKey, CompilationInputs, FactCycle, FactDependencyRecord,
+    FactQueryError, QueryPriority, QueryPriorityDemand, fact_fingerprint,
+};
 
 #[derive(Debug)]
 pub(crate) struct FactRuntime {
     next_task: AtomicU64,
     state: Mutex<RuntimeState>,
+    inputs: CompilationInputs,
     scheduler: FactScheduler,
     profile: Option<Arc<ProfileSession>>,
     #[cfg(test)]
@@ -53,7 +58,7 @@ impl fmt::Debug for FactEvaluationTestObserver {
 struct RuntimeState {
     owners: HashMap<CompilationFactKey, FactTaskIdentity>,
     waiting: HashMap<FactTaskIdentity, BTreeMap<WaitEdge, usize>>,
-    dependencies: BTreeMap<CompilationFactKey, BTreeSet<CompilationFactKey>>,
+    records: BTreeMap<CompilationFactKey, FactDependencyRecord>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -79,10 +84,8 @@ impl FactRuntime {
         Self {
             next_task: AtomicU64::new(0),
             state: Mutex::new(RuntimeState::default()),
-            scheduler: FactScheduler::with_profile(
-                worker_budget,
-                profile.as_ref().map(Arc::clone),
-            ),
+            inputs: CompilationInputs::default(),
+            scheduler: FactScheduler::with_profile(worker_budget, profile.as_ref().map(Arc::clone)),
             profile,
             #[cfg(test)]
             observer: Mutex::new(None),
@@ -92,7 +95,7 @@ impl FactRuntime {
     pub(crate) fn updated(
         &self,
         worker_budget: WorkerBudget,
-        invalidation_roots: impl IntoIterator<Item = CompilationFactKey>,
+        inputs: CompilationInputs,
         profile: Option<Arc<ProfileSession>>,
     ) -> (Self, BTreeSet<CompilationFactKey>) {
         let state = self
@@ -100,72 +103,40 @@ impl FactRuntime {
             .lock()
             .unwrap_or_else(|_| panic!("fact dependency state must remain available"));
 
-        let mut invalidated = invalidation_roots.into_iter().collect::<BTreeSet<_>>();
-        let mut dependents = BTreeMap::<CompilationFactKey, Vec<CompilationFactKey>>::new();
+        let identity_namespace_matches = self.inputs.has_same_identity_namespace(&inputs);
 
-        // The revised runtime owns stable graph keys independently of the previous snapshot.
-        for (fact, dependencies) in &state.dependencies {
-            for dependency in dependencies {
-                dependents
-                    .entry(dependency.clone())
-                    .or_default()
-                    .push(fact.clone());
-            }
-        }
+        let (records, invalidated) = retained_records(&state, &inputs, identity_namespace_matches);
 
-        let mut pending = invalidated.iter().cloned().collect::<VecDeque<_>>();
+        let reusable = records.keys().cloned().collect();
 
-        while let Some(invalidated_fact) = pending.pop_front() {
-            let Some(affected) = dependents.get(&invalidated_fact) else {
-                continue;
-            };
-
-            for fact in affected {
-                if invalidated.insert(fact.clone()) {
-                    pending.push_back(fact.clone());
-                }
-            }
-        }
-
-        // Retained dependency sets remain independently owned after the previous runtime is gone.
-        let dependencies = state
-            .dependencies
-            .iter()
-            .filter(|(fact, _)| !invalidated.contains(*fact))
-            .map(|(fact, dependencies)| (fact.clone(), dependencies.clone()))
-            .collect::<BTreeMap<_, _>>();
-
-        let reusable = dependencies.keys().cloned().collect();
-
-        if let Some(profile) = &profile {
-            for fact in &reusable {
-                profile.record_cross_snapshot_reuse(ProfileQueryKind::from_key(fact));
-            }
-
-            for fact in invalidated
-                .iter()
-                .filter(|fact| state.dependencies.contains_key(*fact))
-            {
-                profile.record_invalidation(ProfileQueryKind::from_key(fact));
-            }
-        }
+        record_snapshot_profile(profile.as_deref(), &state, &reusable, &invalidated);
 
         let runtime = Self {
             next_task: AtomicU64::new(0),
             state: Mutex::new(RuntimeState {
-                dependencies,
+                records,
                 ..RuntimeState::default()
             }),
-            scheduler: FactScheduler::with_profile(
-                worker_budget,
-                profile.as_ref().map(Arc::clone),
-            ),
+            inputs,
+            scheduler: FactScheduler::with_profile(worker_budget, profile.as_ref().map(Arc::clone)),
             profile,
             #[cfg(test)]
             observer: Mutex::new(None),
         };
 
         (runtime, reusable)
+    }
+
+    pub(crate) fn set_inputs(&mut self, inputs: CompilationInputs) {
+        self.inputs = inputs;
+    }
+
+    pub(crate) fn input_snapshot(&self) -> CompilationInputs {
+        self.inputs.clone()
+    }
+
+    pub(crate) fn record_input(&self, key: CompilationInputKey) -> Result<(), FactQueryError> {
+        record_input(self.identity(), &key, self.inputs.get(&key))
     }
 
     #[inline(always)]
@@ -422,11 +393,15 @@ impl FactRuntime {
         RuntimeIdentity(std::ptr::from_ref(self).addr())
     }
 
-    fn prepare_evaluation<'runtime>(
+    fn prepare_evaluation<'runtime, T>(
         &'runtime self,
         key: &CompilationFactKey,
         context: &FactTaskContext,
-    ) -> Result<EvaluationCommit<'runtime>, FactQueryError> {
+        value: &T,
+    ) -> Result<EvaluationCommit<'runtime>, FactQueryError>
+    where
+        T: Hash + ?Sized,
+    {
         let state = self.state()?;
 
         if state.owners.get(key).copied() != Some(context.identity()) {
@@ -435,12 +410,28 @@ impl FactRuntime {
 
         let dependencies = context.finish()?;
 
+        let facts = dependencies
+            .facts
+            .iter()
+            .map(|dependency| {
+                state
+                    .records
+                    .get(dependency)
+                    .map(FactDependencyRecord::fingerprint)
+                    .map(|fingerprint| (dependency.clone(), fingerprint))
+                    .ok_or(FactQueryError::InfrastructureFailure)
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+
+        let record =
+            FactDependencyRecord::new(fact_fingerprint(key, value), facts, dependencies.inputs);
+
         // The commit owns the key while coordinating runtime and cache publication locks.
         Ok(EvaluationCommit {
             state,
             task: context.identity(),
             key: Some(key.clone()),
-            dependencies,
+            record: Some(record),
         })
     }
 
@@ -468,9 +459,108 @@ impl FactRuntime {
         let state = self.state()?;
 
         Ok(state
-            .dependencies
+            .records
             .get(key)
-            .map(|dependencies| dependencies.iter().cloned().collect::<Box<[_]>>()))
+            .map(|record| record.facts().keys().cloned().collect::<Box<[_]>>()))
+    }
+}
+
+fn retained_records(
+    state: &RuntimeState,
+    inputs: &CompilationInputs,
+    identity_namespace_matches: bool,
+) -> (
+    BTreeMap<CompilationFactKey, FactDependencyRecord>,
+    BTreeSet<CompilationFactKey>,
+) {
+    let mut invalidated = direct_invalidations(state, inputs, identity_namespace_matches);
+    let dependents = reverse_dependencies(state);
+    let mut pending = invalidated.iter().cloned().collect::<VecDeque<_>>();
+
+    while let Some(invalidated_fact) = pending.pop_front() {
+        let Some(affected) = dependents.get(&invalidated_fact) else {
+            continue;
+        };
+
+        for fact in affected {
+            if invalidated.insert(fact.clone()) {
+                pending.push_back(fact.clone());
+            }
+        }
+    }
+
+    let retained = state
+        .records
+        .iter()
+        .filter(|(fact, _)| !invalidated.contains(*fact))
+        .map(|(fact, record)| (fact.clone(), record.clone()))
+        .collect();
+
+    (retained, invalidated)
+}
+
+fn direct_invalidations(
+    state: &RuntimeState,
+    inputs: &CompilationInputs,
+    identity_namespace_matches: bool,
+) -> BTreeSet<CompilationFactKey> {
+    state
+        .records
+        .iter()
+        .filter(|(key, record)| {
+            (!identity_namespace_matches && !key.has_stable_snapshot_identity())
+                || record
+                    .inputs()
+                    .iter()
+                    .any(|(key, fingerprint)| inputs.get(key) != Some(*fingerprint))
+                || record.facts().iter().any(|(key, fingerprint)| {
+                    state
+                        .records
+                        .get(key)
+                        .map(FactDependencyRecord::fingerprint)
+                        != Some(*fingerprint)
+                })
+        })
+        .map(|(key, _)| key.clone())
+        .collect()
+}
+
+fn reverse_dependencies(
+    state: &RuntimeState,
+) -> BTreeMap<CompilationFactKey, Vec<CompilationFactKey>> {
+    let mut dependents = BTreeMap::<CompilationFactKey, Vec<CompilationFactKey>>::new();
+
+    for (fact, record) in &state.records {
+        for dependency in record.facts().keys() {
+            dependents
+                .entry(dependency.clone())
+                .or_default()
+                .push(fact.clone());
+        }
+    }
+
+    dependents
+}
+
+fn record_snapshot_profile(
+    profile: Option<&ProfileSession>,
+    state: &RuntimeState,
+    reusable: &BTreeSet<CompilationFactKey>,
+    invalidated: &BTreeSet<CompilationFactKey>,
+) {
+    let Some(profile) = profile else {
+        return;
+    };
+
+    for fact in reusable {
+        profile.record_cross_snapshot_reuse(ProfileQueryKind::from_key(fact));
+    }
+
+    for fact in invalidated
+        .iter()
+        .filter(|fact| state.records.contains_key(*fact))
+    {
+        profile.record_invalidation(ProfileQueryKind::from_key(fact));
     }
 }
 
@@ -594,8 +684,13 @@ impl<'a> EvaluationGuard<'a> {
         self.context.run(operation)
     }
 
-    pub(crate) fn prepare(mut self) -> Result<EvaluationCommit<'a>, FactQueryError> {
-        let commit = self.runtime.prepare_evaluation(&self.key, &self.context)?;
+    pub(crate) fn prepare<T>(mut self, value: &T) -> Result<EvaluationCommit<'a>, FactQueryError>
+    where
+        T: Hash + ?Sized,
+    {
+        let commit = self
+            .runtime
+            .prepare_evaluation(&self.key, &self.context, value)?;
 
         self.active = false;
 
@@ -616,7 +711,7 @@ pub(crate) struct EvaluationCommit<'a> {
     state: MutexGuard<'a, RuntimeState>,
     task: FactTaskIdentity,
     key: Option<CompilationFactKey>,
-    dependencies: BTreeSet<CompilationFactKey>,
+    record: Option<FactDependencyRecord>,
 }
 
 impl EvaluationCommit<'_> {
@@ -627,9 +722,11 @@ impl EvaluationCommit<'_> {
 
         remove_evaluation(&mut self.state, self.task, &key);
 
-        self.state
-            .dependencies
-            .insert(key, std::mem::take(&mut self.dependencies));
+        let Some(record) = self.record.take() else {
+            return;
+        };
+
+        self.state.records.insert(key, record);
     }
 }
 
@@ -659,14 +756,18 @@ impl Drop for WaitingGuard<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::{Arc, Mutex};
 
+    use bray_declarations::ModulePartId;
     use bray_source::SourceId;
 
     use super::{FactEvaluationTestObserver, FactRuntime};
     use crate::WorkerBudget;
-    use crate::fact::{CancellationToken, CompilationFactKey, FactCell};
+    use crate::fact::{
+        CancellationToken, CompilationFactKey, CompilationInputKey, CompilationInputs, FactCell,
+        FactDependencyRecord, fact_fingerprint,
+    };
 
     #[test]
     fn evaluation_observation_records_only_started_computations() {
@@ -711,52 +812,178 @@ mod tests {
     }
 
     #[test]
+    fn input_fingerprints_drive_exact_transitive_reuse() {
+        let mut runtime = FactRuntime::default();
+        let input_key = CompilationInputKey::SourceDiagnostics;
+        let mut inputs = CompilationInputs::default();
+
+        inputs.insert(input_key.clone(), &7_u8);
+        runtime.set_inputs(inputs.clone());
+
+        let cancellation = CancellationToken::new();
+        let source = FactCell::new();
+        let consumer = FactCell::new();
+        let source_key = CompilationFactKey::SyntaxTree;
+        let consumer_key = CompilationFactKey::DeclarationTable;
+
+        let result = consumer.get_or_compute(&runtime, consumer_key.clone(), &cancellation, || {
+            source.get_or_compute(&runtime, source_key.clone(), &cancellation, || {
+                runtime.record_input(input_key.clone())?;
+
+                Ok(11_u8)
+            })?;
+
+            Ok(13_u8)
+        });
+
+        assert_eq!(result, Ok(&13));
+
+        let (_, unchanged) = runtime.updated(WorkerBudget::serial(), inputs, None);
+
+        assert_eq!(
+            unchanged,
+            BTreeSet::from([source_key.clone(), consumer_key.clone()])
+        );
+
+        let mut changed_inputs = CompilationInputs::default();
+        changed_inputs.insert(input_key, &8_u8);
+
+        let (_, changed) = runtime.updated(WorkerBudget::serial(), changed_inputs, None);
+
+        assert!(changed.is_empty());
+    }
+
+    #[test]
+    fn snapshot_local_fact_keys_are_not_compared_across_snapshots() {
+        let mut runtime = FactRuntime::default();
+        let key = CompilationFactKey::ModuleContributionGate(ModulePartId::new(7));
+        let mut inputs = CompilationInputs::default();
+
+        inputs.insert(CompilationInputKey::SourceSet, &[1_u8]);
+        runtime.set_inputs(inputs);
+
+        runtime
+            .state()
+            .unwrap_or_else(|error| panic!("runtime state must be available: {error:?}"))
+            .records
+            .insert(
+                key.clone(),
+                FactDependencyRecord::new(
+                    fact_fingerprint(&key, &17_u8),
+                    BTreeMap::new(),
+                    BTreeMap::new(),
+                ),
+            );
+
+        let mut updated_inputs = CompilationInputs::default();
+
+        updated_inputs.insert(CompilationInputKey::SourceSet, &[2_u8]);
+
+        let (_, reusable) = runtime.updated(WorkerBudget::serial(), updated_inputs, None);
+
+        assert!(reusable.is_empty());
+    }
+
+    #[test]
     fn deep_and_expansion_heavy_invalidation_is_iterative_and_precise() {
         const DEPTH: u32 = 20_000;
         const WIDTH: u32 = 20_000;
 
-        let runtime = FactRuntime::default();
+        let mut runtime = FactRuntime::default();
         let deep_root = source_syntax_key(0);
         let wide_root = CompilationFactKey::SyntaxTree;
         let unrelated = CompilationFactKey::SelectedTarget;
+
+        let mut previous_inputs = CompilationInputs::default();
+        previous_inputs.insert(CompilationInputKey::SourceDiagnostics, &0_u8);
+        previous_inputs.insert(CompilationInputKey::ProductKind, &0_u8);
+        runtime.set_inputs(previous_inputs.clone());
 
         {
             let mut state = runtime
                 .state()
                 .unwrap_or_else(|error| panic!("runtime state must be available: {error:?}"));
 
-            state
-                .dependencies
-                .insert(deep_root.clone(), BTreeSet::new());
+            let deep_input = previous_inputs
+                .get(&CompilationInputKey::SourceDiagnostics)
+                .unwrap_or_else(|| panic!("deep invalidation input must exist"));
+
+            state.records.insert(
+                deep_root.clone(),
+                FactDependencyRecord::new(
+                    fact_fingerprint(&deep_root, &deep_root),
+                    BTreeMap::new(),
+                    BTreeMap::from([(CompilationInputKey::SourceDiagnostics, deep_input)]),
+                ),
+            );
 
             for index in 1..DEPTH {
-                state.dependencies.insert(
-                    source_syntax_key(index),
-                    BTreeSet::from([source_syntax_key(index - 1)]),
+                let key = source_syntax_key(index);
+                let dependency = source_syntax_key(index - 1);
+
+                let fingerprint = state
+                    .records
+                    .get(&dependency)
+                    .map(FactDependencyRecord::fingerprint)
+                    .unwrap_or_else(|| panic!("deep dependency record must exist"));
+
+                state.records.insert(
+                    key.clone(),
+                    FactDependencyRecord::new(
+                        fact_fingerprint(&key, &key),
+                        BTreeMap::from([(dependency, fingerprint)]),
+                        BTreeMap::new(),
+                    ),
                 );
             }
 
-            state
-                .dependencies
-                .insert(wide_root.clone(), BTreeSet::new());
+            let wide_input = previous_inputs
+                .get(&CompilationInputKey::ProductKind)
+                .unwrap_or_else(|| panic!("wide invalidation input must exist"));
+
+            state.records.insert(
+                wide_root.clone(),
+                FactDependencyRecord::new(
+                    fact_fingerprint(&wide_root, &wide_root),
+                    BTreeMap::new(),
+                    BTreeMap::from([(CompilationInputKey::ProductKind, wide_input)]),
+                ),
+            );
 
             for index in 0..WIDTH {
-                state.dependencies.insert(
-                    declaration_chunk_key(index),
-                    BTreeSet::from([wide_root.clone()]),
+                let key = declaration_chunk_key(index);
+
+                let fingerprint = state
+                    .records
+                    .get(&wide_root)
+                    .map(FactDependencyRecord::fingerprint)
+                    .unwrap_or_else(|| panic!("wide dependency record must exist"));
+
+                state.records.insert(
+                    key.clone(),
+                    FactDependencyRecord::new(
+                        fact_fingerprint(&key, &key),
+                        BTreeMap::from([(wide_root.clone(), fingerprint)]),
+                        BTreeMap::new(),
+                    ),
                 );
             }
 
-            state
-                .dependencies
-                .insert(unrelated.clone(), BTreeSet::new());
+            state.records.insert(
+                unrelated.clone(),
+                FactDependencyRecord::new(
+                    fact_fingerprint(&unrelated, &unrelated),
+                    BTreeMap::new(),
+                    BTreeMap::new(),
+                ),
+            );
         }
 
-        let (_, reusable) = runtime.updated(
-            WorkerBudget::serial(),
-            [deep_root.clone(), wide_root.clone()],
-            None,
-        );
+        let mut updated_inputs = CompilationInputs::default();
+        updated_inputs.insert(CompilationInputKey::SourceDiagnostics, &1_u8);
+        updated_inputs.insert(CompilationInputKey::ProductKind, &1_u8);
+
+        let (_, reusable) = runtime.updated(WorkerBudget::serial(), updated_inputs, None);
 
         assert_eq!(reusable, BTreeSet::from([unrelated]));
         assert!(!reusable.contains(&deep_root));

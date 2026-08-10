@@ -5,7 +5,7 @@ use crate::record::DeclarationKind;
 use crate::surface::{DeclarationSurface, SyntaxAnchor};
 
 /// Immutable declaration discovery output for one source unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DeclarationChunk {
     source_id: SourceId,
     module_parts: Box<[DiscoveredModulePart]>,
@@ -31,7 +31,7 @@ impl DeclarationChunk {
 }
 
 /// Immutable source-unit contribution to a logical module.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DiscoveredModulePart {
     pub(crate) path: ModulePath,
     pub(crate) syntax: SyntaxAnchor,
@@ -96,7 +96,7 @@ impl DiscoveredModulePart {
 }
 
 /// Immutable source-order declaration discovered inside a declaration container.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DiscoveredDeclaration {
     pub(crate) kind: DeclarationKind,
     pub(crate) name: Option<DeclarationName>,

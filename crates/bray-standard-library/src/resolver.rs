@@ -242,7 +242,7 @@ fn load_artifact(
 }
 
 /// A configured standard library root cannot satisfy an exact artifact request.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum StandardLibraryLoadError {
     /// A required file could not be read.
     Read {
@@ -407,11 +407,7 @@ mod tests {
 
         let manifest = StandardLibraryBundleManifest::try_new([
             write_target_interface_fixture(directory.path(), linux.clone(), b"linux interface"),
-            write_target_interface_fixture(
-                directory.path(),
-                windows.clone(),
-                b"windows interface",
-            ),
+            write_target_interface_fixture(directory.path(), windows.clone(), b"windows interface"),
         ])
         .unwrap_or_else(|error| panic!("multi-target manifest must be valid: {error:?}"));
 
@@ -480,12 +476,8 @@ mod tests {
         fs::write(implementation.beneath(root), b"implementation")
             .unwrap_or_else(|error| panic!("implementation must be written: {error}"));
 
-        StandardLibraryTargetArtifacts::try_new(
-            target,
-            runtime_abi,
-            [interface, implementation],
-        )
-        .unwrap_or_else(|error| panic!("target inventory must be valid: {error:?}"))
+        StandardLibraryTargetArtifacts::try_new(target, runtime_abi, [interface, implementation])
+            .unwrap_or_else(|error| panic!("target inventory must be valid: {error:?}"))
     }
 
     struct Fixture {

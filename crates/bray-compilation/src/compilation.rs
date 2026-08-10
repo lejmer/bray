@@ -15,6 +15,7 @@ mod foreign;
 mod generic_constraint;
 mod implementation;
 mod imported;
+mod input;
 mod iteration;
 mod limits;
 mod linking;

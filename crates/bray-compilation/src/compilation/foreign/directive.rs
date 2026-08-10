@@ -255,7 +255,6 @@ fn native_link_requirement(
     diagnostics: &mut DiagnosticBag,
 ) -> Option<NativeLinkRequirement> {
     let available = compilation
-        .options()
         .native_link_inputs()
         .iter()
         .filter(|input| input.name() == name.as_str())

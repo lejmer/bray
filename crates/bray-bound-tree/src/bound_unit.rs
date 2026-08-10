@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// One immutable bound semantic unit and its exact root.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundUnit {
     key: BoundUnitKey,
     tree: BoundTree,
@@ -95,7 +95,7 @@ impl BoundUnit {
 }
 
 /// Identifies the exact bound node that starts a semantic unit.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundUnitRoot {
     /// A declared callable or lifecycle body.
     CallableBody {

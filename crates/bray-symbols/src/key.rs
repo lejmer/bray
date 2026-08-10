@@ -450,6 +450,26 @@ impl SymbolKey {
         self.0.kind()
     }
 
+    /// Returns the package owning this symbol, or `None` for compiler-known symbols.
+    pub fn package_identity(&self) -> Option<&PackageIdentity> {
+        match self.data() {
+            SymbolKeyData::Root(SymbolRootKey::Package(package))
+            | SymbolKeyData::Module {
+                owner: SymbolRootKey::Package(package),
+                ..
+            } => Some(package),
+            SymbolKeyData::SourceDeclaration { owner, .. } => owner.package_identity(),
+            SymbolKeyData::Synthesized(key) => key.subject().package_identity(),
+            SymbolKeyData::External(key) => Some(key.package_identity()),
+            SymbolKeyData::Root(SymbolRootKey::CompilerKnownEnvironment)
+            | SymbolKeyData::Module {
+                owner: SymbolRootKey::CompilerKnownEnvironment,
+                ..
+            }
+            | SymbolKeyData::CompilerKnownDeclaration { .. } => None,
+        }
+    }
+
     /// Returns the source declaration underlying this key or its synthesized subject.
     pub fn source_declaration_id(&self) -> Option<DeclarationId> {
         match self.data() {
@@ -529,6 +549,19 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.kind(), SymbolKind::Function);
+    }
+
+    #[test]
+    fn symbol_keys_expose_their_package_domain() {
+        let package = package_identity();
+        let source = source_key(SymbolKind::Function, 4);
+
+        assert_eq!(source.package_identity(), Some(&package));
+
+        assert_eq!(
+            SymbolKey::compiler_known_environment().package_identity(),
+            None
+        );
     }
 
     #[test]

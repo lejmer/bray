@@ -34,7 +34,7 @@ pub trait SymbolFactContract: sealed::Sealed + Copy + Send + Sync + 'static {
     /// The exact symbol family that can own this fact.
     type Owner: Copy + Ord + Send + Sync + 'static;
     /// The immutable semantic value supplied by the fact.
-    type Value: Send + Sync + 'static;
+    type Value: std::hash::Hash + Send + Sync + 'static;
 
     /// The category used by erased query coordination and completion.
     const KIND: SymbolFactKind;

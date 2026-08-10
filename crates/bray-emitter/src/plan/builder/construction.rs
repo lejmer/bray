@@ -67,18 +67,22 @@ impl<'planner> PlanBuilder<'planner> {
 
         let backend_requests = self.backend_requests()?;
 
-        let backend = if backend_requests.is_empty() {
-            None
+        let (backend, capability_revision) = if backend_requests.is_empty() {
+            (None, None)
         } else {
-            // The completed plan retains the selected Arc-backed backend identity.
-            self.planner
-                .backend()
-                .map(|backend| backend.identity().clone())
+            let selected = self.planner.backend();
+
+            (
+                // The completed plan retains the selected Arc-backed backend identity.
+                selected.map(|backend| backend.identity().clone()),
+                selected.map(|backend| backend.capabilities().revision()),
+            )
         };
 
         EmissionPlan::try_new(
             self.request,
             backend,
+            capability_revision,
             self.artifacts,
             backend_requests,
             self.package_interface,
@@ -435,6 +439,7 @@ fn map_plan_error(error: EmissionPlanBuildError) -> EmissionPlanningError {
     match error {
         EmissionPlanBuildError::DuplicateSink(sink) => EmissionPlanningError::OutputCollision(sink),
         EmissionPlanBuildError::Empty
+        | EmissionPlanBuildError::BackendCapabilityIdentityMismatch
         | EmissionPlanBuildError::ForeignProduct(_)
         | EmissionPlanBuildError::DuplicateArtifact(_)
         | EmissionPlanBuildError::MemoryArtifactIdentityMismatch(_)
@@ -465,10 +470,10 @@ mod tests {
 
     use bray_codegen::{
         AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequirement, BackendCapabilities,
-        BackendSerializationOptions, BackendTargetPlatform, DebugInformationMode,
+        BackendOutputCapabilities, BackendSerializationOptions, DebugInformationMode,
         DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
     };
-    use bray_target::{ObjectFormat, TargetArchitecture, TargetOutputKind};
+    use bray_target::TargetOutputKind;
 
     use super::super::{EmissionPlanner, EmissionPlanningError};
     use crate::test_support::{
@@ -691,15 +696,7 @@ mod tests {
 
     #[test]
     fn optional_backend_artifacts_are_omitted_when_unavailable() {
-        let capabilities = BackendCapabilities::new(
-            [BackendTargetPlatform::new(
-                TargetArchitecture::X86_64,
-                ObjectFormat::Elf,
-            )],
-            [BackendArtifactKind::RelocatableObject],
-            [DebugInformationMode::None],
-            [AssemblySyntaxKind::TargetDefault],
-        );
+        let capabilities = capabilities_with_artifacts([BackendArtifactKind::RelocatableObject]);
 
         let planner = planner(
             capabilities,
@@ -881,15 +878,7 @@ mod tests {
             ))
         );
 
-        let missing_assembly = BackendCapabilities::new(
-            [BackendTargetPlatform::new(
-                TargetArchitecture::X86_64,
-                ObjectFormat::Elf,
-            )],
-            [],
-            [DebugInformationMode::None],
-            [AssemblySyntaxKind::TargetDefault],
-        );
+        let missing_assembly = capabilities_with_artifacts([]);
 
         let unsupported_artifact = planner(
             missing_assembly,
@@ -1147,6 +1136,27 @@ mod tests {
         };
 
         Some(backend)
+    }
+
+    fn capabilities_with_artifacts(
+        artifacts: impl IntoIterator<Item = BackendArtifactKind>,
+    ) -> BackendCapabilities {
+        let complete = backend_capabilities();
+
+        BackendCapabilities::new(
+            complete.revision(),
+            complete.product_kinds().iter().copied(),
+            complete.targets().clone(),
+            complete.runtime().clone(),
+            complete.optimization().clone(),
+            BackendOutputCapabilities::new(
+                artifacts,
+                complete.outputs().debug_information().iter().copied(),
+                complete.outputs().debug_output().iter().copied(),
+                complete.outputs().assembly_syntax().iter().copied(),
+            ),
+            complete.reproducibility(),
+        )
     }
 
     fn backend_policy(linkable: Option<LinkableArtifactKind>) -> BackendEmissionPolicy {

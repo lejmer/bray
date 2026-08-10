@@ -2,6 +2,7 @@ mod graph;
 mod instance;
 mod model;
 mod partition;
+mod policy;
 
 pub use graph::{CodegenReachability, CodegenReachabilityBuildError, CodegenReachabilityBuilder};
 pub use instance::{
@@ -10,4 +11,9 @@ pub use instance::{
     CodegenInstanceKey, CodegenSpecialization, CodegenValueKey,
 };
 pub use model::{CodegenUnit, CodegenUnitBuildError, CodegenUnitKey};
-pub use partition::partition_codegen_units;
+pub use partition::{CodegenPartitionError, partition_codegen_units};
+pub use policy::{
+    CodegenDefinitionVisibility, CodegenOversizedUnit, CodegenOversizedUnitReason,
+    CodegenPartitionCompatibility, CodegenPartitionPolicy, CodegenPartitionPolicyBuildError,
+    CodegenWork,
+};

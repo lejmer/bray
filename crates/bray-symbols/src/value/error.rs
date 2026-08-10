@@ -1,7 +1,7 @@
 use super::{GenericOwnerId, SemanticValueKind, SemanticValueStoreId};
 
 /// Reports failure to allocate a process-unique semantic-store identity.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SemanticValueStoreCreateError {
     /// The process-local semantic-store identity space is exhausted.
     IdentitySpaceExhausted,

@@ -1,13 +1,21 @@
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use bray_codegen::{
     ArtifactContent, AssemblySyntaxKind, BackendArtifactContribution, BackendArtifactKind,
-    BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendTargetPlatform,
-    CodeGenerator, CodegenFailure, CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata,
-    CodegenTarget, DebugInformationMode, OptimizationLevel, ProtectedAsyncFrameMetadata,
+    BackendArtifactRequirement, BackendCapabilities, BackendCapabilityRevision, BackendIdentity,
+    BackendOptimizationCapabilities, BackendOutputCapabilities, BackendRuntimeCapabilities,
+    BackendTargetCapabilities, BackendTargetConfiguration, CodeGenerator, CodegenFailure,
+    CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata, CodegenTarget, DebugInformationMode,
+    DebugInformationOutputMode, OptimizationLevel, ProtectedAsyncFrameMetadata,
+    ReproducibilityLevel, SizePreference,
 };
 use bray_diagnostics::DiagnosticBag;
-use bray_target::{ObjectFormat, TargetArchitecture};
+use bray_runtime_interface::RuntimeAbiVersion;
+use bray_symbols::ProductKind;
+#[cfg(test)]
+use bray_target::ObjectFormat;
+use bray_target::{CodeModel, NativeTarget, RelocationModel, TargetArchitecture};
 use inkwell::context::Context;
 use inkwell::module::Module;
 
@@ -15,6 +23,7 @@ use crate::machine::LlvmTargetMachine;
 use crate::mapping::{LlvmTypeMappings, create_debug_metadata, declare_symbols};
 use crate::optimization::optimize_module;
 use crate::serialization::serialize_artifact;
+use crate::session::LlvmBackendSession;
 use crate::translation::{TranslationError, translate_instances};
 
 const BACKEND_NAME: &str = "llvm";
@@ -26,6 +35,13 @@ const LLVM_TARGETS: &str = env!("BRAY_LLVM_TARGETS");
 pub struct LlvmCodeGenerator {
     identity: BackendIdentity,
     capabilities: BackendCapabilities,
+    sessions: Mutex<BTreeMap<LlvmSessionKey, Arc<LlvmBackendSession>>>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct LlvmSessionKey {
+    target: CodegenTarget,
+    optimization: OptimizationLevel,
 }
 
 impl LlvmCodeGenerator {
@@ -39,8 +55,38 @@ impl LlvmCodeGenerator {
 
         Ok(Self {
             identity,
-            capabilities: capabilities(),
+            capabilities: capabilities()?,
+            sessions: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    fn session(
+        &self,
+        target: &CodegenTarget,
+        optimization: OptimizationLevel,
+    ) -> Result<Arc<LlvmBackendSession>, CodegenFailure> {
+        let key = LlvmSessionKey {
+            // The session cache owns target policy independently of request lifetimes.
+            target: target.clone(),
+            optimization,
+        };
+
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| CodegenFailure::BackendLibrary)?;
+
+        if let Some(session) = sessions.get(&key) {
+            // Generation owns a shared immutable session after releasing the cache lock.
+            return Ok(Arc::clone(session));
+        }
+
+        let session = Arc::new(LlvmBackendSession::try_new(target, optimization)?);
+
+        // The cache and caller share the same immutable session allocation.
+        sessions.insert(key, Arc::clone(&session));
+
+        Ok(session)
     }
 
     pub(crate) fn prepare_module<'context>(
@@ -48,10 +94,9 @@ impl LlvmCodeGenerator {
         request: CodegenRequest<'_>,
         context: &'context Context,
     ) -> Result<Option<(LlvmTargetMachine, Module<'context>)>, CodegenFailure> {
-        let machine = LlvmTargetMachine::create_for_codegen(
-            request.target(),
-            request.options().optimization(),
-        )?;
+        let session = self.session(request.target(), request.options().optimization())?;
+
+        let machine = LlvmTargetMachine::create_for_session(&session)?;
 
         let module = context.create_module("bray.codegen.unit");
 
@@ -154,6 +199,7 @@ impl LlvmCodeGenerator {
                 content,
                 // Contributions retain Arc-backed backend and target identities.
                 self.identity.clone(),
+                request.capability_revision(),
                 request.target().identity().clone(),
                 None,
             ));
@@ -185,11 +231,12 @@ impl CodeGenerator for LlvmCodeGenerator {
     }
 
     fn validate_target(&self, target: &CodegenTarget) -> Result<(), CodegenFailure> {
-        if !self.capabilities.supports_platform(target) {
+        if !self.capabilities.supports_target(target) {
             return Err(CodegenFailure::UnsupportedTarget);
         }
 
-        let machine = LlvmTargetMachine::create(target)?;
+        let session = self.session(target, OptimizationLevel::None)?;
+        let machine = LlvmTargetMachine::create_for_session(&session)?;
         let context = Context::create();
 
         machine.validate_contract(target, &context)
@@ -212,22 +259,60 @@ impl CodeGenerator for LlvmCodeGenerator {
     }
 }
 
-fn capabilities() -> BackendCapabilities {
-    BackendCapabilities::new(
-        target_platforms(),
+fn capabilities() -> Result<BackendCapabilities, CodegenFailure> {
+    let Some(revision) = BackendCapabilityRevision::try_new(1) else {
+        return Err(CodegenFailure::InvalidConfiguration);
+    };
+
+    let targets = NativeTarget::ALL
+        .into_iter()
+        .filter(|target| llvm_target_is_built(target.architecture()))
+        .map(|target| {
+            // The capability record owns exact machine policy independently of target profiles.
+            BackendTargetConfiguration::new(
+                target.profile().machine().clone(),
+                RelocationModel::PositionIndependent,
+                CodeModel::Small,
+            )
+        });
+
+    Ok(BackendCapabilities::new(
+        revision,
         [
-            BackendArtifactKind::RelocatableObject,
-            BackendArtifactKind::Assembly,
-            BackendArtifactKind::BackendIr,
-            BackendArtifactKind::BackendBitcode,
+            ProductKind::Executable,
+            ProductKind::Library,
+            ProductKind::Test,
         ],
-        [
-            DebugInformationMode::None,
-            DebugInformationMode::LineTables,
-            DebugInformationMode::Full,
-        ],
-        [AssemblySyntaxKind::TargetDefault],
-    )
+        BackendTargetCapabilities::new(targets),
+        BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
+        BackendOptimizationCapabilities::new(
+            [
+                OptimizationLevel::None,
+                OptimizationLevel::Basic,
+                OptimizationLevel::Full,
+            ],
+            [
+                SizePreference::None,
+                SizePreference::Size,
+                SizePreference::MinimumSize,
+            ],
+        ),
+        BackendOutputCapabilities::new(
+            [
+                BackendArtifactKind::RelocatableObject,
+                BackendArtifactKind::Assembly,
+                BackendArtifactKind::BackendIr,
+                BackendArtifactKind::BackendBitcode,
+            ],
+            [DebugInformationMode::None, DebugInformationMode::LineTables],
+            [
+                DebugInformationOutputMode::Omit,
+                DebugInformationOutputMode::Embedded,
+            ],
+            [AssemblySyntaxKind::TargetDefault],
+        ),
+        ReproducibilityLevel::ByteForByte,
+    ))
 }
 
 fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
@@ -320,38 +405,6 @@ fn frame_symbol(
         .map(|symbol| symbol.name().clone())
 }
 
-fn target_platforms() -> impl Iterator<Item = BackendTargetPlatform> {
-    [
-        platform(TargetArchitecture::X86, ObjectFormat::Coff),
-        platform(TargetArchitecture::X86, ObjectFormat::Elf),
-        platform(TargetArchitecture::X86, ObjectFormat::MachO),
-        platform(TargetArchitecture::X86_64, ObjectFormat::Coff),
-        platform(TargetArchitecture::X86_64, ObjectFormat::Elf),
-        platform(TargetArchitecture::X86_64, ObjectFormat::MachO),
-        platform(TargetArchitecture::Arm, ObjectFormat::Coff),
-        platform(TargetArchitecture::Arm, ObjectFormat::Elf),
-        platform(TargetArchitecture::Arm, ObjectFormat::MachO),
-        platform(TargetArchitecture::Aarch64, ObjectFormat::Coff),
-        platform(TargetArchitecture::Aarch64, ObjectFormat::Elf),
-        platform(TargetArchitecture::Aarch64, ObjectFormat::MachO),
-        platform(TargetArchitecture::Riscv32, ObjectFormat::Elf),
-        platform(TargetArchitecture::Riscv64, ObjectFormat::Elf),
-        platform(TargetArchitecture::PowerPc64, ObjectFormat::Elf),
-        platform(TargetArchitecture::PowerPc64, ObjectFormat::Xcoff),
-        platform(TargetArchitecture::Wasm32, ObjectFormat::WebAssembly),
-        platform(TargetArchitecture::Wasm64, ObjectFormat::WebAssembly),
-    ]
-    .into_iter()
-    .filter(|platform| llvm_target_is_built(platform.architecture()))
-}
-
-const fn platform(
-    architecture: TargetArchitecture,
-    object_format: ObjectFormat,
-) -> BackendTargetPlatform {
-    BackendTargetPlatform::new(architecture, object_format)
-}
-
 fn llvm_target_is_built(architecture: TargetArchitecture) -> bool {
     let family = match architecture {
         TargetArchitecture::X86 | TargetArchitecture::X86_64 => "X86",
@@ -366,8 +419,8 @@ fn llvm_target_is_built(architecture: TargetArchitecture) -> bool {
 }
 
 #[cfg(test)]
-fn representative_triple(platform: &BackendTargetPlatform) -> &'static str {
-    match (platform.architecture(), platform.object_format()) {
+fn representative_triple(machine: &bray_target::TargetMachineProperties) -> &'static str {
+    match (machine.architecture(), machine.object_format()) {
         (TargetArchitecture::X86, ObjectFormat::Coff) => "i686-pc-windows-msvc",
         (TargetArchitecture::X86, ObjectFormat::Elf) => "i686-unknown-linux-gnu",
         (TargetArchitecture::X86, ObjectFormat::MachO) => "i686-apple-darwin",
@@ -402,7 +455,10 @@ mod tests {
         codegen_request_for_backend, codegen_request_for_seed_and_backend,
         codegen_request_for_target_and_backend, codegen_target, codegen_target_with_profile,
     };
-    use bray_codegen::{BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus};
+    use bray_codegen::{
+        BackendArtifactKind, CodeGenerator, CodegenFailure, CodegenStatus,
+        OptimizationLevel as CodegenOptimizationLevel,
+    };
     use bray_target::test_support::test_target_profile;
     use bray_target::{NativeTarget, ObjectFormat, TargetArchitecture};
     use inkwell::OptimizationLevel;
@@ -421,7 +477,7 @@ mod tests {
         assert_eq!(backend.identity().name(), "llvm");
         assert_eq!(backend.identity().revision(), "1");
         assert_eq!(backend.identity().toolchain_revision(), LLVM_REVISION);
-        assert!(backend.capabilities().supports_platform(&codegen_target()));
+        assert!(backend.capabilities().supports_target(&codegen_target()));
 
         assert!(
             backend
@@ -430,8 +486,20 @@ mod tests {
         );
 
         assert_eq!(
-            backend.capabilities().assembly_syntax_kinds(),
+            backend.capabilities().outputs().assembly_syntax(),
             &[bray_codegen::AssemblySyntaxKind::TargetDefault]
+        );
+
+        assert!(
+            backend
+                .capabilities()
+                .supports_debug_information(bray_codegen::DebugInformationMode::LineTables)
+        );
+
+        assert!(
+            !backend
+                .capabilities()
+                .supports_debug_information(bray_codegen::DebugInformationMode::Full)
         );
 
         assert_eq!(backend.validate_target(&codegen_target()), Ok(()));
@@ -443,6 +511,30 @@ mod tests {
             backend.validate_target(&mismatched),
             Err(CodegenFailure::UnsupportedTarget)
         );
+    }
+
+    #[test]
+    fn compatible_generation_tasks_reuse_immutable_sessions() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let target = codegen_target();
+
+        let first = backend
+            .session(&target, CodegenOptimizationLevel::Basic)
+            .unwrap_or_else(|error| panic!("test session must be valid: {error:?}"));
+
+        let repeated = backend
+            .session(&target, CodegenOptimizationLevel::Basic)
+            .unwrap_or_else(|error| panic!("test session must be valid: {error:?}"));
+
+        let differently_optimized = backend
+            .session(&target, CodegenOptimizationLevel::Full)
+            .unwrap_or_else(|error| panic!("test session must be valid: {error:?}"));
+
+        assert!(Arc::ptr_eq(&first, &repeated));
+        assert!(!Arc::ptr_eq(&first, &differently_optimized));
     }
 
     #[test]
@@ -677,11 +769,19 @@ mod tests {
             panic!("LLVM backend constants must be valid");
         };
 
-        for platform in backend.capabilities().target_platforms() {
-            let triple = TargetTriple::create(representative_triple(platform));
+        for configuration in backend.capabilities().targets().configurations() {
+            let machine = configuration.machine();
+            let triple = TargetTriple::create(representative_triple(machine));
+
+            assert_eq!(
+                configuration.relocation_model(),
+                bray_target::RelocationModel::PositionIndependent
+            );
+
+            assert_eq!(configuration.code_model(), bray_target::CodeModel::Small);
 
             let Ok(target) = Target::from_triple(&triple) else {
-                panic!("{platform:?} must have a compiled LLVM target");
+                panic!("{machine:?} must have a compiled LLVM target");
             };
 
             assert!(
@@ -691,11 +791,11 @@ mod tests {
                         "",
                         "",
                         OptimizationLevel::None,
-                        RelocMode::Default,
-                        CodeModel::Default,
+                        RelocMode::PIC,
+                        CodeModel::Small,
                     )
                     .is_some(),
-                "{platform:?} must construct an LLVM target machine"
+                "{machine:?} must construct an LLVM target machine"
             );
         }
     }

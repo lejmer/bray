@@ -130,6 +130,7 @@ where
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn keys(&self) -> Vec<K>
     where
         K: Clone,
@@ -139,7 +140,6 @@ where
             .lock()
             .unwrap_or_else(|_| panic!("fact cache map must remain available"));
 
-        // Snapshot invalidation owns stable cache keys after releasing the map lock.
         state.cells.keys().cloned().collect()
     }
 

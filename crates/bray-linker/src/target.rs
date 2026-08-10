@@ -89,7 +89,7 @@ impl LinkTarget {
 }
 
 /// A contract violation that prevents creation of a link target.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LinkTargetBuildError {
     /// The canonical target triple is empty.
     EmptyTriple,

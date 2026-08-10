@@ -11,13 +11,12 @@ use bray_source::{SourceInput, SourceSpan};
 pub use bray_standard_library::PackageSourceAuthority;
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
-    StandardLibraryLoadError, StandardLibraryResolver,
-    standard_library_target_artifact_directory,
+    StandardLibraryLoadError, StandardLibraryResolver, standard_library_target_artifact_directory,
 };
 use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 
-use crate::{CompilationProfileConfiguration, SelectedTarget};
 use crate::worker::WorkerBudget;
+use crate::{CompilationProfileConfiguration, SelectedTarget};
 
 /// Deterministic resource limits for semantic analysis requested by a compilation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -147,7 +146,7 @@ pub struct CompilationRequest {
 }
 
 /// Package-layer identity inputs for the current library product's interface export.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PackageInterfaceExportRequest {
     identity: PackageInterfaceIdentity,
     language_revision: InterfaceLanguageRevision,

@@ -278,13 +278,7 @@ fn apply_call_value_attributes(
     types: &LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
     for attribute in attributes {
-        apply_call_enum_attribute(
-            call,
-            location,
-            value_attribute_name(*attribute),
-            0,
-            types,
-        )?;
+        apply_call_enum_attribute(call, location, value_attribute_name(*attribute), 0, types)?;
     }
 
     Ok(())

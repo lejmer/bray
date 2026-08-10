@@ -98,7 +98,10 @@ impl fmt::Display for BuildError {
                 )
             }
             Self::OsConstants(error) => {
-                write!(formatter, "standard library OS constants are invalid: {error}")
+                write!(
+                    formatter,
+                    "standard library OS constants are invalid: {error}"
+                )
             }
             Self::NativeArchive(error) => {
                 write!(

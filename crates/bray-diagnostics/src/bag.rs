@@ -15,7 +15,7 @@ use crate::severity::SeverityKind;
 ///
 /// Shared access is thread-safe. Mutation requires exclusive `&mut self` access
 /// or caller-owned synchronization.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct DiagnosticBag {
     diagnostics: Vec<Diagnostic>,
 }

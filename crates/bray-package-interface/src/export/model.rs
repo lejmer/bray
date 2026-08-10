@@ -163,7 +163,7 @@ impl ExportLookupInput {
 }
 
 /// Failure while assigning canonical package-interface identity-table positions.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceExportSurfaceError {
     /// The selected symbol sequence contains the same stable identity more than once.
     DuplicateSymbol(ExternalSymbolKey),
@@ -176,7 +176,7 @@ pub enum PackageInterfaceExportSurfaceError {
 }
 
 /// Failure while validating a package-interface export bundle.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceExportBuildError {
     /// One exported declaration has no completed semantic fact in the bundle.
     MissingSemanticFacts(ExternalSymbolKey),
@@ -189,7 +189,7 @@ pub enum PackageInterfaceExportBuildError {
 }
 
 /// One validated immutable library surface ready for deterministic interface encoding.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PackageInterfaceExportBundle {
     surface: PackageInterfaceSurface,
     semantic_facts: InterfaceSemanticFacts,

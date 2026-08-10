@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_binder::BinderDependency;
 use bray_bound_tree::{
@@ -34,14 +34,14 @@ use bray_symbols::{
     ImplementationSymbolId, ImportedSymbolFactAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
     PackageIdentity, ProductIdentity, ProductSemanticFacts, ProofOutcome, SemanticFactResult,
     SemanticValueStore, SemanticValueStoreCreateError, SymbolGraph,
-    TraitImplementationConformanceFact, TypeAssociatedSurface,
+    TraitImplementationConformanceFact, TypeAssociatedSurface, TypeId,
 };
 use bray_syntax::SyntaxTree;
 
 use crate::fact::{
-    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, ConstantInstanceFactKey, FactCell,
-    FactCellMap, FactQueryError, FactRuntime, ImportedSemanticFactKey, PublishedUnitFact,
-    UnitFactCache,
+    BoundUnitIdentityMap, CancellationToken, CompilationFactKey, CompilationInputKey,
+    ConstantInstanceFactKey, FactCell, FactCellMap, FactQueryError, FactRuntime,
+    ImportedSemanticFactKey, PublishedUnitFact, UnitFactCache,
 };
 use crate::request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
@@ -99,10 +99,10 @@ pub(super) struct CompilationState {
         FactCellMap<ModulePartId, Arc<DiagnosticResult<bray_symbols::ModuleContributionGate>>>,
     pub(super) callable_type_directives:
         FactCellMap<CallableTypeDirectiveKey, Arc<DiagnosticResult<DirectiveSurface>>>,
-    pub(super) bound_unit_identities: FactCell<Result<BoundUnitIdentityMap, FactQueryError>>,
+    pub(super) bound_unit_identities: OnceLock<Result<BoundUnitIdentityMap, FactQueryError>>,
     pub(super) discovery_symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
     pub(super) symbol_graph: FactCell<Result<SymbolGraph, FactQueryError>>,
-    pub(super) semantic_values: FactCell<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
+    pub(super) semantic_values: OnceLock<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
     pub(super) loaded_dependency_interfaces:
         Vec<FactCell<super::imported::LoadedDependencyInterface>>,
     pub(super) loaded_dependency_implementations: Vec<
@@ -138,6 +138,8 @@ pub(super) struct CompilationState {
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
     pub(super) declared_type_representations:
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<DeclaredTypeRepresentation>>>,
+    pub(super) codegen_lifecycle_needs:
+        Mutex<BTreeMap<TypeId, super::product::CodegenLifecycleNeeds>>,
     pub(super) type_associated_implementation_index:
         FactCell<super::type_surface::InherentImplementationAssociationIndex>,
     pub(super) implementation_index:
@@ -254,8 +256,8 @@ impl Compilation {
                 .map(ProductIdentity::name)
                 .or_else(|| {
                     package_interface_export
-                .as_ref()
-                .map(|export| export.identity().product().as_str())
+                        .as_ref()
+                        .map(|export| export.identity().product().as_str())
                 })
                 .unwrap_or_else(|| match options.product_kind() {
                     bray_symbols::ProductKind::Library => "library",
@@ -277,12 +279,12 @@ impl Compilation {
             (configuration, context)
         });
 
-        let fact_runtime = FactRuntime::with_profile(worker_budget, profile);
+        let mut fact_runtime = FactRuntime::with_profile(worker_budget, profile);
         let profile_session = fact_runtime.profile_session();
 
-        let load_span = profile_session.as_deref().map(|profile| {
-            profile.start(crate::profile::ProfileOperation::CompilationLoad, None)
-        });
+        let load_span = profile_session
+            .as_deref()
+            .map(|profile| profile.start(crate::profile::ProfileOperation::CompilationLoad, None));
 
         let standard_library =
             standard_library_root.map(bray_standard_library::StandardLibraryResolver::new);
@@ -353,6 +355,19 @@ impl Compilation {
         let source_count = sources.len();
         let dependency_count = dependency_interfaces.len();
 
+        fact_runtime.set_inputs(super::input::compilation_inputs(
+            &package_identity,
+            package_source_authority,
+            standard_library.as_ref(),
+            &options,
+            &sources,
+            &diagnostics,
+            &dependency_interfaces,
+            &platform_services,
+            package_interface_export.as_ref(),
+            codegen.as_ref(),
+        ));
+
         if let Some(profile) = fact_runtime.profile() {
             profile.add_metric(
                 crate::profile::ProfileMetricKind::SourceUnits,
@@ -397,10 +412,10 @@ impl Compilation {
                 target_validity: FactCellMap::new(),
                 module_contribution_gates: FactCellMap::new(),
                 callable_type_directives: FactCellMap::new(),
-                bound_unit_identities: FactCell::new(),
+                bound_unit_identities: OnceLock::new(),
                 discovery_symbol_graph: FactCell::new(),
                 symbol_graph: FactCell::new(),
-                semantic_values: FactCell::new(),
+                semantic_values: OnceLock::new(),
                 loaded_dependency_interfaces: empty_fact_caches(dependency_count),
                 loaded_dependency_implementations: empty_fact_caches(dependency_count),
                 imported_symbol_skeleton: FactCell::new(),
@@ -416,6 +431,7 @@ impl Compilation {
                 foreign_callable_validation: FactCell::new(),
                 type_associated_surfaces: FactCellMap::new(),
                 declared_type_representations: FactCellMap::new(),
+                codegen_lifecycle_needs: Mutex::new(BTreeMap::new()),
                 type_associated_implementation_index: FactCell::new(),
                 implementation_index: FactCell::new(),
                 implementation_candidate_sets: FactCellMap::new(),
@@ -472,11 +488,15 @@ impl Compilation {
 
     /// Returns the source package identity selected for this compilation.
     pub fn package_identity(&self) -> &PackageIdentity {
+        self.record_input(CompilationInputKey::PackageIdentity);
+
         &self.state.package_identity
     }
 
     /// Returns the authority governing this source package's identity.
     pub fn package_source_authority(&self) -> crate::PackageSourceAuthority {
+        self.record_input(CompilationInputKey::PackageSourceAuthority);
+
         self.state.package_source_authority
     }
 
@@ -508,7 +528,7 @@ impl Compilation {
                 };
 
                 // The published fact retains its target independently of request options.
-                let target = self.state.options.selected_target().clone();
+                let target = self.requested_target().clone();
                 let available = provider.available_symbols(|rule| target.supports(rule));
 
                 crate::SelectedTargetContext::new(target, available)
@@ -523,23 +543,31 @@ impl Compilation {
 
     /// Returns the loaded source snapshots.
     pub fn sources(&self) -> &SourceStore {
+        self.record_input(CompilationInputKey::SourceSet);
+
         &self.state.sources
     }
 
     /// Returns diagnostics produced while loading source inputs.
     pub fn source_diagnostics(&self) -> &DiagnosticBag {
+        self.record_input(CompilationInputKey::SourceDiagnostics);
+
         &self.state.source_diagnostics
     }
 
     /// Returns the syntax result for one source unit.
     pub fn source_unit_syntax(&self, source_id: SourceId) -> Option<&SourceUnitSyntaxResult> {
-        let snapshot = self.source(source_id)?;
+        self.state.sources.get(source_id)?;
         let cache = self.state.source_unit_syntax.get(source_id.to_index()?)?;
 
         Some(self.fact(
             CompilationFactKey::SourceUnitSyntax(source_id),
             cache,
             || {
+                let snapshot = self
+                    .source(source_id)
+                    .unwrap_or_else(|| panic!("source fact cache should match source store"));
+
                 let result = parse_source_unit(snapshot);
 
                 if let Some(profile) = self.state.fact_runtime.profile() {
@@ -725,13 +753,11 @@ impl Compilation {
 
     /// Returns the canonical semantic value store for this compilation snapshot.
     pub fn semantic_value_store(&self) -> Result<&SemanticValueStore, FactQueryError> {
-        self.fact(
-            CompilationFactKey::SemanticValueStore,
-            &self.state.semantic_values,
-            SemanticValueStore::try_new,
-        )
-        .as_ref()
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        self.state
+            .semantic_values
+            .get_or_init(SemanticValueStore::try_new)
+            .as_ref()
+            .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
     fn compiler_known_provider(&self) -> Result<&Arc<CompilerKnownSymbolProvider>, FactQueryError> {
@@ -748,33 +774,41 @@ impl Compilation {
         &self,
         key: &BoundUnitKey,
     ) -> Result<bray_bound_tree::BoundUnitId, FactQueryError> {
-        self.fact(
-            CompilationFactKey::BoundUnitIdentities,
-            &self.state.bound_unit_identities,
-            || BoundUnitIdentityMap::from_syntax(self.syntax_tree()),
-        )
-        .as_ref()
-        .map_err(Clone::clone)?
-        .unit_id(key)
+        let syntax = self.syntax_tree();
+
+        self.state
+            .bound_unit_identities
+            .get_or_init(|| BoundUnitIdentityMap::from_syntax(syntax))
+            .as_ref()
+            .map_err(Clone::clone)?
+            .unit_id(key)
     }
 
     /// Returns the loaded source snapshot for `source_id`.
     pub fn source(&self, source_id: SourceId) -> Option<&SourceSnapshot> {
+        self.record_input(CompilationInputKey::Source(source_id));
+
         self.state.sources.get(source_id)
     }
 
     /// Returns the loaded source text for `source_id`.
     pub fn source_text(&self, source_id: SourceId) -> Option<&str> {
+        self.record_input(CompilationInputKey::Source(source_id));
+
         self.state.sources.text(source_id)
     }
 
     /// Returns the number of loaded source snapshots.
     pub fn source_count(&self) -> usize {
+        self.record_input(CompilationInputKey::SourceSet);
+
         self.state.sources.len()
     }
 
     /// Returns whether this compilation has no source snapshots.
     pub fn is_empty(&self) -> bool {
+        self.record_input(CompilationInputKey::SourceSet);
+
         self.state.sources.is_empty()
     }
 
@@ -785,7 +819,7 @@ impl Compilation {
         compute: impl FnOnce() -> T + Send,
     ) -> &'a T
     where
-        T: Send,
+        T: std::hash::Hash + Send,
     {
         match cache.get_or_compute(
             &self.state.fact_runtime,
@@ -820,7 +854,7 @@ impl Compilation {
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&'a T, FactQueryError>
     where
-        T: Send,
+        T: std::hash::Hash + Send,
     {
         let priority = self
             .state
@@ -850,7 +884,7 @@ impl Compilation {
         + Send,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
     where
-        T: Send + Sync,
+        T: std::hash::Hash + Send + Sync,
     {
         let priority = self
             .state
@@ -875,7 +909,7 @@ impl Compilation {
         + Send,
     ) -> Result<Arc<PublishedUnitFact<T>>, FactQueryError>
     where
-        T: Send + Sync,
+        T: std::hash::Hash + Send + Sync,
     {
         cache.get_or_compute_with_priority(
             &self.state.fact_runtime,

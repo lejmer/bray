@@ -14,7 +14,7 @@ use crate::{
 macro_rules! define_imported_symbol_skeleton {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         /// An immutable deterministic provider for symbols reconstructed from package interfaces.
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
         pub struct ImportedSymbolSkeleton {
             pub(crate) packages: TypedSymbolRecords<PackageSymbolId, PackageSymbol>,
             pub(crate) modules: TypedSymbolRecords<ModuleSymbolId, ModuleSymbol>,

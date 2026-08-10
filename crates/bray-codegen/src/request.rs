@@ -1,8 +1,9 @@
 use bray_base::Cancellation;
+use bray_symbols::ProductKind;
 
 use crate::{
-    BackendArtifactRequest, BackendIdentity, CodegenMappings, CodegenOptions, CodegenTarget,
-    CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
+    BackendArtifactRequest, BackendCapabilityRevision, BackendIdentity, CodegenMappings,
+    CodegenOptions, CodegenTarget, CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
 };
 
 /// Borrowed immutable inputs for one complete backend operation.
@@ -10,6 +11,8 @@ use crate::{
 pub struct CodegenRequest<'request> {
     unit: &'request CodegenUnit,
     backend: &'request BackendIdentity,
+    capability_revision: BackendCapabilityRevision,
+    product: ProductKind,
     target: &'request CodegenTarget,
     mappings: &'request CodegenMappings,
     options: &'request CodegenOptions,
@@ -22,6 +25,8 @@ impl<'request> CodegenRequest<'request> {
     pub fn try_new(
         unit: &'request CodegenUnit,
         backend: &'request BackendIdentity,
+        capability_revision: BackendCapabilityRevision,
+        product: ProductKind,
         target: &'request CodegenTarget,
         mappings: &'request CodegenMappings,
         options: &'request CodegenOptions,
@@ -68,6 +73,8 @@ impl<'request> CodegenRequest<'request> {
         Ok(Self {
             unit,
             backend,
+            capability_revision,
+            product,
             target,
             mappings,
             options,
@@ -89,6 +96,16 @@ impl<'request> CodegenRequest<'request> {
     /// Returns the authoritative selected backend identity.
     pub const fn backend(self) -> &'request BackendIdentity {
         self.backend
+    }
+
+    /// Returns the capability declaration revision required by this request.
+    pub const fn capability_revision(self) -> BackendCapabilityRevision {
+        self.capability_revision
+    }
+
+    /// Returns the selected product kind.
+    pub const fn product(self) -> ProductKind {
+        self.product
     }
 
     /// Returns the validated target configuration.
@@ -113,7 +130,7 @@ impl<'request> CodegenRequest<'request> {
 }
 
 /// A contract violation that prevents creation of a backend request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenRequestBuildError {
     /// The artifact request belongs to another codegen unit.
     ArtifactUnitMismatch,

@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use bray_binder::BinderDependency;
@@ -19,6 +20,18 @@ pub(crate) struct PublishedUnitFact<T> {
     dependencies: Box<[BinderDependency]>,
 }
 
+impl<T> Hash for PublishedUnitFact<T>
+where
+    T: Hash,
+{
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        self.result.hash(state);
+    }
+}
+
 impl<T> PublishedUnitFact<T> {
     pub(crate) const fn result(&self) -> &Arc<DiagnosticResult<T>> {
         &self.result
@@ -37,7 +50,7 @@ pub(crate) struct UnitFactCache<T> {
 
 impl<T> UnitFactCache<T>
 where
-    T: Send + Sync,
+    T: std::hash::Hash + Send + Sync,
 {
     pub(crate) fn new() -> Self {
         Self {

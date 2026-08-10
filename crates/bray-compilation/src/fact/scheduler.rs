@@ -4,8 +4,8 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use super::{FactQueryError, QueryPriority, QueryPriorityDemand};
-use crate::profile::{CompilationProfileOutcome, ProfileOperation, ProfileSession};
 use crate::WorkerBudget;
+use crate::profile::{CompilationProfileOutcome, ProfileOperation, ProfileSession};
 
 const MAX_INTERACTIVE_STREAK: usize = 8;
 

@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// The deterministic roots of an immutable compilation-wide symbol graph.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SymbolGraphRoots {
     compiler_known: CompilerKnownEnvironmentSymbolId,
     packages: Box<[PackageSymbolId]>,
@@ -93,7 +93,7 @@ macro_rules! map_callable_symbol {
 macro_rules! define_symbol_graph {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         /// An immutable deterministic identity graph for compilation-wide surface symbols.
-        #[derive(Clone, Debug, Eq, PartialEq)]
+        #[derive(Clone, Debug, Eq, Hash, PartialEq)]
         pub struct SymbolGraph {
             pub(super) roots: SymbolGraphRoots,
             pub(super) next_symbol_index: usize,

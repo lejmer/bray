@@ -832,9 +832,7 @@ impl DiagnosticKind {
             Self::CheckingDeallocationWithOutstandingObligations => {
                 "checking_deallocation_with_outstanding_obligations"
             }
-            Self::CheckingInvalidCallbackStateContext => {
-                "checking_invalid_callback_state_context"
-            }
+            Self::CheckingInvalidCallbackStateContext => "checking_invalid_callback_state_context",
             Self::CheckingIncompatiblePattern => "checking_incompatible_pattern",
             Self::CheckingRefutablePattern => "checking_refutable_pattern",
             Self::CheckingNonExhaustiveMatch => "checking_non_exhaustive_match",

@@ -661,7 +661,11 @@ mod tests {
             bray_profile::COMPILATION_PROFILE_SCHEMA_REVISION
         );
 
-        assert_eq!(profile.mode, bray_compilation::CompilationProfileMode::Trace);
+        assert_eq!(
+            profile.mode,
+            bray_compilation::CompilationProfileMode::Trace
+        );
+
         assert_eq!(profile.context.product, "library");
         assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 1);
         assert!(!profile.descriptors.operations.is_empty());

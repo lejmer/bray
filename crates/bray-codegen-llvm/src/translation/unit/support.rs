@@ -110,12 +110,16 @@ pub(super) fn native_run_state_is<'context>(
     expected: NativeRunState,
     name: &str,
 ) -> Result<IntValue<'context>, CodegenFailure> {
-    llvm(builder.build_int_compare(
-        IntPredicate::EQ,
-        state,
-        state.get_type().const_int(u64::from(expected.code()), false),
-        name,
-    ))
+    llvm(
+        builder.build_int_compare(
+            IntPredicate::EQ,
+            state,
+            state
+                .get_type()
+                .const_int(u64::from(expected.code()), false),
+            name,
+        ),
+    )
 }
 
 pub(super) fn aggregate_value_length(value: BasicValueEnum<'_>) -> Result<u32, CodegenFailure> {

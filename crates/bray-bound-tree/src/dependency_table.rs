@@ -47,7 +47,7 @@ pub enum DependencyContractsBuildError {
 }
 
 /// Durable dependency contracts for values, accesses, and borrows in one checked unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedDependencyContracts {
     unit: BoundUnitId,
     kind: BoundUnitKind,

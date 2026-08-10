@@ -13,7 +13,7 @@ use super::{
 };
 
 /// The immutable target-independent descriptor graph of the catalog.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerKnownCatalog {
     pub(super) compiler_known_scopes: Cow<'static, [CompilerKnownScopeDescriptor]>,
     pub(super) compiler_known_declarations: Cow<'static, [CompilerKnownDeclarationDescriptor]>,

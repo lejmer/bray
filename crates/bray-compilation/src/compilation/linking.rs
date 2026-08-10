@@ -43,7 +43,14 @@ impl Compilation {
             None => ArtifactPublisher::new(cancellation),
         };
 
-        Ok(publisher.publish_linked(emission, contributions, link, &link_outcome))
+        let outcome = crate::profile::profile_operation(
+            self.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::ArtifactPublication,
+            || publisher.publish_linked(emission, contributions, link, &link_outcome),
+            emission_profile_outcome,
+        );
+
+        Ok(outcome)
     }
 
     /// Links one validated native product plan into staging without publishing final outputs.
@@ -78,9 +85,8 @@ impl Compilation {
         let profile = self.state.fact_runtime.profile();
 
         self.state.fact_runtime.run(priority, || {
-            let span = profile.map(|profile| {
-                profile.start(crate::profile::ProfileOperation::Linking, None)
-            });
+            let span = profile
+                .map(|profile| profile.start(crate::profile::ProfileOperation::Linking, None));
 
             let outcome = linker.link(plan, cancellation);
 
@@ -101,6 +107,14 @@ const fn link_profile_outcome(status: &LinkStatus) -> crate::CompilationProfileO
     }
 }
 
+const fn emission_profile_outcome(outcome: &EmissionOutcome) -> crate::CompilationProfileOutcome {
+    match outcome.status() {
+        bray_emitter::EmissionStatus::Complete => crate::CompilationProfileOutcome::Completed,
+        bray_emitter::EmissionStatus::Failed(_) => crate::CompilationProfileOutcome::Failed,
+        bray_emitter::EmissionStatus::Cancelled => crate::CompilationProfileOutcome::Cancelled,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU64;
@@ -109,10 +123,9 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
 
     use bray_base::Cancellation;
-    use bray_codegen::test_support::codegen_unit_key;
+    use bray_codegen::test_support::{codegen_backend_capabilities, codegen_unit_key};
     use bray_codegen::{
-        AssemblySyntaxKind, BackendArtifactKind, BackendCapabilities, BackendIdentity,
-        BackendSerializationOptions, BackendTargetPlatform, DebugInformationMode,
+        AssemblySyntaxKind, BackendIdentity, BackendSerializationOptions, DebugInformationMode,
         DebugInformationOutputMode, LinkableArtifactKind,
     };
     use bray_diagnostics::DiagnosticBag;
@@ -632,15 +645,7 @@ mod tests {
         let backend = BackendIdentity::try_new("llvm", "bray-1", "llvm-22")
             .unwrap_or_else(|| panic!("test backend identity must be valid"));
 
-        let capabilities = BackendCapabilities::new(
-            [BackendTargetPlatform::new(
-                TargetArchitecture::X86_64,
-                ObjectFormat::Elf,
-            )],
-            [BackendArtifactKind::RelocatableObject],
-            [DebugInformationMode::None],
-            [AssemblySyntaxKind::TargetDefault],
-        );
+        let capabilities = codegen_backend_capabilities();
 
         let policy = BackendEmissionPolicy::new(
             DebugInformationMode::None,

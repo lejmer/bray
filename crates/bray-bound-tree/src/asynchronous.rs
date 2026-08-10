@@ -52,7 +52,7 @@ pub enum AsyncSuspensionKind {
 }
 
 /// One suspension point and the semantic state it retains.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AsyncSuspensionPoint {
     expression: BoundExpressionId,
     kind: AsyncSuspensionKind,
@@ -114,7 +114,7 @@ impl AsyncSuspensionPoint {
 }
 
 /// The ordered semantic work required when one lexical task scope exits.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AsyncScopeExitPlan {
     scope: BoundBlockId,
     exit: AnyBoundNodeId,
@@ -183,7 +183,7 @@ pub enum AsyncFactsBuildError {
 }
 
 /// Durable async frame, suspension, task, and cleanup facts for one bound unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedAsyncFacts {
     unit: BoundUnitId,
     kind: BoundUnitKind,

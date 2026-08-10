@@ -5,8 +5,8 @@ use bray_codegen::{
 use bray_ir::MirRuntimeReference;
 use bray_runtime_interface::{NativeRunState, RuntimeAbiRole};
 use bray_symbols::CallableAbi;
-use inkwell::DLLStorageClass;
 use inkwell::AddressSpace;
+use inkwell::DLLStorageClass;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
@@ -23,8 +23,7 @@ pub(super) fn prepare<'context, 'request>(
     function: FunctionValue<'context>,
     types: &mut LlvmTypeMappings<'context, 'request>,
 ) -> Result<(FunctionValue<'context>, Option<FunctionValue<'context>>), CodegenFailure> {
-    if symbol.linkage() != CodegenLinkage::Export || symbol.signature().abi() == CallableAbi::Bray
-    {
+    if symbol.linkage() != CodegenLinkage::Export || symbol.signature().abi() == CallableAbi::Bray {
         return Ok((function, None));
     }
 
@@ -59,10 +58,8 @@ pub(super) fn translate<'context, 'request>(
     let parameters = trampoline.get_params();
     let result_type = trampoline.get_type().get_return_type();
 
-    let mut fields: Vec<BasicTypeEnum<'context>> = parameters
-        .iter()
-        .map(|value| value.get_type())
-        .collect();
+    let mut fields: Vec<BasicTypeEnum<'context>> =
+        parameters.iter().map(|value| value.get_type()).collect();
 
     let result_field = result_type.map(|result| {
         let field = fields.len();
@@ -143,13 +140,8 @@ pub(super) fn translate<'context, 'request>(
 
     match result_field {
         Some(field) => {
-            let source = field_pointer(
-                &builder,
-                state_type,
-                state,
-                field,
-                "callback.result.source",
-            )?;
+            let source =
+                field_pointer(&builder, state_type, state, field, "callback.result.source")?;
 
             let result_type = result_type.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
             let result = llvm(builder.build_load(result_type, source, "callback.result"))?;
@@ -271,7 +263,14 @@ fn declare_callback<'context>(
     let mut arguments = Vec::with_capacity(body.count_params() as usize);
 
     for (field, parameter) in body.get_params().iter().copied().enumerate() {
-        let source = field_pointer(&builder, state_type, state, field, "callback.argument.source")?;
+        let source = field_pointer(
+            &builder,
+            state_type,
+            state,
+            field,
+            "callback.argument.source",
+        )?;
+
         let argument = llvm(builder.build_load(parameter.get_type(), source, "callback.argument"))?;
 
         arguments.push(argument.into());
@@ -283,8 +282,8 @@ fn declare_callback<'context>(
     apply_signature_call_attributes(call, symbol.signature(), types)?;
 
     if let Some(result) = call.try_as_basic_value().basic() {
-        let field = usize::try_from(body.count_params())
-            .map_err(|_| CodegenFailure::ResourceExhausted)?;
+        let field =
+            usize::try_from(body.count_params()).map_err(|_| CodegenFailure::ResourceExhausted)?;
 
         let destination = field_pointer(
             &builder,

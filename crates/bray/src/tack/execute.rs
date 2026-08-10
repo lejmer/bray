@@ -20,8 +20,8 @@ use crate::tack::model::{
 use crate::tack::output::{
     failure, result_from_operation, result_from_output, result_from_outputs,
 };
-use crate::tack::progress::WorkflowProgress;
 use crate::tack::profile::run_profile_command;
+use crate::tack::progress::WorkflowProgress;
 use crate::tack::project::{
     ProductSelectionKind, load_graph, root_source_files, select_products, select_target,
 };
@@ -1049,7 +1049,10 @@ mod tests {
             .map(|pair| PathBuf::from(&pair[1]))
             .unwrap_or_else(|| panic!("compiler request must retain a profile output"));
 
-        assert_eq!(profile_output.parent(), Some(workspace.path().join("profiles").as_path()));
+        assert_eq!(
+            profile_output.parent(),
+            Some(workspace.path().join("profiles").as_path())
+        );
 
         assert!(
             profile_output

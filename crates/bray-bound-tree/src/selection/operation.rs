@@ -49,7 +49,7 @@ impl SelectionKind {
 }
 
 /// The exact semantic target of a member selection.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MemberTarget {
     member: AnySymbolId,
     result_type: TypeId,
@@ -354,7 +354,7 @@ pub enum SelectedConstructionInput {
 }
 
 /// One exact construction target and normalized initializer mapping.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedConstruction {
     target: ConstructionTarget,
     result_type: TypeId,
@@ -457,7 +457,7 @@ impl SelectedConversion {
 }
 
 /// The selected operation and value type used by one compound assignment.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SelectedCompoundAssignment {
     target: OperatorTarget,
     value_type: TypeId,
@@ -491,7 +491,7 @@ impl SelectedCompoundAssignment {
 }
 
 /// One exact operation whose operands have already been associated by binding and checking.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SelectedOperation {
     /// A receiver-associated member.
     Member(MemberTarget),

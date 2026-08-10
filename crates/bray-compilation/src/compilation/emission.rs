@@ -41,6 +41,32 @@ impl Compilation {
         options: &CodegenOptions,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
+        crate::profile::profile_operation(
+            self.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::EmissionCodeGeneration,
+            || {
+                self.emission_backend_contributions_inner(
+                    plan,
+                    units,
+                    mappings,
+                    target,
+                    options,
+                    cancellation,
+                )
+            },
+            crate::profile::result_outcome,
+        )
+    }
+
+    fn emission_backend_contributions_inner(
+        &self,
+        plan: &EmissionPlan,
+        units: &[CodegenUnit],
+        mappings: &[CodegenMappings],
+        target: &CodegenTarget,
+        options: &CodegenOptions,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
         let requests = plan.backend_requests();
 
         let facts = CodegenFactLookup::try_new(units, mappings)
@@ -262,12 +288,13 @@ fn finish_backend_contributions(
 mod tests {
     use std::sync::{Arc, Barrier, Condvar, Mutex};
 
-    use bray_codegen::test_support::{CodegenRequestFixture, codegen_request_for_seed_and_backend};
+    use bray_codegen::test_support::{
+        CodegenRequestFixture, codegen_backend_capabilities, codegen_request_for_seed_and_backend,
+    };
     use bray_codegen::{
         ArtifactContent, BackendArtifactContribution, BackendArtifactKind, BackendCapabilities,
-        BackendIdentity, BackendTargetPlatform, CodeGenerator, CodeGeneratorRegistry,
-        CodegenConfiguration, CodegenFailure, CodegenOutcome, CodegenRequest,
-        CodegenRuntimeMetadata,
+        BackendIdentity, CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration,
+        CodegenFailure, CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata,
     };
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
@@ -475,18 +502,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
     }
 
-    fn capabilities(request: CodegenRequest<'_>) -> BackendCapabilities {
-        let machine = request.target().machine();
-
-        BackendCapabilities::new(
-            [BackendTargetPlatform::new(
-                machine.architecture(),
-                machine.object_format(),
-            )],
-            [BackendArtifactKind::RelocatableObject],
-            [request.options().debug_information()],
-            [bray_codegen::AssemblySyntaxKind::TargetDefault],
-        )
+    fn capabilities(_request: CodegenRequest<'_>) -> BackendCapabilities {
+        codegen_backend_capabilities()
     }
 
     fn backend_identity() -> BackendIdentity {
@@ -535,6 +552,7 @@ mod tests {
                     entry.id().clone(),
                     content.clone(),
                     request.backend().clone(),
+                    request.capability_revision(),
                     request.target().identity().clone(),
                     None,
                 )

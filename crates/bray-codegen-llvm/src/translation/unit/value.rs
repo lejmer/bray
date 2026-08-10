@@ -742,8 +742,12 @@ mod tests {
             .finish(entry)
             .unwrap_or_else(|error| panic!("copy test MIR must validate: {error:?}"));
 
-        let unit = CodegenUnit::try_new(1, [mir])
-            .unwrap_or_else(|error| panic!("copy test codegen unit must validate: {error:?}"));
+        let unit = CodegenUnit::try_new(
+            bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
+            bray_codegen::test_support::codegen_partition_compatibility(),
+            [mir],
+        )
+        .unwrap_or_else(|error| panic!("copy test codegen unit must validate: {error:?}"));
 
         let mappings = composite_mappings(&unit, &target, types, source);
 

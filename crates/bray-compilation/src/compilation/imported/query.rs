@@ -22,7 +22,7 @@ impl super::super::Compilation {
         &self,
         error: &bray_standard_library::StandardLibraryLoadError,
     ) -> DiagnosticBag {
-        let input = self.state.dependency_interfaces.iter().find(|input| {
+        let input = self.dependency_interfaces().iter().find(|input| {
             input.package().as_str()
                 == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
         });
@@ -39,8 +39,7 @@ impl super::super::Compilation {
         package: &PackageIdentity,
         product: &bray_package_interface::InterfaceProductIdentity,
     ) -> Option<ImportedInterfaceId> {
-        self.state
-            .dependency_interfaces
+        self.dependency_interfaces()
             .binary_search_by(|input| (input.package(), input.product()).cmp(&(package, product)))
             .ok()
             .and_then(ImportedInterfaceId::try_from_index)
@@ -169,9 +168,9 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        let Some(input) = self.state.dependency_interfaces.get(index) else {
+        if self.state.dependency_interfaces.get(index).is_none() {
             return Ok(None);
-        };
+        }
 
         let Some(cache) = self.state.loaded_dependency_interfaces.get(index) else {
             return Ok(None);
@@ -181,7 +180,13 @@ impl super::super::Compilation {
             CompilationFactKey::DependencyInterface(interface),
             cache,
             cancellation,
-            |cancellation| load_dependency_interface(input, cancellation),
+            |cancellation| {
+                let input = self
+                    .dependency_interface(interface)
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                load_dependency_interface(input, cancellation)
+            },
         )
         .map(Some)
     }
@@ -190,19 +195,18 @@ impl super::super::Compilation {
         &self,
         interface: ImportedInterfaceId,
     ) -> Option<&DependencyInterfaceInput> {
-        interface
-            .to_index()
-            .and_then(|index| self.state.dependency_interfaces.get(index))
+        self.dependency_interface(interface)
     }
 
     fn compute_imported_symbol_skeleton(
         &self,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>, FactQueryError> {
-        let mut loaded = Vec::with_capacity(self.state.dependency_interfaces.len());
+        let dependency_count = self.dependency_interface_count();
+        let mut loaded = Vec::with_capacity(dependency_count);
         let mut diagnostics = Vec::new();
 
-        for index in 0..self.state.dependency_interfaces.len() {
+        for index in 0..dependency_count {
             cancellation.check()?;
 
             let Some(interface) = ImportedInterfaceId::try_from_index(index) else {
@@ -448,9 +452,10 @@ impl super::super::Compilation {
         &self,
         cancellation: &CancellationToken,
     ) -> Result<Option<Vec<LoadedInterfaceSurface<'_>>>, FactQueryError> {
-        let mut interfaces = Vec::with_capacity(self.state.dependency_interfaces.len());
+        let dependency_count = self.dependency_interface_count();
+        let mut interfaces = Vec::with_capacity(dependency_count);
 
-        for index in 0..self.state.dependency_interfaces.len() {
+        for index in 0..dependency_count {
             cancellation.check()?;
 
             let interface = ImportedInterfaceId::try_from_index(index)
@@ -483,7 +488,7 @@ impl super::super::Compilation {
         let mut diagnostics = vec![skeleton.diagnostics()];
 
         if skeleton.value().is_some() {
-            for index in 0..self.state.dependency_interfaces.len() {
+            for index in 0..self.dependency_interface_count() {
                 let Some(interface) = ImportedInterfaceId::try_from_index(index) else {
                     return dependency_graph_diagnostics(self);
                 };
@@ -558,7 +563,7 @@ fn load_dependency_interface(
 }
 
 fn dependency_graph_diagnostics(compilation: &super::super::Compilation) -> DiagnosticBag {
-    compilation.state.dependency_interfaces.first().map_or_else(
+    compilation.dependency_interfaces().first().map_or_else(
         || unlocated_interface_diagnostics(DiagnosticKind::InterfaceDependencyGraphInvalid),
         |input| interface_diagnostics(DiagnosticKind::InterfaceDependencyGraphInvalid, input),
     )

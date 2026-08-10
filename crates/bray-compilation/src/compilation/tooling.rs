@@ -21,7 +21,7 @@ type BoundUnitFact = Arc<DiagnosticResult<BoundUnit>>;
 type SyntaxBoundExpression = (BoundUnitFact, BoundExpressionId);
 type SyntaxBoundUnit = (BoundUnitKey, BoundUnitFact);
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(super) struct SourceReferenceIndex {
     references: BTreeMap<BoundReferenceTarget, Vec<BoundSourceAnchor>>,
 }

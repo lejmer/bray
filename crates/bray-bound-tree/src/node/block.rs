@@ -7,7 +7,7 @@ use bray_symbols::{LocalBindingSymbolId, LocalConstantSymbolId, TypeId};
 use crate::{BoundExpressionId, BoundNodeOrigin, BoundPatternId};
 
 /// A source type expression with its resolved semantic type when available.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundTypeReference {
     syntax: SyntaxAnchor,
     ty: Option<TypeId>,
@@ -31,7 +31,7 @@ impl BoundTypeReference {
 }
 
 /// One source-ordered semantic item inside a bound block.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BoundBlockItem {
     /// A local binding declaration.
     LocalBinding(BoundLocalBinding),
@@ -60,7 +60,7 @@ impl BoundBlockItem {
 }
 
 /// A checked local binding declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundLocalBinding {
     origin: BoundNodeOrigin,
     pattern: BoundPatternId,
@@ -122,7 +122,7 @@ impl BoundLocalBinding {
 }
 
 /// A checked block-local constant declaration.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundLocalConstant {
     origin: BoundNodeOrigin,
     symbol: Option<LocalConstantSymbolId>,
@@ -176,7 +176,7 @@ impl BoundLocalConstant {
 }
 
 /// A source-shaped block with items in deterministic evaluation order.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundBlock {
     origin: BoundNodeOrigin,
     items: Arc<[BoundBlockItem]>,

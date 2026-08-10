@@ -92,7 +92,7 @@ pub enum LivenessFactsBuildError {
 }
 
 /// Durable lifetime decisions for one exact bound semantic unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LivenessFacts {
     unit: BoundUnitId,
     kind: BoundUnitKind,

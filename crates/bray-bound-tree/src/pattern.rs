@@ -111,7 +111,7 @@ pub enum PatternRefutability {
 }
 
 /// The checked semantic result for one pattern occurrence.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct PatternCheckEntry {
     pattern: BoundPatternId,
     input_type: TypeId,
@@ -212,7 +212,7 @@ impl PatternCheckEntry {
 }
 
 /// The checked type assigned to one pattern-introduced local binding.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct PatternBindingTypeEntry {
     binding: LocalBindingSymbolId,
     ty: TypeId,
@@ -272,7 +272,7 @@ impl PatternBindingTypeEntry {
 }
 
 /// Coverage established for one match expression.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MatchCoverageEntry {
     expression: BoundExpressionId,
     unreachable_arms: Arc<[u32]>,
@@ -318,7 +318,7 @@ impl MatchCoverageEntry {
 }
 
 /// Immutable checked pattern and match-coverage facts for one bound unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CheckedPatternFacts {
     unit: BoundUnitId,
     kind: BoundUnitKind,

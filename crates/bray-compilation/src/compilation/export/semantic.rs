@@ -32,8 +32,8 @@ use bray_package_interface::{
     InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfacePredicateSummary,
     InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceSupportEntity,
     InterfaceSymbolReference, InterfaceTargetFactDependency, InterfaceTraitApplication,
-    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
-    InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
+    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType,
+    InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
     PackageInterfaceSurface,
 };
 use bray_symbols::{
@@ -41,8 +41,8 @@ use bray_symbols::{
     CallableContractTemplateFact, CallableContractsFact, CallableInstanceId,
     CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallablePhaseBehavior,
     CallableSignatureFact, CallableSymbolId, CheckedConstraintKind, ConstantDefinitionState,
-    ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId,
-    ConstantValueData, ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind,
+    ConstantField, ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueData,
+    ConstantValueId, ConstantValueKind, CurrentRunCancellation, DeclarationPredicateClauseKind,
     DeclaredStorageShape, DependencyGuard, DependencyProjection, DependencyRequirement,
     DependencyRequirementKind, DependencySubject, DependencySubjectRoot, ExternalSymbolKey,
     GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact, GenericOwnerId,
@@ -61,10 +61,10 @@ use super::template::{SourceTemplateInput, export_checked_source_template};
 use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBinderFacts;
 use crate::compilation::checker::{CompilationCheckerContext, checker_result};
-use crate::compilation::unit::semantic_unit_context_for;
 use crate::compilation::source_graph::{
     source_declaration_module_parts, source_symbol_contribution_gate,
 };
+use crate::compilation::unit::semantic_unit_context_for;
 
 pub(super) fn build_semantic_facts(
     compilation: &Compilation,
@@ -793,12 +793,8 @@ fn target_dependencies(
     let mut dependencies = Vec::new();
 
     for owner in selected.iter().copied() {
-        let Some(gate) = source_symbol_contribution_gate(
-            source_graph,
-            graph,
-            &module_parts,
-            owner,
-        ) else {
+        let Some(gate) = source_symbol_contribution_gate(source_graph, graph, &module_parts, owner)
+        else {
             continue;
         };
 
@@ -2028,7 +2024,10 @@ impl<'a> SemanticExporter<'a> {
     ) -> Result<InterfaceConstantTermId, PackageInterfaceExportError> {
         let value = self
             .values
-            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::NullableAbsent))
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::NullableAbsent,
+            ))
             .map_err(|_| incomplete_type())?;
 
         self.constant_value_term_id(value)

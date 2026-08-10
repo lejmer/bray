@@ -22,12 +22,16 @@ impl Compilation {
     pub fn package_interface_export_bundle(
         &self,
     ) -> Option<&Result<Arc<PackageInterfaceExportBundle>, PackageInterfaceExportError>> {
-        let request = self.state.package_interface_export.as_ref()?;
+        self.state.package_interface_export.as_ref()?;
 
         Some(self.fact(
             CompilationFactKey::PackageInterfaceExportBundle,
             &self.state.package_interface_export_bundle,
             || {
+                let request = self
+                    .package_interface_export_request()
+                    .unwrap_or_else(|| panic!("export fact requires its configured request"));
+
                 let span = self.state.fact_runtime.profile().map(|profile| {
                     profile.start(crate::profile::ProfileOperation::InterfaceExport, None)
                 });
@@ -47,7 +51,7 @@ impl Compilation {
         &self,
         request: &crate::PackageInterfaceExportRequest,
     ) -> Result<Arc<PackageInterfaceExportBundle>, PackageInterfaceExportError> {
-        if self.options().product_kind() != ProductKind::Library
+        if self.product_kind() != ProductKind::Library
             || request.identity().kind() != InterfaceProductKind::Library
             || request.identity().package() != self.package_identity()
         {
@@ -677,8 +681,7 @@ mod tests {
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
         MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
-        RuntimeDefaultTemplateReference, SymbolKey, SymbolKind, SymbolName,
-        TypeExpressionTemplate,
+        RuntimeDefaultTemplateReference, SymbolKey, SymbolKind, SymbolName, TypeExpressionTemplate,
     };
     use bray_testing::test_source_inputs;
 
@@ -1315,10 +1318,7 @@ mod tests {
         let bundle = export(&compilation);
 
         assert_eq!(
-            bundle
-                .semantic_facts()
-                .callable_parameter_defaults()
-                .len(),
+            bundle.semantic_facts().callable_parameter_defaults().len(),
             1
         );
     }

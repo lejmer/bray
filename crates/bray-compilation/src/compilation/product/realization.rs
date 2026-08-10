@@ -4,24 +4,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 use std::hash::{Hash, Hasher};
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
-use std::sync::Arc;
 
 use bray_base::StableDigestHasher;
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout, CodegenHelperMapping,
-    CodegenIndirectParameterKind, CodegenInstance, CodegenInstanceTypeMapping, CodegenLinkage,
-    CodegenMappings, CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping,
+    CodegenConstantTermMapping, CodegenDebugLocation, CodegenDefinitionVisibility,
+    CodegenFieldLayout, CodegenHelperMapping, CodegenIndirectParameterKind, CodegenInstance,
+    CodegenInstanceTypeMapping, CodegenLinkage, CodegenMappings, CodegenOperationMapping,
+    CodegenParameterMapping, CodegenPartitionCompatibility, CodegenResultMapping,
     CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
     CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
     CodegenUnit, CodegenValueAttribute, TargetAddressSpaceKind, child_constants,
     demanded_callable_instances, demanded_callable_instances_for_mir, demanded_constant_terms,
     demanded_constants, demanded_debug_sources, mapped_runtime_references,
 };
-use bray_compiler_known::{
-    CompilerKnownDeclarationKey, RecognizedStandardLibraryDeclarationKey, RepresentationRole,
-};
+use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_diagnostics::DiagnosticBag;
 use bray_ir::{
     MirAsyncOperation, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirCleanupEdge,
@@ -38,7 +36,7 @@ use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultFact, CallableParameterDefaultValue, CallableParameterSignature,
     CallableSignature, CallableSignatureFact, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection, GenericArgument, GenericSubstitutionId,
+    DeclaredLayoutMode, ForeignCallableDirection, GenericSubstitutionId,
     ImplementationCoherenceFact, ImplementationSymbolId, NamedTypeSymbolId, PackageIdentity,
     ReceiverMode, ReceiverParameterSignature, RuntimeDefaultProviderInput, SelfTypeContext,
     SemanticValueStore, StructFieldDefaultFact, StructFieldDefaultValue, StructSymbolId,
@@ -361,8 +359,8 @@ impl Compilation {
         let concrete_reference =
             self.concrete_codegen_helper_reference(owner_realization, &reference, cancellation)?;
 
-        if let Some(ty) = concrete_reference.lifecycle_type()
-            && self.has_trivial_codegen_lifecycle(ty)?
+        if concrete_reference.lifecycle_type().is_some()
+            && self.codegen_lifecycle_is_trivial(&concrete_reference, cancellation)?
         {
             return Ok(CodegenHelperMapping::lowered(reference));
         }
@@ -413,13 +411,12 @@ impl Compilation {
             MirHelperReference::AnonymousCallable(unit) => {
                 self.concrete_codegen_bound_helper(owner, unit.clone())?
             }
-            MirHelperReference::DeclaredCallable(callable) => self
-                .concrete_codegen_callable_data(
-                    owner,
-                    &callable.instance(),
-                    target,
-                    cancellation,
-                )?,
+            MirHelperReference::DeclaredCallable(callable) => self.concrete_codegen_callable_data(
+                owner,
+                &callable.instance(),
+                target,
+                cancellation,
+            )?,
             MirHelperReference::CallableDefault(provider) => {
                 let MirOperationKind::Call(call) = operation else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -453,10 +450,10 @@ impl Compilation {
             MirHelperReference::TypeForm(callable) | MirHelperReference::Conversion(callable) => {
                 self.concrete_codegen_callable_data(owner, callable, target, cancellation)?
             }
-            MirHelperReference::Finalize(ty)
-            | MirHelperReference::Destroy(ty)
-            | MirHelperReference::Cleanup { ty, .. } => {
-                if self.has_trivial_codegen_lifecycle(*ty)? {
+            MirHelperReference::Finalize(_)
+            | MirHelperReference::Destroy(_)
+            | MirHelperReference::Cleanup { .. } => {
+                if self.codegen_lifecycle_is_trivial(&concrete_reference, cancellation)? {
                     return Ok(None);
                 }
 
@@ -1641,58 +1638,6 @@ impl Compilation {
         Ok(true)
     }
 
-    fn imported_raw_buffer_element(
-        &self,
-        definition: NamedTypeSymbolId,
-        substitution: GenericSubstitutionId,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<TypeId>, CodegenFactError> {
-        let Some(key) = RecognizedStandardLibraryDeclarationKey::try_new("StandardRawBuffer")
-        else {
-            return Err(FactQueryError::InfrastructureFailure.into());
-        };
-
-        let Some(package) = PackageIdentity::try_new(
-            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
-        ) else {
-            return Err(FactQueryError::InfrastructureFailure.into());
-        };
-
-        let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
-        let Some(imported) = imported.value() else {
-            return Ok(None);
-        };
-
-        let target = self.selected_target().target();
-
-        let recognized =
-            Arc::clone(imported).recognize_standard_library(&package, |rule| target.supports(rule));
-
-        let Some(raw_buffer) = recognized.declaration_symbol::<StructSymbolId>(&key) else {
-            return Ok(None);
-        };
-
-        if definition != NamedTypeSymbolId::Struct(raw_buffer) {
-            return Ok(None);
-        }
-
-        let substitution = self
-            .semantic_value_store()?
-            .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        let [binding] = substitution.bindings() else {
-            return Err(FactQueryError::InfrastructureFailure.into());
-        };
-
-        let GenericArgument::Type(element) = binding.argument() else {
-            return Err(FactQueryError::InfrastructureFailure.into());
-        };
-
-        Ok(Some(element))
-    }
-
     fn push_lifecycle_operation(
         &self,
         builder: &mut MirUnitBuilder,
@@ -1968,44 +1913,6 @@ impl Compilation {
             .collect())
     }
 
-    fn has_trivial_codegen_lifecycle(&self, ty: TypeId) -> Result<bool, FactQueryError> {
-        let values = self.semantic_value_store()?;
-
-        let data = values
-            .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        let trivial = match data.as_ref() {
-            TypeData::Named { definition, .. } => {
-                super::super::foreign::compiler_known_representation(self, *definition).is_some_and(
-                    |role| {
-                        matches!(
-                            role,
-                            RepresentationRole::Unit
-                                | RepresentationRole::Never
-                                | RepresentationRole::RawPointer
-                                | RepresentationRole::Future
-                        ) || super::super::representation::target_scalar(role).is_some()
-                    },
-                )
-            }
-            TypeData::Borrow { .. } | TypeData::Callable(_) => true,
-            TypeData::Error
-            | TypeData::TypeParameter(_)
-            | TypeData::ContextualSelf(_)
-            | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::Tuple(_)
-            | TypeData::Array { .. }
-            | TypeData::Slice(_)
-            | TypeData::OwnedIndirection { .. }
-            | TypeData::Generator(_)
-            | TypeData::Nullable(_)
-            | TypeData::TraitView(_) => false,
-        };
-
-        Ok(trivial)
-    }
-
     fn codegen_symbols(
         &self,
         unit: &CodegenUnit,
@@ -2041,26 +1948,11 @@ impl Compilation {
                         .instance(instance.key())
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let boundary = self.codegen_native_boundary(instance.key(), cancellation)?;
-
-                    let linkage = boundary
-                        .as_ref()
-                        .map(|(_, linkage)| *linkage)
-                        .unwrap_or_else(|| {
-                            if roots.contains(instance.key()) {
-                                CodegenLinkage::Export
-                            } else if matches!(
-                                instance.key().template(),
-                                MirUnitKey::ImportedExecutable(_)
-                            ) {
-                                CodegenLinkage::LinkOnce
-                            } else {
-                                CodegenLinkage::Internal
-                            }
-                        });
+                    let (boundary, linkage) =
+                        self.codegen_instance_boundary(instance, roots, cancellation)?;
 
                     let name = match boundary {
-                        Some((name, _)) => name,
+                        Some(name) => name,
                         None => self.generated_callable_symbol_name(
                             target,
                             linkage,
@@ -2172,6 +2064,99 @@ impl Compilation {
         }
 
         Ok(symbols)
+    }
+
+    pub(super) fn codegen_partition_compatibility(
+        &self,
+        instance: &CodegenInstance,
+        product_package: &PackageIdentity,
+        roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+        cancellation: &CancellationToken,
+    ) -> Result<CodegenPartitionCompatibility, CodegenFactError> {
+        let package =
+            self.codegen_instance_package(instance.key(), product_package, cancellation)?;
+
+        let (_, linkage) = self.codegen_instance_boundary(instance, roots, cancellation)?;
+
+        let visibility = match linkage {
+            CodegenLinkage::Private => CodegenDefinitionVisibility::Unit,
+            CodegenLinkage::Internal | CodegenLinkage::LinkOnce | CodegenLinkage::Common => {
+                CodegenDefinitionVisibility::Product
+            }
+            CodegenLinkage::External
+            | CodegenLinkage::Weak
+            | CodegenLinkage::Import
+            | CodegenLinkage::Export => CodegenDefinitionVisibility::Public,
+        };
+
+        Ok(CodegenPartitionCompatibility::new(
+            package, linkage, visibility,
+        ))
+    }
+
+    fn codegen_instance_boundary(
+        &self,
+        instance: &CodegenInstance,
+        roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+        cancellation: &CancellationToken,
+    ) -> Result<(Option<BinarySymbolName>, CodegenLinkage), CodegenFactError> {
+        match instance.mir().kind() {
+            MirUnitKind::ExecutableHost(_) => Ok((None, CodegenLinkage::Export)),
+            MirUnitKind::GeneratedLifecycle(_) => Ok((None, CodegenLinkage::Internal)),
+            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
+                let boundary = self.codegen_native_boundary(instance.key(), cancellation)?;
+
+                if let Some((name, linkage)) = boundary {
+                    return Ok((Some(name), linkage));
+                }
+
+                let linkage = if roots.contains(instance.key()) {
+                    CodegenLinkage::Export
+                } else if matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)) {
+                    CodegenLinkage::LinkOnce
+                } else {
+                    CodegenLinkage::Internal
+                };
+
+                Ok((None, linkage))
+            }
+        }
+    }
+
+    fn codegen_instance_package(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+        product_package: &PackageIdentity,
+        cancellation: &CancellationToken,
+    ) -> Result<PackageIdentity, CodegenFactError> {
+        let symbol = match instance.template() {
+            // Compatibility metadata owns package identity beyond the semantic-key borrow.
+            MirUnitKey::Bound(key) => {
+                return Ok(key
+                    .declared_owner()
+                    .package_identity()
+                    .unwrap_or(product_package)
+                    .clone());
+            }
+            // Compatibility metadata owns package identity beyond the product-key borrow.
+            MirUnitKey::ExecutableHost(product) => return Ok(product.package().clone()),
+            // Generated lifecycle definitions belong to the selected product package.
+            MirUnitKey::GeneratedLifecycle(_) => return Ok(product_package.clone()),
+            MirUnitKey::ExternalCallable(definition) => definition.symbol(),
+            MirUnitKey::ImportedExecutable(symbol) | MirUnitKey::ExternalRuntimeDefault(symbol) => {
+                *symbol
+            }
+        };
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let key = facts
+            .symbol_key(symbol)
+            .map_err(super::super::binder::binder_fact_error)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        // Compatibility metadata owns package identity beyond the binder-facts borrow.
+        Ok(key.package_identity().unwrap_or(product_package).clone())
     }
 
     fn codegen_native_boundary(
@@ -3463,7 +3448,7 @@ impl Compilation {
         ))
     }
 
-    fn resolve_codegen_type(
+    pub(super) fn resolve_codegen_type(
         &self,
         template: &bray_symbols::TypeExpressionTemplate,
         substitution: GenericSubstitutionId,
@@ -4231,7 +4216,7 @@ fn signature_types(signature: &CodegenCallableSignature) -> impl Iterator<Item =
         })
 }
 
-fn closed_array_length(
+pub(super) fn closed_array_length(
     values: &bray_symbols::SemanticValueStore,
     term_id: bray_symbols::ConstantTermId,
 ) -> Result<u64, CodegenFactError> {
@@ -4605,13 +4590,11 @@ fn indirect_parameter_kind(
     target: &CodegenTarget,
 ) -> CodegenIndirectParameterKind {
     if abi != CallableAbi::Bray
-        && (
-            target.profile().machine().architecture() == bray_target::TargetArchitecture::Aarch64
-                || matches!(
-                    bray_target::NativeTarget::for_profile(target.profile()),
-                    Some(bray_target::NativeTarget::X86_64WindowsMsvc)
-                )
-        )
+        && (target.profile().machine().architecture() == bray_target::TargetArchitecture::Aarch64
+            || matches!(
+                bray_target::NativeTarget::for_profile(target.profile()),
+                Some(bray_target::NativeTarget::X86_64WindowsMsvc)
+            ))
     {
         return CodegenIndirectParameterKind::Reference;
     }
@@ -5455,7 +5438,7 @@ mod tests {
     }
 
     #[test]
-    fn generator_destruction_reaches_element_lifecycle_and_releases_storage() {
+    fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage() {
         let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
 
@@ -5524,17 +5507,14 @@ mod tests {
             )
             .expect("element lifecycle dependencies must realize");
 
-        assert_eq!(dependencies.len(), 2);
+        let [dependency] = dependencies.as_slice() else {
+            panic!("only nontrivial element lifecycle dependencies must remain");
+        };
 
-        assert!(dependencies.iter().any(|dependency| {
-            dependency.generated_lifecycle_reference()
-                == Some(&MirHelperReference::Finalize(element))
-        }));
-
-        assert!(dependencies.iter().any(|dependency| {
-            dependency.generated_lifecycle_reference()
-                == Some(&MirHelperReference::Destroy(element))
-        }));
+        assert_eq!(
+            dependency.generated_lifecycle_reference(),
+            Some(&MirHelperReference::Destroy(element))
+        );
     }
 
     #[test]

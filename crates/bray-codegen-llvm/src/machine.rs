@@ -18,6 +18,7 @@ use inkwell::types::BasicTypeEnum;
 use target_lexicon::{Architecture, BinaryFormat, Endianness, Triple};
 
 use crate::initialization;
+use crate::session::LlvmBackendSession;
 
 pub(crate) struct LlvmTargetMachine {
     machine: TargetMachine,
@@ -25,28 +26,22 @@ pub(crate) struct LlvmTargetMachine {
 }
 
 impl LlvmTargetMachine {
+    #[cfg(test)]
     pub(crate) fn create(target: &CodegenTarget) -> Result<Self, CodegenFailure> {
-        Self::create_for_codegen(target, BrayOptimizationLevel::None)
+        let session = LlvmBackendSession::try_new(target, BrayOptimizationLevel::None)?;
+
+        Self::create_for_session(&session)
     }
 
-    pub(crate) fn create_for_codegen(
-        target: &CodegenTarget,
-        optimization: BrayOptimizationLevel,
-    ) -> Result<Self, CodegenFailure> {
+    pub(crate) fn create_for_session(session: &LlvmBackendSession) -> Result<Self, CodegenFailure> {
         initialization::initialize();
 
-        validate_triple(target)?;
+        let target = session.target();
 
         let triple = TargetTriple::create(target.triple());
 
         let llvm_target =
             Target::from_triple(&triple).map_err(|_| CodegenFailure::UnsupportedTarget)?;
-
-        let features = target
-            .features()
-            .map(|feature| format!("+{feature}"))
-            .collect::<Vec<_>>()
-            .join(",");
 
         let relocation = relocation_model(target.relocation_model());
         let code_model = code_model(target.code_model())?;
@@ -54,8 +49,8 @@ impl LlvmTargetMachine {
         let Some(machine) = llvm_target.create_target_machine(
             &triple,
             target.cpu(),
-            &features,
-            llvm_optimization_level(optimization),
+            session.features(),
+            llvm_optimization_level(session.optimization()),
             relocation,
             code_model,
         ) else {
@@ -132,7 +127,7 @@ const fn llvm_optimization_level(level: BrayOptimizationLevel) -> OptimizationLe
     }
 }
 
-fn validate_triple(target: &CodegenTarget) -> Result<(), CodegenFailure> {
+pub(crate) fn validate_target_configuration(target: &CodegenTarget) -> Result<(), CodegenFailure> {
     let triple: Triple = target
         .triple()
         .parse()

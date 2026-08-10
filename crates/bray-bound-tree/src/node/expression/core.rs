@@ -14,7 +14,7 @@ use super::{
 };
 
 /// A checked expression retaining its exact semantic category.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BoundExpression {
     /// A source-shaped block used as an expression.
     Block(BoundBlockExpression),
@@ -285,7 +285,7 @@ impl BoundExpression {
 }
 
 /// A source-shaped block expression and its checked result type.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundBlockExpression {
     origin: BoundNodeOrigin,
     block: BoundBlockId,
@@ -331,7 +331,7 @@ impl BoundBlockExpression {
 }
 
 /// An expression preserved after semantic recovery.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BoundErrorExpression {
     origin: BoundNodeOrigin,
     ty: TypeId,

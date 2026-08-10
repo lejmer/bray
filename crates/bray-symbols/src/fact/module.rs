@@ -44,7 +44,7 @@ impl ModuleUsing {
 }
 
 /// One validated lookup edge introduced by an export declaration.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ModuleReExport {
     declaration: DeclarationId,
     name: SymbolName,
@@ -90,7 +90,7 @@ impl ModuleReExport {
 }
 
 /// Immutable using relationships and re-export lookup edges for one module.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ModuleSurface {
     usings: Box<[ModuleUsing]>,
     re_exports: Box<[ModuleReExport]>,

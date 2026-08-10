@@ -1,8 +1,8 @@
+use crate::fact::CompilationFactKey;
 use bray_profile::{
     CompilationProfileCategory, CompilationProfileMode, CompilationProfileOutcome,
     CompilationProfileSubjectKind, CompilationProfileUnit,
 };
-use crate::fact::CompilationFactKey;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -16,10 +16,14 @@ pub(crate) enum ProfileOperation {
     Linking,
     Emission,
     InterfaceExport,
+    EmissionCodeGeneration,
+    LinkInputStaging,
+    EmissionLinking,
+    ArtifactPublication,
 }
 
 impl ProfileOperation {
-    pub(crate) const COUNT: usize = 9;
+    pub(crate) const COUNT: usize = 13;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -36,6 +40,10 @@ impl ProfileOperation {
             Self::Linking => "compiler.link",
             Self::Emission => "compiler.emit",
             Self::InterfaceExport => "compiler.interface.export",
+            Self::EmissionCodeGeneration => "compiler.emit.codegen",
+            Self::LinkInputStaging => "compiler.emit.stage",
+            Self::EmissionLinking => "compiler.emit.link",
+            Self::ArtifactPublication => "compiler.emit.publish",
         }
     }
 
@@ -50,6 +58,10 @@ impl ProfileOperation {
             Self::Linking => 7,
             Self::Emission => 8,
             Self::InterfaceExport => 9,
+            Self::EmissionCodeGeneration => 10,
+            Self::LinkInputStaging => 11,
+            Self::EmissionLinking => 12,
+            Self::ArtifactPublication => 13,
         }
     }
 
@@ -62,7 +74,11 @@ impl ProfileOperation {
             | Self::Lowering
             | Self::CodeGeneration
             | Self::Emission
-            | Self::InterfaceExport => CompilationProfileCategory::Work,
+            | Self::InterfaceExport
+            | Self::EmissionCodeGeneration
+            | Self::LinkInputStaging
+            | Self::EmissionLinking
+            | Self::ArtifactPublication => CompilationProfileCategory::Work,
         }
     }
 
@@ -83,8 +99,13 @@ impl ProfileOperation {
             Self::SchedulerQueue => &[Compilation],
             Self::Lowering => &[SemanticUnit],
             Self::CodeGeneration => &[CodegenUnit],
-            Self::Linking | Self::InterfaceExport => &[Product],
-            Self::Emission => &[Product, Artifact],
+            Self::Linking
+            | Self::InterfaceExport
+            | Self::EmissionCodeGeneration
+            | Self::EmissionLinking => &[Product],
+            Self::Emission | Self::LinkInputStaging | Self::ArtifactPublication => {
+                &[Product, Artifact]
+            }
         }
     }
 
@@ -99,6 +120,10 @@ impl ProfileOperation {
             Self::Linking,
             Self::Emission,
             Self::InterfaceExport,
+            Self::EmissionCodeGeneration,
+            Self::LinkInputStaging,
+            Self::EmissionLinking,
+            Self::ArtifactPublication,
         ]
     }
 }
@@ -142,21 +167,16 @@ impl ProfileMetricKind {
             Self::MirUnits => ("compiler.mir.units", CompilationProfileUnit::Count),
             Self::MirBlocks => ("compiler.mir.blocks", CompilationProfileUnit::Count),
             Self::MirOperations => ("compiler.mir.operations", CompilationProfileUnit::Count),
-            Self::ConcreteInstances => (
-                "compiler.codegen.instances",
-                CompilationProfileUnit::Count,
-            ),
+            Self::ConcreteInstances => {
+                ("compiler.codegen.instances", CompilationProfileUnit::Count)
+            }
             Self::CodegenUnits => ("compiler.codegen.units", CompilationProfileUnit::Count),
-            Self::InterfaceSections => (
-                "compiler.interface.sections",
-                CompilationProfileUnit::Count,
-            ),
+            Self::InterfaceSections => {
+                ("compiler.interface.sections", CompilationProfileUnit::Count)
+            }
             Self::InterfaceBytes => ("compiler.interface.bytes", CompilationProfileUnit::Bytes),
             Self::LinkInputs => ("compiler.link.inputs", CompilationProfileUnit::Count),
-            Self::EmittedArtifacts => (
-                "compiler.emitted.artifacts",
-                CompilationProfileUnit::Count,
-            ),
+            Self::EmittedArtifacts => ("compiler.emitted.artifacts", CompilationProfileUnit::Count),
             Self::EmittedBytes => ("compiler.emitted.bytes", CompilationProfileUnit::Bytes),
         }
     }
@@ -263,7 +283,6 @@ define_profile_query_kinds! {
     ModuleContributionGate = 1002 => "module_contribution_gate",
     CallableTypeDirectives = 1003 => "callable_type_directives",
     CompilerKnownSymbols = 1004 => "compiler_known_symbols",
-    BoundUnitIdentities = 1005 => "bound_unit_identities",
     BoundUnit = 1006 => "bound_unit",
     CheckDiagnostics = 1007 => "check_diagnostics",
     ConstantTemplateKeys = 1008 => "constant_template_keys",
@@ -323,7 +342,6 @@ define_profile_query_kinds! {
     TypeAssociatedImplementationIndex = 1062 => "type_associated_implementation_index",
     ImportedSymbolSkeleton = 1063 => "imported_symbol_skeleton",
     PackageInterfaceExportBundle = 1064 => "package_interface_export_bundle",
-    SemanticValueStore = 1065 => "semantic_value_store",
     SemanticDiagnostics = 1066 => "semantic_diagnostics",
     SourceUnitSyntax = 1067 => "source_unit_syntax",
     SourceReferenceIndex = 1068 => "source_reference_index",
@@ -348,7 +366,6 @@ impl ProfileQueryKind {
             CompilationFactKey::ModuleContributionGate(_) => Self::ModuleContributionGate,
             CompilationFactKey::CallableTypeDirectives(_) => Self::CallableTypeDirectives,
             CompilationFactKey::CompilerKnownSymbols => Self::CompilerKnownSymbols,
-            CompilationFactKey::BoundUnitIdentities => Self::BoundUnitIdentities,
             CompilationFactKey::BoundUnit(_) => Self::BoundUnit,
             CompilationFactKey::CheckDiagnostics => Self::CheckDiagnostics,
             CompilationFactKey::ConstantTemplateKeys => Self::ConstantTemplateKeys,
@@ -376,7 +393,9 @@ impl ProfileQueryKind {
             CompilationFactKey::NativeProduct(_) => Self::NativeProduct,
             CompilationFactKey::DeclaredValueTypeTemplates(_) => Self::DeclaredValueTypeTemplates,
             CompilationFactKey::ExpressionSemantics(_) => Self::ExpressionSemantics,
-            CompilationFactKey::ProvisionalExpressionSemantics(_) => Self::ProvisionalExpressionSemantics,
+            CompilationFactKey::ProvisionalExpressionSemantics(_) => {
+                Self::ProvisionalExpressionSemantics
+            }
             CompilationFactKey::SymbolicConstantTerm(_) => Self::SymbolicConstantTerm,
             CompilationFactKey::DeclarationChunk(_) => Self::DeclarationChunk,
             CompilationFactKey::DeclarationTable => Self::DeclarationTable,
@@ -389,14 +408,20 @@ impl ProfileQueryKind {
             CompilationFactKey::ImportedDiagnostics => Self::ImportedDiagnostics,
             CompilationFactKey::ImplementationHeaderIndex => Self::ImplementationHeaderIndex,
             CompilationFactKey::ImplementationCandidateSet(_) => Self::ImplementationCandidateSet,
-            CompilationFactKey::TraitImplementationConformance(_) => Self::TraitImplementationConformance,
-            CompilationFactKey::GenericConstraintSatisfaction(_) => Self::GenericConstraintSatisfaction,
+            CompilationFactKey::TraitImplementationConformance(_) => {
+                Self::TraitImplementationConformance
+            }
+            CompilationFactKey::GenericConstraintSatisfaction(_) => {
+                Self::GenericConstraintSatisfaction
+            }
             CompilationFactKey::ImplementationSelection(_) => Self::ImplementationSelection,
             CompilationFactKey::IterationSource(_) => Self::IterationSource,
             CompilationFactKey::OperationSelection(_) => Self::OperationSelection,
             CompilationFactKey::ImportedSemanticGraph(_) => Self::ImportedSemanticGraph,
             CompilationFactKey::ImportedSemanticFact(_) => Self::ImportedSemanticFact,
-            CompilationFactKey::ImportedConstantCallableBody(_) => Self::ImportedConstantCallableBody,
+            CompilationFactKey::ImportedConstantCallableBody(_) => {
+                Self::ImportedConstantCallableBody
+            }
             CompilationFactKey::ImportedExecutableTemplate(_) => Self::ImportedExecutableTemplate,
             CompilationFactKey::ImplementationParticipation(_) => Self::ImplementationParticipation,
             CompilationFactKey::ImplementationCoherence => Self::ImplementationCoherence,
@@ -405,10 +430,11 @@ impl ProfileQueryKind {
             CompilationFactKey::ForeignCallableValidation => Self::ForeignCallableValidation,
             CompilationFactKey::TypeAssociatedSurface(_) => Self::TypeAssociatedSurface,
             CompilationFactKey::DeclaredTypeRepresentation(_) => Self::DeclaredTypeRepresentation,
-            CompilationFactKey::TypeAssociatedImplementationIndex => Self::TypeAssociatedImplementationIndex,
+            CompilationFactKey::TypeAssociatedImplementationIndex => {
+                Self::TypeAssociatedImplementationIndex
+            }
             CompilationFactKey::ImportedSymbolSkeleton => Self::ImportedSymbolSkeleton,
             CompilationFactKey::PackageInterfaceExportBundle => Self::PackageInterfaceExportBundle,
-            CompilationFactKey::SemanticValueStore => Self::SemanticValueStore,
             CompilationFactKey::SemanticDiagnostics => Self::SemanticDiagnostics,
             CompilationFactKey::SourceUnitSyntax(_) => Self::SourceUnitSyntax,
             CompilationFactKey::SourceReferenceIndex(_) => Self::SourceReferenceIndex,
@@ -439,22 +465,27 @@ mod tests {
     fn descriptor_ids_are_schema_locked() {
         assert_eq!(
             ProfileOperation::all().map(ProfileOperation::id),
-            [1, 2, 3, 4, 5, 6, 7, 8, 9]
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
         );
 
         assert_eq!(
             ProfileMetricKind::all().map(ProfileMetricKind::id),
             [
-                2_000, 2_001, 2_002, 2_003, 2_004, 2_005, 2_006, 2_007, 2_008, 2_009,
-                2_010, 2_011, 2_012, 2_013, 2_014, 2_015,
+                2_000, 2_001, 2_002, 2_003, 2_004, 2_005, 2_006, 2_007, 2_008, 2_009, 2_010, 2_011,
+                2_012, 2_013, 2_014, 2_015,
             ]
         );
 
         assert_eq!(
             ProfileQueryKind::all().map(ProfileQueryKind::id),
-            std::array::from_fn(|index| {
-                1_000 + u16::try_from(index).unwrap_or(u16::MAX)
-            })
+            [
+                1_000, 1_001, 1_002, 1_003, 1_004, 1_006, 1_007, 1_008, 1_009, 1_010, 1_011, 1_012,
+                1_013, 1_014, 1_015, 1_016, 1_017, 1_018, 1_019, 1_020, 1_021, 1_022, 1_023, 1_024,
+                1_025, 1_026, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035, 1_036,
+                1_037, 1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048,
+                1_049, 1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060,
+                1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071,
+            ]
         );
     }
 }

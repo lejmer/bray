@@ -153,7 +153,7 @@ pub enum ImplementationParticipationSetError {
 }
 
 /// The canonical implementations participating in one coherence domain.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ImplementationParticipationSet {
     domain: ImplementationCoherenceDomainKey,
     implementations: Arc<[ParticipatingImplementation]>,
