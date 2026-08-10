@@ -1,0 +1,16 @@
+[package]
+name = "bray-platform-abi-temporal"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[lib]
+test = false
+
+[dependencies]
+bray-platform-abi-support = { path = "../bray-platform-abi-support" }
+bray-runtime-interface = { path = "../bray-runtime-interface" }
+
+[lints]
+workspace = true

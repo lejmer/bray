@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use bray_platform::{MonotonicClock, WallClock};
+use bray_platform_abi_support::native_platform_export;
 use bray_runtime_interface::NativePlatformStatus;
 
 use super::region::{MemoryRegion, disjoint};

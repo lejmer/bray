@@ -89,7 +89,14 @@ Compiler libraries and installed Bray tools.
       tooling and trusted runtime or standard-library layers.
 
 - `bray-platform-abi`
-    - Native adapters that implement the platform-service ABI over `bray-platform` without requiring the concurrency runtime.
+    - Native adapters and the final static archive that implement the platform-service ABI over `bray-platform` without requiring
+      the concurrency runtime.
+
+- `bray-platform-abi-support`
+    - Dependency-free native export declarations and raw-memory validation shared by platform ABI components.
+
+- `bray-platform-abi-temporal`
+    - Temporal platform ABI exports kept link-isolated from unrelated platform mechanisms and backed by the pinned native provider.
 
 - `bray-runtime`
     - Target-independent protected-frame execution, task storage, scheduling, cancellation, observation, and executable-root

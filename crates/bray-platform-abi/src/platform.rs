@@ -5,6 +5,7 @@ use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread::ThreadId;
 
 use bray_platform::{RunOutputStream, flush_current_run_output, write_current_run_output};
+use bray_platform_abi_support::native_platform_export;
 use bray_runtime_interface::{NativePlatformStatus, NativePlatformText};
 
 use super::filesystem::{close_file, flush_file, is_file_handle, read_file, seek_file, write_file};

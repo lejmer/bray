@@ -1,4 +1,25 @@
 {
+  "provider": {
+    "source_files_sha256": "8c490d6c85b19a386550ba085ad14f7788aa2e874281bb52e6114ec8f955ec23",
+    "shared_sources": [
+      "include/bray_temporal.h",
+      "src/provider.h"
+    ],
+    "capability_partitions": [
+      {
+        "capability": "civil_date",
+        "translation_unit": "src/civil.cpp"
+      },
+      {
+        "capability": "parse_format",
+        "translation_unit": "src/text.cpp"
+      },
+      {
+        "capability": "named_timezone",
+        "translation_unit": "src/timezone.cpp"
+      }
+    ]
+  },
   "date": {
     "version": "3.0.4",
     "commit": "f94b8f36c6180be0021876c4a397a054fe50c6f2",
