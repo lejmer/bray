@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod artifact;
+mod generation;
 mod link;
 mod outcome;
 mod plan;
@@ -21,6 +22,7 @@ pub use artifact::{
 };
 pub use bray_runtime_interface::ExecutableHostContract;
 pub use bray_symbols::{ProductIdentity, ProductKind};
+pub use generation::{ProductGenerationIdentity, PublishedProductGeneration};
 pub use link::{
     LinkOutputStaging, LinkOutputStagingBuildError, LinkPlanConstructionError, LinkStaging,
     LinkStagingError, ProductLinkFacts, StagedArtifact, StagedArtifactBuildError,
@@ -36,6 +38,6 @@ pub use request::{
     EmissionRequest, EmissionRequestBuildError, RequestedArtifact, RequestedArtifactDestination,
 };
 pub use sink::{
-    IndirectOutputSink, OutputSink, OutputSinkId, OutputSinkResolver, OutputSinkTransaction,
-    ReplacementPolicy,
+    IndirectOutputSink, ManagedArtifactPath, OutputSink, OutputSinkId, OutputSinkResolver,
+    OutputSinkTransaction, ReplacementPolicy,
 };

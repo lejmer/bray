@@ -16,8 +16,8 @@ use super::{EmissionPlanner, EmissionPlanningError};
 use crate::sink::is_valid_host_file_name;
 use crate::{
     ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole,
-    DependencyMetadataProducerId, EmissionRequest, LinkerProducerId, OutputSink, RequestedArtifact,
-    RequestedArtifactDestination,
+    DependencyMetadataProducerId, EmissionRequest, LinkerProducerId, ManagedArtifactPath,
+    OutputSink, RequestedArtifact, RequestedArtifactDestination,
 };
 
 pub(super) struct PlanBuilder<'planner> {
@@ -116,15 +116,20 @@ impl<'planner> PlanBuilder<'planner> {
             let backend_id = BackendArtifactId::new(unit.clone(), backend_kind, 0);
             let id = self.next_artifact_id(requested.kind())?;
 
-            let destination =
-                self.published_destination(&id, include_unit_ordinal.then_some(unit_ordinal))?;
+            let role = published_backend_role(requested.kind());
+
+            let destination = self.published_destination(
+                &id,
+                include_unit_ordinal.then_some(unit_ordinal),
+                role,
+            )?;
 
             self.record_backend_entry(unit, backend_kind, requested.requirement());
 
             self.artifacts.push(PlannedArtifact::new(
                 id,
                 requested.requirement(),
-                published_backend_role(requested.kind()),
+                role,
                 ArtifactProducer::Backend {
                     artifact: backend_id,
                     // Each planned producer retains the selected Arc-backed backend identity.
@@ -142,8 +147,8 @@ impl<'planner> PlanBuilder<'planner> {
         requested: RequestedArtifact,
     ) -> Result<(), EmissionPlanningError> {
         let id = self.next_artifact_id(requested.kind())?;
-        let destination = self.published_destination(&id, None)?;
         let role = compiler_artifact_role(requested.kind());
+        let destination = self.published_destination(&id, None, role)?;
         let producer = self.compiler_artifact_producer(requested.kind());
 
         self.artifacts.push(PlannedArtifact::new(
@@ -225,15 +230,27 @@ impl<'planner> PlanBuilder<'planner> {
         &self,
         id: &ArtifactId,
         unit_ordinal: Option<u32>,
+        role: ArtifactRole,
     ) -> Result<PlannedArtifactDestination, EmissionPlanningError> {
         let sink = match self.request.destination() {
             RequestedArtifactDestination::FilesystemDirectory(directory) => {
                 let stem = output_stem(self.request.product().name(), unit_ordinal);
                 let name = self.output_name(id.kind(), &stem)?;
 
-                OutputSink::Filesystem(directory.join(name))
+                let artifact = ManagedArtifactPath::try_new(format!("artifacts/{name}"))
+                    .ok_or(EmissionPlanningError::InvalidGeneratedFileName(id.kind()))?;
+
+                OutputSink::ManagedFilesystem {
+                    // The plan owns the managed product root independently of the request.
+                    root: directory.clone(),
+                    artifact,
+                }
             }
             RequestedArtifactDestination::FilesystemFile(path) => {
+                if role != ArtifactRole::Inspection {
+                    return Err(EmissionPlanningError::ManagedProductDestinationRequired);
+                }
+
                 self.validate_explicit_file_name(id.kind(), path)?;
 
                 // The plan owns the final host-supplied path independently of the request.
@@ -443,6 +460,9 @@ fn map_plan_error(error: EmissionPlanBuildError) -> EmissionPlanningError {
         | EmissionPlanBuildError::ForeignProduct(_)
         | EmissionPlanBuildError::DuplicateArtifact(_)
         | EmissionPlanBuildError::MemoryArtifactIdentityMismatch(_)
+        | EmissionPlanBuildError::IndependentProductFilesystemSink(_)
+        | EmissionPlanBuildError::MultipleManagedRoots
+        | EmissionPlanBuildError::MixedPublicationModes
         | EmissionPlanBuildError::MissingRequestedArtifact(_)
         | EmissionPlanBuildError::UnrequestedPublishedArtifact(_)
         | EmissionPlanBuildError::RequirementMismatch(_)
@@ -481,8 +501,9 @@ mod tests {
         interface_artifact, output_name, target_output_description, target_output_description_from,
     };
     use crate::{
-        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, OutputSink,
-        PlannedArtifactDestination, ProductKind, RequestedArtifact, RequestedArtifactDestination,
+        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend,
+        ManagedArtifactPath, OutputSink, PlannedArtifactDestination, ProductKind,
+        RequestedArtifact, RequestedArtifactDestination,
     };
 
     #[test]
@@ -556,9 +577,14 @@ mod tests {
         let published_paths = first_plan
             .published_artifacts()
             .map(|artifact| match artifact.destination() {
-                PlannedArtifactDestination::Publish(OutputSink::Filesystem(path)) => path.as_path(),
+                PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
+                    root,
+                    artifact,
+                }) => root.join(artifact.to_path_buf()),
                 PlannedArtifactDestination::Publish(
-                    OutputSink::Memory { .. } | OutputSink::Stream(_),
+                    OutputSink::Filesystem(_)
+                    | OutputSink::Memory { .. }
+                    | OutputSink::Stream(_),
                 )
                 | PlannedArtifactDestination::Stage => {
                     panic!("test artifacts must publish to filesystem paths")
@@ -569,9 +595,9 @@ mod tests {
         assert_eq!(
             published_paths,
             [
-                Path::new("out/application.0.s"),
-                Path::new("out/application.1.s"),
-                Path::new("out/application"),
+                Path::new("out/artifacts/application.0.s"),
+                Path::new("out/artifacts/application.1.s"),
+                Path::new("out/artifacts/application"),
             ]
         );
 
@@ -610,9 +636,11 @@ mod tests {
 
         assert_eq!(
             artifact.destination(),
-            &PlannedArtifactDestination::Publish(OutputSink::Filesystem(
-                "out/application.brayi".into()
-            ))
+            &PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
+                root: "out".into(),
+                artifact: ManagedArtifactPath::try_new("artifacts/application.brayi")
+                    .unwrap_or_else(|| panic!("test managed artifact path must be valid")),
+            })
         );
     }
 
@@ -974,7 +1002,11 @@ mod tests {
         assert_eq!(
             collision_planner.plan(collision_request),
             Err(EmissionPlanningError::OutputCollision(
-                OutputSink::Filesystem("out/application.out".into())
+                OutputSink::ManagedFilesystem {
+                    root: "out".into(),
+                    artifact: ManagedArtifactPath::try_new("artifacts/application.out")
+                        .unwrap_or_else(|| panic!("test managed path must be valid")),
+                }
             ))
         );
 
@@ -1073,7 +1105,11 @@ mod tests {
         assert_eq!(
             collision_planner.plan(collision_request),
             Err(EmissionPlanningError::OutputCollision(
-                OutputSink::Filesystem("out/application.OUT".into())
+                OutputSink::ManagedFilesystem {
+                    root: "out".into(),
+                    artifact: ManagedArtifactPath::try_new("artifacts/application.OUT")
+                        .unwrap_or_else(|| panic!("test managed path must be valid")),
+                }
             ))
         );
     }

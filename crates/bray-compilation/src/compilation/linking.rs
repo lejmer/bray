@@ -224,9 +224,8 @@ mod tests {
             .parent()
             .unwrap_or_else(|| panic!("test input must have a containing directory"));
 
-        let final_path = directory.join("application");
         let staging_path = directory.join("application.stage");
-        let emission = executable_emission_plan(&final_path);
+        let emission = executable_emission_plan(directory);
         let link = executable_plan_for(input.path(), &staging_path);
         let driver = Arc::new(RecordingDriver::publishing(b"linked executable"));
         let linker = linker(Arc::clone(&driver) as Arc<dyn LinkerDriver>);
@@ -242,8 +241,18 @@ mod tests {
             outcome.diagnostics()
         );
 
+        let generation = outcome
+            .generation()
+            .unwrap_or_else(|| panic!("linked emission must publish a managed generation"));
+
+        let artifact = &outcome.artifacts().artifacts()[0];
+
+        let published_path = generation
+            .artifact_path(artifact.id())
+            .unwrap_or_else(|| panic!("linked artifact path must resolve"));
+
         assert_eq!(
-            std::fs::read(&final_path)
+            std::fs::read(&published_path)
                 .unwrap_or_else(|error| panic!("published test artifact must be read: {error}")),
             b"linked executable"
         );
@@ -252,8 +261,6 @@ mod tests {
         assert!(!staging_path.exists());
         assert_eq!(driver.plans(), vec![link]);
 
-        std::fs::remove_file(&final_path)
-            .unwrap_or_else(|error| panic!("published test artifact must be removed: {error}"));
     }
 
     #[test]
@@ -663,7 +670,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test executable plan must be valid: {error:?}"))
     }
 
-    fn executable_emission_plan(final_path: &Path) -> EmissionPlan {
+    fn executable_emission_plan(root: &Path) -> EmissionPlan {
         let backend = BackendIdentity::try_new("llvm", "bray-1", "llvm-22")
             .unwrap_or_else(|| panic!("test backend identity must be valid"));
 
@@ -696,7 +703,7 @@ mod tests {
             ProductKind::Executable,
             Some(synchronous_host()),
             target.identity().clone(),
-            RequestedArtifactDestination::FilesystemFile(final_path.to_owned()),
+            RequestedArtifactDestination::FilesystemDirectory(root.to_owned()),
             [RequestedArtifact::new(
                 ArtifactKind::Executable,
                 ArtifactRequirement::Required,

@@ -7,6 +7,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_linker::{LinkOutcome, LinkPlan, LinkStatus};
 
 use super::diagnostic::{PublicationDiagnostics, PublicationError, PublicationErrorKind};
+use super::generation::publish_managed_generation;
 use super::link::{
     LinkStagingCleanup, LinkedPreparationError, PreparedLinkedArtifact, prepare_linked_artifacts,
 };
@@ -180,6 +181,27 @@ impl<'host> ArtifactPublisher<'host> {
         prepared: Vec<PreparedArtifact<'_, '_>>,
         mut diagnostics: PublicationDiagnostics,
     ) -> EmissionOutcome {
+        if prepared.iter().any(PreparedArtifact::is_managed) {
+            return match publish_managed_generation(
+                plan,
+                prepared,
+                plan.request().replacement(),
+                self.cancellation,
+            ) {
+                Ok(publication) => EmissionOutcome::complete(
+                    publication.artifacts,
+                    Some(publication.generation),
+                    diagnostics.into_bag(),
+                ),
+                Err(ArtifactPublicationFailure::Cancelled) => {
+                    diagnostics.cancelled(publication_set(plan, []))
+                }
+                Err(ArtifactPublicationFailure::Failed(_, error)) => {
+                    diagnostics.failed(publication_set(plan, []), error)
+                }
+            };
+        }
+
         let mut emitted = Vec::with_capacity(prepared.len());
 
         for artifact in prepared {
@@ -204,7 +226,7 @@ impl<'host> ArtifactPublisher<'host> {
         let diagnostics = diagnostics.into_bag();
         let artifacts = publication_set(plan, emitted);
 
-        EmissionOutcome::complete(artifacts, diagnostics)
+        EmissionOutcome::complete(artifacts, None, diagnostics)
     }
 
     fn publish_artifact(
@@ -222,6 +244,12 @@ impl<'host> ArtifactPublisher<'host> {
         };
 
         let digest = match sink {
+            OutputSink::ManagedFilesystem { .. } => {
+                return Err(artifact_failure(
+                    planned,
+                    PublicationErrorKind::InvalidContribution,
+                ));
+            }
             OutputSink::Filesystem(path) => {
                 self.publish_filesystem(planned, &artifact.content, path, replacement)?
             }
@@ -270,7 +298,7 @@ impl<'host> ArtifactPublisher<'host> {
         let mut staging = FilesystemStaging::create(destination, planned.id().kind(), replacement)
             .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
-        self.copy_content(planned, content, &mut staging)?;
+        copy_content(self.cancellation, planned, content, &mut staging)?;
 
         if self.cancellation.is_cancelled() {
             return Err(ArtifactPublicationFailure::Cancelled);
@@ -325,7 +353,7 @@ impl<'host> ArtifactPublisher<'host> {
             .open(sink, replacement)
             .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
-        self.copy_content(planned, content, transaction.as_mut())?;
+        copy_content(self.cancellation, planned, content, transaction.as_mut())?;
 
         if self.cancellation.is_cancelled() {
             return Err(ArtifactPublicationFailure::Cancelled);
@@ -346,46 +374,47 @@ impl<'host> ArtifactPublisher<'host> {
         Ok(digest)
     }
 
-    fn copy_content(
-        &self,
-        planned: &PlannedArtifact,
-        content: &PreparedContent<'_, '_>,
-        writer: &mut dyn Write,
-    ) -> Result<(), ArtifactPublicationFailure> {
-        if self.cancellation.is_cancelled() {
+}
+
+pub(super) fn copy_content(
+    cancellation: &dyn Cancellation,
+    planned: &PlannedArtifact,
+    content: &PreparedContent<'_, '_>,
+    writer: &mut dyn Write,
+) -> Result<(), ArtifactPublicationFailure> {
+    if cancellation.is_cancelled() {
+        return Err(ArtifactPublicationFailure::Cancelled);
+    }
+
+    let mut reader = content
+        .open()
+        .map_err(|kind| artifact_failure(planned, PublicationErrorKind::Read(kind)))?;
+
+    let mut buffer = [0_u8; COPY_BUFFER_LEN];
+
+    loop {
+        if cancellation.is_cancelled() {
             return Err(ArtifactPublicationFailure::Cancelled);
         }
 
-        let mut reader = content
-            .open()
-            .map_err(|kind| artifact_failure(planned, PublicationErrorKind::Read(kind)))?;
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Read(error.kind())))?;
 
-        let mut buffer = [0_u8; COPY_BUFFER_LEN];
-
-        loop {
-            if self.cancellation.is_cancelled() {
-                return Err(ArtifactPublicationFailure::Cancelled);
-            }
-
-            let read = reader.read(&mut buffer).map_err(|error| {
-                artifact_failure(planned, PublicationErrorKind::Read(error.kind()))
-            })?;
-
-            if read == 0 {
-                break;
-            }
-
-            if self.cancellation.is_cancelled() {
-                return Err(ArtifactPublicationFailure::Cancelled);
-            }
-
-            writer.write_all(&buffer[..read]).map_err(|error| {
-                artifact_failure(planned, PublicationErrorKind::Write(error.kind()))
-            })?;
+        if read == 0 {
+            break;
         }
 
-        Ok(())
+        if cancellation.is_cancelled() {
+            return Err(ArtifactPublicationFailure::Cancelled);
+        }
+
+        writer
+            .write_all(&buffer[..read])
+            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Write(error.kind())))?;
     }
+
+    Ok(())
 }
 
 fn publication_set(
@@ -402,46 +431,55 @@ fn merge_link_diagnostics(
     outcome.with_prior_diagnostics(diagnostics)
 }
 
-struct PreparedArtifact<'plan, 'link> {
-    planned: &'plan PlannedArtifact,
-    content: PreparedContent<'plan, 'link>,
+pub(super) struct PreparedArtifact<'plan, 'link> {
+    pub(super) planned: &'plan PlannedArtifact,
+    pub(super) content: PreparedContent<'plan, 'link>,
 }
 
-enum PreparedContent<'plan, 'link> {
+impl PreparedArtifact<'_, '_> {
+    fn is_managed(&self) -> bool {
+        matches!(
+            self.planned.destination(),
+            PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { .. })
+        )
+    }
+}
+
+pub(super) enum PreparedContent<'plan, 'link> {
     Contribution(ArtifactContribution),
     Linked(PreparedLinkedArtifact<'plan, 'link>),
 }
 
 impl PreparedContent<'_, '_> {
-    fn id(&self) -> &ArtifactId {
+    pub(super) fn id(&self) -> &ArtifactId {
         match self {
             Self::Contribution(contribution) => contribution.id(),
             Self::Linked(linked) => linked.planned().id(),
         }
     }
 
-    fn producer(&self) -> &ArtifactProducer {
+    pub(super) fn producer(&self) -> &ArtifactProducer {
         match self {
             Self::Contribution(contribution) => contribution.producer(),
             Self::Linked(linked) => linked.planned().producer(),
         }
     }
 
-    fn byte_len(&self) -> u64 {
+    pub(super) fn byte_len(&self) -> u64 {
         match self {
             Self::Contribution(contribution) => contribution.content().byte_len(),
             Self::Linked(linked) => linked.byte_len(),
         }
     }
 
-    fn digest(&self) -> Option<&ArtifactDigest> {
+    pub(super) fn digest(&self) -> Option<&ArtifactDigest> {
         match self {
             Self::Contribution(contribution) => contribution.digest(),
             Self::Linked(linked) => Some(linked.digest()),
         }
     }
 
-    fn open(&self) -> Result<ContentReader<'_>, io::ErrorKind> {
+    pub(super) fn open(&self) -> Result<ContentReader<'_>, io::ErrorKind> {
         match self {
             Self::Contribution(contribution) => open_content(contribution.content()),
             Self::Linked(linked) => open_linked_staging(linked.path()),
@@ -464,7 +502,7 @@ impl PreparedContent<'_, '_> {
     }
 }
 
-enum ArtifactPublicationFailure {
+pub(super) enum ArtifactPublicationFailure {
     Cancelled,
     Failed(ArtifactRequirement, PublicationError),
 }
@@ -647,7 +685,7 @@ fn validate_contribution_destination(
     Ok(())
 }
 
-fn content_failure(
+pub(super) fn content_failure(
     planned: &PlannedArtifact,
     error: ContentValidationError,
 ) -> ArtifactPublicationFailure {
@@ -682,7 +720,7 @@ fn publication_content_error(
     planned_error(planned, kind)
 }
 
-fn artifact_failure(
+pub(super) fn artifact_failure(
     planned: &PlannedArtifact,
     kind: PublicationErrorKind,
 ) -> ArtifactPublicationFailure {
@@ -736,7 +774,6 @@ mod tests {
         SectionGarbageCollectionPolicy, StagingDestination, StagingDestinationId, StagingPathKey,
     };
     use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture};
-    use bray_testing::TemporaryFile;
 
     use super::ArtifactPublisher;
     use crate::test_support::{interface_artifact, product_identity, target_identity};
@@ -844,15 +881,124 @@ mod tests {
 
     #[test]
     fn filesystem_publication_obeys_replacement_policy() {
-        let output = TemporaryFile::write("application.brayi", b"existing");
-        let contribution_bytes = b"replacement";
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
 
         let require_absent = filesystem_plan(output.path(), ReplacementPolicy::RequireAbsent);
 
-        let outcome = ArtifactPublisher::new(&never_cancelled).publish(
+        let first = ArtifactPublisher::new(&never_cancelled).publish(
             &require_absent,
-            [contribution(&require_absent, contribution_bytes, None)],
+            [contribution(&require_absent, b"first", None)],
         );
+
+        assert_complete_artifact(&first, b"first");
+
+        let reference = output.path().join(".bray/published-generation.json");
+        let first_reference = file_bytes(&reference);
+
+        let rejected = ArtifactPublisher::new(&never_cancelled).publish(
+            &require_absent,
+            [contribution(&require_absent, b"second", None)],
+        );
+
+        assert!(matches!(
+            rejected.status(),
+            EmissionStatus::Failed(EmissionFailure::Publication(_))
+        ));
+
+        assert_eq!(
+            rejected.diagnostics().diagnostics()[0].kind(),
+            DiagnosticKind::EmissionArtifactCommitFailed
+        );
+
+        assert_eq!(file_bytes(&reference), first_reference);
+
+        let replace = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let replaced = ArtifactPublisher::new(&never_cancelled)
+            .publish(&replace, [contribution(&replace, b"second", None)]);
+
+        assert_complete_artifact(&replaced, b"second");
+        assert_ne!(file_bytes(&reference), first_reference);
+
+        let generation = replaced
+            .generation()
+            .unwrap_or_else(|| panic!("managed publication must expose a generation"));
+
+        let artifact = &replaced.artifacts().artifacts()[0];
+
+        let path = generation
+            .artifact_path(artifact.id())
+            .unwrap_or_else(|| panic!("managed artifact path must resolve"));
+
+        assert_eq!(file_bytes(&path), b"second");
+    }
+
+    #[test]
+    fn identical_managed_generations_are_reused_by_content_identity() {
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let first = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"stable", None)]);
+
+        let second = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"stable", None)]);
+
+        assert_complete_artifact(&first, b"stable");
+        assert_complete_artifact(&second, b"stable");
+
+        let first_generation = first
+            .generation()
+            .unwrap_or_else(|| panic!("first managed generation must exist"));
+
+        let second_generation = second
+            .generation()
+            .unwrap_or_else(|| panic!("second managed generation must exist"));
+
+        assert_eq!(first_generation.identity(), second_generation.identity());
+
+        let generations = output.path().join(".bray/generations");
+
+        let count = std::fs::read_dir(generations)
+            .unwrap_or_else(|error| panic!("generation store must be readable: {error}"))
+            .count();
+
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn corrupted_existing_generation_is_rejected_as_a_collision() {
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let first = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"stable", None)]);
+
+        assert_complete_artifact(&first, b"stable");
+
+        let generation = first
+            .generation()
+            .unwrap_or_else(|| panic!("managed generation must exist"));
+
+        let artifact = &first.artifacts().artifacts()[0];
+
+        let path = generation
+            .artifact_path(artifact.id())
+            .unwrap_or_else(|| panic!("managed artifact path must resolve"));
+
+        std::fs::write(path, b"broken")
+            .unwrap_or_else(|error| panic!("test generation must be corrupted: {error}"));
+
+        let outcome = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"stable", None)]);
 
         assert!(matches!(
             outcome.status(),
@@ -861,50 +1007,57 @@ mod tests {
 
         assert_eq!(
             outcome.diagnostics().diagnostics()[0].kind(),
-            DiagnosticKind::EmissionArtifactCommitFailed
+            DiagnosticKind::EmissionGenerationCollision
         );
 
-        assert_eq!(file_bytes(output.path()), b"existing");
-
-        let replace = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
-
-        let outcome = ArtifactPublisher::new(&never_cancelled)
-            .publish(&replace, [contribution(&replace, contribution_bytes, None)]);
-
-        assert_complete_artifact(&outcome, contribution_bytes);
-        assert_eq!(file_bytes(output.path()), contribution_bytes);
+        assert!(outcome.artifacts().artifacts().is_empty());
+        assert!(outcome.generation().is_none());
     }
 
     #[test]
-    fn cancellation_during_staged_validation_preserves_the_destination() {
+    fn cancellation_observed_after_reference_commit_cannot_retract_success() {
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let reference = output.path().join(".bray/published-generation.json");
+        let cancellation = || reference.exists();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let outcome = ArtifactPublisher::new(&cancellation)
+            .publish(&plan, [contribution(&plan, b"complete", None)]);
+
+        assert_complete_artifact(&outcome, b"complete");
+        assert!(reference.is_file());
+    }
+
+    #[test]
+    fn cancellation_preserves_the_published_generation() {
         let Ok(directory) = tempfile::tempdir() else {
             panic!("test output directory must be created");
         };
 
-        let destination = directory.path().join("application.brayi");
+        let plan = filesystem_plan(directory.path(), ReplacementPolicy::ReplaceExisting);
 
-        if std::fs::write(&destination, b"existing").is_err() {
-            panic!("test destination must be written");
-        }
+        let existing = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"existing", None)]);
 
-        let plan = filesystem_plan(&destination, ReplacementPolicy::ReplaceExisting);
+        assert_complete_artifact(&existing, b"existing");
+
+        let reference = directory.path().join(".bray/published-generation.json");
+        let existing_reference = file_bytes(&reference);
+
         let contribution = contribution(&plan, b"replacement", None);
-        let observations = AtomicUsize::new(0);
-        let cancellation = || observations.fetch_add(1, Ordering::AcqRel) >= 5;
-
-        let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [contribution]);
+        let outcome = ArtifactPublisher::new(&always_cancelled).publish(&plan, [contribution]);
 
         assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
-
         assert!(outcome.artifacts().artifacts().is_empty());
         assert!(outcome.diagnostics().is_empty());
-
-        assert_eq!(file_bytes(&destination), b"existing");
-        assert_eq!(directory_entry_count(directory.path()), 1);
+        assert_eq!(file_bytes(&reference), existing_reference);
     }
 
     #[test]
-    fn failure_does_not_claim_or_attempt_a_cross_path_transaction() {
+    fn failed_generation_exposes_no_partial_artifacts_or_reference() {
         let Ok(directory) = tempfile::tempdir() else {
             panic!("test output directory must be created");
         };
@@ -912,29 +1065,19 @@ mod tests {
         let interface_path = directory.path().join("application.brayi");
         let metadata_path = directory.path().join("application.brayd");
 
-        if std::fs::write(&interface_path, b"old interface").is_err() {
-            panic!("test interface destination must be written");
-        }
-
-        if std::fs::create_dir(&metadata_path).is_err() {
-            panic!("test metadata destination directory must be created");
-        }
-
         let plan = filesystem_artifact_plan([
             (package_interface_spec(), interface_path.clone()),
             (required_dependency_metadata_spec(), metadata_path.clone()),
         ]);
 
-        let interface_bytes = plan
-            .package_interface()
-            .map(bray_package_interface::InterfaceArtifact::bytes)
-            .unwrap_or_else(|| panic!("test plan must retain its package interface"));
+        let wrong_digest = ArtifactDigest::try_new(ArtifactDigestAlgorithm::Blake3, [0_u8; 32])
+            .unwrap_or_else(|| panic!("test digest must be valid"));
 
         let metadata = contribution_for(
             &plan,
             ArtifactKind::DependencyMetadata,
             b"metadata",
-            None,
+            Some(wrong_digest),
             None,
         );
 
@@ -942,23 +1085,16 @@ mod tests {
 
         assert!(matches!(
             outcome.status(),
-            EmissionStatus::Failed(EmissionFailure::Publication(_))
+            EmissionStatus::Failed(EmissionFailure::InvalidContribution(_))
         ));
 
-        assert_eq!(outcome.artifacts().artifacts().len(), 1);
-
-        assert_eq!(
-            outcome.artifacts().artifacts()[0].sink(),
-            &OutputSink::Filesystem(interface_path.clone())
-        );
-
-        assert_eq!(file_bytes(&interface_path), interface_bytes);
-        assert!(metadata_path.is_dir());
-        assert_eq!(directory_entry_count(directory.path()), 2);
+        assert!(outcome.artifacts().artifacts().is_empty());
+        assert!(outcome.generation().is_none());
+        assert!(!directory.path().join(".bray/published-generation.json").exists());
     }
 
     #[test]
-    fn cancellation_retains_records_for_already_published_artifacts() {
+    fn cancellation_discards_private_generation_without_partial_records() {
         let Ok(directory) = tempfile::tempdir() else {
             panic!("test output directory must be created");
         };
@@ -979,14 +1115,14 @@ mod tests {
             None,
         );
 
-        let cancellation = || interface_path.exists();
+        let observations = AtomicUsize::new(0);
+        let cancellation = || observations.fetch_add(1, Ordering::AcqRel) >= 4;
         let outcome = ArtifactPublisher::new(&cancellation).publish(&plan, [metadata]);
 
         assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
-        assert_eq!(outcome.artifacts().artifacts().len(), 1);
-        assert!(interface_path.is_file());
-        assert!(!metadata_path.exists());
-        assert_eq!(directory_entry_count(directory.path()), 1);
+        assert!(outcome.artifacts().artifacts().is_empty());
+        assert!(outcome.generation().is_none());
+        assert!(!directory.path().join(".bray/published-generation.json").exists());
     }
 
     #[test]
@@ -1079,7 +1215,11 @@ mod tests {
 
         let artifacts = outcome.artifacts();
 
-        assert!(matches!(outcome.status(), EmissionStatus::Complete));
+        assert!(
+            matches!(outcome.status(), EmissionStatus::Complete),
+            "unexpected emission outcome: {outcome:#?}"
+        );
+
         assert_eq!(artifacts.artifacts().len(), 1);
         assert_eq!(outcome.diagnostics().warnings().count(), 1);
 
@@ -1218,15 +1358,31 @@ mod tests {
                 &fixture.outcome,
             );
 
-            assert!(matches!(outcome.status(), EmissionStatus::Complete));
+            assert!(
+                matches!(outcome.status(), EmissionStatus::Complete),
+                "unexpected linked emission outcome: {outcome:#?}"
+            );
 
             assert_eq!(
                 outcome.artifacts().artifacts().len(),
                 fixture.final_artifacts.len()
             );
 
-            for artifact in &fixture.final_artifacts {
-                assert_eq!(file_bytes(&artifact.final_path), artifact.bytes);
+            let generation = outcome
+                .generation()
+                .unwrap_or_else(|| panic!("managed publication must expose its generation"));
+
+            for (record, artifact) in outcome
+                .artifacts()
+                .artifacts()
+                .iter()
+                .zip(&fixture.final_artifacts)
+            {
+                let path = generation
+                    .artifact_path(record.id())
+                    .unwrap_or_else(|| panic!("published artifact path must resolve"));
+
+                assert_eq!(file_bytes(&path), artifact.bytes);
                 assert!(!artifact.staging_path.exists());
             }
 
@@ -1602,12 +1758,25 @@ mod tests {
         role: ArtifactRole,
         path: PathBuf,
     ) -> PlannedArtifact {
+        let root = path
+            .parent()
+            .unwrap_or_else(|| panic!("test linked path must have a parent"));
+
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_else(|| panic!("test linked path must have a portable name"));
+
         PlannedArtifact::new(
             ArtifactId::new(request.product().clone(), kind, 0),
             ArtifactRequirement::Required,
             role,
             ArtifactProducer::Linker(LinkerProducerId::new(0)),
-            PlannedArtifactDestination::Publish(OutputSink::Filesystem(path)),
+            PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
+                root: root.to_owned(),
+                artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
+                    .unwrap_or_else(|| panic!("test managed path must be valid")),
+            }),
         )
     }
 
@@ -1672,8 +1841,12 @@ mod tests {
 
     fn filesystem_plan(path: &Path, replacement: ReplacementPolicy) -> EmissionPlan {
         publication_plan(
-            RequestedArtifactDestination::FilesystemFile(path.to_owned()),
-            OutputSink::Filesystem(path.to_owned()),
+            RequestedArtifactDestination::FilesystemDirectory(path.to_owned()),
+            OutputSink::ManagedFilesystem {
+                root: path.to_owned(),
+                artifact: crate::ManagedArtifactPath::try_new("artifacts/application.brayd")
+                    .unwrap_or_else(|| panic!("test managed path must be valid")),
+            },
             replacement,
         )
     }
@@ -1692,12 +1865,18 @@ mod tests {
             .iter()
             .map(|(artifact, _)| RequestedArtifact::new(artifact.kind, artifact.requirement));
 
+        let root = artifacts
+            .first()
+            .and_then(|(_, path)| path.parent())
+            .unwrap_or_else(|| panic!("test artifact paths must share a parent"))
+            .to_owned();
+
         let Ok(request) = EmissionRequest::try_new(
             product_identity(),
             ProductKind::Library,
             None,
             target_identity(),
-            RequestedArtifactDestination::FilesystemDirectory("unused".into()),
+            RequestedArtifactDestination::FilesystemDirectory(root.clone()),
             requested,
             ReplacementPolicy::ReplaceExisting,
         ) else {
@@ -1707,12 +1886,21 @@ mod tests {
         let product = request.product().clone();
 
         let planned = artifacts.into_iter().map(|(artifact, path)| {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_else(|| panic!("test artifact path must have a portable name"));
+
             PlannedArtifact::new(
                 ArtifactId::new(product.clone(), artifact.kind, 0),
                 artifact.requirement,
                 artifact.role,
                 artifact.producer,
-                PlannedArtifactDestination::Publish(OutputSink::Filesystem(path)),
+                PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
+                    root: root.clone(),
+                    artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
+                        .unwrap_or_else(|| panic!("test managed path must be valid")),
+                }),
             )
         });
 
@@ -1896,7 +2084,11 @@ mod tests {
             panic!("test artifact length must fit the publication contract");
         };
 
-        assert!(matches!(outcome.status(), EmissionStatus::Complete));
+        assert!(
+            matches!(outcome.status(), EmissionStatus::Complete),
+            "unexpected emission outcome: {outcome:#?}"
+        );
+
         assert!(outcome.diagnostics().is_empty());
 
         assert_eq!(artifacts.artifacts().len(), 1);
@@ -1914,14 +2106,6 @@ mod tests {
         };
 
         bytes
-    }
-
-    fn directory_entry_count(path: &Path) -> usize {
-        let Ok(entries) = std::fs::read_dir(path) else {
-            panic!("test output directory must be readable");
-        };
-
-        entries.count()
     }
 
     struct CapturingResolver {

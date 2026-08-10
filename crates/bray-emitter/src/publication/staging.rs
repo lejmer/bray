@@ -61,7 +61,7 @@ impl CompletedFilesystemStaging {
     }
 }
 
-fn replacement_mode(replacement: ReplacementPolicy) -> FileReplacementMode {
+pub(super) const fn replacement_mode(replacement: ReplacementPolicy) -> FileReplacementMode {
     match replacement {
         ReplacementPolicy::RequireAbsent => FileReplacementMode::RequireAbsent,
         ReplacementPolicy::ReplaceExisting => FileReplacementMode::ReplaceExisting,
@@ -69,7 +69,7 @@ fn replacement_mode(replacement: ReplacementPolicy) -> FileReplacementMode {
 }
 
 #[cfg(unix)]
-fn default_permissions(kind: ArtifactKind) -> Option<Permissions> {
+pub(super) fn default_permissions(kind: ArtifactKind) -> Option<Permissions> {
     use std::os::unix::fs::PermissionsExt;
 
     let mode = match kind {
@@ -90,7 +90,7 @@ fn default_permissions(kind: ArtifactKind) -> Option<Permissions> {
 }
 
 #[cfg(not(unix))]
-fn default_permissions(_: ArtifactKind) -> Option<Permissions> {
+pub(super) fn default_permissions(_: ArtifactKind) -> Option<Permissions> {
     None
 }
 

@@ -154,7 +154,11 @@ pub(crate) fn emission_plan() -> EmissionPlan {
         ArtifactRequirement::Required,
         ArtifactRole::Product,
         ArtifactProducer::PackageInterface,
-        PlannedArtifactDestination::Publish(OutputSink::Filesystem("application.brayi".into())),
+        PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
+            root: "out".into(),
+            artifact: crate::ManagedArtifactPath::try_new("artifacts/application.brayi")
+                .unwrap_or_else(|| panic!("test managed path must be valid")),
+        }),
     );
 
     let Ok(plan) = EmissionPlan::try_new(
@@ -177,12 +181,28 @@ pub(crate) fn linked_artifact(
     path: &str,
     ordinal: u32,
 ) -> PlannedArtifact {
+    let path = std::path::Path::new(path);
+
+    let root = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_else(|| panic!("test linked path must have a portable file name"));
+
     PlannedArtifact::new(
         ArtifactId::new(product_identity(), kind, 0),
         ArtifactRequirement::Required,
         role,
         ArtifactProducer::Linker(LinkerProducerId::new(ordinal)),
-        PlannedArtifactDestination::Publish(OutputSink::Filesystem(path.into())),
+        PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
+            root: root.to_owned(),
+            artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
+                .unwrap_or_else(|| panic!("test managed path must be valid")),
+        }),
     )
 }
 

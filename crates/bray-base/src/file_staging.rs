@@ -57,6 +57,7 @@ impl StagedFile {
     /// Flushes staged bytes and completes preparation for publication.
     pub fn finish(mut self) -> io::Result<CompletedStagedFile> {
         self.file.flush()?;
+        self.file.as_file().sync_all()?;
 
         Ok(CompletedStagedFile {
             path: self.file.into_temp_path(),

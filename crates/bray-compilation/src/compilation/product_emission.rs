@@ -840,7 +840,9 @@ mod tests {
     fn package_interface_emission_reuses_pure_facts_across_publications() {
         let compilation = compilation();
         let target_outputs = target_outputs();
-        let destination = TemporaryFile::write("library.brayi", b"old");
+
+        let destination = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test output directory must exist: {error}"));
 
         let inputs = ProductEmissionInputs::new(&target_outputs);
 
@@ -848,14 +850,28 @@ mod tests {
             .emit_product(emission_request(destination.path()), inputs)
             .unwrap_or_else(|error| panic!("first interface emission must complete: {error:?}"));
 
-        let first_bytes = std::fs::read(destination.path())
+        let first_path = first
+            .generation()
+            .and_then(|generation| {
+                generation.artifact_path(first.artifacts().artifacts()[0].id())
+            })
+            .unwrap_or_else(|| panic!("first interface generation path must resolve"));
+
+        let first_bytes = std::fs::read(first_path)
             .unwrap_or_else(|error| panic!("first interface output must be readable: {error:?}"));
 
         let second = compilation
             .emit_product(emission_request(destination.path()), inputs)
             .unwrap_or_else(|error| panic!("repeated interface emission must complete: {error:?}"));
 
-        let second_bytes = std::fs::read(destination.path())
+        let second_path = second
+            .generation()
+            .and_then(|generation| {
+                generation.artifact_path(second.artifacts().artifacts()[0].id())
+            })
+            .unwrap_or_else(|| panic!("second interface generation path must resolve"));
+
+        let second_bytes = std::fs::read(second_path)
             .unwrap_or_else(|error| panic!("second interface output must be readable: {error:?}"));
 
         assert!(matches!(first.status(), EmissionStatus::Complete));
@@ -1096,7 +1112,7 @@ mod tests {
             ProductKind::Library,
             None,
             SelectedTarget::default().profile().identity().clone(),
-            RequestedArtifactDestination::FilesystemFile(destination.to_path_buf()),
+            RequestedArtifactDestination::FilesystemDirectory(destination.to_path_buf()),
             [RequestedArtifact::new(
                 ArtifactKind::PackageInterface,
                 ArtifactRequirement::Required,
@@ -1200,7 +1216,7 @@ mod tests {
             ProductKind::Executable,
             Some(host),
             test_mir_target().identity().clone(),
-            RequestedArtifactDestination::FilesystemFile("application".into()),
+            RequestedArtifactDestination::FilesystemDirectory("application".into()),
             [RequestedArtifact::new(
                 ArtifactKind::Executable,
                 ArtifactRequirement::Required,

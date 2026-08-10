@@ -431,6 +431,12 @@ define_diagnostic_kinds! {
     EmissionArtifactLengthMismatch,
     /// A complete indirect artifact write could not be committed.
     EmissionArtifactCommitFailed,
+    /// The selected filesystem cannot support atomic managed product publication.
+    EmissionManagedPublicationUnsupported,
+    /// A content-addressed generation path contains different content.
+    EmissionGenerationCollision,
+    /// A product generation manifest could not be encoded or validated.
+    EmissionGenerationManifestInvalid,
     /// The selected linker does not support the exact target.
     LinkerUnsupportedTarget,
     /// The selected linker does not support the product category.
@@ -674,6 +680,9 @@ impl DiagnosticKind {
             Self::EmissionArtifactDigestMismatch => 9007,
             Self::EmissionArtifactLengthMismatch => 9008,
             Self::EmissionArtifactCommitFailed => 9009,
+            Self::EmissionManagedPublicationUnsupported => 9010,
+            Self::EmissionGenerationCollision => 9011,
+            Self::EmissionGenerationManifestInvalid => 9012,
             Self::LinkerUnsupportedTarget => 9101,
             Self::LinkerUnsupportedProduct => 9102,
             Self::LinkerUnsupportedInput => 9103,
@@ -990,6 +999,11 @@ impl DiagnosticKind {
             Self::EmissionArtifactDigestMismatch => "emission_artifact_digest_mismatch",
             Self::EmissionArtifactLengthMismatch => "emission_artifact_length_mismatch",
             Self::EmissionArtifactCommitFailed => "emission_artifact_commit_failed",
+            Self::EmissionManagedPublicationUnsupported => {
+                "emission_managed_publication_unsupported"
+            }
+            Self::EmissionGenerationCollision => "emission_generation_collision",
+            Self::EmissionGenerationManifestInvalid => "emission_generation_manifest_invalid",
             Self::LinkerUnsupportedTarget => "linker_unsupported_target",
             Self::LinkerUnsupportedProduct => "linker_unsupported_product",
             Self::LinkerUnsupportedInput => "linker_unsupported_input",
