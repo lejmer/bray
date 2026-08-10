@@ -8,9 +8,7 @@ use bray_target::{NativeTarget, TargetIdentity, TargetOutputKind, TargetOutputNa
 use bray_tooling::OutputFormat;
 
 use crate::tack::error::{operation_diagnostics, selection_diagnostics};
-use crate::tack::model::{
-    TackBuildConfiguration, TackInspection, TackProfileConfiguration,
-};
+use crate::tack::model::{TackBuildConfiguration, TackInspection, TackProfileConfiguration};
 use crate::tack::progress::{
     BuildProgressAction, BuildProgressPackage, BuildProgressPlan, BuildProgressSession,
 };

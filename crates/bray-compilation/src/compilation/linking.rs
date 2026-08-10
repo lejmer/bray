@@ -85,9 +85,8 @@ impl Compilation {
         let profile = self.state.fact_runtime.profile();
 
         self.state.fact_runtime.run(priority, || {
-            let span = profile.map(|profile| {
-                profile.start(crate::profile::ProfileOperation::Linking, None)
-            });
+            let span = profile
+                .map(|profile| profile.start(crate::profile::ProfileOperation::Linking, None));
 
             let outcome = linker.link(plan, cancellation);
 
@@ -108,9 +107,7 @@ const fn link_profile_outcome(status: &LinkStatus) -> crate::CompilationProfileO
     }
 }
 
-const fn emission_profile_outcome(
-    outcome: &EmissionOutcome,
-) -> crate::CompilationProfileOutcome {
+const fn emission_profile_outcome(outcome: &EmissionOutcome) -> crate::CompilationProfileOutcome {
     match outcome.status() {
         bray_emitter::EmissionStatus::Complete => crate::CompilationProfileOutcome::Completed,
         bray_emitter::EmissionStatus::Failed(_) => crate::CompilationProfileOutcome::Failed,

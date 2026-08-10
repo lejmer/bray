@@ -749,8 +749,7 @@ mod tests {
     };
 
     use super::super::callback::{
-        bray_runtime_foreign_callback_execution_v1,
-        bray_runtime_synchronous_root_execution_v1,
+        bray_runtime_foreign_callback_execution_v1, bray_runtime_synchronous_root_execution_v1,
     };
 
     use super::{
@@ -1430,10 +1429,8 @@ mod tests {
         let (outcome, attached_after_return) = std::thread::spawn(|| {
             assert!(bray_platform::current_runtime_thread().is_none());
 
-            let outcome = bray_runtime_foreign_callback_execution_v1(
-                assert_callback_runtime_thread,
-                41,
-            );
+            let outcome =
+                bray_runtime_foreign_callback_execution_v1(assert_callback_runtime_thread, 41);
 
             (outcome, bray_platform::current_runtime_thread().is_some())
         })
@@ -1450,10 +1447,8 @@ mod tests {
         let _thread = bray_platform::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
-        let outcome = bray_runtime_foreign_callback_execution_v1(
-            assert_callback_runtime_thread,
-            41,
-        );
+        let outcome =
+            bray_runtime_foreign_callback_execution_v1(assert_callback_runtime_thread, 41);
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
         assert_eq!(outcome.payload(), 41);

@@ -1,6 +1,6 @@
+use std::hash::Hash;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
-use std::hash::Hash;
 
 #[cfg(test)]
 use std::fmt;
@@ -499,7 +499,10 @@ impl<T> FactCell<T> {
 }
 
 fn record_cache_outcome(
-    profile: Option<(&crate::profile::ProfileSession, crate::profile::ProfileQueryKind)>,
+    profile: Option<(
+        &crate::profile::ProfileSession,
+        crate::profile::ProfileQueryKind,
+    )>,
     recorded: &mut bool,
     is_hit: bool,
 ) {

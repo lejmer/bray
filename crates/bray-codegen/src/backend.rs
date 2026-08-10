@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 
-use crate::{
-    BackendCapabilities, CodegenFailure, CodegenOutcome, CodegenRequest, CodegenTarget,
-};
+use crate::{BackendCapabilities, CodegenFailure, CodegenOutcome, CodegenRequest, CodegenTarget};
 
 /// Stable compiler-facing identity of one backend implementation and compatible toolchain.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

@@ -4,9 +4,9 @@
 
 mod analysis;
 mod model;
-mod validation;
 #[cfg(test)]
 mod test_support;
+mod validation;
 
 pub use analysis::{
     CompilationProfileComparison, CompilationProfileComparisonError,
@@ -14,8 +14,8 @@ pub use analysis::{
     CompilationProfileQueryChange, CompilationProfileQueryTotals, CompilationProfileSummary,
 };
 pub use model::{
-    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation,
-    CompilationProfileCategory, CompilationProfileConfiguration, CompilationProfileContext,
+    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation, CompilationProfileCategory,
+    CompilationProfileConfiguration, CompilationProfileContext,
     CompilationProfileDescriptorCatalog, CompilationProfileEvent, CompilationProfileMetric,
     CompilationProfileMetricDescriptor, CompilationProfileMode,
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,

@@ -71,10 +71,7 @@ pub(crate) struct TackProfileConfiguration {
 }
 
 impl TackProfileConfiguration {
-    pub(crate) const fn new(
-        mode: TackProfileMode,
-        output_directory: Option<PathBuf>,
-    ) -> Self {
+    pub(crate) const fn new(mode: TackProfileMode, output_directory: Option<PathBuf>) -> Self {
         Self {
             mode,
             output_directory,
@@ -222,10 +219,7 @@ impl TackCommand {
 
     pub(crate) const fn invokes_compiler(&self) -> bool {
         match self {
-            Self::Check(_)
-            | Self::Build { .. }
-            | Self::Run { .. }
-            | Self::Test { .. } => true,
+            Self::Check(_) | Self::Build { .. } | Self::Run { .. } | Self::Test { .. } => true,
             Self::Inspect { inspection, .. } => !matches!(inspection, TackInspection::Project),
             Self::Init { .. }
             | Self::Format { .. }

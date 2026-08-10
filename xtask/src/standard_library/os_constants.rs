@@ -63,7 +63,9 @@ pub(super) fn verify() -> Result<(), String> {
 fn generate(check: bool) -> Result<(), String> {
     let root = workspace::root()?;
     let input = root.join(INPUT_PATH);
-    let bytes = std::fs::read(&input).map_err(|error| workspace::io_error("read", &input, error))?;
+
+    let bytes =
+        std::fs::read(&input).map_err(|error| workspace::io_error("read", &input, error))?;
 
     let description: Description = serde_json::from_slice(&bytes)
         .map_err(|error| format!("could not parse {}: {error}", input.display()))?;
@@ -93,7 +95,10 @@ fn generate(check: bool) -> Result<(), String> {
 
 fn validate(description: &Description) -> Result<(), String> {
     if description.format != 1 {
-        return Err(format!("unsupported description format {}", description.format));
+        return Err(format!(
+            "unsupported description format {}",
+            description.format
+        ));
     }
 
     let actual_systems = description
@@ -137,11 +142,17 @@ fn validate_constants(target: &TargetDescription) -> Result<(), String> {
 
     for constant in &target.constants {
         if !valid_constant_name(&constant.name) {
-            return Err(format!("invalid {} constant name {}", target.system, constant.name));
+            return Err(format!(
+                "invalid {} constant name {}",
+                target.system, constant.name
+            ));
         }
 
         if previous.is_some_and(|name: &str| name >= constant.name.as_str()) {
-            return Err(format!("{} constants must be uniquely name-sorted", target.system));
+            return Err(format!(
+                "{} constants must be uniquely name-sorted",
+                target.system
+            ));
         }
 
         match constant.r#type.as_str() {
@@ -207,7 +218,11 @@ fn check_files(files: &[(PathBuf, String)]) -> Result<(), String> {
         }
     }
 
-    stale.extend(obsolete_managed_files(files)?.iter().map(|path| path.display().to_string()));
+    stale.extend(
+        obsolete_managed_files(files)?
+            .iter()
+            .map(|path| path.display().to_string()),
+    );
 
     if stale.is_empty() {
         return Ok(());
@@ -234,8 +249,7 @@ fn synchronize_files(files: &[(PathBuf, String)]) -> Result<(), String> {
     }
 
     for path in obsolete_managed_files(files)? {
-        std::fs::remove_file(&path)
-            .map_err(|error| workspace::io_error("remove", &path, error))?;
+        std::fs::remove_file(&path).map_err(|error| workspace::io_error("remove", &path, error))?;
     }
 
     Ok(())
@@ -263,7 +277,9 @@ fn obsolete_managed_files(files: &[(PathBuf, String)]) -> Result<Vec<PathBuf>, S
         let entry = entry.map_err(|error| workspace::io_error("read", output_root, error))?;
         let path = entry.path();
 
-        if path.extension().is_some_and(|extension| extension == "bray")
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "bray")
             && !expected.contains(path.as_path())
         {
             obsolete.push(path);

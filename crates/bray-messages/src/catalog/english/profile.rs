@@ -119,7 +119,10 @@ fn write_time_breakdown(output: &mut String, report: &CompilationProfileReport) 
     );
 
     for (label, nanoseconds) in [
-        ("  Active compiler work", report.time.active_work_nanoseconds),
+        (
+            "  Active compiler work",
+            report.time.active_work_nanoseconds,
+        ),
         ("  Scheduler queue", report.time.scheduler_queue_nanoseconds),
         ("  Dependency wait", report.time.dependency_wait_nanoseconds),
         ("  External tools", report.time.external_work_nanoseconds),

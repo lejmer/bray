@@ -3,13 +3,13 @@ use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-#[cfg(test)]
-use std::fmt;
+use crate::WorkerBudget;
 use crate::profile::{
     CompilationProfileConfiguration, CompilationProfileContext, CompilationProfileReport,
     ProfileQueryKind, ProfileSession,
 };
-use crate::WorkerBudget;
+#[cfg(test)]
+use std::fmt;
 
 use super::scheduler::FactScheduler;
 use super::task::{
@@ -85,10 +85,7 @@ impl FactRuntime {
             next_task: AtomicU64::new(0),
             state: Mutex::new(RuntimeState::default()),
             inputs: CompilationInputs::default(),
-            scheduler: FactScheduler::with_profile(
-                worker_budget,
-                profile.as_ref().map(Arc::clone),
-            ),
+            scheduler: FactScheduler::with_profile(worker_budget, profile.as_ref().map(Arc::clone)),
             profile,
             #[cfg(test)]
             observer: Mutex::new(None),
@@ -108,8 +105,7 @@ impl FactRuntime {
 
         let identity_namespace_matches = self.inputs.has_same_identity_namespace(&inputs);
 
-        let (records, invalidated) =
-            retained_records(&state, &inputs, identity_namespace_matches);
+        let (records, invalidated) = retained_records(&state, &inputs, identity_namespace_matches);
 
         let reusable = records.keys().cloned().collect();
 
@@ -122,10 +118,7 @@ impl FactRuntime {
                 ..RuntimeState::default()
             }),
             inputs,
-            scheduler: FactScheduler::with_profile(
-                worker_budget,
-                profile.as_ref().map(Arc::clone),
-            ),
+            scheduler: FactScheduler::with_profile(worker_budget, profile.as_ref().map(Arc::clone)),
             profile,
             #[cfg(test)]
             observer: Mutex::new(None),
@@ -142,10 +135,7 @@ impl FactRuntime {
         self.inputs.clone()
     }
 
-    pub(crate) fn record_input(
-        &self,
-        key: CompilationInputKey,
-    ) -> Result<(), FactQueryError> {
+    pub(crate) fn record_input(&self, key: CompilationInputKey) -> Result<(), FactQueryError> {
         record_input(self.identity(), &key, self.inputs.get(&key))
     }
 
@@ -433,11 +423,8 @@ impl FactRuntime {
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
 
-        let record = FactDependencyRecord::new(
-            fact_fingerprint(key, value),
-            facts,
-            dependencies.inputs,
-        );
+        let record =
+            FactDependencyRecord::new(fact_fingerprint(key, value), facts, dependencies.inputs);
 
         // The commit owns the key while coordinating runtime and cache publication locks.
         Ok(EvaluationCommit {
@@ -523,11 +510,14 @@ fn direct_invalidations(
         .filter(|(key, record)| {
             (!identity_namespace_matches && !key.has_stable_snapshot_identity())
                 || record
-                .inputs()
-                .iter()
-                .any(|(key, fingerprint)| inputs.get(key) != Some(*fingerprint))
+                    .inputs()
+                    .iter()
+                    .any(|(key, fingerprint)| inputs.get(key) != Some(*fingerprint))
                 || record.facts().iter().any(|(key, fingerprint)| {
-                    state.records.get(key).map(FactDependencyRecord::fingerprint)
+                    state
+                        .records
+                        .get(key)
+                        .map(FactDependencyRecord::fingerprint)
                         != Some(*fingerprint)
                 })
         })
@@ -769,14 +759,14 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::{Arc, Mutex};
 
-    use bray_source::SourceId;
     use bray_declarations::ModulePartId;
+    use bray_source::SourceId;
 
     use super::{FactEvaluationTestObserver, FactRuntime};
     use crate::WorkerBudget;
     use crate::fact::{
-        CancellationToken, CompilationFactKey, CompilationInputKey, CompilationInputs,
-        FactCell, FactDependencyRecord, fact_fingerprint,
+        CancellationToken, CompilationFactKey, CompilationInputKey, CompilationInputs, FactCell,
+        FactDependencyRecord, fact_fingerprint,
     };
 
     #[test]
@@ -836,25 +826,15 @@ mod tests {
         let source_key = CompilationFactKey::SyntaxTree;
         let consumer_key = CompilationFactKey::DeclarationTable;
 
-        let result = consumer.get_or_compute(
-            &runtime,
-            consumer_key.clone(),
-            &cancellation,
-            || {
-                source.get_or_compute(
-                    &runtime,
-                    source_key.clone(),
-                    &cancellation,
-                    || {
-                        runtime.record_input(input_key.clone())?;
+        let result = consumer.get_or_compute(&runtime, consumer_key.clone(), &cancellation, || {
+            source.get_or_compute(&runtime, source_key.clone(), &cancellation, || {
+                runtime.record_input(input_key.clone())?;
 
-                        Ok(11_u8)
-                    },
-                )?;
+                Ok(11_u8)
+            })?;
 
-                Ok(13_u8)
-            },
-        );
+            Ok(13_u8)
+        });
 
         assert_eq!(result, Ok(&13));
 
@@ -899,8 +879,7 @@ mod tests {
 
         updated_inputs.insert(CompilationInputKey::SourceSet, &[2_u8]);
 
-        let (_, reusable) =
-            runtime.updated(WorkerBudget::serial(), updated_inputs, None);
+        let (_, reusable) = runtime.updated(WorkerBudget::serial(), updated_inputs, None);
 
         assert!(reusable.is_empty());
     }
@@ -1004,11 +983,7 @@ mod tests {
         updated_inputs.insert(CompilationInputKey::SourceDiagnostics, &1_u8);
         updated_inputs.insert(CompilationInputKey::ProductKind, &1_u8);
 
-        let (_, reusable) = runtime.updated(
-            WorkerBudget::serial(),
-            updated_inputs,
-            None,
-        );
+        let (_, reusable) = runtime.updated(WorkerBudget::serial(), updated_inputs, None);
 
         assert_eq!(reusable, BTreeSet::from([unrelated]));
         assert!(!reusable.contains(&deep_root));

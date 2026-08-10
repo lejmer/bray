@@ -97,12 +97,9 @@ impl Compilation {
             ),
         };
 
-        let configured_inputs = self
-            .native_link_inputs()
-            .iter()
-            .map(|requirement| {
-                native_link_input(requirement, LinkInputProvenance::HostConfiguration)
-            });
+        let configured_inputs = self.native_link_inputs().iter().map(|requirement| {
+            native_link_input(requirement, LinkInputProvenance::HostConfiguration)
+        });
 
         let runtime_inputs = runtime.iter().flat_map(|runtime| {
             // Every input retains the Arc-backed runtime artifact provenance.

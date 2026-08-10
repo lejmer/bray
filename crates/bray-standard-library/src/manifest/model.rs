@@ -253,8 +253,7 @@ impl StandardLibraryTargetArtifacts {
 
         let interface_path = format!("{prefix}{STANDARD_LIBRARY_INTERFACE_FILE_NAME}");
 
-        let implementation_path =
-            format!("{prefix}{STANDARD_LIBRARY_IMPLEMENTATION_FILE_NAME}");
+        let implementation_path = format!("{prefix}{STANDARD_LIBRARY_IMPLEMENTATION_FILE_NAME}");
 
         if !has_exact_artifact(
             &artifacts,
@@ -388,11 +387,12 @@ fn has_exact_artifact(
     kind: StandardLibraryArtifactKind,
     path: &str,
 ) -> bool {
-    let mut matches = artifacts
-        .iter()
-        .filter(|artifact| artifact.kind() == kind);
+    let mut matches = artifacts.iter().filter(|artifact| artifact.kind() == kind);
 
-    matches.next().is_some_and(|artifact| artifact.path() == path) && matches.next().is_none()
+    matches
+        .next()
+        .is_some_and(|artifact| artifact.path() == path)
+        && matches.next().is_none()
 }
 
 fn required_artifact(

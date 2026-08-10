@@ -142,7 +142,14 @@ mod tests {
     fn fact_fingerprints_include_result_content() {
         let key = CompilationFactKey::SyntaxTree;
 
-        assert_ne!(fact_fingerprint(&key, &11_u8), fact_fingerprint(&key, &12_u8));
-        assert_eq!(fact_fingerprint(&key, &11_u8), fact_fingerprint(&key, &11_u8));
+        assert_ne!(
+            fact_fingerprint(&key, &11_u8),
+            fact_fingerprint(&key, &12_u8)
+        );
+
+        assert_eq!(
+            fact_fingerprint(&key, &11_u8),
+            fact_fingerprint(&key, &11_u8)
+        );
     }
 }

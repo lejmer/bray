@@ -624,7 +624,7 @@ mod tests {
             bray_codegen::test_support::codegen_partition_compatibility(),
             [mir],
         )
-            .unwrap_or_else(|error| panic!("memory test codegen unit must be valid: {error:?}"));
+        .unwrap_or_else(|error| panic!("memory test codegen unit must be valid: {error:?}"));
 
         let mappings = memory_mappings(&unit, &target, types, source);
 

@@ -69,6 +69,5 @@ pub use unit::{
     CodegenOversizedUnitReason, CodegenPartitionCompatibility, CodegenPartitionError,
     CodegenPartitionPolicy, CodegenPartitionPolicyBuildError, CodegenReachability,
     CodegenReachabilityBuildError, CodegenReachabilityBuilder, CodegenSpecialization, CodegenUnit,
-    CodegenUnitBuildError, CodegenUnitKey, CodegenValueKey, CodegenWork,
-    partition_codegen_units,
+    CodegenUnitBuildError, CodegenUnitKey, CodegenValueKey, CodegenWork, partition_codegen_units,
 };

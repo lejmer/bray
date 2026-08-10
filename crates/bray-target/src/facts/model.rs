@@ -3,8 +3,7 @@ use std::num::NonZeroU64;
 use bray_base::NonEmptySharedStr;
 
 use super::{
-    TargetAbiFacts, TargetAbiScalarFacts, TargetCAbiFacts, TargetForeignAbiFacts,
-    TargetScalarFacts,
+    TargetAbiFacts, TargetAbiScalarFacts, TargetCAbiFacts, TargetForeignAbiFacts, TargetScalarFacts,
 };
 
 /// Stable identity details of one target profile.

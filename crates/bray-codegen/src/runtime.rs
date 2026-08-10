@@ -216,9 +216,7 @@ mod tests {
     use super::{
         CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
     };
-    use crate::test_support::{
-        codegen_partition_compatibility, codegen_request, codegen_target,
-    };
+    use crate::test_support::{codegen_partition_compatibility, codegen_request, codegen_target};
     use crate::{
         CodegenCallableSignature, CodegenLinkage, CodegenMappings, CodegenPartitionPolicy,
         CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit,

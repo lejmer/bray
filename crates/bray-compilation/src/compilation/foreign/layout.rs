@@ -286,20 +286,16 @@ mod tests {
     use bray_symbols::NamedTypeSymbolId;
 
     use super::aggregate_alignment;
-    use crate::compilation::substitution::empty_substitution;
-    use crate::test_support::{
-        compilation_with_dependencies, encoded_semantic_dependency,
-    };
     use crate::CancellationToken;
+    use crate::compilation::substitution::empty_substitution;
+    use crate::test_support::{compilation_with_dependencies, encoded_semantic_dependency};
 
     #[test]
     fn imported_aggregate_alignment_uses_dependency_symbols() {
         let interface = bray_package_interface::test_support::encoded_semantic_test_interface();
 
-        let compilation = compilation_with_dependencies(
-            "module app;",
-            [encoded_semantic_dependency(&interface)],
-        );
+        let compilation =
+            compilation_with_dependencies("module app;", [encoded_semantic_dependency(&interface)]);
 
         let imported = compilation
             .imported_symbol_skeleton_result()

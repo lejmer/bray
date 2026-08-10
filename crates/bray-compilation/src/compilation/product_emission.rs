@@ -3,8 +3,8 @@ use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, ArtifactPublisher,
     BackendContributionSet, EmissionBackend, EmissionOutcome, EmissionPlan, EmissionPlanner,
-    EmissionPlanningError, EmissionRequest, LinkPlanConstructionError, LinkStaging,
-    LinkStagingError, OutputSinkResolver, ProductLinkFacts, EmissionStatus, construct_link_plan,
+    EmissionPlanningError, EmissionRequest, EmissionStatus, LinkPlanConstructionError, LinkStaging,
+    LinkStagingError, OutputSinkResolver, ProductLinkFacts, construct_link_plan,
 };
 use bray_linker::Linker;
 use bray_package_interface::{InterfaceValidationError, encode_package_interface};
@@ -194,9 +194,11 @@ impl Compilation {
         inputs: ProductEmissionInputs<'_>,
         cancellation: &CancellationToken,
     ) -> Result<EmissionOutcome, ProductEmissionError> {
-        let span = self.state.fact_runtime.profile().map(|profile| {
-            profile.start(crate::profile::ProfileOperation::Emission, None)
-        });
+        let span = self
+            .state
+            .fact_runtime
+            .profile()
+            .map(|profile| profile.start(crate::profile::ProfileOperation::Emission, None));
 
         let result = self.emit_product_with_cancellation_inner(request, inputs, cancellation);
 
@@ -797,8 +799,8 @@ fn product_query_error(error: FactQueryError) -> ProductEmissionErrorKind {
 
 #[cfg(test)]
 mod tests {
-    use bray_codegen::test_support::codegen_partition_compatibility;
     use bray_codegen::CodegenPartitionPolicy;
+    use bray_codegen::test_support::codegen_partition_compatibility;
     use bray_emitter::{
         ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionPlanner,
         EmissionRequest, EmissionStatus, ReplacementPolicy, RequestedArtifact,

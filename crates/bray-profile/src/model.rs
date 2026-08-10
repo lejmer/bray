@@ -323,7 +323,10 @@ pub struct CompilationProfileReport {
 impl CompilationProfileReport {
     /// Resolves an operation descriptor referenced by an observation or event.
     pub fn operation_descriptor(&self, id: u16) -> Option<&CompilationProfileOperationDescriptor> {
-        self.descriptors.operations.iter().find(|entry| entry.id == id)
+        self.descriptors
+            .operations
+            .iter()
+            .find(|entry| entry.id == id)
     }
 
     /// Resolves a query descriptor referenced by an observation or event.

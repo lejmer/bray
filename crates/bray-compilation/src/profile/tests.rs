@@ -60,17 +60,12 @@ fn enabled_compilations_report_queries_metrics_and_selected_detail() {
     assert!(report.queries.iter().any(|query| query.requests > 0));
     assert!(report.queries.iter().any(|query| query.cache_misses > 0));
 
-    assert!(
-        report
-            .metrics
-            .iter()
-            .any(|metric| {
-                metric.value == 1
-                    && report
-                        .metric_descriptor(metric.id)
-                        .is_some_and(|descriptor| descriptor.name == "compiler.source.units")
-            })
-    );
+    assert!(report.metrics.iter().any(|metric| {
+        metric.value == 1
+            && report
+                .metric_descriptor(metric.id)
+                .is_some_and(|descriptor| descriptor.name == "compiler.source.units")
+    }));
 
     assert!(report.events.is_empty());
 }
@@ -113,7 +108,10 @@ fn updated_snapshots_report_reuse_and_invalidation() {
 
 #[test]
 fn profile_reports_round_trip_through_the_machine_schema() {
-    for mode in [CompilationProfileMode::Summary, CompilationProfileMode::Trace] {
+    for mode in [
+        CompilationProfileMode::Summary,
+        CompilationProfileMode::Trace,
+    ] {
         let request = CompilationRequest::new(
             package_identity(),
             vec![source_input("module test.package;\n", 1)],

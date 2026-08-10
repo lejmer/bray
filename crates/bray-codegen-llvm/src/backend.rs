@@ -94,10 +94,7 @@ impl LlvmCodeGenerator {
         request: CodegenRequest<'_>,
         context: &'context Context,
     ) -> Result<Option<(LlvmTargetMachine, Module<'context>)>, CodegenFailure> {
-        let session = self.session(
-            request.target(),
-            request.options().optimization(),
-        )?;
+        let session = self.session(request.target(), request.options().optimization())?;
 
         let machine = LlvmTargetMachine::create_for_session(&session)?;
 
@@ -281,7 +278,11 @@ fn capabilities() -> Result<BackendCapabilities, CodegenFailure> {
 
     Ok(BackendCapabilities::new(
         revision,
-        [ProductKind::Executable, ProductKind::Library, ProductKind::Test],
+        [
+            ProductKind::Executable,
+            ProductKind::Library,
+            ProductKind::Test,
+        ],
         BackendTargetCapabilities::new(targets),
         BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
         BackendOptimizationCapabilities::new(
@@ -298,10 +299,10 @@ fn capabilities() -> Result<BackendCapabilities, CodegenFailure> {
         ),
         BackendOutputCapabilities::new(
             [
-            BackendArtifactKind::RelocatableObject,
-            BackendArtifactKind::Assembly,
-            BackendArtifactKind::BackendIr,
-            BackendArtifactKind::BackendBitcode,
+                BackendArtifactKind::RelocatableObject,
+                BackendArtifactKind::Assembly,
+                BackendArtifactKind::BackendIr,
+                BackendArtifactKind::BackendBitcode,
             ],
             [DebugInformationMode::None, DebugInformationMode::LineTables],
             [

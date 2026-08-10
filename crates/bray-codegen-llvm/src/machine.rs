@@ -33,9 +33,7 @@ impl LlvmTargetMachine {
         Self::create_for_session(&session)
     }
 
-    pub(crate) fn create_for_session(
-        session: &LlvmBackendSession,
-    ) -> Result<Self, CodegenFailure> {
+    pub(crate) fn create_for_session(session: &LlvmBackendSession) -> Result<Self, CodegenFailure> {
         initialization::initialize();
 
         let target = session.target();
@@ -129,9 +127,7 @@ const fn llvm_optimization_level(level: BrayOptimizationLevel) -> OptimizationLe
     }
 }
 
-pub(crate) fn validate_target_configuration(
-    target: &CodegenTarget,
-) -> Result<(), CodegenFailure> {
+pub(crate) fn validate_target_configuration(target: &CodegenTarget) -> Result<(), CodegenFailure> {
     let triple: Triple = target
         .triple()
         .parse()

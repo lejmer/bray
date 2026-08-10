@@ -86,9 +86,7 @@ pub struct BackendTargetCapabilities {
 
 impl BackendTargetCapabilities {
     /// Creates canonical indivisible target-machine capabilities.
-    pub fn new(
-        configurations: impl IntoIterator<Item = BackendTargetConfiguration>,
-    ) -> Self {
+    pub fn new(configurations: impl IntoIterator<Item = BackendTargetConfiguration>) -> Self {
         Self {
             configurations: sorted_unique_shared_slice(configurations),
         }
@@ -166,7 +164,9 @@ impl BackendRuntimeCapabilities {
         protected_frames: bool,
         executable_hosts: bool,
     ) -> bool {
-        self.abi_versions.iter().any(|provided| provided.supports(abi))
+        self.abi_versions
+            .iter()
+            .any(|provided| provided.supports(abi))
             && (!protected_frames || self.protected_frames)
             && (!executable_hosts || self.executable_hosts)
     }
@@ -201,11 +201,7 @@ impl BackendOptimizationCapabilities {
         &self.size_preferences
     }
 
-    pub(crate) fn supports(
-        &self,
-        level: OptimizationLevel,
-        size: SizePreference,
-    ) -> bool {
+    pub(crate) fn supports(&self, level: OptimizationLevel, size: SizePreference) -> bool {
         self.levels.binary_search(&level).is_ok()
             && self.size_preferences.binary_search(&size).is_ok()
     }
@@ -387,8 +383,8 @@ mod tests {
         BackendTargetConfiguration, ReproducibilityLevel,
     };
     use crate::{
-        AssemblySyntaxKind, BackendArtifactKind, DebugInformationMode,
-        DebugInformationOutputMode, OptimizationLevel, SizePreference,
+        AssemblySyntaxKind, BackendArtifactKind, DebugInformationMode, DebugInformationOutputMode,
+        OptimizationLevel, SizePreference,
     };
 
     #[test]
@@ -407,11 +403,7 @@ mod tests {
                     RelocationModel::Static,
                     CodeModel::Small,
                 ),
-                BackendTargetConfiguration::new(
-                    machine,
-                    RelocationModel::Static,
-                    CodeModel::Small,
-                ),
+                BackendTargetConfiguration::new(machine, RelocationModel::Static, CodeModel::Small),
             ]),
             BackendRuntimeCapabilities::new(
                 [RuntimeAbiVersion::new(1, 0), RuntimeAbiVersion::new(1, 0)],

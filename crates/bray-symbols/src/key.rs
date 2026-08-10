@@ -557,7 +557,11 @@ mod tests {
         let source = source_key(SymbolKind::Function, 4);
 
         assert_eq!(source.package_identity(), Some(&package));
-        assert_eq!(SymbolKey::compiler_known_environment().package_identity(), None);
+
+        assert_eq!(
+            SymbolKey::compiler_known_environment().package_identity(),
+            None
+        );
     }
 
     #[test]

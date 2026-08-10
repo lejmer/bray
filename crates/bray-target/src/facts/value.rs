@@ -88,13 +88,9 @@ impl<'profile> TargetFactValue<'profile> {
             TargetFactKind::CLong => c_scalar(TargetCScalarKind::Long),
             TargetFactKind::CUnsignedLong => c_scalar(TargetCScalarKind::UnsignedLong),
             TargetFactKind::CLongLong => c_scalar(TargetCScalarKind::LongLong),
-            TargetFactKind::CUnsignedLongLong => {
-                c_scalar(TargetCScalarKind::UnsignedLongLong)
-            }
+            TargetFactKind::CUnsignedLongLong => c_scalar(TargetCScalarKind::UnsignedLongLong),
             TargetFactKind::CSize => c_scalar(TargetCScalarKind::Size),
-            TargetFactKind::CPointerDifference => {
-                c_scalar(TargetCScalarKind::PointerDifference)
-            }
+            TargetFactKind::CPointerDifference => c_scalar(TargetCScalarKind::PointerDifference),
             TargetFactKind::CWideChar => c_scalar(TargetCScalarKind::WideChar),
             TargetFactKind::CBool => c_scalar(TargetCScalarKind::Bool),
             TargetFactKind::CFloat => c_scalar(TargetCScalarKind::Float),

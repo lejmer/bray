@@ -83,15 +83,11 @@ pub(crate) fn write_driver_output_error(
         DriverOutputError::Terminal => return Ok(()),
     };
 
-    let diagnostic = Diagnostic::new(
-        DiagnosticId::new(0),
-        diagnostic_kind,
-        SeverityKind::Error,
-    )
-    .with_arg(DiagnosticArg::file_path(path))
-    .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
-        kind,
-    )));
+    let diagnostic = Diagnostic::new(DiagnosticId::new(0), diagnostic_kind, SeverityKind::Error)
+        .with_arg(DiagnosticArg::file_path(path))
+        .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+            kind,
+        )));
 
     write_diagnostics(
         &DiagnosticBag::single(diagnostic),

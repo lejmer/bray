@@ -597,6 +597,5 @@ fn output_contains(output: &Output, required: &str) -> bool {
 }
 
 fn llvm_tool(root: &Path, name: &str) -> PathBuf {
-    bray_tooling::llvm_tool_path(name)
-        .unwrap_or_else(|| bray_llvm_toolchain::tool_path(root, name))
+    bray_tooling::llvm_tool_path(name).unwrap_or_else(|| bray_llvm_toolchain::tool_path(root, name))
 }

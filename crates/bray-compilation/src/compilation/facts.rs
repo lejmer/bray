@@ -254,8 +254,8 @@ impl Compilation {
                 .map(ProductIdentity::name)
                 .or_else(|| {
                     package_interface_export
-                .as_ref()
-                .map(|export| export.identity().product().as_str())
+                        .as_ref()
+                        .map(|export| export.identity().product().as_str())
                 })
                 .unwrap_or_else(|| match options.product_kind() {
                     bray_symbols::ProductKind::Library => "library",
@@ -280,9 +280,9 @@ impl Compilation {
         let mut fact_runtime = FactRuntime::with_profile(worker_budget, profile);
         let profile_session = fact_runtime.profile_session();
 
-        let load_span = profile_session.as_deref().map(|profile| {
-            profile.start(crate::profile::ProfileOperation::CompilationLoad, None)
-        });
+        let load_span = profile_session
+            .as_deref()
+            .map(|profile| profile.start(crate::profile::ProfileOperation::CompilationLoad, None));
 
         let standard_library =
             standard_library_root.map(bray_standard_library::StandardLibraryResolver::new);
@@ -753,8 +753,8 @@ impl Compilation {
         self.state
             .semantic_values
             .get_or_init(SemanticValueStore::try_new)
-        .as_ref()
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+            .as_ref()
+            .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
     fn compiler_known_provider(&self) -> Result<&Arc<CompilerKnownSymbolProvider>, FactQueryError> {
@@ -776,9 +776,9 @@ impl Compilation {
         self.state
             .bound_unit_identities
             .get_or_init(|| BoundUnitIdentityMap::from_syntax(syntax))
-        .as_ref()
-        .map_err(Clone::clone)?
-        .unit_id(key)
+            .as_ref()
+            .map_err(Clone::clone)?
+            .unit_id(key)
     }
 
     /// Returns the loaded source snapshot for `source_id`.

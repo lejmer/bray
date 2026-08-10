@@ -75,12 +75,9 @@ impl Compilation {
                     return Err(CodegenFactError::UnitMismatch(key.clone()));
                 };
 
-                let instance = CodegenInstance::try_new(
-                    instance.clone(),
-                    mir,
-                    dependencies.iter().cloned(),
-                )
-                .map_err(CodegenFactError::InvalidInstance)?;
+                let instance =
+                    CodegenInstance::try_new(instance.clone(), mir, dependencies.iter().cloned())
+                        .map_err(CodegenFactError::InvalidInstance)?;
 
                 Ok(instance)
             })?

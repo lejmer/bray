@@ -835,7 +835,7 @@ mod tests {
             codegen_partition_compatibility(),
             [first, second],
         )
-            .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
+        .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
 
         let fixture = codegen_request();
         let target = fixture.request().target();

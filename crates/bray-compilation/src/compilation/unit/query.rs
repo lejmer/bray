@@ -2673,10 +2673,16 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         assert!(lowered.diagnostics().is_empty(), "{lowered:#?}");
 
-        for name in ["unexported_callback", "misplaced_context", "bray_abi_context"] {
+        for name in [
+            "unexported_callback",
+            "misplaced_context",
+            "bray_abi_context",
+        ] {
             let invalid = compilation
                 .memory_operations(source_function_body_key(&compilation, name))
-                .unwrap_or_else(|error| panic!("invalid callback memory facts must publish: {error:?}"));
+                .unwrap_or_else(|error| {
+                    panic!("invalid callback memory facts must publish: {error:?}")
+                });
 
             assert!(
                 invalid

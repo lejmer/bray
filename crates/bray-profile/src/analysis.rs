@@ -3,8 +3,7 @@ use std::collections::BTreeSet;
 use crate::{
     CompilationProfileMetric, CompilationProfileMetricDescriptor,
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
-    CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics,
-    CompilationProfileReport,
+    CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics, CompilationProfileReport,
 };
 
 /// Aggregate query behavior across one report.
@@ -58,9 +57,7 @@ impl<'profile> CompilationProfileSummary<'profile> {
                     .cross_snapshot_reuses
                     .saturating_add(query.cross_snapshot_reuses);
 
-                totals.invalidations = totals
-                    .invalidations
-                    .saturating_add(query.invalidations);
+                totals.invalidations = totals.invalidations.saturating_add(query.invalidations);
 
                 totals
             },
@@ -270,10 +267,7 @@ impl<'profile> CompilationProfileComparison<'profile> {
     }
 
     /// Returns query changes ranked by descending absolute evaluation-time change.
-    pub fn top_query_changes(
-        self,
-        limit: usize,
-    ) -> Vec<CompilationProfileQueryChange<'profile>> {
+    pub fn top_query_changes(self, limit: usize) -> Vec<CompilationProfileQueryChange<'profile>> {
         let mut changes = query_ids(self.before, self.after)
             .into_iter()
             .filter_map(|id| query_change(self.before, self.after, id))
@@ -402,7 +396,10 @@ fn query_change<'profile>(
 ) -> Option<CompilationProfileQueryChange<'profile>> {
     let before_statistics = before.queries.iter().find(|entry| entry.id == id);
     let after_statistics = after.queries.iter().find(|entry| entry.id == id);
-    let descriptor = after.query_descriptor(id).or_else(|| before.query_descriptor(id))?;
+
+    let descriptor = after
+        .query_descriptor(id)
+        .or_else(|| before.query_descriptor(id))?;
 
     Some(CompilationProfileQueryChange {
         descriptor,
@@ -426,8 +423,16 @@ fn metric_change<'profile>(
 
     Some(CompilationProfileMetricChange {
         descriptor,
-        before: before.metrics.iter().find(|entry| entry.id == id).map_or(0, |entry| entry.value),
-        after: after.metrics.iter().find(|entry| entry.id == id).map_or(0, |entry| entry.value),
+        before: before
+            .metrics
+            .iter()
+            .find(|entry| entry.id == id)
+            .map_or(0, |entry| entry.value),
+        after: after
+            .metrics
+            .iter()
+            .find(|entry| entry.id == id)
+            .map_or(0, |entry| entry.value),
     })
 }
 

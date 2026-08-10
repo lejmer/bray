@@ -118,8 +118,7 @@ pub(super) struct OwnedDigestWire {
 pub(super) fn encode_payload(
     targets: &[StandardLibraryTargetArtifacts],
 ) -> Result<Vec<u8>, StandardLibraryManifestError> {
-    serde_json::to_vec(&payload_wire(targets))
-        .map_err(|_| StandardLibraryManifestError::Malformed)
+    serde_json::to_vec(&payload_wire(targets)).map_err(|_| StandardLibraryManifestError::Malformed)
 }
 
 pub(super) fn encode_published(

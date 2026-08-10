@@ -216,8 +216,7 @@ mod tests {
     use super::{BackendArtifactContribution, BackendArtifactSet, BackendArtifactSetBuildError};
     use crate::test_support::{artifact_content, codegen_request, contribution};
     use crate::{
-        BackendArtifactId, BackendArtifactKind, BackendCapabilityRevision,
-        CodegenRuntimeMetadata,
+        BackendArtifactId, BackendArtifactKind, BackendCapabilityRevision, CodegenRuntimeMetadata,
     };
 
     #[test]

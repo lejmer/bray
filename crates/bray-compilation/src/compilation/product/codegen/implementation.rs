@@ -1218,7 +1218,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"));
 
         let reversed_reachability = compilation
-            .codegen_reachability(roots.clone().into_iter().rev(), None, &target, &cancellation)
+            .codegen_reachability(
+                roots.clone().into_iter().rev(),
+                None,
+                &target,
+                &cancellation,
+            )
             .unwrap_or_else(|error| panic!("reversed reachability must close: {error:?}"));
 
         assert_eq!(reachability.graph(), reversed_reachability.graph());

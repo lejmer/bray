@@ -1,10 +1,10 @@
 use crate::{
-    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation,
-    CompilationProfileCategory, CompilationProfileContext, CompilationProfileDescriptorCatalog,
-    CompilationProfileMetric, CompilationProfileMetricDescriptor, CompilationProfileMode,
+    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation, CompilationProfileCategory,
+    CompilationProfileContext, CompilationProfileDescriptorCatalog, CompilationProfileMetric,
+    CompilationProfileMetricDescriptor, CompilationProfileMode,
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
-    CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics,
-    CompilationProfileReport, CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics, CompilationProfileReport,
+    CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 
 pub(crate) fn report(elapsed_nanoseconds: u64) -> CompilationProfileReport {

@@ -69,7 +69,9 @@ impl Lowerer<'_> {
                         Some(MirOperand::Constant { value, ty }),
                         source,
                     ))
-                } else if let Some(callable) = self.declared_foreign_callable_reference(id, *name)? {
+                } else if let Some(callable) =
+                    self.declared_foreign_callable_reference(id, *name)?
+                {
                     let source = self.source(expression.origin());
 
                     let value = self.push_value_operation(

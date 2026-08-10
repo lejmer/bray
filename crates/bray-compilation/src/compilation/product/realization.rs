@@ -10,8 +10,8 @@ use bray_base::StableDigestHasher;
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
-    CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout, CodegenHelperMapping,
-    CodegenDefinitionVisibility, CodegenIndirectParameterKind, CodegenInstance,
+    CodegenConstantTermMapping, CodegenDebugLocation, CodegenDefinitionVisibility,
+    CodegenFieldLayout, CodegenHelperMapping, CodegenIndirectParameterKind, CodegenInstance,
     CodegenInstanceTypeMapping, CodegenLinkage, CodegenMappings, CodegenOperationMapping,
     CodegenParameterMapping, CodegenPartitionCompatibility, CodegenResultMapping,
     CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
@@ -414,13 +414,12 @@ impl Compilation {
             MirHelperReference::AnonymousCallable(unit) => {
                 self.concrete_codegen_bound_helper(owner, unit.clone())?
             }
-            MirHelperReference::DeclaredCallable(callable) => self
-                .concrete_codegen_callable_data(
-                    owner,
-                    &callable.instance(),
-                    target,
-                    cancellation,
-                )?,
+            MirHelperReference::DeclaredCallable(callable) => self.concrete_codegen_callable_data(
+                owner,
+                &callable.instance(),
+                target,
+                cancellation,
+            )?,
             MirHelperReference::CallableDefault(provider) => {
                 let MirOperationKind::Call(call) = operation else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -2167,11 +2166,8 @@ impl Compilation {
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
         cancellation: &CancellationToken,
     ) -> Result<CodegenPartitionCompatibility, CodegenFactError> {
-        let package = self.codegen_instance_package(
-            instance.key(),
-            product_package,
-            cancellation,
-        )?;
+        let package =
+            self.codegen_instance_package(instance.key(), product_package, cancellation)?;
 
         let (_, linkage) = self.codegen_instance_boundary(instance, roots, cancellation)?;
 
@@ -2187,9 +2183,7 @@ impl Compilation {
         };
 
         Ok(CodegenPartitionCompatibility::new(
-            package,
-            linkage,
-            visibility,
+            package, linkage, visibility,
         ))
     }
 
@@ -2230,11 +2224,13 @@ impl Compilation {
     ) -> Result<PackageIdentity, CodegenFactError> {
         let symbol = match instance.template() {
             // Compatibility metadata owns package identity beyond the semantic-key borrow.
-            MirUnitKey::Bound(key) => return Ok(key
-                .declared_owner()
-                .package_identity()
-                .unwrap_or(product_package)
-                .clone()),
+            MirUnitKey::Bound(key) => {
+                return Ok(key
+                    .declared_owner()
+                    .package_identity()
+                    .unwrap_or(product_package)
+                    .clone());
+            }
             // Compatibility metadata owns package identity beyond the product-key borrow.
             MirUnitKey::ExecutableHost(product) => return Ok(product.package().clone()),
             // Generated lifecycle definitions belong to the selected product package.
@@ -4687,13 +4683,11 @@ fn indirect_parameter_kind(
     target: &CodegenTarget,
 ) -> CodegenIndirectParameterKind {
     if abi != CallableAbi::Bray
-        && (
-            target.profile().machine().architecture() == bray_target::TargetArchitecture::Aarch64
-                || matches!(
-                    bray_target::NativeTarget::for_profile(target.profile()),
-                    Some(bray_target::NativeTarget::X86_64WindowsMsvc)
-                )
-        )
+        && (target.profile().machine().architecture() == bray_target::TargetArchitecture::Aarch64
+            || matches!(
+                bray_target::NativeTarget::for_profile(target.profile()),
+                Some(bray_target::NativeTarget::X86_64WindowsMsvc)
+            ))
     {
         return CodegenIndirectParameterKind::Reference;
     }

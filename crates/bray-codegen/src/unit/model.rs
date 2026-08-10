@@ -189,7 +189,10 @@ impl CodegenUnit {
             return Err(CodegenUnitBuildError::DuplicateInstance);
         }
 
-        let Some(compatibilities) = instances.iter().map(compatibility).collect::<Option<Vec<_>>>()
+        let Some(compatibilities) = instances
+            .iter()
+            .map(compatibility)
+            .collect::<Option<Vec<_>>>()
         else {
             return Err(CodegenUnitBuildError::MissingCompatibility);
         };
@@ -227,9 +230,11 @@ impl CodegenUnit {
                 .map(|instance| Arc::from(instance.dependencies())),
         );
 
-        let estimated_work = instances.iter().fold(CodegenWork::new(0), |work, instance| {
-            work.saturating_add(partition_policy.estimate(instance))
-        });
+        let estimated_work = instances
+            .iter()
+            .fold(CodegenWork::new(0), |work, instance| {
+                work.saturating_add(partition_policy.estimate(instance))
+            });
 
         let oversized = if estimated_work > partition_policy.upper_bound() {
             if !indivisible {
@@ -426,14 +431,14 @@ mod tests {
             codegen_partition_compatibility(),
             [without_storage],
         )
-            .unwrap_or_else(|error| panic!("storage-free unit must validate: {error:?}"));
+        .unwrap_or_else(|error| panic!("storage-free unit must validate: {error:?}"));
 
         let with_storage = CodegenUnit::try_new(
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [with_storage],
         )
-            .unwrap_or_else(|error| panic!("storage-owning unit must validate: {error:?}"));
+        .unwrap_or_else(|error| panic!("storage-owning unit must validate: {error:?}"));
 
         assert_ne!(
             without_storage.key().content_identity(),

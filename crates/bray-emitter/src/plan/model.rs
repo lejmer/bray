@@ -621,16 +621,14 @@ mod tests {
             ))
         );
 
-        let Ok(plan) =
-            EmissionPlan::try_new(
-                request,
-                Some(backend),
-                Some(backend_capability_revision()),
-                [artifact],
-                [backend_request],
-                None,
-            )
-        else {
+        let Ok(plan) = EmissionPlan::try_new(
+            request,
+            Some(backend),
+            Some(backend_capability_revision()),
+            [artifact],
+            [backend_request],
+            None,
+        ) else {
             panic!("matching test backend request must produce a valid plan");
         };
 

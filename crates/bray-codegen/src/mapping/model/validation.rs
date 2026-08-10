@@ -7,9 +7,9 @@ use bray_ir::{
 use bray_symbols::TypeId;
 
 use crate::{
-    CodegenConstantMapping, CodegenInstanceTypeMapping, CodegenLinkage,
-    CodegenOperationMapping, CodegenParameterMapping, CodegenSymbolKey, CodegenSymbolMapping,
-    CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
+    CodegenConstantMapping, CodegenInstanceTypeMapping, CodegenLinkage, CodegenOperationMapping,
+    CodegenParameterMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenTypeKind,
+    CodegenTypeMapping, CodegenUnit,
 };
 
 use super::core::CodegenMappingsBuildError;

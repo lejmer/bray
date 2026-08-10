@@ -130,9 +130,7 @@ impl FactTaskContext {
         }
 
         match state.inputs.insert(key.clone(), fingerprint) {
-            Some(previous) if previous != fingerprint => {
-                Err(FactQueryError::InfrastructureFailure)
-            }
+            Some(previous) if previous != fingerprint => Err(FactQueryError::InfrastructureFailure),
             _ => Ok(()),
         }
     }

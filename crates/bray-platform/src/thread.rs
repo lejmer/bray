@@ -299,7 +299,11 @@ mod tests {
         assert_eq!(current.runtime().id(), id);
 
         drop(current);
-        assert_eq!(current_runtime_thread().map(|runtime| runtime.id()), Some(id));
+
+        assert_eq!(
+            current_runtime_thread().map(|runtime| runtime.id()),
+            Some(id)
+        );
 
         drop(attached);
         assert_eq!(current_runtime_thread(), None);

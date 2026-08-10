@@ -529,10 +529,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 place: self.place()?,
             }),
             18 => Ok(MirOperationKind::Async(self.async_operation()?)),
-            19 => Ok(MirOperationKind::DeclaredCallable(MirCallableReference::new(
-                self.callable_instance()?,
-                self.callable_abi()?,
-            ))),
+            19 => Ok(MirOperationKind::DeclaredCallable(
+                MirCallableReference::new(self.callable_instance()?, self.callable_abi()?),
+            )),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

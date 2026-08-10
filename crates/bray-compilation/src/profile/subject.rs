@@ -77,10 +77,7 @@ const fn subject_kind_code(kind: CompilationProfileSubjectKind) -> u8 {
     }
 }
 
-fn encode_product(
-    encoder: &mut StableSubjectEncoder,
-    product: &bray_symbols::ProductIdentity,
-) {
+fn encode_product(encoder: &mut StableSubjectEncoder, product: &bray_symbols::ProductIdentity) {
     encoder.write_str(product.package().as_str());
     encoder.write_str(product.name());
 }

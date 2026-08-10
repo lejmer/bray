@@ -2,9 +2,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_compilation::{
-    CompilationProfileConfiguration, CompilationProfileMode, WorkerBudget,
-};
+use bray_compilation::{CompilationProfileConfiguration, CompilationProfileMode, WorkerBudget};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
 };

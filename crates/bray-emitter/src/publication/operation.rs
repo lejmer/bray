@@ -1710,8 +1710,7 @@ mod tests {
             )
         });
 
-        let Ok(plan) =
-            EmissionPlan::try_new(request, None, None, planned, [], package_interface)
+        let Ok(plan) = EmissionPlan::try_new(request, None, None, planned, [], package_interface)
         else {
             panic!("test filesystem publication plan must be valid");
         };
@@ -1802,8 +1801,7 @@ mod tests {
             )
         });
 
-        let Ok(plan) =
-            EmissionPlan::try_new(request, None, None, planned, [], package_interface)
+        let Ok(plan) = EmissionPlan::try_new(request, None, None, planned, [], package_interface)
         else {
             panic!("test memory publication plan must be valid");
         };

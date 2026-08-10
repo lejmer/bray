@@ -5,8 +5,9 @@ use std::sync::Arc;
 use bray_base::{StableDigestHasher, shared_slice};
 
 use super::{
-    CodegenInstance, CodegenInstanceDependencyKind, CodegenInstanceKey, CodegenPartitionCompatibility,
-    CodegenPartitionPolicy, CodegenReachability, CodegenUnit, CodegenUnitBuildError, CodegenWork,
+    CodegenInstance, CodegenInstanceDependencyKind, CodegenInstanceKey,
+    CodegenPartitionCompatibility, CodegenPartitionPolicy, CodegenReachability, CodegenUnit,
+    CodegenUnitBuildError, CodegenWork,
 };
 
 /// Partitions a closed reachable graph using deterministic dependency and MIR structure.
@@ -100,7 +101,8 @@ pub fn partition_codegen_units(
         current_work = current_work.saturating_add(group.work);
         current.extend(group.instances.into_iter().cloned());
 
-        if current_work >= policy.lower_bound() && is_content_boundary(policy, group.anchor, group.work)
+        if current_work >= policy.lower_bound()
+            && is_content_boundary(policy, group.anchor, group.work)
         {
             finish_unit(
                 policy,
@@ -280,8 +282,7 @@ fn is_content_boundary(
         anchor[0], anchor[1], anchor[2], anchor[3], anchor[4], anchor[5], anchor[6], anchor[7],
     ]);
 
-    marker % policy.target_work().units()
-        < group_work.units().min(policy.target_work().units())
+    marker % policy.target_work().units() < group_work.units().min(policy.target_work().units())
 }
 
 struct PartitionGroup<'a> {
@@ -301,7 +302,9 @@ impl<'a> PartitionGroup<'a> {
         compatibility: &impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
     ) -> Result<Self, CodegenPartitionError> {
         let Some(&first) = members.first() else {
-            return Err(CodegenPartitionError::InvalidUnit(CodegenUnitBuildError::Empty));
+            return Err(CodegenPartitionError::InvalidUnit(
+                CodegenUnitBuildError::Empty,
+            ));
         };
 
         let first_instance = &instances[first];
@@ -339,7 +342,9 @@ impl<'a> PartitionGroup<'a> {
             compatibilities.push(member_class);
         }
 
-        let homogeneous = compatibilities.iter().all(|compatibility| compatibility == &class);
+        let homogeneous = compatibilities
+            .iter()
+            .all(|compatibility| compatibility == &class);
 
         Ok(Self {
             compatibility: homogeneous.then_some(class),
@@ -367,7 +372,11 @@ impl<'a> PartitionGroup<'a> {
             // The completed unit owns instance payloads beyond the borrowed reachability graph.
             self.instances.iter().map(|instance| (*instance).clone()),
             // Every recipe entry owns its Arc-backed compatibility identity.
-            |instance| compatibility.get(instance.key()).map(|value| (*value).clone()),
+            |instance| {
+                compatibility
+                    .get(instance.key())
+                    .map(|value| (*value).clone())
+            },
         )
         .map_err(CodegenPartitionError::InvalidUnit)
     }
@@ -440,8 +449,7 @@ mod tests {
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_symbols::PackageIdentity;
     use bray_testing::{
-        test_mir_target, test_mir_unit, test_mir_unit_for_target,
-        test_mir_unit_with_declaration,
+        test_mir_target, test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
     };
 
     use super::partition_codegen_units;
@@ -478,11 +486,9 @@ mod tests {
         let instances: Vec<_> = (0..256).map(partition_test_instance).collect();
         let added = partition_test_instance(10_000);
 
-        let baseline = partitions(
-            locality_policy(),
-            instances.iter().cloned(),
-            |_| compatibility(1, CodegenLinkage::Internal),
-        );
+        let baseline = partitions(locality_policy(), instances.iter().cloned(), |_| {
+            compatibility(1, CodegenLinkage::Internal)
+        });
 
         let updated = partitions(
             locality_policy(),
@@ -543,11 +549,9 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("second instance must validate: {error:?}"));
 
-        let units = partitions(
-            tiny_policy(),
-            [first, second],
-            |_| compatibility(1, CodegenLinkage::Internal),
-        );
+        let units = partitions(tiny_policy(), [first, second], |_| {
+            compatibility(1, CodegenLinkage::Internal)
+        });
 
         assert_eq!(units.len(), 1);
         assert_eq!(units[0].instances().len(), 2);
@@ -641,7 +645,10 @@ mod tests {
             .push_instance(instance)
             .unwrap_or_else(|error| panic!("test instance must publish: {error:?}"));
 
-        assert_eq!(builder.take_frontier().as_ref(), std::slice::from_ref(&external));
+        assert_eq!(
+            builder.take_frontier().as_ref(),
+            std::slice::from_ref(&external)
+        );
 
         builder
             .push_external(external.clone())
@@ -651,25 +658,26 @@ mod tests {
             .finish()
             .unwrap_or_else(|error| panic!("test graph must close: {error:?}"));
 
-        let units = partition_codegen_units(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
-            &graph,
-            |_| Some(compatibility(1, CodegenLinkage::Internal)),
-        )
-        .unwrap_or_else(|error| panic!("external dependency must partition: {error:?}"));
+        let units =
+            partition_codegen_units(CodegenPartitionPolicy::NATIVE_BALANCED, &graph, |_| {
+                Some(compatibility(1, CodegenLinkage::Internal))
+            })
+            .unwrap_or_else(|error| panic!("external dependency must partition: {error:?}"));
 
         assert_eq!(units.len(), 1);
-        assert_eq!(units[0].external_instances(), std::slice::from_ref(&external));
+
+        assert_eq!(
+            units[0].external_instances(),
+            std::slice::from_ref(&external)
+        );
     }
 
     #[test]
     fn target_identity_is_a_partition_boundary() {
         let first_target = test_mir_target();
 
-        let second_target = MirTargetFacts::new(
-            first_target.profile().clone(),
-            RuntimeAbiVersion::new(2, 0),
-        );
+        let second_target =
+            MirTargetFacts::new(first_target.profile().clone(), RuntimeAbiVersion::new(2, 0));
 
         let first = CodegenInstance::non_generic(test_mir_unit_for_target(4, first_target));
         let second = CodegenInstance::non_generic(test_mir_unit_for_target(8, second_target));
@@ -705,11 +713,9 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("second instance must validate: {error:?}"));
 
-        let units = partitions(
-            tiny_policy(),
-            [first, second],
-            |_| compatibility(1, CodegenLinkage::Internal),
-        );
+        let units = partitions(tiny_policy(), [first, second], |_| {
+            compatibility(1, CodegenLinkage::Internal)
+        });
 
         let oversized = units[0]
             .oversized()
@@ -726,11 +732,9 @@ mod tests {
 
     #[test]
     fn oversized_single_definitions_publish_an_exact_reason_and_reconstruct() {
-        let units = partitions(
-            singleton_policy(),
-            [partition_test_instance(1)],
-            |_| compatibility(1, CodegenLinkage::Internal),
-        );
+        let units = partitions(singleton_policy(), [partition_test_instance(1)], |_| {
+            compatibility(1, CodegenLinkage::Internal)
+        });
 
         let oversized = units[0]
             .oversized()
@@ -741,11 +745,9 @@ mod tests {
             CodegenOversizedUnitReason::IndivisibleDefinition
         );
 
-        let reconstructed = crate::CodegenUnit::try_from_key(
-            units[0].key(),
-            units[0].instances().iter().cloned(),
-        )
-        .unwrap_or_else(|error| panic!("oversized unit must reconstruct: {error:?}"));
+        let reconstructed =
+            crate::CodegenUnit::try_from_key(units[0].key(), units[0].instances().iter().cloned())
+                .unwrap_or_else(|error| panic!("oversized unit must reconstruct: {error:?}"));
 
         assert_eq!(reconstructed, units[0]);
     }
@@ -761,9 +763,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test partitions must validate: {error:?}"))
     }
 
-    fn graph(
-        instances: impl IntoIterator<Item = CodegenInstance>,
-    ) -> crate::CodegenReachability {
+    fn graph(instances: impl IntoIterator<Item = CodegenInstance>) -> crate::CodegenReachability {
         let instances: Vec<_> = instances.into_iter().collect();
 
         let mut builder = CodegenReachabilityBuilder::try_new(
@@ -784,18 +784,11 @@ mod tests {
             .unwrap_or_else(|error| panic!("test graph must close: {error:?}"))
     }
 
-    fn compatibility(
-        package: u64,
-        linkage: CodegenLinkage,
-    ) -> CodegenPartitionCompatibility {
+    fn compatibility(package: u64, linkage: CodegenLinkage) -> CodegenPartitionCompatibility {
         let package = PackageIdentity::try_new(format!("test.package.{package}"))
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
-        CodegenPartitionCompatibility::new(
-            package,
-            linkage,
-            CodegenDefinitionVisibility::Product,
-        )
+        CodegenPartitionCompatibility::new(package, linkage, CodegenDefinitionVisibility::Product)
     }
 
     fn tiny_policy() -> CodegenPartitionPolicy {

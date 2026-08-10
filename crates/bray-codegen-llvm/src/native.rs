@@ -51,9 +51,7 @@ pub(crate) fn indirect_result_type<'context>(
             RuntimeAbiRole::RootExecution => Some(root_start_type(context).into()),
             RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
-            | RuntimeAbiRole::RootTerminalObservation => {
-                Some(run_outcome_type(context).into())
-            }
+            | RuntimeAbiRole::RootTerminalObservation => Some(run_outcome_type(context).into()),
             _ => None,
         },
         CodegenSymbolKey::ProtectedFrame { operation, .. } => {
@@ -367,8 +365,7 @@ fn runtime_function_type<'context>(
                     false,
                 ));
             }
-            RuntimeAbiRole::SynchronousRootExecution
-            | RuntimeAbiRole::ForeignCallbackExecution => {
+            RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::ForeignCallbackExecution => {
                 return Some(context.void_type().fn_type(
                     &[
                         pointer.into(),
@@ -415,12 +412,12 @@ fn runtime_function_type<'context>(
         )),
         RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::ForeignCallbackExecution => {
             Some(run_outcome_type(context).fn_type(
-            &[
-                context.ptr_type(AddressSpace::default()).into(),
-                pointer_integer_type(context, target).into(),
-            ],
-            false,
-        ))
+                &[
+                    context.ptr_type(AddressSpace::default()).into(),
+                    pointer_integer_type(context, target).into(),
+                ],
+                false,
+            ))
         }
         RuntimeAbiRole::RootCancellationRequest => Some(
             context

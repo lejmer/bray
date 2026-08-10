@@ -3,8 +3,7 @@ use bray_symbols::ProductKind;
 
 use crate::{
     BackendArtifactRequest, BackendCapabilityRevision, BackendIdentity, CodegenMappings,
-    CodegenOptions, CodegenTarget, CodegenUnit, DebugInformationMode,
-    DebugInformationOutputMode,
+    CodegenOptions, CodegenTarget, CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
 };
 
 /// Borrowed immutable inputs for one complete backend operation.

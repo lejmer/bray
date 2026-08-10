@@ -747,7 +747,7 @@ mod tests {
             bray_codegen::test_support::codegen_partition_compatibility(),
             [mir],
         )
-            .unwrap_or_else(|error| panic!("copy test codegen unit must validate: {error:?}"));
+        .unwrap_or_else(|error| panic!("copy test codegen unit must validate: {error:?}"));
 
         let mappings = composite_mappings(&unit, &target, types, source);
 

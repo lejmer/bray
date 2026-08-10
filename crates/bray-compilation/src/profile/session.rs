@@ -2,21 +2,18 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::ThreadId;
 use std::time::Instant;
 
-use super::descriptor::{
-    ProfileMetricKind, ProfileOperation, ProfileQueryKind, records_trace,
-};
-use bray_profile::{
-    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation,
-    CompilationProfileCategory, CompilationProfileConfiguration, CompilationProfileContext,
-    CompilationProfileDescriptorCatalog, CompilationProfileEvent,
-    CompilationProfileMetric, CompilationProfileMetricDescriptor,
-    CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
-    CompilationProfileOutcome, CompilationProfileQueryDescriptor,
-    CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
-    CompilationProfileTimeBreakdown, CompilationProfileUnit,
-};
+use super::descriptor::{ProfileMetricKind, ProfileOperation, ProfileQueryKind, records_trace};
 use super::subject::{ProfileSubjectRecord, profile_subject};
 use crate::fact::CompilationFactKey;
+use bray_profile::{
+    COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileAggregation, CompilationProfileCategory,
+    CompilationProfileConfiguration, CompilationProfileContext,
+    CompilationProfileDescriptorCatalog, CompilationProfileEvent, CompilationProfileMetric,
+    CompilationProfileMetricDescriptor, CompilationProfileOperationDescriptor,
+    CompilationProfileOperationStatistics, CompilationProfileOutcome,
+    CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics, CompilationProfileReport,
+    CompilationProfileSubject, CompilationProfileTimeBreakdown, CompilationProfileUnit,
+};
 
 #[inline(always)]
 pub(crate) fn profile_operation<T>(
@@ -119,8 +116,7 @@ impl ProfileSession {
     ) -> ProfileSpan<'_> {
         let query = ProfileQueryKind::from_key(key);
 
-        let subject =
-            records_trace(self.configuration.mode()).then(|| profile_subject(query, key));
+        let subject = records_trace(self.configuration.mode()).then(|| profile_subject(query, key));
 
         self.start_with_subject(operation, Some(query), subject)
     }
@@ -188,8 +184,7 @@ impl ProfileSession {
         let mut shard = self.shard();
         let statistics = &mut shard.queries[query.index()];
 
-        statistics.cross_snapshot_reuses =
-            statistics.cross_snapshot_reuses.saturating_add(1);
+        statistics.cross_snapshot_reuses = statistics.cross_snapshot_reuses.saturating_add(1);
     }
 
     pub(crate) fn record_invalidation(&self, query: ProfileQueryKind) {
@@ -271,9 +266,8 @@ impl ProfileSession {
                 ProfileOperation::QueryEvaluation => {
                     statistics.evaluations = statistics.evaluations.saturating_add(1);
 
-                    statistics.evaluation_nanoseconds = statistics
-                        .evaluation_nanoseconds
-                        .saturating_add(duration);
+                    statistics.evaluation_nanoseconds =
+                        statistics.evaluation_nanoseconds.saturating_add(duration);
 
                     if outcome == CompilationProfileOutcome::Completed
                         && let Some(metric) = query.completed_unit_metric()
@@ -410,12 +404,7 @@ struct ProfileAggregate {
 }
 
 impl ProfileAggregate {
-    fn record(
-        &mut self,
-        duration: u64,
-        self_nanoseconds: u64,
-        outcome: CompilationProfileOutcome,
-    ) {
+    fn record(&mut self, duration: u64, self_nanoseconds: u64, outcome: CompilationProfileOutcome) {
         self.executions = self.executions.saturating_add(1);
         self.total_nanoseconds = self.total_nanoseconds.saturating_add(duration);
         self.self_nanoseconds = self.self_nanoseconds.saturating_add(self_nanoseconds);
@@ -442,9 +431,7 @@ impl ProfileAggregate {
             .total_nanoseconds
             .saturating_add(other.total_nanoseconds);
 
-        self.self_nanoseconds = self
-            .self_nanoseconds
-            .saturating_add(other.self_nanoseconds);
+        self.self_nanoseconds = self.self_nanoseconds.saturating_add(other.self_nanoseconds);
 
         self.maximum_nanoseconds = self.maximum_nanoseconds.max(other.maximum_nanoseconds);
     }
@@ -532,7 +519,9 @@ impl ProfileShard {
 }
 
 fn available_shard(shard: &Mutex<ProfileShard>) -> MutexGuard<'_, ProfileShard> {
-    shard.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    shard
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn finish_active_span(
@@ -594,17 +583,19 @@ fn operation_reports(
         .into_iter()
         .zip(aggregates)
         .filter(|(_, aggregate)| aggregate.executions > 0)
-        .map(|(operation, aggregate)| CompilationProfileOperationStatistics {
-            id: operation.id(),
-            executions: aggregate.executions,
-            completed: aggregate.completed,
-            failed: aggregate.failed,
-            cancelled: aggregate.cancelled,
-            abandoned: aggregate.abandoned,
-            total_nanoseconds: aggregate.total_nanoseconds,
-            self_nanoseconds: aggregate.self_nanoseconds,
-            maximum_nanoseconds: aggregate.maximum_nanoseconds,
-        })
+        .map(
+            |(operation, aggregate)| CompilationProfileOperationStatistics {
+                id: operation.id(),
+                executions: aggregate.executions,
+                completed: aggregate.completed,
+                failed: aggregate.failed,
+                cancelled: aggregate.cancelled,
+                abandoned: aggregate.abandoned,
+                total_nanoseconds: aggregate.total_nanoseconds,
+                self_nanoseconds: aggregate.self_nanoseconds,
+                maximum_nanoseconds: aggregate.maximum_nanoseconds,
+            },
+        )
         .collect()
 }
 

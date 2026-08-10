@@ -103,10 +103,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let slice = self.operand(slice)?.into_struct_value();
 
-        llvm(
-            self.builder
-                .build_extract_value(slice, 1, "slice.length"),
-        )
+        llvm(self.builder.build_extract_value(slice, 1, "slice.length"))
     }
 
     pub(super) fn translate_byte_buffer_fill(

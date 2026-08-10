@@ -681,8 +681,7 @@ mod tests {
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
         MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
-        RuntimeDefaultTemplateReference, SymbolKey, SymbolKind, SymbolName,
-        TypeExpressionTemplate,
+        RuntimeDefaultTemplateReference, SymbolKey, SymbolKind, SymbolName, TypeExpressionTemplate,
     };
     use bray_testing::test_source_inputs;
 
@@ -1319,10 +1318,7 @@ mod tests {
         let bundle = export(&compilation);
 
         assert_eq!(
-            bundle
-                .semantic_facts()
-                .callable_parameter_defaults()
-                .len(),
+            bundle.semantic_facts().callable_parameter_defaults().len(),
             1
         );
     }

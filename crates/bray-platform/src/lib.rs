@@ -40,6 +40,5 @@ pub use process::{
 };
 pub use thread::{
     NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry, RuntimeThreadId,
-    RuntimeThreadScope,
-    current_runtime_thread,
+    RuntimeThreadScope, current_runtime_thread,
 };

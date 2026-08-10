@@ -4,8 +4,8 @@ use std::process::Command;
 
 use bray_base::NonEmptySharedStr;
 use bray_compilation::{
-    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-    SelectedTarget, WorkerBudget,
+    Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput, SelectedTarget,
+    WorkerBudget,
 };
 use bray_diagnostics::DiagnosticKind;
 use bray_linker::{LinkSearchPath, LinkSearchPathKind};
@@ -43,7 +43,12 @@ pub(super) fn audit(
 
     emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
 
-    let executable = output.join(output_name(target, TargetOutputKind::Executable, FIXTURE_PRODUCT)?);
+    let executable = output.join(output_name(
+        target,
+        TargetOutputKind::Executable,
+        FIXTURE_PRODUCT,
+    )?);
+
     let mut command = Command::new(&executable);
 
     command.current_dir(&output);
@@ -126,11 +131,8 @@ fn audit_target_modules(root: &Path) -> Result<(), BuildError> {
             target_module_audit(target),
         );
 
-        let options = CompilationOptions::new(
-            WorkerBudget::default(),
-            ProductKind::Library,
-            selected,
-        );
+        let options =
+            CompilationOptions::new(WorkerBudget::default(), ProductKind::Library, selected);
 
         let request = CompilationRequest::with_options(package, vec![source], options)
             .with_dependency_interfaces([dependency]);
@@ -152,9 +154,7 @@ fn audit_target_modules(root: &Path) -> Result<(), BuildError> {
         if diagnostics.len() != 2 || unresolved != 2 {
             return Err(BuildError::conformance(
                 "foreign interoperability target modules",
-                format!(
-                    "{target:?} did not accept only its selected OS module: {diagnostics:?}"
-                ),
+                format!("{target:?} did not accept only its selected OS module: {diagnostics:?}"),
             ));
         }
     }
@@ -168,7 +168,12 @@ fn build_native_fixture(
     target: NativeTarget,
 ) -> Result<NativeFixture, BuildError> {
     let source = root.join("xtask/fixtures/foreign-interoperability.c");
-    let object = output.join(if cfg!(windows) { "fixture.obj" } else { "fixture.o" });
+
+    let object = output.join(if cfg!(windows) {
+        "fixture.obj"
+    } else {
+        "fixture.o"
+    });
 
     let archive = output.join(output_name(
         target,
@@ -185,7 +190,11 @@ fn build_native_fixture(
     let clang = native_tool("clang")?;
     let mut compile = Command::new(&clang);
 
-    compile.args(["-std=c11", "-O2", "-c"]).arg(&source).arg("-o").arg(&object);
+    compile
+        .args(["-std=c11", "-O2", "-c"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&object);
 
     if !cfg!(windows) {
         compile.args(["-fPIC", "-pthread"]);
@@ -196,7 +205,11 @@ fn build_native_fixture(
 
     let mut shared_command = Command::new(clang);
 
-    shared_command.arg("-shared").arg(&object).arg("-o").arg(&shared);
+    shared_command
+        .arg("-shared")
+        .arg(&object)
+        .arg("-o")
+        .arg(&shared);
 
     if !cfg!(windows) {
         shared_command.arg("-pthread");
@@ -213,8 +226,11 @@ fn build_native_fixture(
 
     archive_command.args(["rcs"]).arg(&archive).arg(&object);
 
-    crate::command::require_success(archive_command, "archiving foreign interoperability fixture")
-        .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
+    crate::command::require_success(
+        archive_command,
+        "archiving foreign interoperability fixture",
+    )
+    .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
 
     Ok(NativeFixture { shared })
 }
@@ -235,8 +251,8 @@ fn emit_fixture(
         .replace("__SHARED_LIBRARY_PATH__", &bray_path(&fixture.shared))
         .replace("__TARGET_HANDLE_AUDIT__", &target_handle_audit);
 
-    let package = PackageIdentity::try_new("bray.interoperability")
-        .ok_or(BuildError::InvalidIdentity)?;
+    let package =
+        PackageIdentity::try_new("bray.interoperability").ok_or(BuildError::InvalidIdentity)?;
 
     let product = ProductIdentity::try_new(package.clone(), FIXTURE_PRODUCT)
         .ok_or(BuildError::InvalidIdentity)?;
@@ -252,20 +268,27 @@ fn emit_fixture(
     )
     .with_native_link_inputs([native_link]);
 
-    let standard_library = StandardLibraryRoot::try_new(
-        toolchain.join("lib").join("bray").join("standard-library"),
-    )
-    .ok_or_else(|| {
-        BuildError::conformance("foreign interoperability", "invalid standard-library root")
-    })?;
+    let standard_library =
+        StandardLibraryRoot::try_new(toolchain.join("lib").join("bray").join("standard-library"))
+            .ok_or_else(|| {
+            BuildError::conformance("foreign interoperability", "invalid standard-library root")
+        })?;
 
-    let source = SourceInput::virtual_text(SourceIdentity::new(1), "foreign-interoperability.bray", 1, source);
+    let source = SourceInput::virtual_text(
+        SourceIdentity::new(1),
+        "foreign-interoperability.bray",
+        1,
+        source,
+    );
 
     let request = CompilationRequest::with_options(package, vec![source], options)
         .with_standard_library_root(standard_library);
 
     let compilation = load_llvm_compilation(request).ok_or_else(|| {
-        BuildError::conformance("foreign interoperability", "LLVM compiler backend is unavailable")
+        BuildError::conformance(
+            "foreign interoperability",
+            "LLVM compiler backend is unavailable",
+        )
     })?;
 
     let product_kind = compilation
@@ -281,8 +304,13 @@ fn emit_fixture(
         ));
     }
 
-    let search_path = LinkSearchPath::try_new(LinkSearchPathKind::Library, output)
-        .map_err(|error| BuildError::conformance("foreign interoperability", format!("invalid library search path: {error:?}")))?;
+    let search_path =
+        LinkSearchPath::try_new(LinkSearchPathKind::Library, output).map_err(|error| {
+            BuildError::conformance(
+                "foreign interoperability",
+                format!("invalid library search path: {error:?}"),
+            )
+        })?;
 
     crate::native_product::emit_executable(
         compilation,

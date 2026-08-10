@@ -5,9 +5,7 @@ use bray_symbols::{ImportedInterfaceId, NativeLinkRequirement, PackageIdentity, 
 
 use super::Compilation;
 use crate::fact::{CompilationInputKey, CompilationInputs};
-use crate::request::{
-    CompilationOptions, DependencyInterfaceInput, PackageInterfaceExportRequest,
-};
+use crate::request::{CompilationOptions, DependencyInterfaceInput, PackageInterfaceExportRequest};
 
 pub(super) fn compilation_inputs(
     package_identity: &PackageIdentity,
@@ -76,10 +74,7 @@ fn insert_source_inputs(
     inputs.insert(CompilationInputKey::SourceSet, &source_set);
 
     for source in sources.iter() {
-        inputs.insert(
-            CompilationInputKey::Source(source.source_id()),
-            source,
-        );
+        inputs.insert(CompilationInputKey::Source(source.source_id()), source);
     }
 
     inputs.insert(CompilationInputKey::SourceDiagnostics, source_diagnostics);
@@ -237,18 +232,14 @@ impl Compilation {
     ) -> Option<&DependencyInterfaceInput> {
         self.record_input(CompilationInputKey::DependencyInterface(interface));
 
-        self.state
-            .dependency_interfaces
-            .get(interface.to_index()?)
+        self.state.dependency_interfaces.get(interface.to_index()?)
     }
 
     pub(super) fn record_dependency_implementation(&self, interface: ImportedInterfaceId) {
         self.record_input(CompilationInputKey::DependencyImplementation(interface));
     }
 
-    pub(super) fn platform_services(
-        &self,
-    ) -> &[bray_runtime_interface::PlatformServiceBinding] {
+    pub(super) fn platform_services(&self) -> &[bray_runtime_interface::PlatformServiceBinding] {
         self.record_input(CompilationInputKey::PlatformServices);
 
         &self.state.platform_services

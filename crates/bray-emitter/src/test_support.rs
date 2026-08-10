@@ -157,9 +157,14 @@ pub(crate) fn emission_plan() -> EmissionPlan {
         PlannedArtifactDestination::Publish(OutputSink::Filesystem("application.brayi".into())),
     );
 
-    let Ok(plan) =
-        EmissionPlan::try_new(request, None, None, [artifact], [], Some(interface_artifact()))
-    else {
+    let Ok(plan) = EmissionPlan::try_new(
+        request,
+        None,
+        None,
+        [artifact],
+        [],
+        Some(interface_artifact()),
+    ) else {
         panic!("test emission plan must be valid");
     };
 

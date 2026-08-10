@@ -189,7 +189,12 @@ mod tests {
 
         assert!(compared.diagnostics().is_empty());
         assert!(compared.stdout().contains("+500.000 us (+50.0%)"));
-        assert!(compared.stdout().contains("Largest query evaluation-time changes"));
+
+        assert!(
+            compared
+                .stdout()
+                .contains("Largest query evaluation-time changes")
+        );
     }
 
     #[test]
