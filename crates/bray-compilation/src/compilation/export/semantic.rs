@@ -232,11 +232,14 @@ fn executable_templates(
             return Err(PackageInterfaceExportError::InvalidCompilation);
         };
 
-        let (family_templates, family_requirements) =
+        let (family_templates, family_requirement) =
             export_executable_template_family(compilation, owner, root, export)?;
 
         templates.extend(family_templates);
-        runtime_requirements.extend(family_requirements);
+
+        if let Some(requirement) = family_requirement {
+            runtime_requirements.push(requirement);
+        }
     }
 
     runtime_requirements.sort_unstable();
@@ -252,7 +255,7 @@ fn export_executable_template_family(
 ) -> Result<
     (
         Vec<InterfaceExecutableTemplate>,
-        Vec<InterfaceRuntimeRequirement>,
+        Option<InterfaceRuntimeRequirement>,
     ),
     PackageInterfaceExportError,
 > {
@@ -280,7 +283,8 @@ fn export_executable_template_family(
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
     let mut templates = Vec::with_capacity(family.len());
-    let mut runtime_requirements = Vec::new();
+    let mut family_requirements = Vec::new();
+    let mut frames = BTreeSet::new();
 
     for key in family {
         let identity = identities
@@ -321,11 +325,11 @@ fn export_executable_template_family(
                 [],
             );
 
-            runtime_requirements.push(InterfaceRuntimeRequirement::new(
-                InterfaceSymbolReference::Local(owner),
-                frame.map(bray_ir::MirFrameDescriptor::frame),
-                requirements,
-            ));
+            family_requirements.push(requirements);
+
+            if let Some(frame) = frame {
+                frames.insert(frame.frame());
+            }
         }
 
         let mut context = ExecutableTemplateExporter::new(export, &identities);
@@ -344,7 +348,19 @@ fn export_executable_template_family(
         templates.push(template);
     }
 
-    Ok((templates, runtime_requirements))
+    let runtime_requirement = bray_runtime_interface::RuntimeRequirements::try_merge(
+        family_requirements,
+    )
+    .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+    .map(|requirements| {
+        InterfaceRuntimeRequirement::new(
+            InterfaceSymbolReference::Local(owner),
+            frames,
+            requirements,
+        )
+    });
+
+    Ok((templates, runtime_requirement))
 }
 
 fn executable_template_family(

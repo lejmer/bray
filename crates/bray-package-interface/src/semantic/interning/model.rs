@@ -277,7 +277,7 @@ pub struct ImportedAbiDependency {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedRuntimeRequirement {
     pub(super) owner: AnySymbolId,
-    pub(super) frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
+    pub(super) frames: Arc<[bray_runtime_interface::ProtectedAsyncFrameId]>,
     pub(super) requirements: bray_runtime_interface::RuntimeRequirements,
 }
 
@@ -287,9 +287,9 @@ impl ImportedRuntimeRequirement {
         self.owner
     }
 
-    /// Returns the hidden protected-frame identity when one is exported.
-    pub const fn frame(&self) -> Option<bray_runtime_interface::ProtectedAsyncFrameId> {
-        self.frame
+    /// Returns the hidden protected-frame identities in canonical order.
+    pub fn frames(&self) -> &[bray_runtime_interface::ProtectedAsyncFrameId] {
+        &self.frames
     }
 
     /// Returns target-specific private runtime requirements.

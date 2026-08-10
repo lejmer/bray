@@ -703,10 +703,10 @@ mod tests {
         LinkerDriverKind,
     };
     use bray_package_interface::{
-        InterfaceExecutableTemplate, InterfaceLanguageRevision, InterfaceProductIdentity,
-        InterfaceProductKind, InterfaceValidationLimits, InterfaceValidationPolicy,
-        PackageImplementationArtifact, PackageInterfaceIdentity, ValidatedPackageInterface,
-        encode_package_interface,
+        ImportedSemanticFact, InterfaceExecutableTemplate, InterfaceLanguageRevision,
+        InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticFactKind,
+        InterfaceValidationLimits, InterfaceValidationPolicy, PackageImplementationArtifact,
+        PackageInterfaceIdentity, ValidatedPackageInterface, encode_package_interface,
     };
     use bray_runtime_interface::{
         BinarySymbolName, ExecutableEntryResult, ExecutableHostContractBuildError,
@@ -734,7 +734,7 @@ mod tests {
     use crate::compilation::CodegenFactError;
     use crate::{
         CancellationToken, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
-        PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
+        ImportedSemanticFactKey, PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
     };
 
     const CONCRETE_GENERIC_SOURCE: &str = concat!(
@@ -1670,6 +1670,70 @@ mod tests {
     }
 
     #[test]
+    fn imported_generic_template_families_merge_protected_frame_requirements() {
+        let compilation = async_generic_consumer(generic_async_dependency());
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let address = imported_nested_template_address(&compilation).symbol();
+
+        let runtime = compilation
+            .imported_semantic_fact_result(ImportedSemanticFactKey::new(
+                address.interface(),
+                address.symbol(),
+                InterfaceSemanticFactKind::Runtime,
+            ))
+            .unwrap_or_else(|error| panic!("runtime requirement must resolve: {error:?}"));
+
+        let [ImportedSemanticFact::Runtime(runtime)] = runtime.value().as_ref() else {
+            panic!("generic callable must import one family runtime requirement");
+        };
+
+        assert_eq!(runtime.frames().len(), 2);
+        assert!(runtime.requirements().frame_abi().is_some());
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("consumer target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("consumer product facts must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(
+                semantic.value(),
+                None,
+                &target,
+                &compilation.state.cancellation,
+            )
+            .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
+
+        let reachability = compilation
+            .codegen_reachability(roots, None, &target, &compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("consumer reachability must close: {error:?}"));
+
+        let frames = reachability
+            .graph()
+            .instances()
+            .iter()
+            .filter(|instance| {
+                matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+            })
+            .filter_map(|instance| instance.mir().frame_descriptor())
+            .map(bray_ir::MirFrameDescriptor::frame)
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(frames.iter().copied().collect::<Vec<_>>(), runtime.frames());
+    }
+
+    #[test]
     fn imported_generic_templates_are_shared_by_concurrent_requests() {
         let compilation = generic_consumer(generic_dependency(true));
         let address = imported_nested_template_address(&compilation);
@@ -2538,29 +2602,105 @@ mod tests {
             .collect()
     }
 
+    const GENERIC_CONSUMER_SOURCE: &str = concat!(
+        "module application;\n",
+        "\n",
+        "using example.dependency.templates.identity;\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    let value: i32 = example.dependency.templates.identity<i32>(1);\n",
+        "}\n",
+    );
+
+    const ASYNC_GENERIC_CONSUMER_SOURCE: &str = concat!(
+        "module application;\n",
+        "\n",
+        "using example.dependency.templates.identity;\n",
+        "\n",
+        "async func main()\n",
+        "{\n",
+        "    let value: i32 = await example.dependency.templates.identity<i32>(1);\n",
+        "}\n",
+    );
+
+    #[derive(Clone, Copy)]
+    struct GenericDependencyFixture {
+        source: &'static str,
+        runtime_frames: Option<usize>,
+    }
+
+    const GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
+        source: concat!(
+            "module templates;\n",
+            "\n",
+            "func helper<T>(pos value: T) -> T\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "\n",
+            "public func identity<T>(pos value: T) -> T\n",
+            "{\n",
+            "    let invoke = lambda(pos item: T) -> T\n",
+            "    {\n",
+            "        return helper<T>(item);\n",
+            "    };\n",
+            "\n",
+            "    return invoke(value);\n",
+            "}\n",
+        ),
+        runtime_frames: None,
+    };
+
+    const ASYNC_GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
+        source: concat!(
+            "module templates;\n",
+            "\n",
+            "func helper<T>(pos value: T) -> T\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "\n",
+            "public async func identity<T>(pos value: T) -> T\n",
+            "{\n",
+            "    let invoke = async lambda(pos item: T) -> T\n",
+            "    {\n",
+            "        return helper<T>(item);\n",
+            "    };\n",
+            "\n",
+            "    return await invoke(value);\n",
+            "}\n",
+        ),
+        runtime_frames: Some(2),
+    };
+
     fn generic_consumer(dependency: DependencyInterfaceInput) -> crate::Compilation {
         generic_consumer_for_target(dependency, SelectedTarget::baseline())
+    }
+
+    fn async_generic_consumer(dependency: DependencyInterfaceInput) -> crate::Compilation {
+        generic_consumer_for_target_with_source(
+            dependency,
+            SelectedTarget::baseline(),
+            ASYNC_GENERIC_CONSUMER_SOURCE,
+        )
     }
 
     fn generic_consumer_for_target(
         dependency: DependencyInterfaceInput,
         target: SelectedTarget,
     ) -> crate::Compilation {
+        generic_consumer_for_target_with_source(dependency, target, GENERIC_CONSUMER_SOURCE)
+    }
+
+    fn generic_consumer_for_target_with_source(
+        dependency: DependencyInterfaceInput,
+        target: SelectedTarget,
+        source: &str,
+    ) -> crate::Compilation {
         let request = CompilationRequest::with_options(
             crate::test_support::package_identity(),
-            vec![crate::test_support::source_input(
-                concat!(
-                    "module application;\n",
-                    "\n",
-                    "using example.dependency.templates.identity;\n",
-                    "\n",
-                    "func main()\n",
-                    "{\n",
-                    "    let value: i32 = example.dependency.templates.identity<i32>(1);\n",
-                    "}\n",
-                ),
-                0,
-            )],
+            vec![crate::test_support::source_input(source, 0)],
             CompilationOptions::new(WorkerBudget::serial(), ProductKind::Executable, target),
         )
         .with_dependency_interfaces([dependency]);
@@ -2573,9 +2713,25 @@ mod tests {
         generic_dependency_with_templates(include_implementation, false)
     }
 
+    fn generic_async_dependency() -> DependencyInterfaceInput {
+        generic_dependency_from_fixture(true, false, ASYNC_GENERIC_DEPENDENCY)
+    }
+
     fn generic_dependency_with_templates(
         include_implementation: bool,
         malformed_templates: bool,
+    ) -> DependencyInterfaceInput {
+        generic_dependency_from_fixture(
+            include_implementation,
+            malformed_templates,
+            GENERIC_DEPENDENCY,
+        )
+    }
+
+    fn generic_dependency_from_fixture(
+        include_implementation: bool,
+        malformed_templates: bool,
+        fixture: GenericDependencyFixture,
     ) -> DependencyInterfaceInput {
         let package = bray_symbols::PackageIdentity::try_new("example.dependency")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
@@ -2597,27 +2753,7 @@ mod tests {
 
         let request = CompilationRequest::with_options(
             package.clone(),
-            vec![crate::test_support::source_input(
-                concat!(
-                    "module templates;\n",
-                    "\n",
-                    "func helper<T>(pos value: T) -> T\n",
-                    "{\n",
-                    "    return value;\n",
-                    "}\n",
-                    "\n",
-                    "public func identity<T>(pos value: T) -> T\n",
-                    "{\n",
-                    "    let invoke = lambda(pos item: T) -> T\n",
-                    "    {\n",
-                    "        return helper<T>(item);\n",
-                    "    };\n",
-                    "\n",
-                    "    return invoke(value);\n",
-                    "}\n",
-                ),
-                0,
-            )],
+            vec![crate::test_support::source_input(fixture.source, 0)],
             CompilationOptions::new(
                 WorkerBudget::serial(),
                 ProductKind::Library,
@@ -2639,6 +2775,18 @@ mod tests {
             .package_interface_export_bundle()
             .and_then(|result| result.as_ref().ok())
             .unwrap_or_else(|| panic!("dependency interface bundle must build"));
+
+        match fixture.runtime_frames {
+            Some(expected) => {
+                let [runtime] = bundle.semantic_facts().runtime_requirements() else {
+                    panic!("generic callable family must publish one runtime requirement");
+                };
+
+                assert_eq!(runtime.frames().len(), expected);
+                assert!(runtime.requirements().capabilities().is_empty());
+            }
+            None => assert!(bundle.semantic_facts().runtime_requirements().is_empty()),
+        }
 
         let interface = encode_package_interface(bundle)
             .unwrap_or_else(|error| panic!("dependency interface must encode: {error:?}"));

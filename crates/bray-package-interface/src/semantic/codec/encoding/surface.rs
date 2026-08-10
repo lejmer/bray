@@ -88,7 +88,11 @@ pub(super) fn encode_target_dependencies(facts: &InterfaceSemanticFacts) -> Enco
         &facts.runtime_requirements,
         |encoder, requirement| {
             write_symbol_reference(encoder, requirement.owner());
-            write_optional_frame(encoder, requirement.frame());
+            write_count(encoder, requirement.frames().len());
+
+            for frame in requirement.frames() {
+                encoder.write_bytes(&frame.digest());
+            }
 
             let requirements = requirement.requirements();
 
@@ -120,19 +124,6 @@ pub(super) fn encode_target_dependencies(facts: &InterfaceSemanticFacts) -> Enco
             + facts.runtime_requirements.len(),
         encoder,
     )
-}
-
-fn write_optional_frame(
-    encoder: &mut WireEncoder,
-    frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
-) {
-    match frame {
-        Some(frame) => {
-            encoder.write_u32(1);
-            encoder.write_bytes(&frame.digest());
-        }
-        None => encoder.write_u32(0),
-    }
 }
 
 fn write_version(encoder: &mut WireEncoder, version: RuntimeAbiVersion) {

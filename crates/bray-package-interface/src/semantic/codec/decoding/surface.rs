@@ -215,7 +215,7 @@ pub(super) fn decode_runtime_record(
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceRuntimeRequirement, InterfaceValidationError> {
     let owner = read_symbol_reference(reader, context)?;
-    let frame = read_optional_frame(reader)?;
+    let frames = read_frames(reader, limits, context)?;
 
     let abi_version = read_version(reader)?;
 
@@ -241,7 +241,7 @@ pub(super) fn decode_runtime_record(
 
     Ok(InterfaceRuntimeRequirement::new(
         owner,
-        frame,
+        frames,
         RuntimeRequirements::new(
             None,
             abi_version,
@@ -255,17 +255,28 @@ pub(super) fn decode_runtime_record(
     ))
 }
 
-fn read_optional_frame(
+fn read_frames(
     reader: &mut WireReader<'_>,
-) -> Result<Option<ProtectedAsyncFrameId>, InterfaceValidationError> {
-    if !read_presence(reader)? {
-        return Ok(None);
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<Vec<ProtectedAsyncFrameId>, InterfaceValidationError> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut frames = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        let bytes = reader.read_bytes(32).map_err(map_wire_error)?;
+
+        let digest =
+            <[u8; 32]>::try_from(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
+
+        frames.push(ProtectedAsyncFrameId::new(digest));
     }
 
-    let bytes = reader.read_bytes(32).map_err(map_wire_error)?;
-    let digest = <[u8; 32]>::try_from(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
+    if !frames.windows(2).all(|pair| pair[0] < pair[1]) {
+        return Err(InterfaceValidationError::Malformed);
+    }
 
-    Ok(Some(ProtectedAsyncFrameId::new(digest)))
+    Ok(frames)
 }
 
 fn read_presence(reader: &mut WireReader<'_>) -> Result<bool, InterfaceValidationError> {
