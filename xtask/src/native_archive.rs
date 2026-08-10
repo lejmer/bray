@@ -42,6 +42,7 @@ pub(crate) fn build_rust_static_library(
         target.as_str(),
         "--profile",
         profile,
+        "--no-default-features",
         "--target-dir",
     ]);
 

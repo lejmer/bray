@@ -475,7 +475,6 @@ dependencies = [
 name = "bray-platform"
 version = "0.0.0"
 dependencies = [
- "bray-base",
  "getrandom",
  "memmap2",
  "mio",
@@ -563,9 +562,6 @@ dependencies = [
 [[package]]
 name = "bray-runtime-model"
 version = "0.0.0"
-dependencies = [
- "bray-base",
-]
 
 [[package]]
 name = "bray-source"

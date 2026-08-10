@@ -3,8 +3,6 @@ use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use bray_base::{shared_slice, sorted_unique_shared_slice};
-
 use crate::{
     BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
     RuntimeAbiVersion,
@@ -239,9 +237,9 @@ impl ProtectedFrameStateDescriptor {
     ) -> Self {
         Self {
             state,
-            lane_requirements: sorted_unique_shared_slice(lane_requirements),
-            initialized_storage: sorted_unique_shared_slice(initialized_storage),
-            dependencies: sorted_unique_shared_slice(dependencies),
+            lane_requirements: sorted_unique_slice(lane_requirements),
+            initialized_storage: sorted_unique_slice(initialized_storage),
+            dependencies: sorted_unique_slice(dependencies),
             affinity,
         }
     }
@@ -324,7 +322,7 @@ impl ProtectedFrameDescriptor {
             layout,
             completion_layout,
             operations,
-            states: shared_slice(states),
+            states: states.into(),
         })
     }
 
@@ -371,6 +369,14 @@ impl ProtectedFrameDescriptor {
             .get(index)
             .filter(|entry| entry.state() == state)
     }
+}
+
+fn sorted_unique_slice<T: Ord>(values: impl IntoIterator<Item = T>) -> Arc<[T]> {
+    values
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// A malformed protected-frame descriptor.
