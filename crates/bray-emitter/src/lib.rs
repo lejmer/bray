@@ -34,6 +34,7 @@ pub use plan::{
     EmissionPlanner, EmissionPlanningError, PlannedArtifact, PlannedArtifactDestination,
 };
 pub use publication::ArtifactPublisher;
+pub use publication::{PublishedGenerationReadError, resolve_published_artifact};
 pub use request::{
     EmissionRequest, EmissionRequestBuildError, RequestedArtifact, RequestedArtifactDestination,
 };
@@ -41,4 +42,3 @@ pub use sink::{
     IndirectOutputSink, ManagedArtifactPath, OutputSink, OutputSinkId, OutputSinkResolver,
     OutputSinkTransaction, ReplacementPolicy,
 };
-pub use publication::{PublishedGenerationReadError, resolve_published_artifact};

@@ -270,9 +270,9 @@ impl NativePlatformStatus {
 #[cfg(test)]
 mod tests {
     use super::{
-        NativePlatformEnvironmentEntry, NativePlatformEnvironmentList,
-        NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath,
-        NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
+        NativePlatformEnvironmentEntry, NativePlatformEnvironmentList, NativePlatformFileMetadata,
+        NativePlatformFileOptions, NativePlatformPath, NativePlatformSpanList,
+        NativePlatformStatus, NativePlatformText,
     };
 
     #[test]
@@ -324,4 +324,3 @@ mod tests {
         });
     }
 }
-

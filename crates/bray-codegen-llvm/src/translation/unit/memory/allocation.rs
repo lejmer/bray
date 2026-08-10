@@ -251,11 +251,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.module
             .get_function(bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL)
             .unwrap_or_else(|| {
-                self.module.add_function(
-                    bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
-                    ty,
-                    None,
-                )
+                self.module
+                    .add_function(bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL, ty, None)
             })
     }
 

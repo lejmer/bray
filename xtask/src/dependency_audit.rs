@@ -90,12 +90,20 @@ pub(crate) enum DependencyAuditError {
 impl fmt::Display for DependencyAuditError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Cargo(error) => write!(formatter, "could not inspect Cargo dependencies: {error}"),
+            Self::Cargo(error) => {
+                write!(formatter, "could not inspect Cargo dependencies: {error}")
+            }
             Self::CargoFailed(package) => {
-                write!(formatter, "Cargo dependency inspection failed for {package}")
+                write!(
+                    formatter,
+                    "Cargo dependency inspection failed for {package}"
+                )
             }
             Self::NonUtf8Output(package) => {
-                write!(formatter, "Cargo dependency output for {package} is not UTF-8")
+                write!(
+                    formatter,
+                    "Cargo dependency output for {package} is not UTF-8"
+                )
             }
             Self::UnexpectedDependency {
                 package,

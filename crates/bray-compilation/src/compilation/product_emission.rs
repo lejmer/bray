@@ -852,9 +852,7 @@ mod tests {
 
         let first_path = first
             .generation()
-            .and_then(|generation| {
-                generation.artifact_path(first.artifacts().artifacts()[0].id())
-            })
+            .and_then(|generation| generation.artifact_path(first.artifacts().artifacts()[0].id()))
             .unwrap_or_else(|| panic!("first interface generation path must resolve"));
 
         let first_bytes = std::fs::read(first_path)
@@ -866,9 +864,7 @@ mod tests {
 
         let second_path = second
             .generation()
-            .and_then(|generation| {
-                generation.artifact_path(second.artifacts().artifacts()[0].id())
-            })
+            .and_then(|generation| generation.artifact_path(second.artifacts().artifacts()[0].id()))
             .unwrap_or_else(|| panic!("second interface generation path must resolve"));
 
         let second_bytes = std::fs::read(second_path)

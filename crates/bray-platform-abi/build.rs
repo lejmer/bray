@@ -128,17 +128,24 @@ struct ProviderPartition {
 }
 
 fn read_provenance(path: &Path) -> TemporalProvenance {
-    let bytes = fs::read(path)
-        .unwrap_or_else(|error| panic!("could not read temporal provenance {}: {error}", path.display()));
+    let bytes = fs::read(path).unwrap_or_else(|error| {
+        panic!(
+            "could not read temporal provenance {}: {error}",
+            path.display()
+        )
+    });
 
-    serde_json::from_slice(&bytes)
-        .unwrap_or_else(|error| panic!("could not decode temporal provenance {}: {error}", path.display()))
+    serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        panic!(
+            "could not decode temporal provenance {}: {error}",
+            path.display()
+        )
+    })
 }
 
 fn verify_provider(root: &Path, provenance: &ProviderProvenance) {
     assert_eq!(
-        provenance.shared_sources,
-        PROVIDER_SHARED_FILES,
+        provenance.shared_sources, PROVIDER_SHARED_FILES,
         "temporal provider shared-source provenance is not canonical"
     );
 

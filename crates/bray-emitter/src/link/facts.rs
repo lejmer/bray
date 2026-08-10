@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use bray_linker::{
-    BinarySymbolName, LinkInputSpec, LinkPolicy, LinkSearchPath, LinkTarget,
-};
+use bray_linker::{BinarySymbolName, LinkInputSpec, LinkPolicy, LinkSearchPath, LinkTarget};
 use bray_runtime_interface::RuntimeArtifact;
 
 /// Already resolved product, target, and host facts needed for native link planning.

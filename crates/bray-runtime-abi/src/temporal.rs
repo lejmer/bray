@@ -166,8 +166,8 @@ impl NativePlatformTemporalValue {
 #[cfg(test)]
 mod tests {
     use super::{
-        NativePlatformDateTime, NativePlatformTemporalObservation, NativePlatformTemporalResolution,
-        NativePlatformTemporalValue,
+        NativePlatformDateTime, NativePlatformTemporalObservation,
+        NativePlatformTemporalResolution, NativePlatformTemporalValue,
     };
 
     #[test]

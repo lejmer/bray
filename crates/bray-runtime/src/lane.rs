@@ -168,9 +168,7 @@ mod tests {
         ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,
         select_execution_lane,
     };
-    use bray_runtime_model::{
-        ExecutionLaneRequirement, ProtectedFrameAffinity, RuntimeCapability,
-    };
+    use bray_runtime_model::{ExecutionLaneRequirement, ProtectedFrameAffinity, RuntimeCapability};
 
     #[test]
     fn lane_selection_preserves_workload_and_affinity_requirements() {

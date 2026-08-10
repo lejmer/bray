@@ -351,4 +351,3 @@ mod tests {
         NativePlatformDateTime::new(year, month, day, hour, minute, second, nanosecond)
     }
 }
-

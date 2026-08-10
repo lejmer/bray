@@ -101,19 +101,17 @@ mod tests {
             )
             .unwrap_or_else(|| panic!("test driver identity must be valid"));
 
-            let selected = LinkerDriverCapabilities::try_for_system(
-                identity,
-                family,
-                linker_target(&target),
-            );
+            let selected =
+                LinkerDriverCapabilities::try_for_system(identity, family, linker_target(&target));
 
             if expected {
                 let capabilities = selected.unwrap_or_else(|error| {
                     panic!("compatible test capabilities must be valid: {error:?}")
                 });
 
-                assert!(capabilities
-                    .supports_target_product(&target, LinkedProductKind::Executable));
+                assert!(
+                    capabilities.supports_target_product(&target, LinkedProductKind::Executable)
+                );
             } else {
                 assert_eq!(
                     selected,
@@ -131,13 +129,12 @@ mod tests {
             LinkerDriverIdentity::try_new(LinkerDriverKind::System, "test-system-linker", "1", "1")
                 .unwrap_or_else(|| panic!("test driver identity must be valid"));
 
-        let capabilities =
-            LinkerDriverCapabilities::try_for_system(
-                identity,
-                SystemLinkerFamily::Gnu,
-                linker_target(&target),
-            )
-            .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"));
+        let capabilities = LinkerDriverCapabilities::try_for_system(
+            identity,
+            SystemLinkerFamily::Gnu,
+            linker_target(&target),
+        )
+        .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"));
 
         let exact = capabilities.targets()[0]
             .exact_target()

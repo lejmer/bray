@@ -142,14 +142,9 @@ pub fn native_linker(target: NativeTarget) -> Option<Linker> {
             target.object_format(),
         )?;
 
-        let configuration = SystemLinkerConfiguration::try_new(
-            family,
-            linker_target,
-            program,
-            environment,
-            None,
-        )
-        .ok()?;
+        let configuration =
+            SystemLinkerConfiguration::try_new(family, linker_target, program, environment, None)
+                .ok()?;
 
         let system = SystemLinkerDriver::try_new(
             system_identity,

@@ -379,7 +379,6 @@ impl<'host> ArtifactPublisher<'host> {
 
         Ok(digest)
     }
-
 }
 
 pub(super) fn copy_content(
@@ -415,9 +414,9 @@ pub(super) fn copy_content(
             return Err(ArtifactPublicationFailure::Cancelled);
         }
 
-        writer
-            .write_all(&buffer[..read])
-            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Write(error.kind())))?;
+        writer.write_all(&buffer[..read]).map_err(|error| {
+            artifact_failure(planned, PublicationErrorKind::Write(error.kind()))
+        })?;
     }
 
     Ok(())
@@ -1152,7 +1151,13 @@ mod tests {
 
         assert!(outcome.artifacts().artifacts().is_empty());
         assert!(outcome.generation().is_none());
-        assert!(!directory.path().join(".bray/published-generation.json").exists());
+
+        assert!(
+            !directory
+                .path()
+                .join(".bray/published-generation.json")
+                .exists()
+        );
     }
 
     #[test]
@@ -1184,7 +1189,13 @@ mod tests {
         assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
         assert!(outcome.artifacts().artifacts().is_empty());
         assert!(outcome.generation().is_none());
-        assert!(!directory.path().join(".bray/published-generation.json").exists());
+
+        assert!(
+            !directory
+                .path()
+                .join(".bray/published-generation.json")
+                .exists()
+        );
     }
 
     #[test]

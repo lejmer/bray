@@ -506,8 +506,8 @@ mod tests {
         LinkResponseFileCapability, LinkSearchPath, LinkSearchPathKind, LinkStartupMode,
         LinkSubsystem, LinkTarget, LinkedArtifactKind, LinkedProductKind, Linker, LinkerDriver,
         LinkerDriverCapabilities, LinkerDriverIdentity, LinkerDriverKind,
-        LinkerOperationalCapabilities,
-        LinkerTargetCapabilities, SectionGarbageCollectionPolicy, StagingPathKey,
+        LinkerOperationalCapabilities, LinkerTargetCapabilities, SectionGarbageCollectionPolicy,
+        StagingPathKey,
     };
     use bray_runtime_interface::{
         BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeArtifactDigest,
