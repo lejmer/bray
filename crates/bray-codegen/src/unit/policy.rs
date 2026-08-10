@@ -179,6 +179,8 @@ pub enum CodegenPartitionPolicyBuildError {
 /// Why one generated unit exceeds the configured work bound.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CodegenOversizedUnitReason {
+    /// One concrete definition exceeds the configured upper work bound.
+    IndivisibleDefinition,
     /// Dependency co-location made the definitions indivisible.
     IndivisibleDependencyGroup,
 }
@@ -192,9 +194,19 @@ pub struct CodegenOversizedUnit {
 }
 
 impl CodegenOversizedUnit {
-    pub(super) const fn indivisible(work: CodegenWork, upper_bound: CodegenWork) -> Self {
+    pub(super) const fn indivisible(
+        definitions: usize,
+        work: CodegenWork,
+        upper_bound: CodegenWork,
+    ) -> Self {
+        let reason = if definitions == 1 {
+            CodegenOversizedUnitReason::IndivisibleDefinition
+        } else {
+            CodegenOversizedUnitReason::IndivisibleDependencyGroup
+        };
+
         Self {
-            reason: CodegenOversizedUnitReason::IndivisibleDependencyGroup,
+            reason,
             work,
             upper_bound,
         }

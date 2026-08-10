@@ -140,13 +140,24 @@ impl CodegenUnit {
         )
     }
 
-    /// Creates a unit with an exact compatibility class for every concrete definition.
-    pub fn try_from_partitioned_instances(
-        partition_policy: CodegenPartitionPolicy,
+    /// Reconstructs an exact planned unit from its concrete definition payloads.
+    pub fn try_from_key(
+        key: &CodegenUnitKey,
         instances: impl IntoIterator<Item = CodegenInstance>,
-        compatibility: impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
     ) -> Result<Self, CodegenUnitBuildError> {
-        Self::try_from_partition(partition_policy, instances, compatibility, false)
+        let unit = Self::try_from_partition(
+            key.partition_policy(),
+            instances,
+            // The reconstructed recipe owns compatibility independently of the plan key borrow.
+            |instance| key.compatibility(instance.key()).cloned(),
+            key.oversized().is_some(),
+        )?;
+
+        if unit.key() != key {
+            return Err(CodegenUnitBuildError::RecipeMismatch);
+        }
+
+        Ok(unit)
     }
 
     pub(super) fn try_from_indivisible_group(
@@ -226,6 +237,7 @@ impl CodegenUnit {
             }
 
             Some(CodegenOversizedUnit::indivisible(
+                instances.len(),
                 estimated_work,
                 partition_policy.upper_bound(),
             ))
@@ -340,6 +352,8 @@ pub enum CodegenUnitBuildError {
     TargetMismatch,
     /// Divisible membership exceeds the selected policy upper bound.
     WorkBoundExceeded,
+    /// Concrete payloads do not reproduce the supplied structural unit recipe.
+    RecipeMismatch,
 }
 
 #[cfg(test)]

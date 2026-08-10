@@ -82,34 +82,12 @@ impl Compilation {
                 )
                 .map_err(CodegenFactError::InvalidInstance)?;
 
-                let Some(compatibility) = key.compatibility(instance.key()) else {
-                    return Err(CodegenFactError::UnitMismatch(key.clone()));
-                };
-
-                // Reconstruction owns compatibility independently of the plan key borrow.
-                Ok((instance, compatibility.clone()))
+                Ok(instance)
             })?
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Reconstruction lookup owns identities independently of the consumed instance payloads.
-        let compatibility: std::collections::BTreeMap<_, _> = instances
-            .iter()
-            .map(|(instance, compatibility)| (instance.key().clone(), compatibility.clone()))
-            .collect();
-
-        let unit = CodegenUnit::try_from_partitioned_instances(
-            key.partition_policy(),
-            instances.into_iter().map(|(instance, _)| instance),
-            |instance| compatibility.get(instance.key()).cloned(),
-        )
-        .map_err(CodegenFactError::InvalidUnit)?;
-
-        if unit.key() != key {
-            return Err(CodegenFactError::UnitMismatch(key.clone()));
-        }
-
-        Ok(unit)
+        CodegenUnit::try_from_key(key, instances).map_err(CodegenFactError::InvalidUnit)
     }
 
     pub(in crate::compilation) fn codegen_mir_for_plan(

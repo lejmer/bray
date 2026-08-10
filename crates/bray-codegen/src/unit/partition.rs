@@ -447,8 +447,9 @@ mod tests {
     use super::partition_codegen_units;
     use crate::{
         CodegenDefinitionVisibility, CodegenInstance, CodegenInstanceDependency,
-        CodegenInstanceKey, CodegenLinkage, CodegenPartitionCompatibility,
-        CodegenPartitionPolicy, CodegenReachabilityBuilder, CodegenWork,
+        CodegenInstanceKey, CodegenLinkage, CodegenOversizedUnitReason,
+        CodegenPartitionCompatibility, CodegenPartitionPolicy, CodegenReachabilityBuilder,
+        CodegenWork,
     };
 
     #[test]
@@ -716,6 +717,37 @@ mod tests {
 
         assert_eq!(oversized.work(), units[0].estimated_work());
         assert_eq!(oversized.upper_bound(), tiny_policy().upper_bound());
+
+        assert_eq!(
+            oversized.reason(),
+            CodegenOversizedUnitReason::IndivisibleDependencyGroup
+        );
+    }
+
+    #[test]
+    fn oversized_single_definitions_publish_an_exact_reason_and_reconstruct() {
+        let units = partitions(
+            singleton_policy(),
+            [partition_test_instance(1)],
+            |_| compatibility(1, CodegenLinkage::Internal),
+        );
+
+        let oversized = units[0]
+            .oversized()
+            .unwrap_or_else(|| panic!("the single definition must exceed the tiny bound"));
+
+        assert_eq!(
+            oversized.reason(),
+            CodegenOversizedUnitReason::IndivisibleDefinition
+        );
+
+        let reconstructed = crate::CodegenUnit::try_from_key(
+            units[0].key(),
+            units[0].instances().iter().cloned(),
+        )
+        .unwrap_or_else(|error| panic!("oversized unit must reconstruct: {error:?}"));
+
+        assert_eq!(reconstructed, units[0]);
     }
 
     fn partitions(
@@ -788,6 +820,18 @@ mod tests {
             CodegenWork::new(512),
         )
         .unwrap_or_else(|error| panic!("locality policy must validate: {error:?}"))
+    }
+
+    fn singleton_policy() -> CodegenPartitionPolicy {
+        CodegenPartitionPolicy::try_new(
+            9,
+            1,
+            1,
+            CodegenWork::new(1),
+            CodegenWork::new(8),
+            CodegenWork::new(16),
+        )
+        .unwrap_or_else(|error| panic!("singleton policy must validate: {error:?}"))
     }
 
     fn partition_test_instance(ordinal: u32) -> CodegenInstance {
