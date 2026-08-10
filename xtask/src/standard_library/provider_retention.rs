@@ -99,11 +99,16 @@ fn platform_archive(toolchain: &Path, target: NativeTarget) -> Result<ProviderAr
     let artifacts = manifest
         .targets()
         .iter()
-        .find(|artifacts| artifacts.target() == &target.identity() && artifacts.runtime_abi() == abi)
+        .find(|artifacts| {
+            artifacts.target() == &target.identity() && artifacts.runtime_abi() == abi
+        })
         .ok_or_else(|| {
             BuildError::conformance(
                 "native provider retention",
-                format!("standard-library artifacts are unavailable for {}", target.as_str()),
+                format!(
+                    "standard-library artifacts are unavailable for {}",
+                    target.as_str()
+                ),
             )
         })?;
 
@@ -115,7 +120,10 @@ fn platform_archive(toolchain: &Path, target: NativeTarget) -> Result<ProviderAr
         .ok_or_else(|| {
             BuildError::conformance(
                 "native provider retention",
-                format!("platform provider archive is unavailable for {}", target.as_str()),
+                format!(
+                    "platform provider archive is unavailable for {}",
+                    target.as_str()
+                ),
             )
         })?;
 

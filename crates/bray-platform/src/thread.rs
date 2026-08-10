@@ -3,10 +3,9 @@ use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle, Thread};
-
-use bray_base::NonEmptySharedStr;
 
 use crate::{PlatformError, PlatformErrorKind, PlatformOperation};
 
@@ -139,6 +138,24 @@ pub enum NativeThreadOutcome<T> {
     Panicked,
 }
 
+/// Nonempty diagnostic name assigned to one native runtime thread.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NativeThreadName(Arc<str>);
+
+impl NativeThreadName {
+    /// Creates a native thread name unless the supplied name is empty.
+    pub fn try_new(name: impl Into<Arc<str>>) -> Option<Self> {
+        let name = name.into();
+
+        (!name.is_empty()).then_some(Self(name))
+    }
+
+    /// Returns the native thread name.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Owned join authority and wake handle for one native thread.
 #[derive(Debug)]
 pub struct NativeThread<T> {
@@ -149,7 +166,7 @@ pub struct NativeThread<T> {
 impl<T: Send + 'static> NativeThread<T> {
     /// Creates an initialized native thread and transfers callback ownership to it.
     pub fn spawn(
-        name: Option<NonEmptySharedStr>,
+        name: Option<NativeThreadName>,
         callback: impl FnOnce(RuntimeThread) -> T + Send + 'static,
     ) -> Result<Self, PlatformError> {
         let id = next_runtime_thread_id()?;
@@ -221,16 +238,14 @@ fn run_initialized_thread<T>(
 
 #[cfg(test)]
 mod tests {
-    use bray_base::NonEmptySharedStr;
-
     use super::{
-        NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry, RuntimeThreadScope,
-        current_runtime_thread,
+        NativeThread, NativeThreadName, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry,
+        RuntimeThreadScope, current_runtime_thread,
     };
 
     #[test]
     fn native_threads_install_and_remove_runtime_context() {
-        let name = NonEmptySharedStr::try_new("bray-test-worker");
+        let name = NativeThreadName::try_new("bray-test-worker");
 
         let worker = NativeThread::spawn(name, |runtime| {
             assert_eq!(

@@ -1,6 +1,6 @@
 use bray_platform::SystemEntropy;
 use bray_platform_abi_support::native_platform_export;
-use bray_runtime_interface::NativePlatformStatus;
+use bray_runtime_abi::NativePlatformStatus;
 
 use super::region::{MemoryRegion, disjoint};
 
@@ -54,7 +54,7 @@ fn fill_system_entropy(destination: &mut [u8]) -> Result<(), ()> {
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::NativePlatformStatus;
+    use bray_runtime_abi::NativePlatformStatus;
 
     use super::bray_platform_entropy_fill;
 

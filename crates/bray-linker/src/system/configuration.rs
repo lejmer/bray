@@ -84,13 +84,7 @@ mod tests {
     #[test]
     fn configurations_reject_program_names_that_require_path_discovery() {
         assert_eq!(
-            SystemLinkerConfiguration::try_new(
-                SystemLinkerFamily::Gnu,
-                target(),
-                "ld",
-                [],
-                None,
-            ),
+            SystemLinkerConfiguration::try_new(SystemLinkerFamily::Gnu, target(), "ld", [], None,),
             Err(SystemLinkerConfigurationBuildError::ProgramPathNotExplicit)
         );
     }

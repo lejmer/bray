@@ -231,6 +231,7 @@ dependencies = [
  "bray-codegen",
  "bray-diagnostics",
  "bray-ir",
+ "bray-runtime-abi",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
@@ -379,6 +380,7 @@ dependencies = [
  "bray-base",
  "bray-diagnostics",
  "bray-platform",
+ "bray-runtime-abi",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
@@ -473,7 +475,6 @@ dependencies = [
 name = "bray-platform"
 version = "0.0.0"
 dependencies = [
- "bray-base",
  "getrandom",
  "memmap2",
  "mio",
@@ -486,7 +487,7 @@ dependencies = [
  "bray-platform",
  "bray-platform-abi-support",
  "bray-platform-abi-temporal",
- "bray-runtime-interface",
+ "bray-runtime-abi",
  "bray-testing",
  "cc",
  "serde",
@@ -504,7 +505,7 @@ name = "bray-platform-abi-temporal"
 version = "0.0.0"
 dependencies = [
  "bray-platform-abi-support",
- "bray-runtime-interface",
+ "bray-runtime-abi",
 ]
 
 [[package]]
@@ -534,22 +535,33 @@ version = "0.0.0"
 dependencies = [
  "bray-platform",
  "bray-platform-abi",
- "bray-runtime-interface",
+ "bray-runtime-abi",
+ "bray-runtime-model",
  "bray-source",
  "bray-test-protocol",
  "bray-testing",
 ]
 
 [[package]]
+name = "bray-runtime-abi"
+version = "0.0.0"
+
+[[package]]
 name = "bray-runtime-interface"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+ "bray-runtime-abi",
+ "bray-runtime-model",
  "bray-symbols",
  "bray-target",
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "bray-runtime-model"
+version = "0.0.0"
 
 [[package]]
 name = "bray-source"
@@ -1718,6 +1730,7 @@ dependencies = [
  "bray-llvm-toolchain",
  "bray-package-interface",
  "bray-project",
+ "bray-runtime-abi",
  "bray-runtime-interface",
  "bray-source",
  "bray-standard-library",

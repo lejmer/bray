@@ -259,9 +259,9 @@ mod tests {
     #[cfg(windows)]
     use std::ffi::OsStr;
 
-    use super::{ManagedArtifactPath, OutputSink, OutputSinkId};
     #[cfg(windows)]
     use super::is_valid_host_file_name;
+    use super::{ManagedArtifactPath, OutputSink, OutputSinkId};
 
     #[test]
     fn managed_artifact_paths_require_canonical_portable_relatives() {

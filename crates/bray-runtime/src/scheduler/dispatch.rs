@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bray_platform::{MonotonicClock, MonotonicDeadline, MonotonicInstant};
-use bray_runtime_interface::ProtectedFrameStateId;
+use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::lane::select_execution_lane;
 use crate::{

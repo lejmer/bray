@@ -238,10 +238,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let progress_kind = match kind {
                 bray_ir::MirSuspensionKind::Awaited => {
-                    bray_runtime_interface::NativeFrameProgressKind::SUSPENDED
+                    bray_runtime_abi::NativeFrameProgressKind::SUSPENDED
                 }
                 bray_ir::MirSuspensionKind::Yield => {
-                    bray_runtime_interface::NativeFrameProgressKind::YIELDED
+                    bray_runtime_abi::NativeFrameProgressKind::YIELDED
                 }
             };
 

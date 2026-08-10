@@ -1767,21 +1767,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::EmissionGenerationManifestInvalid => {
             MessageTemplate::new(EMISSION_GENERATION_MANIFEST_INVALID)
         }
-        DiagnosticKind::LinkerUnsupportedTarget => {
-            MessageTemplate::new(LINKER_UNSUPPORTED_TARGET)
-        }
+        DiagnosticKind::LinkerUnsupportedTarget => MessageTemplate::new(LINKER_UNSUPPORTED_TARGET),
         DiagnosticKind::LinkerUnsupportedProduct => {
             MessageTemplate::new(LINKER_UNSUPPORTED_PRODUCT)
         }
-        DiagnosticKind::LinkerUnsupportedInput => {
-            MessageTemplate::new(LINKER_UNSUPPORTED_INPUT)
-        }
+        DiagnosticKind::LinkerUnsupportedInput => MessageTemplate::new(LINKER_UNSUPPORTED_INPUT),
         DiagnosticKind::LinkerUnsupportedInputMode => {
             MessageTemplate::new(LINKER_UNSUPPORTED_INPUT_MODE)
         }
-        DiagnosticKind::LinkerUnsupportedOutput => {
-            MessageTemplate::new(LINKER_UNSUPPORTED_OUTPUT)
-        }
+        DiagnosticKind::LinkerUnsupportedOutput => MessageTemplate::new(LINKER_UNSUPPORTED_OUTPUT),
         DiagnosticKind::LinkerUnsupportedSearchPath => {
             MessageTemplate::new(LINKER_UNSUPPORTED_SEARCH_PATH)
         }
@@ -1794,15 +1788,11 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::LinkerUnsupportedSectionGarbageCollection => {
             MessageTemplate::new(LINKER_UNSUPPORTED_SECTION_GARBAGE_COLLECTION)
         }
-        DiagnosticKind::LinkerUnsupportedDebug => {
-            MessageTemplate::new(LINKER_UNSUPPORTED_DEBUG)
-        }
+        DiagnosticKind::LinkerUnsupportedDebug => MessageTemplate::new(LINKER_UNSUPPORTED_DEBUG),
         DiagnosticKind::LinkerUnsupportedSubsystem => {
             MessageTemplate::new(LINKER_UNSUPPORTED_SUBSYSTEM)
         }
-        DiagnosticKind::LinkerUnsupportedSymbol => {
-            MessageTemplate::new(LINKER_UNSUPPORTED_SYMBOL)
-        }
+        DiagnosticKind::LinkerUnsupportedSymbol => MessageTemplate::new(LINKER_UNSUPPORTED_SYMBOL),
         DiagnosticKind::LinkerUnsupportedStartup => {
             MessageTemplate::new(LINKER_UNSUPPORTED_STARTUP)
         }

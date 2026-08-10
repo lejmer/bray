@@ -204,9 +204,7 @@ impl PublicationErrorKind {
             | Self::Commit(_)
             | Self::ManagedPublicationUnsupported
             | Self::GenerationCollision
-            | Self::InvalidGenerationManifest => {
-                PublicationFailureKind::Publication
-            }
+            | Self::InvalidGenerationManifest => PublicationFailureKind::Publication,
         }
     }
 

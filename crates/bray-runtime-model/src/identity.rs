@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use bray_base::NonEmptySharedStr;
-
 /// Stable opaque identity of one protected async-frame representation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProtectedAsyncFrameId([u8; 32]);
@@ -49,64 +47,70 @@ impl RuntimeAbiVersion {
 
 /// Canonical binary symbol name selected before backend translation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct BinarySymbolName(NonEmptySharedStr);
+pub struct BinarySymbolName(Arc<str>);
 
 impl BinarySymbolName {
     /// Creates a symbol name unless its canonical spelling is empty.
     pub fn try_new(name: impl Into<Arc<str>>) -> Option<Self> {
-        NonEmptySharedStr::try_new(name).map(Self)
+        nonempty_shared_str(name).map(Self)
     }
 
     /// Returns the exact binary symbol name.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
 }
 
 /// Stable identity of the selected separately linked async-runtime artifact.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RuntimeArtifactId(NonEmptySharedStr);
+pub struct RuntimeArtifactId(Arc<str>);
 
 impl RuntimeArtifactId {
     /// Creates an artifact identity unless its canonical value is empty.
     pub fn try_new(identity: impl Into<Arc<str>>) -> Option<Self> {
-        NonEmptySharedStr::try_new(identity).map(Self)
+        nonempty_shared_str(identity).map(Self)
     }
 
     /// Returns the canonical artifact identity.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
 }
 
 /// Stable identity of one execution-runtime implementation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RuntimeIdentity(NonEmptySharedStr);
+pub struct RuntimeIdentity(Arc<str>);
 
 impl RuntimeIdentity {
     /// Creates a runtime identity unless its canonical value is empty.
     pub fn try_new(identity: impl Into<Arc<str>>) -> Option<Self> {
-        NonEmptySharedStr::try_new(identity).map(Self)
+        nonempty_shared_str(identity).map(Self)
     }
 
     /// Returns the canonical runtime identity.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
 }
 
 /// Stable identity of one target panic ABI.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct PanicAbiIdentity(NonEmptySharedStr);
+pub struct PanicAbiIdentity(Arc<str>);
 
 impl PanicAbiIdentity {
     /// Creates a panic ABI identity unless its canonical value is empty.
     pub fn try_new(identity: impl Into<Arc<str>>) -> Option<Self> {
-        NonEmptySharedStr::try_new(identity).map(Self)
+        nonempty_shared_str(identity).map(Self)
     }
 
     /// Returns the canonical panic ABI identity.
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
     }
+}
+
+fn nonempty_shared_str(value: impl Into<Arc<str>>) -> Option<Arc<str>> {
+    let value = value.into();
+
+    (!value.is_empty()).then_some(value)
 }

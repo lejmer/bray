@@ -168,21 +168,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let (cause, message) = match cause {
             bray_ir::MirPanicCause::Message(message) => (
-                bray_runtime_interface::NativePanicCause::MESSAGE,
+                bray_runtime_abi::NativePanicCause::MESSAGE,
                 self.native_string_view(message)?,
             ),
             bray_ir::MirPanicCause::Assertion(Some(message)) => (
-                bray_runtime_interface::NativePanicCause::ASSERTION,
+                bray_runtime_abi::NativePanicCause::ASSERTION,
                 self.native_string_view(message)?,
             ),
             bray_ir::MirPanicCause::Assertion(None) => (
-                bray_runtime_interface::NativePanicCause::ASSERTION,
+                bray_runtime_abi::NativePanicCause::ASSERTION,
                 crate::native::string_view_type(self.types.context(), self.request.target())
                     .const_zero()
                     .into(),
             ),
             bray_ir::MirPanicCause::ExplicitTestFailure(message) => (
-                bray_runtime_interface::NativePanicCause::EXPLICIT_TEST_FAILURE,
+                bray_runtime_abi::NativePanicCause::EXPLICIT_TEST_FAILURE,
                 self.native_string_view(message)?,
             ),
         };
@@ -233,7 +233,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let syntax = anchor.syntax();
                 let range = syntax.full_range();
 
-                bray_runtime_interface::NativeSourceAnchor::new(
+                bray_runtime_abi::NativeSourceAnchor::new(
                     syntax.source_id().raw(),
                     range.start().bytes(),
                     range.end().bytes(),
@@ -243,7 +243,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirSourceAnchor::ExecutableHost(_)
             | MirSourceAnchor::GeneratedLifecycle(_)
             | MirSourceAnchor::ImportedExecutable(_) => {
-                bray_runtime_interface::NativeSourceAnchor::unavailable()
+                bray_runtime_abi::NativeSourceAnchor::unavailable()
             }
         };
 

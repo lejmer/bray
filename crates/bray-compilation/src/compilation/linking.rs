@@ -260,7 +260,6 @@ mod tests {
         assert!(!input.path().exists());
         assert!(!staging_path.exists());
         assert_eq!(driver.plans(), vec![link]);
-
     }
 
     #[test]

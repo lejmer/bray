@@ -5,7 +5,7 @@ use std::time::Duration;
 use bray_platform::{
     MonotonicDeadline, MonotonicInstant, NativeEvent, NativeWaitOutcome, RuntimeThreadId,
 };
-use bray_runtime_interface::{ProtectedFrameDescriptor, ProtectedFrameStateId, RuntimeCapability};
+use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId, RuntimeCapability};
 
 use crate::cancellation::CancellationWakeRegistration;
 use crate::lane::select_execution_lane;
@@ -794,7 +794,7 @@ mod tests {
     use std::time::Duration;
 
     use bray_platform::{MonotonicClock, RuntimeThreadScope};
-    use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
+    use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{Scheduler, SchedulerError, SchedulerLimits};
     use crate::test_support::{TestFrame, register_task};

@@ -10,19 +10,10 @@ use crate::bundle::{
 use crate::workspace;
 use bray_base::sha256_file;
 use bray_runtime_interface::{
-    AWAITED_FRAME_COMPOSITION_SYMBOL, BinarySymbolName, CLEANUP_INCIDENT_REPORTING_SYMBOL,
-    COMPATIBLE_LANE_SELECTION_SYMBOL, CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
-    CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL, ENTRY_FAILURE_REPORTING_SYMBOL,
-    FRAME_COMPLETION_MOVE_SYMBOL, JOIN_REGISTRATION_SYMBOL, MAIN_THREAD_LANE_DRIVE_SYMBOL,
-    MAIN_THREAD_LANE_STARTUP_SYMBOL, PANIC_PROPAGATION_SYMBOL, PANIC_REPORT_CONSTRUCTION_SYMBOL,
-    PANIC_REPORTING_SYMBOL, PanicAbiIdentity, ProtectedFrameAbiVersions,
-    ROOT_CANCELLATION_REQUEST_SYMBOL, ROOT_COMPLETION_RESOLUTION_SYMBOL, ROOT_EXECUTION_SYMBOL,
-    ROOT_TERMINAL_OBSERVATION_SYMBOL, RUNTIME_EVENT_SYMBOL, RuntimeAbiRole, RuntimeAbiVersion,
-    RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeCapability,
-    RuntimeContract, RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
-    STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL, SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
-    TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL, TASK_START_SYMBOL,
-    TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL, WAKE_SYMBOL,
+    BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiRole,
+    RuntimeAbiVersion, RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata,
+    RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
+    RuntimeRoleImplementation, native_runtime_role_symbol,
 };
 use bray_symbols::NativeLinkRequirement;
 use bray_target::{NativeTarget, ObjectFormat};
@@ -32,6 +23,12 @@ const USAGE: &str = "usage: cargo xtask runtime-artifact \
 const METADATA_FILE_NAME: &str = "bray-runtime.brayrt";
 const RUNTIME_IDENTITY: &str = "bray.runtime.reference";
 const PANIC_ABI: &str = "bray.panic.unwind";
+
+#[derive(Clone, Copy)]
+enum RuntimeHostIntegration {
+    Product,
+    TestRunner,
+}
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
@@ -67,7 +64,12 @@ fn build_command(arguments: impl Iterator<Item = String>) -> Result<Package, Com
 
     let output = options.native.target_output(target);
 
-    build(target, &output, &options.profile)
+    build(
+        target,
+        &output,
+        &options.profile,
+        RuntimeHostIntegration::Product,
+    )
 }
 
 fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(), CommandError> {
@@ -84,7 +86,7 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
 
     let output = directory.path().join(target.as_str());
 
-    let package = build(target, &output, "release")?;
+    let package = build(target, &output, "release", RuntimeHostIntegration::Product)?;
 
     smoke_test(&package, target, directory.path())?;
 
@@ -96,16 +98,26 @@ pub(crate) fn smoke_test_host() -> Result<(), String> {
 }
 
 pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result<PathBuf, String> {
-    build(target, output, "release")
-        .map(|package| package.metadata)
-        .map_err(|error| error.to_string())
+    build(
+        target,
+        output,
+        "release",
+        RuntimeHostIntegration::TestRunner,
+    )
+    .map(|package| package.metadata)
+    .map_err(|error| error.to_string())
 }
 
-fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, CommandError> {
+fn build(
+    target: NativeTarget,
+    output: &Path,
+    profile: &str,
+    host: RuntimeHostIntegration,
+) -> Result<Package, CommandError> {
     let publication = DirectoryPublication::begin(output, "bray-runtime-artifact-")
         .map_err(CommandError::Publication)?;
 
-    build_contents(target, publication.contents(), profile)?;
+    build_contents(target, publication.contents(), profile, host)?;
 
     let output = publication.publish().map_err(CommandError::Publication)?;
 
@@ -115,9 +127,22 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
     })
 }
 
-fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<(), CommandError> {
+fn build_contents(
+    target: NativeTarget,
+    output: &Path,
+    profile: &str,
+    host: RuntimeHostIntegration,
+) -> Result<(), CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
+
+    audit_dependency_boundaries(&root)?;
+
     let archive_file_name = archive_file_name(target);
+
+    let features = match host {
+        RuntimeHostIntegration::Product => &[][..],
+        RuntimeHostIntegration::TestRunner => &["test-host"][..],
+    };
 
     let built = crate::native_archive::build_rust_static_library(
         &root,
@@ -125,6 +150,7 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         "bray-runtime",
         profile,
         archive_file_name,
+        features,
     )
     .map_err(CommandError::NativeArchive)?;
 
@@ -135,7 +161,14 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         .map_err(|error| CommandError::copy(built.archive(), &archive, error))?;
 
     let digest = digest_file(&archive)?;
-    let metadata_value = metadata(target, archive_file_name, digest, built.native_links())?;
+
+    let metadata_value = metadata(
+        target,
+        archive_file_name,
+        digest,
+        built.native_links(),
+        host,
+    )?;
 
     let bytes = metadata_value
         .encode_json()
@@ -146,11 +179,40 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
     Ok(())
 }
 
+fn audit_dependency_boundaries(root: &Path) -> Result<(), CommandError> {
+    crate::dependency_audit::require_no_normal_dependencies(root, "bray-runtime-abi")
+        .map_err(CommandError::DependencyAudit)?;
+
+    crate::dependency_audit::require_absent_normal_dependencies(
+        root,
+        "bray-runtime",
+        &[
+            "blake3",
+            "bray-base",
+            "bray-compiler-known",
+            "bray-declarations",
+            "bray-diagnostics",
+            "bray-runtime-interface",
+            "bray-source",
+            "bray-symbols",
+            "bray-syntax",
+            "bray-target",
+            "bray-test-protocol",
+            "serde",
+            "serde_json",
+            "sha2",
+            "tempfile",
+        ],
+    )
+    .map_err(CommandError::DependencyAudit)
+}
+
 fn metadata(
     target: NativeTarget,
     archive_file_name: &str,
     digest: RuntimeArtifactDigest,
     native_links: &[NativeLinkRequirement],
+    host: RuntimeHostIntegration,
 ) -> Result<RuntimeArtifactMetadata, CommandError> {
     let identity =
         RuntimeIdentity::try_new(RUNTIME_IDENTITY).ok_or(CommandError::MetadataContract)?;
@@ -174,7 +236,7 @@ fn metadata(
             RuntimeCapability::LocalLanes,
             RuntimeCapability::MainThreadLane,
         ],
-        runtime_role_bindings()?,
+        runtime_role_bindings(host)?,
     )
     .map_err(|_| CommandError::MetadataContract)?;
 
@@ -184,104 +246,27 @@ fn metadata(
         .map_err(|_| CommandError::MetadataContract)
 }
 
-fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
-    [
-        (RuntimeAbiRole::RootExecution, ROOT_EXECUTION_SYMBOL),
-        (
-            RuntimeAbiRole::SynchronousRootExecution,
-            SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::RootCancellationRequest,
-            ROOT_CANCELLATION_REQUEST_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::CleanupIncidentReporting,
-            CLEANUP_INCIDENT_REPORTING_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::RootTerminalObservation,
-            ROOT_TERMINAL_OBSERVATION_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::RootCompletionResolution,
-            ROOT_COMPLETION_RESOLUTION_SYMBOL,
-        ),
-        (RuntimeAbiRole::PanicReporting, PANIC_REPORTING_SYMBOL),
-        (
-            RuntimeAbiRole::PanicReportConstruction,
-            PANIC_REPORT_CONSTRUCTION_SYMBOL,
-        ),
-        (RuntimeAbiRole::PanicPropagation, PANIC_PROPAGATION_SYMBOL),
-        (
-            RuntimeAbiRole::EntryFailureReporting,
-            ENTRY_FAILURE_REPORTING_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::TestEntrySelection,
-            TEST_ENTRY_SELECTION_SYMBOL,
-        ),
-        (RuntimeAbiRole::TaskAllocation, TASK_ALLOCATION_SYMBOL),
-        (RuntimeAbiRole::TaskStart, TASK_START_SYMBOL),
-        (
-            RuntimeAbiRole::AwaitedFrameComposition,
-            AWAITED_FRAME_COMPOSITION_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::FrameCompletionMove,
-            FRAME_COMPLETION_MOVE_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::SuspensionRegistration,
-            SUSPENSION_REGISTRATION_SYMBOL,
-        ),
-        (RuntimeAbiRole::Wake, WAKE_SYMBOL),
-        (
-            RuntimeAbiRole::TaskCancellationRequest,
-            TASK_CANCELLATION_REQUEST_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::CurrentRunCancellationObservation,
-            CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::CurrentRunCancellationPropagation,
-            CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL,
-        ),
-        (RuntimeAbiRole::JoinRegistration, JOIN_REGISTRATION_SYMBOL),
-        (
-            RuntimeAbiRole::TerminalPublication,
-            TERMINAL_PUBLICATION_SYMBOL,
-        ),
-        (RuntimeAbiRole::RuntimeEvent, RUNTIME_EVENT_SYMBOL),
-        (
-            RuntimeAbiRole::CompatibleLaneSelection,
-            COMPATIBLE_LANE_SELECTION_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::MainThreadLaneStartup,
-            MAIN_THREAD_LANE_STARTUP_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::MainThreadLaneDrive,
-            MAIN_THREAD_LANE_DRIVE_SYMBOL,
-        ),
-        (
-            RuntimeAbiRole::StructuredShutdown,
-            STRUCTURED_SHUTDOWN_SYMBOL,
-        ),
-    ]
-    .into_iter()
-    .map(|(role, name)| {
-        let symbol = BinarySymbolName::try_new(name).ok_or(CommandError::MetadataContract)?;
+fn runtime_role_bindings(
+    host: RuntimeHostIntegration,
+) -> Result<Vec<RuntimeRoleBinding>, CommandError> {
+    let include_test_host = matches!(host, RuntimeHostIntegration::TestRunner);
 
-        Ok(RuntimeRoleBinding::new(
-            role,
-            symbol,
-            RuntimeRoleImplementation::BrayRuntime,
-        ))
-    })
-    .collect()
+    let bindings: Vec<_> = RuntimeAbiRole::ALL
+        .into_iter()
+        .filter(|role| include_test_host || *role != RuntimeAbiRole::TestEntrySelection)
+        .filter_map(|role| native_runtime_role_symbol(role).map(|name| (role, name)))
+        .map(|(role, name)| {
+            let symbol = BinarySymbolName::try_new(name).ok_or(CommandError::MetadataContract)?;
+
+            Ok(RuntimeRoleBinding::new(
+                role,
+                symbol,
+                RuntimeRoleImplementation::BrayRuntime,
+            ))
+        })
+        .collect::<Result<_, _>>()?;
+
+    Ok(bindings)
 }
 
 fn digest_file(path: &Path) -> Result<RuntimeArtifactDigest, CommandError> {
@@ -295,6 +280,8 @@ fn smoke_test(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
+    audit_product_archive(&package.archive)?;
+
     let source = directory.join("runtime-smoke.rs");
 
     let executable = directory.join(if cfg!(windows) {
@@ -338,6 +325,30 @@ fn smoke_test(
 
     if !stderr.contains("cleanup_incident ordinal=0 ") {
         return Err(CommandError::CleanupReportMissing);
+    }
+
+    Ok(())
+}
+
+fn audit_product_archive(archive: &Path) -> Result<(), CommandError> {
+    let tool =
+        bray_tooling::llvm_tool_path("llvm-nm").ok_or(CommandError::NativeSymbolToolUnavailable)?;
+
+    let output = Command::new(tool)
+        .args(["--defined-only", "--extern-only"])
+        .arg(archive)
+        .output()
+        .map_err(CommandError::NativeSymbolInspection)?;
+
+    if !output.status.success() {
+        return Err(CommandError::NativeSymbolInspectionFailed);
+    }
+
+    let test_entry_symbol = native_runtime_role_symbol(RuntimeAbiRole::TestEntrySelection)
+        .ok_or(CommandError::MetadataContract)?;
+
+    if String::from_utf8_lossy(&output.stdout).contains(test_entry_symbol) {
+        return Err(CommandError::TestHostSymbolInProductArchive);
     }
 
     Ok(())
@@ -402,6 +413,7 @@ enum CommandError {
     BuildOptions(NativeBuildOptionsError),
     Publication(DirectoryPublicationError),
     Workspace(String),
+    DependencyAudit(crate::dependency_audit::DependencyAuditError),
     NativeArchive(crate::native_archive::BuildError),
     Read {
         path: PathBuf,
@@ -421,6 +433,10 @@ enum CommandError {
     TemporaryDirectory(std::io::Error),
     NonUtf8Path,
     Rustc(std::io::Error),
+    NativeSymbolToolUnavailable,
+    NativeSymbolInspection(std::io::Error),
+    NativeSymbolInspectionFailed,
+    TestHostSymbolInProductArchive,
     HostTarget,
     SmokeLinkFailed,
     SmokeExecution(std::io::Error),
@@ -468,6 +484,7 @@ impl fmt::Display for CommandError {
             Self::BuildOptions(error) => write!(formatter, "{error}"),
             Self::Publication(error) => write!(formatter, "{error}"),
             Self::Workspace(error) => formatter.write_str(error),
+            Self::DependencyAudit(error) => write!(formatter, "{error}"),
             Self::NativeArchive(error) => write!(formatter, "{error}"),
             Self::Read { path, error } => {
                 write!(formatter, "could not read {}: {error}", path.display())
@@ -496,6 +513,21 @@ impl fmt::Display for CommandError {
             }
             Self::NonUtf8Path => formatter.write_str("runtime archive path is not valid UTF-8"),
             Self::Rustc(error) => write!(formatter, "could not run rustc: {error}"),
+            Self::NativeSymbolToolUnavailable => {
+                formatter.write_str("llvm-nm is unavailable for runtime artifact inspection")
+            }
+            Self::NativeSymbolInspection(error) => {
+                write!(
+                    formatter,
+                    "could not inspect runtime archive symbols: {error}"
+                )
+            }
+            Self::NativeSymbolInspectionFailed => {
+                formatter.write_str("runtime archive symbol inspection failed")
+            }
+            Self::TestHostSymbolInProductArchive => {
+                formatter.write_str("product runtime archive contains the test-host entry symbol")
+            }
             Self::HostTarget => formatter.write_str("could not determine rustc host target"),
             Self::SmokeLinkFailed => formatter.write_str("runtime artifact smoke link failed"),
             Self::SmokeExecution(error) => {
@@ -525,7 +557,10 @@ mod tests {
     use bray_runtime_interface::{RuntimeAbiRole, RuntimeArtifactDigest};
     use bray_target::NativeTarget;
 
-    use super::{BuildOptions, CommandError, archive_file_name, metadata, runtime_role_bindings};
+    use super::{
+        BuildOptions, CommandError, RuntimeHostIntegration, archive_file_name, metadata,
+        runtime_role_bindings,
+    };
 
     #[test]
     fn build_options_require_output_and_accept_an_implicit_host_target() {
@@ -585,11 +620,23 @@ mod tests {
             let archive = archive_file_name(target);
             let digest = RuntimeArtifactDigest::new([7; 32]);
 
-            let first = metadata(target, archive, digest, &[])
-                .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
+            let first = metadata(
+                target,
+                archive,
+                digest,
+                &[],
+                RuntimeHostIntegration::Product,
+            )
+            .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
 
-            let second = metadata(target, archive, digest, &[])
-                .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
+            let second = metadata(
+                target,
+                archive,
+                digest,
+                &[],
+                RuntimeHostIntegration::Product,
+            )
+            .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
 
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
@@ -609,7 +656,7 @@ mod tests {
 
     #[test]
     fn packaged_contract_names_every_exported_runtime_role() {
-        let bindings = runtime_role_bindings()
+        let bindings = runtime_role_bindings(RuntimeHostIntegration::Product)
             .unwrap_or_else(|error| panic!("runtime role bindings must be valid: {error}"));
 
         let roles: Vec<_> = bindings.iter().map(|binding| binding.role()).collect();
@@ -619,19 +666,10 @@ mod tests {
             [
                 RuntimeAbiRole::RootExecution,
                 RuntimeAbiRole::SynchronousRootExecution,
+                RuntimeAbiRole::ForeignCallbackExecution,
                 RuntimeAbiRole::RootCancellationRequest,
-                RuntimeAbiRole::CleanupIncidentReporting,
-                RuntimeAbiRole::RootTerminalObservation,
-                RuntimeAbiRole::RootCompletionResolution,
-                RuntimeAbiRole::PanicReporting,
-                RuntimeAbiRole::PanicReportConstruction,
-                RuntimeAbiRole::PanicPropagation,
-                RuntimeAbiRole::EntryFailureReporting,
-                RuntimeAbiRole::TestEntrySelection,
                 RuntimeAbiRole::TaskAllocation,
                 RuntimeAbiRole::TaskStart,
-                RuntimeAbiRole::AwaitedFrameComposition,
-                RuntimeAbiRole::FrameCompletionMove,
                 RuntimeAbiRole::SuspensionRegistration,
                 RuntimeAbiRole::Wake,
                 RuntimeAbiRole::TaskCancellationRequest,
@@ -641,10 +679,28 @@ mod tests {
                 RuntimeAbiRole::TerminalPublication,
                 RuntimeAbiRole::RuntimeEvent,
                 RuntimeAbiRole::CompatibleLaneSelection,
+                RuntimeAbiRole::CleanupIncidentReporting,
                 RuntimeAbiRole::MainThreadLaneStartup,
                 RuntimeAbiRole::MainThreadLaneDrive,
+                RuntimeAbiRole::RootTerminalObservation,
+                RuntimeAbiRole::RootCompletionResolution,
+                RuntimeAbiRole::PanicReporting,
+                RuntimeAbiRole::EntryFailureReporting,
                 RuntimeAbiRole::StructuredShutdown,
+                RuntimeAbiRole::FrameCompletionMove,
+                RuntimeAbiRole::PanicReportConstruction,
+                RuntimeAbiRole::PanicPropagation,
+                RuntimeAbiRole::AwaitedFrameComposition,
             ]
+        );
+
+        let test_bindings = runtime_role_bindings(RuntimeHostIntegration::TestRunner)
+            .unwrap_or_else(|error| panic!("test runtime role bindings must be valid: {error}"));
+
+        assert!(
+            test_bindings
+                .iter()
+                .any(|binding| binding.role() == RuntimeAbiRole::TestEntrySelection)
         );
     }
 }

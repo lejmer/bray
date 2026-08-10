@@ -28,8 +28,9 @@ The testing system crosses compiler and toolchain boundaries without giving any 
 - A dedicated test-protocol crate owns catalog, invocation, event, outcome, report, and wire-format types. It does not own process
   launch, scheduling policy, terminal rendering, or compiler test helpers.
 - `bray-lowering`, code generation, and emission produce the native test host and publish its matching catalog.
-- `bray-runtime-interface` and `bray-runtime` provide root-run execution, cancellation, panic capture, cleanup completion, and
-  per-run standard-stream routing required by the generated host.
+- `bray-runtime-abi` defines the native test-host call layouts. `bray-runtime-interface` defines the compiler-owned host contract.
+  A test-host `bray-runtime` artifact provides root-run execution, cancellation, panic capture, cleanup completion, and per-run
+  standard-stream routing. Ordinary runtime artifacts do not depend on the test protocol or publish its entry-selection role.
 - `bray-platform` provides process, pipe, clock, wait, and hard-termination mechanisms used at the host boundary.
 - Bray Tack owns workspace selection, metadata filtering, global resource budgets, host process orchestration, report aggregation,
   terminal presentation, JSON output, and command exit status.

@@ -48,6 +48,24 @@ struct RunOutcome {
     payload: usize,
 }
 
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct PanicCause(u32);
+
+impl PanicCause {
+    const MESSAGE: Self = Self(0);
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct SourceAnchor {
+    present: u32,
+    source: u32,
+    start: u32,
+    end: u32,
+    version: u64,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct StringView {
@@ -124,7 +142,11 @@ unsafe extern "C" {
     safe fn bray_runtime_root_terminal_observation_v1(root: RootHandle) -> RunOutcome;
     safe fn bray_runtime_root_completion_resolution_v1(root: RootHandle) -> Status;
     safe fn bray_runtime_cleanup_incident_reporting_v1() -> Status;
-    safe fn bray_runtime_panic_report_construction_v1(message: StringView) -> usize;
+    safe fn bray_runtime_panic_report_construction_v1(
+        cause: PanicCause,
+        source: SourceAnchor,
+        message: StringView,
+    ) -> usize;
     safe fn bray_runtime_panic_reporting_v1(payload: usize) -> Status;
     safe fn bray_runtime_entry_failure_reporting_v1(payload: usize, size: usize) -> Status;
     safe fn bray_runtime_wake_v1(task: TaskHandle, state: u32) -> Status;
@@ -224,10 +246,20 @@ extern "C-unwind" fn panic_frame(_: usize) -> FrameProgress {
     FrameProgress {
         kind: FrameProgressKind(3),
         state: 0,
-        payload: bray_runtime_panic_report_construction_v1(StringView {
-            data: MESSAGE.as_ptr(),
-            length: MESSAGE.len(),
-        }),
+        payload: bray_runtime_panic_report_construction_v1(
+            PanicCause::MESSAGE,
+            SourceAnchor {
+                present: 1,
+                source: 0,
+                start: 0,
+                end: 1,
+                version: 0,
+            },
+            StringView {
+                data: MESSAGE.as_ptr(),
+                length: MESSAGE.len(),
+            },
+        ),
     }
 }
 

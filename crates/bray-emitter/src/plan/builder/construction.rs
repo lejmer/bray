@@ -582,9 +582,7 @@ mod tests {
                     artifact,
                 }) => root.join(artifact.to_path_buf()),
                 PlannedArtifactDestination::Publish(
-                    OutputSink::Filesystem(_)
-                    | OutputSink::Memory { .. }
-                    | OutputSink::Stream(_),
+                    OutputSink::Filesystem(_) | OutputSink::Memory { .. } | OutputSink::Stream(_),
                 )
                 | PlannedArtifactDestination::Stage => {
                     panic!("test artifacts must publish to filesystem paths")

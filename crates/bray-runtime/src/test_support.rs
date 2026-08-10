@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Barrier};
 
 use bray_platform::RuntimeThreadId;
-use bray_runtime_interface::{
+use bray_runtime_model::{
     BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
     ProtectedFrameAffinity, ProtectedFrameDependencyId, ProtectedFrameDescriptor,
     ProtectedFrameLayout, ProtectedFrameOperations, ProtectedFrameStateDescriptor,

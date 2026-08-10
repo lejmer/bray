@@ -3,7 +3,7 @@ use bray_codegen::{
     CodegenResultMapping,
 };
 use bray_ir::{MirBinaryOperator, MirHelperReference};
-use bray_runtime_interface::NativeRunState;
+use bray_runtime_abi::NativeRunState;
 use bray_symbols::{IntegerConstant, IntegerSign, RealConstantBits};
 use inkwell::builder::{Builder, BuilderError};
 use inkwell::values::{AggregateValueEnum, BasicValueEnum, IntValue, PointerValue};

@@ -82,8 +82,8 @@ pub fn resolve_published_artifact(
         return Err(PublishedGenerationReadError::ManifestDigestMismatch);
     }
 
-    let manifest_revision = decode_revision(&manifest_bytes)
-        .ok_or(PublishedGenerationReadError::MalformedManifest)?;
+    let manifest_revision =
+        decode_revision(&manifest_bytes).ok_or(PublishedGenerationReadError::MalformedManifest)?;
 
     if manifest_revision != MANIFEST_REVISION {
         return Err(PublishedGenerationReadError::UnsupportedManifestRevision(

@@ -379,6 +379,11 @@ structured shutdown. The frame-descriptor ABI versions phase-one broadcast and p
 resume and destruction. Cleanup-report sink support is part of the product-host ABI and remains available to synchronous products
 without linking an async scheduler.
 
+The native boundary is a dependency-free catalog of stable symbols, status values, fixed-layout records, handles, and callback
+signatures. It does not import compiler target, symbol, source, serialization, diagnostic, or artifact models. Protected-frame and
+execution semantics shared by the compiler and runtime occupy a separate dependency-light model. Compiler-owned role effects,
+artifact metadata, target selection, and compatibility diagnostics remain outside both layers.
+
 Runtime dependencies use immutable requirements that retain every compatibility dimension needed for product formation. Protected
 frames retain independently versioned resume, task-broadcast, lifecycle-resolution, completion-move, and destruction operations.
 Product formation merges reachable requirements deterministically and rejects contradictory identities, targets, panic ABIs, or
@@ -410,6 +415,11 @@ the runtime and artifact identities, target and panic ABI, runtime and protected
 role-to-symbol bindings, archive file name, and archive digest. Product selection validates this metadata and resolves it to the
 matching archive before link-plan construction. The linker receives that archive as an opaque typed runtime input and does not run
 the runtime's build system or depend on its implementation language.
+
+An ordinary product runtime archive contains no test-runner protocol implementation and publishes no test-entry selection symbol.
+A test product selects a test-host runtime artifact whose metadata includes that role and whose build explicitly includes the
+bounded test protocol. Artifact construction validates both dependency graphs and exported archive symbols so these boundaries do
+not regress silently.
 
 The runtime receives compiler-generated frame descriptors and never parses source types or compiled package interfaces.
 

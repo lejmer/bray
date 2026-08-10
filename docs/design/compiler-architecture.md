@@ -788,8 +788,10 @@ Semantic facts associated with source-shaped bound nodes belong to semantic chec
 
 Backend-independent MIR nodes belong to `bray-ir`. Lowering produces them and code generation consumes them.
 
-Private runtime ABI contracts belong to `bray-runtime-interface`. Libraries publish requirements without selecting a runtime.
-Executable and test products select one target-specific runtime before code generation and linking.
+Stable native runtime symbols and call layouts belong to `bray-runtime-abi`. Dependency-light protected-frame and execution
+semantics belong to `bray-runtime-model`. Compiler-owned role contracts, artifact metadata, product requirements, and compatibility
+validation belong to `bray-runtime-interface`. Libraries publish requirements without selecting a runtime. Executable and test
+products select one target-specific runtime before code generation and linking.
 
 Test products additionally publish a native test host and immutable test catalog derived from checked product facts. Bray Tack
 discovers and filters tests from that catalog without reparsing source, then communicates with the host through the bounded

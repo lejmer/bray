@@ -11,13 +11,13 @@ use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm, BackendArtifactKind}
 use serde::{Deserialize, Serialize};
 use tempfile::{Builder, TempDir};
 
+use crate::artifact::content::validate_staged_content;
 use crate::publication::diagnostic::{PublicationError, PublicationErrorKind};
 use crate::publication::operation::{
     ArtifactPublicationFailure, PreparedArtifact, artifact_failure, content_failure, copy_content,
     planned_error,
 };
 use crate::publication::staging::{create_new_artifact_file, replacement_mode};
-use crate::artifact::content::validate_staged_content;
 use crate::{
     ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole, EmissionPlan,
     EmittedArtifact, EmittedArtifactSet, OutputSink, PlannedArtifactDestination,
@@ -120,7 +120,9 @@ struct ManagedLayout {
     reference: PathBuf,
 }
 
-fn managed_root<'prepared>(prepared: &'prepared [PreparedArtifact<'_, '_>]) -> Option<&'prepared Path> {
+fn managed_root<'prepared>(
+    prepared: &'prepared [PreparedArtifact<'_, '_>],
+) -> Option<&'prepared Path> {
     let mut selected = None;
 
     for artifact in prepared {
@@ -152,9 +154,8 @@ fn create_layout(
     create_managed_directory(root, &metadata, planned)?;
     create_managed_directory(&metadata, &generations, planned)?;
 
-    let supported = atomic_rename_exclusive_is_supported(&generations).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Open(error.kind()))
-    })?;
+    let supported = atomic_rename_exclusive_is_supported(&generations)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
     if !supported {
         return Err(artifact_failure(
@@ -163,9 +164,8 @@ fn create_layout(
         ));
     }
 
-    sync_directory(&generations).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
-    })?;
+    sync_directory(&generations)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))?;
 
     Ok(ManagedLayout {
         reference: metadata.join(PUBLISHED_REFERENCE),
@@ -192,18 +192,16 @@ fn create_managed_directory(
         }
     }
 
-    sync_directory(parent).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
-    })
+    sync_directory(parent)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))
 }
 
 fn require_directory(
     path: &Path,
     planned: &crate::PlannedArtifact,
 ) -> Result<(), ArtifactPublicationFailure> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Open(error.kind()))
-    })?;
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
     if !metadata.file_type().is_dir() {
         return Err(artifact_failure(
@@ -319,9 +317,10 @@ fn write_artifact(
     artifact: &PreparedArtifact<'_, '_>,
     cancellation: &dyn Cancellation,
 ) -> Result<(ArtifactDigest, ManifestPermissions), ArtifactPublicationFailure> {
-    let mut file = create_new_artifact_file(destination, artifact.planned.id().kind()).map_err(
-        |error| artifact_failure(artifact.planned, PublicationErrorKind::Open(error.kind())),
-    )?;
+    let mut file =
+        create_new_artifact_file(destination, artifact.planned.id().kind()).map_err(|error| {
+            artifact_failure(artifact.planned, PublicationErrorKind::Open(error.kind()))
+        })?;
 
     copy_content(cancellation, artifact.planned, &artifact.content, &mut file)?;
 
@@ -370,9 +369,8 @@ fn encode_manifest(
     manifest: &GenerationManifest,
     planned: &crate::PlannedArtifact,
 ) -> Result<Vec<u8>, ArtifactPublicationFailure> {
-    serde_json::to_vec(manifest).map_err(|_| {
-        artifact_failure(planned, PublicationErrorKind::InvalidGenerationManifest)
-    })
+    serde_json::to_vec(manifest)
+        .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidGenerationManifest))
 }
 
 fn write_manifest(
@@ -383,17 +381,14 @@ fn write_manifest(
     let path = private.path().join(GENERATION_MANIFEST);
     let mut file = create_new_file(&path, planned)?;
 
-    file.write_all(bytes).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Write(error.kind()))
-    })?;
+    file.write_all(bytes)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Write(error.kind())))?;
 
-    file.flush().map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
-    })?;
+    file.flush()
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))?;
 
-    file.sync_all().map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
-    })
+    file.sync_all()
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))
 }
 
 fn create_new_file(
@@ -411,9 +406,8 @@ fn make_private_generation_durable(
     private: &TempDir,
     planned: &crate::PlannedArtifact,
 ) -> Result<(), ArtifactPublicationFailure> {
-    sync_directory(private.path()).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
-    })
+    sync_directory(private.path())
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))
 }
 
 fn commit_generation(
@@ -463,9 +457,8 @@ fn validate_existing_generation(
     planned: &crate::PlannedArtifact,
     cancellation: &dyn Cancellation,
 ) -> Result<(), ArtifactPublicationFailure> {
-    let existing_manifest = std::fs::read(destination.join(GENERATION_MANIFEST)).map_err(|_| {
-        artifact_failure(planned, PublicationErrorKind::GenerationCollision)
-    })?;
+    let existing_manifest = std::fs::read(destination.join(GENERATION_MANIFEST))
+        .map_err(|_| artifact_failure(planned, PublicationErrorKind::GenerationCollision))?;
 
     if existing_manifest != manifest_bytes || manifest.artifacts.len() != artifacts.len() {
         return Err(artifact_failure(
@@ -480,8 +473,7 @@ fn validate_existing_generation(
         }
 
         let OutputSink::ManagedFilesystem {
-            artifact: relative,
-            ..
+            artifact: relative, ..
         } = artifact.sink()
         else {
             return Err(artifact_failure(
@@ -508,9 +500,7 @@ fn validate_existing_generation(
             Some(artifact.digest()),
             cancellation,
         )
-        .map_err(|_| {
-            artifact_failure(planned, PublicationErrorKind::GenerationCollision)
-        })?;
+        .map_err(|_| artifact_failure(planned, PublicationErrorKind::GenerationCollision))?;
     }
 
     Ok(())
@@ -558,25 +548,23 @@ where
     Sync: FnOnce(&Path) -> std::io::Result<()>,
 {
     let mut staging = StagedFile::create(&layout.reference, replacement_mode(replacement), None)
-        .map_err(|error| {
-            artifact_failure(planned, PublicationErrorKind::Open(error.kind()))
-        })?;
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
-    staging.write_all(bytes).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Write(error.kind()))
-    })?;
+    staging
+        .write_all(bytes)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Write(error.kind())))?;
 
-    let staging = staging.finish().map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Flush(error.kind()))
-    })?;
+    let staging = staging
+        .finish()
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))?;
 
     if cancellation.is_cancelled() {
         return Err(ArtifactPublicationFailure::Cancelled);
     }
 
-    staging.promote(&layout.reference).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Commit(error.kind()))
-    })?;
+    staging
+        .promote(&layout.reference)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Commit(error.kind())))?;
 
     Ok(sync(&layout.metadata)
         .err()
@@ -659,8 +647,7 @@ impl ManifestPermissions {
     pub(super) fn matches(&self, path: &Path) -> std::io::Result<bool> {
         let metadata = std::fs::symlink_metadata(path)?;
 
-        Ok(metadata.file_type().is_file()
-            && self.unix_mode == unix_mode(&metadata.permissions()))
+        Ok(metadata.file_type().is_file() && self.unix_mode == unix_mode(&metadata.permissions()))
     }
 }
 
@@ -689,8 +676,12 @@ enum ManifestProducer {
     },
     PackageInterface,
     PackageImplementation,
-    DependencyMetadata { ordinal: u32 },
-    Linker { ordinal: u32 },
+    DependencyMetadata {
+        ordinal: u32,
+    },
+    Linker {
+        ordinal: u32,
+    },
 }
 
 impl ManifestProducer {

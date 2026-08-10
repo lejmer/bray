@@ -10,7 +10,7 @@ test = false
 
 [dependencies]
 bray-platform-abi-support = { path = "../bray-platform-abi-support" }
-bray-runtime-interface = { path = "../bray-runtime-interface" }
+bray-runtime-abi = { path = "../bray-runtime-abi" }
 
 [lints]
 workspace = true

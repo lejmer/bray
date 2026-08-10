@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::{
+    use bray_runtime_abi::{
         NativePlatformDateTime, NativePlatformStatus, NativePlatformTemporalObservation,
         NativePlatformTemporalResolution, NativePlatformTemporalValue, NativePlatformText,
     };
@@ -351,4 +351,3 @@ mod tests {
         NativePlatformDateTime::new(year, month, day, hour, minute, second, nanosecond)
     }
 }
-

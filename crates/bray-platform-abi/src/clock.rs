@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bray_platform::{MonotonicClock, WallClock};
 use bray_platform_abi_support::native_platform_export;
-use bray_runtime_interface::NativePlatformStatus;
+use bray_runtime_abi::NativePlatformStatus;
 
 use super::region::{MemoryRegion, disjoint};
 
@@ -89,7 +89,7 @@ native_platform_export! {
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::NativePlatformStatus;
+    use bray_runtime_abi::NativePlatformStatus;
 
     use super::{
         bray_platform_clock_monotonic_now, bray_platform_clock_sleep, bray_platform_clock_wall_now,

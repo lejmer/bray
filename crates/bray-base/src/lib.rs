@@ -14,7 +14,9 @@ mod text;
 
 pub use cancellation::Cancellation;
 pub use digest::{StableDigestHasher, sha256_file};
-pub use directory::{atomic_rename_exclusive, atomic_rename_exclusive_is_supported, sync_directory};
+pub use directory::{
+    atomic_rename_exclusive, atomic_rename_exclusive_is_supported, sync_directory,
+};
 pub use file_staging::{CompletedStagedFile, FileReplacementMode, StagedFile};
 pub use hex::{decode_lowercase_hex, is_lowercase_hex, lowercase_hex};
 pub use path::is_canonical_relative_path;

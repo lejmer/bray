@@ -3,7 +3,8 @@ use bray_codegen::{
     CodegenSymbolMapping,
 };
 use bray_ir::MirRuntimeReference;
-use bray_runtime_interface::{NativeRunState, RuntimeAbiRole};
+use bray_runtime_abi::NativeRunState;
+use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::CallableAbi;
 use inkwell::AddressSpace;
 use inkwell::DLLStorageClass;

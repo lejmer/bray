@@ -162,3 +162,48 @@ impl NativePlatformTemporalValue {
         self.offset_seconds
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        NativePlatformDateTime, NativePlatformTemporalObservation,
+        NativePlatformTemporalResolution, NativePlatformTemporalValue,
+    };
+
+    #[test]
+    fn temporal_records_have_the_native_abi_layout() {
+        assert_abi_layout!(NativePlatformDateTime, size: 28, align: 4, fields: {
+            year: 0,
+            month: 4,
+            day: 8,
+            hour: 12,
+            minute: 16,
+            second: 20,
+            nanosecond: 24,
+        });
+
+        assert_abi_layout!(NativePlatformTemporalObservation, size: 36, align: 4, fields: {
+            local: 0,
+            offset_seconds: 28,
+            daylight: 32,
+        });
+
+        assert_abi_layout!(NativePlatformTemporalResolution, size: 40, align: 8, fields: {
+            kind: 0,
+            reserved: 4,
+            first_seconds: 8,
+            first_nanoseconds: 16,
+            first_reserved: 20,
+            second_seconds: 24,
+            second_nanoseconds: 32,
+            second_reserved: 36,
+        });
+
+        assert_abi_layout!(NativePlatformTemporalValue, size: 48, align: 8, fields: {
+            local: 0,
+            timestamp_seconds: 32,
+            offset_seconds: 40,
+            reserved: 44,
+        });
+    }
+}

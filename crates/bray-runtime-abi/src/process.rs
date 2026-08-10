@@ -120,3 +120,28 @@ impl NativePlatformExitStatus {
         self.payload
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{NativePlatformChildRequest, NativePlatformExitStatus};
+
+    #[test]
+    fn process_records_have_the_native_abi_layout() {
+        assert_abi_layout!(NativePlatformChildRequest, size: 80, align: 8, fields: {
+            executable: 0,
+            working_directory: 16,
+            arguments: 32,
+            environment: 48,
+            standard_input: 64,
+            standard_output: 68,
+            standard_error: 72,
+            reserved: 76,
+        });
+
+        assert_abi_layout!(NativePlatformExitStatus, size: 16, align: 8, fields: {
+            tag: 0,
+            reserved: 4,
+            payload: 8,
+        });
+    }
+}

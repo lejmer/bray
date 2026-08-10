@@ -56,7 +56,11 @@ mod tests {
 
     #[test]
     fn lowercase_hex_decoding_requires_exact_width_and_canonical_digits() {
-        assert_eq!(super::decode_lowercase_hex::<3>("000aff"), Some([0, 10, 255]));
+        assert_eq!(
+            super::decode_lowercase_hex::<3>("000aff"),
+            Some([0, 10, 255])
+        );
+
         assert_eq!(super::decode_lowercase_hex::<3>("000a"), None);
         assert_eq!(super::decode_lowercase_hex::<3>("000aFF"), None);
     }

@@ -19,6 +19,7 @@ bray-formatter = { path = "../crates/bray-formatter" }
 bray-linker = { path = "../crates/bray-linker" }
 bray-package-interface = { path = "../crates/bray-package-interface" }
 bray-project = { path = "../crates/bray-project" }
+bray-runtime-abi = { path = "../crates/bray-runtime-abi" }
 bray-runtime-interface = { path = "../crates/bray-runtime-interface" }
 bray-source = { path = "../crates/bray-source" }
 bray-standard-library = { path = "../crates/bray-standard-library" }

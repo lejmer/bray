@@ -12,7 +12,7 @@ crate-type = ["rlib", "staticlib"]
 bray-platform = { path = "../bray-platform" }
 bray-platform-abi-support = { path = "../bray-platform-abi-support" }
 bray-platform-abi-temporal = { path = "../bray-platform-abi-temporal" }
-bray-runtime-interface = { path = "../bray-runtime-interface" }
+bray-runtime-abi = { path = "../bray-runtime-abi" }
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing" }

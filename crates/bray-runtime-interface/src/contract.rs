@@ -6,73 +6,11 @@ use bray_target::TargetIdentity;
 
 use crate::role::canonical_role_bindings;
 use crate::{
-    BinarySymbolName, PanicAbiIdentity, ProtectedAsyncFrameId, RuntimeAbiRole, RuntimeAbiVersion,
-    RuntimeArtifactId, RuntimeCompatibilityError, RuntimeContract, RuntimeIdentity,
-    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    BinarySymbolName, ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
+    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability,
+    RuntimeCompatibilityError, RuntimeContract, RuntimeIdentity, RuntimeRequirements,
+    RuntimeRoleBinding, RuntimeRoleImplementation,
 };
-
-/// Execution-lane predicate that reachable code requires the product to satisfy.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ExecutionLaneRequirement {
-    /// Execution may perform blocking work.
-    Blocking,
-    /// Execution may perform CPU-bound compute work.
-    Compute,
-    /// Execution must occur on the distinguished initial process thread.
-    MainThread,
-}
-
-/// Runtime facility required by reachable product code.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum RuntimeCapability {
-    /// Baseline cooperative task execution.
-    CooperativeExecution,
-    /// Thread-local task lanes.
-    LocalLanes,
-    /// Task lanes that may migrate between compatible worker threads.
-    MigratableLanes,
-    /// Blocking execution lanes.
-    BlockingLanes,
-    /// CPU-bound compute execution lanes.
-    ComputeLanes,
-    /// Distinguished main-thread execution lane.
-    MainThreadLane,
-    /// Reactor-backed external event integration.
-    Reactor,
-}
-
-impl RuntimeCapability {
-    /// Every runtime capability in stable order.
-    pub const ALL: [Self; 7] = [
-        Self::CooperativeExecution,
-        Self::LocalLanes,
-        Self::MigratableLanes,
-        Self::BlockingLanes,
-        Self::ComputeLanes,
-        Self::MainThreadLane,
-        Self::Reactor,
-    ];
-
-    /// Returns this capability's stable textual name.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::CooperativeExecution => "cooperative_execution",
-            Self::LocalLanes => "local_lanes",
-            Self::MigratableLanes => "migratable_lanes",
-            Self::BlockingLanes => "blocking_lanes",
-            Self::ComputeLanes => "compute_lanes",
-            Self::MainThreadLane => "main_thread_lane",
-            Self::Reactor => "reactor",
-        }
-    }
-
-    /// Resolves one stable textual capability name.
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|capability| capability.as_str() == name)
-    }
-}
 
 /// Product-wide hard execution capacity selected independently of library budgets.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -81,7 +19,6 @@ pub struct ExecutionCapacityLimits {
     threads: Option<NonZeroU32>,
     processes: Option<NonZeroU32>,
 }
-
 impl ExecutionCapacityLimits {
     /// Creates hard task, native-thread, and child-process capacity limits.
     pub const fn new(

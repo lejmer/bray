@@ -191,11 +191,7 @@ impl LinkPlan {
 
         validate_startup_mode(builder.product_kind, builder.startup_mode)?;
 
-        validate_startup_inputs(
-            builder.product_kind,
-            builder.startup_mode,
-            &builder.inputs,
-        )?;
+        validate_startup_inputs(builder.product_kind, builder.startup_mode, &builder.inputs)?;
 
         builder
             .outputs
@@ -766,7 +762,9 @@ mod tests {
 
         assert_eq!(
             compiler_owned.finish(),
-            Err(LinkPlanBuildError::UnexpectedStartupInput(LinkInputId::new(1)))
+            Err(LinkPlanBuildError::UnexpectedStartupInput(
+                LinkInputId::new(1)
+            ))
         );
     }
 

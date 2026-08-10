@@ -8,12 +8,16 @@ rust-version.workspace = true
 [lib]
 crate-type = ["rlib", "staticlib"]
 
+[features]
+test-host = ["dep:bray-source", "dep:bray-test-protocol"]
+
 [dependencies]
 bray-platform = { path = "../bray-platform" }
 bray-platform-abi = { path = "../bray-platform-abi" }
-bray-runtime-interface = { path = "../bray-runtime-interface" }
-bray-source = { path = "../bray-source" }
-bray-test-protocol = { path = "../bray-test-protocol" }
+bray-runtime-abi = { path = "../bray-runtime-abi" }
+bray-runtime-model = { path = "../bray-runtime-model" }
+bray-source = { path = "../bray-source", optional = true }
+bray-test-protocol = { path = "../bray-test-protocol", optional = true }
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing" }

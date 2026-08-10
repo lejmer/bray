@@ -3,12 +3,15 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use bray_runtime_interface::{
-    BinarySymbolName, ExecutionLaneRequirement, NativeFrameAffinity, NativeFrameExit,
-    NativeFrameProgressKind, NativeLaneRequirements, NativeProtectedFrame, ProtectedAsyncFrameId,
-    ProtectedFrameAbiVersions, ProtectedFrameAffinity, ProtectedFrameDescriptor,
-    ProtectedFrameLayout, ProtectedFrameOperations, ProtectedFrameStateDescriptor,
-    ProtectedFrameStateId, RuntimeAbiVersion,
+use bray_runtime_abi::{
+    NativeFrameAffinity, NativeFrameExit, NativeFrameProgressKind, NativeLaneRequirements,
+    NativeProtectedFrame,
+};
+use bray_runtime_model::{
+    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameLayout,
+    ProtectedFrameOperations, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
+    RuntimeAbiVersion,
 };
 
 use crate::{

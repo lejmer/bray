@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use bray_platform::RuntimeThreadScope;
 use bray_platform_abi::initialize_process_context;
-use bray_runtime_interface::{
+use bray_runtime_abi::{
     NativeExecutionLane, NativeExecutionLaneResult, NativeInactiveFrame, NativeProtectedFrame,
     NativeRootHandle, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
     NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
-    ProtectedFrameStateId, RuntimeCapability,
 };
+use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
 use crate::context::with_task_execution_context;
 use crate::{
@@ -749,8 +749,8 @@ mod tests {
         let reports = CleanupReportSink::new();
 
         let origin = CleanupIncidentOrigin::new(
-            bray_runtime_interface::ProtectedAsyncFrameId::new([5; 32]),
-            bray_runtime_interface::ProtectedFrameStateId::new(7),
+            bray_runtime_model::ProtectedAsyncFrameId::new([5; 32]),
+            bray_runtime_model::ProtectedFrameStateId::new(7),
         );
 
         reports.transfer(

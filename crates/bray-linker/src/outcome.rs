@@ -18,13 +18,11 @@ pub(crate) fn failed_outcome(failure: LinkFailure) -> LinkOutcome {
 /// Creates stable structured diagnostics for one typed native link failure.
 pub fn link_failure_diagnostics(failure: &LinkFailure) -> DiagnosticBag {
     match failure {
-        LinkFailure::UnsupportedRequirement(requirement) => DiagnosticBag::single(
-            Diagnostic::new(
-                DiagnosticId::new(0),
-                unsupported_requirement_diagnostic(requirement),
-                SeverityKind::Error,
-            ),
-        ),
+        LinkFailure::UnsupportedRequirement(requirement) => DiagnosticBag::single(Diagnostic::new(
+            DiagnosticId::new(0),
+            unsupported_requirement_diagnostic(requirement),
+            SeverityKind::Error,
+        )),
         _ => DiagnosticBag::new(),
     }
 }

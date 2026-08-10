@@ -15,7 +15,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let value = self.only_scalar_operand(operation)?;
 
         let function = self.text_function(
-            bray_runtime_interface::CHARACTER_SCALAR_VALUE_SYMBOL,
+            bray_runtime_abi::CHARACTER_SCALAR_VALUE_SYMBOL,
             Some(value.get_type().into()),
             &[value.get_type().into()],
         );
@@ -32,7 +32,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let byte = self.types.context().i8_type();
 
         let function = self.text_function(
-            bray_runtime_interface::CHARACTER_FROM_SCALAR_VALUE_SYMBOL,
+            bray_runtime_abi::CHARACTER_FROM_SCALAR_VALUE_SYMBOL,
             Some(byte.into()),
             &[value.get_type().into(), scalar.get_type().into()],
         );
@@ -69,7 +69,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let result = self.pointer_integer_type();
 
         let function = self.text_function(
-            bray_runtime_interface::CHARACTER_UTF8_LENGTH_SYMBOL,
+            bray_runtime_abi::CHARACTER_UTF8_LENGTH_SYMBOL,
             Some(result.into()),
             &[value.get_type().into()],
         );
@@ -92,7 +92,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let result = self.types.context().i8_type();
 
         let function = self.text_function(
-            bray_runtime_interface::CHARACTER_UTF8_BYTE_SYMBOL,
+            bray_runtime_abi::CHARACTER_UTF8_BYTE_SYMBOL,
             Some(result.into()),
             &[value.get_type().into(), index.get_type().into()],
         );

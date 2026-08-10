@@ -27,6 +27,7 @@ pub(crate) fn build_rust_static_library(
     package: &str,
     profile: &str,
     archive_file_name: &str,
+    features: &[&str],
 ) -> Result<RustStaticLibrary, BuildError> {
     let target_directory = root.join("target");
     let mut command = Command::new("cargo");
@@ -41,10 +42,16 @@ pub(crate) fn build_rust_static_library(
         target.as_str(),
         "--profile",
         profile,
+        "--no-default-features",
         "--target-dir",
     ]);
 
     command.arg(&target_directory);
+
+    if !features.is_empty() {
+        command.arg("--features").arg(features.join(","));
+    }
+
     command.args(["--", "--print", "native-static-libs"]);
     configure_cross_c_toolchain(&mut command, root, target);
 

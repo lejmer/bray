@@ -17,7 +17,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let integer = self.pointer_integer_type();
 
         let function = self.text_function(
-            bray_runtime_interface::STRING_SCALAR_COUNT_SYMBOL,
+            bray_runtime_abi::STRING_SCALAR_COUNT_SYMBOL,
             Some(integer.into()),
             &[data.get_type().into(), integer.into()],
         );
@@ -63,7 +63,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let byte = self.types.context().i8_type();
 
         let function = self.text_function(
-            bray_runtime_interface::STRING_EQUALS_SYMBOL,
+            bray_runtime_abi::STRING_EQUALS_SYMBOL,
             Some(byte.into()),
             &[
                 left_data.get_type().into(),
@@ -113,7 +113,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let byte = self.types.context().i8_type();
 
         let function = self.text_function(
-            bray_runtime_interface::STRING_SCALAR_AT_SYMBOL,
+            bray_runtime_abi::STRING_SCALAR_AT_SYMBOL,
             Some(byte.into()),
             &[
                 data.get_type().into(),
@@ -164,7 +164,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let (result_data, result_length, result_owner) = self.string_outputs(data.get_type())?;
 
         let function = self.text_function(
-            bray_runtime_interface::STRING_SCALAR_SLICE_SYMBOL,
+            bray_runtime_abi::STRING_SCALAR_SLICE_SYMBOL,
             None,
             &[
                 data.get_type().into(),

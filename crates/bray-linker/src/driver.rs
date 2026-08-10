@@ -133,8 +133,8 @@ impl Linker {
         for driver in self.drivers.iter() {
             let capabilities = driver.capabilities();
 
-            let plan = construct(capabilities.identity())
-                .map_err(LinkPlanSelectionError::Construction)?;
+            let plan =
+                construct(capabilities.identity()).map_err(LinkPlanSelectionError::Construction)?;
 
             if plan.driver() != capabilities.identity() {
                 return Err(LinkPlanSelectionError::Link(
@@ -339,13 +339,9 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("test driver identity must be valid"));
 
-        let second_identity = LinkerDriverIdentity::try_new(
-            LinkerDriverKind::System,
-            "b-compatible-plan",
-            "1",
-            "1",
-        )
-        .unwrap_or_else(|| panic!("test driver identity must be valid"));
+        let second_identity =
+            LinkerDriverIdentity::try_new(LinkerDriverKind::System, "b-compatible-plan", "1", "1")
+                .unwrap_or_else(|| panic!("test driver identity must be valid"));
 
         let first = Arc::new(TestDriver {
             capabilities: test_capabilities_with_startup(
@@ -441,11 +437,7 @@ mod tests {
         identity: LinkerDriverIdentity,
         supported: bool,
     ) -> LinkerDriverCapabilities {
-        test_capabilities_with_startup(
-            identity,
-            supported,
-            LinkStartupMode::PlatformCompilerDriver,
-        )
+        test_capabilities_with_startup(identity, supported, LinkStartupMode::PlatformCompilerDriver)
     }
 
     fn test_capabilities_with_startup(

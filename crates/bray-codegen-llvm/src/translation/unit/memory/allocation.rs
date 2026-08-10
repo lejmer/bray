@@ -229,10 +229,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let ty = pointer.fn_type(&[integer.into(), integer.into()], false);
 
         self.module
-            .get_function(bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL)
+            .get_function(bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL)
             .unwrap_or_else(|| {
                 self.module
-                    .add_function(bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL, ty, None)
+                    .add_function(bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL, ty, None)
             })
     }
 
@@ -249,13 +249,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .fn_type(&[pointer.into(), integer.into(), integer.into()], false);
 
         self.module
-            .get_function(bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL)
+            .get_function(bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL)
             .unwrap_or_else(|| {
-                self.module.add_function(
-                    bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL,
-                    ty,
-                    None,
-                )
+                self.module
+                    .add_function(bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL, ty, None)
             })
     }
 

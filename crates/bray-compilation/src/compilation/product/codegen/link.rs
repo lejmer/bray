@@ -124,7 +124,8 @@ impl Compilation {
             .chain(standard_library_inputs)
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut facts = ProductLinkFacts::new(link_target, policy).with_native_inputs(native_inputs);
+        let mut facts =
+            ProductLinkFacts::new(link_target, policy).with_native_inputs(native_inputs);
 
         if let Some(runtime) = runtime {
             facts = facts.with_runtime(runtime);

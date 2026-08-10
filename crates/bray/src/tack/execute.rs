@@ -928,10 +928,7 @@ mod tests {
             let generation_digest = stable_digest(&manifest);
             let generation = bray_base::lowercase_hex(&generation_digest);
 
-            let generation_directory = output
-                .join(".bray")
-                .join("generations")
-                .join(&generation);
+            let generation_directory = output.join(".bray").join("generations").join(&generation);
 
             let artifact_directory = generation_directory.join("artifacts");
 
@@ -940,8 +937,7 @@ mod tests {
             std::fs::rename(staged_artifact, artifact_directory.join("application"))
                 .map_err(|_| ())?;
 
-            std::fs::write(generation_directory.join("manifest.json"), manifest)
-                .map_err(|_| ())?;
+            std::fs::write(generation_directory.join("manifest.json"), manifest).map_err(|_| ())?;
 
             let reference = serde_json::to_vec(&serde_json::json!({
                 "revision": 1,
@@ -950,8 +946,11 @@ mod tests {
             }))
             .map_err(|_| ())?;
 
-            std::fs::write(output.join(".bray").join("published-generation.json"), reference)
-                .map_err(|_| ())?;
+            std::fs::write(
+                output.join(".bray").join("published-generation.json"),
+                reference,
+            )
+            .map_err(|_| ())?;
 
             Ok(())
         }
