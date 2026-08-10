@@ -56,6 +56,7 @@ impl From<std::io::Error> for CatalogGenerationError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GeneratedCatalogOutput {
     rust_source: String,
+    grammar_revision: crate::CatalogGrammarRevision,
     source_digest: String,
 }
 
@@ -63,6 +64,11 @@ impl GeneratedCatalogOutput {
     /// Returns the complete generated Rust catalog module.
     pub fn rust_source(&self) -> &str {
         &self.rust_source
+    }
+
+    /// Returns the exact catalog grammar revision used for generation.
+    pub const fn grammar_revision(&self) -> crate::CatalogGrammarRevision {
+        self.grammar_revision
     }
 
     /// Returns the digest stamped into generated output.
@@ -79,13 +85,23 @@ pub fn generate_catalog_output() -> Result<GeneratedCatalogOutput, CatalogGenera
     let (declaration_surfaces, type_surfaces) = validator.into_surfaces();
 
     let catalog_directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("catalog");
-    let digest = source_digest(MANIFEST, &catalog_directory)?;
+
+    let digest = source_digest(
+        crate::CatalogGrammarRevision::SUPPORTED,
+        MANIFEST,
+        &catalog_directory,
+    )?;
 
     catalog.declaration_surfaces = declaration_surfaces.into();
     catalog.type_surfaces = type_surfaces.into();
 
     Ok(GeneratedCatalogOutput {
-        rust_source: render_catalog(&catalog, &digest),
+        rust_source: render_catalog(
+            &catalog,
+            crate::CatalogGrammarRevision::SUPPORTED,
+            &digest,
+        ),
+        grammar_revision: crate::CatalogGrammarRevision::SUPPORTED,
         source_digest: digest,
     })
 }
@@ -427,8 +443,8 @@ mod tests {
 
     use super::{generate_catalog_output, render_catalog};
     use crate::{
-        CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG, CatalogSurfaceElement,
-        generator_input_inventory,
+        CATALOG_GRAMMAR_REVISION, CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG,
+        CatalogSurfaceElement, generator_input_inventory,
     };
 
     #[test]
@@ -444,6 +460,7 @@ mod tests {
         };
 
         assert_eq!(first, second);
+        assert_eq!(first.grammar_revision(), CATALOG_GRAMMAR_REVISION);
         assert_eq!(first.source_digest().len(), 64);
         assert_eq!(first.source_digest(), CATALOG_SOURCE_DIGEST);
     }
@@ -457,7 +474,11 @@ mod tests {
 
         assert_eq!(
             output.rust_source(),
-            render_catalog(&COMPILER_KNOWN_CATALOG, output.source_digest())
+            render_catalog(
+                &COMPILER_KNOWN_CATALOG,
+                output.grammar_revision(),
+                output.source_digest(),
+            )
         );
 
         assert_eq!(generator_input_inventory().sources().len(), 16);

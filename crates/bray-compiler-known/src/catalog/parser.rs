@@ -18,8 +18,10 @@ use super::{
     CatalogDeclarationSurface, CatalogKind, CatalogSource, CatalogSourceAnchor,
     CatalogTokenSpelling, CatalogTypeSurface,
 };
+use crate::CatalogGrammarRevision;
 
 const CATALOG_WORD: &str = "catalog";
+const REVISION_WORD: &str = "revision";
 const SCOPE_WORD: &str = "scope";
 const AT_WORD: &str = "at";
 const DECLARATION_WORD: &str = "declaration";
@@ -40,6 +42,16 @@ const OPERATION_WORD: &str = "operation";
 const SURFACE_WORD: &str = "surface";
 const SPELLING_WORD: &str = "spelling";
 const TYPE_WORD: &str = "type";
+
+struct CatalogGrammar {
+    revision: CatalogGrammarRevision,
+    parse_body: fn(&mut CatalogParser) -> Option<Vec<ParsedScope>>,
+}
+
+const SUPPORTED_CATALOG_GRAMMARS: &[CatalogGrammar] = &[CatalogGrammar {
+    revision: CatalogGrammarRevision::SUPPORTED,
+    parse_body: CatalogParser::parse_revision_1_body,
+}];
 
 pub(super) fn parse_catalog_source(
     source: CatalogSource,
@@ -83,8 +95,38 @@ impl CatalogParser {
         self.expect_word(CATALOG_WORD)?;
         let declared_kind = self.parse_catalog_kind()?;
 
+        self.expect_word(REVISION_WORD)?;
+        let declared_revision = self.parse_catalog_revision()?;
+
         self.expect_kind(SyntaxKind::SemicolonToken, CatalogExpectation::Semicolon)?;
 
+        let Some(grammar) = SUPPORTED_CATALOG_GRAMMARS
+            .iter()
+            .find(|grammar| grammar.revision == declared_revision.value)
+        else {
+            self.diagnostics.push(CatalogDiagnostic::new(
+                declared_revision.anchor,
+                CatalogDiagnosticKind::UnsupportedCatalogRevision {
+                    revision: declared_revision.value,
+                },
+            ));
+
+            return None;
+        };
+
+        let scopes = (grammar.parse_body)(self)?;
+
+        self.expect_kind(SyntaxKind::EndOfFileToken, CatalogExpectation::EndOfFile)?;
+
+        Some(ParsedCatalogSource {
+            source_kind: self.source.kind(),
+            declared_kind,
+            declared_revision,
+            scopes,
+        })
+    }
+
+    fn parse_revision_1_body(&mut self) -> Option<Vec<ParsedScope>> {
         let mut scopes = Vec::new();
 
         while !self.at(SyntaxKind::EndOfFileToken) {
@@ -100,13 +142,7 @@ impl CatalogParser {
             }
         }
 
-        self.expect_kind(SyntaxKind::EndOfFileToken, CatalogExpectation::EndOfFile)?;
-
-        Some(ParsedCatalogSource {
-            source_kind: self.source.kind(),
-            declared_kind,
-            scopes,
-        })
+        Some(scopes)
     }
 
     fn parse_catalog_kind(&mut self) -> Option<Anchored<CatalogKind>> {
@@ -127,6 +163,55 @@ impl CatalogParser {
         };
 
         Some(Anchored::new(kind, self.anchor(token.range())))
+    }
+
+    fn parse_catalog_revision(&mut self) -> Option<Anchored<CatalogGrammarRevision>> {
+        let token = self.peek();
+        let spelling = self.token_text(&token);
+
+        if token.kind() != SyntaxKind::DecimalIntegerLiteralToken {
+            if token.kind() == SyntaxKind::EndOfFileToken {
+                self.record_unexpected(&token, CatalogExpectation::CatalogRevision);
+            } else {
+                self.diagnostics.push(CatalogDiagnostic::new(
+                    self.anchor(token.range()),
+                    CatalogDiagnosticKind::InvalidCatalogRevision { spelling },
+                ));
+
+                self.tokens.consume();
+            }
+
+            return None;
+        }
+
+        let Ok(revision) = spelling.parse::<u32>() else {
+            self.diagnostics.push(CatalogDiagnostic::new(
+                self.anchor(token.range()),
+                CatalogDiagnosticKind::InvalidCatalogRevision { spelling },
+            ));
+
+            self.tokens.consume();
+
+            return None;
+        };
+
+        if revision.to_string() != spelling.as_ref() {
+            self.diagnostics.push(CatalogDiagnostic::new(
+                self.anchor(token.range()),
+                CatalogDiagnosticKind::InvalidCatalogRevision { spelling },
+            ));
+
+            self.tokens.consume();
+
+            return None;
+        }
+
+        self.tokens.consume();
+
+        Some(Anchored::new(
+            CatalogGrammarRevision::new(revision),
+            self.anchor(token.range()),
+        ))
     }
 
     fn parse_scope(&mut self) -> Option<ParsedScope> {
@@ -647,7 +732,9 @@ fn is_catalog_word(token: &SyntaxToken) -> bool {
 #[cfg(test)]
 mod tests {
     use super::parse_catalog_source;
-    use crate::catalog::diagnostic::{CatalogDiagnosticKind, CatalogEntryKind};
+    use crate::catalog::diagnostic::{
+        CatalogDiagnosticKind, CatalogEntryKind, CatalogExpectation,
+    };
     use crate::catalog::entry::{
         ParsedDeclarationField, ParsedEntry, ParsedScopeLocation, ParsedValueField,
     };
@@ -656,7 +743,7 @@ mod tests {
     #[test]
     fn parser_retains_catalog_metadata_and_exact_fragment_ranges() {
         let text = concat!(
-            "catalog compiler_known;\n",
+            "catalog compiler_known revision 1;\n",
             "scope Ambient at ambient {\n",
             "  declaration RawPointerRead {\n",
             "    owner RawPointer;\n",
@@ -683,6 +770,7 @@ mod tests {
         };
 
         assert_eq!(parsed.declared_kind.value, CatalogKind::CompilerKnown);
+        assert_eq!(parsed.declared_revision.value.raw(), 1);
         assert_eq!(parsed.scopes.len(), 1);
         assert_eq!(parsed.scopes[0].key.value.as_ref(), "Ambient");
 
@@ -732,7 +820,7 @@ mod tests {
     #[test]
     fn parser_handles_nested_braces_inside_declaration_fragments() {
         let text = concat!(
-            "catalog compiler_known;\n",
+            "catalog compiler_known revision 1;\n",
             "scope Ambient at ambient {\n",
             "  declaration Bool { surface { struct bool {} } }\n",
             "}\n",
@@ -760,9 +848,81 @@ mod tests {
     }
 
     #[test]
+    fn parser_requires_an_explicit_catalog_revision() {
+        let (parsed, diagnostics) = parse_catalog_source(source("catalog compiler_known;"));
+
+        assert_eq!(parsed, None);
+
+        assert!(diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic.kind(),
+            CatalogDiagnosticKind::UnexpectedToken {
+                expected: CatalogExpectation::Word("revision"),
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn parser_rejects_unsupported_catalog_revisions() {
+        let (parsed, diagnostics) =
+            parse_catalog_source(source("catalog compiler_known revision 2;"));
+
+        assert_eq!(parsed, None);
+        assert_eq!(diagnostics.len(), 1);
+
+        assert!(matches!(
+            diagnostics[0].kind(),
+            CatalogDiagnosticKind::UnsupportedCatalogRevision { revision }
+                if revision.raw() == 2
+        ));
+    }
+
+    #[test]
+    fn parser_rejects_malformed_catalog_revisions() {
+        let malformed = [
+            ("latest", "catalog compiler_known revision latest;"),
+            ("01", "catalog compiler_known revision 01;"),
+            ("0x1", "catalog compiler_known revision 0x1;"),
+            ("4294967296", "catalog compiler_known revision 4294967296;"),
+        ];
+
+        for (revision, text) in malformed {
+            let (parsed, diagnostics) = parse_catalog_source(source(text));
+
+            assert_eq!(parsed, None);
+
+            assert!(diagnostics.iter().any(|diagnostic| matches!(
+                diagnostic.kind(),
+                CatalogDiagnosticKind::InvalidCatalogRevision { spelling }
+                    if spelling.as_ref() == revision
+            )));
+        }
+    }
+
+    #[test]
+    fn parser_rejects_unknown_top_level_constructs() {
+        let text = concat!(
+            "catalog compiler_known revision 1;\n",
+            "extension Experimental {}\n",
+        );
+
+        let (parsed, diagnostics) = parse_catalog_source(source(text));
+
+        assert_eq!(parsed, None);
+
+        assert!(diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic.kind(),
+            CatalogDiagnosticKind::UnexpectedToken {
+                expected: CatalogExpectation::Word("scope"),
+                ..
+            }
+        )));
+    }
+
+    #[test]
     fn parser_reports_unknown_fields_without_publishing_a_partial_source() {
         let text = concat!(
-            "catalog compiler_known;\n",
+            "catalog compiler_known revision 1;\n",
             "scope Ambient at ambient {\n",
             "  declaration Bool { mystery ScalarBool; surface { struct bool {} } }\n",
             "}\n",
@@ -786,7 +946,7 @@ mod tests {
     #[test]
     fn parser_rejects_out_of_range_declaration_identity_ordinals() {
         let text = concat!(
-            "catalog recognized_standard_library;\n",
+            "catalog recognized_standard_library revision 1;\n",
             "scope Standard at std {\n",
             "  declaration Item {\n",
             "    identity ordinal 4294967296;\n",
@@ -809,7 +969,7 @@ mod tests {
     #[test]
     fn parser_retains_unknown_entry_kind_spellings() {
         let text = concat!(
-            "catalog compiler_known;\n",
+            "catalog compiler_known revision 1;\n",
             "scope Ambient at ambient { unsupported Item {} }\n",
         );
 
@@ -829,7 +989,7 @@ mod tests {
     #[test]
     fn parser_reports_unclosed_fragments_at_end_of_file() {
         let text = concat!(
-            "catalog compiler_known;\n",
+            "catalog compiler_known revision 1;\n",
             "scope Ambient at ambient {\n",
             "  declaration Bool { surface { struct bool {}\n",
         );
