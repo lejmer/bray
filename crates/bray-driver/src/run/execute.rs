@@ -683,6 +683,60 @@ mod tests {
     }
 
     #[test]
+    fn profile_output_failures_publish_structured_diagnostics() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+
+        let report = unique_temporary_directory()
+            .join("missing")
+            .join("profile.json");
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let exit_code = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from("--format"),
+                OsString::from("json"),
+                OsString::from("--profile=summary"),
+                OsString::from("--profile-output"),
+                report.as_os_str().to_os_string(),
+                OsString::from("check"),
+                file.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        assert_eq!(exit_code, ExitCode::FAILURE);
+        assert!(stderr.is_empty());
+
+        let stdout: serde_json::Value = serde_json::from_slice(&stdout)
+            .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+        let diagnostic = &stdout["diagnostics"][0];
+
+        let argument_names = diagnostic["args"]
+            .as_array()
+            .unwrap_or_else(|| panic!("diagnostic arguments must be an array"))
+            .iter()
+            .map(|argument| {
+                argument["name"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("diagnostic argument name must be text"))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            diagnostic["kind"],
+            DiagnosticKind::CompilerProfileWriteFailed.as_str()
+        );
+
+        assert_eq!(argument_names, ["file_path", "io_error_kind"]);
+        assert!(!report.exists());
+    }
+
+    #[test]
     fn run_fails_when_check_diagnostics_have_errors() {
         let file = TemporaryFile::write("bad.bray", &[0xff]);
 

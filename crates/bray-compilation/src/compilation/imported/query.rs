@@ -575,7 +575,8 @@ fn semantic_facts_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::fs;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use bray_bound_tree::CheckedTemplateKind;
@@ -586,7 +587,13 @@ mod tests {
         test_support::encoded_semantic_test_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+    use bray_standard_library::{
+        STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactKind,
+        StandardLibraryBundleManifest, StandardLibraryRoot, StandardLibraryTargetArtifacts,
+        encode_standard_library_manifest, standard_library_target_artifact_directory,
+    };
     use bray_symbols::PackageIdentity;
+    use bray_target::TargetIdentity;
 
     use crate::test_support::diagnostic_kinds;
     use crate::{
@@ -679,6 +686,108 @@ mod tests {
         assert_eq!(
             diagnostic_kinds(result.diagnostics()),
             [DiagnosticKind::StandardLibraryArtifactReadFailed]
+        );
+    }
+
+    #[test]
+    fn standard_library_bundle_failures_publish_exact_structured_diagnostics() {
+        let malformed_directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+
+        fs::write(
+            malformed_directory
+                .path()
+                .join(STANDARD_LIBRARY_MANIFEST_FILE_NAME),
+            b"{}",
+        )
+        .unwrap_or_else(|error| panic!("malformed manifest must be written: {error}"));
+
+        let malformed = compilation_with_standard_library_root(
+            StandardLibraryRoot::try_new(malformed_directory.path())
+                .unwrap_or_else(|| panic!("temporary root must be absolute")),
+        );
+
+        let malformed_result = malformed
+            .dependency_interface_result(interface_id(&malformed, "std", "library"))
+            .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
+
+        assert_eq!(
+            diagnostic_kinds(malformed_result.diagnostics()),
+            [DiagnosticKind::StandardLibraryManifestInvalid]
+        );
+
+        let unavailable_directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+
+        let unavailable_target = TargetIdentity::try_new("aarch64-unknown-linux-gnu")
+            .unwrap_or_else(|| panic!("test target identity must be valid"));
+
+        let unavailable_root = write_standard_library_fixture(
+            unavailable_directory.path(),
+            unavailable_target,
+            b"interface",
+            b"interface",
+        );
+
+        let unavailable = compilation_with_standard_library_root(unavailable_root);
+
+        let unavailable_result = unavailable
+            .dependency_interface_result(interface_id(&unavailable, "std", "library"))
+            .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
+
+        let [unavailable_diagnostic] = unavailable_result.diagnostics().diagnostics() else {
+            panic!("unavailable target must produce one diagnostic");
+        };
+
+        assert_eq!(
+            unavailable_diagnostic.kind(),
+            DiagnosticKind::StandardLibraryTargetUnavailable
+        );
+
+        assert_eq!(
+            unavailable_diagnostic.args()[0].name(),
+            DiagnosticArgName::ReferencedName
+        );
+
+        let mismatch_directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+
+        let selected_target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            .unwrap_or_else(|| panic!("test target identity must be valid"));
+
+        let mismatch_root = write_standard_library_fixture(
+            mismatch_directory.path(),
+            selected_target,
+            b"interface",
+            b"different",
+        );
+
+        let mismatch = compilation_with_standard_library_root(mismatch_root);
+
+        let mismatch_result = mismatch
+            .dependency_interface_result(interface_id(&mismatch, "std", "library"))
+            .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
+
+        let [mismatch_diagnostic] = mismatch_result.diagnostics().diagnostics() else {
+            panic!("digest mismatch must produce one diagnostic");
+        };
+
+        assert_eq!(
+            mismatch_diagnostic.kind(),
+            DiagnosticKind::StandardLibraryArtifactDigestMismatch
+        );
+
+        assert_eq!(
+            mismatch_diagnostic
+                .args()
+                .iter()
+                .map(|argument| argument.name())
+                .collect::<Vec<_>>(),
+            [
+                DiagnosticArgName::FilePath,
+                DiagnosticArgName::ExpectedArtifactDigest,
+                DiagnosticArgName::ActualArtifactDigest,
+            ]
         );
     }
 
@@ -1126,6 +1235,80 @@ mod tests {
 
         Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
+    }
+
+    fn compilation_with_standard_library_root(root: StandardLibraryRoot) -> Compilation {
+        let request = CompilationRequest::new(
+            package("example.current"),
+            vec![SourceInput::virtual_text(
+                SourceIdentity::new(1),
+                "main.bray",
+                SourceVersion::new(1),
+                "module example.current;",
+            )],
+        )
+        .with_standard_library_root(root);
+
+        Compilation::load(request)
+            .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
+    }
+
+    fn write_standard_library_fixture(
+        root: &Path,
+        target: TargetIdentity,
+        expected_interface: &[u8],
+        actual_interface: &[u8],
+    ) -> StandardLibraryRoot {
+        let runtime_abi = bray_runtime_interface::RuntimeAbiVersion::new(1, 0);
+        let prefix = standard_library_target_artifact_directory(&target, runtime_abi);
+
+        let interface = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageInterface,
+            format!("{prefix}/std.brayi"),
+            expected_interface,
+        )
+        .unwrap_or_else(|error| panic!("interface metadata must be valid: {error:?}"));
+
+        let implementation = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageImplementation,
+            format!("{prefix}/std.brayimpl"),
+            b"implementation",
+        )
+        .unwrap_or_else(|error| panic!("implementation metadata must be valid: {error:?}"));
+
+        let inventory = StandardLibraryTargetArtifacts::try_new(
+            target,
+            runtime_abi,
+            [interface.clone(), implementation.clone()],
+        )
+        .unwrap_or_else(|error| panic!("target inventory must be valid: {error:?}"));
+
+        let manifest = StandardLibraryBundleManifest::try_new([inventory])
+            .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
+
+        let interface_path = interface.beneath(root);
+
+        fs::create_dir_all(
+            interface_path
+                .parent()
+                .unwrap_or_else(|| panic!("interface must have a parent")),
+        )
+        .unwrap_or_else(|error| panic!("target directory must be created: {error}"));
+
+        fs::write(interface_path, actual_interface)
+            .unwrap_or_else(|error| panic!("interface must be written: {error}"));
+
+        fs::write(implementation.beneath(root), b"implementation")
+            .unwrap_or_else(|error| panic!("implementation must be written: {error}"));
+
+        let manifest = encode_standard_library_manifest(&manifest)
+            .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));
+
+        fs::write(root.join(STANDARD_LIBRARY_MANIFEST_FILE_NAME), manifest)
+            .unwrap_or_else(|error| panic!("manifest must be written: {error}"));
+
+        StandardLibraryRoot::try_new(root)
+            .unwrap_or_else(|| panic!("temporary root must be absolute"))
     }
 
     fn dependency(package_name: &str, product_name: &str) -> DependencyInterfaceInput {

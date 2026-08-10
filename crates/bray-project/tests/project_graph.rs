@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bray_diagnostics::{DiagnosticId, DiagnosticKind, DiagnosticNoteKind};
+use bray_diagnostics::{DiagnosticArgName, DiagnosticId, DiagnosticKind, DiagnosticNoteKind};
 use bray_project::{
     PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblem, load_project_graph,
     load_standard_library_project_graph,
@@ -289,13 +289,28 @@ fn ordinary_projects_cannot_claim_standard_library_package_identities() {
         r#""identity": "std""#,
     );
 
-    assert!(matches!(
-        load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::ReservedPackageIdentity,
-            ..
-        })
-    ));
+    let Err(error) = load_project_graph(workspace.path()) else {
+        panic!("reserved package identity must reject the graph");
+    };
+
+    let diagnostic = error.into_diagnostic(DiagnosticId::new(10));
+
+    assert_eq!(
+        diagnostic.kind(),
+        DiagnosticKind::ProjectPackageIdentityReserved
+    );
+
+    assert_eq!(
+        diagnostic
+            .args()
+            .iter()
+            .map(|argument| argument.name())
+            .collect::<Vec<_>>(),
+        [
+            DiagnosticArgName::FilePath,
+            DiagnosticArgName::ReferencedName
+        ]
+    );
 }
 
 #[test]
@@ -323,13 +338,28 @@ fn standard_library_projects_require_and_accept_reserved_package_identities() {
     let ordinary = TestWorkspace::new();
     write_valid_workspace(ordinary.path(), false);
 
-    assert!(matches!(
-        load_standard_library_project_graph(ordinary.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::StandardLibraryPackageIdentityRequired,
-            ..
-        })
-    ));
+    let Err(error) = load_standard_library_project_graph(ordinary.path()) else {
+        panic!("ordinary package identity must reject a standard library graph");
+    };
+
+    let diagnostic = error.into_diagnostic(DiagnosticId::new(11));
+
+    assert_eq!(
+        diagnostic.kind(),
+        DiagnosticKind::ProjectStandardLibraryPackageIdentityRequired
+    );
+
+    assert_eq!(
+        diagnostic
+            .args()
+            .iter()
+            .map(|argument| argument.name())
+            .collect::<Vec<_>>(),
+        [
+            DiagnosticArgName::FilePath,
+            DiagnosticArgName::ReferencedName
+        ]
+    );
 
     let workspace = TestWorkspace::new();
     write_valid_workspace(workspace.path(), false);
@@ -396,13 +426,28 @@ fn standard_library_projects_require_the_public_std_root() {
         r#""package": "std.runtime""#,
     );
 
-    assert!(matches!(
-        load_standard_library_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::StandardLibraryRootPackageRequired,
-            ..
-        })
-    ));
+    let Err(error) = load_standard_library_project_graph(workspace.path()) else {
+        panic!("missing public standard library root must reject the graph");
+    };
+
+    let diagnostic = error.into_diagnostic(DiagnosticId::new(12));
+
+    assert_eq!(
+        diagnostic.kind(),
+        DiagnosticKind::ProjectStandardLibraryRootPackageRequired
+    );
+
+    assert_eq!(
+        diagnostic
+            .args()
+            .iter()
+            .map(|argument| argument.name())
+            .collect::<Vec<_>>(),
+        [
+            DiagnosticArgName::FilePath,
+            DiagnosticArgName::ReferencedName
+        ]
+    );
 }
 
 #[test]

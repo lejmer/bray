@@ -43,6 +43,14 @@
       }
     },
     {
+      "name": "DeclaredCallable",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::DeclaredCallable"
+      }
+    },
+    {
       "name": "Store",
       "disposition": "translated",
       "production": {
@@ -96,6 +104,14 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
         "symbol": "MirOperationKind::Convert"
+      }
+    },
+    {
+      "name": "NumericConversion",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::NumericConversion"
       }
     },
     {
@@ -168,6 +184,14 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
         "symbol": "MirOperationKind::Memory"
+      }
+    },
+    {
+      "name": "Text",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::Text"
       }
     },
     {
@@ -294,6 +318,14 @@
     }
   ],
   "host_operations": [
+    {
+      "name": "SelectTestEntry",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
+        "symbol": "MirHostOperation::SelectTestEntry"
+      }
+    },
     {
       "name": "ExecuteRoot",
       "disposition": "translated",
@@ -441,6 +473,14 @@
       }
     },
     {
+      "name": "PropagateCancellation",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::PropagateCancellation"
+      }
+    },
+    {
       "name": "CancelCurrentRun",
       "disposition": "translated",
       "production": {
@@ -476,7 +516,7 @@
     },
     {
       "name": "ConversionTarget",
-      "variants": ["Identity", "BuiltInScalar", "Composite", "Trait"],
+      "variants": ["Identity", "BuiltInScalar", "Composite", "Trait", "TraitConstraint"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
         "symbol": "conversion.target()"
@@ -484,7 +524,7 @@
     },
     {
       "name": "MirAggregateKind",
-      "variants": ["Tuple", "Array", "RepeatedArray"],
+      "variants": ["Tuple", "Array", "RepeatedArray", "NullablePresent"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
         "symbol": "aggregate.kind()"
@@ -572,7 +612,7 @@
     },
     {
       "name": "MirPanicCause",
-      "variants": ["Message", "Assertion"],
+      "variants": ["Message", "Assertion", "ExplicitTestFailure"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
         "symbol": "match cause"
@@ -935,7 +975,7 @@
       "name": "target capability coverage",
       "production": {
         "path": "crates/bray-codegen-llvm/src/backend.rs",
-        "symbol": "target_platforms"
+        "symbol": "BackendTargetCapabilities::new(targets)"
       },
       "test": "every_advertised_platform_has_a_compiled_llvm_target"
     },

@@ -78,6 +78,14 @@ pub(super) fn initialize_project(
     workspace_root: &Path,
     package: Option<&str>,
 ) -> Result<(), DiagnosticBag> {
+    initialize_project_for_target(workspace_root, package, NativeTarget::current())
+}
+
+fn initialize_project_for_target(
+    workspace_root: &Path,
+    package: Option<&str>,
+    target: Option<NativeTarget>,
+) -> Result<(), DiagnosticBag> {
     let package = package
         .map(str::to_owned)
         .or_else(|| derive_package_identity(workspace_root))
@@ -87,7 +95,7 @@ pub(super) fn initialize_project(
         return Err(invalid_identity(package));
     }
 
-    let Some(target) = NativeTarget::current() else {
+    let Some(target) = target else {
         return Err(target_unsupported());
     };
 
@@ -260,10 +268,11 @@ fn diagnostic<const ARGUMENT_COUNT: usize>(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticKind, DiagnosticNote, DiagnosticNoteKind};
+    use bray_diagnostics::{DiagnosticArgName, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind};
     use bray_project::load_project_graph;
+    use bray_target::NativeTarget;
 
-    use super::initialize_project;
+    use super::{initialize_project, initialize_project_for_target};
     use crate::test_support::unique_temporary_directory;
 
     #[test]
@@ -351,5 +360,70 @@ mod tests {
         );
 
         assert!(!workspace.exists());
+    }
+
+    #[test]
+    fn initialization_reports_unsupported_hosts_through_the_target_boundary() {
+        let workspace = unique_temporary_directory().join("unsupported-project");
+
+        let Err(diagnostics) =
+            initialize_project_for_target(&workspace, Some("example.application"), None)
+        else {
+            panic!("missing native target must reject initialization");
+        };
+
+        let [diagnostic] = diagnostics.diagnostics() else {
+            panic!("unsupported target must produce one diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::ProjectInitializationTargetUnsupported
+        );
+
+        assert!(diagnostic.args().is_empty());
+        assert!(!workspace.exists());
+    }
+
+    #[test]
+    fn initialization_reports_filesystem_failures_with_path_and_error_kind() {
+        let parent = unique_temporary_directory();
+        let blocking_file = parent.join("blocking-file");
+
+        std::fs::create_dir_all(&parent)
+            .unwrap_or_else(|error| panic!("test parent must be created: {error:?}"));
+
+        std::fs::write(&blocking_file, b"not a directory")
+            .unwrap_or_else(|error| panic!("blocking file must be written: {error:?}"));
+
+        let workspace = blocking_file.join("project");
+
+        let Err(diagnostics) = initialize_project_for_target(
+            &workspace,
+            Some("example.application"),
+            Some(NativeTarget::X86_64LinuxGnu),
+        ) else {
+            panic!("filesystem failure must reject initialization");
+        };
+
+        let [diagnostic] = diagnostics.diagnostics() else {
+            panic!("filesystem failure must produce one diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic.kind(),
+            DiagnosticKind::ProjectInitializationWriteFailed
+        );
+
+        assert_eq!(
+            diagnostic
+                .args()
+                .iter()
+                .map(|argument| argument.name())
+                .collect::<Vec<_>>(),
+            [DiagnosticArgName::FilePath, DiagnosticArgName::IoErrorKind]
+        );
+
+        let _ = std::fs::remove_dir_all(parent);
     }
 }

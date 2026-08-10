@@ -23,6 +23,7 @@
     { "name": "Structured", "production": "lower_structured", "test": "structured_values_lower_to_aggregates_construction_and_projections" },
     { "name": "TraitQualifiedMember", "production": "lower_member_access", "test": "structured_values_lower_to_aggregates_construction_and_projections" },
     { "name": "Unary", "production": "lower_unary", "test": "lowering_publishes_selected_binary_operations_and_returns" },
+    { "name": "UnqualifiedVariant", "production": "lower_construction", "test": "structured_values_lower_to_aggregates_construction_and_projections" },
     { "name": "UnresolvedReference", "production": "RecoveredBoundNode", "test": "input_rejects_bound_expressions_without_final_types" }
   ],
   "structured_expressions": [
@@ -76,6 +77,7 @@
   "semantic_facts": [
     { "name": "Async", "production": "async_facts", "test": "async_callables_lower_to_protected_frames_and_explicit_suspension" },
     { "name": "BodyBehavior", "production": "body_behavior", "test": "lowering_retains_selected_call_behavior_and_runtime_defaults" },
+    { "name": "ConstantReferences", "production": "constant_reference_values", "test": "constant_references_lower_to_closed_mir_operands" },
     { "name": "ControlFlow", "production": "control_flow", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" },
     { "name": "DependencyContracts", "production": "dependency_contracts", "test": "lowering_retains_selected_call_behavior_and_runtime_defaults" },
     { "name": "ExpressionTypes", "production": "expression_types", "test": "input_rejects_bound_expressions_without_final_types" },
