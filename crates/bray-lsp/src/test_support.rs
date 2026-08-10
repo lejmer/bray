@@ -64,13 +64,13 @@ impl ProjectFixture {
                         "path": "src"
                     }
                 ],
-                "dependencies": [],
                 "products": [
                     {
                         "name": "application",
                         "kind": "executable",
                         "source_roots": ["main"],
                         "targets": ["native"],
+                        "dependencies": [],
                         "outputs": ["executable"]
                     }
                 ]

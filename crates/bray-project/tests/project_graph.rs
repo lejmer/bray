@@ -4,12 +4,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bray_diagnostics::{DiagnosticArgName, DiagnosticId, DiagnosticKind, DiagnosticNoteKind};
 use bray_project::{
-    PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblem, load_project_graph,
-    load_standard_library_project_graph,
+    PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblem, TargetPredicate,
+    TargetPredicateValue, canonicalize_package_manifest, canonicalize_workspace_manifest,
+    load_project_graph, load_standard_library_project_graph,
 };
 use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::PackageIdentity;
-use bray_target::TargetOutputKind;
+use bray_target::{TargetFactKind, TargetOutputKind};
 
 static TEST_DIRECTORY_ORDINAL: AtomicUsize = AtomicUsize::new(0);
 
@@ -85,7 +86,7 @@ fn tested_libraries_must_name_sibling_library_products() {
 }
 
 #[test]
-fn manifests_load_an_exact_dependency_first_project_graph() {
+fn manifests_load_an_exact_canonical_project_graph() {
     let workspace = TestWorkspace::new();
     write_valid_workspace(workspace.path(), false);
 
@@ -102,7 +103,7 @@ fn manifests_load_an_exact_dependency_first_project_graph() {
             .collect::<Vec<_>>(),
         vec![
             ("native", "x86_64-unknown-linux-gnu"),
-            ("portable", "wasm32-unknown-unknown")
+            ("portable", "aarch64-pc-windows-msvc")
         ]
     );
 
@@ -112,12 +113,12 @@ fn manifests_load_an_exact_dependency_first_project_graph() {
             .iter()
             .map(|package| package.identity().as_str())
             .collect::<Vec<_>>(),
-        vec!["example.math", "example.application"]
+        vec!["example.application", "example.math"]
     );
 
     let application = graph
         .packages()
-        .get(1)
+        .first()
         .unwrap_or_else(|| panic!("application package must be present"));
 
     assert_eq!(application.role(), PackageRole::Root);
@@ -150,11 +151,32 @@ fn manifests_load_an_exact_dependency_first_project_graph() {
     );
 
     assert_eq!(
-        application.dependencies()[0].product().package().as_str(),
+        application.products()[0].dependencies()[0]
+            .product()
+            .package()
+            .as_str(),
         "example.math"
     );
 
-    assert_eq!(application.dependencies()[0].product().name(), "math");
+    assert_eq!(
+        application.products()[0].dependencies()[0].product().name(),
+        "math"
+    );
+
+    let native_plan = graph
+        .build_plans()
+        .iter()
+        .find(|plan| plan.target().as_str() == "x86_64-unknown-linux-gnu")
+        .unwrap_or_else(|| panic!("native build plan must be present"));
+
+    assert_eq!(
+        native_plan
+            .products()
+            .iter()
+            .map(|product| product.package().as_str())
+            .collect::<Vec<_>>(),
+        ["example.math", "example.application"]
+    );
 
     let identity = PackageIdentity::try_new("example.math")
         .unwrap_or_else(|| panic!("test package identity must be valid"));
@@ -395,8 +417,218 @@ fn standard_library_projects_require_and_accept_reserved_package_identities() {
             .iter()
             .map(|package| package.identity().as_str())
             .collect::<Vec<_>>(),
-        vec!["std.runtime", "std"]
+        vec!["std", "std.runtime"]
     );
+}
+
+#[test]
+fn unsupported_manifest_revisions_are_rejected_before_schema_interpretation() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("bray-workspace.json"),
+        r#""format": 1"#,
+        r#""format": 7"#,
+    );
+
+    assert!(matches!(
+        load_project_graph(workspace.path()),
+        Err(ProjectLoadError::InvalidManifest {
+            problem: ProjectManifestProblem::UnsupportedFormat,
+            value,
+            ..
+        }) if value == "7"
+    ));
+}
+
+#[test]
+fn canonical_manifest_writers_are_idempotent_and_normalize_set_order() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    let workspace_path = workspace.path().join("bray-workspace.json");
+    let package_path = workspace.path().join("app").join("bray-package.json");
+
+    let workspace_source = fs::read_to_string(&workspace_path)
+        .unwrap_or_else(|error| panic!("workspace manifest must be readable: {error:?}"));
+
+    let package_source = fs::read_to_string(&package_path)
+        .unwrap_or_else(|error| panic!("package manifest must be readable: {error:?}"));
+
+    let workspace_canonical = canonicalize_workspace_manifest(&workspace_source, &workspace_path)
+        .unwrap_or_else(|error| panic!("workspace manifest must canonicalize: {error:?}"));
+
+    let package_canonical = canonicalize_package_manifest(&package_source, &package_path)
+        .unwrap_or_else(|error| panic!("package manifest must canonicalize: {error:?}"));
+
+    assert!(workspace_canonical.ends_with('\n'));
+    assert!(package_canonical.ends_with('\n'));
+
+    let native = workspace_canonical
+        .find("\"native\"")
+        .unwrap_or_else(|| panic!("canonical workspace must retain native target"));
+
+    let portable = workspace_canonical
+        .find("\"portable\"")
+        .unwrap_or_else(|| panic!("canonical workspace must retain portable target"));
+
+    let logging = package_canonical
+        .find("\"logging\"")
+        .unwrap_or_else(|| panic!("canonical package must retain logging feature"));
+
+    let tracing = package_canonical
+        .find("\"tracing\"")
+        .unwrap_or_else(|| panic!("canonical package must retain tracing feature"));
+
+    assert!(native < portable);
+    assert!(logging < tracing);
+
+    assert_eq!(
+        canonicalize_workspace_manifest(&workspace_canonical, &workspace_path),
+        Ok(workspace_canonical)
+    );
+
+    assert_eq!(
+        canonicalize_package_manifest(&package_canonical, &package_path),
+        Ok(package_canonical)
+    );
+}
+
+#[test]
+fn package_wide_dependency_syntax_is_rejected() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    let path = workspace.path().join("app").join("bray-package.json");
+
+    replace(
+        path,
+        r#""source_roots": [{"name": "main", "path": "src"}],"#,
+        r#""source_roots": [{"name": "main", "path": "src"}],
+                "dependencies": [],"#,
+    );
+
+    assert!(matches!(
+        load_project_graph(workspace.path()),
+        Err(ProjectLoadError::ParseManifest { .. })
+    ));
+}
+
+#[test]
+fn target_conditioned_dependencies_retain_predicates_and_per_target_orders() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#"{"package": "example.math", "product": "math"}"#,
+        r#"{
+                        "package": "example.math",
+                        "product": "math",
+                        "when": {
+                            "all": [
+                                {
+                                    "property": "target.pointer.BITS",
+                                    "in": [64, 32, 64]
+                                },
+                                {
+                                    "property": "target.identity.SYSTEM",
+                                    "equals": "linux"
+                                },
+                                {
+                                    "property": "target.identity.SYSTEM",
+                                    "equals": "linux"
+                                }
+                            ]
+                        }
+                    }"#,
+    );
+
+    let graph = load_project_graph(workspace.path())
+        .unwrap_or_else(|error| panic!("conditional workspace must load: {error:?}"));
+
+    let dependency = &graph.packages()[0].products()[0].dependencies()[0];
+
+    assert_eq!(
+        dependency.property_dependencies(),
+        [TargetFactKind::IdentitySystem, TargetFactKind::PointerBits]
+    );
+
+    let Some(TargetPredicate::All(children)) = dependency.predicate() else {
+        panic!("conditional dependency must retain one normalized all predicate");
+    };
+
+    assert_eq!(children.len(), 2);
+
+    let values = children.iter().find_map(|child| match child {
+        TargetPredicate::In(TargetFactKind::PointerBits, values) => Some(values.as_ref()),
+        _ => None,
+    });
+
+    assert_eq!(
+        values,
+        Some(
+            [
+                TargetPredicateValue::Usize(32),
+                TargetPredicateValue::Usize(64)
+            ]
+            .as_slice()
+        )
+    );
+
+    assert_eq!(
+        dependency
+            .active_targets()
+            .iter()
+            .map(|target| target.as_str())
+            .collect::<Vec<_>>(),
+        ["x86_64-unknown-linux-gnu"]
+    );
+
+    let orders = graph
+        .build_plans()
+        .iter()
+        .map(|plan| {
+            plan.products()
+                .iter()
+                .map(|product| product.package().as_str())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        orders,
+        [
+            vec!["example.math", "example.application"],
+            vec!["example.application", "example.math"],
+        ]
+    );
+}
+
+#[test]
+fn target_predicates_reject_unknown_properties_and_mismatched_values() {
+    for predicate in [
+        r#"{"property": "target.unknown", "equals": true}"#,
+        r#"{"property": "target.pointer.BITS", "equals": "64"}"#,
+    ] {
+        let workspace = TestWorkspace::new();
+        write_valid_workspace(workspace.path(), false);
+
+        replace(
+            workspace.path().join("app").join("bray-package.json"),
+            r#"{"package": "example.math", "product": "math"}"#,
+            &format!(r#"{{"package": "example.math", "product": "math", "when": {predicate}}}"#),
+        );
+
+        assert!(matches!(
+            load_project_graph(workspace.path()),
+            Err(ProjectLoadError::InvalidManifest {
+                problem: ProjectManifestProblem::InvalidTargetPredicate,
+                ..
+            })
+        ));
+    }
 }
 
 #[test]
@@ -515,6 +747,39 @@ fn dependency_edges_must_select_declared_library_products() {
 }
 
 #[test]
+fn dependencies_are_isolated_to_the_declaring_product() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""outputs": ["executable", "dependency_metadata"]
+                }]"#,
+        r#""outputs": ["executable", "dependency_metadata"]
+                }, {
+                    "name": "independent",
+                    "kind": "library",
+                    "source_roots": ["main"],
+                    "targets": ["native", "portable"],
+                    "dependencies": [],
+                    "outputs": ["package_interface"]
+                }]"#,
+    );
+
+    let graph = load_project_graph(workspace.path())
+        .unwrap_or_else(|error| panic!("product-scoped dependencies must load: {error:?}"));
+
+    let package = &graph.packages()[0];
+    let application = &package.products()[0];
+    let independent = &package.products()[1];
+
+    assert_eq!(application.identity().name(), "application");
+    assert_eq!(application.dependencies().len(), 1);
+    assert_eq!(independent.identity().name(), "independent");
+    assert!(independent.dependencies().is_empty());
+}
+
+#[test]
 fn dependency_cycles_are_reported_deterministically() {
     let workspace = TestWorkspace::new();
     write_valid_workspace(workspace.path(), false);
@@ -595,7 +860,7 @@ fn target_names_cannot_alias_one_target_identity() {
 
     replace(
         workspace.path().join("bray-workspace.json"),
-        r#""identity": "wasm32-unknown-unknown""#,
+        r#""identity": "aarch64-pc-windows-msvc""#,
         r#""identity": "x86_64-unknown-linux-gnu""#,
     );
 
@@ -612,11 +877,11 @@ fn write_valid_workspace(root: &Path, reversed: bool) {
     let targets = if reversed {
         r#"[
             {"name": "native", "identity": "x86_64-unknown-linux-gnu"},
-            {"name": "portable", "identity": "wasm32-unknown-unknown"}
+            {"name": "portable", "identity": "aarch64-pc-windows-msvc"}
         ]"#
     } else {
         r#"[
-            {"name": "portable", "identity": "wasm32-unknown-unknown"},
+            {"name": "portable", "identity": "aarch64-pc-windows-msvc"},
             {"name": "native", "identity": "x86_64-unknown-linux-gnu"}
         ]"#
     };
@@ -673,12 +938,12 @@ fn write_valid_workspace(root: &Path, reversed: bool) {
                 "version": {{"workspace": true}},
                 "features": {app_features},
                 "source_roots": [{{"name": "main", "path": "src"}}],
-                "dependencies": [{{"package": "example.math", "product": "math"}}],
                 "products": [{{
                     "name": "application",
                     "kind": "executable",
                     "source_roots": ["main"],
                     "targets": {app_targets},
+                    "dependencies": [{{"package": "example.math", "product": "math"}}],
                     "outputs": {app_outputs}
                 }}]
             }}"#
@@ -693,12 +958,12 @@ fn write_valid_workspace(root: &Path, reversed: bool) {
             "version": "2.0.0-beta.1",
             "features": ["simd"],
             "source_roots": [{"name": "library", "path": "source"}],
-            "dependencies": [],
             "products": [{
                 "name": "math",
                 "kind": "library",
                 "source_roots": ["library"],
                 "targets": ["native", "portable"],
+                "dependencies": [],
                 "outputs": ["package_interface"]
             }]
         }"#,

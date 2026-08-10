@@ -7,7 +7,9 @@ use bray_diagnostics::{
     DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_project::{
-    PACKAGE_MANIFEST_FILE_NAME, WORKSPACE_MANIFEST_FILE_NAME, is_valid_ordinary_package_identity,
+    PACKAGE_MANIFEST_FILE_NAME, ProjectLoadError, WORKSPACE_MANIFEST_FILE_NAME,
+    canonicalize_package_manifest, canonicalize_workspace_manifest,
+    is_valid_ordinary_package_identity,
 };
 use bray_target::NativeTarget;
 use serde::Serialize;
@@ -50,7 +52,6 @@ struct PackageManifest<'a> {
     version: InheritedPackageVersion,
     features: [&'static str; 0],
     source_roots: [SourceRoot; 1],
-    dependencies: [&'static str; 0],
     products: [Product; 1],
 }
 
@@ -71,6 +72,7 @@ struct Product {
     kind: &'static str,
     source_roots: [&'static str; 1],
     targets: [&'static str; 1],
+    dependencies: [&'static str; 0],
     outputs: [&'static str; 1],
 }
 
@@ -139,18 +141,27 @@ fn initialize_project_for_target(
             name: "main",
             path: SOURCE_DIRECTORY_NAME,
         }],
-        dependencies: [],
         products: [Product {
             name: "application",
             kind: "executable",
             source_roots: ["main"],
             targets: ["native"],
+            dependencies: [],
             outputs: ["executable"],
         }],
     };
 
-    let workspace_bytes = serialize_manifest(&workspace_manifest, &workspace_manifest_path)?;
-    let package_bytes = serialize_manifest(&package_manifest, &package_manifest_path)?;
+    let workspace_bytes = serialize_manifest(
+        &workspace_manifest,
+        &workspace_manifest_path,
+        canonicalize_workspace_manifest,
+    )?;
+
+    let package_bytes = serialize_manifest(
+        &package_manifest,
+        &package_manifest_path,
+        canonicalize_package_manifest,
+    )?;
 
     create_directory(workspace_root)?;
     create_directory(&source_directory)?;
@@ -167,13 +178,18 @@ fn derive_package_identity(workspace_root: &Path) -> Option<String> {
     Some(directory_name.into_owned())
 }
 
-fn serialize_manifest(manifest: &impl Serialize, path: &Path) -> Result<Vec<u8>, DiagnosticBag> {
-    let mut bytes = serde_json::to_vec_pretty(manifest)
+fn serialize_manifest(
+    manifest: &impl Serialize,
+    path: &Path,
+    canonicalize: fn(&str, &Path) -> Result<String, ProjectLoadError>,
+) -> Result<Vec<u8>, DiagnosticBag> {
+    let source = serde_json::to_string(manifest)
         .map_err(|_| write_failed(path, io::ErrorKind::InvalidData))?;
 
-    bytes.push(b'\n');
+    let source =
+        canonicalize(&source, path).map_err(|_| write_failed(path, io::ErrorKind::InvalidData))?;
 
-    Ok(bytes)
+    Ok(source.into_bytes())
 }
 
 fn require_directory_or_absent(path: &Path) -> Result<(), DiagnosticBag> {

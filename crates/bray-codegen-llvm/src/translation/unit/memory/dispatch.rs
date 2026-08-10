@@ -244,8 +244,8 @@ mod tests {
     use bray_ir::{
         MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
         MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationId, MirOperationKind,
-        MirPlace, MirSourceAnchor, MirStorageKind, MirTargetFacts, MirTerminatorKind, MirUnitBuilder,
-        MirUnitKind, MirValueId,
+        MirPlace, MirSourceAnchor, MirStorageKind, MirTargetFacts, MirTerminatorKind,
+        MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::{

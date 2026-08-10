@@ -37,12 +37,16 @@ pub enum ProjectManifestProblem {
     UnknownSourceRoot,
     /// A product selects a target not declared by its workspace.
     UnknownTarget,
+    /// A target predicate names an unknown property or uses a value of the wrong type.
+    InvalidTargetPredicate,
     /// A dependency selects a package not declared by its workspace.
     UnknownDependencyPackage,
     /// A dependency selects a product not declared by its package.
     UnknownDependencyProduct,
     /// A dependency selects a non-library product.
     DependencyProductNotLibrary,
+    /// A dependency product does not support an active edge target.
+    DependencyTargetUnavailable,
     /// A non-test product declares a sibling library under test.
     TestedLibraryOnNonTestProduct,
     /// A declared source root cannot be read as a project-owned directory.
@@ -51,7 +55,7 @@ pub enum ProjectManifestProblem {
     SourceSymlink,
     /// A declared source tree contains a non-UTF-8 path.
     NonUtf8SourcePath,
-    /// Package dependencies form a cycle.
+    /// Active package or product dependencies form a cycle.
     DependencyCycle,
 }
 
@@ -143,7 +147,8 @@ const fn diagnostic_kind(problem: ProjectManifestProblem) -> DiagnosticKind {
             DiagnosticKind::ProjectDependencyPackageUnknown
         }
         ProjectManifestProblem::UnknownDependencyProduct
-        | ProjectManifestProblem::DependencyProductNotLibrary => {
+        | ProjectManifestProblem::DependencyProductNotLibrary
+        | ProjectManifestProblem::DependencyTargetUnavailable => {
             DiagnosticKind::ProjectDependencyProductInvalid
         }
         ProjectManifestProblem::DependencyCycle => DiagnosticKind::ProjectDependencyCycle,
@@ -174,6 +179,7 @@ const fn diagnostic_kind(problem: ProjectManifestProblem) -> DiagnosticKind {
         | ProjectManifestProblem::UndeclaredFeature
         | ProjectManifestProblem::UnknownSourceRoot
         | ProjectManifestProblem::UnknownTarget
+        | ProjectManifestProblem::InvalidTargetPredicate
         | ProjectManifestProblem::TestedLibraryOnNonTestProduct => {
             DiagnosticKind::ProjectManifestInvalid
         }

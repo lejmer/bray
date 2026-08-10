@@ -1,15 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::{ProjectLoadError, ProjectManifestProblem, ProjectPath};
 use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::PackageIdentity;
-use serde::de::DeserializeOwned;
 
-use crate::{ProjectLoadError, ProjectManifestProblem, ProjectPath};
-
-pub(super) const MANIFEST_FORMAT_REVISION: u32 = 1;
-
-pub(super) fn read_manifest<T: DeserializeOwned>(path: &Path) -> Result<T, ProjectLoadError> {
+pub(super) fn read_manifest_source(path: &Path) -> Result<String, ProjectLoadError> {
     let metadata =
         std::fs::symlink_metadata(path).map_err(|error| ProjectLoadError::ReadManifest {
             path: path.to_path_buf(),
@@ -24,13 +20,9 @@ pub(super) fn read_manifest<T: DeserializeOwned>(path: &Path) -> Result<T, Proje
         ));
     }
 
-    let text = std::fs::read_to_string(path).map_err(|error| ProjectLoadError::ReadManifest {
+    std::fs::read_to_string(path).map_err(|error| ProjectLoadError::ReadManifest {
         path: path.to_path_buf(),
         kind: error.kind(),
-    })?;
-
-    serde_json::from_str(&text).map_err(|_| ProjectLoadError::ParseManifest {
-        path: path.to_path_buf(),
     })
 }
 
@@ -66,18 +58,6 @@ pub(super) fn require_owned_package_path(
     }
 
     Ok(())
-}
-
-pub(super) fn require_format(format: u32, path: &Path) -> Result<(), ProjectLoadError> {
-    if format == MANIFEST_FORMAT_REVISION {
-        return Ok(());
-    }
-
-    Err(ProjectLoadError::invalid(
-        path.to_path_buf(),
-        ProjectManifestProblem::UnsupportedFormat,
-        format.to_string(),
-    ))
 }
 
 pub(super) fn project_path(

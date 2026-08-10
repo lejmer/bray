@@ -51,21 +51,23 @@ impl ProjectInspection {
                         PackageRole::Vendored => "vendored",
                     },
                     path: package.path().as_str().to_owned(),
-                    dependencies: package
-                        .dependencies()
-                        .iter()
-                        .map(|dependency| {
-                            format!(
-                                "{}/{}",
-                                dependency.product().package().as_str(),
-                                dependency.product().name()
-                            )
-                        })
-                        .collect(),
                     products: package
                         .products()
                         .iter()
-                        .map(|product| product.identity().name().to_owned())
+                        .map(|product| ProjectProductInspection {
+                            name: product.identity().name().to_owned(),
+                            dependencies: product
+                                .dependencies()
+                                .iter()
+                                .map(|dependency| {
+                                    format!(
+                                        "{}/{}",
+                                        dependency.product().package().as_str(),
+                                        dependency.product().name()
+                                    )
+                                })
+                                .collect(),
+                        })
                         .collect(),
                 })
                 .collect(),
@@ -85,12 +87,12 @@ impl ProjectInspection {
                 package.identity, package.version, package.role, package.path
             ));
 
-            for dependency in &package.dependencies {
-                text.push_str(&format!("  dependency {dependency}\n"));
-            }
-
             for product in &package.products {
-                text.push_str(&format!("  product {product}\n"));
+                text.push_str(&format!("  product {}\n", product.name));
+
+                for dependency in &product.dependencies {
+                    text.push_str(&format!("    dependency {dependency}\n"));
+                }
             }
         }
 
@@ -110,6 +112,11 @@ struct ProjectPackageInspection {
     version: String,
     role: &'static str,
     path: String,
+    products: Vec<ProjectProductInspection>,
+}
+
+#[derive(Serialize)]
+struct ProjectProductInspection {
+    name: String,
     dependencies: Vec<String>,
-    products: Vec<String>,
 }

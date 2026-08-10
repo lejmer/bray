@@ -2,17 +2,17 @@ use std::path::Path;
 use std::sync::Arc;
 
 use bray_standard_library::{PackageSourceAuthority, is_public_standard_library_package};
-use bray_symbols::{PackageVersion, ProductKind};
-use bray_target::TargetIdentity;
+use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
+use bray_target::{NativeTarget, TargetIdentity};
 
-use crate::manifest::{TargetManifest, WorkspaceManifest, WorkspacePackageManifest};
+use crate::manifest::{TargetManifest, WorkspacePackageManifest, decode_workspace_manifest};
 use crate::{
-    ProjectDependency, ProjectGraph, ProjectLoadError, ProjectManifestProblem, ProjectPackage,
-    ProjectPath, ProjectTarget, WORKSPACE_MANIFEST_FILE_NAME,
+    ProjectGraph, ProjectLoadError, ProjectManifestProblem, ProjectPackage, ProjectPath,
+    ProjectProduct, ProjectTarget, ProjectTargetBuildPlan, WORKSPACE_MANIFEST_FILE_NAME,
 };
 
 use super::package::{PendingPackage, load_package};
-use super::validation::{local_name, paths_overlap, project_path, read_manifest, require_format};
+use super::validation::{local_name, paths_overlap, project_path, read_manifest_source};
 
 /// Loads one explicit Bray workspace into an immutable dependency-first graph.
 ///
@@ -38,9 +38,8 @@ fn load_project_graph_with_authority(
     source_authority: PackageSourceAuthority,
 ) -> Result<ProjectGraph, ProjectLoadError> {
     let workspace_manifest_path = workspace_root.join(WORKSPACE_MANIFEST_FILE_NAME);
-    let manifest: WorkspaceManifest = read_manifest(&workspace_manifest_path)?;
-
-    require_format(manifest.format, &workspace_manifest_path)?;
+    let manifest_source = read_manifest_source(&workspace_manifest_path)?;
+    let manifest = decode_workspace_manifest(&manifest_source, &workspace_manifest_path)?;
 
     let formatter_configuration = manifest
         .formatter_configuration
@@ -56,7 +55,7 @@ fn load_project_graph_with_authority(
 
     let targets = load_targets(manifest.targets, &workspace_manifest_path)?;
 
-    let packages = load_packages(
+    let (packages, build_plans) = load_packages(
         workspace_root,
         manifest.packages,
         &targets,
@@ -72,6 +71,7 @@ fn load_project_graph_with_authority(
         output_root,
         targets,
         packages,
+        build_plans,
     ))
 }
 
@@ -102,7 +102,15 @@ fn load_targets(
                 ));
             };
 
-            Ok(ProjectTarget::new(name, identity))
+            let Some(target) = NativeTarget::for_identity(&identity) else {
+                return Err(invalid_workspace(
+                    workspace_manifest_path,
+                    ProjectManifestProblem::UnknownTarget,
+                    &target.identity,
+                ));
+            };
+
+            Ok(ProjectTarget::new(name, target.profile()))
         })
         .collect::<Result<Vec<_>, ProjectLoadError>>()?;
 
@@ -143,7 +151,7 @@ fn load_packages(
     workspace_manifest_path: &Path,
     workspace_package_version: Option<&PackageVersion>,
     source_authority: PackageSourceAuthority,
-) -> Result<Arc<[ProjectPackage]>, ProjectLoadError> {
+) -> Result<(Arc<[ProjectPackage]>, Arc<[ProjectTargetBuildPlan]>), ProjectLoadError> {
     if selections.is_empty() {
         return Err(invalid_workspace(
             workspace_manifest_path,
@@ -218,32 +226,12 @@ fn load_packages(
     }
 
     validate_source_ownership(&packages)?;
+    validate_dependencies(&packages)?;
 
-    let dependency_indices = resolve_dependencies(&packages)?;
-    let build_order = dependency_first_order(&packages, &dependency_indices)?;
-    let dependencies = materialize_dependencies(&packages, &dependency_indices)?;
+    let build_plans = build_plans(&packages, targets)?;
+    let packages = packages.into_iter().map(PendingPackage::finish).collect();
 
-    let mut packages: Vec<_> = packages
-        .into_iter()
-        .zip(dependencies)
-        .map(|(package, dependencies)| Some(package.finish(dependencies)))
-        .collect();
-
-    let mut ordered = Vec::with_capacity(packages.len());
-
-    for index in build_order {
-        let Some(package) = packages.get_mut(index).and_then(Option::take) else {
-            return Err(invalid_workspace(
-                workspace_manifest_path,
-                ProjectManifestProblem::DependencyCycle,
-                "packages",
-            ));
-        };
-
-        ordered.push(package);
-    }
-
-    Ok(ordered.into())
+    Ok((packages, build_plans))
 }
 
 fn workspace_package_version(
@@ -286,80 +274,131 @@ fn validate_source_ownership(packages: &[PendingPackage]) -> Result<(), ProjectL
     Ok(())
 }
 
-fn resolve_dependencies(
-    packages: &[PendingPackage],
-) -> Result<Vec<Box<[usize]>>, ProjectLoadError> {
-    packages
-        .iter()
-        .map(|package| {
-            package
-                .dependencies
-                .iter()
-                .map(|dependency| {
-                    packages
-                        .binary_search_by(|candidate| candidate.identity.cmp(&dependency.package))
-                        .map_err(|_| {
-                            ProjectLoadError::invalid(
-                                package.manifest_path.to_path_buf(),
-                                ProjectManifestProblem::UnknownDependencyPackage,
-                                dependency.package.as_str().to_owned(),
-                            )
-                        })
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(Vec::into_boxed_slice)
-        })
-        .collect()
+fn validate_dependencies(packages: &[PendingPackage]) -> Result<(), ProjectLoadError> {
+    for package in packages {
+        for product in package.products.iter() {
+            for dependency in product.dependencies() {
+                let Some(target_package) = packages
+                    .iter()
+                    .find(|candidate| candidate.identity == *dependency.product().package())
+                else {
+                    return Err(ProjectLoadError::invalid(
+                        package.manifest_path.to_path_buf(),
+                        ProjectManifestProblem::UnknownDependencyPackage,
+                        dependency.product().package().as_str(),
+                    ));
+                };
+
+                let Some(target_product) = target_package
+                    .products
+                    .iter()
+                    .find(|candidate| candidate.identity() == dependency.product())
+                else {
+                    return Err(ProjectLoadError::invalid(
+                        package.manifest_path.to_path_buf(),
+                        ProjectManifestProblem::UnknownDependencyProduct,
+                        product_name(dependency.product()),
+                    ));
+                };
+
+                if target_product.kind() != ProductKind::Library {
+                    return Err(ProjectLoadError::invalid(
+                        package.manifest_path.to_path_buf(),
+                        ProjectManifestProblem::DependencyProductNotLibrary,
+                        product_name(dependency.product()),
+                    ));
+                }
+
+                if let Some(target) = dependency
+                    .active_targets()
+                    .iter()
+                    .find(|target| !target_product.targets().contains(target))
+                {
+                    return Err(ProjectLoadError::invalid(
+                        package.manifest_path.to_path_buf(),
+                        ProjectManifestProblem::DependencyTargetUnavailable,
+                        format!("{}/{}", product_name(dependency.product()), target.as_str()),
+                    ));
+                }
+            }
+
+            if let Some(tested_library) = product.tested_library() {
+                let Some(library) = package
+                    .products
+                    .iter()
+                    .find(|candidate| candidate.identity() == tested_library)
+                else {
+                    continue;
+                };
+
+                if let Some(target) = product
+                    .targets()
+                    .iter()
+                    .find(|target| !library.targets().contains(target))
+                {
+                    return Err(ProjectLoadError::invalid(
+                        package.manifest_path.to_path_buf(),
+                        ProjectManifestProblem::DependencyTargetUnavailable,
+                        format!("{}/{}", product_name(tested_library), target.as_str()),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
-fn materialize_dependencies(
+fn build_plans(
     packages: &[PendingPackage],
-    dependency_indices: &[Box<[usize]>],
-) -> Result<Vec<Arc<[ProjectDependency]>>, ProjectLoadError> {
-    packages
+    targets: &[ProjectTarget],
+) -> Result<Arc<[ProjectTargetBuildPlan]>, ProjectLoadError> {
+    targets
         .iter()
-        .zip(dependency_indices)
-        .map(|(package, indices)| {
-            package
-                .dependencies
-                .iter()
-                .zip(indices)
-                .map(|(dependency, &index)| {
-                    let target = &packages[index];
-
-                    let Some(product) = target
-                        .products
-                        .iter()
-                        .find(|product| product.identity().name() == dependency.product.as_ref())
-                    else {
-                        return Err(ProjectLoadError::invalid(
-                            package.manifest_path.to_path_buf(),
-                            ProjectManifestProblem::UnknownDependencyProduct,
-                            format!("{}/{}", dependency.package.as_str(), dependency.product),
-                        ));
-                    };
-
-                    if product.kind() != ProductKind::Library {
-                        return Err(ProjectLoadError::invalid(
-                            package.manifest_path.to_path_buf(),
-                            ProjectManifestProblem::DependencyProductNotLibrary,
-                            format!("{}/{}", dependency.package.as_str(), dependency.product),
-                        ));
-                    }
-
-                    // Dependency edges retain immutable Arc-backed product identities.
-                    Ok(ProjectDependency::new(product.identity().clone()))
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map(Arc::from)
-        })
-        .collect()
+        .map(|target| build_plan(packages, target.identity()))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Arc::from)
 }
 
-fn dependency_first_order(
+fn build_plan(
     packages: &[PendingPackage],
-    dependency_indices: &[Box<[usize]>],
-) -> Result<Box<[usize]>, ProjectLoadError> {
+    target: &TargetIdentity,
+) -> Result<ProjectTargetBuildPlan, ProjectLoadError> {
+    let active_packages = packages
+        .iter()
+        .filter(|package| {
+            package
+                .products
+                .iter()
+                .any(|product| product.targets().contains(target))
+        })
+        .collect::<Vec<_>>();
+
+    let active_products = packages
+        .iter()
+        .flat_map(|package| {
+            package
+                .products
+                .iter()
+                .map(move |product| (package, product))
+        })
+        .filter(|(_, product)| product.targets().contains(target))
+        .collect::<Vec<_>>();
+
+    let package_order = dependency_first_package_order(&active_packages, target)?;
+    let product_order = dependency_first_product_order(&active_products, target)?;
+
+    Ok(ProjectTargetBuildPlan::new(
+        target.clone(),
+        package_order.into(),
+        product_order.into(),
+    ))
+}
+
+fn dependency_first_package_order(
+    packages: &[&PendingPackage],
+    target: &TargetIdentity,
+) -> Result<Vec<PackageIdentity>, ProjectLoadError> {
     let mut emitted = vec![false; packages.len()];
     let mut order = Vec::with_capacity(packages.len());
 
@@ -368,36 +407,113 @@ fn dependency_first_order(
             .iter()
             .enumerate()
             .filter(|(index, _)| !emitted[*index])
-            .filter(|(index, _)| {
-                dependency_indices[*index]
-                    .iter()
-                    .all(|dependency| emitted[*dependency])
+            .find(|(_, package)| {
+                active_package_dependencies(package, target).all(|dependency| {
+                    packages
+                        .iter()
+                        .position(|candidate| candidate.identity == *dependency)
+                        .is_some_and(|index| emitted[index])
+                })
             })
-            .min_by(|left, right| left.1.identity.cmp(&right.1.identity))
             .map(|(index, _)| index);
 
         let Some(index) = candidate else {
-            let Some((_, package)) = packages
+            let Some(package) = packages
                 .iter()
                 .enumerate()
-                .filter(|(index, _)| !emitted[*index])
-                .min_by(|left, right| left.1.identity.cmp(&right.1.identity))
+                .find(|(index, _)| !emitted[*index])
+                .map(|(_, package)| *package)
             else {
-                return Ok(order.into_boxed_slice());
+                return Ok(order);
             };
 
             return Err(ProjectLoadError::invalid(
                 package.manifest_path.to_path_buf(),
                 ProjectManifestProblem::DependencyCycle,
-                package.identity.as_str().to_owned(),
+                package.identity.as_str(),
             ));
         };
 
         emitted[index] = true;
-        order.push(index);
+        order.push(packages[index].identity.clone());
     }
 
-    Ok(order.into_boxed_slice())
+    Ok(order)
+}
+
+fn active_package_dependencies<'package>(
+    package: &'package PendingPackage,
+    target: &'package TargetIdentity,
+) -> impl Iterator<Item = &'package PackageIdentity> {
+    package
+        .products
+        .iter()
+        .filter(move |product| product.targets().contains(target))
+        .flat_map(ProjectProduct::dependencies)
+        .filter(move |dependency| dependency.is_active_for(target))
+        .map(|dependency| dependency.product().package())
+}
+
+fn dependency_first_product_order(
+    products: &[(&PendingPackage, &ProjectProduct)],
+    target: &TargetIdentity,
+) -> Result<Vec<ProductIdentity>, ProjectLoadError> {
+    let mut emitted = vec![false; products.len()];
+    let mut order = Vec::with_capacity(products.len());
+
+    while order.len() < products.len() {
+        let candidate = products
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !emitted[*index])
+            .find(|(_, (_, product))| {
+                active_product_dependencies(product, target).all(|dependency| {
+                    products
+                        .iter()
+                        .position(|(_, candidate)| candidate.identity() == dependency)
+                        .is_some_and(|index| emitted[index])
+                })
+            })
+            .map(|(index, _)| index);
+
+        let Some(index) = candidate else {
+            let Some((package, product)) = products
+                .iter()
+                .enumerate()
+                .find(|(index, _)| !emitted[*index])
+                .map(|(_, product)| *product)
+            else {
+                return Ok(order);
+            };
+
+            return Err(ProjectLoadError::invalid(
+                package.manifest_path.to_path_buf(),
+                ProjectManifestProblem::DependencyCycle,
+                product_name(product.identity()),
+            ));
+        };
+
+        emitted[index] = true;
+        order.push(products[index].1.identity().clone());
+    }
+
+    Ok(order)
+}
+
+fn active_product_dependencies<'product>(
+    product: &'product ProjectProduct,
+    target: &'product TargetIdentity,
+) -> impl Iterator<Item = &'product ProductIdentity> {
+    product
+        .dependencies()
+        .iter()
+        .filter(move |dependency| dependency.is_active_for(target))
+        .map(|dependency| dependency.product())
+        .chain(product.tested_library())
+}
+
+fn product_name(product: &ProductIdentity) -> String {
+    format!("{}/{}", product.package().as_str(), product.name())
 }
 
 fn invalid_workspace(

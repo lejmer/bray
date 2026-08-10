@@ -49,13 +49,13 @@ impl ProjectWorkspace {
                         "path": "src"
                     }
                 ],
-                "dependencies": [],
                 "products": [
                     {
                         "name": "application",
                         "kind": "executable",
                         "source_roots": ["main"],
                         "targets": ["native"],
+                        "dependencies": [],
                         "outputs": ["executable"]
                     }
                 ]
@@ -110,18 +110,18 @@ impl ProjectWorkspace {
                         "path": "src"
                     }
                 ],
-                "dependencies": [
-                    {
-                        "package": "example.math",
-                        "product": "math"
-                    }
-                ],
                 "products": [
                     {
                         "name": "application",
                         "kind": "executable",
                         "source_roots": ["main"],
                         "targets": ["native"],
+                        "dependencies": [
+                            {
+                                "package": "example.math",
+                                "product": "math"
+                            }
+                        ],
                         "outputs": ["executable"]
                     }
                 ]
@@ -141,13 +141,13 @@ impl ProjectWorkspace {
                         "path": "src"
                     }
                 ],
-                "dependencies": [],
                 "products": [
                     {
                         "name": "math",
                         "kind": "library",
                         "source_roots": ["library"],
                         "targets": ["native"],
+                        "dependencies": [],
                         "outputs": ["package_interface"]
                     }
                 ]

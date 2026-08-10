@@ -102,12 +102,12 @@ fn write_workspace(root: &Path, target: NativeTarget, workspace: &Path) -> Resul
             "name": "main",
             "path": "src",
         }],
-        "dependencies": [],
         "products": [{
             "name": PRODUCT_NAME,
             "kind": "executable",
             "source_roots": ["main"],
             "targets": ["native"],
+            "dependencies": [],
             "outputs": ["executable"],
         }],
     });
