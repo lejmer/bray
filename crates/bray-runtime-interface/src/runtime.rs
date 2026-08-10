@@ -177,7 +177,7 @@ impl RuntimeContract {
     }
 }
 
-const fn lane_capability(lane: ExecutionLaneRequirement) -> RuntimeCapability {
+pub(crate) const fn lane_capability(lane: ExecutionLaneRequirement) -> RuntimeCapability {
     match lane {
         ExecutionLaneRequirement::Blocking => RuntimeCapability::BlockingLanes,
         ExecutionLaneRequirement::Compute => RuntimeCapability::ComputeLanes,

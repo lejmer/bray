@@ -4,7 +4,7 @@ use bray_codegen::{
 };
 use bray_emitter::EmissionBackendBuildError;
 use bray_linker::LinkTargetBuildError;
-use bray_runtime_interface::ExecutableHostContractBuildError;
+use bray_runtime_interface::{ExecutableHostContractBuildError, RuntimeArtifactSelectionError};
 
 use crate::fact::FactQueryError;
 
@@ -39,6 +39,8 @@ pub enum NativeProductFactError {
     InvalidHostMir(bray_ir::MirUnitBuildError),
     /// The compiler-generated executable host contract is invalid.
     InvalidExecutableHost(ExecutableHostContractBuildError),
+    /// Runtime metadata cannot supply an exact physical component selection.
+    InvalidRuntimeSelection(RuntimeArtifactSelectionError),
     /// The selected emitter backend description is invalid.
     InvalidEmissionBackend(EmissionBackendBuildError),
     /// The selected linker target is invalid.

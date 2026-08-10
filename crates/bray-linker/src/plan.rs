@@ -315,8 +315,6 @@ pub enum LinkPlanBuildError {
     DuplicateSearchPath,
     /// A selected runtime artifact has no corresponding link input.
     MissingRuntimeComponent,
-    /// A selected runtime artifact has more than one corresponding link input.
-    MultipleRuntimeComponents,
     /// A runtime component is present without a selected runtime artifact.
     UnexpectedRuntimeComponent,
     /// A runtime component belongs to a different runtime artifact.
@@ -923,7 +921,7 @@ mod tests {
     }
 
     #[test]
-    fn async_host_plans_reject_multiple_selected_runtime_components() {
+    fn async_host_plans_accept_multiple_selected_runtime_components() {
         let Some(runtime) = RuntimeArtifactId::try_new("runtime.test") else {
             panic!("test runtime identity must be valid");
         };
@@ -942,10 +940,11 @@ mod tests {
 
         builder.set_executable_host(async_executable_host_contract(runtime));
 
-        assert_eq!(
-            builder.finish(),
-            Err(LinkPlanBuildError::MultipleRuntimeComponents)
-        );
+        let plan = builder.finish().unwrap_or_else(|error| {
+            panic!("partitioned runtime components must validate: {error:?}")
+        });
+
+        assert_eq!(plan.inputs().len(), 3);
     }
 
     #[test]

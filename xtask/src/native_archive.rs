@@ -4,7 +4,7 @@ use std::process::{Command, Output};
 
 use bray_base::NonEmptySharedStr;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-use bray_target::NativeTarget;
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
 pub(crate) struct RustStaticLibrary {
     archive: PathBuf,
@@ -26,7 +26,6 @@ pub(crate) fn build_rust_static_library(
     target: NativeTarget,
     package: &str,
     profile: &str,
-    archive_file_name: &str,
     features: &[&str],
 ) -> Result<RustStaticLibrary, BuildError> {
     let target_directory = root.join("target");
@@ -66,7 +65,7 @@ pub(crate) fn build_rust_static_library(
     let archive = target_directory
         .join(target.as_str())
         .join(profile_directory(profile))
-        .join(archive_file_name);
+        .join(rust_static_library_file_name(target, package));
 
     if !archive.is_file() {
         return Err(BuildError::MissingArchive(archive));
@@ -76,6 +75,19 @@ pub(crate) fn build_rust_static_library(
         archive,
         native_links,
     })
+}
+
+fn rust_static_library_file_name(target: NativeTarget, package: &str) -> String {
+    let crate_name = package.replace('-', "_");
+
+    let name = TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+        .file_name(&crate_name);
+
+    let Some(name) = name else {
+        panic!("Cargo package identities must form valid native output names")
+    };
+
+    name
 }
 
 fn configure_cross_c_toolchain(command: &mut Command, root: &Path, target: NativeTarget) {
@@ -183,7 +195,26 @@ impl fmt::Display for BuildError {
 mod tests {
     use bray_symbols::NativeLinkKind;
 
-    use super::parse_native_link_arguments;
+    use super::{parse_native_link_arguments, rust_static_library_file_name};
+
+    #[test]
+    fn rust_static_library_names_follow_cargo_target_conventions() {
+        assert_eq!(
+            rust_static_library_file_name(
+                bray_target::NativeTarget::X86_64WindowsMsvc,
+                "bray-runtime-builtins",
+            ),
+            "bray_runtime_builtins.lib"
+        );
+
+        assert_eq!(
+            rust_static_library_file_name(
+                bray_target::NativeTarget::X86_64LinuxGnu,
+                "bray-runtime-builtins",
+            ),
+            "libbray_runtime_builtins.a"
+        );
+    }
 
     #[test]
     fn rustc_native_link_arguments_preserve_platform_requirements_in_order() {

@@ -11,7 +11,7 @@ use bray_codegen::{
 use bray_emitter::{BackendEmissionPolicy, EmissionBackend};
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 use bray_linker::Linker;
-use bray_runtime_interface::{RuntimeArtifact, RuntimeCapability};
+use bray_runtime_interface::{RuntimeArtifact, RuntimeArtifactPurpose, RuntimeCapability};
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ProductIdentity, ProductKind,
 };
@@ -65,10 +65,19 @@ impl Compilation {
             product.clone(),
             configuration,
             runtime.as_ref().map(|runtime| {
-                (
-                    runtime.metadata().archive_digest(),
-                    runtime.archive().to_path_buf(),
-                )
+                runtime
+                    .components()
+                    .iter()
+                    .map(|component| {
+                        crate::fact::RuntimeComponentFactIdentity::new(
+                            component.metadata().identity().clone(),
+                            component.metadata().purpose(),
+                            component.metadata().archive_digest(),
+                            component.archive().to_path_buf(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .into()
             }),
             Arc::from(required_capabilities.clone()),
             Arc::from(
@@ -289,6 +298,45 @@ impl Compilation {
             policy,
         )
         .map_err(NativeProductFactError::InvalidEmissionBackend)?;
+
+        let runtime = match (runtime, host.as_ref()) {
+            (Some(runtime), Some(host)) => {
+                let purpose = match semantic.value().kind() {
+                    ProductKind::Test => RuntimeArtifactPurpose::TestRunner,
+                    ProductKind::Executable => RuntimeArtifactPurpose::Product,
+                    ProductKind::Library => unreachable!("library products have no host"),
+                };
+
+                Some(
+                    runtime
+                        .select(purpose, host.requirements())
+                        .map_err(NativeProductFactError::InvalidRuntimeSelection)?,
+                )
+            }
+            (None, _) | (_, None) => None,
+        };
+
+        if let Some(profile) = self.state.fact_runtime.profile()
+            && let Some(runtime) = runtime.as_ref()
+        {
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::RuntimeComponents,
+                u64::try_from(runtime.components().len()).unwrap_or(u64::MAX),
+            );
+
+            let bytes = runtime
+                .components()
+                .iter()
+                .filter_map(|component| component.archive().metadata().ok())
+                .fold(0_u64, |total, metadata| {
+                    total.saturating_add(metadata.len())
+                });
+
+            profile.add_metric(
+                crate::profile::ProfileMetricKind::RuntimeArchiveBytes,
+                bytes,
+            );
+        }
 
         let link = linker
             .map(|_| {
@@ -630,9 +678,10 @@ mod tests {
     use bray_runtime_interface::{
         BinarySymbolName, ExecutableEntryResult, ExecutableHostContractBuildError,
         ProtectedFrameAbiVersions, ProtectedFrameOperation, RootExecution, RuntimeAbiRole,
-        RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactDigest, RuntimeArtifactId,
-        RuntimeArtifactMetadata, RuntimeCapability, RuntimeCompatibilityError, RuntimeContract,
-        RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
+        RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactComponentMetadata,
+        RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeArtifactPurpose,
+        RuntimeCapability, RuntimeCompatibilityError, RuntimeContract, RuntimeIdentity,
+        RuntimeRoleBinding, RuntimeRoleImplementation,
     };
     use bray_standard_library::{
         StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryBundleManifest,
@@ -2073,7 +2122,9 @@ mod tests {
         let artifact = RuntimeArtifactId::try_new("bray.runtime.test.x86_64")
             .unwrap_or_else(|| panic!("test runtime artifact identity must be valid"));
 
-        let bindings = roles.into_iter().map(|role| {
+        let roles: Vec<_> = roles.into_iter().collect();
+
+        let bindings = roles.iter().copied().map(|role| {
             let symbol = BinarySymbolName::try_new(format!("bray_runtime_{}_v1", role.as_str()))
                 .unwrap_or_else(|| panic!("test runtime role symbol must be valid"));
 
@@ -2100,11 +2151,62 @@ mod tests {
 
         let digest = RuntimeArtifactDigest::new([11; 32]);
 
-        let metadata = RuntimeArtifactMetadata::try_new(contract, "libbray_runtime.a", digest)
+        let capabilities = [
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::LocalLanes,
+            RuntimeCapability::MainThreadLane,
+        ];
+
+        let product_component = RuntimeArtifactId::try_new("runtime.product")
+            .unwrap_or_else(|| panic!("test component identity must be valid"));
+
+        let components = [
+            RuntimeArtifactComponentMetadata::try_new(
+                product_component.clone(),
+                RuntimeArtifactPurpose::Product,
+                roles
+                    .iter()
+                    .copied()
+                    .filter(|role| *role != RuntimeAbiRole::TestEntrySelection),
+                capabilities,
+                "libbray_runtime_product.a",
+                digest,
+            )
+            .unwrap_or_else(|error| panic!("test component must validate: {error:?}")),
+            RuntimeArtifactComponentMetadata::try_new(
+                RuntimeArtifactId::try_new("runtime.test")
+                    .unwrap_or_else(|| panic!("test component identity must be valid")),
+                RuntimeArtifactPurpose::TestRunner,
+                roles.iter().copied(),
+                capabilities,
+                "libbray_runtime_test.a",
+                digest,
+            )
+            .unwrap_or_else(|error| panic!("test component must validate: {error:?}")),
+        ];
+
+        let metadata = RuntimeArtifactMetadata::try_new(contract, components)
             .unwrap_or_else(|error| panic!("test runtime metadata must validate: {error:?}"));
 
-        RuntimeArtifact::try_new(metadata, archive, digest)
-            .unwrap_or_else(|error| panic!("test runtime artifact must validate: {error:?}"))
+        let directory = archive.parent().unwrap_or_else(|| std::path::Path::new(""));
+
+        RuntimeArtifact::try_new(
+            metadata,
+            [
+                (
+                    product_component,
+                    directory.join("libbray_runtime_product.a"),
+                    digest,
+                ),
+                (
+                    RuntimeArtifactId::try_new("runtime.test")
+                        .unwrap_or_else(|| panic!("test component identity must be valid")),
+                    directory.join("libbray_runtime_test.a"),
+                    digest,
+                ),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("test runtime artifact must validate: {error:?}"))
     }
 
     fn generated_artifacts(

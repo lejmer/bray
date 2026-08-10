@@ -1,0 +1,20 @@
+[package]
+name = "bray-runtime-builtins"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[features]
+memory = []
+string = []
+character = []
+
+[dependencies]
+bray-runtime-abi = { path = "../bray-runtime-abi" }
+
+[lints]
+workspace = true

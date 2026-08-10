@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -52,10 +53,20 @@ pub(crate) fn assemble(
 
     copy_file(runtime, &runtime_directory.join("bray-runtime.brayrt"))?;
 
-    copy_file(
-        &source_directory.join(metadata.archive_file_name()),
-        &runtime_directory.join(metadata.archive_file_name()),
-    )
+    let archive_names: BTreeSet<_> = metadata
+        .components()
+        .iter()
+        .map(bray_runtime_interface::RuntimeArtifactComponentMetadata::archive_file_name)
+        .collect();
+
+    for archive_name in archive_names {
+        copy_file(
+            &source_directory.join(archive_name),
+            &runtime_directory.join(archive_name),
+        )?;
+    }
+
+    Ok(())
 }
 
 pub(crate) fn copy_file(source: &Path, destination: &Path) -> Result<(), String> {

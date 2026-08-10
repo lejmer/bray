@@ -84,6 +84,10 @@ Compiler libraries and installed Bray tools.
     - Dependency-free native symbol names, status values, fixed-layout records, handles, and callback signatures shared by
       generated code and linked runtime components.
 
+- `bray-runtime-builtins`
+    - Link-isolated native implementations of compiler-lowered memory, string, and character operations, partitioned by their
+      runtime capability contracts.
+
 - `bray-runtime-model`
     - Dependency-light protected-frame, execution-lane, capability, identity, and ABI-version semantics shared by compiler
       contracts and runtime mechanisms.

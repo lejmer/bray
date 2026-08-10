@@ -547,6 +547,13 @@ name = "bray-runtime-abi"
 version = "0.0.0"
 
 [[package]]
+name = "bray-runtime-builtins"
+version = "0.0.0"
+dependencies = [
+ "bray-runtime-abi",
+]
+
+[[package]]
 name = "bray-runtime-interface"
 version = "0.0.0"
 dependencies = [
@@ -642,6 +649,7 @@ dependencies = [
 name = "bray-tooling"
 version = "0.0.0"
 dependencies = [
+ "bray-base",
  "bray-bound-tree",
  "bray-codegen",
  "bray-codegen-llvm",
@@ -664,7 +672,6 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
- "sha2",
 ]
 
 [[package]]
