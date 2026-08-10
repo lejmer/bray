@@ -1,7 +1,9 @@
 use std::fs;
 use std::path::Path;
 
-use bray_compilation::{Compilation, CompilationRequest};
+use bray_compilation::{
+    Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
+};
 use bray_diagnostics::DiagnosticKind;
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
@@ -16,7 +18,7 @@ use bray_standard_library::{
     StandardLibraryBundleManifest, StandardLibraryLoadError, StandardLibraryResolver,
     StandardLibraryRoot,
 };
-use bray_symbols::PackageIdentity;
+use bray_symbols::{PackageIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity};
 
 use super::command::{BuildError, build, compare_bundles, read_manifest, write_bundle_artifact};
@@ -324,6 +326,13 @@ fn verify_artifact_integrity(
 }
 
 fn compilation(bundle: &Path) -> Result<Compilation, BuildError> {
+    let target = NativeTarget::current().ok_or_else(|| {
+        BuildError::conformance(
+            "configured-root",
+            "the compiler host has no supported native target",
+        )
+    })?;
+
     let package =
         PackageIdentity::try_new("bray.conformance").ok_or(BuildError::InvalidIdentity)?;
 
@@ -334,7 +343,13 @@ fn compilation(bundle: &Path) -> Result<Compilation, BuildError> {
         "module conformance;",
     );
 
-    let request = CompilationRequest::new(package, [source].into())
+    let options = CompilationOptions::new(
+        WorkerBudget::default(),
+        ProductKind::Library,
+        SelectedTarget::for_native(target),
+    );
+
+    let request = CompilationRequest::with_options(package, [source].into(), options)
         .with_standard_library_root(standard_library_root(bundle)?);
 
     Compilation::load(request)
