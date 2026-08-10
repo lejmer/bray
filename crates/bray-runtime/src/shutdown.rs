@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
-use bray_runtime_interface::{ProtectedAsyncFrameId, ProtectedFrameStateId};
+use bray_runtime_model::{ProtectedAsyncFrameId, ProtectedFrameStateId};
 
 use crate::{RunOutcome, TaskId};
 
@@ -231,8 +231,8 @@ mod tests {
         let reports = CleanupReportSink::new();
 
         let origin = CleanupIncidentOrigin::new(
-            bray_runtime_interface::ProtectedAsyncFrameId::new([9; 32]),
-            bray_runtime_interface::ProtectedFrameStateId::new(3),
+            bray_runtime_model::ProtectedAsyncFrameId::new([9; 32]),
+            bray_runtime_model::ProtectedFrameStateId::new(3),
         );
 
         reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "first");

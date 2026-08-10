@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use bray_platform::RuntimeThread;
-use bray_runtime_interface::ProtectedFrameStateId;
+use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::context::{with_run_cancellation_context, with_task_execution_context};
 use crate::{
@@ -252,7 +252,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use bray_platform::RuntimeThreadScope;
-    use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
+    use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
         RootCancellationSource, RootExecutionError, execute_async_root, execute_synchronous_root,

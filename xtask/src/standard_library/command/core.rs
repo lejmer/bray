@@ -445,6 +445,7 @@ fn build_target(
         "bray-platform-abi",
         "release",
         &platform_archive_name,
+        &[],
     )
     .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
 

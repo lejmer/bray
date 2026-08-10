@@ -1,7 +1,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_platform::RuntimeThreadScope;
-use bray_runtime_interface::{
+use bray_runtime_abi::{
     NativeRunOutcome, NativeRunState, NativeRuntimeStatus, NativeSynchronousRootCallback,
 };
 
@@ -21,10 +21,10 @@ native_export! {
         let outcome = execute_synchronous_callback(
             callback,
             destination,
-            super::test::register_timeout,
+            super::host::register_timeout,
         );
 
-        super::test::record_outcome(outcome);
+        super::host::record_outcome(outcome);
 
         outcome
     }
@@ -50,7 +50,7 @@ fn execute_synchronous_callback(
 
     let outcome = execute_synchronous_root(
         || {
-            super::test::with_output(|| {
+            super::host::with_output(|| {
                 match catch_unwind(AssertUnwindSafe(|| callback(destination))) {
                     Ok(()) => NativeRunOutcome::new(NativeRunState::COMPLETED, destination),
                     Err(payload) if is_propagated_cancellation(payload.as_ref()) => {

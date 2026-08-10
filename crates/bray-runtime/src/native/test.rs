@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use bray_platform::{RunOutputContext, RunOutputStream, with_run_output_context};
-use bray_runtime_interface::{
+use bray_runtime_abi::{
     NativePanicCause, NativeRunOutcome, NativeRunState, NativeSourceAnchor,
 };
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};

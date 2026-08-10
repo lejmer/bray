@@ -6,7 +6,7 @@ use std::thread::ThreadId;
 
 use bray_platform::{RunOutputStream, flush_current_run_output, write_current_run_output};
 use bray_platform_abi_support::native_platform_export;
-use bray_runtime_interface::{NativePlatformStatus, NativePlatformText};
+use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 
 use super::filesystem::{close_file, flush_file, is_file_handle, read_file, seek_file, write_file};
 use super::process::{
@@ -636,7 +636,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use bray_runtime_interface::{NativePlatformStatus, NativePlatformText};
+    use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 
     use super::{
         CONTEXT_HEADER_BYTES, STANDARD_ERROR_HANDLE, STANDARD_OUTPUT_HANDLE,

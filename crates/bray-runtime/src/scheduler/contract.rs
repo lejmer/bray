@@ -1,7 +1,7 @@
 use std::num::NonZeroUsize;
 
 use bray_platform::PlatformError;
-use bray_runtime_interface::ProtectedFrameStateId;
+use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::{ExecutionLaneSelectionError, TaskId};
 

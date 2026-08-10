@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation, RuntimeThreadScope};
-use bray_runtime_interface::{ExecutionLaneRequirement, ProtectedFrameStateId, RuntimeCapability};
+use bray_runtime_model::{ExecutionLaneRequirement, ProtectedFrameStateId, RuntimeCapability};
 
 use crate::context::with_task_execution_context;
 use crate::test_support::{TestFrame, register_task};
@@ -512,7 +512,7 @@ impl RuntimeConformance for BrayRuntime {
         let reports = CleanupReportSink::new();
 
         let origin = CleanupIncidentOrigin::new(
-            bray_runtime_interface::ProtectedAsyncFrameId::new([3; 32]),
+            bray_runtime_model::ProtectedAsyncFrameId::new([3; 32]),
             ProtectedFrameStateId::new(0),
         );
 

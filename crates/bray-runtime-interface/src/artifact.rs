@@ -508,6 +508,7 @@ fn is_file_name(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use bray_base::NonEmptySharedStr;
+    use bray_runtime_abi::MAIN_THREAD_LANE_STARTUP_SYMBOL;
     use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
     use bray_target::TargetIdentity;
 
@@ -652,7 +653,7 @@ mod tests {
             ],
             [RuntimeRoleBinding::new(
                 RuntimeAbiRole::MainThreadLaneStartup,
-                BinarySymbolName::try_new(crate::MAIN_THREAD_LANE_STARTUP_SYMBOL)
+                BinarySymbolName::try_new(MAIN_THREAD_LANE_STARTUP_SYMBOL)
                     .unwrap_or_else(|| panic!("runtime symbol must be valid")),
                 RuntimeRoleImplementation::BrayRuntime,
             )],

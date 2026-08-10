@@ -3,6 +3,7 @@
 mod bundle;
 mod command;
 mod compiler_known;
+mod dependency_audit;
 mod native_archive;
 mod native_product;
 mod native_toolchain;

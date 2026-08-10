@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_platform::WallClockTimestamp;
 use bray_platform_abi_support::native_platform_export;
-use bray_runtime_interface::{
+use bray_runtime_abi::{
     NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath, NativePlatformStatus,
 };
 
@@ -717,7 +717,7 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use bray_runtime_interface::{
+    use bray_runtime_abi::{
         NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath,
         NativePlatformStatus,
     };

@@ -2,7 +2,7 @@ use std::any::Any;
 use std::fmt;
 use std::pin::Pin;
 
-use bray_runtime_interface::{
+use bray_runtime_model::{
     ProtectedFrameDescriptor, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
 };
 
@@ -210,7 +210,7 @@ pub(crate) fn suspension_state(
 mod tests {
     use std::pin::pin;
 
-    use bray_runtime_interface::ProtectedFrameDescriptor;
+    use bray_runtime_model::ProtectedFrameDescriptor;
 
     use super::{
         ErasedProtectedFrame, FrameContext, FrameExit, FrameProgress, ProtectedFrame,
@@ -228,7 +228,7 @@ mod tests {
 
         assert_eq!(
             frame.descriptor().frame(),
-            bray_runtime_interface::ProtectedAsyncFrameId::new([7; 32])
+            bray_runtime_model::ProtectedAsyncFrameId::new([7; 32])
         );
     }
 

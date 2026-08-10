@@ -32,17 +32,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTextOperationKind::CharacterUtf8Byte => self.character_utf8_byte(operation)?,
             MirTextOperationKind::CharacterIsAlphabetic => self.character_predicate(
                 operation,
-                bray_runtime_interface::CHARACTER_IS_ALPHABETIC_SYMBOL,
+                bray_runtime_abi::CHARACTER_IS_ALPHABETIC_SYMBOL,
                 "character.alphabetic",
             )?,
             MirTextOperationKind::CharacterIsNumeric => self.character_predicate(
                 operation,
-                bray_runtime_interface::CHARACTER_IS_NUMERIC_SYMBOL,
+                bray_runtime_abi::CHARACTER_IS_NUMERIC_SYMBOL,
                 "character.numeric",
             )?,
             MirTextOperationKind::CharacterIsWhitespace => self.character_predicate(
                 operation,
-                bray_runtime_interface::CHARACTER_IS_WHITESPACE_SYMBOL,
+                bray_runtime_abi::CHARACTER_IS_WHITESPACE_SYMBOL,
                 "character.whitespace",
             )?,
             MirTextOperationKind::Release => {
@@ -143,7 +143,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let byte = self.types.context().i8_type();
 
         let function = self.text_function(
-            bray_runtime_interface::STRING_FROM_UTF8_SYMBOL,
+            bray_runtime_abi::STRING_FROM_UTF8_SYMBOL,
             Some(byte.into()),
             &[
                 data.get_type().into(),

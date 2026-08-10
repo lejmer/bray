@@ -106,8 +106,8 @@ fn audit_memory_operations(
         42,
         "compiler-provided memory operations",
         &[
-            bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL,
-            bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL,
+            bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
+            bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
         ],
     )
 }

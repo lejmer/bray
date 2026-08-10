@@ -297,8 +297,8 @@ mod tests {
         for spelling in [
             "llvm.memcpy",
             "llvm.memmove",
-            bray_runtime_interface::MEMORY_ALLOCATION_SYMBOL,
-            bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL,
+            bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
+            bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
         ] {
             assert!(
                 ir.contains(spelling),
@@ -327,7 +327,7 @@ mod tests {
             .lines()
             .filter(|line| {
                 line.contains("call void")
-                    && line.contains(bray_runtime_interface::MEMORY_DEALLOCATION_SYMBOL)
+                    && line.contains(bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL)
             })
             .count();
 

@@ -266,111 +266,6 @@ pub const RUNTIME_EVENT_SYMBOL: &str = "bray_runtime_event_v1";
 /// Stable symbol selecting the lane for one task state.
 pub const COMPATIBLE_LANE_SELECTION_SYMBOL: &str = "bray_runtime_compatible_lane_selection_v1";
 
-/// Returns the canonical native symbol for a role implemented by the Bray runtime.
-pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&'static str> {
-    use crate::RuntimeAbiRole as Role;
-
-    match role {
-        Role::RootExecution => Some(ROOT_EXECUTION_SYMBOL),
-        Role::SynchronousRootExecution => Some(SYNCHRONOUS_ROOT_EXECUTION_SYMBOL),
-        Role::ForeignCallbackExecution => Some(FOREIGN_CALLBACK_EXECUTION_SYMBOL),
-        Role::RootCancellationRequest => Some(ROOT_CANCELLATION_REQUEST_SYMBOL),
-        Role::TaskAllocation => Some(TASK_ALLOCATION_SYMBOL),
-        Role::TaskStart => Some(TASK_START_SYMBOL),
-        Role::SuspensionRegistration => Some(SUSPENSION_REGISTRATION_SYMBOL),
-        Role::Wake => Some(WAKE_SYMBOL),
-        Role::TaskCancellationRequest => Some(TASK_CANCELLATION_REQUEST_SYMBOL),
-        Role::CurrentRunCancellationObservation => {
-            Some(CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL)
-        }
-        Role::CurrentRunCancellationPropagation => {
-            Some(CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL)
-        }
-        Role::JoinRegistration => Some(JOIN_REGISTRATION_SYMBOL),
-        Role::TerminalPublication => Some(TERMINAL_PUBLICATION_SYMBOL),
-        Role::RuntimeEvent => Some(RUNTIME_EVENT_SYMBOL),
-        Role::CompatibleLaneSelection => Some(COMPATIBLE_LANE_SELECTION_SYMBOL),
-        Role::CleanupIncidentReporting => Some(CLEANUP_INCIDENT_REPORTING_SYMBOL),
-        Role::MainThreadLaneStartup => Some(MAIN_THREAD_LANE_STARTUP_SYMBOL),
-        Role::MainThreadLaneDrive => Some(MAIN_THREAD_LANE_DRIVE_SYMBOL),
-        Role::RootTerminalObservation => Some(ROOT_TERMINAL_OBSERVATION_SYMBOL),
-        Role::RootCompletionResolution => Some(ROOT_COMPLETION_RESOLUTION_SYMBOL),
-        Role::PanicReporting => Some(PANIC_REPORTING_SYMBOL),
-        Role::EntryFailureReporting => Some(ENTRY_FAILURE_REPORTING_SYMBOL),
-        Role::TestEntrySelection => Some(TEST_ENTRY_SELECTION_SYMBOL),
-        Role::StructuredShutdown => Some(STRUCTURED_SHUTDOWN_SYMBOL),
-        Role::FrameCompletionMove => Some(FRAME_COMPLETION_MOVE_SYMBOL),
-        Role::PanicReportConstruction => Some(PANIC_REPORT_CONSTRUCTION_SYMBOL),
-        Role::PanicPropagation => Some(PANIC_PROPAGATION_SYMBOL),
-        Role::AwaitedFrameComposition => Some(AWAITED_FRAME_COMPOSITION_SYMBOL),
-        Role::FrameResume
-        | Role::CleanupIncidentTransfer
-        | Role::FrameTaskBroadcast
-        | Role::FrameLifecycleResolution
-        | Role::FrameDestruction
-        | Role::GeneratorBegin
-        | Role::GeneratorPush
-        | Role::GeneratorFinish
-        | Role::GeneratorCleanupBroadcast
-        | Role::GeneratorDestruction
-        | Role::FrameCreation
-        | Role::InactiveFrameMove
-        | Role::TaskDestruction => None,
-    }
-}
-
-/// Returns the canonical native symbol for a platform role implemented by the Bray provider.
-pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRole) -> &'static str {
-    use crate::PlatformServiceRole as Role;
-
-    match role {
-        Role::ContextMeasure => PLATFORM_CONTEXT_MEASURE_SYMBOL,
-        Role::ContextCopy => PLATFORM_CONTEXT_COPY_SYMBOL,
-        Role::ContextEnvironmentKeyEquals => PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL,
-        Role::StreamRead => PLATFORM_STREAM_READ_SYMBOL,
-        Role::StreamWrite => PLATFORM_STREAM_WRITE_SYMBOL,
-        Role::StreamFlush => PLATFORM_STREAM_FLUSH_SYMBOL,
-        Role::StreamSeek => PLATFORM_STREAM_SEEK_SYMBOL,
-        Role::StreamClose => PLATFORM_STREAM_CLOSE_SYMBOL,
-        Role::StreamLock => PLATFORM_STREAM_LOCK_SYMBOL,
-        Role::StreamUnlock => PLATFORM_STREAM_UNLOCK_SYMBOL,
-        Role::FileOpen => PLATFORM_FILE_OPEN_SYMBOL,
-        Role::FileMetadata => PLATFORM_FILE_METADATA_SYMBOL,
-        Role::PathMetadata => PLATFORM_PATH_METADATA_SYMBOL,
-        Role::DirectoryOpen => PLATFORM_DIRECTORY_OPEN_SYMBOL,
-        Role::DirectoryNext => PLATFORM_DIRECTORY_NEXT_SYMBOL,
-        Role::DirectoryClose => PLATFORM_DIRECTORY_CLOSE_SYMBOL,
-        Role::PathCreateDirectory => PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL,
-        Role::PathRemoveFile => PLATFORM_PATH_REMOVE_FILE_SYMBOL,
-        Role::PathRemoveDirectory => PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL,
-        Role::PathRename => PLATFORM_PATH_RENAME_SYMBOL,
-        Role::ChildSpawn => PLATFORM_CHILD_SPAWN_SYMBOL,
-        Role::ChildWait => PLATFORM_CHILD_WAIT_SYMBOL,
-        Role::ChildTerminate => PLATFORM_CHILD_TERMINATE_SYMBOL,
-        Role::ChildReap => PLATFORM_CHILD_REAP_SYMBOL,
-        Role::ChildDispose => PLATFORM_CHILD_DISPOSE_SYMBOL,
-        Role::ClockMonotonicNow => PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL,
-        Role::ClockWallNow => PLATFORM_CLOCK_WALL_NOW_SYMBOL,
-        Role::ClockSleep => PLATFORM_CLOCK_SLEEP_SYMBOL,
-        Role::EntropyFill => PLATFORM_ENTROPY_FILL_SYMBOL,
-        Role::TimeDateValidate => PLATFORM_TIME_DATE_VALIDATE_SYMBOL,
-        Role::TimeDateAdd => PLATFORM_TIME_DATE_ADD_SYMBOL,
-        Role::TimeZoneLoad => PLATFORM_TIME_ZONE_LOAD_SYMBOL,
-        Role::TimeZoneLocal => PLATFORM_TIME_ZONE_LOCAL_SYMBOL,
-        Role::TimeZoneRetain => PLATFORM_TIME_ZONE_RETAIN_SYMBOL,
-        Role::TimeZoneClose => PLATFORM_TIME_ZONE_CLOSE_SYMBOL,
-        Role::TimeZoneName => PLATFORM_TIME_ZONE_NAME_SYMBOL,
-        Role::TimeObserve => PLATFORM_TIME_OBSERVE_SYMBOL,
-        Role::TimeResolve => PLATFORM_TIME_RESOLVE_SYMBOL,
-        Role::TimeParse => PLATFORM_TIME_PARSE_SYMBOL,
-        Role::TimeFormat => PLATFORM_TIME_FORMAT_SYMBOL,
-        Role::DynamicLibraryOpenPath => PLATFORM_DYNAMIC_LIBRARY_OPEN_PATH_SYMBOL,
-        Role::DynamicLibraryOpenSystem => PLATFORM_DYNAMIC_LIBRARY_OPEN_SYSTEM_SYMBOL,
-        Role::DynamicLibrarySymbol => PLATFORM_DYNAMIC_LIBRARY_SYMBOL_SYMBOL,
-        Role::DynamicLibraryClose => PLATFORM_DYNAMIC_LIBRARY_CLOSE_SYMBOL,
-    }
-}
-
 /// Status returned by native runtime operations.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -1128,3 +1023,107 @@ impl NativeExecutionLaneResult {
 
 /// Runtime event callback accepted by the native artifact.
 pub type NativeRuntimeEventCallback = extern "C" fn(context: usize) -> NativeRuntimeStatus;
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        NativeExecutionLane, NativeExecutionLaneResult, NativeFrameAffinity, NativeFrameExit,
+        NativeFrameProgress, NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame,
+        NativeLaneRequirements, NativePanicCause, NativeProtectedFrame,
+        NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart, NativeRunOutcome,
+        NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeSourceAnchor,
+        NativeStringView, NativeTaskAllocation, NativeTaskHandle,
+    };
+
+    #[test]
+    fn scalar_runtime_values_have_the_native_abi_layout() {
+        assert_abi_layout!(NativeRuntimeStatus, size: 4, align: 4, fields: {});
+        assert_abi_layout!(NativeRunState, size: 4, align: 4, fields: {});
+        assert_abi_layout!(NativePanicCause, size: 4, align: 4, fields: {});
+        assert_abi_layout!(NativeRootHandle, size: 8, align: 8, fields: {});
+        assert_abi_layout!(NativeTaskHandle, size: 8, align: 8, fields: {});
+        assert_abi_layout!(NativeFrameAffinity, size: 4, align: 4, fields: {});
+        assert_abi_layout!(NativeLaneRequirements, size: 4, align: 4, fields: {});
+        assert_abi_layout!(NativeFrameProgressKind, size: 4, align: 4, fields: {});
+        assert_abi_layout!(NativeFrameExit, size: 4, align: 4, fields: {});
+        assert_abi_layout!(NativeProtectedFrameTransfer, size: 8, align: 8, fields: {});
+        assert_abi_layout!(NativeExecutionLane, size: 4, align: 4, fields: {});
+    }
+
+    #[test]
+    fn runtime_records_have_the_native_abi_layout() {
+        assert_abi_layout!(NativeRuntimeConfiguration, size: 16, align: 8, fields: {
+            task_capacity: 0,
+            timer_capacity: 8,
+        });
+
+        assert_abi_layout!(NativeRunOutcome, size: 16, align: 8, fields: {
+            state: 0,
+            payload: 8,
+        });
+
+        assert_abi_layout!(NativeSourceAnchor, size: 24, align: 8, fields: {
+            present: 0,
+            source: 4,
+            start: 8,
+            end: 12,
+            version: 16,
+        });
+
+        assert_abi_layout!(NativeStringView, size: 16, align: 8, fields: {
+            data: 0,
+            length: 8,
+        });
+
+        assert_abi_layout!(NativeRootStart, size: 16, align: 8, fields: {
+            status: 0,
+            root: 8,
+        });
+
+        assert_abi_layout!(NativeTaskAllocation, size: 16, align: 8, fields: {
+            status: 0,
+            task: 8,
+        });
+
+        assert_abi_layout!(NativeFrameState, size: 8, align: 4, fields: {
+            affinity: 0,
+            lane_requirements: 4,
+        });
+
+        assert_abi_layout!(NativeFrameProgress, size: 16, align: 8, fields: {
+            kind: 0,
+            state: 4,
+            payload: 8,
+        });
+
+        assert_abi_layout!(NativeInactiveFrame, size: 16, align: 8, fields: {
+            context: 0,
+            move_before_start: 8,
+        });
+
+        assert_abi_layout!(NativeExecutionLaneResult, size: 8, align: 4, fields: {
+            status: 0,
+            lane: 4,
+        });
+    }
+
+    #[test]
+    fn protected_frame_descriptor_has_the_native_abi_layout() {
+        assert_abi_layout!(NativeProtectedFrame, size: 136, align: 8, fields: {
+            context: 0,
+            identity: 8,
+            state_count: 40,
+            size: 48,
+            alignment: 56,
+            completion_size: 64,
+            completion_alignment: 72,
+            state: 80,
+            resume: 88,
+            cancel: 96,
+            broadcast_tasks: 104,
+            resolve_lifecycle: 112,
+            move_completion: 120,
+            destroy: 128,
+        });
+    }
+}

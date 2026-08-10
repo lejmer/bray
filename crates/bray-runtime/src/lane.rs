@@ -1,5 +1,5 @@
 use bray_platform::RuntimeThreadId;
-use bray_runtime_interface::{ExecutionLaneRequirement, ProtectedFrameAffinity, RuntimeCapability};
+use bray_runtime_model::{ExecutionLaneRequirement, ProtectedFrameAffinity, RuntimeCapability};
 
 /// Placement constraint of one selected execution lane.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -168,7 +168,7 @@ mod tests {
         ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,
         select_execution_lane,
     };
-    use bray_runtime_interface::{
+    use bray_runtime_model::{
         ExecutionLaneRequirement, ProtectedFrameAffinity, RuntimeCapability,
     };
 

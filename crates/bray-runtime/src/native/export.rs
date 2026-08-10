@@ -3,7 +3,7 @@ use std::mem::{align_of, size_of};
 use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
 use std::sync::atomic::AtomicUsize;
 
-use bray_runtime_interface::{
+use bray_runtime_abi::{
     CHARACTER_UNICODE_DATA_VERSION, NativeExecutionLaneResult, NativeFrameProgress,
     NativeFrameProgressKind, NativeInactiveFrame, NativePanicCause, NativeProtectedFrame,
     NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart, NativeRunOutcome,
@@ -34,13 +34,13 @@ native_export! {
                 return NativeRootStart::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
             };
 
-            let start = super::test::with_output(|| execute_root(frame, configuration));
+            let start = super::host::with_output(|| execute_root(frame, configuration));
 
             if let Some(root) = start.root()
                 && let Ok(Ok(cancellation)) =
                     with_runtime(|runtime| runtime.root_cancellation(root))
             {
-                super::test::register_timeout(cancellation);
+                super::host::register_timeout(cancellation);
             }
 
             start
@@ -51,6 +51,7 @@ native_export! {
     }
 }
 
+#[cfg(feature = "test-host")]
 native_export! {
     pub extern "C" fn bray_runtime_test_entry_selection_v1(entry: u32) -> u8 {
         u8::from(super::test::select_entry(entry))
@@ -339,7 +340,7 @@ native_export! {
         }))
         .unwrap_or_else(|_| runtime_failure(NativeRuntimeStatus::PANICKED));
 
-        super::test::record_outcome(outcome);
+        super::host::record_outcome(outcome);
 
         outcome
     }
@@ -374,8 +375,8 @@ native_export! {
                 return NativeRuntimeStatus::INVALID_ARGUMENT;
             }
 
-            if super::test::active() {
-                super::test::record_panic(report.cause, report.source, report.message);
+            if super::host::active() {
+                super::host::record_panic(report.cause, report.source, report.message);
             } else {
                 eprintln!("{}", report.message);
             }
@@ -404,8 +405,8 @@ native_export! {
                 }
             };
 
-            if super::test::active() {
-                super::test::record_returned_error();
+            if super::host::active() {
+                super::host::record_returned_error();
             } else {
                 eprintln!("{bytes:02x?}");
             }
@@ -460,11 +461,11 @@ native_export! {
     pub extern "C" fn bray_runtime_cleanup_incident_reporting_v1(
     ) -> NativeRuntimeStatus {
         contain_status(|| {
-            if super::test::active() {
+            if super::host::active() {
                 let count = with_runtime(|runtime| runtime.discard_cleanup_incidents())
                     .unwrap_or_default();
 
-                super::test::record_cleanup_failure(count);
+                super::host::record_cleanup_failure(count);
 
                 return NativeRuntimeStatus::SUCCESS;
             }
@@ -672,7 +673,7 @@ native_export! {
         contain_status(|| {
             let runtime_status = shutdown();
 
-            if super::test::finish().is_err() {
+            if super::host::finish().is_err() {
                 return NativeRuntimeStatus::RUNTIME_FAILURE;
             }
 
@@ -741,7 +742,7 @@ mod tests {
     use std::ptr;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use bray_runtime_interface::{
+    use bray_runtime_abi::{
         CHARACTER_UNICODE_DATA_VERSION, NativeFrameAffinity, NativeFrameExit, NativeFrameProgress,
         NativeFrameProgressKind, NativeFrameState, NativeLaneRequirements, NativePanicCause,
         NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRunState,
@@ -1548,7 +1549,7 @@ mod tests {
 
             let raw = u64::try_from(raw).unwrap_or_else(|_| panic!("test root must fit u64"));
 
-            let task = bray_runtime_interface::NativeTaskHandle::new(raw)
+            let task = bray_runtime_abi::NativeTaskHandle::new(raw)
                 .unwrap_or_else(|| panic!("test root task must be nonzero"));
 
             assert_eq!(
@@ -1572,7 +1573,7 @@ mod tests {
 
             let raw = u64::try_from(raw).unwrap_or_else(|_| panic!("test root must fit u64"));
 
-            let task = bray_runtime_interface::NativeTaskHandle::new(raw)
+            let task = bray_runtime_abi::NativeTaskHandle::new(raw)
                 .unwrap_or_else(|| panic!("test root task must be nonzero"));
 
             assert_eq!(

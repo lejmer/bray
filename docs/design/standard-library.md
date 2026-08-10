@@ -224,8 +224,9 @@ canonical `std:library` dependency edge.
 
 `bray-package-interface` owns `.brayi` encoding, validation, compatibility, and imported semantic access.
 
-`bray-target` owns target identities and target compatibility facts. `bray-runtime-interface` owns runtime ABI identities and
-compatibility facts.
+`bray-target` owns target identities and target compatibility facts. `bray-runtime-abi` owns stable native symbols and call layouts.
+`bray-runtime-model` owns dependency-light runtime identities, versions, protected-frame semantics, capabilities, and execution-lane
+requirements. `bray-runtime-interface` owns compiler-facing runtime artifact metadata and compatibility validation.
 
 `bray-runtime-interface` also owns the closed platform-service role identities, semantic contracts, and ABI compatibility values
 shared by standard-library binding validation, product formation, and link planning. `bray-platform` can implement those mechanisms

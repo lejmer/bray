@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use bray_platform::{RunOutputContext, current_run_output_context};
-use bray_runtime_interface::{ProtectedFrameDescriptor, ProtectedFrameStateId};
+use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::context::current_task_start_site;
 use crate::frame::suspension_state;
@@ -742,7 +742,7 @@ mod tests {
     use std::thread;
 
     use bray_platform::RuntimeThreadScope;
-    use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
+    use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
         TaskControlBlock, TaskFailureKind, TaskObservationError, TaskResumeError, TaskResumeStatus,
@@ -815,12 +815,12 @@ mod tests {
 
         assert_eq!(
             snapshot.retained_storage(),
-            &[bray_runtime_interface::ProtectedFrameStorageId::new(4)]
+            &[bray_runtime_model::ProtectedFrameStorageId::new(4)]
         );
 
         assert_eq!(
             snapshot.cleanup_blockers(),
-            &[bray_runtime_interface::ProtectedFrameDependencyId::new(6)]
+            &[bray_runtime_model::ProtectedFrameDependencyId::new(6)]
         );
     }
 
@@ -834,14 +834,14 @@ mod tests {
         assert_eq!(
             task.resume(),
             Ok(TaskResumeStatus::Suspended(crate::FrameSuspension::new(
-                bray_runtime_interface::ProtectedFrameStateId::new(1)
+                bray_runtime_model::ProtectedFrameStateId::new(1)
             )))
         );
 
         assert_eq!(
             task.state(),
             Ok(TaskState::Suspended(
-                bray_runtime_interface::ProtectedFrameStateId::new(1)
+                bray_runtime_model::ProtectedFrameStateId::new(1)
             ))
         );
 
@@ -1052,13 +1052,13 @@ mod tests {
             .unwrap_or_else(|error| panic!("join waiter must register: {error:?}"));
 
         let failure = TaskFailureKind::UnknownSuspensionState(
-            bray_runtime_interface::ProtectedFrameStateId::new(9),
+            bray_runtime_model::ProtectedFrameStateId::new(9),
         );
 
         assert_eq!(
             task.resume(),
             Err(TaskResumeError::UnknownSuspensionState(
-                bray_runtime_interface::ProtectedFrameStateId::new(9)
+                bray_runtime_model::ProtectedFrameStateId::new(9)
             ))
         );
 
@@ -1133,7 +1133,7 @@ mod tests {
     impl ProtectedFrame for TrackedFrame {
         type Output = i32;
 
-        fn descriptor(&self) -> &bray_runtime_interface::ProtectedFrameDescriptor {
+        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
             self.frame.descriptor()
         }
 
@@ -1155,7 +1155,7 @@ mod tests {
     impl ProtectedFrame for LocalFrame {
         type Output = i32;
 
-        fn descriptor(&self) -> &bray_runtime_interface::ProtectedFrameDescriptor {
+        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
             self.inner.descriptor()
         }
 

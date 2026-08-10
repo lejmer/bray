@@ -80,9 +80,17 @@ Compiler libraries and installed Bray tools.
 - `bray-formatter`
     - Deterministic Bray source formatting, comment and recovery preservation, and reusable check/write file operations.
 
+- `bray-runtime-abi`
+    - Dependency-free native symbol names, status values, fixed-layout records, handles, and callback signatures shared by
+      generated code and linked runtime components.
+
+- `bray-runtime-model`
+    - Dependency-light protected-frame, execution-lane, capability, identity, and ABI-version semantics shared by compiler
+      contracts and runtime mechanisms.
+
 - `bray-runtime-interface`
-    - Backend-neutral contracts for protected-frame identities, private execution and platform-service ABI roles, runtime
-      requirements, and executable-host integration.
+    - Compiler-facing runtime artifact metadata, product requirements, private execution and platform-service role contracts,
+      compatibility validation, and executable-host integration.
 
 - `bray-platform`
     - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other mechanisms used by compiler-host
@@ -100,7 +108,8 @@ Compiler libraries and installed Bray tools.
 
 - `bray-runtime`
     - Target-independent protected-frame execution, task storage, scheduling, cancellation, observation, and executable-root
-      services over `bray-platform` mechanisms.
+      services over `bray-platform` mechanisms. Test-runner protocol integration is present only in explicitly selected test-host
+      artifacts.
 
 - `bray-linker`
     - Typed native link plans, linker and archiver adapters, invocation, and linked artifact results.

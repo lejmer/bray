@@ -1,0 +1,135 @@
+use bray_runtime_abi::{
+    AWAITED_FRAME_COMPOSITION_SYMBOL, CLEANUP_INCIDENT_REPORTING_SYMBOL,
+    COMPATIBLE_LANE_SELECTION_SYMBOL, CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL,
+    CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL, ENTRY_FAILURE_REPORTING_SYMBOL,
+    FOREIGN_CALLBACK_EXECUTION_SYMBOL, FRAME_COMPLETION_MOVE_SYMBOL, JOIN_REGISTRATION_SYMBOL,
+    MAIN_THREAD_LANE_DRIVE_SYMBOL, MAIN_THREAD_LANE_STARTUP_SYMBOL, PANIC_PROPAGATION_SYMBOL,
+    PANIC_REPORT_CONSTRUCTION_SYMBOL, PANIC_REPORTING_SYMBOL, PLATFORM_CHILD_DISPOSE_SYMBOL,
+    PLATFORM_CHILD_REAP_SYMBOL, PLATFORM_CHILD_SPAWN_SYMBOL, PLATFORM_CHILD_TERMINATE_SYMBOL,
+    PLATFORM_CHILD_WAIT_SYMBOL, PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL, PLATFORM_CLOCK_SLEEP_SYMBOL,
+    PLATFORM_CLOCK_WALL_NOW_SYMBOL, PLATFORM_CONTEXT_COPY_SYMBOL,
+    PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL, PLATFORM_CONTEXT_MEASURE_SYMBOL,
+    PLATFORM_DIRECTORY_CLOSE_SYMBOL, PLATFORM_DIRECTORY_NEXT_SYMBOL, PLATFORM_DIRECTORY_OPEN_SYMBOL,
+    PLATFORM_DYNAMIC_LIBRARY_CLOSE_SYMBOL, PLATFORM_DYNAMIC_LIBRARY_OPEN_PATH_SYMBOL,
+    PLATFORM_DYNAMIC_LIBRARY_OPEN_SYSTEM_SYMBOL, PLATFORM_DYNAMIC_LIBRARY_SYMBOL_SYMBOL,
+    PLATFORM_ENTROPY_FILL_SYMBOL, PLATFORM_FILE_METADATA_SYMBOL, PLATFORM_FILE_OPEN_SYMBOL,
+    PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL, PLATFORM_PATH_METADATA_SYMBOL,
+    PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL, PLATFORM_PATH_REMOVE_FILE_SYMBOL,
+    PLATFORM_PATH_RENAME_SYMBOL, PLATFORM_STREAM_CLOSE_SYMBOL, PLATFORM_STREAM_FLUSH_SYMBOL,
+    PLATFORM_STREAM_LOCK_SYMBOL, PLATFORM_STREAM_READ_SYMBOL, PLATFORM_STREAM_SEEK_SYMBOL,
+    PLATFORM_STREAM_UNLOCK_SYMBOL, PLATFORM_STREAM_WRITE_SYMBOL, PLATFORM_TIME_DATE_ADD_SYMBOL,
+    PLATFORM_TIME_DATE_VALIDATE_SYMBOL, PLATFORM_TIME_FORMAT_SYMBOL, PLATFORM_TIME_OBSERVE_SYMBOL,
+    PLATFORM_TIME_PARSE_SYMBOL, PLATFORM_TIME_RESOLVE_SYMBOL, PLATFORM_TIME_ZONE_CLOSE_SYMBOL,
+    PLATFORM_TIME_ZONE_LOAD_SYMBOL, PLATFORM_TIME_ZONE_LOCAL_SYMBOL, PLATFORM_TIME_ZONE_NAME_SYMBOL,
+    PLATFORM_TIME_ZONE_RETAIN_SYMBOL, ROOT_CANCELLATION_REQUEST_SYMBOL,
+    ROOT_COMPLETION_RESOLUTION_SYMBOL, ROOT_EXECUTION_SYMBOL, ROOT_TERMINAL_OBSERVATION_SYMBOL,
+    RUNTIME_EVENT_SYMBOL, STRUCTURED_SHUTDOWN_SYMBOL, SUSPENSION_REGISTRATION_SYMBOL,
+    SYNCHRONOUS_ROOT_EXECUTION_SYMBOL, TASK_ALLOCATION_SYMBOL, TASK_CANCELLATION_REQUEST_SYMBOL,
+    TASK_START_SYMBOL, TERMINAL_PUBLICATION_SYMBOL, TEST_ENTRY_SELECTION_SYMBOL, WAKE_SYMBOL,
+};
+
+/// Returns the canonical native symbol for a role implemented by the Bray runtime.
+pub const fn native_runtime_role_symbol(role: crate::RuntimeAbiRole) -> Option<&'static str> {
+    use crate::RuntimeAbiRole as Role;
+
+    match role {
+        Role::RootExecution => Some(ROOT_EXECUTION_SYMBOL),
+        Role::SynchronousRootExecution => Some(SYNCHRONOUS_ROOT_EXECUTION_SYMBOL),
+        Role::ForeignCallbackExecution => Some(FOREIGN_CALLBACK_EXECUTION_SYMBOL),
+        Role::RootCancellationRequest => Some(ROOT_CANCELLATION_REQUEST_SYMBOL),
+        Role::TaskAllocation => Some(TASK_ALLOCATION_SYMBOL),
+        Role::TaskStart => Some(TASK_START_SYMBOL),
+        Role::SuspensionRegistration => Some(SUSPENSION_REGISTRATION_SYMBOL),
+        Role::Wake => Some(WAKE_SYMBOL),
+        Role::TaskCancellationRequest => Some(TASK_CANCELLATION_REQUEST_SYMBOL),
+        Role::CurrentRunCancellationObservation => {
+            Some(CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL)
+        }
+        Role::CurrentRunCancellationPropagation => {
+            Some(CURRENT_RUN_CANCELLATION_PROPAGATION_SYMBOL)
+        }
+        Role::JoinRegistration => Some(JOIN_REGISTRATION_SYMBOL),
+        Role::TerminalPublication => Some(TERMINAL_PUBLICATION_SYMBOL),
+        Role::RuntimeEvent => Some(RUNTIME_EVENT_SYMBOL),
+        Role::CompatibleLaneSelection => Some(COMPATIBLE_LANE_SELECTION_SYMBOL),
+        Role::CleanupIncidentReporting => Some(CLEANUP_INCIDENT_REPORTING_SYMBOL),
+        Role::MainThreadLaneStartup => Some(MAIN_THREAD_LANE_STARTUP_SYMBOL),
+        Role::MainThreadLaneDrive => Some(MAIN_THREAD_LANE_DRIVE_SYMBOL),
+        Role::RootTerminalObservation => Some(ROOT_TERMINAL_OBSERVATION_SYMBOL),
+        Role::RootCompletionResolution => Some(ROOT_COMPLETION_RESOLUTION_SYMBOL),
+        Role::PanicReporting => Some(PANIC_REPORTING_SYMBOL),
+        Role::EntryFailureReporting => Some(ENTRY_FAILURE_REPORTING_SYMBOL),
+        Role::TestEntrySelection => Some(TEST_ENTRY_SELECTION_SYMBOL),
+        Role::StructuredShutdown => Some(STRUCTURED_SHUTDOWN_SYMBOL),
+        Role::FrameCompletionMove => Some(FRAME_COMPLETION_MOVE_SYMBOL),
+        Role::PanicReportConstruction => Some(PANIC_REPORT_CONSTRUCTION_SYMBOL),
+        Role::PanicPropagation => Some(PANIC_PROPAGATION_SYMBOL),
+        Role::AwaitedFrameComposition => Some(AWAITED_FRAME_COMPOSITION_SYMBOL),
+        Role::FrameResume
+        | Role::CleanupIncidentTransfer
+        | Role::FrameTaskBroadcast
+        | Role::FrameLifecycleResolution
+        | Role::FrameDestruction
+        | Role::GeneratorBegin
+        | Role::GeneratorPush
+        | Role::GeneratorFinish
+        | Role::GeneratorCleanupBroadcast
+        | Role::GeneratorDestruction
+        | Role::FrameCreation
+        | Role::InactiveFrameMove
+        | Role::TaskDestruction => None,
+    }
+}
+
+/// Returns the canonical native symbol for a platform role implemented by the Bray provider.
+pub const fn native_platform_service_role_symbol(role: crate::PlatformServiceRole) -> &'static str {
+    use crate::PlatformServiceRole as Role;
+
+    match role {
+        Role::ContextMeasure => PLATFORM_CONTEXT_MEASURE_SYMBOL,
+        Role::ContextCopy => PLATFORM_CONTEXT_COPY_SYMBOL,
+        Role::ContextEnvironmentKeyEquals => PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL,
+        Role::StreamRead => PLATFORM_STREAM_READ_SYMBOL,
+        Role::StreamWrite => PLATFORM_STREAM_WRITE_SYMBOL,
+        Role::StreamFlush => PLATFORM_STREAM_FLUSH_SYMBOL,
+        Role::StreamSeek => PLATFORM_STREAM_SEEK_SYMBOL,
+        Role::StreamClose => PLATFORM_STREAM_CLOSE_SYMBOL,
+        Role::StreamLock => PLATFORM_STREAM_LOCK_SYMBOL,
+        Role::StreamUnlock => PLATFORM_STREAM_UNLOCK_SYMBOL,
+        Role::FileOpen => PLATFORM_FILE_OPEN_SYMBOL,
+        Role::FileMetadata => PLATFORM_FILE_METADATA_SYMBOL,
+        Role::PathMetadata => PLATFORM_PATH_METADATA_SYMBOL,
+        Role::DirectoryOpen => PLATFORM_DIRECTORY_OPEN_SYMBOL,
+        Role::DirectoryNext => PLATFORM_DIRECTORY_NEXT_SYMBOL,
+        Role::DirectoryClose => PLATFORM_DIRECTORY_CLOSE_SYMBOL,
+        Role::PathCreateDirectory => PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL,
+        Role::PathRemoveFile => PLATFORM_PATH_REMOVE_FILE_SYMBOL,
+        Role::PathRemoveDirectory => PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL,
+        Role::PathRename => PLATFORM_PATH_RENAME_SYMBOL,
+        Role::ChildSpawn => PLATFORM_CHILD_SPAWN_SYMBOL,
+        Role::ChildWait => PLATFORM_CHILD_WAIT_SYMBOL,
+        Role::ChildTerminate => PLATFORM_CHILD_TERMINATE_SYMBOL,
+        Role::ChildReap => PLATFORM_CHILD_REAP_SYMBOL,
+        Role::ChildDispose => PLATFORM_CHILD_DISPOSE_SYMBOL,
+        Role::ClockMonotonicNow => PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL,
+        Role::ClockWallNow => PLATFORM_CLOCK_WALL_NOW_SYMBOL,
+        Role::ClockSleep => PLATFORM_CLOCK_SLEEP_SYMBOL,
+        Role::EntropyFill => PLATFORM_ENTROPY_FILL_SYMBOL,
+        Role::TimeDateValidate => PLATFORM_TIME_DATE_VALIDATE_SYMBOL,
+        Role::TimeDateAdd => PLATFORM_TIME_DATE_ADD_SYMBOL,
+        Role::TimeZoneLoad => PLATFORM_TIME_ZONE_LOAD_SYMBOL,
+        Role::TimeZoneLocal => PLATFORM_TIME_ZONE_LOCAL_SYMBOL,
+        Role::TimeZoneRetain => PLATFORM_TIME_ZONE_RETAIN_SYMBOL,
+        Role::TimeZoneClose => PLATFORM_TIME_ZONE_CLOSE_SYMBOL,
+        Role::TimeZoneName => PLATFORM_TIME_ZONE_NAME_SYMBOL,
+        Role::TimeObserve => PLATFORM_TIME_OBSERVE_SYMBOL,
+        Role::TimeResolve => PLATFORM_TIME_RESOLVE_SYMBOL,
+        Role::TimeParse => PLATFORM_TIME_PARSE_SYMBOL,
+        Role::TimeFormat => PLATFORM_TIME_FORMAT_SYMBOL,
+        Role::DynamicLibraryOpenPath => PLATFORM_DYNAMIC_LIBRARY_OPEN_PATH_SYMBOL,
+        Role::DynamicLibraryOpenSystem => PLATFORM_DYNAMIC_LIBRARY_OPEN_SYSTEM_SYMBOL,
+        Role::DynamicLibrarySymbol => PLATFORM_DYNAMIC_LIBRARY_SYMBOL_SYMBOL,
+        Role::DynamicLibraryClose => PLATFORM_DYNAMIC_LIBRARY_CLOSE_SYMBOL,
+    }
+}
+

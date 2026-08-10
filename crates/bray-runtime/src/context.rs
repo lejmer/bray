@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use bray_platform::{RunOutputContext, with_optional_run_output_context};
-use bray_runtime_interface::ProtectedFrameStateId;
+use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::{CancellationContext, ExecutionLane, TaskId, TaskStartSite, TaskWakeHandle};
 
@@ -175,7 +175,7 @@ mod tests {
         CapturedRunStream, RunOutputContext, RunOutputStream, with_run_output_context,
         write_current_run_output,
     };
-    use bray_runtime_interface::{ProtectedFrameStateId, RuntimeCapability};
+    use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
     use super::{
         TaskExecutionContext, current_run_cancellation_observable,

@@ -11,7 +11,7 @@ use bray_platform::{
     NativeStdio, PlatformError, PlatformErrorKind,
 };
 use bray_platform_abi_support::native_platform_export;
-use bray_runtime_interface::{
+use bray_runtime_abi::{
     NativePlatformChildRequest, NativePlatformEnvironmentList, NativePlatformExitStatus,
     NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
 };
@@ -648,7 +648,7 @@ fn platform_error(error: PlatformError) -> NativePlatformStatus {
 mod tests {
     use std::ffi::{OsStr, OsString};
 
-    use bray_runtime_interface::{
+    use bray_runtime_abi::{
         NativePlatformChildRequest, NativePlatformEnvironmentEntry, NativePlatformEnvironmentList,
         NativePlatformExitStatus, NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
     };

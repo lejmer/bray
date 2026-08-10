@@ -1,8 +1,9 @@
 use super::super::core::UnitTranslator;
 use super::super::support::{int_value, llvm, native_run_outcome, native_run_state_is};
 use bray_codegen::CodegenFailure;
+use bray_runtime_abi::NativeRunState;
 use bray_runtime_interface::{
-    ExecutableEntryResult, NativeRunState, RootExecution, RuntimeRoleImplementation,
+    ExecutableEntryResult, RootExecution, RuntimeRoleImplementation,
 };
 use inkwell::IntPredicate;
 use inkwell::values::BasicValueEnum;
