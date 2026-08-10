@@ -5,16 +5,17 @@ use blake3::Hasher;
 use crate::header::InterfaceHeader;
 use crate::section::DirectoryEntry;
 use crate::wire::WireEncoder;
-use crate::{InterfaceSectionRevision, InterfaceSectionTag};
+use crate::InterfaceSectionTag;
 
 const CONTENT_HASH_DOMAIN: &[u8] = b"bray.package-interface.content.v1";
+const SECTION_CONTENT_HASH_DOMAIN: &[u8] = b"bray.package-interface.section-content.v1";
 const SECTION_HASH_DOMAIN: &[u8] = b"bray.package-interface.section.v1";
 
 macro_rules! interface_hash {
-    ($name:ident, $documentation:literal) => {
+    ($visibility:vis $name:ident, $documentation:literal) => {
         #[doc = $documentation]
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-        pub struct $name([u8; Self::LENGTH]);
+        $visibility struct $name([u8; Self::LENGTH]);
 
         impl $name {
             /// Digest length in bytes.
@@ -44,16 +45,20 @@ macro_rules! interface_hash {
 }
 
 interface_hash!(
-    InterfaceArtifactHash,
+    pub InterfaceArtifactHash,
     "BLAKE3 digest of one exact canonical package-interface artifact."
 );
 interface_hash!(
-    InterfaceContentHash,
+    pub InterfaceContentHash,
     "BLAKE3 digest of the semantic package-interface sections."
 );
 interface_hash!(
-    InterfaceSectionHash,
+    pub InterfaceSectionHash,
     "Domain-separated BLAKE3 digest of one package-interface section."
+);
+interface_hash!(
+    pub(crate) InterfaceSectionContentHash,
+    "Domain-separated BLAKE3 digest of one decoded package-interface section payload."
 );
 
 pub(crate) fn compute_section_hash(entry: &DirectoryEntry, payload: &[u8]) -> InterfaceSectionHash {
@@ -66,6 +71,7 @@ pub(crate) fn compute_section_hash(entry: &DirectoryEntry, payload: &[u8]) -> In
     prefix.write_u64(entry.record_count());
     prefix.write_u64(entry.encoded_length());
     prefix.write_u64(entry.decoded_length());
+    prefix.write_bytes(entry.content_hash().as_bytes());
 
     let mut hasher = Hasher::new();
 
@@ -76,9 +82,29 @@ pub(crate) fn compute_section_hash(entry: &DirectoryEntry, payload: &[u8]) -> In
     InterfaceSectionHash::from_bytes(*hasher.finalize().as_bytes())
 }
 
-pub(crate) fn compute_content_hash<'bytes>(
+pub(crate) fn compute_section_content_hash(
+    tag: InterfaceSectionTag,
+    payload: &[u8],
+) -> InterfaceSectionContentHash {
+    let mut prefix = WireEncoder::new();
+
+    prefix.write_u32(tag.wire_value());
+    prefix.write_u64(u64::try_from(payload.len()).unwrap_or(u64::MAX));
+
+    let mut hasher = Hasher::new();
+
+    hasher.update(SECTION_CONTENT_HASH_DOMAIN);
+    hasher.update(prefix.bytes());
+    hasher.update(payload);
+
+    InterfaceSectionContentHash::from_bytes(*hasher.finalize().as_bytes())
+}
+
+pub(crate) fn compute_content_hash(
     header: &InterfaceHeader,
-    sections: impl IntoIterator<Item = (InterfaceSectionTag, InterfaceSectionRevision, &'bytes [u8])>,
+    sections: impl IntoIterator<
+        Item = (InterfaceSectionTag, u64, InterfaceSectionContentHash),
+    >,
 ) -> InterfaceContentHash {
     let mut prefix = WireEncoder::new();
 
@@ -91,7 +117,7 @@ pub(crate) fn compute_content_hash<'bytes>(
     hasher.update(CONTENT_HASH_DOMAIN);
     hasher.update(prefix.bytes());
 
-    for (tag, revision, payload) in sections {
+    for (tag, decoded_length, content_hash) in sections {
         if !tag.contributes_to_content_hash() {
             continue;
         }
@@ -99,11 +125,10 @@ pub(crate) fn compute_content_hash<'bytes>(
         let mut section_prefix = WireEncoder::new();
 
         section_prefix.write_u32(tag.wire_value());
-        section_prefix.write_u16(revision.raw());
-        section_prefix.write_u64(u64::try_from(payload.len()).unwrap_or(u64::MAX));
+        section_prefix.write_u64(decoded_length);
+        section_prefix.write_bytes(content_hash.as_bytes());
 
         hasher.update(section_prefix.bytes());
-        hasher.update(payload);
     }
 
     InterfaceContentHash::from_bytes(*hasher.finalize().as_bytes())
@@ -127,7 +152,10 @@ pub(crate) fn compute_artifact_hash(bytes: &[u8]) -> Option<InterfaceArtifactHas
 
 #[cfg(test)]
 mod tests {
-    use super::{InterfaceArtifactHash, InterfaceContentHash, InterfaceSectionHash};
+    use super::{
+        InterfaceArtifactHash, InterfaceContentHash, InterfaceSectionContentHash,
+        InterfaceSectionHash,
+    };
 
     #[test]
     fn interface_hashes_preserve_exact_digest_bytes() {
@@ -135,6 +163,12 @@ mod tests {
 
         assert_eq!(InterfaceArtifactHash::from_bytes(bytes).as_bytes(), &bytes);
         assert_eq!(InterfaceContentHash::from_bytes(bytes).as_bytes(), &bytes);
+
+        assert_eq!(
+            InterfaceSectionContentHash::from_bytes(bytes).as_bytes(),
+            &bytes
+        );
+
         assert_eq!(InterfaceSectionHash::from_bytes(bytes).as_bytes(), &bytes);
 
         assert_eq!(

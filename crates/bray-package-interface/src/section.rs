@@ -1,4 +1,4 @@
-use crate::hash::InterfaceSectionHash;
+use crate::hash::{InterfaceSectionContentHash, InterfaceSectionHash};
 use crate::wire::{WireDecodeError, WireReader};
 use crate::InterfaceSectionEncoding;
 
@@ -211,11 +211,14 @@ pub(crate) struct DirectoryEntry {
     decoded_length: u64,
     record_count: u64,
     checksum: InterfaceSectionHash,
+    content_hash: InterfaceSectionContentHash,
 }
 
 impl DirectoryEntry {
-    pub(crate) const LENGTH: usize = 72;
-    pub(crate) const WIRE_LENGTH: u64 = 72;
+    pub(crate) const LENGTH: usize = 104;
+    pub(crate) const WIRE_LENGTH: u64 = 104;
+    #[cfg(test)]
+    pub(crate) const CHECKSUM_OFFSET: usize = 40;
 
     pub(crate) fn decode(bytes: &[u8]) -> Result<DecodedDirectoryEntry, WireDecodeError> {
         let mut reader = WireReader::new(bytes);
@@ -229,6 +232,7 @@ impl DirectoryEntry {
         let decoded_length = reader.read_u64()?;
         let record_count = reader.read_u64()?;
         let checksum = InterfaceSectionHash::from_bytes(reader.read_array::<32>()?);
+        let content_hash = InterfaceSectionContentHash::from_bytes(reader.read_array::<32>()?);
 
         Ok(DecodedDirectoryEntry {
             raw_tag,
@@ -240,6 +244,7 @@ impl DirectoryEntry {
             decoded_length,
             record_count,
             checksum,
+            content_hash,
         })
     }
 
@@ -254,6 +259,7 @@ impl DirectoryEntry {
             decoded_length: decoded.decoded_length,
             record_count: decoded.record_count,
             checksum: decoded.checksum,
+            content_hash: decoded.content_hash,
         }
     }
 
@@ -265,6 +271,7 @@ impl DirectoryEntry {
         decoded_length: u64,
         record_count: u64,
         checksum: InterfaceSectionHash,
+        content_hash: InterfaceSectionContentHash,
     ) -> Self {
         Self {
             raw_tag: tag.wire_value(),
@@ -276,6 +283,7 @@ impl DirectoryEntry {
             decoded_length,
             record_count,
             checksum,
+            content_hash,
         }
     }
 
@@ -334,6 +342,10 @@ impl DirectoryEntry {
         self.checksum
     }
 
+    pub(crate) const fn content_hash(self) -> InterfaceSectionContentHash {
+        self.content_hash
+    }
+
     pub(crate) fn payload(self, bytes: &[u8]) -> Option<&[u8]> {
         let start = usize::try_from(self.offset).ok()?;
         let length = usize::try_from(self.encoded_length).ok()?;
@@ -354,6 +366,7 @@ pub(crate) struct DecodedDirectoryEntry {
     pub(crate) decoded_length: u64,
     pub(crate) record_count: u64,
     pub(crate) checksum: InterfaceSectionHash,
+    pub(crate) content_hash: InterfaceSectionContentHash,
 }
 
 /// Read-only view of one structurally validated package-interface section.

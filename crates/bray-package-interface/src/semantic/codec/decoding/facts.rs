@@ -6,6 +6,18 @@ use crate::{
     InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
+pub(crate) const COMPLETE_FACT_SECTIONS: &[InterfaceSectionTag] = &[
+    InterfaceSectionTag::SymbolFactDirectory,
+    InterfaceSectionTag::SemanticTypes,
+    InterfaceSectionTag::Constants,
+    InterfaceSectionTag::Contracts,
+    InterfaceSectionTag::DeclarationTemplates,
+    InterfaceSectionTag::Implementations,
+    InterfaceSectionTag::TargetDependencies,
+    InterfaceSectionTag::SupportGraph,
+    InterfaceSectionTag::DeclarationFacts,
+];
+
 /// Decodes and validates every semantic fact section in one package interface.
 pub fn decode_semantic_facts(
     sections: &[ValidatedInterfaceSection<'_>],

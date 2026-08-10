@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use crate::encoding::encode_section;
-use crate::hash::{compute_artifact_hash, compute_content_hash, compute_section_hash};
+use crate::hash::{
+    compute_artifact_hash, compute_content_hash, compute_section_content_hash,
+    compute_section_hash, InterfaceSectionContentHash,
+};
 use crate::header::{BYTE_ORDER_MARKER, InterfaceHeader, MAGIC};
 use crate::section::DirectoryEntry;
 use crate::surface::{EncodedSurfaceSection, encode_surface};
@@ -192,17 +195,11 @@ pub(crate) fn assemble_sections(
         .map(StoredArtifactSection::try_from_decoded)
         .collect::<Result<Vec<_>, _>>()?;
 
-    assemble_stored_sections(
-        &stored_sections,
-        sections,
-        identity,
-        language_revision,
-    )
+    assemble_stored_sections(&stored_sections, identity, language_revision)
 }
 
 fn assemble_stored_sections(
     stored_sections: &[StoredArtifactSection],
-    decoded_sections: &[EncodedArtifactSection],
     identity: PackageInterfaceIdentity,
     language_revision: InterfaceLanguageRevision,
 ) -> Result<InterfaceArtifact, InterfaceValidationError> {
@@ -248,6 +245,7 @@ fn assemble_stored_sections(
             section.decoded_length,
             section.record_count,
             checksum,
+            section.content_hash,
         ));
 
         encoder.write_bytes(&section.payload);
@@ -261,7 +259,7 @@ fn assemble_stored_sections(
         encode_directory_entry(&mut encoder, *entry);
     }
 
-    finish_hashes(identity, encoder.into_bytes(), &entries, decoded_sections)
+    finish_hashes(identity, encoder.into_bytes(), &entries)
 }
 
 fn encode_header(
@@ -301,6 +299,7 @@ fn encoded_directory_entry(
         section.decoded_length,
         section.record_count,
         crate::InterfaceSectionHash::from_bytes([0; 32]),
+        section.content_hash,
     ))
 }
 
@@ -316,25 +315,23 @@ fn encode_directory_entry(encoder: &mut WireEncoder, entry: DirectoryEntry) {
     encoder.write_u64(entry.record_count());
 
     encoder.write_bytes(entry.checksum().as_bytes());
+    encoder.write_bytes(entry.content_hash().as_bytes());
 }
 
 fn finish_hashes(
     identity: PackageInterfaceIdentity,
     mut bytes: Vec<u8>,
     entries: &[DirectoryEntry],
-    decoded_sections: &[EncodedArtifactSection],
 ) -> Result<InterfaceArtifact, InterfaceValidationError> {
     let decoded =
         InterfaceHeader::decode(&bytes).map_err(|_| InterfaceValidationError::Malformed)?;
 
     let content_hash = compute_content_hash(
         &decoded.header,
-        decoded_sections.iter().map(|section| {
-            (
-                section.tag,
-                crate::InterfaceSectionRevision::CURRENT,
-                section.payload.as_slice(),
-            )
+        entries.iter().filter_map(|entry| {
+            entry
+                .tag()
+                .map(|tag| (tag, entry.decoded_length(), entry.content_hash()))
         }),
     );
 
@@ -374,6 +371,7 @@ struct StoredArtifactSection {
     encoding: crate::InterfaceSectionEncoding,
     decoded_length: u64,
     record_count: u64,
+    content_hash: InterfaceSectionContentHash,
     payload: Vec<u8>,
 }
 
@@ -382,6 +380,7 @@ impl StoredArtifactSection {
         section: &EncodedArtifactSection,
     ) -> Result<Self, InterfaceValidationError> {
         let decoded_length = usize_to_u64(section.payload.len())?;
+        let content_hash = compute_section_content_hash(section.tag, &section.payload);
 
         let (encoding, payload) = encode_section(&section.payload)?;
 
@@ -390,6 +389,7 @@ impl StoredArtifactSection {
             encoding,
             decoded_length,
             record_count: section.record_count,
+            content_hash,
             payload,
         })
     }
@@ -575,12 +575,15 @@ mod tests {
             encoding: InterfaceSectionEncoding::Raw,
             decoded_length: 4096,
             record_count: 1,
+            content_hash: crate::hash::compute_section_content_hash(
+                InterfaceSectionTag::Strings,
+                &decoded,
+            ),
             payload: decoded,
         }];
 
         let raw = assemble_stored_sections(
             &raw_sections,
-            &sections,
             bundle.surface().identity().clone(),
             bundle.language_revision(),
         )
