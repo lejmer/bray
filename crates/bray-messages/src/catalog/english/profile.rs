@@ -30,6 +30,7 @@ pub(crate) fn summary(report: &CompilationProfileReport) -> String {
     write_cache_summary(&mut output, summary);
     write_operation_table(&mut output, summary);
     write_query_table(&mut output, summary);
+    write_runtime_artifacts(&mut output, report);
     write_metric_table(&mut output, summary);
 
     if report.mode == bray_profile::CompilationProfileMode::Trace {
@@ -42,6 +43,23 @@ pub(crate) fn summary(report: &CompilationProfileReport) -> String {
     }
 
     output
+}
+
+fn write_runtime_artifacts(output: &mut String, report: &CompilationProfileReport) {
+    if report.runtime_artifacts.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(output, "\nSelected runtime artifacts");
+
+    for artifact in &report.runtime_artifacts {
+        let _ = writeln!(
+            output,
+            "  {:<NAME_WIDTH$} {:>12}",
+            artifact.identity,
+            bytes(artifact.bytes)
+        );
+    }
 }
 
 pub(crate) fn comparison(comparison: CompilationProfileComparison<'_>) -> String {

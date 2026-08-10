@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_linker::{BinarySymbolName, LinkInputSpec, LinkPolicy, LinkSearchPath, LinkTarget};
-use bray_runtime_interface::RuntimeArtifact;
+use bray_runtime_interface::RuntimeArtifactSelection;
 
 /// Already resolved product, target, and host facts needed for native link planning.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -11,7 +11,7 @@ pub struct ProductLinkFacts {
     pub(super) startup_inputs: Arc<[LinkInputSpec]>,
     pub(super) native_inputs: Arc<[LinkInputSpec]>,
     pub(super) termination_inputs: Arc<[LinkInputSpec]>,
-    pub(super) runtime: Option<RuntimeArtifact>,
+    pub(super) runtime: Option<RuntimeArtifactSelection>,
     pub(super) entry_point: Option<BinarySymbolName>,
     pub(super) exported_symbols: Arc<[BinarySymbolName]>,
     pub(super) retained_symbols: Arc<[BinarySymbolName]>,
@@ -60,7 +60,7 @@ impl ProductLinkFacts {
     }
 
     /// Supplies the exact selected runtime archive and compatibility contract.
-    pub fn with_runtime(mut self, runtime: RuntimeArtifact) -> Self {
+    pub fn with_runtime(mut self, runtime: RuntimeArtifactSelection) -> Self {
         self.runtime = Some(runtime);
 
         self

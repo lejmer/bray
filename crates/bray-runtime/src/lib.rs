@@ -9,7 +9,8 @@ mod context;
 mod event;
 mod frame;
 mod lane;
-mod native;
+#[doc(hidden)]
+pub mod native;
 mod observation;
 mod outcome;
 mod root;

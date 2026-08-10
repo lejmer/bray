@@ -74,6 +74,7 @@ pub(crate) fn report(elapsed_nanoseconds: u64) -> CompilationProfileReport {
             id: 2_000,
             value: 1,
         }],
+        runtime_artifacts: Vec::new(),
         events: Vec::new(),
         dropped_events: 0,
     }

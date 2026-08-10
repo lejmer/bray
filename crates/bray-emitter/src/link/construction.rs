@@ -240,10 +240,15 @@ impl<'plan> LinkPlanConstructor<'plan> {
             return Err(LinkPlanConstructionError::RuntimeContractMismatch);
         }
 
-        let id = self.next_input_id()?;
+        for component in runtime.components() {
+            let id = self.next_input_id()?;
 
-        self.builder
-            .push_input(LinkInput::runtime_component(id, runtime));
+            self.builder.push_input(LinkInput::runtime_component(
+                id,
+                runtime.contract().artifact(),
+                component,
+            ));
+        }
 
         Ok(())
     }
@@ -510,8 +515,10 @@ mod tests {
         StagingPathKey,
     };
     use bray_runtime_interface::{
-        BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeArtifactDigest,
-        RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeCapability,
+        BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact,
+        RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactId,
+        RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeArtifactSelection,
+        RuntimeCapability,
     };
     use bray_target::{CodeModel, RelocationModel};
 
@@ -856,7 +863,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test emission plan must construct: {error:?}"))
     }
 
-    fn async_executable_plan() -> (EmissionPlan, RuntimeArtifact) {
+    fn async_executable_plan() -> (EmissionPlan, RuntimeArtifactSelection) {
         let Some(runtime_id) = RuntimeArtifactId::try_new("runtime.test") else {
             panic!("test runtime artifact identity must be valid");
         };
@@ -867,7 +874,11 @@ mod tests {
             runtime_id,
         );
 
-        let runtime = runtime_artifact(&host);
+        let (runtime, _runtime_directory) = runtime_artifact(&host);
+
+        let runtime = runtime
+            .select(RuntimeArtifactPurpose::Product, host.requirements())
+            .unwrap_or_else(|error| panic!("test runtime must select: {error:?}"));
 
         let request = EmissionRequest::try_new(
             product_identity(),
@@ -1010,19 +1021,82 @@ mod tests {
             .unwrap_or_else(|| panic!("test binary symbol name must be valid"))
     }
 
-    fn runtime_artifact(host: &bray_runtime_interface::ExecutableHostContract) -> RuntimeArtifact {
+    fn runtime_artifact(
+        host: &bray_runtime_interface::ExecutableHostContract,
+    ) -> (RuntimeArtifact, tempfile::TempDir) {
         let contract = host
             .runtime()
             .cloned()
             .unwrap_or_else(|| panic!("async test host must select a runtime"));
 
-        let digest = RuntimeArtifactDigest::new([7; 32]);
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let metadata = RuntimeArtifactMetadata::try_new(contract, "bray_runtime.a", digest)
+        let bytes = b"runtime archive";
+
+        for archive in ["bray_runtime_product.a", "bray_runtime_test.a"] {
+            std::fs::write(directory.path().join(archive), bytes)
+                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
+        }
+
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_file(&directory.path().join("bray_runtime_product.a"))
+                .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
+        );
+
+        let roles = contract
+            .role_bindings()
+            .iter()
+            .map(bray_runtime_interface::RuntimeRoleBinding::role)
+            .filter(|role| *role != bray_runtime_interface::RuntimeAbiRole::TestEntrySelection);
+
+        let component_id = RuntimeArtifactId::try_new("runtime.product")
+            .unwrap_or_else(|| panic!("test component identity must be valid"));
+
+        let component = RuntimeArtifactComponentMetadata::try_new(
+            component_id.clone(),
+            RuntimeArtifactPurpose::Product,
+            roles,
+            contract.capabilities().iter().copied(),
+            "bray_runtime_product.a",
+            digest,
+        )
+        .unwrap_or_else(|error| panic!("test runtime component must be valid: {error:?}"));
+
+        let test_component = RuntimeArtifactComponentMetadata::try_new(
+            RuntimeArtifactId::try_new("runtime.test")
+                .unwrap_or_else(|| panic!("test component identity must be valid")),
+            RuntimeArtifactPurpose::TestRunner,
+            contract
+                .role_bindings()
+                .iter()
+                .map(bray_runtime_interface::RuntimeRoleBinding::role),
+            contract.capabilities().iter().copied(),
+            "bray_runtime_test.a",
+            digest,
+        )
+        .unwrap_or_else(|error| panic!("test runtime component must be valid: {error:?}"));
+
+        let metadata = RuntimeArtifactMetadata::try_new(contract, [component, test_component])
             .unwrap_or_else(|error| panic!("test runtime metadata must be valid: {error:?}"));
 
-        RuntimeArtifact::try_new(metadata, "runtime/bray_runtime.a", digest)
-            .unwrap_or_else(|error| panic!("test runtime artifact must be valid: {error:?}"))
+        let artifact = RuntimeArtifact::try_new(
+            metadata,
+            [
+                (
+                    component_id,
+                    directory.path().join("bray_runtime_product.a"),
+                ),
+                (
+                    RuntimeArtifactId::try_new("runtime.test")
+                        .unwrap_or_else(|| panic!("test component identity must be valid")),
+                    directory.path().join("bray_runtime_test.a"),
+                ),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("test runtime artifact must be valid: {error:?}"));
+
+        (artifact, directory)
     }
 
     struct CountingDriver {

@@ -65,6 +65,10 @@ mod tests {
             operations: Vec::new(),
             queries: Vec::new(),
             metrics: Vec::new(),
+            runtime_artifacts: vec![bray_profile::CompilationProfileRuntimeArtifact {
+                identity: "bray.runtime.host".to_owned(),
+                bytes: 4_096,
+            }],
             events: Vec::new(),
             dropped_events: 0,
         };
@@ -74,5 +78,8 @@ mod tests {
         assert!(output.contains("Compiler profile: example/application"));
         assert!(output.contains("Elapsed"));
         assert!(output.contains("1.250 ms"));
+        assert!(output.contains("Selected runtime artifacts"));
+        assert!(output.contains("bray.runtime.host"));
+        assert!(output.contains("4.00 KiB"));
     }
 }

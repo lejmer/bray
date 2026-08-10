@@ -13,6 +13,10 @@ pub enum CompilationProfileValidationError {
     DuplicateObservation,
     /// An observation or event references an undeclared descriptor.
     UnknownDescriptor,
+    /// A selected runtime artifact has no stable identity.
+    InvalidRuntimeArtifactIdentity,
+    /// Selected runtime artifacts are duplicated or not in canonical identity order.
+    NonCanonicalRuntimeArtifacts,
 }
 
 impl CompilationProfileReport {
@@ -40,6 +44,22 @@ impl CompilationProfileReport {
             self.metrics.iter().map(|entry| entry.id),
             self.descriptors.metrics.iter().map(|entry| entry.id),
         )?;
+
+        if self
+            .runtime_artifacts
+            .iter()
+            .any(|artifact| artifact.identity.trim().is_empty())
+        {
+            return Err(CompilationProfileValidationError::InvalidRuntimeArtifactIdentity);
+        }
+
+        if self
+            .runtime_artifacts
+            .windows(2)
+            .any(|entries| entries[0].identity >= entries[1].identity)
+        {
+            return Err(CompilationProfileValidationError::NonCanonicalRuntimeArtifacts);
+        }
 
         if self.events.iter().any(|event| {
             self.operation_descriptor(event.operation_id).is_none()
@@ -107,6 +127,39 @@ mod tests {
         assert_eq!(
             duplicate.validate(),
             Err(CompilationProfileValidationError::DuplicateObservation)
+        );
+    }
+
+    #[test]
+    fn validation_requires_canonical_runtime_artifact_identities() {
+        let mut invalid = report(1_000_000);
+
+        invalid.runtime_artifacts = vec![crate::CompilationProfileRuntimeArtifact {
+            identity: " ".to_owned(),
+            bytes: 1,
+        }];
+
+        assert_eq!(
+            invalid.validate(),
+            Err(CompilationProfileValidationError::InvalidRuntimeArtifactIdentity)
+        );
+
+        let mut duplicate = report(1_000_000);
+
+        duplicate.runtime_artifacts = vec![
+            crate::CompilationProfileRuntimeArtifact {
+                identity: "runtime.host".to_owned(),
+                bytes: 1,
+            },
+            crate::CompilationProfileRuntimeArtifact {
+                identity: "runtime.host".to_owned(),
+                bytes: 1,
+            },
+        ];
+
+        assert_eq!(
+            duplicate.validate(),
+            Err(CompilationProfileValidationError::NonCanonicalRuntimeArtifacts)
         );
     }
 }

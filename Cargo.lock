@@ -537,14 +537,30 @@ dependencies = [
  "bray-platform-abi",
  "bray-runtime-abi",
  "bray-runtime-model",
- "bray-source",
- "bray-test-protocol",
  "bray-testing",
 ]
 
 [[package]]
 name = "bray-runtime-abi"
 version = "0.0.0"
+
+[[package]]
+name = "bray-runtime-adapter"
+version = "0.0.0"
+dependencies = [
+ "bray-platform",
+ "bray-runtime",
+ "bray-runtime-abi",
+ "bray-source",
+ "bray-test-protocol",
+]
+
+[[package]]
+name = "bray-runtime-builtins"
+version = "0.0.0"
+dependencies = [
+ "bray-runtime-abi",
+]
 
 [[package]]
 name = "bray-runtime-interface"
@@ -557,6 +573,7 @@ dependencies = [
  "bray-target",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -642,6 +659,7 @@ dependencies = [
 name = "bray-tooling"
 version = "0.0.0"
 dependencies = [
+ "bray-base",
  "bray-bound-tree",
  "bray-codegen",
  "bray-codegen-llvm",
@@ -664,7 +682,6 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
- "sha2",
 ]
 
 [[package]]

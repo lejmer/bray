@@ -5,7 +5,7 @@ use bray_linker::{
     LinkInputSource, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind,
     SectionGarbageCollectionPolicy,
 };
-use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact};
+use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactSelection};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement, ProductKind};
 
 use super::super::super::Compilation;
@@ -16,7 +16,7 @@ impl Compilation {
         &self,
         kind: ProductKind,
         host: Option<&ExecutableHostContract>,
-        runtime: Option<RuntimeArtifact>,
+        runtime: Option<RuntimeArtifactSelection>,
         target: &CodegenTarget,
         configuration: crate::BuildConfiguration,
     ) -> Result<ProductLinkFacts, NativeProductFactError> {
@@ -100,21 +100,17 @@ impl Compilation {
             // Every input retains the Arc-backed runtime artifact provenance.
             let artifact = runtime.contract().artifact().clone();
 
-            runtime
-                .metadata()
-                .native_links()
-                .iter()
-                .map(move |requirement| {
-                    native_link_input(
-                        requirement,
-                        LinkInputProvenance::RuntimeDependency(artifact.clone()),
-                    )
-                })
+            runtime.native_links().map(move |requirement| {
+                native_link_input(
+                    requirement,
+                    LinkInputProvenance::RuntimeDependency(artifact.clone()),
+                )
+            })
         });
 
         let include_platform_services = runtime
             .as_ref()
-            .is_none_or(|runtime| !runtime.metadata().embeds_platform_services());
+            .is_none_or(|runtime| !runtime.embeds_platform_services());
 
         let standard_library_inputs =
             self.standard_library_link_inputs(kind, include_platform_services)?;

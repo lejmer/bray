@@ -418,6 +418,8 @@ mod tests {
             "main-thread-lane",
             "--require-capability",
             "cooperative-execution",
+            "--require-capability",
+            "string-operations",
             "--inspect",
             "backend-ir",
             "--artifact",
@@ -466,6 +468,7 @@ mod tests {
         assert_eq!(
             configuration.required_capabilities(),
             &[
+                RuntimeCapability::StringOperations,
                 RuntimeCapability::CooperativeExecution,
                 RuntimeCapability::MainThreadLane,
             ]

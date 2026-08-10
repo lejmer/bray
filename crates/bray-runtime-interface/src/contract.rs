@@ -251,7 +251,7 @@ impl ExecutableHostContractBuilder {
             {
                 return Err(ExecutableHostContractBuildError::DuplicateRole(role));
             }
-        } else if requires_runtime(&self.requirements) {
+        } else if self.requirements.requires_implementation() {
             return Err(ExecutableHostContractBuildError::MissingRuntime);
         }
 
@@ -459,14 +459,6 @@ fn has_role_binding(
         .binary_search_by_key(&role, RuntimeRoleBinding::role)
         .is_ok()
         || runtime.is_some_and(|runtime| runtime.role_binding(role).is_some())
-}
-
-fn requires_runtime(requirements: &RuntimeRequirements) -> bool {
-    requirements.runtime().is_some()
-        || requirements.frame_abi().is_some()
-        || !requirements.roles().is_empty()
-        || !requirements.capabilities().is_empty()
-        || !requirements.lanes().is_empty()
 }
 
 #[cfg(test)]

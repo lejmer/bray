@@ -7,7 +7,9 @@ use bray_codegen::{
 use bray_declarations::ModulePartId;
 use bray_linker::LinkerDriverIdentity;
 use bray_package_interface::InterfaceSemanticFactKind;
-use bray_runtime_interface::{RuntimeArtifactDigest, RuntimeCapability};
+use bray_runtime_interface::{
+    RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactPurpose, RuntimeCapability,
+};
 use bray_source::SourceId;
 use bray_symbols::{
     AnySymbolId, CallableInstanceId, CallableTypeDirectiveKey, ConstantInstanceKey,
@@ -23,7 +25,7 @@ use bray_target::TargetProfile;
 pub(crate) struct NativeProductFactKey {
     product: ProductIdentity,
     configuration: crate::BuildConfiguration,
-    runtime: Option<(RuntimeArtifactDigest, std::path::PathBuf)>,
+    runtime: Option<std::sync::Arc<[RuntimeComponentFactIdentity]>>,
     required_capabilities: std::sync::Arc<[RuntimeCapability]>,
     linker_drivers: std::sync::Arc<[LinkerDriverIdentity]>,
 }
@@ -32,7 +34,7 @@ impl NativeProductFactKey {
     pub(crate) fn new(
         product: ProductIdentity,
         configuration: crate::BuildConfiguration,
-        runtime: Option<(RuntimeArtifactDigest, std::path::PathBuf)>,
+        runtime: Option<std::sync::Arc<[RuntimeComponentFactIdentity]>>,
         required_capabilities: impl Into<std::sync::Arc<[RuntimeCapability]>>,
         linker_drivers: impl Into<std::sync::Arc<[LinkerDriverIdentity]>>,
     ) -> Self {
@@ -47,6 +49,31 @@ impl NativeProductFactKey {
 
     pub(crate) const fn product(&self) -> &ProductIdentity {
         &self.product
+    }
+}
+
+/// Complete immutable identity of one runtime catalog component used by a native product fact.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct RuntimeComponentFactIdentity {
+    component: RuntimeArtifactId,
+    purpose: RuntimeArtifactPurpose,
+    digest: RuntimeArtifactDigest,
+    archive: std::path::PathBuf,
+}
+
+impl RuntimeComponentFactIdentity {
+    pub(crate) fn new(
+        component: RuntimeArtifactId,
+        purpose: RuntimeArtifactPurpose,
+        digest: RuntimeArtifactDigest,
+        archive: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            component,
+            purpose,
+            digest,
+            archive,
+        }
     }
 }
 

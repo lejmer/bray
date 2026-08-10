@@ -4,7 +4,7 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use bray_platform::{RunOutputContext, RunOutputStream, with_run_output_context};
+use bray_platform::{RunOutputContext, RunOutputStream};
 use bray_runtime_abi::{NativePanicCause, NativeRunOutcome, NativeRunState, NativeSourceAnchor};
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_test_protocol::{
@@ -14,9 +14,11 @@ use bray_test_protocol::{
     TestTimeoutPolicy, read_host_command, read_host_control, write_host_result,
 };
 
-use crate::{
+use bray_runtime::{
     RootCancellationHandle, RootCancellationSource, RunCancellationTimer, RunTimeoutScheduler,
 };
+
+use bray_runtime::native::implementation::NativeHostCallbacks;
 
 const RESULT_PATH_VARIABLE: &str = "BRAY_TEST_RESULT_PATH";
 
@@ -39,6 +41,19 @@ struct CommandCancellation {
     cancellation: Mutex<Option<RootCancellationHandle>>,
 }
 
+pub(super) fn callbacks() -> NativeHostCallbacks {
+    NativeHostCallbacks::new(
+        active,
+        output,
+        register_timeout,
+        record_outcome,
+        record_panic,
+        record_returned_error,
+        record_cleanup_failure,
+        finish,
+    )
+}
+
 pub(super) fn select_entry(entry: u32) -> bool {
     TEST_SESSION.with(|session| {
         let mut session = session.borrow_mut();
@@ -57,18 +72,13 @@ pub(super) fn active() -> bool {
     TEST_SESSION.with(|session| session.borrow().is_some())
 }
 
-pub(super) fn with_output<T>(callback: impl FnOnce() -> T) -> T {
-    let output = TEST_SESSION.with(|session| {
+fn output() -> Option<RunOutputContext> {
+    TEST_SESSION.with(|session| {
         session
             .borrow()
             .as_ref()
             .map(|session| session.output.clone())
-    });
-
-    match output {
-        Some(output) => with_run_output_context(output, callback),
-        None => callback(),
-    }
+    })
 }
 
 pub(super) fn register_timeout(cancellation: RootCancellationHandle) {

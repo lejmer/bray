@@ -251,6 +251,15 @@ pub struct CompilationProfileMetric {
     pub value: u64,
 }
 
+/// One exact runtime artifact selected for the product link.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileRuntimeArtifact {
+    /// Stable runtime component identity from the selected catalog.
+    pub identity: String,
+    /// Published archive size authenticated for this selection.
+    pub bytes: u64,
+}
+
 /// One bounded detailed profiling event.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileEvent {
@@ -313,6 +322,9 @@ pub struct CompilationProfileReport {
     pub queries: Vec<CompilationProfileQueryStatistics>,
     /// Sparse unit and size statistics with zero values omitted.
     pub metrics: Vec<CompilationProfileMetric>,
+    /// Exact runtime artifacts selected for the product link.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_artifacts: Vec<CompilationProfileRuntimeArtifact>,
     /// Detailed events retained in trace mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<CompilationProfileEvent>,

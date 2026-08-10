@@ -30,10 +30,11 @@ use bray_package_interface::{
     InterfaceGenericSubstitutionId, InterfaceImplementationInstance,
     InterfaceImplementationInstanceId, InterfaceImplementationRecord, InterfaceNativeBoundary,
     InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfacePredicateSummary,
-    InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceSupportEntity,
-    InterfaceSymbolReference, InterfaceTargetFactDependency, InterfaceTraitApplication,
-    InterfaceTraitApplicationId, InterfaceTrustedCapabilityRequirement, InterfaceType,
-    InterfaceTypeId, InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
+    InterfaceRuntimeRequirement, InterfaceSemanticFacts, InterfaceStorageMember,
+    InterfaceStorageShape, InterfaceSupportEntity, InterfaceSymbolReference,
+    InterfaceTargetFactDependency, InterfaceTraitApplication, InterfaceTraitApplicationId,
+    InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
+    InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
     PackageInterfaceSurface,
 };
 use bray_symbols::{
@@ -126,7 +127,9 @@ pub(super) fn build_semantic_facts(
     declarations.generic_declarations.sort_unstable();
     declarations.declaration_templates.sort_unstable();
 
-    let executable_templates = executable_templates(compilation, graph, selected, &mut export)?;
+    let (executable_templates, runtime_requirements) =
+        executable_templates(compilation, graph, selected, &mut export)?;
+
     let native_boundaries = native_boundaries(compilation, selected, &export)?;
 
     let facts = InterfaceSemanticFacts::new()
@@ -157,7 +160,8 @@ pub(super) fn build_semantic_facts(
             declarations.support_entities,
         )
         .with_implementations(implementations, coherence)
-        .with_target_dependencies(target_dependencies, []);
+        .with_target_dependencies(target_dependencies, [])
+        .with_runtime_requirements(runtime_requirements);
 
     Ok((facts, executable_templates, native_boundaries))
 }
@@ -208,8 +212,20 @@ fn executable_templates(
     graph: &bray_symbols::SymbolGraph,
     selected: &BTreeSet<AnySymbolId>,
     export: &mut SemanticExporter<'_>,
-) -> Result<Vec<InterfaceExecutableTemplate>, PackageInterfaceExportError> {
+) -> Result<
+    (
+        Vec<InterfaceExecutableTemplate>,
+        Vec<InterfaceRuntimeRequirement>,
+    ),
+    PackageInterfaceExportError,
+> {
     let mut templates = Vec::new();
+    let mut runtime_requirements = Vec::new();
+    let selected_target = compilation.selected_target().target();
+
+    let codegen_target = selected_target
+        .codegen_target()
+        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
     for symbol in selected.iter().copied() {
         let Some(key) = executable_template_unit(compilation, graph, symbol)? else {
@@ -234,6 +250,32 @@ fn executable_templates(
             return Err(PackageInterfaceExportError::InvalidCompilation);
         };
 
+        let capabilities = crate::compilation::product::demanded_runtime_capabilities(mir);
+
+        if !capabilities.is_empty() || mir.frame_descriptor().is_some() {
+            let frame = mir.frame_descriptor();
+
+            let requirements = bray_runtime_interface::RuntimeRequirements::new(
+                None,
+                frame.map_or(
+                    selected_target.runtime_abi(),
+                    bray_ir::MirFrameDescriptor::abi_version,
+                ),
+                frame.map(bray_ir::MirFrameDescriptor::frame_abi),
+                codegen_target.identity().clone(),
+                codegen_target.panic_abi().clone(),
+                [],
+                capabilities,
+                [],
+            );
+
+            runtime_requirements.push(InterfaceRuntimeRequirement::new(
+                InterfaceSymbolReference::Local(owner),
+                frame.map(bray_ir::MirFrameDescriptor::frame),
+                requirements,
+            ));
+        }
+
         let payload =
             bray_package_interface::encode_executable_template(mir, export).map_err(|error| {
                 match error {
@@ -251,7 +293,9 @@ fn executable_templates(
         templates.push(template);
     }
 
-    Ok(templates)
+    runtime_requirements.sort_unstable();
+
+    Ok((templates, runtime_requirements))
 }
 
 fn executable_template_unit(

@@ -5,15 +5,19 @@
 mod artifact;
 mod binding;
 mod compatibility;
+mod component_dependency;
+mod component_validation;
 mod contract;
 mod platform;
 mod role;
 mod runtime;
 
 pub use artifact::{
-    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactDigest, RuntimeArtifactMetadata,
+    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactComponent,
+    RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactMetadata,
     RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
-    RuntimeArtifactMetadataEncodeError,
+    RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose, RuntimeArtifactSelection,
+    RuntimeArtifactSelectionError,
 };
 pub use binding::{native_platform_service_role_symbol, native_runtime_role_symbol};
 pub use bray_runtime_model::{

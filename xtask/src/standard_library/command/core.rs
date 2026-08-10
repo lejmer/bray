@@ -437,14 +437,12 @@ fn build_target(
         .ok_or_else(|| BuildError::UnsupportedTarget(target.clone()))?;
 
     let root = workspace::root().map_err(BuildError::Workspace)?;
-    let platform_archive_name = platform_abi_archive_name(native)?;
 
     let platform = crate::native_archive::build_rust_static_library(
         &root,
         native,
         "bray-platform-abi",
         "release",
-        &platform_archive_name,
         &[],
     )
     .map_err(|error| BuildError::NativeArchive(error.to_string()))?;

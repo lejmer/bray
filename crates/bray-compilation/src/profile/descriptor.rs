@@ -145,12 +145,14 @@ pub(crate) enum ProfileMetricKind {
     InterfaceSections,
     InterfaceBytes,
     LinkInputs,
+    RuntimeComponents,
+    RuntimeArchiveBytes,
     EmittedArtifacts,
     EmittedBytes,
 }
 
 impl ProfileMetricKind {
-    pub(crate) const COUNT: usize = 16;
+    pub(crate) const COUNT: usize = 18;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -176,6 +178,13 @@ impl ProfileMetricKind {
             }
             Self::InterfaceBytes => ("compiler.interface.bytes", CompilationProfileUnit::Bytes),
             Self::LinkInputs => ("compiler.link.inputs", CompilationProfileUnit::Count),
+            Self::RuntimeComponents => {
+                ("compiler.runtime.components", CompilationProfileUnit::Count)
+            }
+            Self::RuntimeArchiveBytes => (
+                "compiler.runtime.archive_bytes",
+                CompilationProfileUnit::Bytes,
+            ),
             Self::EmittedArtifacts => ("compiler.emitted.artifacts", CompilationProfileUnit::Count),
             Self::EmittedBytes => ("compiler.emitted.bytes", CompilationProfileUnit::Bytes),
         }
@@ -197,6 +206,8 @@ impl ProfileMetricKind {
             Self::InterfaceSections => 2_011,
             Self::InterfaceBytes => 2_012,
             Self::LinkInputs => 2_013,
+            Self::RuntimeComponents => 2_016,
+            Self::RuntimeArchiveBytes => 2_017,
             Self::EmittedArtifacts => 2_014,
             Self::EmittedBytes => 2_015,
         }
@@ -216,7 +227,11 @@ impl ProfileMetricKind {
             | Self::MirBlocks
             | Self::MirOperations => &[SemanticUnit],
             Self::ConcreteInstances | Self::CodegenUnits => &[CodegenUnit],
-            Self::InterfaceSections | Self::InterfaceBytes | Self::LinkInputs => &[Product],
+            Self::InterfaceSections
+            | Self::InterfaceBytes
+            | Self::LinkInputs
+            | Self::RuntimeComponents
+            | Self::RuntimeArchiveBytes => &[Product],
             Self::EmittedArtifacts | Self::EmittedBytes => &[Product, Artifact],
         }
     }
@@ -237,6 +252,8 @@ impl ProfileMetricKind {
             Self::InterfaceSections,
             Self::InterfaceBytes,
             Self::LinkInputs,
+            Self::RuntimeComponents,
+            Self::RuntimeArchiveBytes,
             Self::EmittedArtifacts,
             Self::EmittedBytes,
         ]
@@ -472,7 +489,7 @@ mod tests {
             ProfileMetricKind::all().map(ProfileMetricKind::id),
             [
                 2_000, 2_001, 2_002, 2_003, 2_004, 2_005, 2_006, 2_007, 2_008, 2_009, 2_010, 2_011,
-                2_012, 2_013, 2_014, 2_015,
+                2_012, 2_013, 2_016, 2_017, 2_014, 2_015,
             ]
         );
 

@@ -669,6 +669,7 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::sync::Arc;
 
     use bray_compiler_known::CompilerKnownDeclarationKey;
@@ -1075,7 +1076,25 @@ mod tests {
             provider.check_diagnostics()
         );
 
-        let artifact = encode_package_interface(export(&provider))
+        let interface = export(&provider);
+
+        let runtime_capabilities: BTreeSet<_> = interface
+            .semantic_facts()
+            .runtime_requirements()
+            .iter()
+            .flat_map(|requirement| requirement.requirements().capabilities())
+            .copied()
+            .collect();
+
+        assert!(runtime_capabilities.contains(
+            &bray_runtime_interface::RuntimeCapability::StringOperations
+        ));
+
+        assert!(runtime_capabilities.contains(
+            &bray_runtime_interface::RuntimeCapability::CharacterOperations
+        ));
+
+        let artifact = encode_package_interface(interface)
             .unwrap_or_else(|error| panic!("formatting interface must encode: {error:?}"));
 
         let provider_package = PackageIdentity::try_new("std")

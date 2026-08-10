@@ -135,10 +135,10 @@ targets use the Microsoft-compatible compiler-driver contract, and macOS targets
 Microsoft, and Apple linker command languages remain separate driver families for plans that explicitly provide their complete
 startup contract.
 
-Native runtime artifacts declare their ordered system-library and framework requirements as typed metadata. Link planning preserves
-that order and any intentional duplicates while keeping the runtime archive itself distinct from its platform dependencies. The
-runtime artifact builder derives these requirements from the selected Rust target so compiler logic does not rediscover platform
-libraries or encode host-specific guesses.
+Native runtime artifact components declare their ordered system-library and framework requirements as typed metadata. Link planning
+preserves that order and any intentional duplicates while keeping each selected component distinct from its platform dependencies.
+The runtime artifact builder derives these requirements from the selected Rust target so compiler logic does not rediscover
+platform libraries or encode host-specific guesses.
 
 Runnable native conformance uses a compiler host matching the selected target platform and architecture. Other supported targets
 remain valid codegen, artifact, runtime-metadata, and link-plan targets and are checked structurally without pretending their
@@ -201,12 +201,13 @@ inputs produce deterministic output.
 Executable and shared-library plans explicitly identify their product kind, entry point, exports, runtime components, startup
 objects, and platform options.
 
-An async executable or test plan also identifies the selected runtime artifact, runtime ABI version, root entry stub, required lane
-facts, reactor and event features, and target/panic compatibility. The linker validates those typed inputs against runtime artifact
-metadata. It does not choose a runtime or infer async requirements from unresolved symbols.
+An executable or test plan that requires runtime services also identifies the selected runtime artifact, its exact selected
+components, runtime ABI version, root entry stub, required lane facts, reactor and event features, and target/panic compatibility.
+The linker validates those typed inputs against runtime artifact metadata. It does not choose a runtime or infer requirements from
+unresolved symbols.
 
-The selected runtime artifact must occur exactly once as a typed runtime input and must match the executable-host contract. The
-host contract's target must match the link target before invocation.
+Every selected runtime component occurs once as a typed runtime input. All selected components must belong to the same runtime
+artifact named by the executable-host contract, and the host contract's target must match the link target before invocation.
 
 A synchronous-only product omits the async runtime unless another selected dependency explicitly requires it. The full selection and
 ABI contract is defined in `docs/design/async-runtime.md`. The product-host cleanup-report sink is a separate typed startup and
