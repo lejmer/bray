@@ -57,9 +57,12 @@ pub use target::{
     TargetSymbolConvention, TargetSymbolConventionBuildError,
 };
 pub use unit::{
-    CodegenGenericArgument, CodegenImplementationWitness, CodegenInstance,
-    CodegenInstanceBuildError, CodegenInstanceDependency, CodegenInstanceDependencyKind,
-    CodegenInstanceKey, CodegenReachability, CodegenReachabilityBuildError,
-    CodegenReachabilityBuilder, CodegenSpecialization, CodegenUnit, CodegenUnitBuildError,
-    CodegenUnitKey, CodegenValueKey, partition_codegen_units,
+    CodegenDefinitionVisibility, CodegenGenericArgument, CodegenImplementationWitness,
+    CodegenInstance, CodegenInstanceBuildError, CodegenInstanceDependency,
+    CodegenInstanceDependencyKind, CodegenInstanceKey, CodegenOversizedUnit,
+    CodegenOversizedUnitReason, CodegenPartitionCompatibility, CodegenPartitionError,
+    CodegenPartitionPolicy, CodegenPartitionPolicyBuildError, CodegenReachability,
+    CodegenReachabilityBuildError, CodegenReachabilityBuilder, CodegenSpecialization, CodegenUnit,
+    CodegenUnitBuildError, CodegenUnitKey, CodegenValueKey, CodegenWork,
+    partition_codegen_units,
 };

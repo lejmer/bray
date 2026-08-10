@@ -216,15 +216,21 @@ mod tests {
     use super::{
         CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
     };
-    use crate::test_support::{codegen_request, codegen_target};
+    use crate::test_support::{
+        codegen_partition_compatibility, codegen_request, codegen_target,
+    };
     use crate::{
-        CodegenCallableSignature, CodegenLinkage, CodegenMappings, CodegenResultMapping,
-        CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit,
+        CodegenCallableSignature, CodegenLinkage, CodegenMappings, CodegenPartitionPolicy,
+        CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit,
     };
 
     #[test]
     fn synchronous_units_require_empty_runtime_metadata() {
-        let Ok(unit) = CodegenUnit::try_new(1, [test_mir_unit(4)]) else {
+        let Ok(unit) = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [test_mir_unit(4)],
+        ) else {
             panic!("test codegen unit must be valid");
         };
 
@@ -239,7 +245,11 @@ mod tests {
         let template = ProtectedAsyncFrameId::new([9; 32]);
         let mir = protected_frame_mir(template);
 
-        let Ok(unit) = CodegenUnit::try_new(1, [mir]) else {
+        let Ok(unit) = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [mir],
+        ) else {
             panic!("test codegen unit must be valid");
         };
 

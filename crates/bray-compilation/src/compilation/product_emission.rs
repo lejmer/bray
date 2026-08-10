@@ -785,6 +785,8 @@ fn product_query_error(error: FactQueryError) -> ProductEmissionErrorKind {
 
 #[cfg(test)]
 mod tests {
+    use bray_codegen::test_support::codegen_partition_compatibility;
+    use bray_codegen::CodegenPartitionPolicy;
     use bray_emitter::{
         ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionPlanner,
         EmissionRequest, EmissionStatus, ReplacementPolicy, RequestedArtifact,
@@ -962,8 +964,12 @@ mod tests {
 
         let host_mir = executable_host_mir(host.clone());
 
-        let complete_unit = bray_codegen::CodegenUnit::try_new(1, [host_mir.clone(), frame_mir])
-            .unwrap_or_else(|error| panic!("complete test unit must be valid: {error:?}"));
+        let complete_unit = bray_codegen::CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [host_mir.clone(), frame_mir],
+        )
+        .unwrap_or_else(|error| panic!("complete test unit must be valid: {error:?}"));
 
         let complete_plan = async_plan(product.clone(), host.clone(), &complete_unit);
 
@@ -972,8 +978,12 @@ mod tests {
             Ok(()),
         );
 
-        let host_only = bray_codegen::CodegenUnit::try_new(1, [host_mir.clone()])
-            .unwrap_or_else(|error| panic!("host-only test unit must be valid: {error:?}"));
+        let host_only = bray_codegen::CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [host_mir.clone()],
+        )
+        .unwrap_or_else(|error| panic!("host-only test unit must be valid: {error:?}"));
 
         let host_only_plan = async_plan(product.clone(), host.clone(), &host_only);
 
@@ -985,7 +995,8 @@ mod tests {
         let other_frame = ProtectedAsyncFrameId::new([8; 32]);
 
         let wrong_frame = bray_codegen::CodegenUnit::try_new(
-            1,
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
             [host_mir.clone(), protected_frame_mir(other_frame)],
         )
         .unwrap_or_else(|error| panic!("wrong-frame test unit must be valid: {error:?}"));
@@ -1008,7 +1019,8 @@ mod tests {
         );
 
         let wrong_host = bray_codegen::CodegenUnit::try_new(
-            1,
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
             [
                 executable_host_mir(mismatched_host),
                 protected_frame_mir(frame),

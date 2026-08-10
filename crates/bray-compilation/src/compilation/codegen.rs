@@ -75,14 +75,35 @@ impl Compilation {
                     return Err(CodegenFactError::UnitMismatch(key.clone()));
                 };
 
-                CodegenInstance::try_new(instance.clone(), mir, dependencies.iter().cloned())
-                    .map_err(CodegenFactError::InvalidInstance)
+                let instance = CodegenInstance::try_new(
+                    instance.clone(),
+                    mir,
+                    dependencies.iter().cloned(),
+                )
+                .map_err(CodegenFactError::InvalidInstance)?;
+
+                let Some(compatibility) = key.compatibility(instance.key()) else {
+                    return Err(CodegenFactError::UnitMismatch(key.clone()));
+                };
+
+                // Reconstruction owns compatibility independently of the plan key borrow.
+                Ok((instance, compatibility.clone()))
             })?
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        let unit = CodegenUnit::try_from_instances(key.partition_revision(), instances)
-            .map_err(CodegenFactError::InvalidUnit)?;
+        // Reconstruction lookup owns identities independently of the consumed instance payloads.
+        let compatibility: std::collections::BTreeMap<_, _> = instances
+            .iter()
+            .map(|(instance, compatibility)| (instance.key().clone(), compatibility.clone()))
+            .collect();
+
+        let unit = CodegenUnit::try_from_partitioned_instances(
+            key.partition_policy(),
+            instances.into_iter().map(|(instance, _)| instance),
+            |instance| compatibility.get(instance.key()).cloned(),
+        )
+        .map_err(CodegenFactError::InvalidUnit)?;
 
         if unit.key() != key {
             return Err(CodegenFactError::UnitMismatch(key.clone()));
@@ -465,11 +486,11 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
 
-    use bray_codegen::test_support::codegen_request;
+    use bray_codegen::test_support::{codegen_partition_compatibility, codegen_request};
     use bray_codegen::{
         AssemblySyntaxKind, BackendCapabilities, BackendTargetPlatform, CodeGenerator,
         CodeGeneratorRegistry, CodegenConfiguration, CodegenFailure, CodegenOutcome,
-        CodegenRequest,
+        CodegenPartitionPolicy, CodegenRequest,
     };
     use bray_diagnostics::DiagnosticBag;
 
@@ -495,8 +516,12 @@ mod tests {
             .cloned()
             .unwrap_or_else(|| panic!("test source unit must publish MIR"));
 
-        let expected = bray_codegen::CodegenUnit::try_new(1, [mir])
-            .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
+        let expected = bray_codegen::CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [mir],
+        )
+        .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
 
         let actual = compilation
             .codegen_unit_for_plan(expected.key(), None, &crate::CancellationToken::new())

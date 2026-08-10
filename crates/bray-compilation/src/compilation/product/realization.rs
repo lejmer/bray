@@ -11,8 +11,9 @@ use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_codegen::{
     CodegenCallableMapping, CodegenCallableSignature, CodegenConstantMapping,
     CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout, CodegenHelperMapping,
-    CodegenIndirectParameterKind, CodegenInstance, CodegenInstanceTypeMapping, CodegenLinkage,
-    CodegenMappings, CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping,
+    CodegenDefinitionVisibility, CodegenIndirectParameterKind, CodegenInstance,
+    CodegenInstanceTypeMapping, CodegenLinkage, CodegenMappings, CodegenOperationMapping,
+    CodegenParameterMapping, CodegenPartitionCompatibility, CodegenResultMapping,
     CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
     CodegenTerminatorMapping, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
     CodegenUnit, CodegenValueAttribute, TargetAddressSpaceKind, child_constants,
@@ -2041,26 +2042,11 @@ impl Compilation {
                         .instance(instance.key())
                         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                    let boundary = self.codegen_native_boundary(instance.key(), cancellation)?;
-
-                    let linkage = boundary
-                        .as_ref()
-                        .map(|(_, linkage)| *linkage)
-                        .unwrap_or_else(|| {
-                            if roots.contains(instance.key()) {
-                                CodegenLinkage::Export
-                            } else if matches!(
-                                instance.key().template(),
-                                MirUnitKey::ImportedExecutable(_)
-                            ) {
-                                CodegenLinkage::LinkOnce
-                            } else {
-                                CodegenLinkage::Internal
-                            }
-                        });
+                    let (boundary, linkage) =
+                        self.codegen_instance_boundary(instance, roots, cancellation)?;
 
                     let name = match boundary {
-                        Some((name, _)) => name,
+                        Some(name) => name,
                         None => self.generated_callable_symbol_name(
                             target,
                             linkage,
@@ -2172,6 +2158,102 @@ impl Compilation {
         }
 
         Ok(symbols)
+    }
+
+    pub(super) fn codegen_partition_compatibility(
+        &self,
+        instance: &CodegenInstance,
+        product_package: &PackageIdentity,
+        roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+        cancellation: &CancellationToken,
+    ) -> Result<CodegenPartitionCompatibility, CodegenFactError> {
+        let package = self.codegen_instance_package(
+            instance.key(),
+            product_package,
+            cancellation,
+        )?;
+
+        let (_, linkage) = self.codegen_instance_boundary(instance, roots, cancellation)?;
+
+        let visibility = match linkage {
+            CodegenLinkage::Private => CodegenDefinitionVisibility::Unit,
+            CodegenLinkage::Internal | CodegenLinkage::LinkOnce | CodegenLinkage::Common => {
+                CodegenDefinitionVisibility::Product
+            }
+            CodegenLinkage::External
+            | CodegenLinkage::Weak
+            | CodegenLinkage::Import
+            | CodegenLinkage::Export => CodegenDefinitionVisibility::Public,
+        };
+
+        Ok(CodegenPartitionCompatibility::new(
+            package,
+            linkage,
+            visibility,
+        ))
+    }
+
+    fn codegen_instance_boundary(
+        &self,
+        instance: &CodegenInstance,
+        roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+        cancellation: &CancellationToken,
+    ) -> Result<(Option<BinarySymbolName>, CodegenLinkage), CodegenFactError> {
+        match instance.mir().kind() {
+            MirUnitKind::ExecutableHost(_) => Ok((None, CodegenLinkage::Export)),
+            MirUnitKind::GeneratedLifecycle(_) => Ok((None, CodegenLinkage::Internal)),
+            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
+                let boundary = self.codegen_native_boundary(instance.key(), cancellation)?;
+
+                if let Some((name, linkage)) = boundary {
+                    return Ok((Some(name), linkage));
+                }
+
+                let linkage = if roots.contains(instance.key()) {
+                    CodegenLinkage::Export
+                } else if matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)) {
+                    CodegenLinkage::LinkOnce
+                } else {
+                    CodegenLinkage::Internal
+                };
+
+                Ok((None, linkage))
+            }
+        }
+    }
+
+    fn codegen_instance_package(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+        product_package: &PackageIdentity,
+        cancellation: &CancellationToken,
+    ) -> Result<PackageIdentity, CodegenFactError> {
+        let symbol = match instance.template() {
+            // Compatibility metadata owns package identity beyond the semantic-key borrow.
+            MirUnitKey::Bound(key) => return Ok(key
+                .declared_owner()
+                .package_identity()
+                .unwrap_or(product_package)
+                .clone()),
+            // Compatibility metadata owns package identity beyond the product-key borrow.
+            MirUnitKey::ExecutableHost(product) => return Ok(product.package().clone()),
+            // Generated lifecycle definitions belong to the selected product package.
+            MirUnitKey::GeneratedLifecycle(_) => return Ok(product_package.clone()),
+            MirUnitKey::ExternalCallable(definition) => definition.symbol(),
+            MirUnitKey::ImportedExecutable(symbol) | MirUnitKey::ExternalRuntimeDefault(symbol) => {
+                *symbol
+            }
+        };
+
+        let facts = self.binder_facts(cancellation)?;
+
+        let key = facts
+            .symbol_key(symbol)
+            .map_err(super::super::binder::binder_fact_error)?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        // Compatibility metadata owns package identity beyond the binder-facts borrow.
+        Ok(key.package_identity().unwrap_or(product_package).clone())
     }
 
     fn codegen_native_boundary(

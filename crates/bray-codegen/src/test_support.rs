@@ -3,7 +3,7 @@ use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use bray_base::Cancellation;
 use bray_ir::MirTargetFacts;
 use bray_runtime_interface::{BinarySymbolName, PanicAbiIdentity, RuntimeAbiVersion};
-use bray_symbols::CallableAbi;
+use bray_symbols::{CallableAbi, PackageIdentity};
 use bray_target::test_support::test_target_profile;
 use bray_target::{
     CodeModel, NativeTarget, RelocationModel, TargetLayoutContract, TargetProfile,
@@ -16,7 +16,8 @@ use crate::{
     ArtifactContent, BackendArtifactContribution, BackendArtifactId, BackendArtifactKind,
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
     BackendIdentity, BackendSerializationOptions, CallableAbiMapping, CodegenCallableSignature,
-    CodegenDebugLocation, CodegenLinkage, CodegenMappings, CodegenOptions, CodegenRequest,
+    CodegenDebugLocation, CodegenDefinitionVisibility, CodegenLinkage, CodegenMappings,
+    CodegenOptions, CodegenPartitionCompatibility, CodegenPartitionPolicy, CodegenRequest,
     CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
     CodegenTypeKind, CodegenTypeMapping, CodegenUnit, CodegenUnitKey, DebugInformationMode,
     DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
@@ -314,12 +315,27 @@ pub fn contribution(
 fn codegen_unit(seed: u8, target: &CodegenTarget) -> CodegenUnit {
     let mir_target = MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
 
-    let Ok(unit) = CodegenUnit::try_new(1, [test_mir_unit_for_target(u32::from(seed), mir_target)])
-    else {
+    let Ok(unit) = CodegenUnit::try_new(
+        CodegenPartitionPolicy::NATIVE_BALANCED,
+        codegen_partition_compatibility(),
+        [test_mir_unit_for_target(u32::from(seed), mir_target)],
+    ) else {
         panic!("test codegen unit must be valid");
     };
 
     unit
+}
+
+/// Creates the ordinary compatibility identity used by code generation fixtures.
+pub fn codegen_partition_compatibility() -> CodegenPartitionCompatibility {
+    let package = PackageIdentity::try_new("test.package")
+        .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+    CodegenPartitionCompatibility::new(
+        package,
+        CodegenLinkage::Internal,
+        CodegenDefinitionVisibility::Product,
+    )
 }
 
 fn backend_identity() -> BackendIdentity {

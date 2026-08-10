@@ -2,8 +2,8 @@ use bray_codegen::{
     ArtifactDigest, ArtifactDigestAlgorithm, AssemblySyntaxKind, BackendArtifactId,
     BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
     BackendArtifactRequirement, BackendCapabilities, BackendIdentity, BackendSerializationOptions,
-    BackendTargetPlatform, CodegenUnit, DebugInformationMode, DebugInformationOutputMode,
-    LinkableArtifactKind, LinkableArtifactRequirement,
+    BackendTargetPlatform, CodegenPartitionPolicy, CodegenUnit, DebugInformationMode,
+    DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
 };
 use bray_runtime_interface::ExecutableHostContract;
 use bray_symbols::PackageIdentity;
@@ -119,7 +119,11 @@ pub(crate) fn backend_capabilities() -> BackendCapabilities {
 }
 
 pub(crate) fn codegen_unit_key(seed: u32) -> bray_codegen::CodegenUnitKey {
-    let Ok(unit) = CodegenUnit::try_new(seed, [test_mir_unit(seed)]) else {
+    let Ok(unit) = CodegenUnit::try_new(
+        CodegenPartitionPolicy::NATIVE_BALANCED,
+        bray_codegen::test_support::codegen_partition_compatibility(),
+        [test_mir_unit(seed)],
+    ) else {
         panic!("test codegen unit must be valid");
     };
 

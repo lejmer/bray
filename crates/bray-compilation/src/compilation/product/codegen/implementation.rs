@@ -5,8 +5,8 @@ use bray_base::shared_slice;
 use bray_binder::BinderFactContext;
 use bray_codegen::{
     AssemblySyntaxKind, CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey,
-    CodegenReachabilityBuilder, CodegenTarget, DebugInformationMode, DebugInformationOutputMode,
-    LinkableArtifactKind, partition_codegen_units,
+    CodegenPartitionPolicy, CodegenReachabilityBuilder, CodegenTarget, DebugInformationMode,
+    DebugInformationOutputMode, LinkableArtifactKind, partition_codegen_units,
 };
 use bray_emitter::{BackendEmissionPolicy, EmissionBackend};
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
@@ -25,7 +25,6 @@ use super::error::NativeProductFactError;
 use super::facts::NativeProductFacts;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, NativeProductFactKey};
 
-pub(super) const CODEGEN_PARTITION_REVISION: u32 = 1;
 const GENERATED_HOST_UNIT: MirUnitId = MirUnitId::new(u32::MAX);
 
 impl Compilation {
@@ -219,10 +218,31 @@ impl Compilation {
                 None => source_reachability.ok_or(NativeProductFactError::MissingProductRoot)?,
             };
 
-            let units = partition_codegen_units(CODEGEN_PARTITION_REVISION, reachability.graph())
-                .map_err(NativeProductFactError::InvalidCodegenUnit)?;
-
             let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
+
+            let compatibility = reachability
+                .graph()
+                .instances()
+                .iter()
+                .map(|instance| {
+                    self.codegen_partition_compatibility(
+                        instance,
+                        product.package(),
+                        &roots,
+                        cancellation,
+                    )
+                    // The lookup table owns the Arc-backed instance identity during partitioning.
+                    .map(|compatibility| (instance.key().clone(), compatibility))
+                })
+                .collect::<Result<BTreeMap<_, _>, _>>()?;
+
+            // The partitioner receives owned compatibility identities independent of the table.
+            let units = partition_codegen_units(
+                CodegenPartitionPolicy::NATIVE_BALANCED,
+                reachability.graph(),
+                |instance| compatibility.get(instance.key()).cloned(),
+            )
+            .map_err(NativeProductFactError::InvalidCodegenPartition)?;
 
             let mappings = units
                 .iter()
@@ -579,7 +599,7 @@ fn bound_template(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     use std::sync::Arc;
 
@@ -588,9 +608,9 @@ mod tests {
         BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
         BackendArtifactRequestEntry, BackendArtifactRequirement, BackendSerializationOptions,
         CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration, CodegenGenericArgument,
-        CodegenRequest, CodegenResultMapping, CodegenSpecialization, CodegenStatus,
-        DebugInformationMode, LinkableArtifactKind, LinkableArtifactRequirement, OptimizationLevel,
-        partition_codegen_units,
+        CodegenPartitionPolicy, CodegenRequest, CodegenResultMapping, CodegenSpecialization,
+        CodegenStatus, DebugInformationMode, LinkableArtifactKind, LinkableArtifactRequirement,
+        OptimizationLevel, partition_codegen_units,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::DiagnosticBag;
@@ -628,7 +648,6 @@ mod tests {
     use bray_target::NativeTarget;
     use bray_testing::TemporaryFile;
 
-    use super::CODEGEN_PARTITION_REVISION;
     use super::NativeProductFactError;
     use crate::compilation::CodegenFactError;
     use crate::{
@@ -1199,7 +1218,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"));
 
         let reversed_reachability = compilation
-            .codegen_reachability(roots.into_iter().rev(), None, &target, &cancellation)
+            .codegen_reachability(roots.clone().into_iter().rev(), None, &target, &cancellation)
             .unwrap_or_else(|error| panic!("reversed reachability must close: {error:?}"));
 
         assert_eq!(reachability.graph(), reversed_reachability.graph());
@@ -1211,23 +1230,37 @@ mod tests {
             );
         }
 
-        let units = partition_codegen_units(CODEGEN_PARTITION_REVISION, reachability.graph())
-            .unwrap_or_else(|error| panic!("generic units must partition: {error:?}"));
+        let roots: BTreeSet<_> = roots.into_iter().map(|root| root.key().clone()).collect();
+
+        let compatibility = reachability
+            .graph()
+            .instances()
+            .iter()
+            .map(|instance| {
+                compilation
+                    .codegen_partition_compatibility(
+                        instance,
+                        compilation.package_identity(),
+                        &roots,
+                        &cancellation,
+                    )
+                    // The test lookup owns the Arc-backed identity during partitioning.
+                    .map(|compatibility| (instance.key().clone(), compatibility))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()
+            .unwrap_or_else(|error| panic!("partition compatibility must resolve: {error:?}"));
+
+        let units = partition_codegen_units(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            reachability.graph(),
+            |instance| compatibility.get(instance.key()).cloned(),
+        )
+        .unwrap_or_else(|error| panic!("generic units must partition: {error:?}"));
 
         let mut saw_concrete_generic_signature = false;
         let mut saw_const_specialization = false;
 
         for unit in units.iter() {
-            let instance = &unit.instances()[0];
-
-            let realization = reachability
-                .instance(instance.key())
-                .unwrap_or_else(|| panic!("reachable instance payload must be retained"));
-
-            let signature = compilation
-                .codegen_instance_signature(realization, &cancellation)
-                .unwrap_or_else(|error| panic!("generic signature must realize: {error:?}"));
-
             let mappings = compilation
                 .codegen_mappings_for_product(
                     unit,
@@ -1240,36 +1273,46 @@ mod tests {
                 )
                 .unwrap_or_else(|error| panic!("generic mappings must realize: {error:?}"));
 
-            if instance
-                .key()
-                .specialization()
-                .arguments()
-                .iter()
-                .any(|argument| matches!(argument, CodegenGenericArgument::Constant(_)))
-            {
-                saw_const_specialization = true;
+            for instance in unit.instances() {
+                let realization = reachability
+                    .instance(instance.key())
+                    .unwrap_or_else(|| panic!("reachable instance payload must be retained"));
+
+                let signature = compilation
+                    .codegen_instance_signature(realization, &cancellation)
+                    .unwrap_or_else(|error| panic!("generic signature must realize: {error:?}"));
+
+                if instance
+                    .key()
+                    .specialization()
+                    .arguments()
+                    .iter()
+                    .any(|argument| matches!(argument, CodegenGenericArgument::Constant(_)))
+                {
+                    saw_const_specialization = true;
+                }
+
+                let CodegenResultMapping::Direct { ty, .. } = signature.result() else {
+                    continue;
+                };
+
+                assert!(mappings.ty(*ty).is_some());
+
+                let values = compilation
+                    .semantic_value_store()
+                    .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
+
+                let data = values
+                    .type_data(*ty)
+                    .unwrap_or_else(|error| panic!("signature result must resolve: {error:?}"));
+
+                assert!(!matches!(data.as_ref(), TypeData::TypeParameter(_)));
+
+                saw_concrete_generic_signature |= matches!(
+                    instance.key().specialization(),
+                    CodegenSpecialization::Generic(_)
+                );
             }
-
-            let CodegenResultMapping::Direct { ty, .. } = signature.result() else {
-                continue;
-            };
-
-            assert!(mappings.ty(*ty).is_some());
-
-            let values = compilation
-                .semantic_value_store()
-                .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
-
-            let data = values
-                .type_data(*ty)
-                .unwrap_or_else(|error| panic!("signature result must resolve: {error:?}"));
-
-            assert!(!matches!(data.as_ref(), TypeData::TypeParameter(_)));
-
-            saw_concrete_generic_signature |= matches!(
-                instance.key().specialization(),
-                CodegenSpecialization::Generic(_)
-            );
         }
 
         assert!(saw_concrete_generic_signature);
