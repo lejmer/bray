@@ -10,6 +10,7 @@ use bray_platform::{
     NativeChildProcess, NativeExitStatus, NativePipeReader, NativePipeWriter, NativeProcessCommand,
     NativeStdio, PlatformError, PlatformErrorKind,
 };
+use bray_platform_abi_support::native_platform_export;
 use bray_runtime_interface::{
     NativePlatformChildRequest, NativePlatformEnvironmentList, NativePlatformExitStatus,
     NativePlatformSpanList, NativePlatformStatus, NativePlatformText,

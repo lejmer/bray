@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_platform::WallClockTimestamp;
+use bray_platform_abi_support::native_platform_export;
 use bray_runtime_interface::{
     NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath, NativePlatformStatus,
 };

@@ -10,6 +10,8 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 bray-platform = { path = "../bray-platform" }
+bray-platform-abi-support = { path = "../bray-platform-abi-support" }
+bray-platform-abi-temporal = { path = "../bray-platform-abi-temporal" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
 
 [dev-dependencies]

@@ -51,7 +51,8 @@ fn main() {
     let provider = manifest.join("native/temporal");
     let date = third_party.join("date");
     let tzdata = third_party.join("tzdata");
-    let provenance = read_provenance(&third_party.join("provenance.json"));
+    let provenance_file = third_party.join("provenance.json");
+    let provenance = read_provenance(&provenance_file);
 
     verify_files(&date, DATE_FILES, DATE_DIGEST, "date provider");
     verify_files(&tzdata, TZDATA_FILES, TZDATA_DIGEST, "timezone database");
@@ -102,6 +103,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", date.display());
     println!("cargo:rerun-if-changed={}", tzdata.display());
+    println!("cargo:rerun-if-changed={}", provenance_file.display());
 
     println!("cargo:rerun-if-changed={}", provider.display());
     println!("cargo:rerun-if-changed={}", dynamic.display());

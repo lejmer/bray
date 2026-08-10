@@ -53,6 +53,22 @@ pub(super) fn audit(
         "civil-date",
     )?;
 
+    let text_map = link_fixture(
+        root,
+        &output,
+        &include,
+        &provider,
+        target,
+        "provider-retention-text",
+    )?;
+
+    require_members(
+        &text_map,
+        &[TEXT_MEMBER],
+        &[CIVIL_MEMBER, TIMEZONE_MEMBER, DATABASE_MEMBER],
+        "parse-format",
+    )?;
+
     let timezone_map = link_fixture(
         root,
         &output,

@@ -1,3 +1,5 @@
+/// Declares one checked native platform ABI export.
+#[macro_export]
 macro_rules! native_platform_export {
     ($item:item) => {
         #[expect(

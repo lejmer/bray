@@ -24,6 +24,8 @@ members = [
     "crates/bray-parser",
     "crates/bray-platform",
     "crates/bray-platform-abi",
+    "crates/bray-platform-abi-support",
+    "crates/bray-platform-abi-temporal",
     "crates/bray-project",
     "crates/bray-profile",
     "crates/bray-runtime",

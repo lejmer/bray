@@ -1,4 +1,5 @@
 use bray_platform::SystemEntropy;
+use bray_platform_abi_support::native_platform_export;
 use bray_runtime_interface::NativePlatformStatus;
 
 use super::region::{MemoryRegion, disjoint};

@@ -168,6 +168,11 @@ partitions. The embedded timezone database belongs only to the named-timezone pa
 independently discardable function and immutable-data contributions for COFF, ELF, and Mach-O so a product retains only demanded
 provider capabilities and their data.
 
+Temporal platform ABI exports occupy a linkable component separate from unrelated platform mechanisms. Selecting an ordinary
+filesystem, stream, process, clock, or entropy service cannot introduce a reference to the temporal provider. Linker-map
+conformance enters through the public platform ABI and verifies that a product with no temporal demand retains no temporal provider
+partition.
+
 ## Testing
 
 Conformance covers:
