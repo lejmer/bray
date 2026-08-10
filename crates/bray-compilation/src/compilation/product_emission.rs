@@ -567,8 +567,13 @@ impl Compilation {
                     .flat_map(|contributions| contributions.staged(plan))
                     .cloned();
 
-                let staging = LinkStaging::prepare(plan, staged, cancellation)
-                    .map_err(product_staging_error)?;
+                let staging = crate::profile::profile_operation(
+                    self.state.fact_runtime.profile(),
+                    crate::profile::ProfileOperation::LinkInputStaging,
+                    || LinkStaging::prepare(plan, staged, cancellation),
+                    crate::profile::result_outcome,
+                )
+                .map_err(product_staging_error)?;
 
                 let link_plan = construct_link_plan(
                     plan,
@@ -578,13 +583,20 @@ impl Compilation {
                 )
                 .map_err(ProductEmissionErrorKind::LinkPlan)?;
 
-                self.emit_linked_product_with_cancellation(
-                    linking.linker,
-                    plan,
-                    &link_plan,
-                    published,
-                    resolver,
-                    cancellation,
+                crate::profile::profile_operation(
+                    self.state.fact_runtime.profile(),
+                    crate::profile::ProfileOperation::EmissionLinking,
+                    || {
+                        self.emit_linked_product_with_cancellation(
+                            linking.linker,
+                            plan,
+                            &link_plan,
+                            published,
+                            resolver,
+                            cancellation,
+                        )
+                    },
+                    crate::profile::result_outcome,
                 )
                 .map_err(product_query_error)
             }

@@ -18,6 +18,25 @@ use bray_profile::{
 use super::subject::{ProfileSubjectRecord, profile_subject};
 use crate::fact::CompilationFactKey;
 
+#[inline(always)]
+pub(crate) fn profile_operation<T>(
+    session: Option<&ProfileSession>,
+    operation: ProfileOperation,
+    action: impl FnOnce() -> T,
+    outcome: impl FnOnce(&T) -> CompilationProfileOutcome,
+) -> T {
+    let Some(session) = session else {
+        return action();
+    };
+
+    let span = session.start(operation, None);
+    let result = action();
+
+    span.finish(outcome(&result));
+
+    result
+}
+
 pub(crate) struct ProfileSession {
     configuration: CompilationProfileConfiguration,
     context: CompilationProfileContext,

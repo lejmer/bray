@@ -16,10 +16,14 @@ pub(crate) enum ProfileOperation {
     Linking,
     Emission,
     InterfaceExport,
+    EmissionCodeGeneration,
+    LinkInputStaging,
+    EmissionLinking,
+    ArtifactPublication,
 }
 
 impl ProfileOperation {
-    pub(crate) const COUNT: usize = 9;
+    pub(crate) const COUNT: usize = 13;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -36,6 +40,10 @@ impl ProfileOperation {
             Self::Linking => "compiler.link",
             Self::Emission => "compiler.emit",
             Self::InterfaceExport => "compiler.interface.export",
+            Self::EmissionCodeGeneration => "compiler.emit.codegen",
+            Self::LinkInputStaging => "compiler.emit.stage",
+            Self::EmissionLinking => "compiler.emit.link",
+            Self::ArtifactPublication => "compiler.emit.publish",
         }
     }
 
@@ -50,6 +58,10 @@ impl ProfileOperation {
             Self::Linking => 7,
             Self::Emission => 8,
             Self::InterfaceExport => 9,
+            Self::EmissionCodeGeneration => 10,
+            Self::LinkInputStaging => 11,
+            Self::EmissionLinking => 12,
+            Self::ArtifactPublication => 13,
         }
     }
 
@@ -62,7 +74,11 @@ impl ProfileOperation {
             | Self::Lowering
             | Self::CodeGeneration
             | Self::Emission
-            | Self::InterfaceExport => CompilationProfileCategory::Work,
+            | Self::InterfaceExport
+            | Self::EmissionCodeGeneration
+            | Self::LinkInputStaging
+            | Self::EmissionLinking
+            | Self::ArtifactPublication => CompilationProfileCategory::Work,
         }
     }
 
@@ -83,8 +99,13 @@ impl ProfileOperation {
             Self::SchedulerQueue => &[Compilation],
             Self::Lowering => &[SemanticUnit],
             Self::CodeGeneration => &[CodegenUnit],
-            Self::Linking | Self::InterfaceExport => &[Product],
-            Self::Emission => &[Product, Artifact],
+            Self::Linking
+            | Self::InterfaceExport
+            | Self::EmissionCodeGeneration
+            | Self::EmissionLinking => &[Product],
+            Self::Emission | Self::LinkInputStaging | Self::ArtifactPublication => {
+                &[Product, Artifact]
+            }
         }
     }
 
@@ -99,6 +120,10 @@ impl ProfileOperation {
             Self::Linking,
             Self::Emission,
             Self::InterfaceExport,
+            Self::EmissionCodeGeneration,
+            Self::LinkInputStaging,
+            Self::EmissionLinking,
+            Self::ArtifactPublication,
         ]
     }
 }
@@ -435,7 +460,7 @@ mod tests {
     fn descriptor_ids_are_schema_locked() {
         assert_eq!(
             ProfileOperation::all().map(ProfileOperation::id),
-            [1, 2, 3, 4, 5, 6, 7, 8, 9]
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
         );
 
         assert_eq!(

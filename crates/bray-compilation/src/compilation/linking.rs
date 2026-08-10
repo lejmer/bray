@@ -43,7 +43,14 @@ impl Compilation {
             None => ArtifactPublisher::new(cancellation),
         };
 
-        Ok(publisher.publish_linked(emission, contributions, link, &link_outcome))
+        let outcome = crate::profile::profile_operation(
+            self.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::ArtifactPublication,
+            || publisher.publish_linked(emission, contributions, link, &link_outcome),
+            emission_profile_outcome,
+        );
+
+        Ok(outcome)
     }
 
     /// Links one validated native product plan into staging without publishing final outputs.
@@ -98,6 +105,16 @@ const fn link_profile_outcome(status: &LinkStatus) -> crate::CompilationProfileO
         LinkStatus::Complete(_) => crate::CompilationProfileOutcome::Completed,
         LinkStatus::Failed(_) => crate::CompilationProfileOutcome::Failed,
         LinkStatus::Cancelled => crate::CompilationProfileOutcome::Cancelled,
+    }
+}
+
+const fn emission_profile_outcome(
+    outcome: &EmissionOutcome,
+) -> crate::CompilationProfileOutcome {
+    match outcome.status() {
+        bray_emitter::EmissionStatus::Complete => crate::CompilationProfileOutcome::Completed,
+        bray_emitter::EmissionStatus::Failed(_) => crate::CompilationProfileOutcome::Failed,
+        bray_emitter::EmissionStatus::Cancelled => crate::CompilationProfileOutcome::Cancelled,
     }
 }
 

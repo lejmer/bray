@@ -16,4 +16,4 @@ pub use bray_profile::{
     CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
     CompilationProfileSubjectKind, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
-pub(crate) use session::ProfileSession;
+pub(crate) use session::{ProfileSession, profile_operation};

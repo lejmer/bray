@@ -41,6 +41,32 @@ impl Compilation {
         options: &CodegenOptions,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
+        crate::profile::profile_operation(
+            self.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::EmissionCodeGeneration,
+            || {
+                self.emission_backend_contributions_inner(
+                    plan,
+                    units,
+                    mappings,
+                    target,
+                    options,
+                    cancellation,
+                )
+            },
+            crate::profile::result_outcome,
+        )
+    }
+
+    fn emission_backend_contributions_inner(
+        &self,
+        plan: &EmissionPlan,
+        units: &[CodegenUnit],
+        mappings: &[CodegenMappings],
+        target: &CodegenTarget,
+        options: &CodegenOptions,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
         let requests = plan.backend_requests();
 
         let facts = CodegenFactLookup::try_new(units, mappings)
