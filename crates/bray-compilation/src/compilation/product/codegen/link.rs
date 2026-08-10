@@ -2,8 +2,8 @@ use bray_codegen::CodegenTarget;
 use bray_emitter::ProductLinkFacts;
 use bray_linker::{
     DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkInputProvenance,
-    LinkInputSource, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind, Linker,
-    SectionGarbageCollectionPolicy,
+    LinkInputSource, LinkInputSpec, LinkModel, LinkPlanCapability, LinkPolicy, LinkStartupMode,
+    LinkTarget, LinkedProductKind, Linker, SectionGarbageCollectionPolicy,
 };
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement, ProductKind};
@@ -41,8 +41,23 @@ impl Compilation {
         .map_err(NativeProductFactError::InvalidLinkTarget)?;
 
         let driver = linker
-            .select_identity(&link_target, product)
+            .select_capabilities(&link_target, product)
             .map_err(NativeProductFactError::Linker)?;
+
+        let startup_mode = match product {
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary
+                if driver.supports_plan_capability(
+                    &link_target,
+                    LinkPlanCapability::Startup(LinkStartupMode::PlatformCompilerDriver),
+                ) =>
+            {
+                LinkStartupMode::PlatformCompilerDriver
+            }
+            LinkedProductKind::Executable | LinkedProductKind::SharedLibrary => {
+                LinkStartupMode::ExplicitInputs
+            }
+            LinkedProductKind::StaticLibrary => LinkStartupMode::NotApplicable,
+        };
 
         let linked_debug = match configuration {
             crate::BuildConfiguration::Development
@@ -130,8 +145,9 @@ impl Compilation {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Link facts outlive the borrowed registry entry that selected this driver.
-        let mut facts = ProductLinkFacts::new(link_target, driver.clone(), policy)
-            .with_native_inputs(native_inputs);
+        let mut facts =
+            ProductLinkFacts::new(link_target, driver.identity().clone(), startup_mode, policy)
+                .with_native_inputs(native_inputs);
 
         if let Some(runtime) = runtime {
             facts = facts.with_runtime(runtime);

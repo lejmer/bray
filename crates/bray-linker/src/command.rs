@@ -766,6 +766,7 @@ mod tests {
             plan.product_kind(),
             plan.target().clone(),
             plan.driver().clone(),
+            plan.startup_mode(),
             plan.policy(),
         );
 
@@ -829,6 +830,7 @@ mod tests {
             LinkedProductKind::SharedLibrary,
             target,
             driver,
+            crate::LinkStartupMode::ExplicitInputs,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
@@ -888,6 +890,7 @@ mod tests {
             LinkedProductKind::Executable,
             target.clone(),
             driver,
+            crate::LinkStartupMode::ExplicitInputs,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
@@ -939,6 +942,7 @@ mod tests {
             LinkedProductKind::Executable,
             target.clone(),
             driver,
+            crate::LinkStartupMode::ExplicitInputs,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,

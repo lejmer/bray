@@ -6,7 +6,7 @@ use bray_target::TargetIdentity;
 
 use crate::{
     ExternalToolFailure, LinkInputId, LinkPlan, LinkedArtifact, LinkedArtifactRequirement,
-    LinkerDriverIdentity, StagingDestinationId,
+    LinkerDriverIdentity, StagingDestinationId, UnsupportedLinkRequirement,
 };
 
 pub(crate) fn failed_outcome(failure: LinkFailure) -> LinkOutcome {
@@ -20,6 +20,8 @@ pub enum LinkFailure {
     DriverUnavailable,
     /// The selected driver is incompatible with the target or product contract.
     DriverIncompatible,
+    /// The selected driver does not support one typed plan requirement.
+    UnsupportedRequirement(UnsupportedLinkRequirement),
     /// One planned input was unavailable at invocation time.
     MissingInput(LinkInputId),
     /// Driver-owned response-file construction failed.
@@ -282,6 +284,7 @@ mod tests {
         assert_eq!(artifacts.product(), plan.product());
         assert_eq!(artifacts.target(), plan.target().identity());
         assert_eq!(artifacts.driver(), plan.driver());
+        assert_eq!(artifacts.driver().capability_revision(), "1");
         assert_eq!(artifacts.artifacts().len(), 1);
     }
 

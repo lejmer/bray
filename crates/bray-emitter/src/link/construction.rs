@@ -120,6 +120,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
             facts.target.clone(),
             // Driver identity participates in the immutable plan and its cache identity.
             facts.driver.clone(),
+            facts.startup_mode,
             facts.policy,
         );
 
@@ -468,11 +469,13 @@ mod tests {
     };
     use bray_diagnostics::DiagnosticBag;
     use bray_linker::{
-        DeadStripPolicy, DebugLinkPolicy, LinkFailure, LinkInputKind, LinkInputMode,
-        LinkInputProvenance, LinkInputSource, LinkInputSpec, LinkModel, LinkOutcome, LinkPolicy,
-        LinkSearchPath, LinkSearchPathKind, LinkSubsystem, LinkTarget, LinkedArtifactKind,
-        LinkedProductKind, Linker, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind,
-        SectionGarbageCollectionPolicy, StagingPathKey,
+        DeadStripPolicy, DebugLinkPolicy, LinkCancellationCapability, LinkDeterminismCapability,
+        LinkEnvironmentCapability, LinkFailure, LinkInputKind, LinkInputMode, LinkInputProvenance,
+        LinkInputSource, LinkInputSpec, LinkModel, LinkOutcome, LinkPlanCapability, LinkPolicy,
+        LinkResponseFileCapability, LinkSearchPath, LinkSearchPathKind, LinkSubsystem, LinkTarget,
+        LinkedArtifactKind, LinkedProductKind, Linker, LinkerDriver, LinkerDriverCapabilities,
+        LinkerDriverIdentity, LinkerDriverKind, LinkerOperationalCapabilities,
+        LinkerTargetCapabilities, SectionGarbageCollectionPolicy, StagingPathKey,
     };
     use bray_runtime_interface::{
         BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeArtifactDigest,
@@ -500,7 +503,7 @@ mod tests {
         let staged = staged_artifacts(&plan);
         let outputs = output_staging(&plan);
 
-        let facts = product_link_facts()
+        let facts = product_link_facts_for(bray_linker::LinkStartupMode::ExplicitInputs)
             .with_startup_inputs([file_input(
                 LinkInputKind::StartupObject,
                 "crt/start.o",
@@ -593,7 +596,7 @@ mod tests {
             .executable_host()
             .unwrap_or_else(|| panic!("async executable must have a host contract"));
 
-        let facts = product_link_facts()
+        let facts = product_link_facts_for(bray_linker::LinkStartupMode::ExplicitInputs)
             .with_runtime(runtime.clone())
             .with_native_inputs([
                 native_library("pthread"),
@@ -738,11 +741,11 @@ mod tests {
         let invocations = Arc::new(AtomicUsize::new(0));
 
         let driver = Arc::new(CountingDriver {
-            identity: facts.driver.clone(),
+            capabilities: counting_capabilities(facts.driver.clone()),
             invocations: Arc::clone(&invocations),
         });
 
-        let linker = Linker::try_new([driver as Arc<dyn LinkerDriver>])
+        let linker = Linker::try_new([Arc::clone(&driver) as Arc<dyn LinkerDriver>])
             .unwrap_or_else(|error| panic!("test linker must construct: {error:?}"));
 
         let first = construct_link_plan(
@@ -764,6 +767,8 @@ mod tests {
 
         let link_plan =
             first.unwrap_or_else(|error| panic!("test link plan must construct: {error:?}"));
+
+        assert_eq!(driver.capabilities.validate(&link_plan), Ok(()));
 
         let _ = linker.link(&link_plan, &|| false);
 
@@ -898,9 +903,14 @@ mod tests {
     }
 
     fn product_link_facts() -> ProductLinkFacts {
+        product_link_facts_for(bray_linker::LinkStartupMode::PlatformCompilerDriver)
+    }
+
+    fn product_link_facts_for(startup_mode: bray_linker::LinkStartupMode) -> ProductLinkFacts {
         ProductLinkFacts::new(
             link_target(),
             linker_driver_identity(),
+            startup_mode,
             LinkPolicy::new(
                 DeadStripPolicy::RemoveUnreachable,
                 SectionGarbageCollectionPolicy::RemoveUnreferenced,
@@ -975,17 +985,49 @@ mod tests {
     }
 
     struct CountingDriver {
-        identity: LinkerDriverIdentity,
+        capabilities: LinkerDriverCapabilities,
         invocations: Arc<AtomicUsize>,
     }
 
-    impl LinkerDriver for CountingDriver {
-        fn identity(&self) -> &LinkerDriverIdentity {
-            &self.identity
-        }
+    fn counting_capabilities(identity: LinkerDriverIdentity) -> LinkerDriverCapabilities {
+        let target = link_target();
 
-        fn supports(&self, _target: &LinkTarget, _product: LinkedProductKind) -> bool {
-            true
+        let target = LinkerTargetCapabilities::new(
+            target.architecture(),
+            target.object_format(),
+            [
+                LinkPlanCapability::Product(LinkedProductKind::SharedLibrary),
+                LinkPlanCapability::Input(LinkInputKind::RelocatableObject),
+                LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
+                LinkPlanCapability::Output(LinkedArtifactKind::SharedLibrary),
+                LinkPlanCapability::Output(LinkedArtifactKind::PlatformCompanion),
+                LinkPlanCapability::LinkModel(LinkModel::Dynamic),
+                LinkPlanCapability::DeadStrip(DeadStripPolicy::RemoveUnreachable),
+                LinkPlanCapability::SectionGarbageCollection(
+                    SectionGarbageCollectionPolicy::RemoveUnreferenced,
+                ),
+                LinkPlanCapability::Debug(DebugLinkPolicy::None),
+                LinkPlanCapability::Subsystem(LinkSubsystem::Console),
+                LinkPlanCapability::Startup(bray_linker::LinkStartupMode::PlatformCompilerDriver),
+            ],
+        );
+
+        LinkerDriverCapabilities::try_new(
+            identity,
+            [target],
+            LinkerOperationalCapabilities::new(
+                LinkResponseFileCapability::InlineArguments,
+                LinkEnvironmentCapability::NotApplicable,
+                LinkCancellationCapability::Cooperative,
+                LinkDeterminismCapability::Reproducible,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("test capabilities must construct: {error:?}"))
+    }
+
+    impl LinkerDriver for CountingDriver {
+        fn capabilities(&self) -> &LinkerDriverCapabilities {
+            &self.capabilities
         }
 
         fn link(

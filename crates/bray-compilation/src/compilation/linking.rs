@@ -135,12 +135,15 @@ mod tests {
         RequestedArtifactDestination,
     };
     use bray_linker::{
-        BinarySymbolName, DebugLinkPolicy, LinkFailure, LinkInput, LinkInputId, LinkInputKind,
+        BinarySymbolName, DebugLinkPolicy, LinkCancellationCapability, LinkDeterminismCapability,
+        LinkEnvironmentCapability, LinkFailure, LinkInput, LinkInputId, LinkInputKind,
         LinkInputMode, LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome, LinkPlan,
-        LinkPlanBuilder, LinkPolicy, LinkStatus, LinkTarget, LinkedArtifact, LinkedArtifactKind,
-        LinkedArtifactRequirement, LinkedProductKind, Linker, LinkerDriver, LinkerDriverIdentity,
-        LinkerDriverKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
-        StagingDestination, StagingDestinationId, StagingPathKey,
+        LinkPlanBuilder, LinkPlanCapability, LinkPolicy, LinkResponseFileCapability,
+        LinkRuntimeMode, LinkStartupMode, LinkStatus, LinkSymbolRequirement, LinkTarget,
+        LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind, Linker,
+        LinkerDriver, LinkerDriverCapabilities, LinkerDriverIdentity, LinkerDriverKind,
+        LinkerOperationalCapabilities, LinkerTargetCapabilities, PlannedLinkedArtifact,
+        SectionGarbageCollectionPolicy, StagingDestination, StagingDestinationId, StagingPathKey,
     };
     use bray_runtime_interface::{
         ProtectedAsyncFrameId, RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId,
@@ -424,7 +427,7 @@ mod tests {
         let rendezvous = Arc::new(Barrier::new(2));
 
         let driver = Arc::new(BlockingDriver {
-            identity: driver_identity(),
+            capabilities: driver_capabilities(),
             rendezvous: Arc::clone(&rendezvous),
         });
 
@@ -499,7 +502,7 @@ mod tests {
         let observation = Arc::new(ConcurrentLinkObservation::new(2));
 
         let driver = Arc::new(ConcurrentDriver {
-            identity: driver_identity(),
+            capabilities: driver_capabilities(),
             observation: Arc::clone(&observation),
         });
 
@@ -747,6 +750,12 @@ mod tests {
             product_kind,
             link_target(),
             driver_identity(),
+            match product_kind {
+                LinkedProductKind::Executable | LinkedProductKind::SharedLibrary => {
+                    bray_linker::LinkStartupMode::ExplicitInputs
+                }
+                LinkedProductKind::StaticLibrary => bray_linker::LinkStartupMode::NotApplicable,
+            },
             LinkPolicy::new(
                 bray_linker::DeadStripPolicy::Preserve,
                 SectionGarbageCollectionPolicy::Preserve,
@@ -823,6 +832,52 @@ mod tests {
             .unwrap_or_else(|| panic!("test linker identity must be valid"))
     }
 
+    fn driver_capabilities() -> LinkerDriverCapabilities {
+        let target = LinkerTargetCapabilities::new(
+            TargetArchitecture::X86_64,
+            ObjectFormat::Elf,
+            [
+                LinkPlanCapability::Product(LinkedProductKind::Executable),
+                LinkPlanCapability::Product(LinkedProductKind::SharedLibrary),
+                LinkPlanCapability::Input(LinkInputKind::RelocatableObject),
+                LinkPlanCapability::Input(LinkInputKind::StartupObject),
+                LinkPlanCapability::Input(LinkInputKind::TerminationObject),
+                LinkPlanCapability::Input(LinkInputKind::RuntimeComponent),
+                LinkPlanCapability::Input(LinkInputKind::NativeLibrary),
+                LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
+                LinkPlanCapability::Output(LinkedArtifactKind::Executable),
+                LinkPlanCapability::Output(LinkedArtifactKind::SharedLibrary),
+                LinkPlanCapability::Output(LinkedArtifactKind::DebugCompanion),
+                LinkPlanCapability::Output(LinkedArtifactKind::PlatformCompanion),
+                LinkPlanCapability::LinkModel(LinkModel::Dynamic),
+                LinkPlanCapability::DeadStrip(bray_linker::DeadStripPolicy::Preserve),
+                LinkPlanCapability::SectionGarbageCollection(
+                    SectionGarbageCollectionPolicy::Preserve,
+                ),
+                LinkPlanCapability::Debug(DebugLinkPolicy::None),
+                LinkPlanCapability::Debug(DebugLinkPolicy::Companion),
+                LinkPlanCapability::Symbol(LinkSymbolRequirement::EntryPoint),
+                LinkPlanCapability::Symbol(LinkSymbolRequirement::ExportedSymbols),
+                LinkPlanCapability::Symbol(LinkSymbolRequirement::RetainedSymbols),
+                LinkPlanCapability::Startup(LinkStartupMode::ExplicitInputs),
+                LinkPlanCapability::Startup(LinkStartupMode::PlatformCompilerDriver),
+                LinkPlanCapability::Runtime(LinkRuntimeMode::ExplicitInput),
+            ],
+        );
+
+        LinkerDriverCapabilities::try_new(
+            driver_identity(),
+            [target],
+            LinkerOperationalCapabilities::new(
+                LinkResponseFileCapability::InlineArguments,
+                LinkEnvironmentCapability::NotApplicable,
+                LinkCancellationCapability::Cooperative,
+                LinkDeterminismCapability::Reproducible,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"))
+    }
+
     fn runtime_artifact_id() -> RuntimeArtifactId {
         RuntimeArtifactId::try_new("runtime.test")
             .unwrap_or_else(|| panic!("test runtime identity must be valid"))
@@ -834,7 +889,7 @@ mod tests {
     }
 
     struct RecordingDriver {
-        identity: LinkerDriverIdentity,
+        capabilities: LinkerDriverCapabilities,
         plans: Mutex<Vec<LinkPlan>>,
         completes: bool,
         published_bytes: Option<&'static [u8]>,
@@ -843,7 +898,7 @@ mod tests {
     impl RecordingDriver {
         fn completing() -> Self {
             Self {
-                identity: driver_identity(),
+                capabilities: driver_capabilities(),
                 plans: Mutex::new(Vec::new()),
                 completes: true,
                 published_bytes: None,
@@ -852,7 +907,7 @@ mod tests {
 
         fn failing() -> Self {
             Self {
-                identity: driver_identity(),
+                capabilities: driver_capabilities(),
                 plans: Mutex::new(Vec::new()),
                 completes: false,
                 published_bytes: None,
@@ -861,7 +916,7 @@ mod tests {
 
         fn publishing(bytes: &'static [u8]) -> Self {
             Self {
-                identity: driver_identity(),
+                capabilities: driver_capabilities(),
                 plans: Mutex::new(Vec::new()),
                 completes: true,
                 published_bytes: Some(bytes),
@@ -877,12 +932,8 @@ mod tests {
     }
 
     impl LinkerDriver for RecordingDriver {
-        fn identity(&self) -> &LinkerDriverIdentity {
-            &self.identity
-        }
-
-        fn supports(&self, _target: &LinkTarget, _product: LinkedProductKind) -> bool {
-            true
+        fn capabilities(&self) -> &LinkerDriverCapabilities {
+            &self.capabilities
         }
 
         fn link(&self, plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
@@ -910,17 +961,13 @@ mod tests {
     }
 
     struct BlockingDriver {
-        identity: LinkerDriverIdentity,
+        capabilities: LinkerDriverCapabilities,
         rendezvous: Arc<Barrier>,
     }
 
     impl LinkerDriver for BlockingDriver {
-        fn identity(&self) -> &LinkerDriverIdentity {
-            &self.identity
-        }
-
-        fn supports(&self, _target: &LinkTarget, _product: LinkedProductKind) -> bool {
-            true
+        fn capabilities(&self) -> &LinkerDriverCapabilities {
+            &self.capabilities
         }
 
         fn link(&self, plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
@@ -932,17 +979,13 @@ mod tests {
     }
 
     struct ConcurrentDriver {
-        identity: LinkerDriverIdentity,
+        capabilities: LinkerDriverCapabilities,
         observation: Arc<ConcurrentLinkObservation>,
     }
 
     impl LinkerDriver for ConcurrentDriver {
-        fn identity(&self) -> &LinkerDriverIdentity {
-            &self.identity
-        }
-
-        fn supports(&self, _target: &LinkTarget, _product: LinkedProductKind) -> bool {
-            true
+        fn capabilities(&self) -> &LinkerDriverCapabilities {
+            &self.capabilities
         }
 
         fn link(&self, plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {

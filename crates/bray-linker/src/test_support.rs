@@ -125,15 +125,32 @@ impl Drop for TestOutput {
 }
 
 pub(crate) fn link_plan_builder() -> LinkPlanBuilder {
-    link_plan_builder_with_driver(driver())
+    link_plan_builder_for(
+        LinkedProductKind::Executable,
+        driver(),
+        crate::LinkStartupMode::ExplicitInputs,
+    )
 }
 
 pub(crate) fn link_plan_builder_with_driver(driver: LinkerDriverIdentity) -> LinkPlanBuilder {
+    link_plan_builder_for(
+        LinkedProductKind::Executable,
+        driver,
+        crate::LinkStartupMode::ExplicitInputs,
+    )
+}
+
+pub(crate) fn link_plan_builder_for(
+    product_kind: LinkedProductKind,
+    driver: LinkerDriverIdentity,
+    startup_mode: crate::LinkStartupMode,
+) -> LinkPlanBuilder {
     LinkPlanBuilder::new(
         product(),
-        LinkedProductKind::Executable,
+        product_kind,
         link_target(),
         driver,
+        startup_mode,
         LinkPolicy::new(
             DeadStripPolicy::Preserve,
             SectionGarbageCollectionPolicy::Preserve,

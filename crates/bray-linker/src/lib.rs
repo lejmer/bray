@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod archive;
+mod capability;
 mod command;
 mod driver;
 mod execution;
@@ -22,6 +23,12 @@ mod test_support;
 
 pub use archive::{LlvmArchiveDriver, LlvmArchiveDriverBuildError};
 pub use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
+pub use capability::{
+    LinkCancellationCapability, LinkDeterminismCapability, LinkEnvironmentCapability,
+    LinkPlanCapability, LinkResponseFileCapability, LinkRuntimeMode, LinkStartupMode,
+    LinkSymbolRequirement, LinkerDriverCapabilities, LinkerDriverCapabilitiesBuildError,
+    LinkerOperationalCapabilities, LinkerTargetCapabilities, UnsupportedLinkRequirement,
+};
 pub use driver::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
 pub use external_tool::{
     ExternalToolFailure, ExternalToolHost, ExternalToolInvocation,

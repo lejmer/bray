@@ -1526,6 +1526,12 @@ mod tests {
             case.product,
             linked_target(case.product),
             linked_driver_identity(),
+            match case.product {
+                LinkedProductKind::Executable | LinkedProductKind::SharedLibrary => {
+                    bray_linker::LinkStartupMode::ExplicitInputs
+                }
+                LinkedProductKind::StaticLibrary => bray_linker::LinkStartupMode::NotApplicable,
+            },
             LinkPolicy::new(
                 bray_linker::DeadStripPolicy::Preserve,
                 SectionGarbageCollectionPolicy::Preserve,

@@ -14,41 +14,43 @@ pub enum LldFlavor {
 }
 
 impl LldFlavor {
+    pub(crate) const TARGETS: [(TargetArchitecture, ObjectFormat, Self); 13] = [
+        (TargetArchitecture::X86, ObjectFormat::Elf, Self::Elf),
+        (TargetArchitecture::X86_64, ObjectFormat::Elf, Self::Elf),
+        (TargetArchitecture::Arm, ObjectFormat::Elf, Self::Elf),
+        (TargetArchitecture::Aarch64, ObjectFormat::Elf, Self::Elf),
+        (TargetArchitecture::Riscv32, ObjectFormat::Elf, Self::Elf),
+        (TargetArchitecture::Riscv64, ObjectFormat::Elf, Self::Elf),
+        (TargetArchitecture::PowerPc64, ObjectFormat::Elf, Self::Elf),
+        (TargetArchitecture::X86, ObjectFormat::Coff, Self::Coff),
+        (TargetArchitecture::X86_64, ObjectFormat::Coff, Self::Coff),
+        (TargetArchitecture::Arm, ObjectFormat::Coff, Self::Coff),
+        (TargetArchitecture::Aarch64, ObjectFormat::Coff, Self::Coff),
+        (TargetArchitecture::X86_64, ObjectFormat::MachO, Self::MachO),
+        (
+            TargetArchitecture::Aarch64,
+            ObjectFormat::MachO,
+            Self::MachO,
+        ),
+    ];
+
+    pub(crate) const fn object_format(self) -> ObjectFormat {
+        match self {
+            Self::Elf => ObjectFormat::Elf,
+            Self::Coff => ObjectFormat::Coff,
+            Self::MachO => ObjectFormat::MachO,
+        }
+    }
+
     pub(crate) fn for_target(target: &LinkTarget, product: LinkedProductKind) -> Option<Self> {
         if product == LinkedProductKind::StaticLibrary {
             return None;
         }
 
-        match (target.object_format(), target.architecture()) {
-            (
-                ObjectFormat::Elf,
-                TargetArchitecture::X86
-                | TargetArchitecture::X86_64
-                | TargetArchitecture::Arm
-                | TargetArchitecture::Aarch64
-                | TargetArchitecture::Riscv32
-                | TargetArchitecture::Riscv64
-                | TargetArchitecture::PowerPc64,
-            ) => Some(Self::Elf),
-            (
-                ObjectFormat::Coff,
-                TargetArchitecture::X86
-                | TargetArchitecture::X86_64
-                | TargetArchitecture::Arm
-                | TargetArchitecture::Aarch64,
-            ) => Some(Self::Coff),
-            (ObjectFormat::MachO, TargetArchitecture::X86_64 | TargetArchitecture::Aarch64) => {
-                Some(Self::MachO)
-            }
-            (
-                ObjectFormat::Coff
-                | ObjectFormat::Elf
-                | ObjectFormat::MachO
-                | ObjectFormat::WebAssembly
-                | ObjectFormat::Xcoff,
-                _,
-            ) => None,
-        }
+        Self::TARGETS.iter().find_map(|candidate| {
+            (candidate.0 == target.architecture() && candidate.1 == target.object_format())
+                .then_some(candidate.2)
+        })
     }
 
     pub(super) const fn external_selector(self) -> &'static str {

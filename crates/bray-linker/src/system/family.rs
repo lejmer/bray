@@ -1,5 +1,5 @@
+use crate::LldFlavor;
 use crate::external_tool::ResponseFileEncoding;
-use crate::{LinkTarget, LinkedProductKind, LldFlavor};
 
 /// Supported command family of one explicitly configured platform linker.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -29,11 +29,7 @@ impl SystemLinkerFamily {
         }
     }
 
-    pub(super) fn supports(self, target: &LinkTarget, product: LinkedProductKind) -> bool {
-        LldFlavor::for_target(target, product) == Some(self.flavor())
-    }
-
-    pub(super) const fn response_file_encoding(self) -> Option<ResponseFileEncoding> {
+    pub(crate) const fn response_file_encoding(self) -> Option<ResponseFileEncoding> {
         match self {
             Self::Gnu | Self::GnuCompiler | Self::AppleCompiler => Some(ResponseFileEncoding::Utf8),
             Self::WslGnuCompiler => None,
@@ -42,6 +38,16 @@ impl SystemLinkerFamily {
             Self::Apple => None,
         }
     }
+
+    pub(crate) const fn supplies_platform_startup(self) -> bool {
+        matches!(
+            self,
+            Self::GnuCompiler
+                | Self::WslGnuCompiler
+                | Self::MicrosoftCompiler
+                | Self::AppleCompiler
+        )
+    }
 }
 
 #[cfg(test)]
@@ -49,8 +55,11 @@ mod tests {
     use bray_target::{ObjectFormat, TargetArchitecture};
 
     use super::SystemLinkerFamily;
-    use crate::LinkedProductKind;
     use crate::test_support::target;
+    use crate::{
+        LinkInputKind, LinkPlanCapability, LinkedProductKind, LinkerDriverCapabilities,
+        LinkerDriverIdentity, LinkerDriverKind,
+    };
 
     #[test]
     fn families_accept_only_their_platform_command_contracts() {
@@ -83,8 +92,19 @@ mod tests {
         ];
 
         for (family, target, expected) in cases {
+            let identity = LinkerDriverIdentity::try_new(
+                LinkerDriverKind::System,
+                "test-system-linker",
+                "1",
+                "1",
+            )
+            .unwrap_or_else(|| panic!("test driver identity must be valid"));
+
+            let capabilities = LinkerDriverCapabilities::try_for_system(identity, family)
+                .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"));
+
             assert_eq!(
-                family.supports(&target, LinkedProductKind::Executable),
+                capabilities.supports_target_product(&target, LinkedProductKind::Executable),
                 expected
             );
         }
@@ -94,6 +114,21 @@ mod tests {
     fn system_linkers_do_not_claim_static_archive_construction() {
         let target = target(TargetArchitecture::X86_64, ObjectFormat::Elf);
 
-        assert!(!SystemLinkerFamily::Gnu.supports(&target, LinkedProductKind::StaticLibrary));
+        let identity =
+            LinkerDriverIdentity::try_new(LinkerDriverKind::System, "test-system-linker", "1", "1")
+                .unwrap_or_else(|| panic!("test driver identity must be valid"));
+
+        let capabilities =
+            LinkerDriverCapabilities::try_for_system(identity, SystemLinkerFamily::Gnu)
+                .unwrap_or_else(|error| panic!("test capabilities must be valid: {error:?}"));
+
+        assert!(!capabilities.supports_target_product(&target, LinkedProductKind::StaticLibrary));
+
+        assert!(
+            !capabilities.supports_plan_capability(
+                &target,
+                LinkPlanCapability::Input(LinkInputKind::Bitcode)
+            )
+        );
     }
 }

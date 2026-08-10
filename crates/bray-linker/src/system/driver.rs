@@ -5,17 +5,18 @@ use bray_diagnostics::DiagnosticBag;
 
 use super::response::{SystemLinkerInvocationBuildError, invocation};
 use super::{SystemLinkerConfiguration, SystemLinkerFamily};
+use crate::capability::system_driver_capabilities;
 use crate::command::system_arguments_for;
 use crate::outcome::failed_outcome;
 use crate::staging::{complete_linked_outputs, validate_file_inputs};
 use crate::{
-    ExternalToolHost, LinkFailure, LinkOutcome, LinkPlan, LinkedProductKind, LinkerDriver,
-    LinkerDriverIdentity, LinkerDriverKind,
+    ExternalToolHost, LinkFailure, LinkOutcome, LinkPlan, LinkerDriver, LinkerDriverCapabilities,
+    LinkerDriverCapabilitiesBuildError, LinkerDriverIdentity, LinkerDriverKind,
 };
 
 /// Driver for one explicitly configured platform system linker.
 pub struct SystemLinkerDriver {
-    identity: LinkerDriverIdentity,
+    capabilities: LinkerDriverCapabilities,
     configuration: SystemLinkerConfiguration,
     host: Arc<dyn ExternalToolHost>,
 }
@@ -31,8 +32,11 @@ impl SystemLinkerDriver {
             return Err(SystemLinkerDriverBuildError::DriverKindMismatch);
         }
 
+        let capabilities = system_driver_capabilities(identity, configuration.family())
+            .map_err(SystemLinkerDriverBuildError::Capabilities)?;
+
         Ok(Self {
-            identity,
+            capabilities,
             configuration,
             host,
         })
@@ -45,12 +49,8 @@ impl SystemLinkerDriver {
 }
 
 impl LinkerDriver for SystemLinkerDriver {
-    fn identity(&self) -> &LinkerDriverIdentity {
-        &self.identity
-    }
-
-    fn supports(&self, target: &crate::LinkTarget, product: LinkedProductKind) -> bool {
-        self.family().supports(target, product)
+    fn capabilities(&self) -> &LinkerDriverCapabilities {
+        &self.capabilities
     }
 
     fn link(&self, plan: &LinkPlan, cancellation: &dyn Cancellation) -> LinkOutcome {
@@ -58,8 +58,12 @@ impl LinkerDriver for SystemLinkerDriver {
             return LinkOutcome::cancelled(DiagnosticBag::new());
         }
 
-        if plan.driver() != &self.identity || !self.supports(plan.target(), plan.product_kind()) {
+        if plan.driver() != self.capabilities.identity() {
             return failed_outcome(LinkFailure::DriverIncompatible);
+        }
+
+        if let Err(requirement) = self.capabilities.validate(plan) {
+            return failed_outcome(LinkFailure::UnsupportedRequirement(requirement));
         }
 
         if let Err(failure) = validate_file_inputs(plan) {
@@ -100,6 +104,8 @@ impl LinkerDriver for SystemLinkerDriver {
 pub enum SystemLinkerDriverBuildError {
     /// The supplied identity does not select a configured system linker.
     DriverKindMismatch,
+    /// The driver's immutable capability record is invalid.
+    Capabilities(LinkerDriverCapabilitiesBuildError),
 }
 
 fn outcome_from_invocation_error(error: SystemLinkerInvocationBuildError) -> LinkOutcome {
@@ -328,7 +334,12 @@ mod tests {
 
         assert_eq!(
             driver.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::DriverIncompatible)
+            &LinkStatus::Failed(LinkFailure::UnsupportedRequirement(
+                crate::UnsupportedLinkRequirement::Target {
+                    architecture: TargetArchitecture::X86_64,
+                    object_format: ObjectFormat::Coff,
+                }
+            ))
         );
 
         assert!(host.invocations().is_empty());
@@ -424,6 +435,7 @@ mod tests {
             LinkedProductKind::Executable,
             target,
             driver.clone(),
+            crate::LinkStartupMode::ExplicitInputs,
             LinkPolicy::new(
                 crate::DeadStripPolicy::Preserve,
                 crate::SectionGarbageCollectionPolicy::Preserve,
