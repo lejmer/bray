@@ -193,6 +193,7 @@ enum DiagnosticArgValueJson {
     ArtifactKind(&'static str),
     ArtifactOrdinal(u32),
     TargetRepresentation(&'static str),
+    TargetIdentity(String),
     CallableAbi(&'static str),
     AlignmentKind(&'static str),
     Character(char),
@@ -237,6 +238,9 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::ArtifactOrdinal(ordinal) => Self::ArtifactOrdinal(*ordinal),
             DiagnosticArgValue::TargetRepresentation(kind) => {
                 Self::TargetRepresentation((*kind).as_str())
+            }
+            DiagnosticArgValue::TargetIdentity(identity) => {
+                Self::TargetIdentity(identity.to_owned())
             }
             DiagnosticArgValue::CallableAbi(abi) => Self::CallableAbi((*abi).as_str()),
             DiagnosticArgValue::AlignmentKind(kind) => Self::AlignmentKind((*kind).as_str()),

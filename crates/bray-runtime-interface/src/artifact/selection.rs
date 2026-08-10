@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::sha256_file;
+use bray_base::sha256_reader;
 use bray_symbols::NativeLinkRequirement;
 
 use super::catalog::{
@@ -144,13 +145,22 @@ impl RuntimeArtifact {
             let digest = match authenticated.get(archive) {
                 Some(digest) => *digest,
                 None => {
-                    let digest = sha256_file(archive).map_err(|_| {
-                        RuntimeArtifactSelectionError::UnreadableArchive(
-                            component.metadata().identity().clone(),
-                        )
+                    let digest = authenticate_archive(archive).map_err(|error| match error {
+                        ArchiveValidationError::Unreadable(kind) => {
+                            RuntimeArtifactSelectionError::UnreadableArchive {
+                                component: component.metadata().identity().clone(),
+                                path: archive.to_path_buf(),
+                                kind,
+                            }
+                        }
+                        ArchiveValidationError::Invalid => {
+                            RuntimeArtifactSelectionError::InvalidArchive {
+                                component: component.metadata().identity().clone(),
+                                path: archive.to_path_buf(),
+                            }
+                        }
                     })?;
 
-                    let digest = RuntimeArtifactDigest::new(digest);
                     authenticated.insert(archive.to_path_buf(), digest);
 
                     digest
@@ -158,9 +168,12 @@ impl RuntimeArtifact {
             };
 
             if digest != component.metadata().archive_digest() {
-                return Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch(
-                    component.metadata().identity().clone(),
-                ));
+                return Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch {
+                    component: component.metadata().identity().clone(),
+                    path: archive.to_path_buf(),
+                    expected: component.metadata().archive_digest(),
+                    actual: digest,
+                });
             }
         }
 
@@ -209,6 +222,42 @@ impl RuntimeArtifact {
                 capability,
             ))
     }
+}
+
+enum ArchiveValidationError {
+    Unreadable(io::ErrorKind),
+    Invalid,
+}
+
+fn authenticate_archive(path: &Path) -> Result<RuntimeArtifactDigest, ArchiveValidationError> {
+    let mut archive = std::fs::File::open(path)
+        .map_err(|error| ArchiveValidationError::Unreadable(error.kind()))?;
+
+    let metadata = archive
+        .metadata()
+        .map_err(|error| ArchiveValidationError::Unreadable(error.kind()))?;
+
+    if !metadata.is_file() {
+        return Err(ArchiveValidationError::Invalid);
+    }
+
+    let mut magic = [0; 8];
+
+    match archive.read_exact(&mut magic) {
+        Ok(()) if magic == *b"!<arch>\n" => {}
+        Ok(()) => return Err(ArchiveValidationError::Invalid),
+        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
+            return Err(ArchiveValidationError::Invalid);
+        }
+        Err(error) => return Err(ArchiveValidationError::Unreadable(error.kind())),
+    }
+
+    let complete_archive = io::Cursor::new(magic).chain(archive);
+
+    let digest = sha256_reader(complete_archive)
+        .map_err(|error| ArchiveValidationError::Unreadable(error.kind()))?;
+
+    Ok(RuntimeArtifactDigest::new(digest))
 }
 
 /// Exact runtime components selected for one product link.
@@ -265,7 +314,30 @@ pub enum RuntimeArtifactSelectionError {
     /// No component for this product category owns a required capability.
     MissingCapabilityOwner(RuntimeCapability),
     /// A selected archive could not be read for authentication.
-    UnreadableArchive(RuntimeArtifactId),
+    UnreadableArchive {
+        /// Selected component whose archive could not be read.
+        component: RuntimeArtifactId,
+        /// Exact selected archive path.
+        path: PathBuf,
+        /// Stable host I/O failure category.
+        kind: io::ErrorKind,
+    },
+    /// A selected archive is not a regular archive file.
+    InvalidArchive {
+        /// Selected component whose archive is invalid.
+        component: RuntimeArtifactId,
+        /// Exact selected archive path.
+        path: PathBuf,
+    },
     /// A selected archive does not match its published content digest.
-    ArchiveDigestMismatch(RuntimeArtifactId),
+    ArchiveDigestMismatch {
+        /// Selected component whose archive failed authentication.
+        component: RuntimeArtifactId,
+        /// Exact selected archive path.
+        path: PathBuf,
+        /// Digest published by the runtime metadata.
+        expected: RuntimeArtifactDigest,
+        /// Digest calculated from the selected archive.
+        actual: RuntimeArtifactDigest,
+    },
 }

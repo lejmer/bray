@@ -87,6 +87,57 @@ const COMPILER_PROFILE_WRITE_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
+const RUNTIME_ARTIFACT_METADATA_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read runtime artifact metadata "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const RUNTIME_ARTIFACT_METADATA_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime artifact metadata is invalid: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+];
+
+const RUNTIME_ARTIFACT_TARGET_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime artifact metadata "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(" targets "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualTargetIdentity),
+    MessageTemplatePart::Text(" but the compilation selected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedTargetIdentity),
+];
+
+const RUNTIME_ARTIFACT_ABI_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime artifact metadata "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(" provides runtime ABI "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualRuntimeAbi),
+    MessageTemplatePart::Text(" but the compilation requires "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRuntimeAbi),
+];
+
+const RUNTIME_ARTIFACT_ARCHIVE_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read runtime archive "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const RUNTIME_ARTIFACT_ARCHIVE_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime archive is invalid: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+];
+
+const RUNTIME_ARTIFACT_ARCHIVE_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime archive "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(" has digest "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
+    MessageTemplatePart::Text(" but expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
+];
+
 const PROJECT_MANIFEST_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read Bray project manifest "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
@@ -1264,6 +1315,27 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CompilerProfileWriteFailed => {
             MessageTemplate::new(COMPILER_PROFILE_WRITE_FAILED)
+        }
+        DiagnosticKind::RuntimeArtifactMetadataReadFailed => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_METADATA_READ_FAILED)
+        }
+        DiagnosticKind::RuntimeArtifactMetadataInvalid => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_METADATA_INVALID)
+        }
+        DiagnosticKind::RuntimeArtifactTargetMismatch => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_TARGET_MISMATCH)
+        }
+        DiagnosticKind::RuntimeArtifactAbiMismatch => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_ABI_MISMATCH)
+        }
+        DiagnosticKind::RuntimeArtifactArchiveReadFailed => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_READ_FAILED)
+        }
+        DiagnosticKind::RuntimeArtifactArchiveInvalid => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_INVALID)
+        }
+        DiagnosticKind::RuntimeArtifactArchiveDigestMismatch => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_DIGEST_MISMATCH)
         }
         DiagnosticKind::ProjectManifestReadFailed => {
             MessageTemplate::new(PROJECT_MANIFEST_READ_FAILED)

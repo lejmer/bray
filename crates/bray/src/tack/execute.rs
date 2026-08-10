@@ -837,6 +837,11 @@ mod tests {
     use std::process::ExitCode;
     use std::sync::Mutex;
 
+    use bray_diagnostics::{
+        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind,
+        DiagnosticKind, SeverityKind,
+    };
+
     use super::run_tack_result_with_input;
     use crate::tack::tool::{Tool, ToolExecutor, ToolOutput, ToolRequest};
     use crate::test_support::{ProjectWorkspace, unique_temporary_directory};
@@ -988,6 +993,61 @@ mod tests {
             std::io::copy(&mut input, output).map_err(|_| ())?;
 
             Ok(ToolOutput::new(true, String::new(), String::new()))
+        }
+    }
+
+    struct MissingRuntimeExecutor;
+
+    impl ToolExecutor for MissingRuntimeExecutor {
+        fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()> {
+            if request.tool() != Tool::Compiler {
+                return Err(());
+            }
+
+            let runtime = argument_value(request.arguments(), "--runtime-artifact")
+                .map(PathBuf::from)
+                .ok_or(())?;
+
+            if runtime.exists() {
+                return Err(());
+            }
+
+            let diagnostics = DiagnosticBag::single(
+                Diagnostic::new(
+                    DiagnosticId::new(0),
+                    DiagnosticKind::RuntimeArtifactMetadataReadFailed,
+                    SeverityKind::Error,
+                )
+                .with_arg(DiagnosticArg::artifact_path(runtime))
+                .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::NotFound)),
+            );
+
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+
+            bray_tooling::write_diagnostics(
+                &diagnostics,
+                None,
+                bray_tooling::OutputFormat::Text,
+                &mut stdout,
+                &mut stderr,
+            )
+            .map_err(|_| ())?;
+
+            Ok(ToolOutput::new(
+                false,
+                String::from_utf8(stdout).map_err(|_| ())?,
+                String::from_utf8(stderr).map_err(|_| ())?,
+            ))
+        }
+
+        fn serve(
+            &self,
+            _: ToolRequest,
+            _: Box<dyn Read + Send>,
+            _: &mut dyn Write,
+        ) -> Result<ToolOutput, ()> {
+            Err(())
         }
     }
 
@@ -1298,6 +1358,89 @@ mod tests {
             "compiler request should contain runtime metadata {runtime:?}: {:#?}",
             request.arguments
         );
+    }
+
+    #[test]
+    fn installed_toolchain_without_runtime_reports_exact_path_for_native_commands() {
+        let workspace = ProjectWorkspace::basic();
+
+        workspace.write(
+            "app/bray-package.json",
+            r#"{
+                "format": 1,
+                "identity": "example.application",
+                "version": {"workspace": true},
+                "features": [],
+                "source_roots": [{"name": "main", "path": "src"}],
+                "products": [
+                    {
+                        "name": "application",
+                        "kind": "executable",
+                        "source_roots": ["main"],
+                        "targets": ["native"],
+                        "dependencies": [],
+                        "outputs": ["executable"]
+                    },
+                    {
+                        "name": "tests",
+                        "kind": "test",
+                        "source_roots": ["main"],
+                        "targets": ["native"],
+                        "dependencies": [],
+                        "outputs": ["executable"]
+                    }
+                ]
+            }"#,
+        );
+
+        let toolchain = unique_temporary_directory();
+        let standard_library = toolchain.join("lib/bray/standard-library");
+
+        std::fs::create_dir_all(&standard_library).unwrap_or_else(|error| {
+            panic!("synthetic standard library directory must be created: {error}")
+        });
+
+        let runtime = std::path::absolute(&toolchain)
+            .unwrap_or_else(|error| panic!("test toolchain path must resolve: {error}"))
+            .join("lib")
+            .join("bray")
+            .join("runtime")
+            .join("x86_64-unknown-linux-gnu")
+            .join("bray-runtime.brayrt");
+
+        for command in ["build", "run", "test"] {
+            let result = run_tack_result_with_input(
+                [
+                    OsString::from("bray"),
+                    OsString::from("--workspace"),
+                    workspace.path().as_os_str().to_os_string(),
+                    OsString::from("--toolchain-root"),
+                    toolchain.as_os_str().to_os_string(),
+                    OsString::from(command),
+                ],
+                &MissingRuntimeExecutor,
+                Cursor::new(Vec::new()),
+            );
+
+            assert_eq!(result.exit_code(), ExitCode::FAILURE, "{command}");
+
+            assert!(
+                result.stderr().contains("E1116"),
+                "{command}: {}",
+                result.stderr()
+            );
+
+            assert!(
+                result.stderr().contains(&runtime.display().to_string()),
+                "{command}: {}",
+                result.stderr()
+            );
+
+            assert!(!result.stderr().contains("E1106"), "{command}");
+        }
+
+        std::fs::remove_dir_all(&toolchain)
+            .unwrap_or_else(|error| panic!("synthetic toolchain must be removed: {error}"));
     }
 
     #[test]

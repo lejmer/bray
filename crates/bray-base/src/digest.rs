@@ -7,12 +7,18 @@ use sha2::{Digest as _, Sha256};
 
 /// Computes the SHA-256 digest of one file without loading it into memory.
 pub fn sha256_file(path: &Path) -> io::Result<[u8; 32]> {
-    let mut file = fs::File::open(path)?;
+    let file = fs::File::open(path)?;
+
+    sha256_reader(file)
+}
+
+/// Computes the SHA-256 digest of one byte stream without loading it into memory.
+pub fn sha256_reader(mut reader: impl Read) -> io::Result<[u8; 32]> {
     let mut hasher = Sha256::new();
     let mut buffer = [0; 64 * 1024];
 
     loop {
-        let length = file.read(&mut buffer)?;
+        let length = reader.read(&mut buffer)?;
 
         if length == 0 {
             break;

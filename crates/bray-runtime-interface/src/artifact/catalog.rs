@@ -829,7 +829,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"runtime archive";
+        let bytes = b"!<arch>\nruntime archive";
         let components = resolved_components(directory.path());
 
         for (_, archive) in &components {
@@ -881,7 +881,7 @@ mod tests {
 
         std::fs::write(
             directory.path().join("bray_runtime_product.lib"),
-            b"tampered archive",
+            b"!<arch>\ntampered archive",
         )
         .unwrap_or_else(|error| panic!("test runtime archive must be replaced: {error}"));
 
@@ -891,12 +891,76 @@ mod tests {
                 panic!("unselected archives must not be authenticated: {error:?}")
             });
 
+        let archive = directory.path().join("bray_runtime_product.lib");
+
+        let actual = RuntimeArtifactDigest::new(
+            bray_base::sha256_file(&archive)
+                .unwrap_or_else(|error| panic!("tampered runtime archive must hash: {error}")),
+        );
+
         assert_eq!(
             artifact.select(RuntimeArtifactPurpose::Product, &startup),
-            Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch(
-                RuntimeArtifactId::try_new("runtime.product.execution")
-                    .unwrap_or_else(|| panic!("component identity must be valid"))
-            ))
+            Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch {
+                component: RuntimeArtifactId::try_new("runtime.product.execution")
+                    .unwrap_or_else(|| panic!("component identity must be valid")),
+                path: archive,
+                expected: digest,
+                actual,
+            })
+        );
+    }
+
+    #[test]
+    fn runtime_selection_preserves_missing_and_invalid_archive_details() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+
+        let bytes = b"!<arch>\nruntime archive";
+
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(bytes.as_slice())
+                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
+        );
+
+        let components = resolved_components(directory.path());
+
+        for (_, archive) in &components {
+            std::fs::write(archive, bytes)
+                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
+        }
+
+        let artifact = RuntimeArtifact::try_new(
+            metadata_with_digest("bray.runtime.reference", digest),
+            components,
+        )
+        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+
+        let requirements = requirements([], [RuntimeCapability::MainThreadLane]);
+        let archive = directory.path().join("bray_runtime_product_main.lib");
+
+        std::fs::remove_file(&archive)
+            .unwrap_or_else(|error| panic!("test runtime archive must be removed: {error}"));
+
+        assert_eq!(
+            artifact.select(RuntimeArtifactPurpose::Product, &requirements),
+            Err(RuntimeArtifactSelectionError::UnreadableArchive {
+                component: RuntimeArtifactId::try_new("runtime.product.main_thread")
+                    .unwrap_or_else(|| panic!("component identity must be valid")),
+                path: archive.clone(),
+                kind: std::io::ErrorKind::NotFound,
+            })
+        );
+
+        std::fs::write(&archive, b"not an archive")
+            .unwrap_or_else(|error| panic!("invalid test archive must be written: {error}"));
+
+        assert_eq!(
+            artifact.select(RuntimeArtifactPurpose::Product, &requirements),
+            Err(RuntimeArtifactSelectionError::InvalidArchive {
+                component: RuntimeArtifactId::try_new("runtime.product.main_thread")
+                    .unwrap_or_else(|| panic!("component identity must be valid")),
+                path: archive,
+            })
         );
     }
 
@@ -943,7 +1007,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"runtime archive";
+        let bytes = b"!<arch>\nruntime archive";
         let digest_path = directory.path().join("digest.lib");
 
         std::fs::write(&digest_path, bytes)

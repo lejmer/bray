@@ -172,6 +172,22 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates an expected target-identity argument.
+    pub fn expected_target_identity(identity: impl Into<String>) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedTargetIdentity,
+            DiagnosticArgValue::TargetIdentity(identity.into()),
+        )
+    }
+
+    /// Creates an actual target-identity argument.
+    pub fn actual_target_identity(identity: impl Into<String>) -> Self {
+        Self::new(
+            DiagnosticArgName::ActualTargetIdentity,
+            DiagnosticArgValue::TargetIdentity(identity.into()),
+        )
+    }
+
     /// Creates an output-sink argument.
     pub const fn output_sink(sink: DiagnosticOutputSink) -> Self {
         Self::new(
@@ -443,6 +459,8 @@ pub enum DiagnosticArgName {
     ActualRevision,
     /// Runtime ABI supplied by an artifact or dependency.
     ActualRuntimeAbi,
+    /// Target identity supplied by an artifact.
+    ActualTargetIdentity,
     /// Semantic type found by checking.
     ActualType,
     /// Byte that participates in the diagnostic.
@@ -507,6 +525,8 @@ pub enum DiagnosticArgName {
     ExpectedRevision,
     /// Runtime ABI required by the compilation request.
     ExpectedRuntimeAbi,
+    /// Target identity required by the compilation request.
+    ExpectedTargetIdentity,
     /// Semantic type required by checking.
     ExpectedType,
     /// Name of a virtual, generated, or test-fixture source.
@@ -546,6 +566,7 @@ impl DiagnosticArgName {
             Self::MaximumAlignment => "maximum_alignment",
             Self::ActualRevision => "actual_revision",
             Self::ActualRuntimeAbi => "actual_runtime_abi",
+            Self::ActualTargetIdentity => "actual_target_identity",
             Self::ActualType => "actual_type",
             Self::Byte => "byte",
             Self::ByteCount => "byte_count",
@@ -578,6 +599,7 @@ impl DiagnosticArgName {
             Self::MaximumCount => "maximum_count",
             Self::ExpectedRevision => "expected_revision",
             Self::ExpectedRuntimeAbi => "expected_runtime_abi",
+            Self::ExpectedTargetIdentity => "expected_target_identity",
             Self::ExpectedType => "expected_type",
             Self::SourceName => "source_name",
             Self::SourceCount => "source_count",
@@ -609,6 +631,8 @@ pub enum DiagnosticArgValue {
     ArtifactOrdinal(u32),
     /// Target representation category.
     TargetRepresentation(DiagnosticTargetRepresentation),
+    /// Canonical compilation target identity.
+    TargetIdentity(String),
     /// Foreign callable ABI mode.
     CallableAbi(DiagnosticCallableAbi),
     /// Alignment validation surface.

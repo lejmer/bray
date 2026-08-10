@@ -23,8 +23,12 @@ pub(crate) fn emit_executable(
     let linker = native_linker(target)
         .ok_or_else(|| format!("native linker is unavailable for {}", target.as_str()))?;
 
-    let runtime = load_runtime_artifact(runtime)
-        .ok_or_else(|| "native runtime artifact is invalid".to_owned())?;
+    let runtime = load_runtime_artifact(
+        runtime,
+        selected.profile().identity(),
+        selected.runtime_abi(),
+    )
+    .map_err(|error| format!("native runtime artifact is invalid: {error:?}"))?;
 
     let native = compilation
         .native_product_facts(

@@ -3,6 +3,7 @@
 mod build;
 mod execute;
 mod output;
+mod runtime;
 
 pub(crate) use build::run_build_command;
 pub use execute::{DriverRunResult, run, run_result};

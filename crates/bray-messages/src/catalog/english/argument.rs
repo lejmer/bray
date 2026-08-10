@@ -38,6 +38,7 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::TargetRepresentation(kind) => {
             format_english_target_representation(*kind).to_owned()
         }
+        DiagnosticArgValue::TargetIdentity(identity) => format_english_quoted_text(identity),
         DiagnosticArgValue::CallableAbi(abi) => format_english_callable_abi(*abi).to_owned(),
         DiagnosticArgValue::AlignmentKind(kind) => format_english_alignment_kind(*kind).to_owned(),
         DiagnosticArgValue::Character(character) => format_english_character(*character),
