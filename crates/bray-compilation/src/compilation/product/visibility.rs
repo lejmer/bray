@@ -131,7 +131,8 @@ pub(super) fn validate_public_surface(
                 symbols,
                 declarations,
                 diagnostics,
-            )?.or(exposes_internal)
+            )?
+            .or(exposes_internal)
         } else {
             exposes_internal
         };
@@ -145,7 +146,8 @@ pub(super) fn validate_public_surface(
                     symbols,
                     declarations,
                     diagnostics,
-                )?.or(exposes_internal)
+                )?
+                .or(exposes_internal)
             } else {
                 exposes_internal
             };
@@ -239,11 +241,8 @@ pub(super) fn add_internal_dependency_diagnostic(
         return Ok(());
     };
 
-    let identity = crate::compilation::diagnostics::symbol_diagnostic_identity(
-        symbols,
-        None,
-        internal,
-    )?;
+    let identity =
+        crate::compilation::diagnostics::symbol_diagnostic_identity(symbols, None, internal)?;
 
     let mut diagnostic = source_diagnostic(
         anchor,
@@ -261,10 +260,7 @@ pub(super) fn add_internal_dependency_diagnostic(
     if let Some(internal_anchor) = symbols.declaration_syntax_anchor(internal) {
         diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
             DiagnosticRelatedLocationKind::RequirementOrigin,
-            bray_source::SourceSpan::new(
-                internal_anchor.source_id(),
-                internal_anchor.full_range(),
-            ),
+            bray_source::SourceSpan::new(internal_anchor.source_id(), internal_anchor.full_range()),
         ));
     }
 
@@ -284,12 +280,9 @@ fn template_internal_dependency(
     while let Some(template) = pending.pop() {
         match template {
             TypeExpressionTemplate::Resolved(ty) => {
-                if let Some(internal) = resolved_type_internal_dependency(
-                    *ty,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                ) {
+                if let Some(internal) =
+                    resolved_type_internal_dependency(*ty, semantic_values, symbols, declarations)
+                {
                     return Some(internal);
                 }
             }

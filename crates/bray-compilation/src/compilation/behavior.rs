@@ -99,10 +99,16 @@ impl BodyBehaviorBuilder {
         let capability_uses = self
             .trusted_capabilities
             .iter()
-            .map(|(capability, sources)| TrustedCapabilityUse::new(*capability, sources.iter().copied()))
+            .map(|(capability, sources)| {
+                TrustedCapabilityUse::new(*capability, sources.iter().copied())
+            })
             .collect::<Vec<_>>();
 
-        let trusted_capabilities = self.trusted_capabilities.keys().copied().collect::<Vec<_>>();
+        let trusted_capabilities = self
+            .trusted_capabilities
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
 
         CheckedBodyBehavior::new(unit, key.kind(), cancellation, self.is_recovered)
             .with_requirements(

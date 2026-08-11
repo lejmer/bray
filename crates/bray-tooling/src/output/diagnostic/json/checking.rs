@@ -13,7 +13,5 @@ pub(super) use analysis::{
 pub(super) use overload::{
     DiagnosticCallableOverloadProblemJson, DiagnosticImplementationOverloadProblemJson,
 };
-pub(super) use selection::{
-    DiagnosticSelectionCandidatesJson, DiagnosticSelectionRejectionsJson,
-};
+pub(super) use selection::{DiagnosticSelectionCandidatesJson, DiagnosticSelectionRejectionsJson};
 pub(super) use trait_mismatch::DiagnosticTraitFulfillmentMismatchJson;

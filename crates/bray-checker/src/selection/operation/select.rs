@@ -99,9 +99,10 @@ where
             CandidateCheck::Applicable(operation) => {
                 applicable.push((diagnostic_candidate, key, operation));
             }
-            CandidateCheck::Incompatible(reason) => rejected.push(
-                SelectionRejectedCandidate::new(diagnostic_candidate, reason),
-            ),
+            CandidateCheck::Incompatible(reason) => rejected.push(SelectionRejectedCandidate::new(
+                diagnostic_candidate,
+                reason,
+            )),
             CandidateCheck::Recovered => has_recovered = true,
         }
     }
@@ -129,9 +130,9 @@ where
             })
         }
         _ if has_recovered => CandidateSelection::Failed(SelectionFailure::Recovered),
-        _ if !rejected.is_empty() => CandidateSelection::Failed(SelectionFailure::Incompatible(
-            rejected.into(),
-        )),
+        _ if !rejected.is_empty() => {
+            CandidateSelection::Failed(SelectionFailure::Incompatible(rejected.into()))
+        }
         _ => CandidateSelection::Failed(SelectionFailure::Unavailable),
     };
 
@@ -233,7 +234,8 @@ where
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
             }
 
-            let inputs = match map_construction_inputs(request, types, expression, target, &inputs)? {
+            let inputs = match map_construction_inputs(request, types, expression, target, &inputs)?
+            {
                 ConstructionInputMapping::Mapped(inputs) => inputs,
                 ConstructionInputMapping::Rejected(reason) => {
                     return Ok(CandidateCheck::Incompatible(
@@ -822,7 +824,9 @@ mod tests {
         };
 
         assert_eq!(
-            keys.iter().map(|candidate| candidate.key()).collect::<Vec<_>>(),
+            keys.iter()
+                .map(|candidate| candidate.key())
+                .collect::<Vec<_>>(),
             [
                 &SelectionCandidateKey::Symbol(declaration_key(SymbolKind::Function, 1)),
                 &SelectionCandidateKey::Symbol(declaration_key(SymbolKind::Function, 2)),

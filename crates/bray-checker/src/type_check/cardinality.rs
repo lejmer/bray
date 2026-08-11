@@ -44,13 +44,9 @@ where
             continue;
         }
 
-        if let Some(problem) = array_generator_problem(
-            request,
-            types,
-            iteration_sources,
-            expression_id,
-            expression,
-        )? {
+        if let Some(problem) =
+            array_generator_problem(request, types, iteration_sources, expression_id, expression)?
+        {
             unproven.push(UnprovenArrayGenerator {
                 expression: expression_id,
                 problem,
@@ -197,7 +193,10 @@ where
         _ => None,
     };
 
-    Ok(exact.map_or(DiagnosticArrayLength::Symbolic, DiagnosticArrayLength::Exact))
+    Ok(exact.map_or(
+        DiagnosticArrayLength::Symbolic,
+        DiagnosticArrayLength::Exact,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -333,9 +332,7 @@ impl YieldSummary {
             [true, true, false] => Some(DiagnosticYieldCardinality::ZeroOrOne),
             [false, true, true] => Some(DiagnosticYieldCardinality::OneOrMultiple),
             [true, false, true] => Some(DiagnosticYieldCardinality::ZeroOrMultiple),
-            [true, true, true] => {
-                Some(DiagnosticYieldCardinality::ZeroOneOrMultiple)
-            }
+            [true, true, true] => Some(DiagnosticYieldCardinality::ZeroOneOrMultiple),
             [false, false, false] => Some(DiagnosticYieldCardinality::Unknown),
         }
     }

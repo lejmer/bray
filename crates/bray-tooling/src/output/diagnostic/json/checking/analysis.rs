@@ -1,8 +1,8 @@
 use serde::Serialize;
 
 use super::super::{
-    DiagnosticProblemJson, DiagnosticTypeJson, problem, problem_array_length,
-    problem_count_u64, problem_text, problem_type, problem_types,
+    DiagnosticProblemJson, DiagnosticTypeJson, problem, problem_array_length, problem_count_u64,
+    problem_text, problem_type, problem_types,
 };
 
 #[derive(Serialize)]
@@ -13,7 +13,9 @@ pub(in crate::output::diagnostic::json) struct DiagnosticPatternCoverageJson {
 }
 
 impl DiagnosticPatternCoverageJson {
-    pub(in crate::output::diagnostic::json) fn from_coverage(coverage: &bray_diagnostics::DiagnosticPatternCoverage) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_coverage(
+        coverage: &bray_diagnostics::DiagnosticPatternCoverage,
+    ) -> Self {
         Self {
             subject_type: DiagnosticTypeJson::from_type(coverage.subject_type()),
             missing_cases: coverage
@@ -39,9 +41,7 @@ enum DiagnosticPatternMissingCaseJson {
 impl DiagnosticPatternMissingCaseJson {
     fn from_case(case: &bray_diagnostics::DiagnosticPatternMissingCase) -> Self {
         match case {
-            bray_diagnostics::DiagnosticPatternMissingCase::NullableAbsent => {
-                Self::NullableAbsent
-            }
+            bray_diagnostics::DiagnosticPatternMissingCase::NullableAbsent => Self::NullableAbsent,
             bray_diagnostics::DiagnosticPatternMissingCase::NullablePresent => {
                 Self::NullablePresent
             }
@@ -67,7 +67,9 @@ pub(in crate::output::diagnostic::json) struct DiagnosticStorageAccessJson {
 }
 
 impl DiagnosticStorageAccessJson {
-    pub(in crate::output::diagnostic::json) fn from_access(access: &bray_diagnostics::DiagnosticStorageAccess) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_access(
+        access: &bray_diagnostics::DiagnosticStorageAccess,
+    ) -> Self {
         Self {
             purpose: access.purpose().as_str(),
             root: access.root().as_str(),
@@ -174,7 +176,11 @@ pub(in crate::output::diagnostic::json) fn union_tag_problem_json(
             problem_count_u64("width_bits", u64::from(*width_bits)),
             problem_text(
                 "value_sign",
-                if *value_negative { "negative" } else { "nonnegative" },
+                if *value_negative {
+                    "negative"
+                } else {
+                    "nonnegative"
+                },
             ),
             problem_count_u64("value_bits", *value_bits),
         ],

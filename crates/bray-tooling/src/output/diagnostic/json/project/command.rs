@@ -50,7 +50,9 @@ pub(in crate::output::diagnostic::json) struct DiagnosticExternalToolExitJson {
 }
 
 impl DiagnosticExternalToolExitJson {
-    pub(in crate::output::diagnostic::json) fn from_exit(exit: &bray_diagnostics::DiagnosticExternalToolExit) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_exit(
+        exit: &bray_diagnostics::DiagnosticExternalToolExit,
+    ) -> Self {
         Self {
             exit_code: exit.code(),
             standard_output: DiagnosticExternalToolStreamCaptureJson::from_capture(
@@ -85,7 +87,9 @@ impl DiagnosticExternalToolStreamCaptureJson {
 }
 
 impl DiagnosticLinkerDriverIdentityJson {
-    pub(in crate::output::diagnostic::json) fn from_identity(identity: &DiagnosticLinkerDriverIdentity) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_identity(
+        identity: &DiagnosticLinkerDriverIdentity,
+    ) -> Self {
         Self {
             kind: identity.kind().as_str(),
             name: identity.name().to_owned(),
@@ -103,7 +107,9 @@ pub(in crate::output::diagnostic::json) struct DiagnosticSourceInputJson {
 }
 
 impl DiagnosticSourceInputJson {
-    pub(in crate::output::diagnostic::json) fn from_input(input: &bray_diagnostics::DiagnosticSourceInput) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_input(
+        input: &bray_diagnostics::DiagnosticSourceInput,
+    ) -> Self {
         Self {
             index: input.index(),
             kind: input.kind().as_str(),

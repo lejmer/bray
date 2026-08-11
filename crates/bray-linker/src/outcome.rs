@@ -1,20 +1,19 @@
 use std::sync::Arc;
 
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExternalToolFailureKind,
-    DiagnosticExternalToolExit, DiagnosticExternalToolOperation, DiagnosticId,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExternalToolExit,
+    DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticId,
     DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLinkRequirement,
-    DiagnosticLinkerDriverIdentity, DiagnosticLinkerDriverKind, DiagnosticNote,
-    DiagnosticNoteKind, SeverityKind,
+    DiagnosticLinkerDriverIdentity, DiagnosticLinkerDriverKind, DiagnosticNote, DiagnosticNoteKind,
+    SeverityKind,
 };
 use bray_platform::{PlatformErrorKind, PlatformOperation};
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
 use crate::{
-    ExternalToolFailure, ExternalToolOutput, ExternalToolResponseFileOperation,
-    ExternalToolStream, LinkInputId, LinkPlan, LinkedArtifact, LinkedArtifactRequirement,
-    LinkerDriverIdentity,
+    ExternalToolFailure, ExternalToolOutput, ExternalToolResponseFileOperation, ExternalToolStream,
+    LinkInputId, LinkPlan, LinkedArtifact, LinkedArtifactRequirement, LinkerDriverIdentity,
     StagingDestinationId, UnsupportedLinkRequirement,
 };
 
@@ -114,9 +113,9 @@ fn link_failure_diagnostic(failure: &LinkFailure) -> Diagnostic {
         LinkFailure::DriverUnavailable => {
             failure_diagnostic(DiagnosticKind::LinkerDriverUnavailable)
         }
-        LinkFailure::DriverIncompatible => compiler_defect_diagnostic(
-            DiagnosticKind::LinkerDriverIncompatible,
-        ),
+        LinkFailure::DriverIncompatible => {
+            compiler_defect_diagnostic(DiagnosticKind::LinkerDriverIncompatible)
+        }
         LinkFailure::MissingInput(input) => failure_diagnostic(DiagnosticKind::LinkerInputMissing)
             .with_arg(
                 DiagnosticArg::input_index(
@@ -126,22 +125,22 @@ fn link_failure_diagnostic(failure: &LinkFailure) -> Diagnostic {
                 .unwrap_or_else(|| unreachable!("u32 link input ordinal must fit usize")),
             ),
         LinkFailure::ResponseFile => failure_diagnostic(DiagnosticKind::LinkerResponseFileFailed),
-        LinkFailure::Invocation => compiler_defect_diagnostic(
-            DiagnosticKind::LinkerInvocationFailed,
-        ),
-        LinkFailure::ToolExit(output) => failure_diagnostic(
-            DiagnosticKind::LinkerExternalToolExitedUnsuccessfully,
-        )
-        .with_arg(DiagnosticArg::external_tool_exit(
-            DiagnosticExternalToolExit::new(
-                output.exit_code(),
-                output.standard_output(),
-                output.standard_error(),
-            ),
-        ))
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::ExternalToolExitRequiresCorrection,
-        )),
+        LinkFailure::Invocation => {
+            compiler_defect_diagnostic(DiagnosticKind::LinkerInvocationFailed)
+        }
+        LinkFailure::ToolExit(output) => {
+            failure_diagnostic(DiagnosticKind::LinkerExternalToolExitedUnsuccessfully)
+                .with_arg(DiagnosticArg::external_tool_exit(
+                    DiagnosticExternalToolExit::new(
+                        output.exit_code(),
+                        output.standard_output(),
+                        output.standard_error(),
+                    ),
+                ))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::ExternalToolExitRequiresCorrection,
+                ))
+        }
         LinkFailure::MissingOutput(output) => {
             failure_diagnostic(DiagnosticKind::LinkerOutputMissing)
                 .with_arg(DiagnosticArg::artifact_ordinal(output.ordinal()))

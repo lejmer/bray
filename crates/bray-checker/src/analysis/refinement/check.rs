@@ -342,8 +342,8 @@ mod tests {
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::capacity_diagnostic;
     use super::super::universe::{MAX_REFINEMENT_CELLS, MAX_REFINEMENT_FACTS};
+    use super::capacity_diagnostic;
 
     #[test]
     fn refinement_capacity_recovery_preserves_each_exact_configured_surface() {
@@ -377,7 +377,11 @@ mod tests {
 
             assert_eq!(diagnostic.severity(), SeverityKind::Error);
             assert_eq!(diagnostic.primary_span(), Some(span));
-            assert_eq!(diagnostic.args(), [DiagnosticArg::refinement_capacity(capacity)]);
+
+            assert_eq!(
+                diagnostic.args(),
+                [DiagnosticArg::refinement_capacity(capacity)]
+            );
 
             assert_goal_state_diagnostic_kind(
                 &DiagnosticBag::single(diagnostic),

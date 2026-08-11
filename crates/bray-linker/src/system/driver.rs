@@ -136,8 +136,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
-    use bray_target::{ObjectFormat, TargetArchitecture};
     use bray_diagnostics::DiagnosticKind;
+    use bray_target::{ObjectFormat, TargetArchitecture};
     use bray_testing::{TemporaryFile, assert_goal_state_diagnostic_kind};
 
     use super::{SystemLinkerDriver, SystemLinkerDriverBuildError};

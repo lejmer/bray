@@ -4,10 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult,
-    DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticStoredTypeProblem,
-    SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticStoredTypeProblem, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -134,7 +133,9 @@ impl MemberRepresentation {
                 .non_copyable_members
                 .extend(value.non_copyable_members);
 
-            result.stored_type_problems.extend(value.stored_type_problems);
+            result
+                .stored_type_problems
+                .extend(value.stored_type_problems);
 
             for cycle in value.recursive_cycles {
                 if !result.recursive_cycles.contains(&cycle) {
@@ -362,10 +363,13 @@ where
 
         result.recovered |= member.is_recovered();
 
-        if !result.finite && result.recursive_cycles.is_empty() && result.stored_type_problems.is_empty() {
-            result.stored_type_problems.insert(
-                DiagnosticStoredTypeProblem::ReferencedTypeHasNoFiniteRepresentation,
-            );
+        if !result.finite
+            && result.recursive_cycles.is_empty()
+            && result.stored_type_problems.is_empty()
+        {
+            result
+                .stored_type_problems
+                .insert(DiagnosticStoredTypeProblem::ReferencedTypeHasNoFiniteRepresentation);
         }
 
         for problem in &result.stored_type_problems {

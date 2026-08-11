@@ -94,12 +94,10 @@ fn assign_symbol_ids(
     let maximum_symbol_count = SymbolId::CAPACITY;
 
     if actual_symbol_count > maximum_symbol_count {
-        return Err(
-            ImportedSymbolSkeletonBuildError::SymbolCapacityExceeded {
-                actual: actual_symbol_count,
-                maximum: maximum_symbol_count,
-            },
-        );
+        return Err(ImportedSymbolSkeletonBuildError::SymbolCapacityExceeded {
+            actual: actual_symbol_count,
+            maximum: maximum_symbol_count,
+        });
     }
 
     identities.sort_by(|left, right| left.1.key().cmp(right.1.key()));

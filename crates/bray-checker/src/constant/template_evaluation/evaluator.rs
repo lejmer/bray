@@ -14,9 +14,7 @@ use bray_symbols::{
 use super::super::ConstantReferenceResolution;
 use super::super::call::{ConstantCallRequest, ConstantCallResolution, ConstantTemplateResolver};
 use super::super::conversion::convert_scalar;
-use super::super::diagnostic::{
-    ConstantDiagnostic, ConstantLimitKind, diagnostic_operation,
-};
+use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic_operation};
 use super::super::limits::{ConstantEvaluationLimits, EvaluationBudget};
 use super::super::operation::{fold_binary, fold_unary};
 use super::support::{
@@ -377,9 +375,11 @@ where
             }
             ConstantReferenceResolution::Term(term) => self.evaluate_term(*term, ty)?,
             ConstantReferenceResolution::Cycle { definition } => {
-                return Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Cycle {
-                    definition: *definition,
-                }));
+                return Err(TemplateEvaluationFailure::Diagnostic(
+                    ConstantDiagnostic::Cycle {
+                        definition: *definition,
+                    },
+                ));
             }
             ConstantReferenceResolution::Invalid => {
                 return Err(TemplateEvaluationFailure::invalid_input());
@@ -451,11 +451,9 @@ where
         let limits = self.budget.remaining_limits(self.limits);
 
         let Some(limits) = limits.nested_call() else {
-            return Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::limit(
-                ConstantLimitKind::EvaluationSteps,
-                1,
-                0,
-            )));
+            return Err(TemplateEvaluationFailure::Diagnostic(
+                ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0),
+            ));
         };
 
         let request = ConstantCallRequest::new(
@@ -484,11 +482,9 @@ where
 
                 Ok(result.value().value())
             }
-            ConstantCallResolution::Cycle => {
-                Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Cycle {
-                    definition: None,
-                }))
-            }
+            ConstantCallResolution::Cycle => Err(TemplateEvaluationFailure::Diagnostic(
+                ConstantDiagnostic::Cycle { definition: None },
+            )),
             ConstantCallResolution::Ineligible(diagnostics) => {
                 if diagnostics.has_errors() {
                     self.diagnostics = self.diagnostics.merged(&diagnostics);
@@ -526,7 +522,10 @@ where
                 .pointer_width_bits()
         })
         .map_err(|error| {
-            operation_failure(bray_diagnostics::DiagnosticConstantOperation::Conversion, error)
+            operation_failure(
+                bray_diagnostics::DiagnosticConstantOperation::Conversion,
+                error,
+            )
         })?;
 
         self.intern_value(target, kind)

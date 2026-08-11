@@ -109,15 +109,15 @@ where
                     };
 
                     let mut produced = Diagnostic::new(
-                            diagnostic_id(diagnostics.len()),
-                            literal_diagnostic_kind(error),
-                            SeverityKind::Error,
-                        )
-                        .with_primary_span(span)
-                        .with_label(DiagnosticLabel::primary(
-                            DiagnosticLabelKind::InvalidConstantExpression,
-                            span,
-                        ));
+                        diagnostic_id(diagnostics.len()),
+                        literal_diagnostic_kind(error),
+                        SeverityKind::Error,
+                    )
+                    .with_primary_span(span)
+                    .with_label(DiagnosticLabel::primary(
+                        DiagnosticLabelKind::InvalidConstantExpression,
+                        span,
+                    ));
 
                     produced = match error {
                         ConstantLiteralError::Invalid => produced
@@ -127,17 +127,16 @@ where
                             .with_note(DiagnosticNote::new(
                                 DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
                             )),
-                        ConstantLiteralError::NotRepresentable => produced.with_arg(
-                            DiagnosticArg::actual_type(match diagnostic_type(
-                                request.context(),
-                                result.ty(),
-                            ) {
-                                Ok(ty) => ty,
-                                Err(error) => {
-                                    return CheckerOutcome::InfrastructureFailure(error);
-                                }
-                            }),
-                        ),
+                        ConstantLiteralError::NotRepresentable => {
+                            produced.with_arg(DiagnosticArg::actual_type(
+                                match diagnostic_type(request.context(), result.ty()) {
+                                    Ok(ty) => ty,
+                                    Err(error) => {
+                                        return CheckerOutcome::InfrastructureFailure(error);
+                                    }
+                                },
+                            ))
+                        }
                         ConstantLiteralError::SizeLimitExceeded { actual, maximum } => produced
                             .with_arg(DiagnosticArg::actual_count(actual))
                             .with_arg(DiagnosticArg::maximum_count(maximum))

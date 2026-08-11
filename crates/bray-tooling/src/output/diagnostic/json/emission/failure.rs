@@ -1,10 +1,10 @@
 use serde::Serialize;
 
+use super::super::{DiagnosticArtifactDigestJson, DiagnosticOutputSinkJson};
 use super::context::{
     codegen_failure_context, link_plan_failure_context, package_interface_failure_context,
     planning_failure_context, staging_failure_context,
 };
-use super::super::{DiagnosticArtifactDigestJson, DiagnosticOutputSinkJson};
 
 #[derive(Serialize)]
 pub(in crate::output::diagnostic::json) struct DiagnosticEmissionFailureJson {
@@ -107,10 +107,7 @@ pub(super) fn digest_field(
     )
 }
 
-pub(super) fn count_field(
-    name: &'static str,
-    value: u32,
-) -> DiagnosticEmissionFieldJson {
+pub(super) fn count_field(name: &'static str, value: u32) -> DiagnosticEmissionFieldJson {
     field(
         name,
         DiagnosticEmissionFieldValueJson::Count(u64::from(value)),

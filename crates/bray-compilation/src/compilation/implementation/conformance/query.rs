@@ -8,9 +8,8 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticCallableBehaviorComponent,
     DiagnosticCallableBehaviorPhase, DiagnosticCallableConstness,
     DiagnosticCallableContractClauseCategory, DiagnosticCallableContractMismatch,
-    DiagnosticCallableContractSurface,
-    DiagnosticCallableParameterMode, DiagnosticCallablePosition, DiagnosticCallableTrust,
-    DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
+    DiagnosticCallableContractSurface, DiagnosticCallableParameterMode, DiagnosticCallablePosition,
+    DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
     DiagnosticGenericParameterCategory, DiagnosticId, DiagnosticKind, DiagnosticLabel,
     DiagnosticLabelKind, DiagnosticReceiverMode, DiagnosticRelatedLocation,
     DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticTraitFulfillmentMismatch,
@@ -201,31 +200,28 @@ impl Compilation {
             ) {
                 match subject_lifecycle.get(&slot).copied() {
                     Some((symbol, fulfillment)) => match subject_lifecycle_is_compatible(
-                            &compatibility,
-                            requirement,
-                            fulfillment,
-                            &mut diagnostics,
-                        )? {
-                            None => TraitRequirementResolution::SubjectLifecycle(symbol),
-                            Some(mismatch) => {
-                                diagnostics.add(conformance_diagnostic(
-                                    symbols,
-                                    DiagnosticKind::CheckingIncompatibleTraitFulfillment,
-                                    implementation.into_any(),
-                                    &slot,
-                                    Some(self.diagnostic_trait_mismatch(
-                                        mismatch,
-                                        cancellation,
-                                    )?),
-                                    [(
-                                        DiagnosticRelatedLocationKind::RequirementOrigin,
-                                        requirement.symbol(),
-                                    )],
-                                )?);
+                        &compatibility,
+                        requirement,
+                        fulfillment,
+                        &mut diagnostics,
+                    )? {
+                        None => TraitRequirementResolution::SubjectLifecycle(symbol),
+                        Some(mismatch) => {
+                            diagnostics.add(conformance_diagnostic(
+                                symbols,
+                                DiagnosticKind::CheckingIncompatibleTraitFulfillment,
+                                implementation.into_any(),
+                                &slot,
+                                Some(self.diagnostic_trait_mismatch(mismatch, cancellation)?),
+                                [(
+                                    DiagnosticRelatedLocationKind::RequirementOrigin,
+                                    requirement.symbol(),
+                                )],
+                            )?);
 
-                                TraitRequirementResolution::Incompatible(symbol)
-                            }
-                        },
+                            TraitRequirementResolution::Incompatible(symbol)
+                        }
+                    },
                     None => {
                         diagnostics.add(conformance_diagnostic(
                             symbols,
@@ -258,10 +254,7 @@ impl Compilation {
                                     DiagnosticKind::CheckingIncompatibleTraitFulfillment,
                                     fulfillment.symbol(),
                                     &slot,
-                                    Some(self.diagnostic_trait_mismatch(
-                                        mismatch,
-                                        cancellation,
-                                    )?),
+                                    Some(self.diagnostic_trait_mismatch(mismatch, cancellation)?),
                                     [(
                                         DiagnosticRelatedLocationKind::RequirementOrigin,
                                         requirement.symbol(),
@@ -647,9 +640,7 @@ fn diagnostic_callable_contract_mismatch(
     Ok(mismatch)
 }
 
-const fn diagnostic_constraint_category(
-    value: ConstraintCategory,
-) -> DiagnosticConstraintCategory {
+const fn diagnostic_constraint_category(value: ConstraintCategory) -> DiagnosticConstraintCategory {
     match value {
         ConstraintCategory::Predicate => DiagnosticConstraintCategory::Predicate,
         ConstraintCategory::TraitSatisfaction => DiagnosticConstraintCategory::TraitSatisfaction,
@@ -731,9 +722,7 @@ const fn diagnostic_callable_constness(
     }
 }
 
-const fn diagnostic_callable_trust(
-    value: bray_symbols::CallableTrust,
-) -> DiagnosticCallableTrust {
+const fn diagnostic_callable_trust(value: bray_symbols::CallableTrust) -> DiagnosticCallableTrust {
     match value {
         bray_symbols::CallableTrust::Safe => DiagnosticCallableTrust::Safe,
         bray_symbols::CallableTrust::Trusted => DiagnosticCallableTrust::Trusted,
@@ -758,9 +747,7 @@ const fn diagnostic_callable_parameter_mode(
         bray_symbols::CallableParameterMode::Immutable => {
             DiagnosticCallableParameterMode::Immutable
         }
-        bray_symbols::CallableParameterMode::Mutable => {
-            DiagnosticCallableParameterMode::Mutable
-        }
+        bray_symbols::CallableParameterMode::Mutable => DiagnosticCallableParameterMode::Mutable,
     }
 }
 
@@ -1185,12 +1172,7 @@ fn conformance_diagnostic(
     span_symbol: bray_symbols::AnySymbolId,
     slot: &MemberSlot,
     mismatch: Option<DiagnosticTraitFulfillmentMismatch>,
-    related: impl IntoIterator<
-        Item = (
-            DiagnosticRelatedLocationKind,
-            bray_symbols::AnySymbolId,
-        ),
-    >,
+    related: impl IntoIterator<Item = (DiagnosticRelatedLocationKind, bray_symbols::AnySymbolId)>,
 ) -> Result<Diagnostic, FactQueryError> {
     let anchor = symbols
         .declaration_syntax_anchor(span_symbol)

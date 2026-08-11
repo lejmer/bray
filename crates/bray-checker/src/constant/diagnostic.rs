@@ -42,11 +42,7 @@ impl ConstantDiagnostic {
         Self::Operation { operation, error }
     }
 
-    pub(super) const fn limit(
-        resource: ConstantLimitKind,
-        actual: u64,
-        maximum: u64,
-    ) -> Self {
+    pub(super) const fn limit(resource: ConstantLimitKind, actual: u64, maximum: u64) -> Self {
         Self::Limit {
             resource,
             actual,
@@ -121,12 +117,12 @@ impl ConstantDiagnostic {
                 .with_arg(DiagnosticArg::maximum_count(maximum)),
             Self::Cycle {
                 definition: Some(definition),
-            } if diagnostic.primary_span() != Some(definition) => diagnostic.with_related_location(
-                DiagnosticRelatedLocation::new(
+            } if diagnostic.primary_span() != Some(definition) => {
+                diagnostic.with_related_location(DiagnosticRelatedLocation::new(
                     DiagnosticRelatedLocationKind::FirstDeclaration,
                     definition,
-                ),
-            ),
+                ))
+            }
             Self::InvalidExpression | Self::Literal(_) | Self::Cycle { .. } => diagnostic,
         }
     }

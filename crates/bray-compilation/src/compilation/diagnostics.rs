@@ -22,10 +22,10 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractsFact, CallableSymbolId, ConstantDefinitionState,
-    DeclaredTypeRepresentation, ImplementationSymbolId, ModuleSurface, ModuleSurfaceFact,
-    ImportedSymbolSkeleton, NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest,
-    ProductKind, SymbolFactResult, SymbolGraph, SymbolKey, SymbolOrigin,
-    TraitImplementationConformanceFact, diagnostic_symbol_identity, diagnostic_symbol_kind,
+    DeclaredTypeRepresentation, ImplementationSymbolId, ImportedSymbolSkeleton, ModuleSurface,
+    ModuleSurfaceFact, NamedTypeSymbolId, ProductKind, SemanticFactResult, SymbolFactRequest,
+    SymbolFactResult, SymbolGraph, SymbolKey, SymbolOrigin, TraitImplementationConformanceFact,
+    diagnostic_symbol_identity, diagnostic_symbol_kind,
 };
 use bray_syntax::{
     ExpressionSyntax, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree,

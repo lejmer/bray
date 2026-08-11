@@ -433,7 +433,11 @@ fn validate_trusted_capabilities(
         .map(|use_| (use_.capability(), use_))
         .collect::<BTreeMap<_, _>>();
 
-    let declared = declared_by_capability.keys().copied().collect::<BTreeSet<_>>();
+    let declared = declared_by_capability
+        .keys()
+        .copied()
+        .collect::<BTreeSet<_>>();
+
     let used = used_by_capability.keys().copied().collect::<BTreeSet<_>>();
 
     if declared.is_empty() && used.is_empty() {
@@ -540,10 +544,7 @@ fn trusted_capability_diagnostic(
 
 fn trusted_capability_origins<'a>(
     capability: TrustedCapabilitySymbolId,
-    declared: &'a BTreeMap<
-        TrustedCapabilitySymbolId,
-        BTreeSet<bray_declarations::SyntaxAnchor>,
-    >,
+    declared: &'a BTreeMap<TrustedCapabilitySymbolId, BTreeSet<bray_declarations::SyntaxAnchor>>,
     used: &'a BTreeMap<TrustedCapabilitySymbolId, &bray_bound_tree::TrustedCapabilityUse>,
 ) -> impl Iterator<Item = bray_declarations::SyntaxAnchor> + 'a {
     declared
@@ -1018,9 +1019,11 @@ mod tests {
 
         assert_eq!(diagnostic.related_locations().len(), 2);
 
-        assert!(diagnostic.related_locations().iter().all(|related| {
-            related.kind() == DiagnosticRelatedLocationKind::RequirementOrigin
-        }));
+        assert!(
+            diagnostic.related_locations().iter().all(|related| {
+                related.kind() == DiagnosticRelatedLocationKind::RequirementOrigin
+            })
+        );
     }
 
     #[test]
@@ -1160,10 +1163,7 @@ mod tests {
         trusted_capability_compilation_with_body(outer_contract, "    native_call();\n")
     }
 
-    fn trusted_capability_compilation_with_body(
-        outer_contract: &str,
-        body: &str,
-    ) -> Compilation {
+    fn trusted_capability_compilation_with_body(outer_contract: &str, body: &str) -> Compilation {
         let source = format!(
             concat!(
                 "trusted module app;\n",

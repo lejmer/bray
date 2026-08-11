@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use bray_diagnostics::DiagnosticProjectManifestField;
 use crate::{ProjectLoadError, ProjectPath};
+use bray_diagnostics::DiagnosticProjectManifestField;
 
 #[derive(Clone, Copy)]
 enum SourcePathProblem {
@@ -79,11 +79,7 @@ fn collect_directory(
             })?;
 
             let name = entry.file_name().into_string().map_err(|_| {
-                invalid_source_root(
-                    manifest_path,
-                    SourcePathProblem::NonUtf8,
-                    entry.path(),
-                )
+                invalid_source_root(manifest_path, SourcePathProblem::NonUtf8, entry.path())
             })?;
 
             Ok((name, entry))

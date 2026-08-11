@@ -71,12 +71,10 @@ pub(crate) const fn expression_category(
         | BoundExpression::LeadingDotVariant(_)
         | BoundExpression::UnqualifiedVariant(_) => DiagnosticExpressionCategory::Construction,
         BoundExpression::MemberAccess(_) => DiagnosticExpressionCategory::MemberAccess,
-        BoundExpression::TraitQualifiedMember(_) => {
-            DiagnosticExpressionCategory::TraitMemberAccess
-        }
-        BoundExpression::ControlTransfer(_) | BoundExpression::For(_) | BoundExpression::Match(_) => {
-            DiagnosticExpressionCategory::ControlFlow
-        }
+        BoundExpression::TraitQualifiedMember(_) => DiagnosticExpressionCategory::TraitMemberAccess,
+        BoundExpression::ControlTransfer(_)
+        | BoundExpression::For(_)
+        | BoundExpression::Match(_) => DiagnosticExpressionCategory::ControlFlow,
         BoundExpression::Generator(_) => DiagnosticExpressionCategory::Generator,
         BoundExpression::Error(_) => DiagnosticExpressionCategory::Recovered,
     }

@@ -3,8 +3,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabelKind, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticRelatedLocation,
-    DiagnosticRelatedLocationKind,
+    DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -188,25 +187,22 @@ pub(super) fn select_executable_entrypoint(
 
             for (function, _) in rest {
                 if let Some(anchor) = symbols.declaration_syntax_anchor((*function).into()) {
-                    let mut diagnostic = source_diagnostic(
-                        anchor,
-                        DiagnosticKind::CheckingDuplicateEntrypoint,
-                    )
-                    .with_arg(DiagnosticArg::actual_count(count))
-                    .with_note(DiagnosticNote::new(
-                        DiagnosticNoteKind::ExecutableEntrypointRequired,
-                    ));
+                    let mut diagnostic =
+                        source_diagnostic(anchor, DiagnosticKind::CheckingDuplicateEntrypoint)
+                            .with_arg(DiagnosticArg::actual_count(count))
+                            .with_note(DiagnosticNote::new(
+                                DiagnosticNoteKind::ExecutableEntrypointRequired,
+                            ));
 
                     if let Some(first_anchor) = first_anchor {
-                        diagnostic = diagnostic.with_related_location(
-                            DiagnosticRelatedLocation::new(
+                        diagnostic =
+                            diagnostic.with_related_location(DiagnosticRelatedLocation::new(
                                 DiagnosticRelatedLocationKind::FirstDeclaration,
                                 SourceSpan::new(
                                     first_anchor.source_id(),
                                     first_anchor.full_range(),
                                 ),
-                            ),
-                        );
+                            ));
                     }
 
                     diagnostics.add(diagnostic);
@@ -275,8 +271,8 @@ pub(super) fn validate_entry(
 
     if !symbol.generic_type_parameters().is_empty() || !symbol.generic_const_parameters().is_empty()
     {
-        let count = symbol.generic_type_parameters().len()
-            + symbol.generic_const_parameters().len();
+        let count =
+            symbol.generic_type_parameters().len() + symbol.generic_const_parameters().len();
 
         diagnostics.add(
             source_diagnostic(anchor, DiagnosticKind::CheckingEntryCannotBeGeneric)
@@ -567,7 +563,10 @@ fn named_role(
     }
 }
 
-fn missing_entrypoint_diagnostic(symbols: &SymbolGraph, product_anchor: SyntaxAnchor) -> Diagnostic {
+fn missing_entrypoint_diagnostic(
+    symbols: &SymbolGraph,
+    product_anchor: SyntaxAnchor,
+) -> Diagnostic {
     let kind = DiagnosticKind::CheckingMissingEntrypoint;
 
     let anchor = symbols
@@ -576,8 +575,7 @@ fn missing_entrypoint_diagnostic(symbols: &SymbolGraph, product_anchor: SyntaxAn
         .find(|module| module.origin() == bray_symbols::SymbolOrigin::Source)
         .and_then(|module| symbols.declaration_syntax_anchor(module.id().into()));
 
-    source_diagnostic(anchor.unwrap_or(product_anchor), kind)
-    .with_note(DiagnosticNote::new(
+    source_diagnostic(anchor.unwrap_or(product_anchor), kind).with_note(DiagnosticNote::new(
         DiagnosticNoteKind::ExecutableEntrypointRequired,
     ))
 }

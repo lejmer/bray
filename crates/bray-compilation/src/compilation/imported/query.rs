@@ -5,14 +5,12 @@ use std::sync::Arc;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticBag, DiagnosticCheckedTemplateProblem, DiagnosticId,
-    DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceLimit, DiagnosticInterfaceRelationshipKind,
-    DiagnosticInterfaceSemanticProblem,
+    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit,
+    DiagnosticInterfaceRelationshipKind, DiagnosticInterfaceSemanticProblem,
     DiagnosticInterfaceSymbolGraphProblem, DiagnosticInterfaceSymbolIdentity,
-    DiagnosticInterfaceSymbolReference,
-    DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind, DiagnosticRelatedLocation,
-    DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticSemanticContentProblem,
-    DiagnosticSemanticValueKind, SeverityKind,
+    DiagnosticInterfaceSymbolReference, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticResult,
+    DiagnosticSemanticContentProblem, DiagnosticSemanticValueKind, SeverityKind,
 };
 use bray_package_interface::{
     ImportedInterfaceSymbolResolver, ImportedSemanticFact, ImportedSemanticFacts,
@@ -271,8 +269,7 @@ impl super::super::Compilation {
 
         let existing_symbol_count = stable_count(graph.next_symbol_index());
 
-        let required_symbol_count =
-            existing_symbol_count.saturating_add(imported_symbol_count);
+        let required_symbol_count = existing_symbol_count.saturating_add(imported_symbol_count);
 
         if required_symbol_count > SymbolId::CAPACITY {
             return Ok(DiagnosticResult::new(
@@ -778,7 +775,9 @@ fn imported_symbol_diagnostic(
         ),
         ImportedSymbolConstructionError::CompilerKnownExportTarget { importing, key } => (
             DiagnosticKind::InterfaceCompilerDeclarationExported,
-            vec![DiagnosticArg::interface_symbol_identity(symbol_identity(&key))],
+            vec![DiagnosticArg::interface_symbol_identity(symbol_identity(
+                &key,
+            ))],
             Some(importing),
             None,
         ),
@@ -788,9 +787,7 @@ fn imported_symbol_diagnostic(
             DiagnosticKind::InterfaceSymbolCapacityExceeded,
             vec![
                 DiagnosticArg::actual_package_identity(package.as_str()),
-                DiagnosticArg::interface_limit(
-                    DiagnosticInterfaceLimit::CompilationSymbolCount,
-                ),
+                DiagnosticArg::interface_limit(DiagnosticInterfaceLimit::CompilationSymbolCount),
                 DiagnosticArg::actual_count(actual),
                 DiagnosticArg::maximum_count(maximum),
             ],
@@ -843,12 +840,10 @@ fn symbol_identity(key: &bray_symbols::SymbolKey) -> DiagnosticInterfaceSymbolId
             kind: diagnostic_symbol_kind(*kind),
             declaration: declaration.raw(),
         },
-        SymbolKeyData::Synthesized(synthesized) => {
-            DiagnosticInterfaceSymbolIdentity::Synthesized {
-                owner: Box::new(symbol_identity(synthesized.subject())),
-                identity: synthesized_identity(synthesized.role(), synthesized.ordinal()),
-            }
-        }
+        SymbolKeyData::Synthesized(synthesized) => DiagnosticInterfaceSymbolIdentity::Synthesized {
+            owner: Box::new(symbol_identity(synthesized.subject())),
+            identity: synthesized_identity(synthesized.role(), synthesized.ordinal()),
+        },
         SymbolKeyData::External(external) => external_symbol_identity(external),
     }
 }
@@ -1102,9 +1097,11 @@ fn semantic_content_problem(error: SemanticValueStoreError) -> DiagnosticSemanti
                 actual: actual.raw(),
             }
         }
-        SemanticValueStoreError::UnknownId { kind } => DiagnosticSemanticContentProblem::UnknownId {
-            value_kind: diagnostic_semantic_value_kind(kind),
-        },
+        SemanticValueStoreError::UnknownId { kind } => {
+            DiagnosticSemanticContentProblem::UnknownId {
+                value_kind: diagnostic_semantic_value_kind(kind),
+            }
+        }
         SemanticValueStoreError::CapacityExhausted { kind } => {
             DiagnosticSemanticContentProblem::CapacityExhausted {
                 value_kind: diagnostic_semantic_value_kind(kind),
@@ -1342,9 +1339,7 @@ mod tests {
         InterfaceSymbolReference, InterfaceValidationPolicy,
         test_support::encoded_semantic_test_interface,
     };
-    use bray_source::{
-        SourceId, SourceIdentity, SourceInput, SourceSpan, SourceVersion, TextSize,
-    };
+    use bray_source::{SourceId, SourceIdentity, SourceInput, SourceSpan, SourceVersion, TextSize};
     use bray_standard_library::{
         STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactKind,
         StandardLibraryBundleManifest, StandardLibraryRoot, StandardLibraryTargetArtifacts,
@@ -2033,9 +2028,7 @@ mod tests {
             symbol_diagnostic.args(),
             [
                 DiagnosticArg::actual_package_identity("example.current"),
-                DiagnosticArg::interface_limit(
-                    DiagnosticInterfaceLimit::CompilationSymbolCount,
-                ),
+                DiagnosticArg::interface_limit(DiagnosticInterfaceLimit::CompilationSymbolCount,),
                 DiagnosticArg::actual_count(SymbolId::CAPACITY + 7),
                 DiagnosticArg::maximum_count(SymbolId::CAPACITY),
             ]
@@ -2049,15 +2042,11 @@ mod tests {
 
     #[test]
     fn imported_symbol_construction_failures_preserve_owners_and_exact_causes() {
-        let alpha = dependency("example.alpha", "main").with_dependency_span(SourceSpan::empty(
-            SourceId::new(1),
-            TextSize::new(1),
-        ));
+        let alpha = dependency("example.alpha", "main")
+            .with_dependency_span(SourceSpan::empty(SourceId::new(1), TextSize::new(1)));
 
-        let beta = dependency("example.beta", "main").with_dependency_span(SourceSpan::empty(
-            SourceId::new(1),
-            TextSize::new(2),
-        ));
+        let beta = dependency("example.beta", "main")
+            .with_dependency_span(SourceSpan::empty(SourceId::new(1), TextSize::new(2)));
 
         let compilation = compilation([alpha, beta]);
         let first = ImportedInterfaceId::new(0);
@@ -2077,7 +2066,10 @@ mod tests {
             DiagnosticKind::InterfaceDuplicatePackage,
         );
 
-        assert_eq!(duplicate_package.diagnostics()[0].related_locations().len(), 1);
+        assert_eq!(
+            duplicate_package.diagnostics()[0].related_locations().len(),
+            1
+        );
 
         let missing_dependency = super::dependency_graph_diagnostics(
             &compilation,
@@ -2164,16 +2156,13 @@ mod tests {
             DiagnosticKind::InterfaceDependencySymbolMissing,
         );
 
-        let compiler_key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
-            "CompilerProvidedFunction",
-        )
-        .unwrap_or_else(|| panic!("test compiler-known key must be valid"));
+        let compiler_key =
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new("CompilerProvidedFunction")
+                .unwrap_or_else(|| panic!("test compiler-known key must be valid"));
 
-        let compiler_symbol = SymbolKey::compiler_known_declaration(
-            compiler_key,
-            SymbolKind::Function,
-        )
-        .unwrap_or_else(|| panic!("test compiler-known function key must be valid"));
+        let compiler_symbol =
+            SymbolKey::compiler_known_declaration(compiler_key, SymbolKind::Function)
+                .unwrap_or_else(|| panic!("test compiler-known function key must be valid"));
 
         let compiler_export = super::dependency_graph_diagnostics(
             &compilation,
@@ -2209,10 +2198,8 @@ mod tests {
 
     #[test]
     fn imported_semantic_failures_preserve_artifact_owner_and_nested_cause() {
-        let input = dependency("example.alpha", "main").with_dependency_span(SourceSpan::empty(
-            SourceId::new(1),
-            TextSize::new(3),
-        ));
+        let input = dependency("example.alpha", "main")
+            .with_dependency_span(SourceSpan::empty(SourceId::new(1), TextSize::new(3)));
 
         let unresolved = super::semantic_content_diagnostics(
             InterfaceSemanticInternError::UnresolvedSymbol(InterfaceSymbolReference::Local(

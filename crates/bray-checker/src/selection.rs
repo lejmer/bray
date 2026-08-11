@@ -26,10 +26,9 @@ pub use model::{
     ImplementationSelectionEvidence, IterationSourceCandidate, IterationSourceSelectionRequest,
     OperationCandidate, OperationCandidateSource, OperationCandidateState,
     OperationSelectionRequest, PredicateCandidateTemplate, ReceiverCapability, ReceiverSelection,
-    SelectionCallableArgumentRejection, SelectionCandidateKey,
-    SelectionCandidateRejectionReason, SelectionCandidateSignature,
-    SelectionConstructionInputRejection, SelectionFailure, SelectionFailureCandidate,
-    SelectionInaccessibility, SelectionRejectedCandidate,
+    SelectionCallableArgumentRejection, SelectionCandidateKey, SelectionCandidateRejectionReason,
+    SelectionCandidateSignature, SelectionConstructionInputRejection, SelectionFailure,
+    SelectionFailureCandidate, SelectionInaccessibility, SelectionRejectedCandidate,
 };
 pub(crate) use operation::representation_supports_operator;
 pub use operation::{

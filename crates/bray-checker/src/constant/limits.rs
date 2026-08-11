@@ -237,10 +237,7 @@ impl EvaluationBudget {
         )
     }
 
-    pub(super) fn try_charge_elements(
-        &mut self,
-        count: usize,
-    ) -> Result<(), ConstantDiagnostic> {
+    pub(super) fn try_charge_elements(&mut self, count: usize) -> Result<(), ConstantDiagnostic> {
         charge(
             &mut self.remaining_elements,
             self.maximum_elements,
@@ -249,10 +246,7 @@ impl EvaluationBudget {
         )
     }
 
-    pub(super) fn try_charge_literal(
-        &mut self,
-        bytes: usize,
-    ) -> Result<(), ConstantDiagnostic> {
+    pub(super) fn try_charge_literal(&mut self, bytes: usize) -> Result<(), ConstantDiagnostic> {
         charge(
             &mut self.remaining_literal_bytes,
             self.maximum_literal_bytes,
@@ -261,10 +255,7 @@ impl EvaluationBudget {
         )
     }
 
-    pub(super) fn try_charge_expansion(
-        &mut self,
-        count: usize,
-    ) -> Result<(), ConstantDiagnostic> {
+    pub(super) fn try_charge_expansion(&mut self, count: usize) -> Result<(), ConstantDiagnostic> {
         charge(
             &mut self.remaining_expansions,
             self.maximum_expansions,

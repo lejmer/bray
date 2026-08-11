@@ -68,11 +68,7 @@ pub(super) fn project_path(
     field: DiagnosticProjectManifestField,
 ) -> Result<ProjectPath, ProjectLoadError> {
     ProjectPath::try_new(Arc::<str>::from(value.as_str()), allow_workspace_root).ok_or_else(|| {
-        ProjectLoadError::invalid_path(
-            manifest_path.to_path_buf(),
-            field,
-            value.into(),
-        )
+        ProjectLoadError::invalid_path(manifest_path.to_path_buf(), field, value.into())
     })
 }
 
@@ -271,7 +267,8 @@ mod tests {
             panic!("test source path must be valid");
         };
 
-        let Ok(nested) = project_path(String::from("app/src/generated"), false, manifest, field) else {
+        let Ok(nested) = project_path(String::from("app/src/generated"), false, manifest, field)
+        else {
             panic!("test nested path must be valid");
         };
 

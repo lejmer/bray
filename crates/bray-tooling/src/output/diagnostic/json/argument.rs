@@ -5,19 +5,17 @@ use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
     DiagnosticEmissionFailureJson, DiagnosticExternalToolExitJson,
     DiagnosticImplementationOverloadProblemJson, DiagnosticInterfaceSymbolIdentityJson,
-    DiagnosticLinkRequirementJson, DiagnosticLinkerDriverIdentityJson,
-    DiagnosticOutputSinkJson, DiagnosticPatternCoverageJson, DiagnosticProblemJson,
-    DiagnosticProjectCommandFailureJson, DiagnosticProjectDependencyCycleMemberJson,
-    DiagnosticProjectSelectionJson, DiagnosticRuntimeAbiVersionJson,
-    DiagnosticSelectionCandidatesJson, DiagnosticSelectionRejectionsJson,
-    DiagnosticSourceInputJson, DiagnosticStorageAccessJson,
+    DiagnosticLinkRequirementJson, DiagnosticLinkerDriverIdentityJson, DiagnosticOutputSinkJson,
+    DiagnosticPatternCoverageJson, DiagnosticProblemJson, DiagnosticProjectCommandFailureJson,
+    DiagnosticProjectDependencyCycleMemberJson, DiagnosticProjectSelectionJson,
+    DiagnosticRuntimeAbiVersionJson, DiagnosticSelectionCandidatesJson,
+    DiagnosticSelectionRejectionsJson, DiagnosticSourceInputJson, DiagnosticStorageAccessJson,
     DiagnosticTraitFulfillmentMismatchJson, DiagnosticTypeJson,
     DiagnosticUnsupportedEmissionReasonJson, SourceSpanJson, array_generator_problem_json,
-    callback_state_problem_json, copy_contract_problem_json,
-    interface_semantic_problem_json, interface_symbol_graph_problem_json, layout_problem_json,
-    native_link_directive_problem_json, native_symbol_directive_problem_json,
-    platform_service_signature_problem_json, propagation_problem_json,
-    refinement_capacity_json, union_tag_problem_json,
+    callback_state_problem_json, copy_contract_problem_json, interface_semantic_problem_json,
+    interface_symbol_graph_problem_json, layout_problem_json, native_link_directive_problem_json,
+    native_symbol_directive_problem_json, platform_service_signature_problem_json,
+    propagation_problem_json, refinement_capacity_json, union_tag_problem_json,
 };
 use crate::output::diagnostic::source_map::DiagnosticSourceMap;
 use crate::output::path_to_output_string;
@@ -186,11 +184,9 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::InterfaceSection(section) => {
                 Self::InterfaceSection((*section).as_str())
             }
-            DiagnosticArgValue::InterfaceSymbolIdentity(identity) => {
-                Self::InterfaceSymbolIdentity(
-                    DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
-                )
-            }
+            DiagnosticArgValue::InterfaceSymbolIdentity(identity) => Self::InterfaceSymbolIdentity(
+                DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
+            ),
             DiagnosticArgValue::InterfaceSymbolGraphProblem(problem) => {
                 Self::InterfaceSymbolGraphProblem(interface_symbol_graph_problem_json(problem))
             }
@@ -272,16 +268,12 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(ty)),
             DiagnosticArgValue::SelectionKind(kind) => Self::SelectionKind((*kind).as_str()),
-            DiagnosticArgValue::SelectionCandidates(candidates) => {
-                Self::SelectionCandidates(DiagnosticSelectionCandidatesJson::from_candidates(
-                    candidates,
-                ))
-            }
-            DiagnosticArgValue::SelectionRejections(rejections) => {
-                Self::SelectionRejections(DiagnosticSelectionRejectionsJson::from_rejections(
-                    rejections,
-                ))
-            }
+            DiagnosticArgValue::SelectionCandidates(candidates) => Self::SelectionCandidates(
+                DiagnosticSelectionCandidatesJson::from_candidates(candidates),
+            ),
+            DiagnosticArgValue::SelectionRejections(rejections) => Self::SelectionRejections(
+                DiagnosticSelectionRejectionsJson::from_rejections(rejections),
+            ),
             DiagnosticArgValue::NativeLinkDirectiveProblem(problem) => {
                 Self::NativeLinkDirectiveProblem(native_link_directive_problem_json(problem))
             }
@@ -303,11 +295,9 @@ impl DiagnosticArgValueJson {
                     DiagnosticImplementationOverloadProblemJson::from_problem(problem),
                 )
             }
-            DiagnosticArgValue::CallableOverloadProblem(problem) => {
-                Self::CallableOverloadProblem(
-                    DiagnosticCallableOverloadProblemJson::from_problem(problem),
-                )
-            }
+            DiagnosticArgValue::CallableOverloadProblem(problem) => Self::CallableOverloadProblem(
+                DiagnosticCallableOverloadProblemJson::from_problem(problem),
+            ),
             DiagnosticArgValue::ExpressionCategory(kind) => {
                 Self::ExpressionCategory((*kind).as_str())
             }

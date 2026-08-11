@@ -451,8 +451,8 @@ impl PendingDiagnostic {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticKind,
-        DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticVisibility,
+        DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticKind, DiagnosticLabelKind,
+        DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticVisibility,
     };
     use bray_testing::{
         assert_goal_state_diagnostics, test_source_at as source, test_source_store as source_store,

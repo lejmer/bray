@@ -4,8 +4,7 @@ use bray_binder::SymbolFactProvider;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabelKind, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticRelatedLocation,
-    DiagnosticRelatedLocationKind, DiagnosticResult,
+    DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticResult,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -176,12 +175,10 @@ impl Compilation {
                             module.path().segments().collect::<Vec<_>>().join("::"),
                             name.as_str()
                         )))
-                        .with_related_location(
-                            DiagnosticRelatedLocation::new(
-                                DiagnosticRelatedLocationKind::FirstDeclaration,
-                                SourceSpan::new(previous.source_id(), previous.full_range()),
-                            ),
-                        )
+                        .with_related_location(DiagnosticRelatedLocation::new(
+                            DiagnosticRelatedLocationKind::FirstDeclaration,
+                            SourceSpan::new(previous.source_id(), previous.full_range()),
+                        ))
                         .with_note(DiagnosticNote::new(
                             DiagnosticNoteKind::UniqueTestIdentityRequired,
                         ));
@@ -490,10 +487,15 @@ func main()
             let expected = match kind {
                 ProductKind::Library => DiagnosticProductKind::Library,
                 ProductKind::Test => DiagnosticProductKind::Test,
-                ProductKind::Executable => unreachable!("test only selects non-executable products"),
+                ProductKind::Executable => {
+                    unreachable!("test only selects non-executable products")
+                }
             };
 
-            assert_eq!(diagnostic.args(), &[DiagnosticArg::actual_product_kind(expected)]);
+            assert_eq!(
+                diagnostic.args(),
+                &[DiagnosticArg::actual_product_kind(expected)]
+            );
         }
     }
 
@@ -611,9 +613,7 @@ func main()
         let first_origins = duplicate_diagnostics
             .iter()
             .flat_map(|diagnostic| diagnostic.related_locations())
-            .filter(|location| {
-                location.kind() == DiagnosticRelatedLocationKind::FirstDeclaration
-            })
+            .filter(|location| location.kind() == DiagnosticRelatedLocationKind::FirstDeclaration)
             .map(DiagnosticRelatedLocation::span)
             .collect::<Vec<_>>();
 

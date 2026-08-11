@@ -6,9 +6,8 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticPropagationProblem,
-    DiagnosticType, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticPropagationProblem, DiagnosticType, SeverityKind,
 };
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
@@ -124,7 +123,10 @@ fn select_propagation<C>(
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
     boundaries: &[ResultBoundary],
-) -> Result<Option<Result<SelectedPropagation, DiagnosticPropagationProblem>>, CheckerInfrastructureError>
+) -> Result<
+    Option<Result<SelectedPropagation, DiagnosticPropagationProblem>>,
+    CheckerInfrastructureError,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -163,17 +165,19 @@ where
             return Ok(None);
         };
 
-        return Ok(Some(match select_nullable_boundary(request, types, boundaries) {
-            Some(boundary) => Ok(SelectedPropagation::Nullable {
+        return Ok(Some(
+            match select_nullable_boundary(request, types, boundaries) {
+                Some(boundary) => Ok(SelectedPropagation::Nullable {
                     boundary: boundary.target,
                     result_type: boundary.ty,
                 }),
-            None => Err(DiagnosticPropagationProblem::NullableBoundaryUnavailable {
-                operand: diagnostic_type(request, operand_type.ty())?,
-                available_boundaries: diagnostic_boundary_types(request, types, boundaries)?
-                    .into_boxed_slice(),
-            }),
-        }));
+                None => Err(DiagnosticPropagationProblem::NullableBoundaryUnavailable {
+                    operand: diagnostic_type(request, operand_type.ty())?,
+                    available_boundaries: diagnostic_boundary_types(request, types, boundaries)?
+                        .into_boxed_slice(),
+                }),
+            },
+        ));
     }
 
     let representation = type_representation(request, operand_type.ty())?;
@@ -188,20 +192,22 @@ where
                 return Ok(None);
             };
 
-            Ok(Some(match select_result_boundary(request, types, boundaries, error_type)? {
-                Ok((boundary, conversion)) => Ok(SelectedPropagation::Result {
+            Ok(Some(
+                match select_result_boundary(request, types, boundaries, error_type)? {
+                    Ok((boundary, conversion)) => Ok(SelectedPropagation::Result {
                         boundary: boundary.target,
                         result_type: boundary.ty,
                         error_conversion: conversion,
                     }),
-                Err(available_errors) => {
-                    Err(DiagnosticPropagationProblem::ResultBoundaryUnavailable {
-                        source_error: diagnostic_type(request, error_type)?,
-                        available_errors: diagnostic_types(request, available_errors)?
-                            .into_boxed_slice(),
-                    })
-                }
-            }))
+                    Err(available_errors) => {
+                        Err(DiagnosticPropagationProblem::ResultBoundaryUnavailable {
+                            source_error: diagnostic_type(request, error_type)?,
+                            available_errors: diagnostic_types(request, available_errors)?
+                                .into_boxed_slice(),
+                        })
+                    }
+                },
+            ))
         }
         _ => Ok(None),
     }
@@ -237,10 +243,7 @@ fn select_result_boundary<C>(
     boundaries: &[ResultBoundary],
     error_type: TypeId,
 ) -> Result<
-    Result<
-        (ResultBoundary, bray_bound_tree::SelectedConversion),
-        Vec<TypeId>,
-    >,
+    Result<(ResultBoundary, bray_bound_tree::SelectedConversion), Vec<TypeId>>,
     CheckerInfrastructureError,
 >
 where

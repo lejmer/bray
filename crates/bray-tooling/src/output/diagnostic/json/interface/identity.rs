@@ -78,12 +78,10 @@ impl DiagnosticInterfaceSymbolIdentityJson {
                 owner: Box::new(Self::from_identity(owner)),
                 path: path.clone(),
             },
-            Identity::CompilerKnownDeclaration { key, kind } => {
-                Self::CompilerKnownDeclaration {
-                    key: key.clone(),
-                    symbol_kind: kind.as_str(),
-                }
-            }
+            Identity::CompilerKnownDeclaration { key, kind } => Self::CompilerKnownDeclaration {
+                key: key.clone(),
+                symbol_kind: kind.as_str(),
+            },
             Identity::SourceDeclaration {
                 owner,
                 kind,
@@ -133,9 +131,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticInterfaceSynthesizedIdent
 }
 
 impl DiagnosticInterfaceSynthesizedIdentityJson {
-    fn from_identity(
-        identity: bray_diagnostics::DiagnosticInterfaceSynthesizedIdentity,
-    ) -> Self {
+    fn from_identity(identity: bray_diagnostics::DiagnosticInterfaceSynthesizedIdentity) -> Self {
         use bray_diagnostics::DiagnosticInterfaceSynthesizedIdentity as Identity;
 
         match identity {

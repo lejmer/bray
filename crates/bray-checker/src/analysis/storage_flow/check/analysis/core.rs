@@ -5,10 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinementFacts, CheckedSemanticSelections, LivenessFacts,
-    MemoryOperationStatus, RefinementFact, StorageAccessId, StorageAccessPlan, StorageAccessRoot,
-    StorageAccessPurpose, StorageBinding, StorageExitDecision, StorageFlowFacts, StorageIdentity,
-    StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
-    StorageRelationship, StorageSuspensionState,
+    MemoryOperationStatus, RefinementFact, StorageAccessId, StorageAccessPlan,
+    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlowFacts,
+    StorageIdentity, StorageOperationDecision, StorageOperationStatus, StoragePlan,
+    StorageProjection, StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
@@ -830,10 +830,8 @@ where
             .map(|projection| self.diagnostic_storage_projection(*projection))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let reached_type = crate::diagnostic::diagnostic_type(
-            self.request.context(),
-            access.reached_type(),
-        )?;
+        let reached_type =
+            crate::diagnostic::diagnostic_type(self.request.context(), access.reached_type())?;
 
         Ok(DiagnosticStorageAccess::new(
             diagnostic_storage_purpose(purpose),
@@ -862,15 +860,9 @@ where
             }
             Some(StorageIdentity::Result(_)) => DiagnosticStorageRoot::Result,
             Some(StorageIdentity::Temporary(_)) => DiagnosticStorageRoot::Temporary,
-            Some(StorageIdentity::CustomIndexBorrow(_)) => {
-                DiagnosticStorageRoot::CustomIndexBorrow
-            }
-            Some(StorageIdentity::IterationCursor(_)) => {
-                DiagnosticStorageRoot::IterationCursor
-            }
-            Some(StorageIdentity::IterationElement(_)) => {
-                DiagnosticStorageRoot::IterationElement
-            }
+            Some(StorageIdentity::CustomIndexBorrow(_)) => DiagnosticStorageRoot::CustomIndexBorrow,
+            Some(StorageIdentity::IterationCursor(_)) => DiagnosticStorageRoot::IterationCursor,
+            Some(StorageIdentity::IterationElement(_)) => DiagnosticStorageRoot::IterationElement,
             Some(StorageIdentity::Allocation(_)) => DiagnosticStorageRoot::Allocation,
             Some(StorageIdentity::CompilerCreated(_)) => DiagnosticStorageRoot::CompilerCreated,
             Some(StorageIdentity::Alternative { .. }) => DiagnosticStorageRoot::Alternative,

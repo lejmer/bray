@@ -20,8 +20,8 @@ use bray_tooling::{
     native_linker,
 };
 
-use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
 use super::diagnostic::artifact_write_failure;
+use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
 use crate::command::{
     DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
 };
@@ -195,15 +195,27 @@ fn publish_test_catalog(
     product: &ProductIdentity,
     destination: &std::path::Path,
 ) -> Result<(), Diagnostic> {
-    let discovery = compilation
-        .test_discovery(product.clone())
-        .map_err(|_| artifact_write_failure(DiagnosticId::new(0), destination, io::ErrorKind::InvalidData))?;
+    let discovery = compilation.test_discovery(product.clone()).map_err(|_| {
+        artifact_write_failure(
+            DiagnosticId::new(0),
+            destination,
+            io::ErrorKind::InvalidData,
+        )
+    })?;
 
-    let (bytes, _) = bray_test_protocol::encode_test_catalog(discovery.value().catalog())
-        .map_err(|_| artifact_write_failure(DiagnosticId::new(0), destination, io::ErrorKind::InvalidData))?;
+    let (bytes, _) =
+        bray_test_protocol::encode_test_catalog(discovery.value().catalog()).map_err(|_| {
+            artifact_write_failure(
+                DiagnosticId::new(0),
+                destination,
+                io::ErrorKind::InvalidData,
+            )
+        })?;
 
     let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
-        .map_err(|error| artifact_write_failure(DiagnosticId::new(0), destination, error.kind()))?;
+        .map_err(|error| {
+        artifact_write_failure(DiagnosticId::new(0), destination, error.kind())
+    })?;
 
     staging
         .write_all(&bytes)

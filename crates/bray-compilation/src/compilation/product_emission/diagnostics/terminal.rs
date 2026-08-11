@@ -1,7 +1,7 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticBag, DiagnosticEmissionCodegenFailure, DiagnosticEmissionFailure,
-    DiagnosticEmissionEvaluationFailure, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    DiagnosticBag, DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
+    DiagnosticEmissionFailure, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
     DiagnosticPackageInterfaceFailure, SeverityKind,
 };
 use bray_emitter::BackendContributionMergeErrorKind;

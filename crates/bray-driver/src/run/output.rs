@@ -195,7 +195,9 @@ mod tests {
     use std::io;
     use std::path::PathBuf;
 
-    use bray_diagnostics::{DiagnosticKind, DiagnosticProjectCommandFailure, DiagnosticProjectOperation};
+    use bray_diagnostics::{
+        DiagnosticKind, DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
+    };
     use bray_tooling::OutputFormat;
 
     use super::{DriverOutputError, driver_output_error_diagnostic, write_driver_output_error};

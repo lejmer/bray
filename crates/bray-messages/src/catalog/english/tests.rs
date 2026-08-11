@@ -70,9 +70,7 @@ fn english_source_inventory_covers_every_renderer_leaf() {
 
     let candidate_source = argument::USER_FACING_SOURCES
         .iter()
-        .find_map(|(path, source)| {
-            (*path == "argument/selection/candidate.rs").then_some(*source)
-        })
+        .find_map(|(path, source)| (*path == "argument/selection/candidate.rs").then_some(*source))
         .expect("selection candidate renderer must be inventoried");
 
     assert!(rust_string_literals(candidate_source).contains(&"no candidates".to_owned()));

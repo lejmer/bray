@@ -92,11 +92,7 @@ where
         let Some(limits) = limits.nested_call() else {
             return Err(EvaluationFailure::Source {
                 expression,
-                diagnostic: ConstantDiagnostic::limit(
-                    ConstantLimitKind::EvaluationSteps,
-                    1,
-                    0,
-                ),
+                diagnostic: ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0),
             });
         };
 

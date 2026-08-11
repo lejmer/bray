@@ -142,10 +142,9 @@ where
 {
     let anchor = match name {
         ResolvedName::Local(symbol) => binder.unit().local_symbol_syntax_anchor(symbol).ok()?,
-        ResolvedName::Surface(symbol) => binder
-            .facts()
-            .symbols()
-            .declaration_syntax_anchor(symbol)?,
+        ResolvedName::Surface(symbol) => {
+            binder.facts().symbols().declaration_syntax_anchor(symbol)?
+        }
     };
 
     Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))

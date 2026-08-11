@@ -17,10 +17,10 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
-    ImplementationSelectionEvidence, ReceiverCapability, SelectionCandidateKey,
-    SelectionCallableArgumentRejection, SelectionCandidateRejectionReason,
-    SelectionCandidateSignature, SelectionFailure, SelectionFailureCandidate,
-    SelectionInaccessibility, SelectionRejectedCandidate,
+    ImplementationSelectionEvidence, ReceiverCapability, SelectionCallableArgumentRejection,
+    SelectionCandidateKey, SelectionCandidateRejectionReason, SelectionCandidateSignature,
+    SelectionFailure, SelectionFailureCandidate, SelectionInaccessibility,
+    SelectionRejectedCandidate,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -123,9 +123,10 @@ where
             CandidateCheck::Applicable { key, call } => {
                 applicable.push((diagnostic_candidate, key, call));
             }
-            CandidateCheck::Incompatible(reason) => rejected.push(
-                SelectionRejectedCandidate::new(diagnostic_candidate, reason),
-            ),
+            CandidateCheck::Incompatible(reason) => rejected.push(SelectionRejectedCandidate::new(
+                diagnostic_candidate,
+                reason,
+            )),
             CandidateCheck::Recovered => has_recovered = true,
         }
     }
@@ -714,10 +715,11 @@ fn map_arguments(
 ) -> Result<ArgumentMapping, CheckerInfrastructureError> {
     let parameters = callable.parameters();
 
-    let parameter_indices = match map_argument_parameter_indices_for_diagnostic(arguments, parameters)? {
-        Ok(indices) => indices,
-        Err(reason) => return Ok(ArgumentMapping::Rejected(reason)),
-    };
+    let parameter_indices =
+        match map_argument_parameter_indices_for_diagnostic(arguments, parameters)? {
+            Ok(indices) => indices,
+            Err(reason) => return Ok(ArgumentMapping::Rejected(reason)),
+        };
 
     let mut supplied = vec![None; parameters.len()];
     let mut recovered = false;

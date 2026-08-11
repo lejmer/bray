@@ -1260,20 +1260,16 @@ mod tests {
 
         let result = finish(binder);
 
-        let unresolved = diagnostics_of_kind(
-            result.diagnostics(),
-            DiagnosticKind::BindingUnresolvedName,
-        );
+        let unresolved =
+            diagnostics_of_kind(result.diagnostics(), DiagnosticKind::BindingUnresolvedName);
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &unresolved,
             DiagnosticKind::BindingUnresolvedName,
         );
 
-        let wrong_kind = diagnostics_of_kind(
-            result.diagnostics(),
-            DiagnosticKind::BindingWrongNameKind,
-        );
+        let wrong_kind =
+            diagnostics_of_kind(result.diagnostics(), DiagnosticKind::BindingWrongNameKind);
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &wrong_kind,
@@ -1290,20 +1286,16 @@ mod tests {
             DiagnosticKind::BindingInaccessibleName,
         );
 
-        let ambiguous = diagnostics_of_kind(
-            result.diagnostics(),
-            DiagnosticKind::BindingAmbiguousName,
-        );
+        let ambiguous =
+            diagnostics_of_kind(result.diagnostics(), DiagnosticKind::BindingAmbiguousName);
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &ambiguous,
             DiagnosticKind::BindingAmbiguousName,
         );
 
-        let malformed = diagnostics_of_kind(
-            result.diagnostics(),
-            DiagnosticKind::BindingMalformedName,
-        );
+        let malformed =
+            diagnostics_of_kind(result.diagnostics(), DiagnosticKind::BindingMalformedName);
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &malformed,

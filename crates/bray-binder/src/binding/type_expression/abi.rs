@@ -1,6 +1,6 @@
 use bray_diagnostics::{
-    DiagnosticBag, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticResult,
+    DiagnosticBag, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticResult,
 };
 use bray_source::SourceSpan;
 use bray_symbols::CallableAbi;

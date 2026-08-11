@@ -5,8 +5,8 @@ use super::support::{TemplateEvaluationFailure, recovery_value};
 use crate::{CheckerOutcome, CheckerRequestContext, ConstantCallRequest};
 use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -189,15 +189,11 @@ where
             evaluator.diagnostics,
         ),
         Err(TemplateEvaluationFailure::Diagnostic(problem)) => {
-            let diagnostic = match template_failure_diagnostic(
-                context,
-                result_type,
-                problem,
-                diagnostic_span,
-            ) {
-                Ok(diagnostic) => diagnostic,
-                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-            };
+            let diagnostic =
+                match template_failure_diagnostic(context, result_type, problem, diagnostic_span) {
+                    Ok(diagnostic) => diagnostic,
+                    Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                };
 
             evaluator.diagnostics.add(diagnostic);
 
@@ -258,8 +254,7 @@ where
             crate::ConstantLiteralError::SizeLimitExceeded { .. },
         )
         | super::super::diagnostic::ConstantDiagnostic::Operation {
-            error:
-                super::super::operation::ConstantOperationError::ResourceLimitExceeded { .. },
+            error: super::super::operation::ConstantOperationError::ResourceLimitExceeded { .. },
             ..
         }
         | super::super::diagnostic::ConstantDiagnostic::Limit { .. } => {
@@ -290,12 +285,12 @@ mod tests {
         CheckedTemplateExecution, CheckedTemplateKind, CheckedTemplateNode,
         CheckedTemplateOperation,
     };
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_symbols::{
         CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
         CurrentRunCancellation, DependencyContractTemplateData, FunctionSymbolId, GenericOwnerId,
         GenericSubstitutionData, SymbolId, TypeData,
     };
-    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::super::super::call::{

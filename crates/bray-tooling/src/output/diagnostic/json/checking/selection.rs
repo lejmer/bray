@@ -1,8 +1,8 @@
 use serde::Serialize;
 
+use super::super::DiagnosticTypeJson;
 use super::candidate::DiagnosticSelectionCandidateJson;
 use super::contract_mismatch::receiver_mode_key;
-use super::super::DiagnosticTypeJson;
 
 #[derive(Serialize)]
 pub(in crate::output::diagnostic::json) struct DiagnosticSelectionCandidatesJson {
@@ -25,8 +25,14 @@ struct DiagnosticSelectionRejectionJson {
 #[derive(Serialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 enum DiagnosticSelectionRejectionReasonJson {
-    GenericArgumentCount { provided: u64, maximum: u64 },
-    ReceiverPresence { provided: bool, required: bool },
+    GenericArgumentCount {
+        provided: u64,
+        maximum: u64,
+    },
+    ReceiverPresence {
+        provided: bool,
+        required: bool,
+    },
     ReceiverType {
         provided: DiagnosticTypeJson,
         required: DiagnosticTypeJson,
@@ -38,7 +44,9 @@ enum DiagnosticSelectionRejectionReasonJson {
     CallableArgument {
         mismatch: DiagnosticCallableArgumentRejectionJson,
     },
-    OperandTypes { provided: Vec<DiagnosticTypeJson> },
+    OperandTypes {
+        provided: Vec<DiagnosticTypeJson>,
+    },
     ConstructionInput {
         mismatch: DiagnosticConstructionInputRejectionJson,
     },
@@ -50,10 +58,20 @@ enum DiagnosticSelectionRejectionReasonJson {
 #[derive(Serialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 enum DiagnosticCallableArgumentRejectionJson {
-    PositionalAfterNamed { ordinal: u64 },
-    UnknownName { provided: String, accepted: Vec<String> },
-    PositionalUnavailable { ordinal: u64 },
-    Duplicate { name: Option<String>, ordinal: u64 },
+    PositionalAfterNamed {
+        ordinal: u64,
+    },
+    UnknownName {
+        provided: String,
+        accepted: Vec<String>,
+    },
+    PositionalUnavailable {
+        ordinal: u64,
+    },
+    Duplicate {
+        name: Option<String>,
+        ordinal: u64,
+    },
     Type {
         name: Option<String>,
         ordinal: u64,
@@ -71,9 +89,17 @@ enum DiagnosticCallableArgumentRejectionJson {
 #[serde(tag = "reason", rename_all = "snake_case")]
 enum DiagnosticConstructionInputRejectionJson {
     PositionalAfterNamed,
-    UnknownName { provided: String, accepted: Vec<String> },
-    PositionalUnavailable { ordinal: u64 },
-    Duplicate { name: Option<String>, ordinal: u64 },
+    UnknownName {
+        provided: String,
+        accepted: Vec<String>,
+    },
+    PositionalUnavailable {
+        ordinal: u64,
+    },
+    Duplicate {
+        name: Option<String>,
+        ordinal: u64,
+    },
     Type {
         name: Option<String>,
         ordinal: u64,
@@ -118,9 +144,7 @@ impl DiagnosticSelectionRejectionsJson {
 }
 
 impl DiagnosticSelectionRejectionJson {
-    fn from_rejection(
-        rejection: &bray_diagnostics::DiagnosticRejectedSelectionCandidate,
-    ) -> Self {
+    fn from_rejection(rejection: &bray_diagnostics::DiagnosticRejectedSelectionCandidate) -> Self {
         Self {
             candidate: DiagnosticSelectionCandidateJson::from_candidate(rejection.candidate()),
             mismatch: DiagnosticSelectionRejectionReasonJson::from_reason(rejection.reason()),
@@ -150,9 +174,7 @@ impl DiagnosticSelectionRejectionReasonJson {
                     bray_diagnostics::DiagnosticReceiverCapability::Shared => "shared",
                     bray_diagnostics::DiagnosticReceiverCapability::Mutable => "mutable",
                     bray_diagnostics::DiagnosticReceiverCapability::Owned => "owned",
-                    bray_diagnostics::DiagnosticReceiverCapability::OwnedMutable => {
-                        "owned_mutable"
-                    }
+                    bray_diagnostics::DiagnosticReceiverCapability::OwnedMutable => "owned_mutable",
                 },
                 required: receiver_mode_key(*required),
             },
@@ -191,13 +213,22 @@ impl DiagnosticCallableArgumentRejectionJson {
                 name: name.clone(),
                 ordinal: *ordinal,
             },
-            Reason::Type { name, ordinal, expected, actual } => Self::Type {
+            Reason::Type {
+                name,
+                ordinal,
+                expected,
+                actual,
+            } => Self::Type {
                 name: name.clone(),
                 ordinal: *ordinal,
                 expected: DiagnosticTypeJson::from_type(expected),
                 actual: DiagnosticTypeJson::from_type(actual),
             },
-            Reason::Missing { name, ordinal, expected } => Self::Missing {
+            Reason::Missing {
+                name,
+                ordinal,
+                expected,
+            } => Self::Missing {
                 name: name.clone(),
                 ordinal: *ordinal,
                 expected: DiagnosticTypeJson::from_type(expected),
@@ -223,13 +254,22 @@ impl DiagnosticConstructionInputRejectionJson {
                 name: name.clone(),
                 ordinal: *ordinal,
             },
-            Reason::Type { name, ordinal, expected, actual } => Self::Type {
+            Reason::Type {
+                name,
+                ordinal,
+                expected,
+                actual,
+            } => Self::Type {
                 name: name.clone(),
                 ordinal: *ordinal,
                 expected: DiagnosticTypeJson::from_type(expected),
                 actual: DiagnosticTypeJson::from_type(actual),
             },
-            Reason::Missing { name, ordinal, expected } => Self::Missing {
+            Reason::Missing {
+                name,
+                ordinal,
+                expected,
+            } => Self::Missing {
                 name: name.clone(),
                 ordinal: *ordinal,
                 expected: DiagnosticTypeJson::from_type(expected),

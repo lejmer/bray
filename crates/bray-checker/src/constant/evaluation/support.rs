@@ -6,9 +6,9 @@ use bray_symbols::{
     ConstantValueData, ConstantValueId, ConstantValueKind, TypeId,
 };
 
+use crate::constant::diagnostic::ConstantDiagnostic;
 use crate::constant::integer::fits_integer_representation;
 use crate::constant::literal::ConstantLiteralError;
-use crate::constant::diagnostic::ConstantDiagnostic;
 use crate::constant::operation::ConstantOperationError;
 use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext};

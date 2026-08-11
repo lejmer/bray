@@ -1,11 +1,11 @@
 use serde::Serialize;
 
+use super::super::DiagnosticTypeJson;
 use super::contract_mismatch::{
     DiagnosticCallableContractMismatchJson, DiagnosticGenericConstraintMismatchJson,
     callable_constness_key, callable_execution_key, callable_parameter_mode_key,
     callable_position_key, callable_trust_key, generic_parameter_category_key, receiver_mode_key,
 };
-use super::super::DiagnosticTypeJson;
 
 #[derive(Serialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
@@ -119,12 +119,10 @@ impl DiagnosticTraitFulfillmentMismatchJson {
         match mismatch {
             Mismatch::MemberCategory => Self::MemberCategory,
             Mismatch::FulfillmentIsNotGeneric => Self::FulfillmentIsNotGeneric,
-            Mismatch::GenericParameterCount { required, provided } => {
-                Self::GenericParameterCount {
-                    required: *required,
-                    provided: *provided,
-                }
-            }
+            Mismatch::GenericParameterCount { required, provided } => Self::GenericParameterCount {
+                required: *required,
+                provided: *provided,
+            },
             Mismatch::GenericParameterCategory {
                 ordinal,
                 required,

@@ -122,10 +122,12 @@ pub(in crate::compilation::implementation::conformance) fn fulfillment_is_compat
                 type_bindings,
             )?;
 
-            Ok((!compatible).then(|| TraitFulfillmentMismatch::ConstantType {
-                required: requirement.value().clone(),
-                provided: fulfillment.value().clone(),
-            }))
+            Ok(
+                (!compatible).then(|| TraitFulfillmentMismatch::ConstantType {
+                    required: requirement.value().clone(),
+                    provided: fulfillment.value().clone(),
+                }),
+            )
         }
         (TraitMemberRequirementId::Type(_), TraitMemberFulfillmentId::Type(fulfillment)) => {
             let value = demand_fact!(
@@ -135,8 +137,10 @@ pub(in crate::compilation::implementation::conformance) fn fulfillment_is_compat
                 fulfillment
             );
 
-            Ok((value.value().resolved_type().is_none() && value.diagnostics().has_errors())
-                .then_some(TraitFulfillmentMismatch::TypeValueUnavailable))
+            Ok(
+                (value.value().resolved_type().is_none() && value.diagnostics().has_errors())
+                    .then_some(TraitFulfillmentMismatch::TypeValueUnavailable),
+            )
         }
         (
             TraitMemberRequirementId::Predicate(requirement),
@@ -408,7 +412,10 @@ fn generic_surfaces_are_compatible(
     type_bindings: &BTreeMap<bray_symbols::TraitTypeMemberSymbolId, TypeExpressionTemplate>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<
-    (Option<GenericSurfaceMismatch>, Option<GenericSubstitutionId>),
+    (
+        Option<GenericSurfaceMismatch>,
+        Option<GenericSubstitutionId>,
+    ),
     FactQueryError,
 > {
     let Some(requirement_owner) = GenericOwnerId::try_new(requirement) else {
@@ -416,10 +423,7 @@ fn generic_surfaces_are_compatible(
     };
 
     let Some(fulfillment_owner) = GenericOwnerId::try_new(fulfillment) else {
-        return Ok((
-            Some(GenericSurfaceMismatch::FulfillmentIsNotGeneric),
-            None,
-        ));
+        return Ok((Some(GenericSurfaceMismatch::FulfillmentIsNotGeneric), None));
     };
 
     let requirement = demand_fact!(
@@ -570,10 +574,7 @@ fn generic_surfaces_are_compatible(
         requirement_constraints.value(),
         fulfillment_constraints.value(),
     )? {
-        return Ok((
-            Some(GenericSurfaceMismatch::Constraints(mismatch)),
-            None,
-        ));
+        return Ok((Some(GenericSurfaceMismatch::Constraints(mismatch)), None));
     }
 
     Ok((None, Some(substitution)))
@@ -592,9 +593,7 @@ fn parameter_default_mismatch(
         }));
     }
 
-    for (ordinal, (requirement, fulfillment)) in
-        requirement.iter().zip(fulfillment).enumerate()
-    {
+    for (ordinal, (requirement, fulfillment)) in requirement.iter().zip(fulfillment).enumerate() {
         let requirement = symbols
             .callable_parameter(*requirement)
             .or_else(|| imported.and_then(|symbols| symbols.callable_parameter(*requirement)))
@@ -744,9 +743,7 @@ fn contract_clause_mismatch(
         }));
     }
 
-    for (index, (requirement, fulfillment)) in
-        requirement.iter().zip(fulfillment).enumerate()
-    {
+    for (index, (requirement, fulfillment)) in requirement.iter().zip(fulfillment).enumerate() {
         if requirement.ordinal() != fulfillment.ordinal() {
             return Ok(Some(CallableContractMismatch::ClauseOrdinal {
                 surface,
@@ -772,7 +769,7 @@ fn contract_clause_mismatch(
                 requirement.dependency_contract(),
                 fulfillment.dependency_contract(),
             )?)
-                .then_some(CallableContractMismatch::PredicateDependencies { surface, index }),
+            .then_some(CallableContractMismatch::PredicateDependencies { surface, index }),
             (
                 bray_symbols::CallableContractClauseValue::TraitSatisfaction {
                     subject: requirement_subject,
@@ -782,21 +779,19 @@ fn contract_clause_mismatch(
                     subject: fulfillment_subject,
                     application: fulfillment_application,
                 },
-            ) => (!(
-                substitute_requirement_type(
+            ) => (!(substitute_requirement_type(
+                values,
+                subject,
+                trait_application,
+                generic_substitution,
+                requirement_subject,
+            )? == fulfillment_subject
+                && substitute_requirement_trait_application(
                     values,
-                    subject,
                     trait_application,
                     generic_substitution,
-                    requirement_subject,
-                )? == fulfillment_subject
-                    && substitute_requirement_trait_application(
-                        values,
-                        trait_application,
-                        generic_substitution,
-                        requirement_application,
-                    )? == fulfillment_application
-            ))
+                    requirement_application,
+                )? == fulfillment_application))
                 .then_some(CallableContractMismatch::TraitSatisfaction { surface, index }),
             (required, provided) => Some(CallableContractMismatch::ClauseCategory {
                 surface,
@@ -917,12 +912,10 @@ fn predicate_is_compatible(
     if requirement_signature.value().parameters().len()
         != fulfillment_signature.value().parameters().len()
     {
-        return Ok(Some(
-            TraitFulfillmentMismatch::PredicateParameterCount {
-                required: requirement_signature.value().parameters().len(),
-                provided: fulfillment_signature.value().parameters().len(),
-            },
-        ));
+        return Ok(Some(TraitFulfillmentMismatch::PredicateParameterCount {
+            required: requirement_signature.value().parameters().len(),
+            provided: fulfillment_signature.value().parameters().len(),
+        }));
     }
 
     for (ordinal, (requirement, fulfillment)) in requirement_signature

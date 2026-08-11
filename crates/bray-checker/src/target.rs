@@ -553,9 +553,7 @@ mod tests {
     use std::num::NonZeroU64;
 
     use bray_compiler_known::RepresentationRole;
-    use bray_diagnostics::{
-        DiagnosticArg, DiagnosticKind, DiagnosticTargetRepresentation,
-    };
+    use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticTargetRepresentation};
     use bray_symbols::CallableAbi;
     use bray_target::{
         TargetAbiFacts, TargetFacts, TargetIdentity, TargetLayoutContract, TargetProfile,

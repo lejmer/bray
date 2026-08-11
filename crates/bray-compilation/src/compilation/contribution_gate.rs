@@ -633,7 +633,11 @@ mod tests {
             .next()
             .unwrap_or_else(|| panic!("invalid module test directive must be produced"));
 
-        assert_eq!(diagnostic.args().first(), Some(&DiagnosticArg::actual_count(1)));
+        assert_eq!(
+            diagnostic.args().first(),
+            Some(&DiagnosticArg::actual_count(1))
+        );
+
         assert_eq!(diagnostic.args().len(), 2);
     }
 

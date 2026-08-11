@@ -1,9 +1,9 @@
 use serde::Serialize;
 
+use super::DiagnosticTypeJson;
 use super::interface::{
     DiagnosticProblemFieldJson, DiagnosticProblemFieldValueJson, problem_count_u64, problem_text,
 };
-use super::DiagnosticTypeJson;
 
 #[derive(Serialize)]
 pub(in crate::output::diagnostic::json) struct DiagnosticProblemJson {
@@ -33,10 +33,7 @@ pub(in crate::output::diagnostic::json) fn native_link_directive_problem_json(
             ];
 
             if let Some(kind) = kind {
-                context.push(problem_text(
-                    "link_kind",
-                    native_link_kind_key(*kind),
-                ));
+                context.push(problem_text("link_kind", native_link_kind_key(*kind)));
             }
 
             DiagnosticProblemJson {
@@ -77,9 +74,7 @@ pub(in crate::output::diagnostic::json) fn platform_service_signature_problem_js
                 problem_text(
                     "actual",
                     match actual {
-                        bray_diagnostics::DiagnosticCallableExecution::Synchronous => {
-                            "synchronous"
-                        }
+                        bray_diagnostics::DiagnosticCallableExecution::Synchronous => "synchronous",
                         bray_diagnostics::DiagnosticCallableExecution::Asynchronous => {
                             "asynchronous"
                         }
@@ -138,9 +133,7 @@ pub(in crate::output::diagnostic::json) fn platform_service_signature_problem_js
     }
 }
 
-const fn platform_abi_type_key(
-    ty: bray_diagnostics::DiagnosticPlatformAbiType,
-) -> &'static str {
+const fn platform_abi_type_key(ty: bray_diagnostics::DiagnosticPlatformAbiType) -> &'static str {
     use bray_diagnostics::DiagnosticPlatformAbiType as Type;
 
     match ty {

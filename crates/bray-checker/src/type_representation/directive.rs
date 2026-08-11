@@ -5,8 +5,8 @@ use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticCopyContractProblem, DiagnosticId, DiagnosticKind,
     DiagnosticLabel, DiagnosticLabelKind, DiagnosticLayoutOption, DiagnosticLayoutProblem,
-    DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation,
-    DiagnosticRelatedLocationKind, DiagnosticUnionTagProblem, SeverityKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    DiagnosticUnionTagProblem, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -90,7 +90,9 @@ where
                         recovered,
                     )?;
                 }
-                DirectiveArgumentName::Named(name) if name.as_str() == "tag" && tag_spans.is_empty() => {
+                DirectiveArgumentName::Named(name)
+                    if name.as_str() == "tag" && tag_spans.is_empty() =>
+                {
                     tag_spans.push(expression_span(argument.expression()));
                     layout.tag_type = self.context.integer_type(argument.expression())?;
 
@@ -148,11 +150,7 @@ where
 
                     let span = expression_span(argument.expression());
 
-                    self.add_layout_diagnostic(
-                        problem,
-                        span,
-                        previous,
-                    );
+                    self.add_layout_diagnostic(problem, span, previous);
 
                     previous.push(span);
 
@@ -336,9 +334,7 @@ where
                         continue;
                     };
 
-                    let result = self
-                        .context
-                        .integer_constant(argument.expression(), None)?;
+                    let result = self.context.integer_constant(argument.expression(), None)?;
 
                     self.diagnostics
                         .add_range(result.diagnostics().iter().cloned());
@@ -542,16 +538,18 @@ where
         span: SourceSpan,
         previous: &[SourceSpan],
     ) -> Diagnostic {
-        let mut diagnostic = self.representation_diagnostic(
-            DiagnosticKind::CheckingInvalidLayoutDirective,
-            span,
-        )
-        .with_arg(DiagnosticArg::layout_problem(problem))
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::TypeLayoutDirectiveForms,
-        ));
+        let mut diagnostic = self
+            .representation_diagnostic(DiagnosticKind::CheckingInvalidLayoutDirective, span)
+            .with_arg(DiagnosticArg::layout_problem(problem))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::TypeLayoutDirectiveForms,
+            ));
 
-        for previous in previous.iter().copied().filter(|previous| *previous != span) {
+        for previous in previous
+            .iter()
+            .copied()
+            .filter(|previous| *previous != span)
+        {
             diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
                 DiagnosticRelatedLocationKind::FirstDirective,
                 previous,
@@ -574,7 +572,11 @@ where
                 DiagnosticNoteKind::UnionTagDirectiveForms,
             ));
 
-        for previous in previous.iter().copied().filter(|previous| *previous != span) {
+        for previous in previous
+            .iter()
+            .copied()
+            .filter(|previous| *previous != span)
+        {
             diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
                 DiagnosticRelatedLocationKind::FirstDirective,
                 previous,

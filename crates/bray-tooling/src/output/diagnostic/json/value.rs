@@ -12,7 +12,9 @@ pub(in crate::output::diagnostic::json) struct DiagnosticLinkRequirementJson {
 }
 
 impl DiagnosticLinkRequirementJson {
-    pub(in crate::output::diagnostic::json) fn from_requirement(requirement: &DiagnosticLinkRequirement) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_requirement(
+        requirement: &DiagnosticLinkRequirement,
+    ) -> Self {
         Self {
             kind: requirement.kind().as_str(),
             value: requirement.value().to_owned(),
@@ -38,7 +40,9 @@ pub(in crate::output::diagnostic::json) struct DiagnosticTypeJson {
 }
 
 impl DiagnosticTypeJson {
-    pub(in crate::output::diagnostic::json) fn from_type(ty: &bray_diagnostics::DiagnosticType) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_type(
+        ty: &bray_diagnostics::DiagnosticType,
+    ) -> Self {
         use bray_diagnostics::DiagnosticType;
 
         let (kind, element_count, path, arguments) = match ty {
@@ -133,7 +137,9 @@ pub(in crate::output::diagnostic::json) struct DiagnosticArtifactDigestJson {
 }
 
 impl DiagnosticArtifactDigestJson {
-    pub(in crate::output::diagnostic::json) fn from_digest(digest: &bray_diagnostics::DiagnosticArtifactDigest) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_digest(
+        digest: &bray_diagnostics::DiagnosticArtifactDigest,
+    ) -> Self {
         Self {
             algorithm: digest.algorithm().as_str(),
             // JSON output owns its DTO independently of the diagnostic bag.
@@ -151,7 +157,9 @@ pub(in crate::output::diagnostic::json) enum DiagnosticOutputSinkJson {
 }
 
 impl DiagnosticOutputSinkJson {
-    pub(in crate::output::diagnostic::json) fn from_sink(sink: &bray_diagnostics::DiagnosticOutputSink) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_sink(
+        sink: &bray_diagnostics::DiagnosticOutputSink,
+    ) -> Self {
         match sink {
             bray_diagnostics::DiagnosticOutputSink::Filesystem(path) => {
                 Self::Filesystem(path_to_output_string(path))
@@ -178,7 +186,10 @@ pub(crate) struct SourceSpanJson {
 }
 
 impl SourceSpanJson {
-    pub(in crate::output::diagnostic::json) fn from_span(span: SourceSpan, source_map: &DiagnosticSourceMap<'_>) -> Self {
+    pub(in crate::output::diagnostic::json) fn from_span(
+        span: SourceSpan,
+        source_map: &DiagnosticSourceMap<'_>,
+    ) -> Self {
         Self {
             source_id: span.source_id().raw(),
             source_origin: source_map.source_origin(span),

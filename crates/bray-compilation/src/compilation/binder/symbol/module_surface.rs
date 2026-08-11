@@ -193,7 +193,10 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
                 continue;
             };
 
-            let member_lookup = context.symbols().lookup_member(module.into(), name.as_str());
+            let member_lookup = context
+                .symbols()
+                .lookup_member(module.into(), name.as_str());
+
             let mut prior_spans = member_lookup_spans(context.symbols(), &member_lookup);
 
             prior_spans.extend(module_declared_child_spans(
@@ -210,14 +213,8 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
             prior_spans.sort_unstable();
             prior_spans.dedup();
 
-            if !matches!(member_lookup, MemberLookupResult::NotFound)
-                || !prior_spans.is_empty()
-            {
-                diagnostics.add(export_conflict_diagnostic(
-                    declaration,
-                    &name,
-                    prior_spans,
-                ));
+            if !matches!(member_lookup, MemberLookupResult::NotFound) || !prior_spans.is_empty() {
+                diagnostics.add(export_conflict_diagnostic(declaration, &name, prior_spans));
 
                 continue;
             }
@@ -769,12 +766,7 @@ mod tests {
 
         let duplicate_export = compilation([
             concat!("module a;\n", "\n", "func run()\n", "{\n", "}\n",),
-            concat!(
-                "module b;\n",
-                "\n",
-                "export a.run;\n",
-                "export a.run;\n",
-            ),
+            concat!("module b;\n", "\n", "export a.run;\n", "export a.run;\n",),
         ]);
 
         let duplicate_export_diagnostics = assert_surface_diagnostic(

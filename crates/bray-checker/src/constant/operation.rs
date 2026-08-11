@@ -13,10 +13,7 @@ pub(super) enum ConstantOperationError {
     Invalid,
     DivisionByZero,
     NotRepresentable,
-    ResourceLimitExceeded {
-        actual: u64,
-        maximum: u64,
-    },
+    ResourceLimitExceeded { actual: u64, maximum: u64 },
 }
 
 pub(super) fn fold_unary(
@@ -440,17 +437,11 @@ mod tests {
 
         assert_eq!(addition, Err(exceeded));
 
-        assert_eq!(
-            multiplication,
-            Err(exceeded)
-        );
+        assert_eq!(multiplication, Err(exceeded));
 
         assert_eq!(shift, Err(exceeded));
 
-        assert_eq!(
-            exponentiation,
-            Err(exceeded)
-        );
+        assert_eq!(exponentiation, Err(exceeded));
     }
 
     #[test]

@@ -453,9 +453,7 @@ impl CompilationTypeRepresentationContext<'_> {
 mod tests {
     use std::sync::Arc;
 
-    use bray_diagnostics::{
-        DiagnosticArg, DiagnosticKind, DiagnosticRelatedLocationKind,
-    };
+    use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticRelatedLocationKind};
     use bray_symbols::{DeclaredCopyContract, DeclaredLayoutMode, NamedTypeSymbolId, SymbolOrigin};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -843,10 +841,7 @@ mod tests {
 
         let diagnostics = compilation.check_diagnostics();
 
-        assert_goal_state_diagnostic_kind(
-            diagnostics,
-            DiagnosticKind::CheckingInvalidUnionTag,
-        );
+        assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingInvalidUnionTag);
     }
 
     #[test]
@@ -964,24 +959,30 @@ mod tests {
             DiagnosticKind::CheckingInvalidLayoutDirective,
         );
 
-        assert!(compilation
-            .check_diagnostics()
-            .by_kind(DiagnosticKind::CheckingInvalidLayoutDirective)
-            .any(|diagnostic| diagnostic.related_locations().iter().any(|location| {
-                location.kind() == DiagnosticRelatedLocationKind::FirstDirective
-            })));
+        assert!(
+            compilation
+                .check_diagnostics()
+                .by_kind(DiagnosticKind::CheckingInvalidLayoutDirective)
+                .any(
+                    |diagnostic| diagnostic.related_locations().iter().any(|location| {
+                        location.kind() == DiagnosticRelatedLocationKind::FirstDirective
+                    })
+                )
+        );
 
-        assert!(compilation
-            .check_diagnostics()
-            .by_kind(DiagnosticKind::CheckingInvalidLayoutDirective)
-            .any(|diagnostic| diagnostic
-                .related_locations()
-                .iter()
-                .filter(|location| {
-                    location.kind() == DiagnosticRelatedLocationKind::FirstDirective
-                })
-                .count()
-                == 2));
+        assert!(
+            compilation
+                .check_diagnostics()
+                .by_kind(DiagnosticKind::CheckingInvalidLayoutDirective)
+                .any(|diagnostic| diagnostic
+                    .related_locations()
+                    .iter()
+                    .filter(|location| {
+                        location.kind() == DiagnosticRelatedLocationKind::FirstDirective
+                    })
+                    .count()
+                    == 2)
+        );
     }
 
     #[test]

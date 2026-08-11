@@ -1,10 +1,10 @@
 use bray_diagnostics::DiagnosticType;
 
-use super::identity::{
-    DiagnosticArrayLengthJson, DiagnosticInterfaceSymbolIdentityJson,
-    DiagnosticProblemFieldJson, DiagnosticProblemFieldValueJson,
-};
 use super::super::{DiagnosticProblemJson, DiagnosticTypeJson};
+use super::identity::{
+    DiagnosticArrayLengthJson, DiagnosticInterfaceSymbolIdentityJson, DiagnosticProblemFieldJson,
+    DiagnosticProblemFieldValueJson,
+};
 
 pub(in crate::output::diagnostic::json) fn problem(
     reason: &'static str,

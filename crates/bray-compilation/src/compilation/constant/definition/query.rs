@@ -14,7 +14,7 @@ use bray_checker::{
     DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_definition_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_source::{SourceSpan};
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
@@ -753,7 +753,10 @@ impl Compilation {
 
         let anchor = record.syntax_anchor();
 
-        Ok(Some(SourceSpan::new(anchor.source_id(), anchor.full_range())))
+        Ok(Some(SourceSpan::new(
+            anchor.source_id(),
+            anchor.full_range(),
+        )))
     }
 
     pub(in crate::compilation) fn callable_body_key(

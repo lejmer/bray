@@ -7,9 +7,7 @@ use bray_symbols::{
 
 use super::super::ConstantReferenceResolution;
 use super::super::call::ConstantCallRequest;
-use super::super::diagnostic::{
-    ConstantDiagnostic, ConstantLimitKind, diagnostic_operation,
-};
+use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic_operation};
 use super::super::integer::fits_integer_representation;
 use super::super::operation::fold_binary;
 use super::evaluator::TemplateEvaluator;
@@ -180,11 +178,9 @@ where
             let limits = evaluator.budget.remaining_limits(evaluator.limits);
 
             let Some(limits) = limits.nested_call() else {
-                return Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::limit(
-                    ConstantLimitKind::EvaluationSteps,
-                    1,
-                    0,
-                )));
+                return Err(TemplateEvaluationFailure::Diagnostic(
+                    ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0),
+                ));
             };
 
             let request = ConstantCallRequest::new(
@@ -214,9 +210,9 @@ where
                     .machine()
                     .pointer_width_bits()
             }) {
-                return Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Literal(
-                    crate::ConstantLiteralError::NotRepresentable,
-                )));
+                return Err(TemplateEvaluationFailure::Diagnostic(
+                    ConstantDiagnostic::Literal(crate::ConstantLiteralError::NotRepresentable),
+                ));
             }
 
             evaluator.intern_value(ty, ConstantValueKind::Integer(value.clone()))
@@ -239,17 +235,13 @@ where
     let subject = evaluator.constant_value(subject)?;
 
     let value = match (subject.kind(), projection.kind()) {
-        (
-            ConstantValueKind::Tuple(elements),
-            ConstantProjectionKind::TupleElement(ordinal),
-        ) => ordinal
-            .to_index()
-            .and_then(|index| elements.get(index))
-            .copied(),
-        (
-            ConstantValueKind::Array(elements),
-            ConstantProjectionKind::ArrayElement(index),
-        ) => {
+        (ConstantValueKind::Tuple(elements), ConstantProjectionKind::TupleElement(ordinal)) => {
+            ordinal
+                .to_index()
+                .and_then(|index| elements.get(index))
+                .copied()
+        }
+        (ConstantValueKind::Array(elements), ConstantProjectionKind::ArrayElement(index)) => {
             let index = evaluator.evaluate_term(index, ty)?;
             let index = evaluator.constant_value(index)?;
 
@@ -257,10 +249,7 @@ where
                 .and_then(|index| elements.get(index))
                 .copied()
         }
-        (
-            ConstantValueKind::Product(fields),
-            ConstantProjectionKind::ProductField(field),
-        ) => fields
+        (ConstantValueKind::Product(fields), ConstantProjectionKind::ProductField(field)) => fields
             .iter()
             .find(|entry| *entry.field() == field)
             .map(|entry| *entry.value()),
@@ -271,10 +260,9 @@ where
             .iter()
             .find(|entry| *entry.field() == field)
             .map(|entry| *entry.value()),
-        (
-            ConstantValueKind::NullablePresent(value),
-            ConstantProjectionKind::NullableValue,
-        ) => Some(*value),
+        (ConstantValueKind::NullablePresent(value), ConstantProjectionKind::NullableValue) => {
+            Some(*value)
+        }
         _ => None,
     };
 
@@ -318,11 +306,11 @@ where
             Ok(result.value())
         }
         ConstantReferenceResolution::Term(term) => evaluator.evaluate_term(*term, ty),
-        ConstantReferenceResolution::Cycle { definition } => {
-            Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Cycle {
+        ConstantReferenceResolution::Cycle { definition } => Err(
+            TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Cycle {
                 definition: *definition,
-            }))
-        }
+            }),
+        ),
         ConstantReferenceResolution::Invalid => Err(TemplateEvaluationFailure::invalid_input()),
     }
 }

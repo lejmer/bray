@@ -5,8 +5,8 @@ use bray_bound_tree::{
     SelectedIterationSource,
 };
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticType, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticType, SeverityKind,
 };
 use bray_symbols::TypeId;
 

@@ -269,27 +269,24 @@ mod tests {
         Diagnostic, DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
         DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength,
         DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
-        DiagnosticBag, DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind,
-        DiagnosticCallbackStateProblem, DiagnosticExpressionCategory, DiagnosticId,
-        DiagnosticIoErrorKind, DiagnosticKind,
+        DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticConstructionInputRejection,
+        DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind,
+        DiagnosticExpressionCategory, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
         DiagnosticLabel, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticLayoutOption,
         DiagnosticLayoutProblem, DiagnosticMemoryOperation, DiagnosticModuleTrust,
-        DiagnosticNameKind, DiagnosticNamedType,
-        DiagnosticPatternCoverage, DiagnosticPatternMissingCase,
-        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPropagationProblem,
-        DiagnosticRelatedLocation,
-        DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
+        DiagnosticNameKind, DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind,
+        DiagnosticOutputSink, DiagnosticPatternCoverage, DiagnosticPatternMissingCase,
+        DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
+        DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
+        DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
         DiagnosticSelectionCandidate, DiagnosticSelectionCandidateIdentity,
         DiagnosticSelectionCandidateSignature, DiagnosticSelectionCandidates,
-        DiagnosticConstructionInputRejection, DiagnosticRejectedSelectionCandidate,
-        DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
-        DiagnosticSelectionRejections,
-        DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
-        DiagnosticSourceInput, DiagnosticSourceInputOrigin, DiagnosticType, DiagnosticTypeArgument,
-        DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
-        DiagnosticStorageRoot, DiagnosticSuggestion, DiagnosticSuggestionKind,
-        DiagnosticTargetPredicateValueKind, DiagnosticProjectManifestField, DiagnosticUnionTagProblem,
-        DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
+        DiagnosticSelectionKind, DiagnosticSelectionRejectionReason, DiagnosticSelectionRejections,
+        DiagnosticSourceInput, DiagnosticSourceInputOrigin, DiagnosticStorageAccess,
+        DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
+        DiagnosticSuggestion, DiagnosticSuggestionKind, DiagnosticTargetPredicateValueKind,
+        DiagnosticType, DiagnosticTypeArgument, DiagnosticUnionTagProblem, DiagnosticVisibility,
+        DiagnosticYieldCardinality, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
@@ -351,7 +348,12 @@ mod tests {
             assert!(!rendered.message().is_empty(), "{kind:?}");
 
             for (component, message) in std::iter::once(("primary", rendered.message()))
-                .chain(rendered.labels().iter().map(|label| ("label", label.message())))
+                .chain(
+                    rendered
+                        .labels()
+                        .iter()
+                        .map(|label| ("label", label.message())),
+                )
                 .chain(rendered.notes().iter().map(|note| ("note", note.message())))
                 .chain(
                     rendered
@@ -373,8 +375,7 @@ mod tests {
                 };
 
                 assert_eq!(
-                    forbidden,
-                    None,
+                    forbidden, None,
                     "{kind:?} {component} exposes compiler implementation language: {message:?}"
                 );
             }
@@ -527,8 +528,8 @@ mod tests {
         .with_arg(DiagnosticArg::required_alignment(64))
         .with_arg(DiagnosticArg::maximum_alignment(16));
 
-        let target_alignment = target_alignment
-            .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"));
+        let target_alignment =
+            target_alignment.with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"));
 
         let incompatible_pattern = Diagnostic::new(
             DiagnosticId::new(6),
@@ -787,9 +788,7 @@ mod tests {
             DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::target_triple(
-            "wasm32-unknown-unknown",
-        ))
+        .with_arg(DiagnosticArg::target_triple("wasm32-unknown-unknown"))
         .with_arg(DiagnosticArg::memory_operation(
             DiagnosticMemoryOperation::PointerRead,
         ));
@@ -1346,7 +1345,6 @@ mod tests {
             DiagnosticRenderer::english().render(&incoherent).message(),
             "alternative patterns must bind the same names"
         );
-
     }
 
     #[test]

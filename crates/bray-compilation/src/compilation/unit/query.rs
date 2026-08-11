@@ -834,12 +834,11 @@ mod tests {
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
     use bray_compiler_known::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
     use bray_diagnostics::{
-        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticKind,
-        DiagnosticConstructionInputRejection, DiagnosticPatternMissingCase,
-        DiagnosticRelatedLocationKind,
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticConstructionInputRejection,
+        DiagnosticKind, DiagnosticPatternMissingCase, DiagnosticRelatedLocationKind,
         DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
-        DiagnosticSelectionRejectionReason,
-        DiagnosticStorageProjection, DiagnosticStorageRoot, DiagnosticType,
+        DiagnosticSelectionRejectionReason, DiagnosticStorageProjection, DiagnosticStorageRoot,
+        DiagnosticType,
     };
     use bray_messages::DiagnosticRenderer;
     use bray_source::SourceSpan;
@@ -3143,9 +3142,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
         let origins = diagnostic
             .related_locations()
             .iter()
-            .filter(|related| {
-                related.kind() == DiagnosticRelatedLocationKind::DeallocationOrigin
-            })
+            .filter(|related| related.kind() == DiagnosticRelatedLocationKind::DeallocationOrigin)
             .collect::<Vec<_>>();
 
         let allocations = diagnostic
@@ -3194,10 +3191,8 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
     #[test]
     fn fixed_array_generators_report_divergent_yield_cardinality() {
-        let compilation = array_generator_compilation(concat!(
-            "        yield item;\n",
-            "        yield item;\n",
-        ));
+        let compilation =
+            array_generator_compilation(concat!("        yield item;\n", "        yield item;\n",));
 
         assert_goal_state_diagnostic_kind(
             compilation.check_diagnostics(),
@@ -3248,10 +3243,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         source.push_str(body);
 
-        source.push_str(concat!(
-            "    }];\n",
-            "}\n",
-        ));
+        source.push_str(concat!("    }];\n", "}\n",));
 
         compilation(&source)
     }
@@ -3387,7 +3379,6 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
                 DiagnosticConstructionInputRejection::UnknownName { provided, accepted }
             ) if provided == "y" && accepted.as_ref() == [String::from("x")]
         ));
-
     }
 
     #[test]
@@ -3777,10 +3768,7 @@ func select(pos values: Values) -> i32
 
         assert_eq!(access.root(), DiagnosticStorageRoot::BorrowedStorage);
 
-        assert_goal_state_diagnostic_kind(
-            diagnostics,
-            DiagnosticKind::CheckingConflictingBorrow,
-        );
+        assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingConflictingBorrow);
     }
 
     #[test]
@@ -4206,10 +4194,7 @@ func convert(pos value: Value) -> i32
                 .all(|pair| pair[0].span() < pair[1].span())
         );
 
-        assert_goal_state_diagnostic_kind(
-            diagnostics,
-            DiagnosticKind::CheckingAmbiguousCandidate,
-        );
+        assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingAmbiguousCandidate);
     }
 
     #[test]

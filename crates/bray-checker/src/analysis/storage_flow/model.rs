@@ -136,12 +136,9 @@ pub(super) struct StorageFlowState {
     pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) raw_initialized:
         BTreeMap<StorageIdentityId, BTreeMap<TypeId, BTreeSet<BoundExpressionId>>>,
-    pub(super) active_allocations:
-        BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
-    pub(super) allocation_origins:
-        BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
-    pub(super) invalidated_allocations:
-        BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
+    pub(super) active_allocations: BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
+    pub(super) allocation_origins: BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
+    pub(super) invalidated_allocations: BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
     pub(super) recovered: bool,
 }
 

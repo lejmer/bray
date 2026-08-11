@@ -13,9 +13,7 @@ impl DiagnosticSelectionCandidateJson {
         candidate: &bray_diagnostics::DiagnosticSelectionCandidate,
     ) -> Self {
         Self {
-            identity: DiagnosticSelectionCandidateIdentityJson::from_identity(
-                candidate.identity(),
-            ),
+            identity: DiagnosticSelectionCandidateIdentityJson::from_identity(candidate.identity()),
             signature: DiagnosticSelectionCandidateSignatureJson::from_signature(
                 candidate.signature(),
             ),
@@ -100,9 +98,7 @@ enum DiagnosticSelectionCandidateSignatureJson {
 }
 
 impl DiagnosticSelectionCandidateSignatureJson {
-    fn from_signature(
-        signature: &bray_diagnostics::DiagnosticSelectionCandidateSignature,
-    ) -> Self {
+    fn from_signature(signature: &bray_diagnostics::DiagnosticSelectionCandidateSignature) -> Self {
         use bray_diagnostics::DiagnosticSelectionCandidateSignature as Signature;
 
         match signature {

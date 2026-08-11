@@ -129,15 +129,15 @@ impl DiagnosticCallableOverloadContextJson {
         use bray_diagnostics::DiagnosticCallableOverloadContext as Context;
 
         match context {
-            Context::Module(identity) => {
-                Self::Module(DiagnosticInterfaceSymbolIdentityJson::from_identity(identity))
-            }
-            Context::NamedType(identity) => {
-                Self::NamedType(DiagnosticInterfaceSymbolIdentityJson::from_identity(identity))
-            }
-            Context::Trait(identity) => {
-                Self::Trait(DiagnosticInterfaceSymbolIdentityJson::from_identity(identity))
-            }
+            Context::Module(identity) => Self::Module(
+                DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
+            ),
+            Context::NamedType(identity) => Self::NamedType(
+                DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
+            ),
+            Context::Trait(identity) => Self::Trait(
+                DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
+            ),
             Context::Implementation(identity) => Self::Implementation(
                 DiagnosticInterfaceSymbolIdentityJson::from_identity(identity),
             ),

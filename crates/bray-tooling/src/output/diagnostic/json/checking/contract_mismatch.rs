@@ -3,16 +3,27 @@ use serde::Serialize;
 #[derive(Serialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub(in crate::output::diagnostic::json) enum DiagnosticGenericConstraintMismatchJson {
-    Count { required: u64, provided: u64 },
-    Ordinal { index: u64 },
+    Count {
+        required: u64,
+        provided: u64,
+    },
+    Ordinal {
+        index: u64,
+    },
     Category {
         index: u64,
         required: &'static str,
         provided: &'static str,
     },
-    PredicateDependencies { index: u64 },
-    TraitSatisfaction { index: u64 },
-    TypeEquality { index: u64 },
+    PredicateDependencies {
+        index: u64,
+    },
+    TraitSatisfaction {
+        index: u64,
+    },
+    TypeEquality {
+        index: u64,
+    },
 }
 
 impl DiagnosticGenericConstraintMismatchJson {
@@ -36,9 +47,7 @@ impl DiagnosticGenericConstraintMismatchJson {
                 required: constraint_category_key(*required),
                 provided: constraint_category_key(*provided),
             },
-            Mismatch::PredicateDependencies(index) => {
-                Self::PredicateDependencies { index: *index }
-            }
+            Mismatch::PredicateDependencies(index) => Self::PredicateDependencies { index: *index },
             Mismatch::TraitSatisfaction(index) => Self::TraitSatisfaction { index: *index },
             Mismatch::TypeEquality(index) => Self::TypeEquality { index: *index },
         }
@@ -148,9 +157,7 @@ const fn constraint_category_key(
 ) -> &'static str {
     match value {
         bray_diagnostics::DiagnosticConstraintCategory::Predicate => "predicate",
-        bray_diagnostics::DiagnosticConstraintCategory::TraitSatisfaction => {
-            "trait_satisfaction"
-        }
+        bray_diagnostics::DiagnosticConstraintCategory::TraitSatisfaction => "trait_satisfaction",
         bray_diagnostics::DiagnosticConstraintCategory::TypeEquality => "type_equality",
     }
 }
@@ -239,9 +246,7 @@ pub(in crate::output::diagnostic::json) const fn callable_position_key(
 ) -> &'static str {
     match value {
         bray_diagnostics::DiagnosticCallablePosition::NamedOnly => "named_only",
-        bray_diagnostics::DiagnosticCallablePosition::PositionalOrNamed => {
-            "positional_or_named"
-        }
+        bray_diagnostics::DiagnosticCallablePosition::PositionalOrNamed => "positional_or_named",
     }
 }
 

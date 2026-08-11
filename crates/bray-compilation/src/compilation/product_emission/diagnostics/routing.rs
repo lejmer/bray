@@ -231,9 +231,6 @@ mod tests {
             &selected_target,
         );
 
-        assert_goal_state_diagnostic_kind(
-            &target_mismatch,
-            DiagnosticKind::EmissionTargetMismatch,
-        );
+        assert_goal_state_diagnostic_kind(&target_mismatch, DiagnosticKind::EmissionTargetMismatch);
     }
 }

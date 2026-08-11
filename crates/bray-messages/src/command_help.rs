@@ -101,7 +101,8 @@ pub const INSPECTION: &str = "Select the representation to render";
 /// Describes a source identity used for inspection.
 pub const SOURCE_ID: &str = "Inspect the loaded source with numeric identity N";
 /// Describes a source byte offset used for inspection.
-pub const SOURCE_OFFSET: &str = "Inspect the innermost program element containing UTF-8 byte OFFSET";
+pub const SOURCE_OFFSET: &str =
+    "Inspect the innermost program element containing UTF-8 byte OFFSET";
 /// Describes profile report paths.
 pub const PROFILE_REPORT_PATH: &str = "Read the compiler profile from REPORT";
 /// Describes baseline profile paths.

@@ -7,9 +7,7 @@ use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::{
     Compilation, CompilationLoadError, CompilationProfileReport, CompilationRequest,
 };
-use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticProjectCommandFailure,
-};
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticProjectCommandFailure};
 use bray_tooling::{
     InspectionError, InspectionOutput, OutputFormat, compilation_request_from_file_arguments,
     exit_code_from_diagnostics, load_compilation, render_bound_inspection,
@@ -1784,8 +1782,10 @@ mod tests {
         assert_eq!(exit_code, ExitCode::FAILURE);
         assert!(stdout.is_empty());
 
-        assert!(String::from_utf8_lossy(&stderr)
-            .contains("could not write the compiler inspection report at"));
+        assert!(
+            String::from_utf8_lossy(&stderr)
+                .contains("could not write the compiler inspection report at")
+        );
 
         assert!(!report.exists());
     }

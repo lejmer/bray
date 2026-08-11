@@ -38,16 +38,27 @@ pub(in crate::compilation::implementation::conformance) enum ConstraintCategory 
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::compilation::implementation::conformance) enum GenericConstraintMismatch {
-    Count { required: usize, provided: usize },
-    Ordinal { index: usize },
+    Count {
+        required: usize,
+        provided: usize,
+    },
+    Ordinal {
+        index: usize,
+    },
     Category {
         index: usize,
         required: ConstraintCategory,
         provided: ConstraintCategory,
     },
-    PredicateDependencies { index: usize },
-    TraitSatisfaction { index: usize },
-    TypeEquality { index: usize },
+    PredicateDependencies {
+        index: usize,
+    },
+    TraitSatisfaction {
+        index: usize,
+    },
+    TypeEquality {
+        index: usize,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

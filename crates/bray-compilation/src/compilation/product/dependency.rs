@@ -89,9 +89,12 @@ fn bound_expression_internal_dependency(
     }
 
     for entry in selections.entries() {
-        if let Some(internal) =
-            selection_internal_dependency(entry.selection(), semantic_values, symbols, declarations)?
-        {
+        if let Some(internal) = selection_internal_dependency(
+            entry.selection(),
+            semantic_values,
+            symbols,
+            declarations,
+        )? {
             return Ok(Some(internal));
         }
     }
@@ -125,14 +128,9 @@ fn selection_internal_dependency(
                 ) {
                     return Ok(Some(internal));
                 }
-
             } else if let BoundCallableTarget::Indirect(ty) = call.target() {
-                semantic_internal = resolved_type_internal_dependency(
-                    ty,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                );
+                semantic_internal =
+                    resolved_type_internal_dependency(ty, semantic_values, symbols, declarations);
             }
 
             if let Some(receiver) = call.receiver() {
@@ -188,7 +186,6 @@ fn selection_internal_dependency(
             ) {
                 return Ok(Some(internal));
             }
-
         }
         SemanticSelection::Operation(operation) => {
             semantic_internal = push_operation_dependencies(
@@ -410,27 +407,23 @@ fn push_trait_operation_dependencies(
     dependencies.push(member.definition().symbol());
     dependencies.push(fulfillment.definition().symbol());
 
-    let internal = callable_instance_internal_dependency(
-        member,
-        semantic_values,
-        symbols,
-        declarations,
-    )
-    .or_else(|| {
-        callable_instance_internal_dependency(
-            fulfillment,
-            semantic_values,
-            symbols,
-            declarations,
-        )
-    })
-    .or(push_witness_dependencies(
-        semantic_values,
-        symbols,
-        declarations,
-        SelectedImplementationWitness::new(requirement, witness),
-        dependencies,
-    )?);
+    let internal =
+        callable_instance_internal_dependency(member, semantic_values, symbols, declarations)
+            .or_else(|| {
+                callable_instance_internal_dependency(
+                    fulfillment,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                )
+            })
+            .or(push_witness_dependencies(
+                semantic_values,
+                symbols,
+                declarations,
+                SelectedImplementationWitness::new(requirement, witness),
+                dependencies,
+            )?);
 
     Ok(internal)
 }
@@ -455,12 +448,14 @@ fn push_construction_dependencies(
         ConstructionTarget::TypeForm { callable, .. } => {
             dependencies.push(callable.definition().symbol());
 
-            internal = internal.or_else(|| callable_instance_internal_dependency(
-                callable,
-                semantic_values,
-                symbols,
-                declarations,
-            ));
+            internal = internal.or_else(|| {
+                callable_instance_internal_dependency(
+                    callable,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                )
+            });
         }
     }
 
@@ -509,19 +504,23 @@ fn push_conversion_dependencies(
     let mut internal = None;
 
     while let Some(conversion) = pending.pop() {
-        internal = internal.or_else(|| resolved_type_internal_dependency(
-            conversion.source_type(),
-            semantic_values,
-            symbols,
-            declarations,
-        ));
+        internal = internal.or_else(|| {
+            resolved_type_internal_dependency(
+                conversion.source_type(),
+                semantic_values,
+                symbols,
+                declarations,
+            )
+        });
 
-        internal = internal.or_else(|| resolved_type_internal_dependency(
-            conversion.target_type(),
-            semantic_values,
-            symbols,
-            declarations,
-        ));
+        internal = internal.or_else(|| {
+            resolved_type_internal_dependency(
+                conversion.target_type(),
+                semantic_values,
+                symbols,
+                declarations,
+            )
+        });
 
         match conversion.target() {
             ConversionTarget::Trait {
@@ -533,19 +532,23 @@ fn push_conversion_dependencies(
                 dependencies.push(member.definition().symbol());
                 dependencies.push(fulfillment.definition().symbol());
 
-                internal = internal.or_else(|| callable_instance_internal_dependency(
-                    *member,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                ));
+                internal = internal.or_else(|| {
+                    callable_instance_internal_dependency(
+                        *member,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                });
 
-                internal = internal.or_else(|| callable_instance_internal_dependency(
-                    *fulfillment,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                ));
+                internal = internal.or_else(|| {
+                    callable_instance_internal_dependency(
+                        *fulfillment,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                });
 
                 internal = internal.or(push_witness_dependencies(
                     semantic_values,
@@ -558,12 +561,14 @@ fn push_conversion_dependencies(
             ConversionTarget::TraitConstraint { member, .. } => {
                 dependencies.push(member.definition().symbol());
 
-                internal = internal.or_else(|| callable_instance_internal_dependency(
-                    *member,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                ));
+                internal = internal.or_else(|| {
+                    callable_instance_internal_dependency(
+                        *member,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                });
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}

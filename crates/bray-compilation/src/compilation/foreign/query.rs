@@ -253,9 +253,9 @@ mod tests {
 
     use bray_base::NonEmptySharedStr;
     use bray_diagnostics::{
-        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
-        DiagnosticCallableAbi, DiagnosticCallableExecution, DiagnosticDirectiveArgumentProblem,
-        DiagnosticKind, DiagnosticNativeLinkDirectiveProblem, DiagnosticNativeSymbolDirectiveProblem,
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticCallableAbi,
+        DiagnosticCallableExecution, DiagnosticDirectiveArgumentProblem, DiagnosticKind,
+        DiagnosticNativeLinkDirectiveProblem, DiagnosticNativeSymbolDirectiveProblem,
         DiagnosticPlatformAbiType, DiagnosticPlatformServiceSignatureProblem,
     };
     use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};

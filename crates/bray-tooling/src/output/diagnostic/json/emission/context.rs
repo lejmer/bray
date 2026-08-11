@@ -1,8 +1,8 @@
+use super::super::DiagnosticOutputSinkJson;
 use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     digest_field, field, text_field,
 };
-use super::super::DiagnosticOutputSinkJson;
 use crate::output::path_to_output_string;
 
 pub(super) fn planning_failure_context(

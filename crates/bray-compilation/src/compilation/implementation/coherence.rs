@@ -3,11 +3,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_binder::NameAccess;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
-    DiagnosticImplementationBorrowKind, DiagnosticImplementationFamily,
-    DiagnosticImplementationFamilySubject, DiagnosticImplementationOverloadProblem,
-    DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
-    DiagnosticType,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticImplementationBorrowKind,
+    DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
+    DiagnosticImplementationOverloadProblem, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticType, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -60,12 +59,8 @@ impl Compilation {
         // The published coherence fact owns its merged diagnostic bag.
         let mut diagnostics = participation.diagnostics().clone();
 
-        let families = self.resolve_implementation_families(
-            &facts,
-            imported,
-            index.value(),
-            cancellation,
-        )?;
+        let families =
+            self.resolve_implementation_families(&facts, imported, index.value(), cancellation)?;
 
         diagnostics.add_range(families.diagnostics.iter().cloned());
 
@@ -185,19 +180,11 @@ impl Compilation {
             let left_participant = participants.get(&left.implementation()).copied();
             let right_participant = participants.get(&right.implementation()).copied();
 
-            let left_context = self.implementation_diagnostic_context(
-                left,
-                symbols,
-                imported,
-                cancellation,
-            )?;
+            let left_context =
+                self.implementation_diagnostic_context(left, symbols, imported, cancellation)?;
 
-            let right_context = self.implementation_diagnostic_context(
-                right,
-                symbols,
-                imported,
-                cancellation,
-            )?;
+            let right_context =
+                self.implementation_diagnostic_context(right, symbols, imported, cancellation)?;
 
             add_participant_diagnostic(
                 &mut diagnostics,
@@ -240,11 +227,8 @@ impl Compilation {
             .trait_application_data(header.trait_application())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let trait_definition = symbol_diagnostic_identity(
-            symbols,
-            imported,
-            application.definition().into(),
-        )?;
+        let trait_definition =
+            symbol_diagnostic_identity(symbols, imported, application.definition().into())?;
 
         Ok(ImplementationDiagnosticContext {
             subject,
@@ -306,15 +290,14 @@ impl Compilation {
                     .find_descendant::<PathSyntax>(self.syntax_tree())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                let Some(implementation) =
-                    bind_family_arm(
-                        facts,
-                        symbols,
-                        imported,
-                        module.id(),
-                        &path,
-                        &mut resolved.diagnostics,
-                    )?
+                let Some(implementation) = bind_family_arm(
+                    facts,
+                    symbols,
+                    imported,
+                    module.id(),
+                    &path,
+                    &mut resolved.diagnostics,
+                )?
                 else {
                     continue;
                 };
@@ -327,11 +310,8 @@ impl Compilation {
                     .or_default()
                     .insert(family.id());
 
-                let identity = symbol_diagnostic_identity(
-                    symbols,
-                    imported,
-                    implementation.into_any(),
-                )?;
+                let identity =
+                    symbol_diagnostic_identity(symbols, imported, implementation.into_any())?;
 
                 if let Some(previous) = seen.get_mut(&implementation) {
                     resolved.diagnostics.add(implementation_overload_diagnostic(
@@ -384,9 +364,7 @@ impl Compilation {
                             required: diagnostic_implementation_family(
                                 symbols, imported, expected,
                             )?,
-                            provided: diagnostic_implementation_family(
-                                symbols, imported, actual,
-                            )?,
+                            provided: diagnostic_implementation_family(symbols, imported, actual)?,
                         },
                         &[],
                     ));
@@ -605,11 +583,7 @@ fn diagnostic_implementation_family(
                         DiagnosticImplementationBorrowKind::Mutable
                     }
                 },
-                subject: symbol_diagnostic_identity(
-                    symbols,
-                    imported,
-                    named_type_symbol(subject),
-                )?,
+                subject: symbol_diagnostic_identity(symbols, imported, named_type_symbol(subject))?,
             }
         }
     };
@@ -1029,12 +1003,7 @@ mod tests {
     fn implementation_overload_header_requires_a_structural_subject() {
         let compilation = compilation(&format!(
             "{OVERLOAD_SURFACE}{}",
-            concat!(
-                "\n",
-                "overload Reader(Buffer) =\n",
-                "{\n",
-                "}\n",
-            )
+            concat!("\n", "overload Reader(Buffer) =\n", "{\n", "}\n",)
         ));
 
         let diagnostics = compilation
@@ -1114,8 +1083,7 @@ mod tests {
         let duplicates = diagnostics
             .iter()
             .filter(|diagnostic| {
-                diagnostic.kind()
-                    == DiagnosticKind::CheckingDuplicateImplementationOverloadArm
+                diagnostic.kind() == DiagnosticKind::CheckingDuplicateImplementationOverloadArm
             })
             .collect::<Vec<_>>();
 

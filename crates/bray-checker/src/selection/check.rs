@@ -5,12 +5,11 @@ use bray_bound_tree::{
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticCallableArgumentRejection,
     DiagnosticConstructionInputRejection, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticNote, DiagnosticNoteKind, DiagnosticReceiverCapability,
-    DiagnosticReceiverMode, DiagnosticRejectedSelectionCandidate, DiagnosticRelatedLocation,
-    DiagnosticRelatedLocationKind, DiagnosticSelectionCandidate,
-    DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
-    DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
-    DiagnosticSelectionRejections, SeverityKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticReceiverCapability, DiagnosticReceiverMode,
+    DiagnosticRejectedSelectionCandidate, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    DiagnosticSelectionCandidate, DiagnosticSelectionCandidateIdentity,
+    DiagnosticSelectionCandidateSignature, DiagnosticSelectionCandidates, DiagnosticSelectionKind,
+    DiagnosticSelectionRejectionReason, DiagnosticSelectionRejections, SeverityKind,
 };
 
 use crate::diagnostic::{diagnostic_id, expression_span};
@@ -18,9 +17,8 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::{
     CallableCandidate, CallableSelectionRequest, CandidateSelection,
-    IterationSourceSelectionRequest, OperationSelectionRequest, SelectionCandidateKey,
-    SelectionCallableArgumentRejection, SelectionCandidateRejectionReason,
-    SelectionCandidateSignature,
+    IterationSourceSelectionRequest, OperationSelectionRequest, SelectionCallableArgumentRejection,
+    SelectionCandidateKey, SelectionCandidateRejectionReason, SelectionCandidateSignature,
     SelectionConstructionInputRejection, SelectionFailure, SelectionFailureCandidate,
     SelectionRejectedCandidate,
 };
@@ -159,10 +157,8 @@ where
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
         };
 
-        let diagnostic_candidates = DiagnosticSelectionCandidates::try_from_prefix(
-            retained,
-            candidates.len(),
-        );
+        let diagnostic_candidates =
+            DiagnosticSelectionCandidates::try_from_prefix(retained, candidates.len());
 
         let diagnostic_candidates = match diagnostic_candidates {
             Ok(candidates) => candidates,
@@ -173,9 +169,8 @@ where
             }
         };
 
-        diagnostic = diagnostic.with_arg(DiagnosticArg::selection_candidates(
-            diagnostic_candidates,
-        ));
+        diagnostic =
+            diagnostic.with_arg(DiagnosticArg::selection_candidates(diagnostic_candidates));
 
         let related = match selection_candidate_locations(
             request,
@@ -206,21 +201,18 @@ where
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
         };
 
-        let diagnostic_rejections = match DiagnosticSelectionRejections::try_from_prefix(
-            retained,
-            rejections.len(),
-        ) {
-            Ok(rejections) => rejections,
-            Err(_) => {
-                return CheckerOutcome::InfrastructureFailure(
-                    crate::CheckerInfrastructureError::SemanticValueUnavailable,
-                );
-            }
-        };
+        let diagnostic_rejections =
+            match DiagnosticSelectionRejections::try_from_prefix(retained, rejections.len()) {
+                Ok(rejections) => rejections,
+                Err(_) => {
+                    return CheckerOutcome::InfrastructureFailure(
+                        crate::CheckerInfrastructureError::SemanticValueUnavailable,
+                    );
+                }
+            };
 
-        diagnostic = diagnostic.with_arg(DiagnosticArg::selection_rejections(
-            diagnostic_rejections,
-        ));
+        diagnostic =
+            diagnostic.with_arg(DiagnosticArg::selection_rejections(diagnostic_rejections));
 
         let retained_candidates = rejections
             .iter()
@@ -452,9 +444,7 @@ where
     Ok(reason)
 }
 
-fn failure_candidates(
-    failure: &SelectionFailure,
-) -> Option<&[SelectionFailureCandidate]> {
+fn failure_candidates(failure: &SelectionFailure) -> Option<&[SelectionFailureCandidate]> {
     match failure {
         SelectionFailure::Ambiguous(candidates)
         | SelectionFailure::Inaccessible { candidates, .. } => Some(candidates),
@@ -541,10 +531,9 @@ where
 
             match request.symbols().symbol_for_key(key) {
                 Some(symbol) => match diagnostic_member_name(request, symbol)? {
-                    Some(name) => DiagnosticSelectionCandidateIdentity::NamedDeclaration {
-                        identity,
-                        name,
-                    },
+                    Some(name) => {
+                        DiagnosticSelectionCandidateIdentity::NamedDeclaration { identity, name }
+                    }
                     None => DiagnosticSelectionCandidateIdentity::Declaration(identity),
                 },
                 None => DiagnosticSelectionCandidateIdentity::Declaration(identity),
@@ -562,9 +551,9 @@ where
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Pattern(_)) => {
             DiagnosticSelectionCandidateIdentity::PatternValue
         }
-        SelectionCandidateKey::Value(DeclaredValueTypeTerm::Value(BoundReferenceTarget::Local(
-            _,
-        ))) => DiagnosticSelectionCandidateIdentity::LocalValue,
+        SelectionCandidateKey::Value(DeclaredValueTypeTerm::Value(
+            BoundReferenceTarget::Local(_),
+        )) => DiagnosticSelectionCandidateIdentity::LocalValue,
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Value(
             BoundReferenceTarget::Surface(symbol),
         )) => {
@@ -575,10 +564,9 @@ where
             let identity = bray_symbols::diagnostic_symbol_identity(key);
 
             match diagnostic_member_name(request, *symbol)? {
-                Some(name) => DiagnosticSelectionCandidateIdentity::NamedSurfaceValue {
-                    identity,
-                    name,
-                },
+                Some(name) => {
+                    DiagnosticSelectionCandidateIdentity::NamedSurfaceValue { identity, name }
+                }
                 None => DiagnosticSelectionCandidateIdentity::SurfaceValue(identity),
             }
         }
@@ -651,9 +639,9 @@ where
 
             locations.insert(request.source(pattern.origin().source_anchor())?.span());
         }
-        SelectionCandidateKey::Value(DeclaredValueTypeTerm::Value(BoundReferenceTarget::Local(
-            symbol,
-        ))) => {
+        SelectionCandidateKey::Value(DeclaredValueTypeTerm::Value(
+            BoundReferenceTarget::Local(symbol),
+        )) => {
             let Some(anchor) = request.unit().local_symbols().syntax_anchor(*symbol) else {
                 return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput);
             };
@@ -698,9 +686,7 @@ const fn failure_diagnostic_kind(failure: &SelectionFailure) -> Option<Diagnosti
         SelectionFailure::Unavailable => Some(DiagnosticKind::CheckingNoApplicableCandidate),
         SelectionFailure::Ambiguous(_) => Some(DiagnosticKind::CheckingAmbiguousCandidate),
         SelectionFailure::Inaccessible { .. } => None,
-        SelectionFailure::Incompatible(_) => {
-            Some(DiagnosticKind::CheckingIncompatibleCandidate)
-        }
+        SelectionFailure::Incompatible(_) => Some(DiagnosticKind::CheckingIncompatibleCandidate),
         SelectionFailure::Recovered => None,
     }
 }

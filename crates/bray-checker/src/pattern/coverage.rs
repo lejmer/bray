@@ -8,9 +8,8 @@ use bray_bound_tree::{
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticPatternCoverage,
-    DiagnosticPatternMissingCase, DiagnosticPatternUnreachability, DiagnosticRelatedLocation,
-    DiagnosticRelatedLocationKind, SeverityKind,
+    DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticPatternUnreachability,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
 };
 use bray_source::TextRange;
 use bray_symbols::{
@@ -589,9 +588,7 @@ impl Coverage {
                             .symbols()
                             .member_name((*variant).into())
                             .map(|name| {
-                                DiagnosticPatternMissingCase::UnionVariant(
-                                    name.as_str().to_owned(),
-                                )
+                                DiagnosticPatternMissingCase::UnionVariant(name.as_str().to_owned())
                             })
                             .ok_or(CheckerInfrastructureError::SemanticValueUnavailable)
                     })

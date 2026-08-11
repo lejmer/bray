@@ -7,8 +7,8 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::{IntegerRepresentation, NumericRepresentationKind};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_symbols::{
     AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
@@ -296,7 +296,9 @@ where
         ConstantDiagnostic::InvalidExpression
         | ConstantDiagnostic::Literal(crate::ConstantLiteralError::Invalid) => {
             diagnostic = diagnostic
-                .with_arg(DiagnosticArg::expression_category(expression_category(bound)))
+                .with_arg(DiagnosticArg::expression_category(expression_category(
+                    bound,
+                )))
                 .with_note(DiagnosticNote::new(
                     DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
                 ));
@@ -325,8 +327,7 @@ where
         }
         ConstantDiagnostic::Literal(crate::ConstantLiteralError::SizeLimitExceeded { .. })
         | ConstantDiagnostic::Operation {
-            error:
-                crate::constant::operation::ConstantOperationError::ResourceLimitExceeded { .. },
+            error: crate::constant::operation::ConstantOperationError::ResourceLimitExceeded { .. },
             ..
         }
         | ConstantDiagnostic::Limit { .. } => {
@@ -631,10 +632,12 @@ where
 
                 Ok(term)
             }
-            Some(ConstantReferenceResolution::Cycle { definition }) => Err(EvaluationFailure::Source {
-                expression,
-                diagnostic: ConstantDiagnostic::Cycle { definition },
-            }),
+            Some(ConstantReferenceResolution::Cycle { definition }) => {
+                Err(EvaluationFailure::Source {
+                    expression,
+                    diagnostic: ConstantDiagnostic::Cycle { definition },
+                })
+            }
             Some(ConstantReferenceResolution::Invalid) => Err(EvaluationFailure::Source {
                 expression,
                 diagnostic: ConstantDiagnostic::InvalidExpression,
@@ -861,10 +864,10 @@ mod tests {
         BoundLiteralExpression, BoundLiteralKind, BoundNameExpression, BoundNodeOrigin,
         BoundOperator, BoundReferenceTarget, BoundStructConstructionExpression,
         BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
-        BoundTreeBuilder, BoundUnaryExpression, BoundUnit, BoundUnitId, BoundUnitKey, BoundUnitRoot,
-        ConstructionInputId, ConstructionTarget, ConversionTarget, OperatorTarget, SelectedConstruction,
-        SelectedConstructionInput, SelectedConversion, SelectedOperation, SemanticSelection,
-        SemanticSelectionEntry,
+        BoundTreeBuilder, BoundUnaryExpression, BoundUnit, BoundUnitId, BoundUnitKey,
+        BoundUnitRoot, ConstructionInputId, ConstructionTarget, ConversionTarget, OperatorTarget,
+        SelectedConstruction, SelectedConstructionInput, SelectedConversion, SelectedOperation,
+        SemanticSelection, SemanticSelectionEntry,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_declarations::{DeclarationId, SyntaxAnchor, discover_source_unit_declarations};
@@ -880,11 +883,11 @@ mod tests {
         TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId, TypeId,
     };
     use bray_syntax::LiteralExpressionSyntax;
-    use bray_testing::assert_goal_state_diagnostic_kind;
     use bray_target::{
         Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
         TargetProfile,
     };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::representation::representation_type;
     use crate::test_support::{
@@ -1200,10 +1203,7 @@ mod tests {
 
         let operand = operand.unwrap_or_else(|| panic!("conversion unit must contain an operand"));
 
-        let types = checked_expression_types(
-            &unit,
-            [(operand, source_type), (root, target_type)],
-        );
+        let types = checked_expression_types(&unit, [(operand, source_type), (root, target_type)]);
 
         let selections = bray_bound_tree::CheckedSemanticSelections::try_new(
             &unit,
@@ -1813,7 +1813,10 @@ mod tests {
         let selections = empty_selections(&unit, &types);
 
         let input = ConstantEvaluationInput::new(&types, &selections).with_references([
-            (root, ConstantReferenceResolution::Cycle { definition: None }),
+            (
+                root,
+                ConstantReferenceResolution::Cycle { definition: None },
+            ),
             (root, ConstantReferenceResolution::Value(referenced_value)),
         ]);
 

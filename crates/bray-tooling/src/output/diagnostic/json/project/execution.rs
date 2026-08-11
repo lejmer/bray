@@ -125,9 +125,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectProcessFailureJson
 }
 
 impl DiagnosticProjectProcessFailureJson {
-    pub(super) fn from_failure(
-        failure: bray_diagnostics::DiagnosticProjectProcessFailure,
-    ) -> Self {
+    pub(super) fn from_failure(failure: bray_diagnostics::DiagnosticProjectProcessFailure) -> Self {
         use bray_diagnostics::DiagnosticProjectProcessFailure as Failure;
 
         match failure {

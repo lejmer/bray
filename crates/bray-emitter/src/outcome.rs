@@ -335,10 +335,7 @@ mod tests {
         assert!(failed.artifacts().artifacts().is_empty());
         assert!(cancelled.artifacts().artifacts().is_empty());
 
-        assert_goal_state_diagnostic_kind(
-            failed.diagnostics(),
-            DiagnosticKind::EmissionFailed,
-        );
+        assert_goal_state_diagnostic_kind(failed.diagnostics(), DiagnosticKind::EmissionFailed);
     }
 
     #[test]
@@ -351,10 +348,7 @@ mod tests {
             DiagnosticBag::new(),
         );
 
-        assert_goal_state_diagnostic_kind(
-            outcome.diagnostics(),
-            DiagnosticKind::EmissionFailed,
-        );
+        assert_goal_state_diagnostic_kind(outcome.diagnostics(), DiagnosticKind::EmissionFailed);
     }
 
     #[test]

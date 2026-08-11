@@ -242,9 +242,7 @@ where
     }
 
     if trust != CallableTrust::Trusted {
-        return Ok(Some(
-            DiagnosticCallbackStateProblem::CallableNotTrusted,
-        ));
+        return Ok(Some(DiagnosticCallbackStateProblem::CallableNotTrusted));
     }
 
     if signature.value().receiver().is_some() {
@@ -267,9 +265,7 @@ where
         .iter()
         .any(|directive| directive.kind() == DirectiveKind::Symbol)
     {
-        return Ok(Some(
-            DiagnosticCallbackStateProblem::MissingSymbolDirective,
-        ));
+        return Ok(Some(DiagnosticCallbackStateProblem::MissingSymbolDirective));
     }
 
     let Some((parameters, receiver)) = request.symbols().callable_parameters_and_receiver(callable)
@@ -290,9 +286,7 @@ where
     };
 
     let Some(BoundExpression::Name(context)) = request.view().expression(*context) else {
-        return Ok(Some(
-            DiagnosticCallbackStateProblem::ContextArgumentNotName,
-        ));
+        return Ok(Some(DiagnosticCallbackStateProblem::ContextArgumentNotName));
     };
 
     let BoundReferenceTarget::Surface(target) = context.target() else {
@@ -325,7 +319,9 @@ where
     Ok(None)
 }
 
-const fn diagnostic_memory_operation(hook: ImplementationHook) -> Option<DiagnosticMemoryOperation> {
+const fn diagnostic_memory_operation(
+    hook: ImplementationHook,
+) -> Option<DiagnosticMemoryOperation> {
     use DiagnosticMemoryOperation as Operation;
     use ImplementationHook as Hook;
 
@@ -370,36 +366,79 @@ const fn diagnostic_memory_operation(hook: ImplementationHook) -> Option<Diagnos
 pub(crate) const fn diagnostic_checked_memory_operation(
     kind: CheckedMemoryOperationKind,
 ) -> DiagnosticMemoryOperation {
-    use bray_bound_tree::{MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit};
     use DiagnosticMemoryOperation as Operation;
 
+    use bray_bound_tree::{
+        MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit,
+    };
+
     match kind {
-        CheckedMemoryOperationKind::Address { kind: MemoryAddressKind::Shared, .. } => Operation::AddressOf,
-        CheckedMemoryOperationKind::Address { kind: MemoryAddressKind::Mutable, .. } => Operation::MutableAddressOf,
+        CheckedMemoryOperationKind::Address {
+            kind: MemoryAddressKind::Shared,
+            ..
+        } => Operation::AddressOf,
+        CheckedMemoryOperationKind::Address {
+            kind: MemoryAddressKind::Mutable,
+            ..
+        } => Operation::MutableAddressOf,
         CheckedMemoryOperationKind::Null { .. } => Operation::NullPointer,
         CheckedMemoryOperationKind::IsNull { .. } => Operation::PointerNullCheck,
-        CheckedMemoryOperationKind::Offset { unit: MemoryOffsetUnit::Element, .. } => Operation::PointerElementOffset,
-        CheckedMemoryOperationKind::Offset { unit: MemoryOffsetUnit::Byte, .. } => Operation::PointerByteOffset,
+        CheckedMemoryOperationKind::Offset {
+            unit: MemoryOffsetUnit::Element,
+            ..
+        } => Operation::PointerElementOffset,
+        CheckedMemoryOperationKind::Offset {
+            unit: MemoryOffsetUnit::Byte,
+            ..
+        } => Operation::PointerByteOffset,
         CheckedMemoryOperationKind::Reinterpret { .. } => Operation::PointerReinterpretation,
         CheckedMemoryOperationKind::Read { .. } => Operation::PointerRead,
         CheckedMemoryOperationKind::Write { .. } => Operation::PointerWrite,
-        CheckedMemoryOperationKind::Copy { kind: MemoryCopyKind::NonOverlapping, .. } => Operation::MemoryCopy,
-        CheckedMemoryOperationKind::Copy { kind: MemoryCopyKind::Overlapping, .. } => Operation::OverlappingMemoryCopy,
-        CheckedMemoryOperationKind::LayoutQuery { kind: MemoryLayoutQueryKind::Size, .. } => Operation::SizeDetermination,
-        CheckedMemoryOperationKind::LayoutQuery { kind: MemoryLayoutQueryKind::Alignment, .. } => Operation::AlignmentDetermination,
-        CheckedMemoryOperationKind::LayoutQuery { kind: MemoryLayoutQueryKind::Stride, .. } => Operation::StrideDetermination,
-        CheckedMemoryOperationKind::LayoutQuery { kind: MemoryLayoutQueryKind::Layout, .. } => Operation::LayoutDetermination,
+        CheckedMemoryOperationKind::Copy {
+            kind: MemoryCopyKind::NonOverlapping,
+            ..
+        } => Operation::MemoryCopy,
+        CheckedMemoryOperationKind::Copy {
+            kind: MemoryCopyKind::Overlapping,
+            ..
+        } => Operation::OverlappingMemoryCopy,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Size,
+            ..
+        } => Operation::SizeDetermination,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Alignment,
+            ..
+        } => Operation::AlignmentDetermination,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Stride,
+            ..
+        } => Operation::StrideDetermination,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Layout,
+            ..
+        } => Operation::LayoutDetermination,
         CheckedMemoryOperationKind::RawAllocate => Operation::RawAllocation,
         CheckedMemoryOperationKind::RawDeallocate => Operation::RawDeallocation,
         CheckedMemoryOperationKind::Allocate => Operation::Allocation,
         CheckedMemoryOperationKind::Deallocate => Operation::Deallocation,
         CheckedMemoryOperationKind::RawBufferCapacity => Operation::RawBufferCapacity,
-        CheckedMemoryOperationKind::RawBufferInitializedCount => Operation::RawBufferInitializedCount,
+        CheckedMemoryOperationKind::RawBufferInitializedCount => {
+            Operation::RawBufferInitializedCount
+        }
         CheckedMemoryOperationKind::RawBufferPointer => Operation::RawBufferPointer,
-        CheckedMemoryOperationKind::RawBufferInitializedSlice => Operation::RawBufferInitializedSlice,
-        CheckedMemoryOperationKind::RawBufferInitializedSliceMut => Operation::MutableRawBufferInitializedSlice,
-        CheckedMemoryOperationKind::RawBufferSparePointer { .. } => Operation::RawBufferSparePointer,
-        CheckedMemoryOperationKind::RawBufferSetInitializedCount => Operation::RawBufferSetInitializedCount,
+        CheckedMemoryOperationKind::RawBufferInitializedSlice => {
+            Operation::RawBufferInitializedSlice
+        }
+        CheckedMemoryOperationKind::RawBufferInitializedSliceMut => {
+            Operation::MutableRawBufferInitializedSlice
+        }
+        CheckedMemoryOperationKind::RawBufferSparePointer { .. } => {
+            Operation::RawBufferSparePointer
+        }
+        CheckedMemoryOperationKind::RawBufferSetInitializedCount => {
+            Operation::RawBufferSetInitializedCount
+        }
         CheckedMemoryOperationKind::RawBufferRelease { .. } => Operation::RawBufferRelease,
         CheckedMemoryOperationKind::RawBufferReplace { .. } => Operation::RawBufferReplace,
         CheckedMemoryOperationKind::ByteBufferFill => Operation::ByteBufferFill,

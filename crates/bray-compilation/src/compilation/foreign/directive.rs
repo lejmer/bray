@@ -130,15 +130,12 @@ pub(super) fn foreign_link_requirements(
             continue;
         };
 
-        let name = match directive_string_argument(
-            compilation,
-            name_argument,
-            cancellation,
-            diagnostics,
-        )? {
-            DirectiveStringValue::Value(value) => NonEmptySharedStr::try_new(value),
-            DirectiveStringValue::Recovered => continue,
-        };
+        let name =
+            match directive_string_argument(compilation, name_argument, cancellation, diagnostics)?
+            {
+                DirectiveStringValue::Value(value) => NonEmptySharedStr::try_new(value),
+                DirectiveStringValue::Recovered => continue,
+            };
 
         let kind = match directive_link_kind(compilation, arguments.get("kind").copied())? {
             Ok(kind) => kind,
@@ -279,7 +276,8 @@ enum DirectiveStringValue {
 fn directive_link_kind(
     compilation: &Compilation,
     argument: Option<&DirectiveArgumentTemplate>,
-) -> Result<Result<Option<NativeLinkKind>, (bray_declarations::SyntaxAnchor, String)>, FactQueryError> {
+) -> Result<Result<Option<NativeLinkKind>, (bray_declarations::SyntaxAnchor, String)>, FactQueryError>
+{
     let Some(argument) = argument else {
         return Ok(Ok(None));
     };
@@ -352,10 +350,7 @@ fn native_link_requirement(
 fn named_arguments<'directive>(
     directive: &'directive DirectiveTemplate,
     accepted: &[&str],
-) -> Result<
-    BTreeMap<&'directive str, &'directive DirectiveArgumentTemplate>,
-    NamedArgumentError,
-> {
+) -> Result<BTreeMap<&'directive str, &'directive DirectiveArgumentTemplate>, NamedArgumentError> {
     let mut arguments = BTreeMap::new();
 
     for (ordinal, argument) in (0u64..).zip(directive.arguments()) {

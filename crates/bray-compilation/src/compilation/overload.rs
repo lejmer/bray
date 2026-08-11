@@ -6,8 +6,7 @@ use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticCallableOverloadArm,
     DiagnosticCallableOverloadContext, DiagnosticCallableOverloadProblem, DiagnosticKind,
-    DiagnosticLabelKind, DiagnosticRelatedLocation,
-    DiagnosticRelatedLocationKind,
+    DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -466,8 +465,7 @@ fn problem_diagnostic(
     };
 
     related.iter().copied().fold(
-        source_diagnostic(anchor, kind)
-            .with_arg(DiagnosticArg::callable_overload_problem(problem)),
+        source_diagnostic(anchor, kind).with_arg(DiagnosticArg::callable_overload_problem(problem)),
         |diagnostic, related| {
             diagnostic.with_related_location(DiagnosticRelatedLocation::new(
                 relationship,
@@ -728,7 +726,10 @@ struct Value
         let problem = callable_overload_problem(compilation.semantic_diagnostics());
 
         assert!(
-            matches!(problem, DiagnosticCallableOverloadProblem::ContextMismatch { .. }),
+            matches!(
+                problem,
+                DiagnosticCallableOverloadProblem::ContextMismatch { .. }
+            ),
             "unexpected overload problem: {problem:?}"
         );
     }
@@ -781,9 +782,7 @@ overload choose =
                 diagnostic.kind() == DiagnosticKind::CheckingInvalidCallableOverloadArm
             })
             .unwrap_or_else(|| {
-                panic!(
-                    "expected one invalid callable overload diagnostic, got: {diagnostics:?}"
-                )
+                panic!("expected one invalid callable overload diagnostic, got: {diagnostics:?}")
             });
 
         let argument = diagnostic

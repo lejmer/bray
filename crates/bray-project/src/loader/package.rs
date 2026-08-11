@@ -192,10 +192,7 @@ fn load_source_roots(
     manifest_path: &Path,
 ) -> Result<Arc<[ProjectSourceRoot]>, ProjectLoadError> {
     if manifests.is_empty() {
-        return Err(missing_selection(
-            manifest_path,
-            Field::PackageSourceRoots,
-        ));
+        return Err(missing_selection(manifest_path, Field::PackageSourceRoots));
     }
 
     let mut roots = manifests
@@ -485,9 +482,7 @@ fn select_named<'a, T>(
     values
         .iter()
         .find(|value| value_name(value) == name)
-        .ok_or_else(|| {
-            missing(manifest_path.to_path_buf(), field, name.to_string())
-        })
+        .ok_or_else(|| missing(manifest_path.to_path_buf(), field, name.to_string()))
 }
 
 fn select_outputs(
@@ -529,11 +524,7 @@ fn load_dependencies(
                 Field::DependencyPackage,
             )?;
 
-            let product = local_name(
-                dependency.product,
-                manifest_path,
-                Field::DependencyProduct,
-            )?;
+            let product = local_name(dependency.product, manifest_path, Field::DependencyProduct)?;
 
             let Some(product) = ProductIdentity::try_new(package, product) else {
                 return Err(ProjectLoadError::invalid_name(

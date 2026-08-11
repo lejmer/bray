@@ -9,8 +9,7 @@ use bray_target::{NativeTarget, TargetIdentity};
 use crate::manifest::{TargetManifest, WorkspacePackageManifest, decode_workspace_manifest};
 use crate::{
     ProjectGraph, ProjectLoadError, ProjectPackage, ProjectPath, ProjectProduct, ProjectTarget,
-    ProjectTargetBuildPlan,
-    WORKSPACE_MANIFEST_FILE_NAME,
+    ProjectTargetBuildPlan, WORKSPACE_MANIFEST_FILE_NAME,
 };
 
 use super::package::{PendingPackage, load_package};

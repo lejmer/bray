@@ -52,15 +52,10 @@ pub fn diagnostic_symbol_identity(key: &SymbolKey) -> DiagnosticInterfaceSymbolI
             kind: diagnostic_symbol_kind(*kind),
             declaration: declaration.raw(),
         },
-        SymbolKeyData::Synthesized(synthesized) => {
-            DiagnosticInterfaceSymbolIdentity::Synthesized {
-                owner: Box::new(diagnostic_symbol_identity(synthesized.subject())),
-                identity: diagnostic_synthesized_identity(
-                    synthesized.role(),
-                    synthesized.ordinal(),
-                ),
-            }
-        }
+        SymbolKeyData::Synthesized(synthesized) => DiagnosticInterfaceSymbolIdentity::Synthesized {
+            owner: Box::new(diagnostic_symbol_identity(synthesized.subject())),
+            identity: diagnostic_synthesized_identity(synthesized.role(), synthesized.ordinal()),
+        },
         SymbolKeyData::External(external) => diagnostic_external_symbol_identity(external),
     }
 }

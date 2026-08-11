@@ -161,8 +161,8 @@ where
 
         let target_width = self.target_integer_width(representation);
 
-        let kind = fold_unary(operation, value.kind(), representation, target_width)
-            .map_err(|error| {
+        let kind =
+            fold_unary(operation, value.kind(), representation, target_width).map_err(|error| {
                 EvaluationFailure::operation(expression, diagnostic_operation(operation), error)
             })?;
 

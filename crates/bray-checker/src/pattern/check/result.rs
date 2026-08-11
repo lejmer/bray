@@ -291,7 +291,6 @@ where
 
         Ok(())
     }
-
 }
 
 pub(super) fn pattern_refutability(
