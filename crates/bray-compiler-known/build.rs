@@ -1,5 +1,7 @@
 #[path = "src/catalog_digest.rs"]
 mod catalog_digest;
+#[path = "src/catalog_revision.rs"]
+mod catalog_revision;
 
 use std::path::PathBuf;
 
@@ -20,7 +22,11 @@ fn main() {
 
     let catalog_directory = PathBuf::from("catalog");
 
-    let digest = match catalog_digest::source_digest(MANIFEST, &catalog_directory) {
+    let digest = match catalog_digest::source_digest(
+        catalog_revision::CatalogGrammarRevision::SUPPORTED,
+        MANIFEST,
+        &catalog_directory,
+    ) {
         Ok(digest) => digest,
         Err(error) => panic!("failed to hash compiler-known catalog sources: {error}"),
     };

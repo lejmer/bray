@@ -4,11 +4,13 @@ use super::{
     CatalogDeclarationSurface, CatalogKind, CatalogSourceAnchor, CatalogTokenSpelling,
     CatalogTypeSurface,
 };
+use crate::CatalogGrammarRevision;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ParsedCatalogSource {
     pub(super) source_kind: CatalogKind,
     pub(super) declared_kind: Anchored<CatalogKind>,
+    pub(super) declared_revision: Anchored<CatalogGrammarRevision>,
     pub(super) scopes: Vec<ParsedScope>,
 }
 

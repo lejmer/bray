@@ -9,6 +9,7 @@ mod availability;
 mod catalog;
 #[cfg(any(test, feature = "generation"))]
 mod catalog_digest;
+mod catalog_revision;
 mod implementation;
 mod iteration;
 mod operation;
@@ -18,7 +19,8 @@ pub use availability::AvailabilityRule;
 #[cfg(any(test, feature = "generation"))]
 pub use catalog::generator_input_inventory;
 pub use catalog::{
-    CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG, CatalogDeclarationKind,
+    CATALOG_GRAMMAR_REVISION, CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG,
+    CatalogDeclarationKind,
     CatalogDeclarationSignature, CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax,
     CatalogGenericParameter, CatalogGenericParameterKind, CatalogPath, CatalogScopeLocation,
     CatalogSourceAnchor, CatalogSourceId, CatalogSurfaceContext, CatalogSurfaceElement,
@@ -35,6 +37,7 @@ pub use catalog::{
     RecognizedStandardLibraryScopeDescriptor, RecognizedStandardLibraryScopeId,
     RecognizedStandardLibraryScopeKey,
 };
+pub use catalog_revision::CatalogGrammarRevision;
 #[cfg(any(test, feature = "generation"))]
 pub use catalog::{
     CatalogBuildResult, CatalogDiagnostic, CatalogDiagnosticKind, CatalogDiagnostics,

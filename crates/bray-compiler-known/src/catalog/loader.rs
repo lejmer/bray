@@ -453,7 +453,7 @@ mod tests {
     use crate::{AvailabilityRule, ImplementationHook, RepresentationRole};
 
     const VALID_PRIMARY_TEXT: &str = concat!(
-        "catalog compiler_known;\n",
+        "catalog compiler_known revision 1;\n",
         "scope Memory at core.memory {\n",
         "  declaration Zed {\n",
         "    representation RawPointer;\n",
@@ -474,7 +474,7 @@ mod tests {
     );
 
     const VALID_CONTRIBUTION_TEXT: &str = concat!(
-        "catalog compiler_known;\n",
+        "catalog compiler_known revision 1;\n",
         "scope Memory at core.memory {\n",
         "  declaration Alpha {\n",
         "    representation ScalarBool;\n",
@@ -484,7 +484,7 @@ mod tests {
     );
 
     const VALID_RECOGNIZED_TEXT: &str = concat!(
-        "catalog recognized_standard_library;\n",
+        "catalog recognized_standard_library revision 1;\n",
         "scope StandardText at std.text {\n",
         "  declaration Length {\n",
         "    identity name length;\n",
@@ -763,7 +763,7 @@ mod tests {
         let inventory = inventory(
             CatalogKind::RecognizedStandardLibrary,
             concat!(
-                "catalog recognized_standard_library;\n",
+                "catalog recognized_standard_library revision 1;\n",
                 "scope Standard at std {\n",
                 "  declaration Indexed {\n",
                 "    identity ordinal 7;\n",
@@ -793,7 +793,7 @@ mod tests {
         let recognized = inventory(
             CatalogKind::RecognizedStandardLibrary,
             concat!(
-                "catalog recognized_standard_library;\n",
+                "catalog recognized_standard_library revision 1;\n",
                 "scope Standard at std {\n",
                 "  declaration Missing { surface { func missing(); } }\n",
                 "}\n",
@@ -817,7 +817,7 @@ mod tests {
         let compiler_known = inventory(
             CatalogKind::CompilerKnown,
             concat!(
-                "catalog compiler_known;\n",
+                "catalog compiler_known revision 1;\n",
                 "scope Core at ambient {\n",
                 "  declaration Invalid {\n",
                 "    identity name invalid;\n",
@@ -845,7 +845,7 @@ mod tests {
         let inventory = inventory(
             CatalogKind::RecognizedStandardLibrary,
             concat!(
-                "catalog recognized_standard_library;\n",
+                "catalog recognized_standard_library revision 1;\n",
                 "scope Standard at std {\n",
                 "  declaration First {\n",
                 "    identity name convert;\n",
@@ -901,7 +901,7 @@ mod tests {
         let inventory = inventory(
             CatalogKind::CompilerKnown,
             concat!(
-                "catalog compiler_known;\n",
+                "catalog compiler_known revision 1;\n",
                 "scope Ambient at ambient {\n",
                 "  declaration Duplicate {\n",
                 "    availability Always;\n",
@@ -963,7 +963,7 @@ mod tests {
         let inventory = inventory(
             CatalogKind::CompilerKnown,
             concat!(
-                "catalog compiler_known;\n",
+                "catalog compiler_known revision 1;\n",
                 "scope Ambient at ambient {\n",
                 "  declaration UnknownAvailability {\n",
                 "    availability NeverKnown;\n",
@@ -1045,7 +1045,7 @@ mod tests {
         let inventory = inventory(
             CatalogKind::CompilerKnown,
             concat!(
-                "catalog compiler_known;\n",
+                "catalog compiler_known revision 1;\n",
                 "scope Ambient at ambient {\n",
                 "  declaration WrongKind {\n",
                 "    operation BinaryMultiply;\n",
@@ -1151,7 +1151,7 @@ mod tests {
         let inventory = inventory(
             CatalogKind::CompilerKnown,
             concat!(
-                "catalog compiler_known;\n",
+                "catalog compiler_known revision 1;\n",
                 "scope Ambient at ambient {\n",
                 "  declaration A { owner B; surface { func a(); } }\n",
                 "  declaration B { owner A; surface { func b(); } }\n",
@@ -1192,7 +1192,7 @@ mod tests {
         let inventory = inventory(
             CatalogKind::RecognizedStandardLibrary,
             concat!(
-                "catalog recognized_standard_library;\n",
+                "catalog recognized_standard_library revision 1;\n",
                 "scope Standard at ambient {\n",
                 "  declaration Item {\n",
                 "    identity name Item;\n",
@@ -1440,14 +1440,14 @@ mod tests {
     }
 
     const ORDER_A: &str = concat!(
-        "catalog compiler_known;\n",
+        "catalog compiler_known revision 1;\n",
         "scope Ambient at ambient {\n",
         "  declaration Zed { surface { struct Zed {} } }\n",
         "}\n",
     );
 
     const ORDER_B: &str = concat!(
-        "catalog compiler_known;\n",
+        "catalog compiler_known revision 1;\n",
         "scope Ambient at ambient {\n",
         "  declaration Alpha { surface { struct Alpha {} } }\n",
         "}\n",

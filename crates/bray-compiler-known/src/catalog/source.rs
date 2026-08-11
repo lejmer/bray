@@ -264,6 +264,7 @@ mod tests {
         CatalogDeclarationSurface, CatalogKind, CatalogSourceAnchor, CatalogTokenSpelling,
         CatalogTypeSurface, generator_input_inventory,
     };
+    use crate::CATALOG_GRAMMAR_REVISION;
 
     #[test]
     fn generator_input_inventory_is_complete_and_canonical() {
@@ -286,12 +287,17 @@ mod tests {
         );
 
         for source in sources {
-            let catalog_header = match source.kind() {
-                CatalogKind::CompilerKnown => "catalog compiler_known;",
-                CatalogKind::RecognizedStandardLibrary => "catalog recognized_standard_library;",
+            let catalog_kind = match source.kind() {
+                CatalogKind::CompilerKnown => "compiler_known",
+                CatalogKind::RecognizedStandardLibrary => "recognized_standard_library",
             };
 
-            assert!(source.text().starts_with(catalog_header));
+            let catalog_header = format!(
+                "catalog {catalog_kind} revision {};",
+                CATALOG_GRAMMAR_REVISION.raw()
+            );
+
+            assert!(source.text().starts_with(&catalog_header));
         }
 
         assert_eq!(

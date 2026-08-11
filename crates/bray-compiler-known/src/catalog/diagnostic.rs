@@ -5,7 +5,8 @@ use bray_syntax::SyntaxKind;
 
 use super::{CatalogDeclarationKind, CatalogKind, CatalogSourceAnchor};
 use crate::{
-    CompilerKnownIterationRole, CompilerKnownOperationRole, ImplementationHook, RepresentationRole,
+    CatalogGrammarRevision, CompilerKnownIterationRole, CompilerKnownOperationRole,
+    ImplementationHook, RepresentationRole,
 };
 
 /// Catalog entry category used by structural diagnostics.
@@ -85,6 +86,8 @@ pub enum CatalogExpectation {
     StableKey,
     /// A metadata identifier.
     Identifier,
+    /// A canonical decimal catalog grammar revision.
+    CatalogRevision,
     /// A named or ordinal declaration identity category.
     DeclarationIdentityKind,
     /// A declaration identity name or ordinal.
@@ -154,6 +157,12 @@ pub enum CatalogDiagnosticKind {
     },
     /// A catalog family spelling is not recognized.
     UnknownCatalogKind { spelling: Arc<str> },
+    /// A catalog grammar revision is not a canonical compact decimal integer.
+    InvalidCatalogRevision { spelling: Arc<str> },
+    /// A catalog grammar revision has no exact parser implementation.
+    UnsupportedCatalogRevision {
+        revision: CatalogGrammarRevision,
+    },
     /// An entry category spelling is not recognized.
     UnknownEntryKind { spelling: Arc<str> },
     /// An entry field is not part of the private catalog language.

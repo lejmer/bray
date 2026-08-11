@@ -38,7 +38,9 @@ pub use diagnostic::{
     CatalogDiagnostic, CatalogDiagnosticKind, CatalogDiagnostics, CatalogEntryKind,
     CatalogExpectation, CatalogField, CatalogKeyDomain, CatalogMetadataKind, CatalogRelatedKey,
 };
-pub use generated::{CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG};
+pub use generated::{
+    CATALOG_GRAMMAR_REVISION, CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG,
+};
 pub use graph::CompilerKnownCatalog;
 pub use id::{
     CatalogSourceId, CompilerKnownDeclarationId, CompilerKnownScopeId, CompilerKnownValueId,
