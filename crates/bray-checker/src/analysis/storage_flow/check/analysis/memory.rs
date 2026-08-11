@@ -6,8 +6,8 @@ use bray_bound_tree::{
     StorageIdentity, StorageIdentityId,
 };
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
 };
 
 use super::core::StorageFlowCollector;
@@ -38,25 +38,29 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
     )
 }
 
-fn copy_raw_state(
+fn replace_raw_state(
     state: &mut StorageFlowState,
     source: StorageIdentityId,
     destination: StorageIdentityId,
 ) {
-    if let Some(initialized) = state.raw_initialized.get(&source).cloned() {
-        state.raw_initialized.insert(destination, initialized);
-    }
+    replace_map_entry(&mut state.raw_initialized, source, destination);
+    replace_map_entry(&mut state.active_allocations, source, destination);
+    replace_map_entry(&mut state.allocation_origins, source, destination);
+    replace_map_entry(&mut state.invalidated_allocations, source, destination);
+}
 
-    if let Some(origins) = state.active_allocations.get(&source).cloned() {
-        state.active_allocations.insert(destination, origins);
-    }
-
-    if let Some(origins) = state.allocation_origins.get(&source).cloned() {
-        state.allocation_origins.insert(destination, origins);
-    }
-
-    if let Some(origins) = state.invalidated_allocations.get(&source).cloned() {
-        state.invalidated_allocations.insert(destination, origins);
+fn replace_map_entry<Value: Clone>(
+    entries: &mut BTreeMap<StorageIdentityId, Value>,
+    source: StorageIdentityId,
+    destination: StorageIdentityId,
+) {
+    match entries.get(&source).cloned() {
+        Some(value) => {
+            entries.insert(destination, value);
+        }
+        None => {
+            entries.remove(&destination);
+        }
     }
 }
 
@@ -146,7 +150,7 @@ where
             }
 
             if let Some(source) = child_source {
-                copy_raw_state(state, source, result);
+                replace_raw_state(state, source, result);
             }
         }
 
@@ -158,7 +162,7 @@ where
             return;
         };
 
-        copy_raw_state(state, source, destination);
+        replace_raw_state(state, source, destination);
     }
 
     pub(super) fn transfer_raw_pointer_state(
@@ -196,7 +200,7 @@ where
             return;
         };
 
-        copy_raw_state(state, *source, *destination);
+        replace_raw_state(state, *source, *destination);
 
         if *purpose == StorageAccessPurpose::Move {
             state.raw_initialized.remove(source);
@@ -285,7 +289,7 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                copy_raw_state(state, source, result);
+                replace_raw_state(state, source, result);
             }
             CheckedMemoryOperationKind::Read { pointee, kind } => {
                 let Some(pointer) = arguments
@@ -320,13 +324,7 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_raw_copy(
-                    state,
-                    source,
-                    destination,
-                    pointee,
-                    operation.expression(),
-                );
+                return apply_raw_copy(state, source, destination, pointee, operation.expression());
             }
             CheckedMemoryOperationKind::RawAllocate | CheckedMemoryOperationKind::Allocate => {
                 let Some(result) = self.operation_result_storage(operation.expression()) else {
@@ -526,21 +524,24 @@ where
         };
 
         let mut diagnostic = Diagnostic::new(
-                DiagnosticId::from_index(self.diagnostics.len()),
-                kind,
-                SeverityKind::Error,
-            )
-            .with_primary_span(span)
-            .with_label(DiagnosticLabel::primary(
-                DiagnosticLabelKind::MemoryOperationFailure,
-                span,
-            ))
-            .with_arg(DiagnosticArg::memory_operation(
-                crate::memory::diagnostic_checked_memory_operation(operation.kind()),
-            ));
+            DiagnosticId::from_index(self.diagnostics.len()),
+            kind,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::MemoryOperationFailure,
+            span,
+        ))
+        .with_arg(DiagnosticArg::memory_operation(
+            crate::memory::diagnostic_checked_memory_operation(operation.kind()),
+        ));
 
         for (kind, origins) in origins {
-            for origin in origins.into_iter().collect::<std::collections::BTreeSet<_>>() {
+            for origin in origins
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+            {
                 let Some(node) = self.request.view().expression(origin) else {
                     continue;
                 };
@@ -550,9 +551,8 @@ where
                 };
 
                 if source.span() != span {
-                    diagnostic = diagnostic.with_related_location(
-                        DiagnosticRelatedLocation::new(kind, source.span()),
-                    );
+                    diagnostic = diagnostic
+                        .with_related_location(DiagnosticRelatedLocation::new(kind, source.span()));
                 }
             }
         }
@@ -677,19 +677,20 @@ fn apply_deallocation(
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundErrorExpression, BoundExpression, BoundUnitId, BoundUnitKind, MemoryOperationStatus,
-        MemoryReadKind, StorageIdentity, StoragePlanBuilder,
+        BoundErrorExpression, BoundExpression, BoundExpressionId, BoundUnitId, BoundUnitKind,
+        MemoryOperationStatus, MemoryReadKind, StorageIdentity, StorageIdentityId,
+        StoragePlanBuilder,
     };
 
     use super::{
         StorageFlowState, apply_deallocation, apply_raw_copy, apply_raw_read, apply_raw_write,
+        replace_raw_state,
     };
     use crate::test_support::{error_type, expression_unit, push_expression};
 
-    #[test]
-    fn raw_memory_transitions_preserve_initialization_and_invalidation() {
-        let unit = BoundUnitId::new(41);
-
+    fn raw_storage_pair(
+        unit: BoundUnitId,
+    ) -> ([BoundExpressionId; 2], StorageIdentityId, StorageIdentityId) {
         let (_, expressions) = expression_unit(unit, |tree, origin| {
             (0..2)
                 .map(|_| {
@@ -701,15 +702,32 @@ mod tests {
                 .collect::<Vec<_>>()
         });
 
+        let [source_expression, destination_expression] = expressions.as_slice() else {
+            panic!("raw storage fixture must contain exactly two expressions");
+        };
+
         let mut storage = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
 
         let source = storage
-            .push_identity(StorageIdentity::Temporary(expressions[0]))
+            .push_identity(StorageIdentity::Temporary(*source_expression))
             .unwrap_or_else(|error| panic!("source storage must validate: {error:?}"));
 
         let destination = storage
-            .push_identity(StorageIdentity::Temporary(expressions[1]))
+            .push_identity(StorageIdentity::Temporary(*destination_expression))
             .unwrap_or_else(|error| panic!("destination storage must validate: {error:?}"));
+
+        (
+            [*source_expression, *destination_expression],
+            source,
+            destination,
+        )
+    }
+
+    #[test]
+    fn raw_memory_transitions_preserve_initialization_and_invalidation() {
+        let unit = BoundUnitId::new(41);
+
+        let (expressions, source, destination) = raw_storage_pair(unit);
 
         let ty = error_type();
         let mut state = StorageFlowState::default();
@@ -755,5 +773,49 @@ mod tests {
             apply_raw_write(&mut state, destination, ty, expressions[1]),
             MemoryOperationStatus::InvalidatedAllocation
         );
+    }
+
+    #[test]
+    fn raw_pointer_reassignment_clears_state_absent_from_the_new_pointer() {
+        let unit = BoundUnitId::new(42);
+
+        let (expressions, source, destination) = raw_storage_pair(unit);
+
+        let ty = error_type();
+        let origin = expressions[1];
+        let mut state = StorageFlowState::default();
+
+        state
+            .raw_initialized
+            .entry(destination)
+            .or_default()
+            .entry(ty)
+            .or_default()
+            .insert(origin);
+
+        state
+            .active_allocations
+            .entry(destination)
+            .or_default()
+            .insert(origin);
+
+        state
+            .allocation_origins
+            .entry(destination)
+            .or_default()
+            .insert(origin);
+
+        state
+            .invalidated_allocations
+            .entry(destination)
+            .or_default()
+            .insert(origin);
+
+        replace_raw_state(&mut state, source, destination);
+
+        assert!(!state.raw_initialized.contains_key(&destination));
+        assert!(!state.active_allocations.contains_key(&destination));
+        assert!(!state.allocation_origins.contains_key(&destination));
+        assert!(!state.invalidated_allocations.contains_key(&destination));
     }
 }

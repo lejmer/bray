@@ -87,16 +87,24 @@ impl DiagnosticExternalToolStreamCapture {
 
     /// Captures a deterministic bounded prefix and records every omitted or lossy byte property.
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        let captured = &bytes[..bytes.len().min(Self::MAX_CAPTURED_BYTES)];
+        let maximum_end = bytes.len().min(Self::MAX_CAPTURED_BYTES);
+        let captured_end = utf8_safe_prefix_end(bytes, maximum_end);
+        let captured = &bytes[..captured_end];
+
+        let (text, lossy_utf8) = match std::str::from_utf8(captured) {
+            Ok(text) => (text.to_owned(), false),
+            Err(_) => (String::from_utf8_lossy(captured).into_owned(), true),
+        };
+
         let original_byte_count = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let captured_byte_count = u64::try_from(captured.len()).unwrap_or(u64::MAX);
 
         Self {
-            text: String::from_utf8_lossy(captured).into_owned(),
+            text,
             original_byte_count,
             captured_byte_count,
             omitted_byte_count: original_byte_count.saturating_sub(captured_byte_count),
-            lossy_utf8: std::str::from_utf8(bytes).is_err(),
+            lossy_utf8,
         }
     }
 
@@ -120,10 +128,36 @@ impl DiagnosticExternalToolStreamCapture {
         self.omitted_byte_count
     }
 
-    /// Returns whether invalid UTF-8 was replaced while rendering the stream.
+    /// Returns whether invalid UTF-8 was replaced while rendering the captured prefix.
     pub const fn is_lossy_utf8(&self) -> bool {
         self.lossy_utf8
     }
+}
+
+fn utf8_safe_prefix_end(bytes: &[u8], maximum_end: usize) -> usize {
+    if maximum_end == bytes.len() {
+        return maximum_end;
+    }
+
+    for start in maximum_end.saturating_sub(3)..maximum_end {
+        let scalar_length = match bytes[start].leading_ones() {
+            2 => 2,
+            3 => 3,
+            4 => 4,
+            _ => continue,
+        };
+
+        let scalar_end = start + scalar_length;
+
+        if maximum_end < scalar_end
+            && scalar_end <= bytes.len()
+            && std::str::from_utf8(&bytes[start..scalar_end]).is_ok()
+        {
+            return start;
+        }
+    }
+
+    maximum_end
 }
 
 /// Exact completed failure result from an external native linker or archiver.
@@ -181,5 +215,56 @@ mod tests {
         assert_eq!(capture.omitted_byte_count(), 3);
         assert!(capture.is_lossy_utf8());
         assert!(capture.text().starts_with('\u{fffd}'));
+    }
+
+    #[test]
+    fn valid_external_tool_output_bounding_preserves_utf8_boundaries() {
+        let mut bytes = vec![b'x'; DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES - 1];
+        bytes.extend_from_slice("€".as_bytes());
+        bytes.push(b'y');
+
+        let capture = DiagnosticExternalToolStreamCapture::from_bytes(&bytes);
+
+        assert_eq!(
+            capture.captured_byte_count(),
+            u64::try_from(DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES - 1)
+                .unwrap_or_else(|_| panic!("test capture bound must fit the diagnostic contract")),
+        );
+
+        assert_eq!(capture.omitted_byte_count(), 4);
+        assert!(!capture.is_lossy_utf8());
+        assert_eq!(capture.text().as_bytes(), &bytes[..bytes.len() - 4]);
+    }
+
+    #[test]
+    fn invalid_omitted_external_tool_bytes_do_not_mark_the_rendered_prefix_lossy() {
+        let mut bytes = vec![b'x'; DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES + 1];
+        bytes[DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES] = 0xff;
+
+        let capture = DiagnosticExternalToolStreamCapture::from_bytes(&bytes);
+
+        assert_eq!(capture.captured_byte_count(), 16 * 1024);
+        assert_eq!(capture.omitted_byte_count(), 1);
+        assert!(!capture.is_lossy_utf8());
+        assert_eq!(capture.text().as_bytes(), &bytes[..bytes.len() - 1]);
+    }
+
+    #[test]
+    fn later_invalid_output_does_not_split_a_valid_scalar_at_the_capture_boundary() {
+        let mut bytes = vec![b'x'; DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES - 1];
+        bytes.extend_from_slice("€".as_bytes());
+        bytes.push(0xff);
+
+        let capture = DiagnosticExternalToolStreamCapture::from_bytes(&bytes);
+
+        assert_eq!(
+            capture.captured_byte_count(),
+            u64::try_from(DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES - 1)
+                .unwrap_or_else(|_| panic!("test capture bound must fit the diagnostic contract")),
+        );
+
+        assert_eq!(capture.omitted_byte_count(), 4);
+        assert!(!capture.is_lossy_utf8());
+        assert_eq!(capture.text().as_bytes(), &bytes[..bytes.len() - 4]);
     }
 }

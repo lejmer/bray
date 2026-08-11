@@ -884,10 +884,8 @@ mod tests {
 
         assert_goal_state_diagnostics(source.diagnostics());
 
-        let misplaced_bom = diagnostics_of_kind(
-            source.diagnostics(),
-            DiagnosticKind::LexicalMisplacedBom,
-        );
+        let misplaced_bom =
+            diagnostics_of_kind(source.diagnostics(), DiagnosticKind::LexicalMisplacedBom);
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &misplaced_bom,
@@ -985,10 +983,8 @@ mod tests {
             DiagnosticKind::LexicalMalformedNumericLiteral,
         );
 
-        let unknown_escape = diagnostics_of_kind(
-            source.diagnostics(),
-            DiagnosticKind::LexicalUnknownEscape,
-        );
+        let unknown_escape =
+            diagnostics_of_kind(source.diagnostics(), DiagnosticKind::LexicalUnknownEscape);
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &unknown_escape,
@@ -1070,6 +1066,37 @@ mod tests {
         );
 
         assert_eq!(comment_source.diagnostics().len(), 1);
+    }
+
+    #[test]
+    fn nested_unterminated_block_comment_edit_closes_every_remaining_comment() {
+        let source = "value /* outer /* inner";
+        let token_source = consumed_source(source);
+
+        let diagnostic = token_source
+            .diagnostics()
+            .by_kind(DiagnosticKind::LexicalUnterminatedBlockComment)
+            .next()
+            .unwrap_or_else(|| panic!("nested comment must publish its termination diagnostic"));
+
+        let [suggestion] = diagnostic.suggestions() else {
+            panic!("nested comment must publish one complete correction: {diagnostic:?}");
+        };
+
+        let [edit] = suggestion.edits() else {
+            panic!("nested comment correction must contain one edit: {suggestion:?}");
+        };
+
+        assert_eq!(edit.replacement(), "*/*/");
+
+        let corrected = format!("{source}{}", edit.replacement());
+        let reparsed = consumed_source(&corrected);
+
+        assert!(
+            reparsed.diagnostics().is_empty(),
+            "{:#?}",
+            reparsed.diagnostics()
+        );
     }
 
     #[test]

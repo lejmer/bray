@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxTrivia};
@@ -226,10 +228,11 @@ fn scan_block_comment_trivia(snapshot: &SourceSnapshot, start: TextSize) -> Triv
     let end = text_size_from_usize(index);
     let mut item = make_trivia_item(snapshot, kind, start, end, contains_line_break);
 
-    if depth != 0 {
+    if let Some(remaining_depth) = NonZeroU32::new(depth) {
         item.diagnostics.add(diagnostic::unterminated_block_comment(
             snapshot,
             TextRange::new(start, end),
+            remaining_depth,
         ));
     }
 

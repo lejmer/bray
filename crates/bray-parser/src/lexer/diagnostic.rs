@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticKind,
     DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticSourceEdit,
@@ -78,10 +80,10 @@ fn character_diagnostic(
     let arg = character_arg(character);
 
     Diagnostic::new(diagnostic_id(range.start()), kind, SeverityKind::Error)
-    .with_primary_span(span)
-    .with_arg(arg.clone())
-    .with_label(DiagnosticLabel::primary(label, span).with_arg(arg))
-    .with_note(DiagnosticNote::new(note))
+        .with_primary_span(span)
+        .with_arg(arg.clone())
+        .with_label(DiagnosticLabel::primary(label, span).with_arg(arg))
+        .with_note(DiagnosticNote::new(note))
 }
 
 pub(super) fn invalid_identifier(snapshot: &SourceSnapshot, range: TextRange) -> Diagnostic {
@@ -221,7 +223,10 @@ pub(super) fn invalid_unicode_escape(snapshot: &SourceSnapshot, range: TextRange
 pub(super) fn unterminated_block_comment(
     snapshot: &SourceSnapshot,
     range: TextRange,
+    remaining_depth: NonZeroU32,
 ) -> Diagnostic {
+    let terminators = block_comment_terminators(remaining_depth);
+
     lexical_diagnostic(
         snapshot,
         DiagnosticKind::LexicalUnterminatedBlockComment,
@@ -231,7 +236,17 @@ pub(super) fn unterminated_block_comment(
     .with_note(DiagnosticNote::new(
         DiagnosticNoteKind::BlockCommentNeedsTerminator,
     ))
-    .with_suggestion(terminator_suggestion(snapshot, range, "*/"))
+    .with_suggestion(terminator_suggestion(snapshot, range, &terminators))
+}
+
+fn block_comment_terminators(remaining_depth: NonZeroU32) -> String {
+    let mut terminators = String::new();
+
+    for _ in 0..remaining_depth.get() {
+        terminators.push_str("*/");
+    }
+
+    terminators
 }
 
 fn lexical_diagnostic(
@@ -280,6 +295,8 @@ fn replacement_suggestion(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU32;
+
     use bray_source::{TextRange, TextSize};
     use bray_testing::test_source_snapshot;
 
@@ -305,6 +322,7 @@ mod tests {
         let comment = unterminated_block_comment(
             &comment_source,
             TextRange::new(TextSize::ZERO, TextSize::new(7)),
+            NonZeroU32::MIN,
         );
 
         let [suggestion] = comment.suggestions() else {
