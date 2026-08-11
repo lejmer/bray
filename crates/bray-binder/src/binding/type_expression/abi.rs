@@ -1,9 +1,13 @@
-use bray_diagnostics::{DiagnosticBag, DiagnosticKind, DiagnosticResult};
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticResult,
+};
+use bray_source::SourceSpan;
 use bray_symbols::CallableAbi;
 use bray_syntax::{AbiDirectiveSyntax, CallableDirectivesSyntax, SourceSyntaxNode, SyntaxKind};
 
 use super::core::{TypeExpressionBinder, token_text};
-use super::diagnostic::source_diagnostic;
+use super::diagnostic::callable_abi_diagnostic;
 
 /// Binds the callable ABI selected by an ordered directive surface.
 ///
@@ -18,20 +22,27 @@ pub fn bind_callable_abi(
         return DiagnosticResult::without_diagnostics(CallableAbi::Bray);
     };
 
+    let first_span = SourceSpan::new(directive.source().source_id(), directive.full_range());
+
     let abi = parse_abi(&directive).unwrap_or_else(|| {
-        diagnostics.add(source_diagnostic(
-            &directive,
-            DiagnosticKind::BindingInvalidCallableAbi,
-        ));
+        diagnostics.add(
+            callable_abi_diagnostic(&directive, DiagnosticKind::BindingInvalidCallableAbi)
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi,
+                )),
+        );
 
         CallableAbi::Bray
     });
 
     for duplicate in directives {
-        diagnostics.add(source_diagnostic(
-            &duplicate,
-            DiagnosticKind::BindingDuplicateCallableAbi,
-        ));
+        diagnostics.add(
+            callable_abi_diagnostic(&duplicate, DiagnosticKind::BindingDuplicateCallableAbi)
+                .with_related_location(DiagnosticRelatedLocation::new(
+                    DiagnosticRelatedLocationKind::FirstDirective,
+                    first_span,
+                )),
+        );
     }
 
     DiagnosticResult::new(abi, diagnostics)
@@ -111,6 +122,11 @@ mod tests {
         };
 
         let result = bind_callable_abi(declaration.function_directives().abi_directives());
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::BindingDuplicateCallableAbi,
+        );
 
         assert_eq!(
             result

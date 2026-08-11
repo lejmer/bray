@@ -1,13 +1,15 @@
 use bray_compiler_known::IntegerRepresentation;
-use bray_diagnostics::DiagnosticKind;
 use bray_symbols::{
-    AnyConstantDefinitionId, ConstantField, ConstantInstanceKey, ConstantProjectionKind,
-    ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind, GenericSubstitutionId,
-    ImplementationInstanceId, TargetSizedIntegerType, TypeId,
+    AnyConstantDefinitionId, ConstantField, ConstantInstanceKey, ConstantProjection,
+    ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
+    GenericSubstitutionId, ImplementationInstanceId, TargetSizedIntegerType, TypeId,
 };
 
 use super::super::ConstantReferenceResolution;
 use super::super::call::ConstantCallRequest;
+use super::super::diagnostic::{
+    ConstantDiagnostic, ConstantLimitKind, diagnostic_operation,
+};
 use super::super::integer::fits_integer_representation;
 use super::super::operation::fold_binary;
 use super::evaluator::TemplateEvaluator;
@@ -60,7 +62,9 @@ where
                 right.kind(),
                 evaluator.limits.integer_bits(),
             )
-            .map_err(operation_failure)?;
+            .map_err(|error| {
+                operation_failure(diagnostic_operation(binary_operator(*operation)), error)
+            })?;
 
             evaluator.intern_value(ty, kind)
         }
@@ -176,9 +180,11 @@ where
             let limits = evaluator.budget.remaining_limits(evaluator.limits);
 
             let Some(limits) = limits.nested_call() else {
-                return Err(TemplateEvaluationFailure::Diagnostic(
-                    DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
-                ));
+                return Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::limit(
+                    ConstantLimitKind::EvaluationSteps,
+                    1,
+                    0,
+                )));
             };
 
             let request = ConstantCallRequest::new(
@@ -191,52 +197,7 @@ where
 
             evaluator.resolve_call(&request, ty)
         }
-        ConstantTermData::Projection(projection) => {
-            let subject = evaluator.evaluate_term(projection.subject(), ty)?;
-            let subject = evaluator.constant_value(subject)?;
-
-            let value = match (subject.kind(), projection.kind()) {
-                (
-                    ConstantValueKind::Tuple(elements),
-                    ConstantProjectionKind::TupleElement(ordinal),
-                ) => ordinal
-                    .to_index()
-                    .and_then(|index| elements.get(index))
-                    .copied(),
-                (
-                    ConstantValueKind::Array(elements),
-                    ConstantProjectionKind::ArrayElement(index),
-                ) => {
-                    let index = evaluator.evaluate_term(index, ty)?;
-                    let index = evaluator.constant_value(index)?;
-
-                    integer_index(index.kind())
-                        .and_then(|index| elements.get(index))
-                        .copied()
-                }
-                (
-                    ConstantValueKind::Product(fields),
-                    ConstantProjectionKind::ProductField(field),
-                ) => fields
-                    .iter()
-                    .find(|entry| *entry.field() == field)
-                    .map(|entry| *entry.value()),
-                (
-                    ConstantValueKind::Union { fields, .. },
-                    ConstantProjectionKind::UnionPayloadField(field),
-                ) => fields
-                    .iter()
-                    .find(|entry| *entry.field() == field)
-                    .map(|entry| *entry.value()),
-                (
-                    ConstantValueKind::NullablePresent(value),
-                    ConstantProjectionKind::NullableValue,
-                ) => Some(*value),
-                _ => None,
-            };
-
-            value.ok_or_else(TemplateEvaluationFailure::invalid_input)
-        }
+        ConstantTermData::Projection(projection) => evaluate_projection(evaluator, projection, ty),
         ConstantTermData::IntegerLiteral {
             ty: integer_type,
             value,
@@ -253,9 +214,9 @@ where
                     .machine()
                     .pointer_width_bits()
             }) {
-                return Err(TemplateEvaluationFailure::Diagnostic(
-                    DiagnosticKind::CheckingConstantLiteralNotRepresentable,
-                ));
+                return Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Literal(
+                    crate::ConstantLiteralError::NotRepresentable,
+                )));
             }
 
             evaluator.intern_value(ty, ConstantValueKind::Integer(value.clone()))
@@ -264,6 +225,60 @@ where
         | ConstantTermData::TargetFact(_)
         | ConstantTermData::PredicateCall { .. } => Err(TemplateEvaluationFailure::invalid_input()),
     }
+}
+
+fn evaluate_projection<C>(
+    evaluator: &mut TemplateEvaluator<'_, C>,
+    projection: &ConstantProjection,
+    ty: TypeId,
+) -> Result<ConstantValueId, TemplateEvaluationFailure>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let subject = evaluator.evaluate_term(projection.subject(), ty)?;
+    let subject = evaluator.constant_value(subject)?;
+
+    let value = match (subject.kind(), projection.kind()) {
+        (
+            ConstantValueKind::Tuple(elements),
+            ConstantProjectionKind::TupleElement(ordinal),
+        ) => ordinal
+            .to_index()
+            .and_then(|index| elements.get(index))
+            .copied(),
+        (
+            ConstantValueKind::Array(elements),
+            ConstantProjectionKind::ArrayElement(index),
+        ) => {
+            let index = evaluator.evaluate_term(index, ty)?;
+            let index = evaluator.constant_value(index)?;
+
+            integer_index(index.kind())
+                .and_then(|index| elements.get(index))
+                .copied()
+        }
+        (
+            ConstantValueKind::Product(fields),
+            ConstantProjectionKind::ProductField(field),
+        ) => fields
+            .iter()
+            .find(|entry| *entry.field() == field)
+            .map(|entry| *entry.value()),
+        (
+            ConstantValueKind::Union { fields, .. },
+            ConstantProjectionKind::UnionPayloadField(field),
+        ) => fields
+            .iter()
+            .find(|entry| *entry.field() == field)
+            .map(|entry| *entry.value()),
+        (
+            ConstantValueKind::NullablePresent(value),
+            ConstantProjectionKind::NullableValue,
+        ) => Some(*value),
+        _ => None,
+    };
+
+    value.ok_or_else(TemplateEvaluationFailure::invalid_input)
 }
 
 fn evaluate_definition_application<C>(
@@ -303,9 +318,11 @@ where
             Ok(result.value())
         }
         ConstantReferenceResolution::Term(term) => evaluator.evaluate_term(*term, ty),
-        ConstantReferenceResolution::Cycle => Err(TemplateEvaluationFailure::Diagnostic(
-            DiagnosticKind::CheckingCyclicConstantDefinition,
-        )),
+        ConstantReferenceResolution::Cycle { definition } => {
+            Err(TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Cycle {
+                definition: *definition,
+            }))
+        }
         ConstantReferenceResolution::Invalid => Err(TemplateEvaluationFailure::invalid_input()),
     }
 }

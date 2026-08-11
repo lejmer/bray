@@ -50,56 +50,81 @@ fn collect_requirement_subjects(
     }
 }
 
-pub(super) fn dependency_contract_is_satisfied(
+pub(super) fn unsatisfied_dependency_subjects(
     values: &SemanticValueStore,
     storage: &StoragePlan,
     refinements: &CheckedRefinementFacts,
     expression: BoundExpressionId,
     state: &StorageSuspensionState,
     contract: &BoundDependencyContract,
-) -> bool {
-    contract.requirements().iter().all(|requirement| {
-        dependency_requirement_is_satisfied(
+) -> Vec<UnsatisfiedDependency> {
+    let mut unsatisfied = Vec::new();
+
+    for requirement in contract.requirements() {
+        collect_unsatisfied_dependency_subjects(
             values,
             storage,
             refinements,
             expression,
             state,
             requirement,
-        )
-    })
+            &mut unsatisfied,
+        );
+    }
+
+    unsatisfied.sort_unstable();
+    unsatisfied.dedup();
+
+    unsatisfied
 }
 
-fn dependency_requirement_is_satisfied(
+fn collect_unsatisfied_dependency_subjects(
     values: &SemanticValueStore,
     storage: &StoragePlan,
     refinements: &CheckedRefinementFacts,
     expression: BoundExpressionId,
     state: &StorageSuspensionState,
     requirement: &BoundDependencyRequirement,
-) -> bool {
+    unsatisfied: &mut Vec<UnsatisfiedDependency>,
+) {
     match requirement {
         BoundDependencyRequirement::Direct { subject, kind } => {
-            dependency_subject_is_satisfied(values, storage, state, *subject, *kind)
+            if !dependency_subject_is_satisfied(values, storage, state, *subject, *kind) {
+                unsatisfied.push(UnsatisfiedDependency {
+                    subject: *subject,
+                    requirement: *kind,
+                });
+            }
         }
         BoundDependencyRequirement::Guarded(guarded) => {
-            !dependency_guard_may_apply(
+            if !dependency_guard_may_apply(
                 storage,
                 refinements.facts_before(AnyBoundNodeId::Expression(expression)),
                 state,
                 guarded.guard(),
-            ) || guarded.requirements().iter().all(|requirement| {
-                dependency_requirement_is_satisfied(
+            ) {
+                return;
+            }
+
+            for requirement in guarded.requirements() {
+                collect_unsatisfied_dependency_subjects(
                     values,
                     storage,
                     refinements,
                     expression,
                     state,
                     requirement,
-                )
-            })
+                    unsatisfied,
+                );
+            }
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct UnsatisfiedDependency {
+    pub(super) subject: BoundDependencySubject,
+    pub(super) requirement: BoundDependencyRequirementKind,
 }
 
 fn dependency_subject_is_satisfied(

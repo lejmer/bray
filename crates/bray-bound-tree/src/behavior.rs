@@ -7,7 +7,8 @@ use bray_symbols::{
 };
 
 use crate::{
-    BoundCallableTarget, BoundUnitId, BoundUnitKey, BoundUnitKind, ConstructionDefaultProvider,
+    BoundCallableTarget, BoundSourceAnchor, BoundUnitId, BoundUnitKey, BoundUnitKind,
+    ConstructionDefaultProvider,
 };
 
 /// Whether one selected callable contributes invocation or deferred body behavior.
@@ -24,6 +25,7 @@ pub enum BodyBehaviorPhase {
 pub struct BodyBehaviorCall {
     target: BoundCallableTarget,
     phase: BodyBehaviorPhase,
+    source: Option<BoundSourceAnchor>,
     anonymous_unit: Option<BoundUnitKey>,
 }
 
@@ -33,8 +35,16 @@ impl BodyBehaviorCall {
         Self {
             target,
             phase,
+            source: None,
             anonymous_unit: None,
         }
+    }
+
+    /// Retains the source expression that selected this callable contribution.
+    pub const fn with_source(mut self, source: BoundSourceAnchor) -> Self {
+        self.source = Some(source);
+
+        self
     }
 
     /// Retains the separately bound body selected for an anonymous callable.
@@ -54,6 +64,11 @@ impl BodyBehaviorCall {
         self.phase
     }
 
+    /// Returns the source expression that selected this contribution, when source-backed.
+    pub const fn source(&self) -> Option<BoundSourceAnchor> {
+        self.source
+    }
+
     /// Returns the selected anonymous body when the target is body-local.
     pub const fn anonymous_unit(&self) -> Option<&BoundUnitKey> {
         self.anonymous_unit.as_ref()
@@ -69,6 +84,36 @@ pub struct BodyBehaviorContributions {
     defaults: Arc<[ConstructionDefaultProvider]>,
     current_run_cancellation: CurrentRunCancellation,
     is_recovered: bool,
+}
+
+/// One trusted capability reached by source-backed calls in a checked body.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct TrustedCapabilityUse {
+    capability: TrustedCapabilitySymbolId,
+    sources: Arc<[BoundSourceAnchor]>,
+}
+
+impl TrustedCapabilityUse {
+    /// Creates one use summary with canonical, duplicate-free source origins.
+    pub fn new(
+        capability: TrustedCapabilitySymbolId,
+        sources: impl IntoIterator<Item = BoundSourceAnchor>,
+    ) -> Self {
+        Self {
+            capability,
+            sources: sorted_unique_shared_slice(sources),
+        }
+    }
+
+    /// Returns the trusted capability required by the selected calls.
+    pub const fn capability(&self) -> TrustedCapabilitySymbolId {
+        self.capability
+    }
+
+    /// Returns every retained source call that requires this capability.
+    pub fn sources(&self) -> &[BoundSourceAnchor] {
+        &self.sources
+    }
 }
 
 impl BodyBehaviorContributions {
@@ -130,6 +175,7 @@ pub struct CheckedBodyBehavior {
     effects: Arc<[CallableEffectRequirement]>,
     capabilities: Arc<[CallableCapabilityRequirement]>,
     trusted_capabilities: Arc<[TrustedCapabilitySymbolId]>,
+    trusted_capability_uses: Arc<[TrustedCapabilityUse]>,
     execution_requirements: Arc<[CallableExecutionRequirement]>,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     current_run_cancellation: CurrentRunCancellation,
@@ -150,6 +196,7 @@ impl CheckedBodyBehavior {
             effects: Arc::from([]),
             capabilities: Arc::from([]),
             trusted_capabilities: Arc::from([]),
+            trusted_capability_uses: Arc::from([]),
             execution_requirements: Arc::from([]),
             lifecycle_obligations: Arc::from([]),
             current_run_cancellation,
@@ -171,6 +218,16 @@ impl CheckedBodyBehavior {
         self.trusted_capabilities = sorted_unique_shared_slice(trusted_capabilities);
         self.execution_requirements = sorted_unique_shared_slice(execution_requirements);
         self.lifecycle_obligations = sorted_unique_shared_slice(lifecycle_obligations);
+
+        self
+    }
+
+    /// Returns checked behavior with source origins for direct trusted-capability use.
+    pub fn with_trusted_capability_uses(
+        mut self,
+        uses: impl IntoIterator<Item = TrustedCapabilityUse>,
+    ) -> Self {
+        self.trusted_capability_uses = uses.into_iter().collect();
 
         self
     }
@@ -198,6 +255,11 @@ impl CheckedBodyBehavior {
     /// Returns trusted implementation capabilities in canonical semantic order.
     pub fn trusted_capabilities(&self) -> &[TrustedCapabilitySymbolId] {
         &self.trusted_capabilities
+    }
+
+    /// Returns source-correlated trusted-capability uses in capability order.
+    pub fn trusted_capability_uses(&self) -> &[TrustedCapabilityUse] {
+        &self.trusted_capability_uses
     }
 
     /// Returns execution-context requirements in canonical semantic order.

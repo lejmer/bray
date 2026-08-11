@@ -6,6 +6,9 @@ macro_rules! define_interface_ids {
             pub struct $name(u32);
 
             impl $name {
+                /// Number of distinct values in this compact interface identity domain.
+                pub const CAPACITY: u64 = 4_294_967_296;
+
                 /// Creates an ID from its compact numeric representation.
                 pub const fn new(raw: u32) -> Self {
                     Self(raw)

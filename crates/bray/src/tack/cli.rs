@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
 };
+use bray_messages::command_help as help;
 use bray_test_protocol::{TestCaptureLimits, TestCapturePolicy};
 use bray_tooling::{OutputFormat, clap_styles, exit_code_from_diagnostics, render_styled_text};
 use clap::error::ErrorKind as ClapErrorKind;
@@ -118,7 +119,9 @@ fn invalid_worker_count() -> DiagnosticBag {
             DiagnosticKind::ProjectCommandSelectionInvalid,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::referenced_name("cpu_count")),
+        .with_arg(DiagnosticArg::project_selection_problem(
+            bray_diagnostics::DiagnosticProjectSelectionProblem::WorkerCountZero,
+        )),
     )
 }
 
@@ -126,31 +129,49 @@ fn invalid_worker_count() -> DiagnosticBag {
 #[command(
     name = "bray",
     version = env!("CARGO_PKG_VERSION"),
-    about = "Bray Tack, Bray's build tool",
+    about = help::TACK_ABOUT,
     styles = clap_styles(),
     arg_required_else_help = true
 )]
 struct Cli {
-    #[arg(long, global = true, value_name = "DIRECTORY", default_value = ".")]
+    #[arg(
+        long,
+        global = true,
+        value_name = "DIRECTORY",
+        default_value = ".",
+        help = help::WORKSPACE
+    )]
     workspace: PathBuf,
-    #[arg(long = "toolchain-root", global = true, value_name = "DIRECTORY")]
+    #[arg(
+        long = "toolchain-root",
+        global = true,
+        value_name = "DIRECTORY",
+        help = help::TOOLCHAIN_ROOT
+    )]
     toolchain_root: Option<PathBuf>,
     #[arg(long = "standard-library-source", global = true, hide = true)]
     standard_library_source: bool,
-    #[arg(long = "cpu-count", global = true, value_name = "N")]
+    #[arg(long = "cpu-count", global = true, value_name = "N", help = help::CPU_COUNT)]
     cpu_count: Option<usize>,
-    #[arg(long = "format", global = true, value_enum, default_value = "text")]
+    #[arg(
+        long = "format",
+        global = true,
+        value_enum,
+        default_value = "text",
+        help = help::OUTPUT_FORMAT
+    )]
     output_format: OutputFormat,
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, help = help::VERBOSE)]
     verbose: bool,
-    #[arg(long, global = true, value_enum, value_name = "MODE")]
+    #[arg(long, global = true, value_enum, value_name = "MODE", help = help::PROFILE)]
     profile: Option<CliProfileMode>,
     #[arg(
         long,
         global = true,
         value_name = "DIRECTORY",
         requires = "profile",
-        required_if_eq("profile", "trace")
+        required_if_eq("profile", "trace"),
+        help = help::PROFILE_OUTPUT
     )]
     profile_output: Option<PathBuf>,
     #[command(subcommand)]
@@ -206,13 +227,17 @@ fn invalid_profile_command() -> DiagnosticBag {
             DiagnosticKind::ProjectCommandSelectionInvalid,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::referenced_name("profile")),
+        .with_arg(DiagnosticArg::project_selection_problem(
+            bray_diagnostics::DiagnosticProjectSelectionProblem::ProfileRequiresCompilation,
+        )),
     )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliProfileMode {
+    #[value(help = help::PROFILE_SUMMARY)]
     Summary,
+    #[value(help = help::PROFILE_TRACE)]
     Trace,
 }
 
@@ -227,17 +252,25 @@ impl From<CliProfileMode> for TackProfileMode {
 
 #[derive(Debug, Subcommand)]
 enum CliCommand {
+    #[command(about = help::INIT)]
     Init(CliInit),
+    #[command(about = help::CHECK)]
     Check(CliSelection),
+    #[command(about = help::BUILD)]
     Build(CliBuild),
+    #[command(about = help::RUN)]
     Run(CliExecution),
+    #[command(about = help::TEST)]
     Test(CliTest),
-    #[command(name = "fmt")]
+    #[command(name = "fmt", about = help::FORMAT)]
     Format(CliFormat),
+    #[command(about = help::INSPECT)]
     Inspect(CliInspect),
+    #[command(about = help::PROFILE_REPORT)]
     Profile(CliProfile),
-    #[command(name = "language-server")]
+    #[command(name = "language-server", about = help::LANGUAGE_SERVER)]
     LanguageServer(CliLanguageServer),
+    #[command(about = help::VENDOR)]
     Vendor(CliVendor),
 }
 
@@ -337,39 +370,41 @@ impl CliProfile {
 
 #[derive(Debug, Subcommand)]
 enum CliProfileCommand {
+    #[command(about = help::PROFILE_SHOW)]
     Show {
-        #[arg(value_name = "REPORT")]
+        #[arg(value_name = "REPORT", help = help::PROFILE_REPORT_PATH)]
         report: PathBuf,
     },
+    #[command(about = help::PROFILE_COMPARE)]
     Compare {
-        #[arg(value_name = "BEFORE")]
+        #[arg(value_name = "BEFORE", help = help::PROFILE_BEFORE)]
         before: PathBuf,
-        #[arg(value_name = "AFTER")]
+        #[arg(value_name = "AFTER", help = help::PROFILE_AFTER)]
         after: PathBuf,
     },
 }
 
 #[derive(Args, Debug)]
 struct CliInit {
-    #[arg(value_name = "DIRECTORY")]
+    #[arg(value_name = "DIRECTORY", help = help::INIT_DIRECTORY)]
     directory: Option<PathBuf>,
-    #[arg(long, value_name = "IDENTITY")]
+    #[arg(long, value_name = "IDENTITY", help = help::PACKAGE)]
     package: Option<String>,
 }
 
 #[derive(Args, Debug)]
 struct CliLanguageServer {
-    #[arg(long, value_name = "NAME")]
+    #[arg(long, value_name = "NAME", help = help::LANGUAGE_SERVER_TARGET)]
     target: Option<String>,
 }
 
 #[derive(Args, Debug)]
 struct CliSelection {
-    #[arg(long, value_name = "IDENTITY")]
+    #[arg(long, value_name = "IDENTITY", help = help::PACKAGE)]
     package: Option<String>,
-    #[arg(long, value_name = "NAME")]
+    #[arg(long, value_name = "NAME", help = help::PRODUCT)]
     product: Option<String>,
-    #[arg(long, value_name = "NAME")]
+    #[arg(long, value_name = "NAME", help = help::TARGET)]
     target: Option<String>,
 }
 
@@ -377,7 +412,7 @@ struct CliSelection {
 struct CliBuild {
     #[command(flatten)]
     selection: CliSelection,
-    #[arg(long)]
+    #[arg(long, help = help::RELEASE)]
     release: bool,
 }
 
@@ -402,9 +437,9 @@ impl From<CliSelection> for TackSelection {
 struct CliExecution {
     #[command(flatten)]
     selection: CliSelection,
-    #[arg(long)]
+    #[arg(long, help = help::RELEASE)]
     release: bool,
-    #[arg(value_name = "ARG")]
+    #[arg(value_name = "ARG", help = help::PROGRAM_ARGUMENT)]
     arguments: Vec<OsString>,
 }
 
@@ -418,23 +453,28 @@ impl CliExecution {
 struct CliTest {
     #[command(flatten)]
     selection: CliSelection,
-    #[arg(long)]
+    #[arg(long, help = help::RELEASE)]
     release: bool,
-    #[arg(long, conflicts_with = "jobs")]
+    #[arg(long, conflicts_with = "jobs", help = help::TEST_SEQUENTIAL)]
     sequential: bool,
-    #[arg(long, value_name = "N")]
+    #[arg(long, value_name = "N", help = help::TEST_JOBS)]
     jobs: Option<NonZeroUsize>,
-    #[arg(long, value_name = "MILLISECONDS")]
+    #[arg(long, value_name = "MILLISECONDS", help = help::TEST_TIMEOUT)]
     timeout_ms: Option<u64>,
-    #[arg(long, conflicts_with = "discard_output")]
+    #[arg(long, conflicts_with = "discard_output", help = help::TEST_NO_CAPTURE)]
     no_capture: bool,
-    #[arg(long, conflicts_with = "no_capture")]
+    #[arg(long, conflicts_with = "no_capture", help = help::TEST_DISCARD_OUTPUT)]
     discard_output: bool,
-    #[arg(long, default_value_t = 1_048_576, value_name = "BYTES")]
+    #[arg(
+        long,
+        default_value_t = 1_048_576,
+        value_name = "BYTES",
+        help = help::TEST_CAPTURE_LIMIT
+    )]
     capture_limit: u64,
-    #[arg(long)]
+    #[arg(long, help = help::TEST_SHOW_OUTPUT)]
     show_output: bool,
-    #[arg(value_name = "FILTER")]
+    #[arg(value_name = "FILTER", help = help::TEST_FILTER)]
     filters: Vec<String>,
 }
 
@@ -448,11 +488,11 @@ const fn build_configuration(release: bool) -> crate::tack::model::TackBuildConf
 
 #[derive(Args, Debug)]
 struct CliFormat {
-    #[arg(long)]
+    #[arg(long, help = help::FORMAT_CHECK)]
     check: bool,
-    #[arg(long = "config", value_name = "FILE")]
+    #[arg(long = "config", value_name = "FILE", help = help::FORMAT_CONFIG)]
     configuration: Option<PathBuf>,
-    #[arg(value_name = "FILE")]
+    #[arg(value_name = "FILE", help = help::SOURCE_FILE)]
     files: Vec<PathBuf>,
 }
 
@@ -460,24 +500,33 @@ struct CliFormat {
 struct CliInspect {
     #[command(flatten)]
     selection: CliSelection,
-    #[arg(value_enum)]
+    #[arg(value_enum, help = help::INSPECTION)]
     inspection: CliInspection,
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, help = help::SOURCE_ID)]
     source_id: u32,
-    #[arg(long)]
+    #[arg(long, help = help::SOURCE_OFFSET)]
     offset: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliInspection {
+    #[value(help = help::INSPECT_PROJECT)]
     Project,
+    #[value(help = help::INSPECT_SOURCE)]
     Source,
+    #[value(help = help::INSPECT_TOKENS)]
     Tokens,
+    #[value(help = help::INSPECT_SYNTAX)]
     Syntax,
+    #[value(help = help::INSPECT_DECLARATIONS)]
     Declarations,
+    #[value(help = help::INSPECT_SYMBOLS)]
     Symbols,
+    #[value(help = help::INSPECT_BOUND)]
     Bound,
+    #[value(help = help::INSPECT_LOWERED)]
     Lowered,
+    #[value(help = help::INSPECT_MIR)]
     Mir,
 }
 
@@ -516,14 +565,15 @@ impl CliVendor {
 
 #[derive(Debug, Subcommand)]
 enum CliVendorCommand {
+    #[command(about = help::VENDOR_INSTALL)]
     Install(CliVendorInstall),
 }
 
 #[derive(Args, Debug)]
 struct CliVendorInstall {
-    #[arg(value_name = "NAME")]
+    #[arg(value_name = "NAME", help = help::VENDOR_NAME)]
     name: String,
-    #[arg(value_name = "GIT_REPOSITORY")]
+    #[arg(value_name = "GIT_REPOSITORY", help = help::VENDOR_REPOSITORY)]
     repository: String,
 }
 
@@ -534,9 +584,26 @@ mod tests {
     use bray_test_protocol::{
         TestCaptureLimits, TestCapturePolicy, TestDuration, TestTimeoutPolicy,
     };
+    use clap::CommandFactory;
 
     use crate::tack::model::{TackBuildConfiguration, TackCommand, TackProfileMode};
     use crate::tack::{TackCommandKind, TackInvocation};
+
+    use super::Cli;
+
+    #[test]
+    fn tack_help_describes_every_public_command_argument_and_value() {
+        let mut command = Cli::command();
+
+        bray_testing::assert_complete_command_help(&mut command);
+
+        let help = command.render_long_help().to_string();
+
+        assert!(help.contains("--workspace <DIRECTORY>"));
+        assert!(help.contains("project workspace root"));
+        assert!(help.contains("--profile <MODE>"));
+        assert!(help.contains("compiler timing and unit statistics"));
+    }
 
     #[test]
     fn routes_every_project_command() {

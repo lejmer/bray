@@ -1,15 +1,32 @@
+// rust-style: allow(module-too-large, reason = "imported interface loading, decoding, and diagnostic conversion form one demand-driven query pipeline")
+
 use std::sync::Arc;
 
-use bray_diagnostics::{DiagnosticBag, DiagnosticKind, DiagnosticResult};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
+    DiagnosticBag, DiagnosticCheckedTemplateProblem, DiagnosticId,
+    DiagnosticInterfaceDeclarationIdentity,
+    DiagnosticInterfaceLimit, DiagnosticInterfaceRelationshipKind,
+    DiagnosticInterfaceSemanticProblem,
+    DiagnosticInterfaceSymbolGraphProblem, DiagnosticInterfaceSymbolIdentity,
+    DiagnosticInterfaceSymbolReference,
+    DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticSemanticContentProblem,
+    DiagnosticSemanticValueKind, SeverityKind,
+};
 use bray_package_interface::{
     ImportedInterfaceSymbolResolver, ImportedSemanticFact, ImportedSemanticFacts,
+    ImportedSymbolConstructionError, InterfaceSemanticInternError, InterfaceSymbolReference,
     LoadedInterfaceSurface, PackageInterfaceSurface, ValidatedPackageInterface,
     construct_imported_symbol_skeletons,
 };
-use bray_symbols::{ImportedInterfaceId, ImportedSymbolSkeleton, PackageIdentity, SymbolId};
+use bray_symbols::{
+    ImportedInterfaceId, ImportedSymbolSkeleton, PackageIdentity, SemanticValueKind,
+    SemanticValueStoreError, SymbolId, SymbolRootKey, diagnostic_symbol_kind,
+};
 
 use super::diagnostic::{
-    interface_diagnostics, standard_library_diagnostics, unlocated_interface_diagnostics,
+    contextual_interface_diagnostic, standard_library_diagnostics, unlocated_interface_diagnostics,
     validation_diagnostics,
 };
 use super::model::LoadedDependencyInterface;
@@ -212,7 +229,12 @@ impl super::super::Compilation {
             let Some(interface) = ImportedInterfaceId::try_from_index(index) else {
                 return Ok(DiagnosticResult::new(
                     None,
-                    dependency_graph_diagnostics(self),
+                    dependency_graph_capacity_diagnostics(
+                        self,
+                        DiagnosticInterfaceLimit::LoadedInterfaceCount,
+                        stable_count(dependency_count),
+                        ImportedInterfaceId::CAPACITY,
+                    ),
                 ));
             };
 
@@ -243,23 +265,38 @@ impl super::super::Compilation {
 
         let graph = self.symbol_graph()?;
 
-        let Some(first_symbol) = u32::try_from(graph.next_symbol_index())
-            .ok()
-            .map(SymbolId::new)
-        else {
+        let imported_symbol_count = loaded.iter().fold(0_u64, |count, interface| {
+            count.saturating_add(stable_count(interface.surface().symbols().symbols().len()))
+        });
+
+        let existing_symbol_count = stable_count(graph.next_symbol_index());
+
+        let required_symbol_count =
+            existing_symbol_count.saturating_add(imported_symbol_count);
+
+        if required_symbol_count > SymbolId::CAPACITY {
             return Ok(DiagnosticResult::new(
                 None,
-                dependency_graph_diagnostics(self),
+                dependency_graph_capacity_diagnostics(
+                    self,
+                    DiagnosticInterfaceLimit::CompilationSymbolCount,
+                    required_symbol_count,
+                    SymbolId::CAPACITY,
+                ),
             ));
-        };
+        }
+
+        let first_symbol = u32::try_from(graph.next_symbol_index())
+            .map(SymbolId::new)
+            .unwrap_or_else(|_| SymbolId::new(u32::MAX));
 
         cancellation.check()?;
 
         match construct_imported_symbol_skeletons(first_symbol, loaded) {
             Ok(symbols) => Ok(DiagnosticResult::new(Some(Arc::new(symbols)), diagnostics)),
-            Err(_) => Ok(DiagnosticResult::new(
+            Err(error) => Ok(DiagnosticResult::new(
                 None,
-                dependency_graph_diagnostics(self),
+                dependency_graph_diagnostics(self, error),
             )),
         }
     }
@@ -441,9 +478,9 @@ impl super::super::Compilation {
 
         match decoded.intern(semantic_values, &resolver) {
             Ok(facts) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(facts)))),
-            Err(_) => Ok(DiagnosticResult::new(
+            Err(error) => Ok(DiagnosticResult::new(
                 None,
-                semantic_facts_diagnostics(input),
+                semantic_content_diagnostics(error, input),
             )),
         }
     }
@@ -490,7 +527,12 @@ impl super::super::Compilation {
         if skeleton.value().is_some() {
             for index in 0..self.dependency_interface_count() {
                 let Some(interface) = ImportedInterfaceId::try_from_index(index) else {
-                    return dependency_graph_diagnostics(self);
+                    return dependency_graph_capacity_diagnostics(
+                        self,
+                        DiagnosticInterfaceLimit::LoadedInterfaceCount,
+                        stable_count(self.dependency_interface_count()),
+                        ImportedInterfaceId::CAPACITY,
+                    );
                 };
 
                 match self.imported_semantic_graph_result_with_cancellation(
@@ -546,31 +588,740 @@ fn load_dependency_interface(
     cancellation.check()?;
 
     if surface.identity().package() != input.package() {
-        return Ok(LoadedDependencyInterface::invalid(interface_diagnostics(
-            DiagnosticKind::InterfacePackageIdentityMismatch,
+        let diagnostics = contextual_interface_diagnostic(
+            Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::InterfacePackageIdentityMismatch,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::expected_package_identity(
+                input.package().as_str(),
+            ))
+            .with_arg(DiagnosticArg::actual_package_identity(
+                surface.identity().package().as_str(),
+            )),
             input,
-        )));
+        );
+
+        return Ok(LoadedDependencyInterface::invalid(diagnostics));
     }
 
     if surface.identity().product() != input.product() {
-        return Ok(LoadedDependencyInterface::invalid(interface_diagnostics(
-            DiagnosticKind::InterfaceProductIdentityMismatch,
+        let diagnostics = contextual_interface_diagnostic(
+            Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::InterfaceProductIdentityMismatch,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::expected_product_identity(
+                input.product().as_str(),
+            ))
+            .with_arg(DiagnosticArg::actual_product_identity(
+                surface.identity().product().as_str(),
+            )),
             input,
-        )));
+        );
+
+        return Ok(LoadedDependencyInterface::invalid(diagnostics));
     }
 
     Ok(LoadedDependencyInterface::new(validated, surface))
 }
 
-fn dependency_graph_diagnostics(compilation: &super::super::Compilation) -> DiagnosticBag {
-    compilation.dependency_interfaces().first().map_or_else(
-        || unlocated_interface_diagnostics(DiagnosticKind::InterfaceDependencyGraphInvalid),
-        |input| interface_diagnostics(DiagnosticKind::InterfaceDependencyGraphInvalid, input),
+fn dependency_graph_capacity_diagnostics(
+    compilation: &super::super::Compilation,
+    limit: DiagnosticInterfaceLimit,
+    actual: u64,
+    maximum: u64,
+) -> DiagnosticBag {
+    contextual_dependency_diagnostic(
+        compilation,
+        None,
+        Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::InterfaceSymbolCapacityExceeded,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::actual_package_identity(
+            compilation.package_identity().as_str(),
+        ))
+        .with_arg(DiagnosticArg::interface_limit(limit))
+        .with_arg(DiagnosticArg::actual_count(actual))
+        .with_arg(DiagnosticArg::maximum_count(maximum)),
     )
 }
 
-fn semantic_facts_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag {
-    interface_diagnostics(DiagnosticKind::InterfaceSemanticFactsInvalid, input)
+fn stable_count(count: usize) -> u64 {
+    u64::try_from(count).unwrap_or(u64::MAX)
+}
+
+fn dependency_graph_diagnostics(
+    compilation: &super::super::Compilation,
+    error: ImportedSymbolConstructionError,
+) -> DiagnosticBag {
+    let (mut diagnostic, primary, related) =
+        imported_symbol_diagnostic(error, compilation.package_identity());
+
+    if let Some(related) = related
+        .and_then(|interface| compilation.dependency_interface_input(interface))
+        .and_then(DependencyInterfaceInput::dependency_span)
+    {
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::ConflictingDependency,
+            related,
+        ));
+    }
+
+    contextual_dependency_diagnostic(compilation, primary, diagnostic)
+}
+
+fn contextual_dependency_diagnostic(
+    compilation: &super::super::Compilation,
+    interface: Option<ImportedInterfaceId>,
+    diagnostic: Diagnostic,
+) -> DiagnosticBag {
+    if let Some(input) = interface.and_then(|id| compilation.dependency_interface_input(id)) {
+        contextual_interface_diagnostic(diagnostic, input)
+    } else {
+        DiagnosticBag::single(diagnostic)
+    }
+}
+
+fn imported_symbol_diagnostic(
+    error: ImportedSymbolConstructionError,
+    package: &PackageIdentity,
+) -> (
+    Diagnostic,
+    Option<ImportedInterfaceId>,
+    Option<ImportedInterfaceId>,
+) {
+    use bray_symbols::ImportedSymbolSkeletonBuildError;
+
+    let (kind, args, primary, related) = match error {
+        ImportedSymbolConstructionError::DuplicatePackage {
+            package,
+            first,
+            duplicate,
+        } => (
+            DiagnosticKind::InterfaceDuplicatePackage,
+            vec![DiagnosticArg::actual_package_identity(package.as_str())],
+            Some(duplicate),
+            Some(first),
+        ),
+        ImportedSymbolConstructionError::MissingDependency { importing, package } => (
+            DiagnosticKind::InterfaceMissingDependency,
+            vec![DiagnosticArg::expected_package_identity(package.as_str())],
+            Some(importing),
+            None,
+        ),
+        ImportedSymbolConstructionError::DependencyProductMismatch {
+            importing,
+            expected,
+            actual,
+            ..
+        } => (
+            DiagnosticKind::InterfaceDependencyProductMismatch,
+            vec![
+                DiagnosticArg::expected_product_identity(expected.as_str()),
+                DiagnosticArg::actual_product_identity(actual.as_str()),
+            ],
+            Some(importing),
+            None,
+        ),
+        ImportedSymbolConstructionError::DependencyContentMismatch {
+            importing,
+            expected,
+            actual,
+            ..
+        } => (
+            DiagnosticKind::InterfaceDependencyContentMismatch,
+            vec![
+                DiagnosticArg::expected_artifact_digest(DiagnosticArtifactDigest::new(
+                    DiagnosticArtifactDigestAlgorithm::Blake3,
+                    *expected.as_bytes(),
+                )),
+                DiagnosticArg::actual_artifact_digest(DiagnosticArtifactDigest::new(
+                    DiagnosticArtifactDigestAlgorithm::Blake3,
+                    *actual.as_bytes(),
+                )),
+            ],
+            Some(importing),
+            None,
+        ),
+        ImportedSymbolConstructionError::SymbolOutOfBounds { interface, symbol } => (
+            DiagnosticKind::InterfaceSymbolReferenceInvalid,
+            vec![DiagnosticArg::interface_record_index(symbol.raw())],
+            Some(interface),
+            None,
+        ),
+        ImportedSymbolConstructionError::DependencyOutOfBounds {
+            interface,
+            dependency,
+        } => (
+            DiagnosticKind::InterfaceDependencyReferenceInvalid,
+            vec![DiagnosticArg::interface_record_index(dependency.raw())],
+            Some(interface),
+            None,
+        ),
+        ImportedSymbolConstructionError::MissingDependencySymbol {
+            importing,
+            package,
+            key,
+        } => (
+            DiagnosticKind::InterfaceDependencySymbolMissing,
+            vec![
+                DiagnosticArg::expected_package_identity(package.as_str()),
+                DiagnosticArg::interface_symbol_identity(external_symbol_identity(&key)),
+            ],
+            Some(importing),
+            None,
+        ),
+        ImportedSymbolConstructionError::CompilerKnownExportTarget { importing, key } => (
+            DiagnosticKind::InterfaceCompilerDeclarationExported,
+            vec![DiagnosticArg::interface_symbol_identity(symbol_identity(&key))],
+            Some(importing),
+            None,
+        ),
+        ImportedSymbolConstructionError::Symbols(
+            ImportedSymbolSkeletonBuildError::SymbolCapacityExceeded { actual, maximum },
+        ) => (
+            DiagnosticKind::InterfaceSymbolCapacityExceeded,
+            vec![
+                DiagnosticArg::actual_package_identity(package.as_str()),
+                DiagnosticArg::interface_limit(
+                    DiagnosticInterfaceLimit::CompilationSymbolCount,
+                ),
+                DiagnosticArg::actual_count(actual),
+                DiagnosticArg::maximum_count(maximum),
+            ],
+            None,
+            None,
+        ),
+        ImportedSymbolConstructionError::Symbols(error) => {
+            let (primary, related) = interface_symbol_graph_context(&error);
+
+            (
+                DiagnosticKind::InterfaceSymbolGraphInvalid,
+                vec![DiagnosticArg::interface_symbol_graph_problem(
+                    interface_symbol_graph_problem(error),
+                )],
+                primary,
+                related,
+            )
+        }
+    };
+
+    let diagnostic = args.into_iter().fold(
+        Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error),
+        Diagnostic::with_arg,
+    );
+
+    (diagnostic, primary, related)
+}
+
+fn symbol_identity(key: &bray_symbols::SymbolKey) -> DiagnosticInterfaceSymbolIdentity {
+    use bray_symbols::SymbolKeyData;
+
+    match key.data() {
+        SymbolKeyData::Root(root) => symbol_root_identity(root),
+        SymbolKeyData::Module { owner, path } => DiagnosticInterfaceSymbolIdentity::Module {
+            owner: Box::new(symbol_root_identity(owner)),
+            path: module_path(path),
+        },
+        SymbolKeyData::CompilerKnownDeclaration { key, kind } => {
+            DiagnosticInterfaceSymbolIdentity::CompilerKnownDeclaration {
+                key: key.as_str().to_owned(),
+                kind: diagnostic_symbol_kind(*kind),
+            }
+        }
+        SymbolKeyData::SourceDeclaration {
+            owner,
+            kind,
+            declaration,
+        } => DiagnosticInterfaceSymbolIdentity::SourceDeclaration {
+            owner: Box::new(symbol_identity(owner)),
+            kind: diagnostic_symbol_kind(*kind),
+            declaration: declaration.raw(),
+        },
+        SymbolKeyData::Synthesized(synthesized) => {
+            DiagnosticInterfaceSymbolIdentity::Synthesized {
+                owner: Box::new(symbol_identity(synthesized.subject())),
+                identity: synthesized_identity(synthesized.role(), synthesized.ordinal()),
+            }
+        }
+        SymbolKeyData::External(external) => external_symbol_identity(external),
+    }
+}
+
+fn symbol_root_identity(root: &SymbolRootKey) -> DiagnosticInterfaceSymbolIdentity {
+    match root {
+        SymbolRootKey::CompilerKnownEnvironment => {
+            DiagnosticInterfaceSymbolIdentity::CompilerKnownEnvironment
+        }
+        SymbolRootKey::Package(package) => {
+            DiagnosticInterfaceSymbolIdentity::Package(package.as_str().to_owned())
+        }
+    }
+}
+
+fn interface_symbol_graph_context(
+    error: &bray_symbols::ImportedSymbolSkeletonBuildError,
+) -> (Option<ImportedInterfaceId>, Option<ImportedInterfaceId>) {
+    use bray_symbols::ImportedSymbolSkeletonBuildError as Error;
+
+    match error {
+        Error::DuplicateInterface(interface)
+        | Error::RelationshipSymbolOutOfBounds { interface, .. }
+        | Error::LookupOwnerOutOfBounds { interface, .. } => (Some(*interface), None),
+        Error::DuplicateExternalKey {
+            first, duplicate, ..
+        } => (Some(*duplicate), Some(*first)),
+        _ => (None, None),
+    }
+}
+
+fn interface_symbol_graph_problem(
+    error: bray_symbols::ImportedSymbolSkeletonBuildError,
+) -> DiagnosticInterfaceSymbolGraphProblem {
+    use bray_symbols::ImportedSymbolSkeletonBuildError as Error;
+
+    match error {
+        Error::DuplicateInterface(interface) => {
+            DiagnosticInterfaceSymbolGraphProblem::DuplicateInterface(interface.raw())
+        }
+        Error::DuplicatePackage(package) => {
+            DiagnosticInterfaceSymbolGraphProblem::DuplicatePackage(package.as_str().to_owned())
+        }
+        Error::SymbolCapacityExceeded { actual, maximum } => {
+            DiagnosticInterfaceSymbolGraphProblem::SymbolCapacityExceeded { actual, maximum }
+        }
+        Error::DuplicateExternalKey { key, .. } => {
+            DiagnosticInterfaceSymbolGraphProblem::DuplicateExternalIdentity(
+                external_symbol_identity(&key),
+            )
+        }
+        Error::RelationshipSymbolOutOfBounds { interface, symbol } => {
+            DiagnosticInterfaceSymbolGraphProblem::RelationshipSymbolOutOfBounds {
+                interface: interface.raw(),
+                symbol: symbol.raw(),
+            }
+        }
+        Error::InvalidRelationshipKinds {
+            relationship,
+            owner,
+            member,
+        } => DiagnosticInterfaceSymbolGraphProblem::InvalidRelationshipKinds {
+            relationship: diagnostic_relationship_kind(relationship),
+            owner: diagnostic_symbol_kind(owner),
+            member: diagnostic_symbol_kind(member),
+        },
+        Error::RelationshipContainmentMismatch { owner, member } => {
+            DiagnosticInterfaceSymbolGraphProblem::RelationshipContainmentMismatch {
+                owner: owner.symbol_id().raw(),
+                member: member.symbol_id().raw(),
+            }
+        }
+        Error::NonCanonicalRelationshipOrdinal {
+            relationship,
+            owner,
+            expected,
+            actual,
+        } => DiagnosticInterfaceSymbolGraphProblem::NonCanonicalRelationshipOrdinal {
+            relationship: diagnostic_relationship_kind(relationship),
+            owner: owner.symbol_id().raw(),
+            expected,
+            actual,
+        },
+        Error::MissingContainment(symbol) => {
+            DiagnosticInterfaceSymbolGraphProblem::MissingContainment {
+                symbol: symbol.symbol_id().raw(),
+                kind: diagnostic_symbol_kind(symbol.kind()),
+            }
+        }
+        Error::DuplicateContainment(symbol) => {
+            DiagnosticInterfaceSymbolGraphProblem::DuplicateContainment {
+                symbol: symbol.symbol_id().raw(),
+                kind: diagnostic_symbol_kind(symbol.kind()),
+            }
+        }
+        Error::LookupOwnerOutOfBounds { interface, owner } => {
+            DiagnosticInterfaceSymbolGraphProblem::LookupOwnerOutOfBounds {
+                interface: interface.raw(),
+                owner: owner.raw(),
+            }
+        }
+        Error::InvalidLookupOwner(owner) => {
+            DiagnosticInterfaceSymbolGraphProblem::InvalidLookupOwner {
+                owner: owner.symbol_id().raw(),
+                kind: diagnostic_symbol_kind(owner.kind()),
+            }
+        }
+        Error::MissingLookupTarget(key) => {
+            DiagnosticInterfaceSymbolGraphProblem::MissingLookupTarget(external_symbol_identity(
+                &key,
+            ))
+        }
+        Error::DuplicateLookupName { owner, name } => {
+            DiagnosticInterfaceSymbolGraphProblem::DuplicateLookupName {
+                owner: owner.symbol_id().raw(),
+                name: name.as_str().to_owned(),
+            }
+        }
+        Error::UnsupportedSymbolKind(kind) => {
+            DiagnosticInterfaceSymbolGraphProblem::UnsupportedSymbolKind(diagnostic_symbol_kind(
+                kind,
+            ))
+        }
+        Error::InvalidRecordRelationships(symbol) => {
+            DiagnosticInterfaceSymbolGraphProblem::InvalidRecordRelationships {
+                symbol: symbol.symbol_id().raw(),
+                kind: diagnostic_symbol_kind(symbol.kind()),
+            }
+        }
+    }
+}
+
+fn external_symbol_identity(
+    key: &bray_symbols::ExternalSymbolKey,
+) -> DiagnosticInterfaceSymbolIdentity {
+    use bray_symbols::{ExternalDeclarationIdentity, ExternalSymbolKeyData};
+
+    match key.data() {
+        ExternalSymbolKeyData::Package(package) => {
+            DiagnosticInterfaceSymbolIdentity::Package(package.as_str().to_owned())
+        }
+        ExternalSymbolKeyData::Module { package, path } => {
+            DiagnosticInterfaceSymbolIdentity::Module {
+                owner: Box::new(external_symbol_identity(package)),
+                path: module_path(path),
+            }
+        }
+        ExternalSymbolKeyData::Declaration {
+            owner,
+            kind,
+            identity,
+        } => DiagnosticInterfaceSymbolIdentity::Declaration {
+            owner: Box::new(external_symbol_identity(owner)),
+            kind: diagnostic_symbol_kind(*kind),
+            identity: match identity {
+                ExternalDeclarationIdentity::Name(name) => {
+                    DiagnosticInterfaceDeclarationIdentity::Name(name.as_str().to_owned())
+                }
+                ExternalDeclarationIdentity::Ordinal(ordinal) => {
+                    DiagnosticInterfaceDeclarationIdentity::Ordinal(ordinal.raw())
+                }
+            },
+        },
+        ExternalSymbolKeyData::Synthesized {
+            owner,
+            role,
+            ordinal,
+        } => DiagnosticInterfaceSymbolIdentity::Synthesized {
+            owner: Box::new(external_symbol_identity(owner)),
+            identity: synthesized_identity(*role, *ordinal),
+        },
+    }
+}
+
+fn module_path(path: &bray_symbols::ModulePathKey) -> Box<[String]> {
+    path.segments()
+        .map(str::to_owned)
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn synthesized_identity(
+    role: bray_symbols::SynthesizedSymbolRole,
+    ordinal: Option<bray_symbols::SymbolOrdinal>,
+) -> DiagnosticInterfaceSynthesizedIdentity {
+    use bray_symbols::SynthesizedSymbolRole as Role;
+
+    match (role, ordinal) {
+        (Role::ReceiverParameter, None) => {
+            DiagnosticInterfaceSynthesizedIdentity::ReceiverParameter
+        }
+        (Role::DeclaredGenericTypeParameter, Some(ordinal)) => {
+            DiagnosticInterfaceSynthesizedIdentity::DeclaredGenericTypeParameter(ordinal.raw())
+        }
+        (Role::DeclaredGenericConstParameter, Some(ordinal)) => {
+            DiagnosticInterfaceSynthesizedIdentity::DeclaredGenericConstParameter(ordinal.raw())
+        }
+        (Role::CallableParameter, Some(ordinal)) => {
+            DiagnosticInterfaceSynthesizedIdentity::CallableParameter(ordinal.raw())
+        }
+        (Role::PredicateParameter, Some(ordinal)) => {
+            DiagnosticInterfaceSynthesizedIdentity::PredicateParameter(ordinal.raw())
+        }
+        (Role::InferredImplementationTypeParameter, Some(ordinal)) => {
+            DiagnosticInterfaceSynthesizedIdentity::InferredImplementationTypeParameter(
+                ordinal.raw(),
+            )
+        }
+        (Role::InferredImplementationConstParameter, Some(ordinal)) => {
+            DiagnosticInterfaceSynthesizedIdentity::InferredImplementationConstParameter(
+                ordinal.raw(),
+            )
+        }
+        (Role::CallableParameterDefaultProvider, None) => {
+            DiagnosticInterfaceSynthesizedIdentity::CallableParameterDefaultProvider
+        }
+        (Role::StructFieldDefaultProvider, None) => {
+            DiagnosticInterfaceSynthesizedIdentity::StructFieldDefaultProvider
+        }
+        (Role::UnionPayloadDefaultProvider, None) => {
+            DiagnosticInterfaceSynthesizedIdentity::UnionPayloadDefaultProvider
+        }
+        _ => unreachable!("symbol keys enforce synthesized-role ordinal shape"),
+    }
+}
+
+fn interface_symbol_reference(
+    reference: InterfaceSymbolReference,
+) -> DiagnosticInterfaceSymbolReference {
+    match reference {
+        InterfaceSymbolReference::Local(symbol) => {
+            DiagnosticInterfaceSymbolReference::Local(symbol.raw())
+        }
+        InterfaceSymbolReference::Dependency { dependency, key } => {
+            DiagnosticInterfaceSymbolReference::Dependency {
+                dependency: dependency.raw(),
+                identity: external_symbol_identity(&key),
+            }
+        }
+        InterfaceSymbolReference::CompilerKnown(reference) => {
+            DiagnosticInterfaceSymbolReference::CompilerKnown(symbol_identity(reference.key()))
+        }
+    }
+}
+
+fn semantic_content_problem(error: SemanticValueStoreError) -> DiagnosticSemanticContentProblem {
+    match error {
+        SemanticValueStoreError::ForeignId { expected, actual } => {
+            DiagnosticSemanticContentProblem::ForeignId {
+                expected: expected.raw(),
+                actual: actual.raw(),
+            }
+        }
+        SemanticValueStoreError::UnknownId { kind } => DiagnosticSemanticContentProblem::UnknownId {
+            value_kind: diagnostic_semantic_value_kind(kind),
+        },
+        SemanticValueStoreError::CapacityExhausted { kind } => {
+            DiagnosticSemanticContentProblem::CapacityExhausted {
+                value_kind: diagnostic_semantic_value_kind(kind),
+            }
+        }
+        SemanticValueStoreError::GenericOwnerMismatch { expected, actual } => {
+            DiagnosticSemanticContentProblem::GenericOwnerMismatch {
+                expected: expected.symbol().symbol_id().raw(),
+                actual: actual.symbol().symbol_id().raw(),
+            }
+        }
+        SemanticValueStoreError::OpenSubstitution => {
+            DiagnosticSemanticContentProblem::OpenSubstitution
+        }
+    }
+}
+
+fn diagnostic_relationship_kind(
+    kind: bray_symbols::SymbolRelationshipKind,
+) -> DiagnosticInterfaceRelationshipKind {
+    use DiagnosticInterfaceRelationshipKind as Diagnostic;
+    use bray_symbols::SymbolRelationshipKind as Relationship;
+
+    match kind {
+        Relationship::PackageModule => Diagnostic::PackageModule,
+        Relationship::ModuleMember => Diagnostic::ModuleMember,
+        Relationship::TypeMember => Diagnostic::TypeMember,
+        Relationship::TraitMember => Diagnostic::TraitMember,
+        Relationship::ImplementationMember => Diagnostic::ImplementationMember,
+        Relationship::StructField => Diagnostic::StructField,
+        Relationship::UnionVariant => Diagnostic::UnionVariant,
+        Relationship::UnionPayloadField => Diagnostic::UnionPayloadField,
+        Relationship::GenericParameter => Diagnostic::GenericParameter,
+        Relationship::CallableParameter => Diagnostic::CallableParameter,
+        Relationship::PredicateParameter => Diagnostic::PredicateParameter,
+        Relationship::OverloadArm => Diagnostic::OverloadArm,
+        Relationship::ImplementationFulfillment => Diagnostic::ImplementationFulfillment,
+        Relationship::DefaultProvider => Diagnostic::DefaultProvider,
+    }
+}
+
+fn diagnostic_semantic_value_kind(kind: SemanticValueKind) -> DiagnosticSemanticValueKind {
+    match kind {
+        SemanticValueKind::Type => DiagnosticSemanticValueKind::Type,
+        SemanticValueKind::ConstantValue => DiagnosticSemanticValueKind::ConstantValue,
+        SemanticValueKind::ConstantTerm => DiagnosticSemanticValueKind::ConstantTerm,
+        SemanticValueKind::GenericSubstitution => DiagnosticSemanticValueKind::GenericSubstitution,
+        SemanticValueKind::TraitApplication => DiagnosticSemanticValueKind::TraitApplication,
+        SemanticValueKind::CallableInstance => DiagnosticSemanticValueKind::CallableInstance,
+        SemanticValueKind::ImplementationInstance => {
+            DiagnosticSemanticValueKind::ImplementationInstance
+        }
+        SemanticValueKind::DependencyContractTemplate => {
+            DiagnosticSemanticValueKind::DependencyContractTemplate
+        }
+    }
+}
+
+fn checked_template_problem(
+    error: bray_bound_tree::CheckedTemplateBuildError,
+) -> DiagnosticCheckedTemplateProblem {
+    use bray_bound_tree::CheckedTemplateBuildError as Error;
+
+    match error {
+        Error::CapacityExceeded => DiagnosticCheckedTemplateProblem::CapacityExceeded,
+        Error::RecoveredTemplate => DiagnosticCheckedTemplateProblem::RecoveredTemplate,
+        Error::MissingInput(input) => DiagnosticCheckedTemplateProblem::MissingInput(input.raw()),
+        Error::DuplicateInput { first, duplicate } => {
+            DiagnosticCheckedTemplateProblem::DuplicateInput {
+                first: first.raw(),
+                duplicate: duplicate.raw(),
+            }
+        }
+        Error::InputTypeMismatch {
+            node,
+            input,
+            expected,
+            actual,
+        } => DiagnosticCheckedTemplateProblem::InputTypeMismatch {
+            node: node.raw(),
+            input: input.raw(),
+            expected_type: expected.slot(),
+            actual_type: actual.slot(),
+        },
+        Error::MissingNode(node) => DiagnosticCheckedTemplateProblem::MissingNode(node.raw()),
+        Error::ForwardNodeReference { node, referenced } => {
+            DiagnosticCheckedTemplateProblem::ForwardNodeReference {
+                node: node.raw(),
+                referenced: referenced.raw(),
+            }
+        }
+        Error::MissingTemporary(temporary) => {
+            DiagnosticCheckedTemplateProblem::MissingTemporary(temporary.raw())
+        }
+        Error::UninitializedTemporary { node, temporary } => {
+            DiagnosticCheckedTemplateProblem::UninitializedTemporary {
+                node: node.raw(),
+                temporary: temporary.raw(),
+            }
+        }
+        Error::TemporaryInitializerTypeMismatch {
+            initializer,
+            expected,
+            actual,
+        } => DiagnosticCheckedTemplateProblem::TemporaryInitializerTypeMismatch {
+            initializer: initializer.raw(),
+            expected_type: expected.slot(),
+            actual_type: actual.slot(),
+        },
+        Error::TemporaryTypeMismatch {
+            node,
+            temporary,
+            expected,
+            actual,
+        } => DiagnosticCheckedTemplateProblem::TemporaryTypeMismatch {
+            node: node.raw(),
+            temporary: temporary.raw(),
+            expected_type: expected.slot(),
+            actual_type: actual.slot(),
+        },
+        Error::ConversionTypeMismatch {
+            node,
+            expected,
+            actual,
+        } => DiagnosticCheckedTemplateProblem::ConversionTypeMismatch {
+            node: node.raw(),
+            expected_type: expected.slot(),
+            actual_type: actual.slot(),
+        },
+        Error::ConditionalBranchTypeMismatch {
+            node,
+            when_true,
+            when_false,
+        } => DiagnosticCheckedTemplateProblem::ConditionalBranchTypeMismatch {
+            node: node.raw(),
+            when_true_type: when_true.slot(),
+            when_false_type: when_false.slot(),
+        },
+        Error::ConditionalResultTypeMismatch {
+            node,
+            expected,
+            actual,
+        } => DiagnosticCheckedTemplateProblem::ConditionalResultTypeMismatch {
+            node: node.raw(),
+            expected_type: expected.slot(),
+            actual_type: actual.slot(),
+        },
+        Error::ShortCircuitOperandTypeMismatch { node, left, right } => {
+            DiagnosticCheckedTemplateProblem::ShortCircuitOperandTypeMismatch {
+                node: node.raw(),
+                left_type: left.slot(),
+                right_type: right.slot(),
+            }
+        }
+        Error::ShortCircuitResultTypeMismatch {
+            node,
+            expected,
+            actual,
+        } => DiagnosticCheckedTemplateProblem::ShortCircuitResultTypeMismatch {
+            node: node.raw(),
+            expected_type: expected.slot(),
+            actual_type: actual.slot(),
+        },
+        Error::ArrayElementTypeMismatch {
+            node,
+            element,
+            expected,
+            actual,
+        } => DiagnosticCheckedTemplateProblem::ArrayElementTypeMismatch {
+            node: node.raw(),
+            element: element.raw(),
+            expected_type: expected.slot(),
+            actual_type: actual.slot(),
+        },
+    }
+}
+
+fn semantic_content_diagnostics(
+    error: InterfaceSemanticInternError,
+    input: &DependencyInterfaceInput,
+) -> DiagnosticBag {
+    let (kind, problem) = match error {
+        InterfaceSemanticInternError::UnresolvedSymbol(reference) => (
+            DiagnosticKind::InterfaceSemanticSymbolUnresolved,
+            DiagnosticInterfaceSemanticProblem::UnresolvedSymbol(interface_symbol_reference(
+                reference,
+            )),
+        ),
+        InterfaceSemanticInternError::InvalidSymbolKind(reference) => (
+            DiagnosticKind::InterfaceSemanticSymbolKindInvalid,
+            DiagnosticInterfaceSemanticProblem::InvalidSymbolKind(interface_symbol_reference(
+                reference,
+            )),
+        ),
+        InterfaceSemanticInternError::UnresolvedValueGraph => (
+            DiagnosticKind::InterfaceSemanticValueGraphInvalid,
+            DiagnosticInterfaceSemanticProblem::UnresolvedValueGraph,
+        ),
+        InterfaceSemanticInternError::SemanticStore(error) => (
+            DiagnosticKind::InterfaceSemanticValueInvalid,
+            DiagnosticInterfaceSemanticProblem::SemanticContent(semantic_content_problem(error)),
+        ),
+        InterfaceSemanticInternError::InvalidTemplate(error) => (
+            DiagnosticKind::InterfaceExecutableTemplateInvalid,
+            DiagnosticInterfaceSemanticProblem::InvalidTemplate(checked_template_problem(error)),
+        ),
+        InterfaceSemanticInternError::InvalidSupportEntity(entity) => (
+            DiagnosticKind::InterfaceSupportEntityInvalid,
+            DiagnosticInterfaceSemanticProblem::InvalidSupportEntity(entity.raw()),
+        ),
+    };
+
+    contextual_interface_diagnostic(
+        Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+            .with_arg(DiagnosticArg::interface_semantic_problem(problem)),
+        input,
+    )
 }
 
 #[cfg(test)]
@@ -580,19 +1331,30 @@ mod tests {
     use std::sync::Arc;
 
     use bray_bound_tree::CheckedTemplateKind;
-    use bray_diagnostics::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticKind};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticInterfaceLimit,
+        DiagnosticKind,
+    };
     use bray_package_interface::{
-        ImportedSemanticFact, InterfaceLanguageRevision, InterfacePredicateDefinitionState,
-        InterfaceProductIdentity, InterfaceSemanticFactKind, InterfaceValidationPolicy,
+        DependencyInterfaceId, ImportedSemanticFact, ImportedSymbolConstructionError,
+        InterfaceContentHash, InterfaceLanguageRevision, InterfacePredicateDefinitionState,
+        InterfaceProductIdentity, InterfaceSemanticFactKind, InterfaceSemanticInternError,
+        InterfaceSymbolReference, InterfaceValidationPolicy,
         test_support::encoded_semantic_test_interface,
     };
-    use bray_source::{SourceIdentity, SourceInput, SourceVersion};
+    use bray_source::{
+        SourceId, SourceIdentity, SourceInput, SourceSpan, SourceVersion, TextSize,
+    };
     use bray_standard_library::{
         STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactKind,
         StandardLibraryBundleManifest, StandardLibraryRoot, StandardLibraryTargetArtifacts,
         encode_standard_library_manifest, standard_library_target_artifact_directory,
     };
-    use bray_symbols::PackageIdentity;
+    use bray_symbols::{
+        ExternalSymbolKey, ImportedInterfaceId, ImportedSymbolSkeletonBuildError,
+        InterfaceSupportEntityId, InterfaceSymbolId, PackageIdentity, SemanticValueKind,
+        SemanticValueStoreError, SymbolId, SymbolKey, SymbolKind,
+    };
     use bray_target::TargetIdentity;
 
     use crate::test_support::diagnostic_kinds;
@@ -600,8 +1362,6 @@ mod tests {
         CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput,
         FactQueryError, ImportedSemanticFactKey,
     };
-
-    use super::{dependency_graph_diagnostics, semantic_facts_diagnostics};
 
     #[test]
     fn dependency_interface_validation_is_lazy_cached_and_diagnostic_backed() {
@@ -632,6 +1392,8 @@ mod tests {
             diagnostic_kinds(first.diagnostics()),
             [DiagnosticKind::InterfaceInvalidMagic]
         );
+
+        bray_testing::assert_goal_state_diagnostics(first.diagnostics());
 
         let skeleton = compilation
             .imported_symbol_skeleton_result()
@@ -720,7 +1482,24 @@ mod tests {
             panic!("malformed manifest must produce one diagnostic");
         };
 
-        assert!(malformed_diagnostic.args().is_empty());
+        assert_eq!(
+            malformed_diagnostic.args(),
+            [
+                DiagnosticArg::file_path(
+                    malformed_directory
+                        .path()
+                        .join(STANDARD_LIBRARY_MANIFEST_FILE_NAME),
+                ),
+                DiagnosticArg::standard_library_manifest_problem(
+                    bray_diagnostics::DiagnosticStandardLibraryManifestProblem::Malformed,
+                ),
+            ]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            malformed_result.diagnostics(),
+            DiagnosticKind::StandardLibraryManifestInvalid,
+        );
 
         let unavailable_directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
@@ -755,8 +1534,10 @@ mod tests {
 
         assert_eq!(
             unavailable_diagnostic.args(),
-            [DiagnosticArg::referenced_name(selected_target_name)]
+            [DiagnosticArg::target_triple(selected_target_name)]
         );
+
+        bray_testing::assert_goal_state_diagnostic(unavailable_diagnostic);
 
         let mismatch_directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
@@ -798,6 +1579,8 @@ mod tests {
                 DiagnosticArgName::ActualArtifactDigest,
             ]
         );
+
+        bray_testing::assert_goal_state_diagnostic(mismatch_diagnostic);
     }
 
     #[test]
@@ -835,56 +1618,64 @@ mod tests {
     fn dependency_interface_identity_mismatches_publish_exact_diagnostics() {
         let fixture = encoded_semantic_test_interface();
 
-        let cases = [
-            (
-                package("example.other"),
-                fixture.product.clone(),
-                DiagnosticKind::InterfacePackageIdentityMismatch,
-            ),
-            (
-                fixture.package.clone(),
-                product("other"),
-                DiagnosticKind::InterfaceProductIdentityMismatch,
-            ),
-        ];
+        let expected_package = package("example.other");
 
-        for (expected_package, expected_product, expected_kind) in cases {
-            let dependency = DependencyInterfaceInput::new(
-                expected_package.clone(),
-                expected_product.clone(),
-                "identity-mismatch.brayi",
-                Arc::<[u8]>::from(fixture.bytes.clone()),
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-            );
-
-            let compilation = compilation([dependency]);
-
-            let interface = compilation
-                .dependency_interface_id(&expected_package, &expected_product)
-                .unwrap_or_else(|| panic!("test dependency interface must have an ID"));
-
-            let result = compilation
-                .dependency_interface_result(interface)
-                .unwrap_or_else(|| panic!("selected dependency interface must have a result"));
-
-            assert_eq!(diagnostic_kinds(result.diagnostics()), [expected_kind]);
-        }
-    }
-
-    #[test]
-    fn imported_graph_and_semantic_failures_publish_exact_diagnostics() {
-        let compilation = compilation([]);
-
-        assert_eq!(
-            diagnostic_kinds(&dependency_graph_diagnostics(&compilation)),
-            [DiagnosticKind::InterfaceDependencyGraphInvalid]
+        let package_dependency = DependencyInterfaceInput::new(
+            expected_package.clone(),
+            fixture.product.clone(),
+            "package-identity-mismatch.brayi",
+            Arc::<[u8]>::from(fixture.bytes.clone()),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         );
 
-        let dependency = dependency("example.alpha", "main");
+        let package_compilation = compilation([package_dependency]);
+
+        let package_interface = package_compilation
+            .dependency_interface_id(&expected_package, &fixture.product)
+            .unwrap_or_else(|| panic!("test dependency interface must have an ID"));
+
+        let package_result = package_compilation
+            .dependency_interface_result(package_interface)
+            .unwrap_or_else(|| panic!("selected dependency interface must have a result"));
 
         assert_eq!(
-            diagnostic_kinds(&semantic_facts_diagnostics(&dependency)),
-            [DiagnosticKind::InterfaceSemanticFactsInvalid]
+            diagnostic_kinds(package_result.diagnostics()),
+            [DiagnosticKind::InterfacePackageIdentityMismatch]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            package_result.diagnostics(),
+            DiagnosticKind::InterfacePackageIdentityMismatch,
+        );
+
+        let expected_product = product("other");
+
+        let product_dependency = DependencyInterfaceInput::new(
+            fixture.package.clone(),
+            expected_product.clone(),
+            "product-identity-mismatch.brayi",
+            Arc::<[u8]>::from(fixture.bytes),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        );
+
+        let product_compilation = compilation([product_dependency]);
+
+        let product_interface = product_compilation
+            .dependency_interface_id(&fixture.package, &expected_product)
+            .unwrap_or_else(|| panic!("test dependency interface must have an ID"));
+
+        let product_result = product_compilation
+            .dependency_interface_result(product_interface)
+            .unwrap_or_else(|| panic!("selected dependency interface must have a result"));
+
+        assert_eq!(
+            diagnostic_kinds(product_result.diagnostics()),
+            [DiagnosticKind::InterfaceProductIdentityMismatch]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            product_result.diagnostics(),
+            DiagnosticKind::InterfaceProductIdentityMismatch,
         );
     }
 
@@ -1194,6 +1985,301 @@ mod tests {
         assert_eq!(
             compilation.state.imported_semantic_facts.is_published(&key),
             Ok(false)
+        );
+    }
+
+    #[test]
+    fn compiler_identity_capacity_diagnostics_preserve_owner_category_and_bounds() {
+        let compilation = compilation([]);
+
+        let interface_capacity = super::dependency_graph_capacity_diagnostics(
+            &compilation,
+            DiagnosticInterfaceLimit::LoadedInterfaceCount,
+            ImportedInterfaceId::CAPACITY + 1,
+            ImportedInterfaceId::CAPACITY,
+        );
+
+        let [interface_diagnostic] = interface_capacity.diagnostics() else {
+            panic!("interface capacity must produce one diagnostic");
+        };
+
+        assert_eq!(
+            interface_diagnostic.args(),
+            [
+                DiagnosticArg::actual_package_identity("example.current"),
+                DiagnosticArg::interface_limit(DiagnosticInterfaceLimit::LoadedInterfaceCount),
+                DiagnosticArg::actual_count(ImportedInterfaceId::CAPACITY + 1),
+                DiagnosticArg::maximum_count(ImportedInterfaceId::CAPACITY),
+            ]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &interface_capacity,
+            DiagnosticKind::InterfaceSymbolCapacityExceeded,
+        );
+
+        let symbol_capacity = super::dependency_graph_capacity_diagnostics(
+            &compilation,
+            DiagnosticInterfaceLimit::CompilationSymbolCount,
+            SymbolId::CAPACITY + 7,
+            SymbolId::CAPACITY,
+        );
+
+        let [symbol_diagnostic] = symbol_capacity.diagnostics() else {
+            panic!("symbol capacity must produce one diagnostic");
+        };
+
+        assert_eq!(
+            symbol_diagnostic.args(),
+            [
+                DiagnosticArg::actual_package_identity("example.current"),
+                DiagnosticArg::interface_limit(
+                    DiagnosticInterfaceLimit::CompilationSymbolCount,
+                ),
+                DiagnosticArg::actual_count(SymbolId::CAPACITY + 7),
+                DiagnosticArg::maximum_count(SymbolId::CAPACITY),
+            ]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &symbol_capacity,
+            DiagnosticKind::InterfaceSymbolCapacityExceeded,
+        );
+    }
+
+    #[test]
+    fn imported_symbol_construction_failures_preserve_owners_and_exact_causes() {
+        let alpha = dependency("example.alpha", "main").with_dependency_span(SourceSpan::empty(
+            SourceId::new(1),
+            TextSize::new(1),
+        ));
+
+        let beta = dependency("example.beta", "main").with_dependency_span(SourceSpan::empty(
+            SourceId::new(1),
+            TextSize::new(2),
+        ));
+
+        let compilation = compilation([alpha, beta]);
+        let first = ImportedInterfaceId::new(0);
+        let duplicate = ImportedInterfaceId::new(1);
+
+        let duplicate_package = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::DuplicatePackage {
+                package: package("example.shared"),
+                first,
+                duplicate,
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &duplicate_package,
+            DiagnosticKind::InterfaceDuplicatePackage,
+        );
+
+        assert_eq!(duplicate_package.diagnostics()[0].related_locations().len(), 1);
+
+        let missing_dependency = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::MissingDependency {
+                importing: first,
+                package: package("example.missing"),
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &missing_dependency,
+            DiagnosticKind::InterfaceMissingDependency,
+        );
+
+        let product_mismatch = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::DependencyProductMismatch {
+                package: package("example.beta"),
+                importing: first,
+                expected: product("library"),
+                actual: product("main"),
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &product_mismatch,
+            DiagnosticKind::InterfaceDependencyProductMismatch,
+        );
+
+        let content_mismatch = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::DependencyContentMismatch {
+                package: package("example.beta"),
+                importing: first,
+                expected: InterfaceContentHash::from_bytes([1; 32]),
+                actual: InterfaceContentHash::from_bytes([2; 32]),
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &content_mismatch,
+            DiagnosticKind::InterfaceDependencyContentMismatch,
+        );
+
+        let symbol_reference = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::SymbolOutOfBounds {
+                interface: first,
+                symbol: InterfaceSymbolId::new(27),
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &symbol_reference,
+            DiagnosticKind::InterfaceSymbolReferenceInvalid,
+        );
+
+        let dependency_reference = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::DependencyOutOfBounds {
+                interface: first,
+                dependency: DependencyInterfaceId::new(8),
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &dependency_reference,
+            DiagnosticKind::InterfaceDependencyReferenceInvalid,
+        );
+
+        let external = ExternalSymbolKey::package(package("example.missing"));
+
+        let missing_symbol = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::MissingDependencySymbol {
+                importing: first,
+                package: package("example.missing"),
+                key: external.clone(),
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &missing_symbol,
+            DiagnosticKind::InterfaceDependencySymbolMissing,
+        );
+
+        let compiler_key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
+            "CompilerProvidedFunction",
+        )
+        .unwrap_or_else(|| panic!("test compiler-known key must be valid"));
+
+        let compiler_symbol = SymbolKey::compiler_known_declaration(
+            compiler_key,
+            SymbolKind::Function,
+        )
+        .unwrap_or_else(|| panic!("test compiler-known function key must be valid"));
+
+        let compiler_export = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::CompilerKnownExportTarget {
+                importing: first,
+                key: compiler_symbol,
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &compiler_export,
+            DiagnosticKind::InterfaceCompilerDeclarationExported,
+        );
+
+        let invalid_graph = super::dependency_graph_diagnostics(
+            &compilation,
+            ImportedSymbolConstructionError::Symbols(
+                ImportedSymbolSkeletonBuildError::DuplicateExternalKey {
+                    key: external,
+                    first,
+                    duplicate,
+                },
+            ),
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_graph,
+            DiagnosticKind::InterfaceSymbolGraphInvalid,
+        );
+
+        assert_eq!(invalid_graph.diagnostics()[0].related_locations().len(), 1);
+    }
+
+    #[test]
+    fn imported_semantic_failures_preserve_artifact_owner_and_nested_cause() {
+        let input = dependency("example.alpha", "main").with_dependency_span(SourceSpan::empty(
+            SourceId::new(1),
+            TextSize::new(3),
+        ));
+
+        let unresolved = super::semantic_content_diagnostics(
+            InterfaceSemanticInternError::UnresolvedSymbol(InterfaceSymbolReference::Local(
+                InterfaceSymbolId::new(7),
+            )),
+            &input,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &unresolved,
+            DiagnosticKind::InterfaceSemanticSymbolUnresolved,
+        );
+
+        let invalid_kind = super::semantic_content_diagnostics(
+            InterfaceSemanticInternError::InvalidSymbolKind(InterfaceSymbolReference::Local(
+                InterfaceSymbolId::new(8),
+            )),
+            &input,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_kind,
+            DiagnosticKind::InterfaceSemanticSymbolKindInvalid,
+        );
+
+        let value_graph = super::semantic_content_diagnostics(
+            InterfaceSemanticInternError::UnresolvedValueGraph,
+            &input,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &value_graph,
+            DiagnosticKind::InterfaceSemanticValueGraphInvalid,
+        );
+
+        let semantic_value = super::semantic_content_diagnostics(
+            InterfaceSemanticInternError::SemanticStore(SemanticValueStoreError::UnknownId {
+                kind: SemanticValueKind::Type,
+            }),
+            &input,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &semantic_value,
+            DiagnosticKind::InterfaceSemanticValueInvalid,
+        );
+
+        let template = super::semantic_content_diagnostics(
+            InterfaceSemanticInternError::InvalidTemplate(
+                bray_bound_tree::CheckedTemplateBuildError::CapacityExceeded,
+            ),
+            &input,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &template,
+            DiagnosticKind::InterfaceExecutableTemplateInvalid,
+        );
+
+        let support = super::semantic_content_diagnostics(
+            InterfaceSemanticInternError::InvalidSupportEntity(InterfaceSupportEntityId::new(5)),
+            &input,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &support,
+            DiagnosticKind::InterfaceSupportEntityInvalid,
         );
     }
 

@@ -18,7 +18,12 @@ pub enum ConstantLiteralError {
     /// The normalized value is outside the selected representation's range.
     NotRepresentable,
     /// The source literal exceeds the deterministic literal-size ceiling.
-    SizeLimitExceeded,
+    SizeLimitExceeded {
+        /// Literal bytes that would be retained.
+        actual: u64,
+        /// Maximum accepted literal bytes.
+        maximum: u64,
+    },
 }
 
 pub(crate) const fn literal_diagnostic_kind(error: ConstantLiteralError) -> DiagnosticKind {
@@ -27,13 +32,20 @@ pub(crate) const fn literal_diagnostic_kind(error: ConstantLiteralError) -> Diag
         ConstantLiteralError::NotRepresentable => {
             DiagnosticKind::CheckingConstantLiteralNotRepresentable
         }
-        ConstantLiteralError::SizeLimitExceeded => {
+        ConstantLiteralError::SizeLimitExceeded { .. } => {
             DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded
         }
     }
 }
 
 const MAX_INTEGER_LITERAL_BYTES: usize = 4 * 1024;
+
+fn literal_size_error(actual: usize) -> ConstantLiteralError {
+    ConstantLiteralError::SizeLimitExceeded {
+        actual: u64::try_from(actual).unwrap_or(u64::MAX),
+        maximum: u64::try_from(MAX_INTEGER_LITERAL_BYTES).unwrap_or(u64::MAX),
+    }
+}
 
 /// Checks and normalizes one source literal for an exact selected representation.
 pub fn check_constant_literal(
@@ -58,7 +70,7 @@ pub(crate) fn check_negated_integer_operand_literal(
     target_integer_width_bits: impl FnOnce() -> NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantLiteralError> {
     if text.len() > MAX_INTEGER_LITERAL_BYTES {
-        return Err(ConstantLiteralError::SizeLimitExceeded);
+        return Err(literal_size_error(text.len()));
     }
 
     let Some(integer_representation) = representation.integer_representation() else {
@@ -93,7 +105,7 @@ pub(super) fn parse_literal(
 /// Normalizes an integer literal without assuming a target-selected integer width.
 pub fn normalize_integer_literal(text: &str) -> Result<IntegerConstant, ConstantLiteralError> {
     if text.len() > MAX_INTEGER_LITERAL_BYTES {
-        return Err(ConstantLiteralError::SizeLimitExceeded);
+        return Err(literal_size_error(text.len()));
     }
 
     let (radix, digits) = integer_digits(text)?;
@@ -109,7 +121,7 @@ fn parse_integer(
     target_integer_width_bits: impl FnOnce() -> NonZeroU16,
 ) -> Result<ConstantValueKind, ConstantLiteralError> {
     if text.len() > MAX_INTEGER_LITERAL_BYTES {
-        return Err(ConstantLiteralError::SizeLimitExceeded);
+        return Err(literal_size_error(text.len()));
     }
 
     let Some(integer_representation) = representation.integer_representation() else {
@@ -514,7 +526,10 @@ mod tests {
                 RepresentationRole::ScalarI128,
                 || width64,
             ),
-            Err(ConstantLiteralError::SizeLimitExceeded)
+            Err(ConstantLiteralError::SizeLimitExceeded {
+                actual: 4_097,
+                maximum: 4_096,
+            })
         );
     }
 

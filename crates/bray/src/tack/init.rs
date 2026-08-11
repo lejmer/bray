@@ -343,6 +343,11 @@ mod tests {
             1
         );
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::ProjectInitializationPathConflict,
+        );
+
         assert_eq!(
             std::fs::read_to_string(entrypoint)
                 .unwrap_or_else(|error| panic!("test source should be readable: {error:?}")),
@@ -375,6 +380,11 @@ mod tests {
             )]
         );
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::ProjectInitializationIdentityInvalid,
+        );
+
         assert!(!workspace.exists());
     }
 
@@ -398,6 +408,12 @@ mod tests {
         );
 
         assert!(diagnostic.args().is_empty());
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::ProjectInitializationTargetUnsupported,
+        );
+
         assert!(!workspace.exists());
     }
 
@@ -438,6 +454,11 @@ mod tests {
                 .map(|argument| argument.name())
                 .collect::<Vec<_>>(),
             [DiagnosticArgName::FilePath, DiagnosticArgName::IoErrorKind]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::ProjectInitializationWriteFailed,
         );
 
         let _ = std::fs::remove_dir_all(parent);

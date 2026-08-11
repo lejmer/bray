@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use bray_platform::{NativeProcessCommand, NativeStdio};
+use bray_platform::{NativeChildProcess, NativeProcessCommand, NativeStdio, PlatformError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Tool {
@@ -115,31 +115,57 @@ impl ToolOutput {
 }
 
 pub(crate) trait ToolExecutor {
-    fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()>;
+    fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError>;
 
     fn serve(
         &self,
         request: ToolRequest,
         input: Box<dyn Read + Send>,
         output: &mut dyn Write,
-    ) -> Result<ToolOutput, ()>;
+    ) -> Result<ToolOutput, ToolExecutionError>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ToolStream {
+    StandardInput,
+    StandardOutput,
+    StandardError,
+}
+
+#[derive(Debug)]
+pub(crate) enum ToolExecutionError {
+    Platform {
+        program: PathBuf,
+        error: PlatformError,
+    },
+    MissingStream(ToolStream),
+    StreamIo {
+        stream: ToolStream,
+        error: std::io::ErrorKind,
+    },
+    InvalidUtf8(ToolStream),
+    StreamThreadPanicked(ToolStream),
 }
 
 pub(crate) struct NativeToolExecutor;
 
 impl ToolExecutor for NativeToolExecutor {
-    fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()> {
-        let command = native_command(&request)?;
+    fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
+        let (command, program) = native_command(&request)?;
 
-        let output = command.capture(request.input).map_err(|_| ())?;
+        let output = command
+            .capture(request.input)
+            .map_err(|error| ToolExecutionError::Platform { program, error })?;
 
         let (status, stdout, stderr) = output.into_parts();
 
-        Ok(ToolOutput::new(
-            status.success(),
-            String::from_utf8_lossy(&stdout).into_owned(),
-            String::from_utf8_lossy(&stderr).into_owned(),
-        ))
+        let stdout = String::from_utf8(stdout)
+            .map_err(|_| ToolExecutionError::InvalidUtf8(ToolStream::StandardOutput))?;
+
+        let stderr = String::from_utf8(stderr)
+            .map_err(|_| ToolExecutionError::InvalidUtf8(ToolStream::StandardError))?;
+
+        Ok(ToolOutput::new(status.success(), stdout, stderr))
     }
 
     fn serve(
@@ -147,20 +173,43 @@ impl ToolExecutor for NativeToolExecutor {
         request: ToolRequest,
         input: Box<dyn Read + Send>,
         output: &mut dyn Write,
-    ) -> Result<ToolOutput, ()> {
-        let mut command = native_command(&request)?;
+    ) -> Result<ToolOutput, ToolExecutionError> {
+        let (mut command, program) = native_command(&request)?;
 
         command
             .stdin(NativeStdio::Piped)
             .stdout(NativeStdio::Piped)
             .stderr(NativeStdio::Piped);
 
-        let mut child = command.spawn().map_err(|_| ())?;
-        let mut child_input = child.take_stdin().ok_or(())?;
-        let mut child_output = child.take_stdout().ok_or(())?;
-        let mut child_error = child.take_stderr().ok_or(())?;
+        let mut child = command
+            .spawn()
+            .map_err(|error| ToolExecutionError::Platform {
+                program: program.clone(),
+                error,
+            })?;
 
-        // Detach this pump because the editor may keep its input open after the server exits.
+        let Some(mut child_input) = child.take_stdin() else {
+            cleanup_child(&mut child);
+
+            return Err(ToolExecutionError::MissingStream(ToolStream::StandardInput));
+        };
+
+        let Some(mut child_output) = child.take_stdout() else {
+            cleanup_child(&mut child);
+
+            return Err(ToolExecutionError::MissingStream(
+                ToolStream::StandardOutput,
+            ));
+        };
+
+        let Some(mut child_error) = child.take_stderr() else {
+            cleanup_child(&mut child);
+
+            return Err(ToolExecutionError::MissingStream(ToolStream::StandardError));
+        };
+
+        // The editor can keep input open after the server exits, so the child owns this detached
+        // pump and its eventual I/O result cannot delay server completion.
         let _input_thread = std::thread::spawn(move || {
             let mut input = input;
 
@@ -173,29 +222,46 @@ impl ToolExecutor for NativeToolExecutor {
             child_error.read_to_end(&mut bytes).map(|_| bytes)
         });
 
-        if std::io::copy(&mut child_output, output).is_err() {
+        if let Err(error) = std::io::copy(&mut child_output, output) {
             let _ = child.terminate();
             let _ = child.wait();
             let _ = error_thread.join();
 
-            return Err(());
+            return Err(ToolExecutionError::StreamIo {
+                stream: ToolStream::StandardOutput,
+                error: error.kind(),
+            });
         }
 
-        let status = child.wait().map_err(|_| ())?;
+        let status = child
+            .wait()
+            .map_err(|error| ToolExecutionError::Platform { program, error })?;
 
-        let stderr = error_thread.join().map_err(|_| ())?.map_err(|_| ())?;
+        let stderr = error_thread
+            .join()
+            .map_err(|_| ToolExecutionError::StreamThreadPanicked(ToolStream::StandardError))?
+            .map_err(|error| ToolExecutionError::StreamIo {
+                stream: ToolStream::StandardError,
+                error: error.kind(),
+            })?;
 
-        Ok(ToolOutput::new(
-            status.success(),
-            String::new(),
-            String::from_utf8_lossy(&stderr).into_owned(),
-        ))
+        let stderr = String::from_utf8(stderr)
+            .map_err(|_| ToolExecutionError::InvalidUtf8(ToolStream::StandardError))?;
+
+        Ok(ToolOutput::new(status.success(), String::new(), stderr))
     }
 }
 
-fn native_command(request: &ToolRequest) -> Result<NativeProcessCommand, ()> {
+fn native_command(
+    request: &ToolRequest,
+) -> Result<(NativeProcessCommand, PathBuf), ToolExecutionError> {
     let program = tool_path(request.tool);
-    let mut command = NativeProcessCommand::new(&program).map_err(|_| ())?;
+
+    let mut command =
+        NativeProcessCommand::new(&program).map_err(|error| ToolExecutionError::Platform {
+            program: PathBuf::from(&program),
+            error,
+        })?;
 
     command.current_dir(&request.working_directory);
 
@@ -203,7 +269,12 @@ fn native_command(request: &ToolRequest) -> Result<NativeProcessCommand, ()> {
         command.arg(argument);
     }
 
-    Ok(command)
+    Ok((command, PathBuf::from(program)))
+}
+
+fn cleanup_child(child: &mut NativeChildProcess) {
+    let _ = child.terminate();
+    let _ = child.wait();
 }
 
 fn tool_path(tool: Tool) -> OsString {

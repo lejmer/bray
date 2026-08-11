@@ -2,15 +2,24 @@ use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
     BoundStructuredExpressionKind, CheckedExpressionTypes, SelectedIterationSource,
 };
-use bray_symbols::TypeData;
+use bray_diagnostics::{
+    DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength, DiagnosticType,
+    DiagnosticYieldCardinality,
+};
+use bray_symbols::{ConstantTermData, ConstantTermId, ConstantValueKind, TypeData};
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+
+pub(super) struct UnprovenArrayGenerator {
+    pub(super) expression: BoundExpressionId,
+    pub(super) problem: DiagnosticArrayGeneratorCardinalityProblem,
+}
 
 pub(super) fn unproven_array_generators<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     iteration_sources: &[SelectedIterationSource],
-) -> Result<Vec<BoundExpressionId>, CheckerInfrastructureError>
+) -> Result<Vec<UnprovenArrayGenerator>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -35,22 +44,30 @@ where
             continue;
         }
 
-        if !array_generator_is_proven(request, types, iteration_sources, expression_id, expression)?
-        {
-            unproven.push(expression_id);
+        if let Some(problem) = array_generator_problem(
+            request,
+            types,
+            iteration_sources,
+            expression_id,
+            expression,
+        )? {
+            unproven.push(UnprovenArrayGenerator {
+                expression: expression_id,
+                problem,
+            });
         }
     }
 
     Ok(unproven)
 }
 
-fn array_generator_is_proven<C>(
+fn array_generator_problem<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     iteration_sources: &[SelectedIterationSource],
     expression_id: BoundExpressionId,
     expression: &bray_bound_tree::BoundStructuredExpression,
-) -> Result<bool, CheckerInfrastructureError>
+) -> Result<Option<DiagnosticArrayGeneratorCardinalityProblem>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -58,7 +75,7 @@ where
         .expression(expression_id)
         .filter(|result| !result.is_recovered())
     else {
-        return Ok(false);
+        return Ok(None);
     };
 
     let result_data = request
@@ -67,41 +84,120 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     let TypeData::Array {
+        element,
         length: result_length,
-        ..
     } = result_data.as_ref()
     else {
-        return Ok(false);
+        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput {
+            expression: expression_id,
+        });
     };
 
     let Some(iteration_id) = expression.operands().first().copied() else {
-        return Ok(false);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
     let Some(BoundExpression::Generator(iteration)) = request.view().expression(iteration_id)
     else {
-        return Ok(false);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
     let Some(selection) = iteration_sources
         .iter()
         .find(|selection| selection.expression() == iteration_id)
     else {
-        return Ok(false);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    let Some(source_length) = selection.exact_count() else {
-        return Ok(false);
-    };
-
-    if source_length != *result_length {
-        return Ok(false);
-    }
+    let source = diagnostic_type(request, selection.source_type())?;
+    let element = diagnostic_type(request, *element)?;
+    let required = diagnostic_array_length(request, *result_length)?;
 
     let target = expression.origin().source_anchor().syntax();
     let summary = block_summary(request, iteration.body(), target);
 
-    Ok(summary.is_exactly_one())
+    if let Some(actual) = summary.cardinality_problem() {
+        let source_length = selection
+            .exact_count()
+            .map(|length| diagnostic_array_length(request, length))
+            .transpose()?
+            .unwrap_or(DiagnosticArrayLength::Symbolic);
+
+        return Ok(Some(
+            DiagnosticArrayGeneratorCardinalityProblem::YieldCountNotExact {
+                element,
+                source_length,
+                required,
+                actual,
+            },
+        ));
+    }
+
+    let Some(source_length) = selection.exact_count() else {
+        return Ok(Some(
+            DiagnosticArrayGeneratorCardinalityProblem::SourceCountUnavailable {
+                source,
+                element,
+                required,
+            },
+        ));
+    };
+
+    let diagnostic_source_length = diagnostic_array_length(request, source_length)?;
+
+    if source_length != *result_length {
+        return Ok(Some(
+            DiagnosticArrayGeneratorCardinalityProblem::SourceLengthMismatch {
+                source,
+                element,
+                source_length: diagnostic_source_length,
+                required,
+            },
+        ));
+    }
+
+    Ok(None)
+}
+
+fn diagnostic_type<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: bray_symbols::TypeId,
+) -> Result<DiagnosticType, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    crate::diagnostic::diagnostic_type(request.context(), ty)
+}
+
+fn diagnostic_array_length<C>(
+    request: CheckerUnitView<'_, C>,
+    term: ConstantTermId,
+) -> Result<DiagnosticArrayLength, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let term = request
+        .semantic_values()
+        .constant_term_data(term)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    let exact = match term.as_ref() {
+        ConstantTermData::IntegerLiteral { value, .. } => value.to_u64(),
+        ConstantTermData::Value(value) => {
+            let value = request
+                .semantic_values()
+                .constant_value_data(*value)
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+            match value.kind() {
+                ConstantValueKind::Integer(value) => value.to_u64(),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+
+    Ok(exact.map_or(DiagnosticArrayLength::Symbolic, DiagnosticArrayLength::Exact))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -215,13 +311,33 @@ impl YieldSummary {
         }
     }
 
-    const fn is_exactly_one(self) -> bool {
-        !self.is_unknown
-            && !self.has_break
-            && !self.normal[0]
-            && !self.normal[2]
-            && !self.continues[0]
-            && !self.continues[2]
+    fn cardinality_problem(self) -> Option<DiagnosticYieldCardinality> {
+        if self.is_unknown {
+            return Some(DiagnosticYieldCardinality::Unknown);
+        }
+
+        if self.has_break {
+            return Some(DiagnosticYieldCardinality::Break);
+        }
+
+        let possible = [
+            self.normal[0] || self.continues[0],
+            self.normal[1] || self.continues[1],
+            self.normal[2] || self.continues[2],
+        ];
+
+        match possible {
+            [false, true, false] => None,
+            [true, false, false] => Some(DiagnosticYieldCardinality::Zero),
+            [false, false, true] => Some(DiagnosticYieldCardinality::Multiple),
+            [true, true, false] => Some(DiagnosticYieldCardinality::ZeroOrOne),
+            [false, true, true] => Some(DiagnosticYieldCardinality::OneOrMultiple),
+            [true, false, true] => Some(DiagnosticYieldCardinality::ZeroOrMultiple),
+            [true, true, true] => {
+                Some(DiagnosticYieldCardinality::ZeroOneOrMultiple)
+            }
+            [false, false, false] => Some(DiagnosticYieldCardinality::Unknown),
+        }
     }
 }
 
@@ -468,8 +584,14 @@ mod tests {
     fn alternatives_prove_exactly_one_yield_only_when_every_path_has_one() {
         let one = YieldSummary::normal().with_transfer(BoundControlTransferKind::Yield);
 
-        assert!(one.merge(one).is_exactly_one());
-        assert!(!one.merge(YieldSummary::normal()).is_exactly_one());
-        assert!(!one.then(one).is_exactly_one());
+        assert!(one.merge(one).cardinality_problem().is_none());
+
+        assert!(
+            one.merge(YieldSummary::normal())
+                .cardinality_problem()
+                .is_some()
+        );
+
+        assert!(one.then(one).cardinality_problem().is_some());
     }
 }

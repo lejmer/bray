@@ -5,7 +5,8 @@ use bray_bound_tree::BoundSourceAnchor;
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticAlignmentKind, DiagnosticArg, DiagnosticBag, DiagnosticCallableAbi,
-    DiagnosticId, DiagnosticKind, DiagnosticTargetRepresentation, SeverityKind,
+    DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticTargetRepresentation, SeverityKind,
 };
 use bray_symbols::CallableAbi;
 use bray_target::{
@@ -235,9 +236,11 @@ where
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
-    let diagnostic = violation
-        .diagnostic(DiagnosticId::new(0))
-        .with_primary_span(source.span());
+    let diagnostic = violation.diagnostic(
+        DiagnosticId::new(0),
+        context.selected_target().identity().as_str(),
+        source.span(),
+    );
 
     CheckerOutcome::complete(TargetValidity::Invalid, DiagnosticBag::single(diagnostic))
 }
@@ -406,8 +409,13 @@ enum TargetViolation {
 }
 
 impl TargetViolation {
-    fn diagnostic(self, id: DiagnosticId) -> Diagnostic {
-        match self {
+    fn diagnostic(
+        self,
+        id: DiagnosticId,
+        target: &str,
+        span: bray_source::SourceSpan,
+    ) -> Diagnostic {
+        let diagnostic = match self {
             Self::Representation(scalar) => Diagnostic::new(
                 id,
                 DiagnosticKind::CheckingTargetRepresentationUnavailable,
@@ -443,7 +451,15 @@ impl TargetViolation {
             .with_arg(DiagnosticArg::alignment_kind(kind))
             .with_arg(DiagnosticArg::required_alignment(required))
             .with_arg(DiagnosticArg::maximum_alignment(maximum)),
-        }
+        };
+
+        diagnostic
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::UnsupportedTargetRequirement,
+                span,
+            ))
+            .with_arg(DiagnosticArg::target_triple(target))
     }
 }
 
@@ -538,15 +554,18 @@ mod tests {
 
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::{
-        DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticTargetRepresentation,
+        DiagnosticArg, DiagnosticKind, DiagnosticTargetRepresentation,
     };
     use bray_symbols::CallableAbi;
-    use bray_target::{TargetLayoutContract, TargetValueLayout};
+    use bray_target::{
+        TargetAbiFacts, TargetFacts, TargetIdentity, TargetLayoutContract, TargetProfile,
+        TargetValueLayout,
+    };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{
         TargetAbiValue, TargetAggregateAbi, TargetCallableAbiRequirement, TargetLayoutRequirement,
         TargetLayoutUse, TargetValidity, TargetValidityRequest, TargetValidityRequirement,
-        TargetViolation,
     };
     use crate::CheckerOutcome;
     use crate::service::{DefaultTargetValidityChecker, TargetValidityChecker};
@@ -574,12 +593,23 @@ mod tests {
 
     #[test]
     fn unavailable_callable_abis_publish_exact_structured_diagnostics() {
-        let diagnostic =
-            TargetViolation::CallableAbi(CallableAbi::C).diagnostic(DiagnosticId::new(0));
+        let context = TestCheckerContext::new(false).with_selected_target(target_without_abis());
+        let requirement = TargetCallableAbiRequirement::new(CallableAbi::C, [], None);
 
-        assert_eq!(
-            diagnostic.kind(),
-            DiagnosticKind::CheckingTargetCallableAbiUnavailable
+        let request = TargetValidityRequest::new(
+            callable_key().source(),
+            TargetValidityRequirement::CallableAbi(requirement),
+        );
+
+        let CheckerOutcome::Complete(result) =
+            DefaultTargetValidityChecker.check_target_validity(&context, &request)
+        else {
+            panic!("unavailable callable ABI validity must complete");
+        };
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingTargetCallableAbiUnavailable,
         );
     }
 
@@ -611,9 +641,15 @@ mod tests {
 
         assert_eq!(
             diagnostic.args(),
-            [DiagnosticArg::target_representation(
-                DiagnosticTargetRepresentation::R16
-            )]
+            [
+                DiagnosticArg::target_representation(DiagnosticTargetRepresentation::R16),
+                DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"),
+            ]
+        );
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingTargetRepresentationUnavailable,
         );
 
         assert_eq!(
@@ -657,6 +693,11 @@ mod tests {
             result.diagnostics().diagnostics()[0].kind(),
             DiagnosticKind::CheckingTargetAbiRepresentationUnsupported
         );
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingTargetAbiRepresentationUnsupported,
+        );
     }
 
     #[test]
@@ -685,5 +726,32 @@ mod tests {
             result.diagnostics().diagnostics()[0].kind(),
             DiagnosticKind::CheckingTargetAlignmentUnsupported
         );
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingTargetAlignmentUnsupported,
+        );
+    }
+
+    fn target_without_abis() -> TargetProfile {
+        let baseline = bray_target::test_support::test_target_profile();
+        let facts = baseline.facts();
+
+        let facts = TargetFacts::new(
+            facts.identity().clone(),
+            facts.scalars(),
+            facts.atomics(),
+            TargetAbiFacts::new(None, None),
+            facts.c_abi(),
+            facts.address_spaces(),
+            facts.alignments(),
+            facts.operations(),
+        );
+
+        let identity = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            .unwrap_or_else(|| panic!("test target identity must be valid"));
+
+        TargetProfile::try_new(identity, baseline.machine().clone(), facts)
+            .unwrap_or_else(|error| panic!("test target without ABIs must be valid: {error:?}"))
     }
 }

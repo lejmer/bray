@@ -209,6 +209,15 @@ impl BoundUnitLocalBuilder {
             .map_err(Into::into)
     }
 
+    pub(crate) fn local_symbol_syntax_anchor(
+        &self,
+        symbol: AnyLocalSymbolId,
+    ) -> Result<SyntaxAnchor, BoundUnitConstructionError> {
+        self.local_symbols
+            .local_symbol_syntax_anchor(symbol)
+            .map_err(Into::into)
+    }
+
     pub(crate) fn surface_symbols_named(
         &self,
         scope: LocalScopeId,

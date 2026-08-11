@@ -5,11 +5,12 @@ use bray_bound_tree::{
     SelectedIterationSource,
 };
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticType, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticType, SeverityKind,
 };
 use bray_symbols::TypeId;
 
-use crate::diagnostic::{diagnostic_id, expression_span};
+use crate::diagnostic::{diagnostic_id, expression_category, expression_span};
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::ExpressionTypeInput;
@@ -128,6 +129,10 @@ where
                 SeverityKind::Error,
             )
             .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::IncompatibleExpressionType,
+                span,
+            ))
             .with_arg(DiagnosticArg::expected_type(conflict.expected))
             .with_arg(DiagnosticArg::actual_type(conflict.actual)),
         );
@@ -155,7 +160,17 @@ where
                 DiagnosticKind::CheckingCannotInferExpressionType,
                 SeverityKind::Error,
             )
-            .with_primary_span(span),
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::UnconstrainedExpression,
+                span,
+            ))
+            .with_arg(DiagnosticArg::expression_category(expression_category(
+                bound_expression,
+            )))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::TypeInferenceNeedsConstraint,
+            )),
         );
     }
 
@@ -178,8 +193,8 @@ where
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
         };
 
-    for expression in unproven_generators {
-        let span = match expression_span(request, expression) {
+    for unproven in unproven_generators {
+        let span = match expression_span(request, unproven.expression) {
             Ok(span) => span,
             Err(error) => return CheckerOutcome::InfrastructureFailure(error),
         };
@@ -190,7 +205,17 @@ where
                 DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
                 SeverityKind::Error,
             )
-            .with_primary_span(span),
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::UnprovenArrayGeneratorCardinality,
+                span,
+            ))
+            .with_arg(DiagnosticArg::array_generator_cardinality_problem(
+                unproven.problem,
+            ))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::ArrayGeneratorMustYieldOncePerElement,
+            )),
         );
     }
 
@@ -228,6 +253,7 @@ mod tests {
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{GenericArgument, TypeData};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::super::session::{ExpressionTypeSession, SessionProgress};
     use crate::test_support::{
@@ -428,6 +454,11 @@ mod tests {
         let result = completed_check(&unit, &ExpressionTypeInput::new());
 
         assert_eq!(result.diagnostics().len(), 1);
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+        );
 
         assert_eq!(
             result.diagnostics().diagnostics()[0].kind(),
@@ -810,6 +841,11 @@ mod tests {
             .with_evidence([ExpressionTypeEvidence::new(expressions[1], error_type())]);
 
         let result = completed_check(&unit, &input);
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingCannotInferExpressionType,
+        );
 
         assert_eq!(
             result

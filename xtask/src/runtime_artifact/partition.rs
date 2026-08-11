@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use sha2::{Digest, Sha256};
 use bray_target::NativeTarget;
+use sha2::{Digest, Sha256};
 
 use super::command::{CommandError, RuntimeArchiveKind};
 
@@ -16,8 +16,8 @@ pub(super) struct RuntimeArchivePartitioner {
 
 impl RuntimeArchivePartitioner {
     pub(super) fn new(_root: &Path) -> Result<Self, CommandError> {
-        let tool = bray_tooling::llvm_tool_path("llvm-ar")
-            .ok_or(CommandError::RuntimePartitionToolUnavailable)?;
+        let tool = bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::Archiver)
+            .map_err(CommandError::RuntimePartitionToolUnavailable)?;
 
         Ok(Self {
             tool,
@@ -57,11 +57,7 @@ impl RuntimeArchivePartitioner {
         Ok(())
     }
 
-    pub(super) fn write(
-        self,
-        target: NativeTarget,
-        output: &Path,
-    ) -> Result<(), CommandError> {
+    pub(super) fn write(self, target: NativeTarget, output: &Path) -> Result<(), CommandError> {
         write_archive(
             &self.tool,
             &output.join(super::command::archive_file_name(
@@ -74,10 +70,7 @@ impl RuntimeArchivePartitioner {
         for (kind, members) in self.components {
             write_archive(
                 &self.tool,
-                &output.join(super::command::archive_file_name(
-                    target,
-                    kind,
-                )),
+                &output.join(super::command::archive_file_name(target, kind)),
                 members.values(),
             )?;
         }

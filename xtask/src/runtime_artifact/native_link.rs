@@ -11,8 +11,7 @@ pub(super) fn common_support_requirements(
     if matches!(
         target,
         NativeTarget::X86_64WindowsMsvc | NativeTarget::Aarch64WindowsMsvc
-    )
-    {
+    ) {
         let name = NonEmptySharedStr::try_new("synchronization")
             .unwrap_or_else(|| unreachable!("the native library name is non-empty"));
 

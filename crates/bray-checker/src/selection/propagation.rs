@@ -5,7 +5,11 @@ use bray_bound_tree::{
     walk_bound_unit_view,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticPropagationProblem,
+    DiagnosticType, SeverityKind,
+};
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use crate::diagnostic::{diagnostic_id, expression_span};
@@ -95,9 +99,10 @@ where
                         expression,
                         SemanticSelection::Propagation(selection),
                     )),
-                    Err(()) => diagnostics.add(missing_boundary_diagnostic(
+                    Err(problem) => diagnostics.add(missing_boundary_diagnostic(
                         request,
                         expression,
+                        problem,
                         diagnostics.len(),
                     )?),
                 }
@@ -119,7 +124,7 @@ fn select_propagation<C>(
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
     boundaries: &[ResultBoundary],
-) -> Result<Option<Result<SelectedPropagation, ()>>, CheckerInfrastructureError>
+) -> Result<Option<Result<SelectedPropagation, DiagnosticPropagationProblem>>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -158,14 +163,17 @@ where
             return Ok(None);
         };
 
-        return Ok(Some(
-            select_nullable_boundary(request, types, boundaries)
-                .map(|boundary| SelectedPropagation::Nullable {
+        return Ok(Some(match select_nullable_boundary(request, types, boundaries) {
+            Some(boundary) => Ok(SelectedPropagation::Nullable {
                     boundary: boundary.target,
                     result_type: boundary.ty,
-                })
-                .ok_or(()),
-        ));
+                }),
+            None => Err(DiagnosticPropagationProblem::NullableBoundaryUnavailable {
+                operand: diagnostic_type(request, operand_type.ty())?,
+                available_boundaries: diagnostic_boundary_types(request, types, boundaries)?
+                    .into_boxed_slice(),
+            }),
+        }));
     }
 
     let representation = type_representation(request, operand_type.ty())?;
@@ -180,15 +188,20 @@ where
                 return Ok(None);
             };
 
-            Ok(Some(
-                select_result_boundary(request, types, boundaries, error_type)?
-                    .map(|(boundary, conversion)| SelectedPropagation::Result {
+            Ok(Some(match select_result_boundary(request, types, boundaries, error_type)? {
+                Ok((boundary, conversion)) => Ok(SelectedPropagation::Result {
                         boundary: boundary.target,
                         result_type: boundary.ty,
                         error_conversion: conversion,
+                    }),
+                Err(available_errors) => {
+                    Err(DiagnosticPropagationProblem::ResultBoundaryUnavailable {
+                        source_error: diagnostic_type(request, error_type)?,
+                        available_errors: diagnostic_types(request, available_errors)?
+                            .into_boxed_slice(),
                     })
-                    .ok_or(()),
-            ))
+                }
+            }))
         }
         _ => Ok(None),
     }
@@ -223,10 +236,18 @@ fn select_result_boundary<C>(
     types: &CheckedExpressionTypes,
     boundaries: &[ResultBoundary],
     error_type: TypeId,
-) -> Result<Option<(ResultBoundary, bray_bound_tree::SelectedConversion)>, CheckerInfrastructureError>
+) -> Result<
+    Result<
+        (ResultBoundary, bray_bound_tree::SelectedConversion),
+        Vec<TypeId>,
+    >,
+    CheckerInfrastructureError,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    let mut available_errors = Vec::new();
+
     for boundary in boundaries
         .iter()
         .rev()
@@ -244,12 +265,64 @@ where
             continue;
         };
 
+        if !available_errors.contains(&target_error) {
+            available_errors.push(target_error);
+        }
+
         if let Some(conversion) = built_in_conversion_plan(request, error_type, target_error)? {
-            return Ok(Some((boundary, conversion)));
+            return Ok(Ok((boundary, conversion)));
         }
     }
 
-    Ok(None)
+    Ok(Err(available_errors))
+}
+
+fn diagnostic_boundary_types<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &CheckedExpressionTypes,
+    boundaries: &[ResultBoundary],
+) -> Result<Vec<DiagnosticType>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    diagnostic_types(
+        request,
+        boundaries
+            .iter()
+            .rev()
+            .map(|boundary| boundary.ty)
+            .chain(types.callable_result_type()),
+    )
+}
+
+fn diagnostic_types<C>(
+    request: CheckerUnitView<'_, C>,
+    types: impl IntoIterator<Item = TypeId>,
+) -> Result<Vec<DiagnosticType>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut diagnostics = Vec::new();
+
+    for ty in types {
+        let ty = diagnostic_type(request, ty)?;
+
+        if !diagnostics.contains(&ty) {
+            diagnostics.push(ty);
+        }
+    }
+
+    Ok(diagnostics)
+}
+
+fn diagnostic_type<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<DiagnosticType, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    crate::diagnostic::diagnostic_type(request.context(), ty)
 }
 
 fn named_type_arguments<C>(
@@ -307,15 +380,26 @@ where
 fn missing_boundary_diagnostic<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
+    problem: DiagnosticPropagationProblem,
     index: usize,
 ) -> Result<Diagnostic, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    let span = expression_span(request, expression)?;
+
     Ok(Diagnostic::new(
         diagnostic_id(index),
         DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
         SeverityKind::Error,
     )
-    .with_primary_span(expression_span(request, expression)?))
+    .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::IncompatiblePropagationBoundary,
+        span,
+    ))
+    .with_arg(DiagnosticArg::propagation_problem(problem))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::PropagationBoundaryMustMatch,
+    )))
 }

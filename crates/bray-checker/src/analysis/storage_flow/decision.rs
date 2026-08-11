@@ -3,9 +3,6 @@ use bray_diagnostics::DiagnosticKind;
 
 pub(super) const fn diagnostic_kind(status: StorageOperationStatus) -> Option<DiagnosticKind> {
     match status {
-        StorageOperationStatus::Uninitialized => {
-            Some(DiagnosticKind::CheckingUseOfUninitializedStorage)
-        }
         StorageOperationStatus::Moved => Some(DiagnosticKind::CheckingUseOfMovedStorage),
         StorageOperationStatus::ConflictingBorrow => {
             Some(DiagnosticKind::CheckingConflictingBorrow)
@@ -16,13 +13,12 @@ pub(super) const fn diagnostic_kind(status: StorageOperationStatus) -> Option<Di
         StorageOperationStatus::MissingOwnership => {
             Some(DiagnosticKind::CheckingMissingStorageOwnership)
         }
-        StorageOperationStatus::InactiveProjection => {
-            Some(DiagnosticKind::CheckingInactiveStorageProjection)
-        }
-        StorageOperationStatus::NotCopyable => Some(DiagnosticKind::CheckingTypeIsNotCopyable),
         StorageOperationStatus::Unreachable
         | StorageOperationStatus::Valid
-        | StorageOperationStatus::Recovered => None,
+        | StorageOperationStatus::Recovered
+        | StorageOperationStatus::Uninitialized
+        | StorageOperationStatus::InactiveProjection
+        | StorageOperationStatus::NotCopyable => None,
     }
 }
 
@@ -63,10 +59,6 @@ mod tests {
     fn storage_failures_map_to_exact_structured_diagnostics() {
         let cases = [
             (
-                StorageOperationStatus::Uninitialized,
-                DiagnosticKind::CheckingUseOfUninitializedStorage,
-            ),
-            (
                 StorageOperationStatus::Moved,
                 DiagnosticKind::CheckingUseOfMovedStorage,
             ),
@@ -81,14 +73,6 @@ mod tests {
             (
                 StorageOperationStatus::MissingOwnership,
                 DiagnosticKind::CheckingMissingStorageOwnership,
-            ),
-            (
-                StorageOperationStatus::InactiveProjection,
-                DiagnosticKind::CheckingInactiveStorageProjection,
-            ),
-            (
-                StorageOperationStatus::NotCopyable,
-                DiagnosticKind::CheckingTypeIsNotCopyable,
             ),
         ];
 

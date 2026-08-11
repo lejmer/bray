@@ -4,7 +4,10 @@ use std::collections::BTreeSet;
 
 use bray_binder::SymbolFactProvider;
 use bray_declarations::DeclarationTable;
-use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+use bray_diagnostics::{
+    DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+};
 use bray_symbols::{
     AnySymbolId, CallableContractTypeFact, CallableInstanceData, CallableSignatureFact,
     CallableSymbolId, ConstantDeclaredTypeFact, ConstantProjectionKind, ConstantTermData,
@@ -117,7 +120,7 @@ pub(super) fn validate_public_surface(
                 declarations,
                 diagnostics,
             )?,
-            _ => false,
+            _ => None,
         };
 
         let exposes_internal = if let Some(callable) = CallableSymbolId::try_from_any(*symbol) {
@@ -128,7 +131,7 @@ pub(super) fn validate_public_surface(
                 symbols,
                 declarations,
                 diagnostics,
-            )? || exposes_internal
+            )?.or(exposes_internal)
         } else {
             exposes_internal
         };
@@ -142,13 +145,13 @@ pub(super) fn validate_public_surface(
                     symbols,
                     declarations,
                     diagnostics,
-                )? || exposes_internal
+                )?.or(exposes_internal)
             } else {
                 exposes_internal
             };
 
-        if exposes_internal {
-            add_internal_dependency_diagnostic(*symbol, symbols, diagnostics);
+        if let Some(internal) = exposes_internal {
+            add_internal_dependency_diagnostic(*symbol, internal, symbols, diagnostics)?;
 
             is_recovered = true;
         }
@@ -164,14 +167,14 @@ fn validate_callable_signature(
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
     diagnostics: &mut DiagnosticBag,
-) -> Result<bool, FactQueryError> {
+) -> Result<Option<AnySymbolId>, FactQueryError> {
     let signature = binder
         .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
         .map_err(binder_fact_error)?;
 
     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
-    Ok(template_exposes_internal(
+    Ok(template_internal_dependency(
         signature.value().callable_type(),
         semantic_values,
         symbols,
@@ -186,7 +189,7 @@ fn validate_predicate_signature(
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
     diagnostics: &mut DiagnosticBag,
-) -> Result<bool, FactQueryError> {
+) -> Result<Option<AnySymbolId>, FactQueryError> {
     let signature = binder
         .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
             predicate,
@@ -195,8 +198,8 @@ fn validate_predicate_signature(
 
     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
-    Ok(signature.value().parameters().iter().any(|parameter| {
-        template_exposes_internal(parameter.ty(), semantic_values, symbols, declarations)
+    Ok(signature.value().parameters().iter().find_map(|parameter| {
+        template_internal_dependency(parameter.ty(), semantic_values, symbols, declarations)
     }))
 }
 
@@ -207,7 +210,7 @@ fn validate_type_fact<C>(
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
     diagnostics: &mut DiagnosticBag,
-) -> Result<bool, FactQueryError>
+) -> Result<Option<AnySymbolId>, FactQueryError>
 where
     C: SymbolFactContract<Value = TypeExpressionTemplate>,
     for<'facts> CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
@@ -218,7 +221,7 @@ where
 
     diagnostics.add_range(fact.diagnostics().iter().cloned());
 
-    Ok(template_exposes_internal(
+    Ok(template_internal_dependency(
         fact.value(),
         semantic_values,
         symbols,
@@ -227,33 +230,67 @@ where
 }
 
 pub(super) fn add_internal_dependency_diagnostic(
-    symbol: AnySymbolId,
+    owner: AnySymbolId,
+    internal: AnySymbolId,
     symbols: &SymbolGraph,
     diagnostics: &mut DiagnosticBag,
-) {
-    let Some(anchor) = symbols.declaration_syntax_anchor(symbol) else {
-        return;
+) -> Result<(), FactQueryError> {
+    let Some(anchor) = symbols.declaration_syntax_anchor(owner) else {
+        return Ok(());
     };
 
-    diagnostics.add(source_diagnostic(
+    let identity = crate::compilation::diagnostics::symbol_diagnostic_identity(
+        symbols,
+        None,
+        internal,
+    )?;
+
+    let mut diagnostic = source_diagnostic(
         anchor,
         DiagnosticKind::CheckingExportDependsOnInternalDeclaration,
+    )
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::InvalidProductConfiguration,
+        bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range()),
+    ))
+    .with_arg(DiagnosticArg::interface_symbol_identity(identity))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::PublicDependencyRequired,
     ));
+
+    if let Some(internal_anchor) = symbols.declaration_syntax_anchor(internal) {
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::RequirementOrigin,
+            bray_source::SourceSpan::new(
+                internal_anchor.source_id(),
+                internal_anchor.full_range(),
+            ),
+        ));
+    }
+
+    diagnostics.add(diagnostic);
+
+    Ok(())
 }
 
-fn template_exposes_internal(
+fn template_internal_dependency(
     template: &TypeExpressionTemplate,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
+) -> Option<AnySymbolId> {
     let mut pending = vec![template];
 
     while let Some(template) = pending.pop() {
         match template {
             TypeExpressionTemplate::Resolved(ty) => {
-                if resolved_type_exposes_internal(*ty, semantic_values, symbols, declarations) {
-                    return true;
+                if let Some(internal) = resolved_type_internal_dependency(
+                    *ty,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                ) {
+                    return Some(internal);
                 }
             }
             TypeExpressionTemplate::Named {
@@ -266,7 +303,7 @@ fn template_exposes_internal(
                     declarations,
                     symbols,
                 ) {
-                    return true;
+                    return Some(definition.into_any());
                 }
 
                 pending.extend(arguments.iter().filter_map(|argument| match argument {
@@ -284,7 +321,7 @@ fn template_exposes_internal(
                     declarations,
                     symbols,
                 ) {
-                    return true;
+                    return Some(application.definition().into());
                 }
 
                 pending.push(subject);
@@ -315,7 +352,7 @@ fn template_exposes_internal(
                     declarations,
                     symbols,
                 ) {
-                    return true;
+                    return Some(application.definition().into());
                 }
 
                 pending.extend(application.arguments().iter().filter_map(
@@ -328,16 +365,16 @@ fn template_exposes_internal(
         }
     }
 
-    false
+    None
 }
 
-pub(super) fn resolved_type_exposes_internal(
+pub(super) fn resolved_type_internal_dependency(
     ty: TypeId,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
-    semantic_values_expose_internal(
+) -> Option<AnySymbolId> {
+    semantic_values_internal_dependency(
         [SemanticValueDependency::Type(ty)],
         semantic_values,
         symbols,
@@ -345,13 +382,13 @@ pub(super) fn resolved_type_exposes_internal(
     )
 }
 
-pub(super) fn substitution_exposes_internal(
+pub(super) fn substitution_internal_dependency(
     substitution: GenericSubstitutionId,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
-    semantic_values_expose_internal(
+) -> Option<AnySymbolId> {
+    semantic_values_internal_dependency(
         [SemanticValueDependency::Substitution(substitution)],
         semantic_values,
         symbols,
@@ -359,28 +396,35 @@ pub(super) fn substitution_exposes_internal(
     )
 }
 
-pub(super) fn callable_instance_exposes_internal(
+pub(super) fn callable_instance_internal_dependency(
     instance: CallableInstanceData,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
-    source_symbol_is_not_publicly_reachable(instance.definition().symbol(), declarations, symbols)
-        || substitution_exposes_internal(
+) -> Option<AnySymbolId> {
+    if source_symbol_is_not_publicly_reachable(
+        instance.definition().symbol(),
+        declarations,
+        symbols,
+    ) {
+        Some(instance.definition().symbol())
+    } else {
+        substitution_internal_dependency(
             instance.substitution(),
             semantic_values,
             symbols,
             declarations,
         )
+    }
 }
 
-pub(super) fn implementation_instance_exposes_internal(
+pub(super) fn implementation_instance_internal_dependency(
     instance: ImplementationInstanceId,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
-    semantic_values_expose_internal(
+) -> Option<AnySymbolId> {
+    semantic_values_internal_dependency(
         [SemanticValueDependency::Implementation(instance)],
         semantic_values,
         symbols,
@@ -397,12 +441,12 @@ enum SemanticValueDependency {
     Implementation(ImplementationInstanceId),
 }
 
-fn semantic_values_expose_internal(
+fn semantic_values_internal_dependency(
     roots: impl IntoIterator<Item = SemanticValueDependency>,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
+) -> Option<AnySymbolId> {
     let mut pending = roots.into_iter().collect::<Vec<_>>();
     let mut visited = BTreeSet::new();
 
@@ -411,7 +455,7 @@ fn semantic_values_expose_internal(
             continue;
         }
 
-        let exposes_internal = match dependency {
+        let internal = match dependency {
             SemanticValueDependency::Type(ty) => {
                 type_exposes_internal(ty, &mut pending, semantic_values, symbols, declarations)
             }
@@ -445,12 +489,12 @@ fn semantic_values_expose_internal(
             }
         };
 
-        if exposes_internal {
-            return true;
+        if internal.is_some() {
+            return internal;
         }
     }
 
-    false
+    None
 }
 
 fn type_exposes_internal(
@@ -459,9 +503,9 @@ fn type_exposes_internal(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
+) -> Option<AnySymbolId> {
     let Ok(data) = semantic_values.type_data(ty) else {
-        return false;
+        return None;
     };
 
     match data.as_ref() {
@@ -472,7 +516,7 @@ fn type_exposes_internal(
         } => {
             if source_symbol_is_not_publicly_reachable(definition.into_any(), declarations, symbols)
             {
-                return true;
+                return Some(definition.into_any());
             }
 
             pending.push(SemanticValueDependency::Substitution(*substitution));
@@ -484,7 +528,7 @@ fn type_exposes_internal(
             member,
         } => {
             if source_symbol_is_not_publicly_reachable((*member).into(), declarations, symbols) {
-                return true;
+                return Some((*member).into());
             }
 
             pending.push(SemanticValueDependency::Type(*subject));
@@ -522,16 +566,16 @@ fn type_exposes_internal(
         }
     }
 
-    false
+    None
 }
 
 fn substitution_exposes_internal_value(
     substitution: GenericSubstitutionId,
     pending: &mut Vec<SemanticValueDependency>,
     semantic_values: &SemanticValueStore,
-) -> bool {
+) -> Option<AnySymbolId> {
     let Ok(substitution) = semantic_values.generic_substitution_data(substitution) else {
-        return false;
+        return None;
     };
 
     pending.extend(
@@ -544,7 +588,7 @@ fn substitution_exposes_internal_value(
             }),
     );
 
-    false
+    None
 }
 
 fn constant_term_exposes_internal(
@@ -553,15 +597,15 @@ fn constant_term_exposes_internal(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
+) -> Option<AnySymbolId> {
     let Ok(data) = semantic_values.constant_term_data(term) else {
-        return false;
+        return None;
     };
 
     match data.as_ref() {
         ConstantTermData::Value(value) => {
             let Ok(value) = semantic_values.constant_value_data(*value) else {
-                return false;
+                return None;
             };
 
             pending.push(SemanticValueDependency::Type(value.ty()));
@@ -573,7 +617,8 @@ fn constant_term_exposes_internal(
                 (*constant).into(),
                 declarations,
                 symbols,
-            );
+            )
+            .then_some((*constant).into());
         }
         ConstantTermData::Unary { operand, .. } => {
             pending.push(SemanticValueDependency::ConstantTerm(*operand));
@@ -604,7 +649,7 @@ fn constant_term_exposes_internal(
                     declarations,
                     symbols,
                 ) {
-                    return true;
+                    return Some((*field.field()).into());
                 }
 
                 pending.push(SemanticValueDependency::ConstantTerm(*field.value()));
@@ -612,7 +657,7 @@ fn constant_term_exposes_internal(
         }
         ConstantTermData::Union { variant, fields } => {
             if source_symbol_is_not_publicly_reachable((*variant).into(), declarations, symbols) {
-                return true;
+                return Some((*variant).into());
             }
 
             for field in fields.iter() {
@@ -621,7 +666,7 @@ fn constant_term_exposes_internal(
                     declarations,
                     symbols,
                 ) {
-                    return true;
+                    return Some((*field.field()).into());
                 }
 
                 pending.push(SemanticValueDependency::ConstantTerm(*field.value()));
@@ -634,7 +679,7 @@ fn constant_term_exposes_internal(
         } => {
             if source_symbol_is_not_publicly_reachable(definition.into_any(), declarations, symbols)
             {
-                return true;
+                return Some(definition.into_any());
             }
 
             pending.push(SemanticValueDependency::Substitution(*substitution));
@@ -649,7 +694,7 @@ fn constant_term_exposes_internal(
             arguments,
         } => {
             let Ok(callable) = semantic_values.callable_instance_data(*callable) else {
-                return false;
+                return None;
             };
 
             if source_symbol_is_not_publicly_reachable(
@@ -657,7 +702,7 @@ fn constant_term_exposes_internal(
                 declarations,
                 symbols,
             ) {
-                return true;
+                return Some(callable.definition().symbol());
             }
 
             pending.push(SemanticValueDependency::Substitution(
@@ -684,7 +729,7 @@ fn constant_term_exposes_internal(
                 declarations,
                 symbols,
             ) {
-                return true;
+                return Some(predicate.definition().into_any());
             }
 
             pending.push(SemanticValueDependency::Substitution(
@@ -710,14 +755,16 @@ fn constant_term_exposes_internal(
                         field.into(),
                         declarations,
                         symbols,
-                    );
+                    )
+                    .then_some(field.into());
                 }
                 ConstantProjectionKind::UnionPayloadField(field) => {
                     return source_symbol_is_not_publicly_reachable(
                         field.into(),
                         declarations,
                         symbols,
-                    );
+                    )
+                    .then_some(field.into());
                 }
                 ConstantProjectionKind::TupleElement(_) | ConstantProjectionKind::NullableValue => {
                 }
@@ -725,7 +772,7 @@ fn constant_term_exposes_internal(
         }
     }
 
-    false
+    None
 }
 
 fn trait_application_exposes_internal(
@@ -734,9 +781,9 @@ fn trait_application_exposes_internal(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
+) -> Option<AnySymbolId> {
     let Ok(application) = semantic_values.trait_application_data(application) else {
-        return false;
+        return None;
     };
 
     if source_symbol_is_not_publicly_reachable(
@@ -744,14 +791,14 @@ fn trait_application_exposes_internal(
         declarations,
         symbols,
     ) {
-        return true;
+        return Some(application.definition().into());
     }
 
     pending.push(SemanticValueDependency::Substitution(
         application.substitution(),
     ));
 
-    false
+    None
 }
 
 fn implementation_exposes_internal(
@@ -760,9 +807,9 @@ fn implementation_exposes_internal(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> bool {
+) -> Option<AnySymbolId> {
     let Ok(implementation) = semantic_values.implementation_instance_data(implementation) else {
-        return false;
+        return None;
     };
 
     if source_symbol_is_not_publicly_reachable(
@@ -770,14 +817,14 @@ fn implementation_exposes_internal(
         declarations,
         symbols,
     ) {
-        return true;
+        return Some(implementation.definition().into_any());
     }
 
     pending.push(SemanticValueDependency::Substitution(
         implementation.substitution(),
     ));
 
-    false
+    None
 }
 
 pub(in crate::compilation) fn symbol_is_publicly_reachable(

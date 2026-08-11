@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::{ProjectLoadError, ProjectManifestProblem, ProjectPath};
+use crate::{ProjectLoadError, ProjectPath};
+use bray_diagnostics::DiagnosticProjectManifestField;
 use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::PackageIdentity;
 
@@ -13,10 +14,10 @@ pub(super) fn read_manifest_source(path: &Path) -> Result<String, ProjectLoadErr
         })?;
 
     if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::invalid_path(
             path.to_path_buf(),
-            ProjectManifestProblem::InvalidPath,
-            path.display().to_string(),
+            DiagnosticProjectManifestField::ManifestPath,
+            path.to_path_buf(),
         ));
     }
 
@@ -41,18 +42,18 @@ pub(super) fn require_owned_package_path(
         current.push(component);
 
         let metadata = std::fs::symlink_metadata(&current).map_err(|_| {
-            ProjectLoadError::invalid(
+            ProjectLoadError::invalid_path(
                 workspace_manifest_path.to_path_buf(),
-                ProjectManifestProblem::InvalidPath,
-                package_path.as_str().to_owned(),
+                DiagnosticProjectManifestField::WorkspacePackagePath,
+                package_path.as_str().into(),
             )
         })?;
 
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
-            return Err(ProjectLoadError::invalid(
+            return Err(ProjectLoadError::invalid_path(
                 workspace_manifest_path.to_path_buf(),
-                ProjectManifestProblem::InvalidPath,
-                package_path.as_str().to_owned(),
+                DiagnosticProjectManifestField::WorkspacePackagePath,
+                package_path.as_str().into(),
             ));
         }
     }
@@ -64,12 +65,13 @@ pub(super) fn project_path(
     value: String,
     allow_workspace_root: bool,
     manifest_path: &Path,
+    field: DiagnosticProjectManifestField,
 ) -> Result<ProjectPath, ProjectLoadError> {
     ProjectPath::try_new(Arc::<str>::from(value.as_str()), allow_workspace_root).ok_or_else(|| {
-        ProjectLoadError::invalid(
+        ProjectLoadError::invalid_path(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::InvalidPath,
-            value,
+            field,
+            value.into(),
         )
     })
 }
@@ -77,14 +79,15 @@ pub(super) fn project_path(
 pub(super) fn local_name(
     value: String,
     manifest_path: &Path,
+    field: DiagnosticProjectManifestField,
 ) -> Result<Arc<str>, ProjectLoadError> {
     if is_local_name(&value) {
         return Ok(value.into());
     }
 
-    Err(ProjectLoadError::invalid(
+    Err(ProjectLoadError::invalid_name(
         manifest_path.to_path_buf(),
-        ProjectManifestProblem::InvalidName,
+        field,
         value,
     ))
 }
@@ -93,36 +96,39 @@ pub(super) fn package_identity(
     value: String,
     manifest_path: &Path,
     source_authority: PackageSourceAuthority,
+    field: DiagnosticProjectManifestField,
 ) -> Result<PackageIdentity, ProjectLoadError> {
     if !has_valid_package_identity_syntax(&value) {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::invalid_name(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::InvalidName,
+            field,
             value,
         ));
     }
 
     let Some(identity) = PackageIdentity::try_new(Arc::<str>::from(value.as_str())) else {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::invalid_name(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::InvalidName,
+            field,
             value,
         ));
     };
 
     if !source_authority.accepts(&identity) {
-        let problem = match source_authority {
-            PackageSourceAuthority::Ordinary => ProjectManifestProblem::ReservedPackageIdentity,
+        return Err(match source_authority {
+            PackageSourceAuthority::Ordinary => ProjectLoadError::reserved_package_identity(
+                manifest_path.to_path_buf(),
+                field,
+                value,
+            ),
             PackageSourceAuthority::StandardLibrary => {
-                ProjectManifestProblem::StandardLibraryPackageIdentityRequired
+                ProjectLoadError::standard_library_package_identity_required(
+                    manifest_path.to_path_buf(),
+                    field,
+                    value,
+                )
             }
-        };
-
-        return Err(ProjectLoadError::invalid(
-            manifest_path.to_path_buf(),
-            problem,
-            value,
-        ));
+        });
     }
 
     Ok(identity)
@@ -141,18 +147,19 @@ pub fn is_valid_ordinary_package_identity(value: &str) -> bool {
 pub(super) fn sorted_unique_names(
     values: Vec<String>,
     manifest_path: &Path,
+    field: DiagnosticProjectManifestField,
 ) -> Result<Arc<[Arc<str>]>, ProjectLoadError> {
     let mut names = values
         .into_iter()
-        .map(|value| local_name(value, manifest_path))
+        .map(|value| local_name(value, manifest_path, field))
         .collect::<Result<Vec<_>, _>>()?;
 
     names.sort_unstable();
 
     if let Some(pair) = names.windows(2).find(|pair| pair[0] == pair[1]) {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::duplicate_selection(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::DuplicateSelection,
+            field,
             pair[0].to_string(),
         ));
     }
@@ -200,6 +207,7 @@ pub(super) fn manifest_path(package_root: &Path) -> PathBuf {
 mod tests {
     use std::path::Path;
 
+    use bray_diagnostics::DiagnosticProjectManifestField;
     use bray_standard_library::PackageSourceAuthority;
 
     use super::{
@@ -211,15 +219,18 @@ mod tests {
     fn names_have_one_canonical_ascii_spelling() {
         let manifest = Path::new("bray-package.json");
 
-        assert!(local_name(String::from("native-test"), manifest).is_ok());
-        assert!(local_name(String::from("Native"), manifest).is_err());
-        assert!(local_name(String::from("9native"), manifest).is_err());
+        let field = DiagnosticProjectManifestField::ProductIdentity;
+
+        assert!(local_name(String::from("native-test"), manifest, field).is_ok());
+        assert!(local_name(String::from("Native"), manifest, field).is_err());
+        assert!(local_name(String::from("9native"), manifest, field).is_err());
 
         assert!(
             package_identity(
                 String::from("example.math"),
                 manifest,
                 PackageSourceAuthority::Ordinary,
+                DiagnosticProjectManifestField::PackageIdentity,
             )
             .is_ok()
         );
@@ -229,6 +240,7 @@ mod tests {
                 String::from("example"),
                 manifest,
                 PackageSourceAuthority::Ordinary,
+                DiagnosticProjectManifestField::PackageIdentity,
             )
             .is_ok()
         );
@@ -238,6 +250,7 @@ mod tests {
                 String::from("example.math_core"),
                 manifest,
                 PackageSourceAuthority::Ordinary,
+                DiagnosticProjectManifestField::PackageIdentity,
             )
             .is_ok()
         );
@@ -252,15 +265,17 @@ mod tests {
     fn overlap_uses_portable_component_boundaries() {
         let manifest = Path::new("bray-workspace.json");
 
-        let Ok(source) = project_path(String::from("app/src"), false, manifest) else {
+        let field = DiagnosticProjectManifestField::SourceRootPath;
+
+        let Ok(source) = project_path(String::from("app/src"), false, manifest, field) else {
             panic!("test source path must be valid");
         };
 
-        let Ok(nested) = project_path(String::from("app/src/generated"), false, manifest) else {
+        let Ok(nested) = project_path(String::from("app/src/generated"), false, manifest, field) else {
             panic!("test nested path must be valid");
         };
 
-        let Ok(sibling) = project_path(String::from("app/src-old"), false, manifest) else {
+        let Ok(sibling) = project_path(String::from("app/src-old"), false, manifest, field) else {
             panic!("test sibling path must be valid");
         };
 

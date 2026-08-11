@@ -3,4 +3,4 @@
 mod relationship;
 mod report;
 
-pub(crate) use report::render_symbol_inspection;
+pub(crate) use report::{SymbolInspectionRenderError, render_symbol_inspection};

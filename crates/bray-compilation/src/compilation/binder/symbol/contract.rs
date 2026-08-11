@@ -1,10 +1,16 @@
+// rust-style: allow(module-too-large, reason = "callable contract binding and validation form one publication transaction over shared syntax and symbol state")
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
     BinderFactContext, BinderFactError, BinderFactResult, PredicateClauseBindingContext,
     SymbolFactProvider, bind_predicate_clause, bind_trusted_capability_clause,
 };
-use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticResult};
+use bray_diagnostics::{
+    DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticResult,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
     CallableContractsFact, CallableExecution, CallablePhaseBehavior, CallableSignatureFact,
@@ -238,15 +244,9 @@ fn bind_callable_contracts(
         None => None,
     };
 
-    let used_capabilities = body_behavior.as_ref().map(|behavior| {
-        behavior
-            .result()
-            .value()
-            .trusted_capabilities()
-            .iter()
-            .copied()
-            .collect::<BTreeSet<_>>()
-    });
+    let used_capabilities = body_behavior
+        .as_ref()
+        .map(|behavior| behavior.result().value().trusted_capability_uses());
 
     let capability_recovered = body_behavior
         .as_ref()
@@ -254,7 +254,10 @@ fn bind_callable_contracts(
 
     let (invocation_behavior, deferred_execution_behavior) = callable_phase_behaviors(
         execution,
-        capabilities.value().iter().copied(),
+        capabilities
+            .value()
+            .iter()
+            .map(|capability| capability.requirement()),
         dependency,
         body_behavior
             .as_ref()
@@ -266,7 +269,7 @@ fn bind_callable_contracts(
         owner,
         trust,
         capabilities.value(),
-        used_capabilities.as_ref(),
+        used_capabilities,
         capability_recovered,
         &mut diagnostics,
     )?;
@@ -280,7 +283,7 @@ fn bind_callable_contracts(
 pub(in crate::compilation) fn bind_declared_trusted_capabilities(
     context: &CompilationBinderFacts<'_>,
     owner: CallableSymbolId,
-) -> BinderFactResult<DiagnosticResult<Vec<TrustedCapabilityRequirement>>> {
+) -> BinderFactResult<DiagnosticResult<Vec<DeclaredTrustedCapability>>> {
     let clauses = with_declaration_root(context, owner.into_any(), |root| {
         Ok(direct_contract_clauses(root))
     })?;
@@ -301,7 +304,7 @@ fn bind_trusted_capability_clauses(
     context: &CompilationBinderFacts<'_>,
     owner: CallableSymbolId,
     clauses: impl IntoIterator<Item = UsesClauseSyntax>,
-) -> BinderFactResult<DiagnosticResult<Vec<TrustedCapabilityRequirement>>> {
+) -> BinderFactResult<DiagnosticResult<Vec<DeclaredTrustedCapability>>> {
     let mut capabilities = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -312,14 +315,47 @@ fn bind_trusted_capability_clauses(
 
         diagnostics = diagnostics.merged(&clause_diagnostics);
 
-        for symbol in symbols {
+        for capability in symbols {
             let ordinal = symbol_ordinal(capabilities.len())?;
 
-            capabilities.push(TrustedCapabilityRequirement::new(ordinal, symbol));
+            capabilities.push(DeclaredTrustedCapability::new(
+                TrustedCapabilityRequirement::new(ordinal, capability.symbol()),
+                capability.source(),
+            ));
         }
     }
 
     Ok(DiagnosticResult::new(capabilities, diagnostics))
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(in crate::compilation) struct DeclaredTrustedCapability {
+    requirement: TrustedCapabilityRequirement,
+    source: bray_declarations::SyntaxAnchor,
+}
+
+impl DeclaredTrustedCapability {
+    const fn new(
+        requirement: TrustedCapabilityRequirement,
+        source: bray_declarations::SyntaxAnchor,
+    ) -> Self {
+        Self {
+            requirement,
+            source,
+        }
+    }
+
+    pub(in crate::compilation) const fn requirement(self) -> TrustedCapabilityRequirement {
+        self.requirement
+    }
+
+    const fn capability(self) -> TrustedCapabilitySymbolId {
+        self.requirement.capability()
+    }
+
+    const fn source(self) -> bray_declarations::SyntaxAnchor {
+        self.source
+    }
 }
 
 fn callable_phase_behaviors(
@@ -376,19 +412,29 @@ fn validate_trusted_capabilities(
     context: &CompilationBinderFacts<'_>,
     owner: CallableSymbolId,
     trust: CallableTrust,
-    declared: &[TrustedCapabilityRequirement],
-    used: Option<&BTreeSet<TrustedCapabilitySymbolId>>,
+    declared: &[DeclaredTrustedCapability],
+    used: Option<&[bray_bound_tree::TrustedCapabilityUse]>,
     is_recovered: bool,
     diagnostics: &mut DiagnosticBag,
 ) -> BinderFactResult<()> {
-    let declared = declared
-        .iter()
-        .map(|requirement| requirement.capability())
-        .collect::<BTreeSet<_>>();
-
     let has_body = used.is_some();
-    let empty = BTreeSet::new();
-    let used = used.unwrap_or(&empty);
+    let mut declared_by_capability = BTreeMap::<_, BTreeSet<_>>::new();
+
+    for capability in declared {
+        declared_by_capability
+            .entry(capability.capability())
+            .or_default()
+            .insert(capability.source());
+    }
+
+    let used_by_capability = used
+        .unwrap_or_default()
+        .iter()
+        .map(|use_| (use_.capability(), use_))
+        .collect::<BTreeMap<_, _>>();
+
+    let declared = declared_by_capability.keys().copied().collect::<BTreeSet<_>>();
+    let used = used_by_capability.keys().copied().collect::<BTreeSet<_>>();
 
     if declared.is_empty() && used.is_empty() {
         return Ok(());
@@ -400,9 +446,14 @@ fn validate_trusted_capabilities(
             .declaration_syntax_anchor(owner.into_any())
             .ok_or(BinderFactError::DependencyUnavailable)?;
 
-        for capability in declared.union(used) {
+        for capability in declared.union(&used) {
             diagnostics.add(trusted_capability_diagnostic(
                 context,
+                trusted_capability_origins(
+                    *capability,
+                    &declared_by_capability,
+                    &used_by_capability,
+                ),
                 anchor,
                 DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable,
                 *capability,
@@ -424,6 +475,10 @@ fn validate_trusted_capabilities(
     for capability in used.difference(&declared) {
         diagnostics.add(trusted_capability_diagnostic(
             context,
+            used_by_capability
+                .get(capability)
+                .into_iter()
+                .flat_map(|use_| use_.sources().iter().map(|source| source.syntax())),
             anchor,
             DiagnosticKind::CheckingUndeclaredTrustedCapability,
             *capability,
@@ -434,9 +489,13 @@ fn validate_trusted_capabilities(
         return Ok(());
     }
 
-    for capability in declared.difference(used) {
+    for capability in declared.difference(&used) {
         diagnostics.add(trusted_capability_diagnostic(
             context,
+            declared_by_capability
+                .get(capability)
+                .into_iter()
+                .flat_map(|origins| origins.iter().copied()),
             anchor,
             DiagnosticKind::CheckingUnusedTrustedCapability,
             *capability,
@@ -448,7 +507,8 @@ fn validate_trusted_capabilities(
 
 fn trusted_capability_diagnostic(
     context: &CompilationBinderFacts<'_>,
-    anchor: bray_declarations::SyntaxAnchor,
+    origins: impl IntoIterator<Item = bray_declarations::SyntaxAnchor>,
+    fallback: bray_declarations::SyntaxAnchor,
     kind: DiagnosticKind,
     capability: TrustedCapabilitySymbolId,
 ) -> BinderFactResult<bray_diagnostics::Diagnostic> {
@@ -457,7 +517,44 @@ fn trusted_capability_diagnostic(
         .member_name(capability.into())
         .ok_or(BinderFactError::DependencyUnavailable)?;
 
-    Ok(source_diagnostic(anchor, kind).with_arg(DiagnosticArg::referenced_name(name.as_str())))
+    let origins = origins.into_iter().collect::<BTreeSet<_>>();
+    let anchor = origins.first().copied().unwrap_or(fallback);
+    let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+    let mut diagnostic = source_diagnostic(anchor, kind)
+        .with_arg(DiagnosticArg::referenced_name(name.as_str()))
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidTrustedCapabilityRequirement,
+            span,
+        ));
+
+    for origin in origins.into_iter().skip(1) {
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::RequirementOrigin,
+            SourceSpan::new(origin.source_id(), origin.full_range()),
+        ));
+    }
+
+    Ok(diagnostic)
+}
+
+fn trusted_capability_origins<'a>(
+    capability: TrustedCapabilitySymbolId,
+    declared: &'a BTreeMap<
+        TrustedCapabilitySymbolId,
+        BTreeSet<bray_declarations::SyntaxAnchor>,
+    >,
+    used: &'a BTreeMap<TrustedCapabilitySymbolId, &bray_bound_tree::TrustedCapabilityUse>,
+) -> impl Iterator<Item = bray_declarations::SyntaxAnchor> + 'a {
+    declared
+        .get(&capability)
+        .into_iter()
+        .flat_map(|origins| origins.iter().copied())
+        .chain(
+            used.get(&capability)
+                .into_iter()
+                .flat_map(|use_| use_.sources().iter().map(|source| source.syntax())),
+        )
 }
 
 enum ContractClauseSyntax {
@@ -767,13 +864,15 @@ mod tests {
     use bray_binder::SymbolFactProvider;
     use bray_bound_tree::SemanticSelection;
     use bray_diagnostics::{
-        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+        Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
+        DiagnosticRelatedLocationKind, SeverityKind,
     };
     use bray_symbols::{
         CallableContractTemplate, CallableContractsFact, CallableSymbolId,
         DeclarationPredicateClauseKind, NativeLinkKind, NativeLinkRequirement, SymbolFactRequest,
         SymbolFactResult,
     };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::publish_catalog_result;
     use crate::test_support::{
@@ -818,6 +917,11 @@ mod tests {
         );
 
         assert!(diagnostic.primary_span().is_some());
+
+        assert_goal_state_diagnostic_kind(
+            contracts.diagnostics(),
+            DiagnosticKind::CheckingUndeclaredTrustedCapability,
+        );
     }
 
     #[test]
@@ -835,6 +939,25 @@ mod tests {
         assert_eq!(
             diagnostic_kinds(contracts.diagnostics()),
             [DiagnosticKind::CheckingUnusedTrustedCapability]
+        );
+
+        assert_goal_state_diagnostic_kind(
+            contracts.diagnostics(),
+            DiagnosticKind::CheckingUnusedTrustedCapability,
+        );
+
+        let [diagnostic] = contracts.diagnostics().diagnostics() else {
+            panic!("unused capability must publish one diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic
+                .primary_span()
+                .unwrap_or_else(|| panic!("unused capability must retain its declaration"))
+                .range()
+                .len()
+                .bytes(),
+            12
         );
     }
 
@@ -854,6 +977,50 @@ mod tests {
             diagnostic_kinds(contracts.diagnostics()),
             [DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable]
         );
+
+        assert_goal_state_diagnostic_kind(
+            contracts.diagnostics(),
+            DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable,
+        );
+
+        let [diagnostic] = contracts.diagnostics().diagnostics() else {
+            panic!("untrusted capability must publish one diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic
+                .primary_span()
+                .unwrap_or_else(|| panic!("untrusted capability must retain its declaration"))
+                .range()
+                .len()
+                .bytes(),
+            12
+        );
+    }
+
+    #[test]
+    fn undeclared_capability_retains_every_causative_call_origin() {
+        let compilation = trusted_capability_compilation_with_body(
+            "",
+            "    native_call();\n    native_call();\n    native_call();\n",
+        );
+
+        let contracts = callable_contracts(&compilation, "outer");
+
+        assert_goal_state_diagnostic_kind(
+            contracts.diagnostics(),
+            DiagnosticKind::CheckingUndeclaredTrustedCapability,
+        );
+
+        let [diagnostic] = contracts.diagnostics().diagnostics() else {
+            panic!("undeclared capability must publish one diagnostic");
+        };
+
+        assert_eq!(diagnostic.related_locations().len(), 2);
+
+        assert!(diagnostic.related_locations().iter().all(|related| {
+            related.kind() == DiagnosticRelatedLocationKind::RequirementOrigin
+        }));
     }
 
     #[test]
@@ -990,6 +1157,13 @@ mod tests {
     }
 
     fn trusted_capability_compilation(outer_contract: &str) -> Compilation {
+        trusted_capability_compilation_with_body(outer_contract, "    native_call();\n")
+    }
+
+    fn trusted_capability_compilation_with_body(
+        outer_contract: &str,
+        body: &str,
+    ) -> Compilation {
         let source = format!(
             concat!(
                 "trusted module app;\n",
@@ -1001,10 +1175,11 @@ mod tests {
                 "trusted func outer()\n",
                 "{outer_contract}",
                 "{{\n",
-                "    native_call();\n",
+                "{body}",
                 "}}\n",
             ),
             outer_contract = outer_contract,
+            body = body,
         );
 
         let Some(link) = NonEmptySharedStr::try_new("native") else {

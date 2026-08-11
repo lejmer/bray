@@ -6,8 +6,9 @@ use bray_binder::{
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult,
-    SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    DiagnosticResult, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -167,7 +168,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
     ) -> BinderFactResult<Vec<ModuleReExport>> {
         let context = self.context;
         let mut re_exports = Vec::new();
-        let mut exported_names = BTreeSet::new();
+        let mut exported_names = BTreeMap::new();
 
         for declaration in declarations
             .iter()
@@ -192,18 +193,39 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
                 continue;
             };
 
-            // The conflict set shares each export name's Arc-backed text with the published edge.
-            if context
-                .symbols()
-                .lookup_member(module.into(), name.as_str())
-                != MemberLookupResult::NotFound
-                || module_has_declared_child(context.symbols(), module, name.as_str())
-                || !exported_names.insert(name.clone())
+            let member_lookup = context.symbols().lookup_member(module.into(), name.as_str());
+            let mut prior_spans = member_lookup_spans(context.symbols(), &member_lookup);
+
+            prior_spans.extend(module_declared_child_spans(
+                context.symbols(),
+                context.declarations(),
+                module,
+                name.as_str(),
+            ));
+
+            if let Some(prior) = exported_names.get(&name).copied() {
+                prior_spans.push(prior);
+            }
+
+            prior_spans.sort_unstable();
+            prior_spans.dedup();
+
+            if !matches!(member_lookup, MemberLookupResult::NotFound)
+                || !prior_spans.is_empty()
             {
-                diagnostics.add(export_conflict_diagnostic(declaration, &name));
+                diagnostics.add(export_conflict_diagnostic(
+                    declaration,
+                    &name,
+                    prior_spans,
+                ));
 
                 continue;
             }
+
+            exported_names.insert(
+                name.clone(),
+                SourceSpan::new(declaration.source_id(), declaration.full_range()),
+            );
 
             re_exports.push(ModuleReExport::new(
                 declaration.id(),
@@ -396,24 +418,54 @@ fn path_has_acknowledged_prefix(path: &[String], acknowledged: &BTreeSet<Box<[St
         .any(|length| acknowledged.contains(&path[..length]))
 }
 
-fn module_has_declared_child(
+fn module_declared_child_spans(
     symbols: &bray_symbols::SymbolGraph,
+    declarations: &bray_declarations::DeclarationTable,
     module: ModuleSymbolId,
     name: &str,
-) -> bool {
+) -> Vec<SourceSpan> {
     let Some(module) = symbols.module(module) else {
-        return false;
+        return Vec::new();
     };
 
     if module.path().is_recovered() {
-        return false;
+        return Vec::new();
     }
 
     let Some(path) = ModulePathKey::try_new(module.path().segments().chain([name])) else {
-        return false;
+        return Vec::new();
     };
 
-    symbols.module_by_path(module.owner(), &path).is_some()
+    let Some(child) = symbols.module_by_path(module.owner(), &path) else {
+        return Vec::new();
+    };
+
+    child
+        .module_parts()
+        .iter()
+        .filter_map(|id| declarations.module_part(*id))
+        .map(|part| SourceSpan::new(part.source_id(), part.full_range()))
+        .collect()
+}
+
+fn member_lookup_spans(
+    symbols: &bray_symbols::SymbolGraph,
+    result: &MemberLookupResult<AnySymbolId>,
+) -> Vec<SourceSpan> {
+    let candidates: &[AnySymbolId] = match result {
+        MemberLookupResult::Found(candidate) => std::slice::from_ref(candidate),
+        MemberLookupResult::NotFound => &[],
+        MemberLookupResult::WrongKind(candidates)
+        | MemberLookupResult::Ambiguous(candidates)
+        | MemberLookupResult::Inaccessible(candidates)
+        | MemberLookupResult::Malformed(candidates) => candidates,
+    };
+
+    candidates
+        .iter()
+        .filter_map(|candidate| symbols.declaration_syntax_anchor(*candidate))
+        .map(|anchor| SourceSpan::new(anchor.source_id(), anchor.full_range()))
+        .collect()
 }
 
 fn key_is_compiler_known(key: &SymbolKey) -> bool {
@@ -448,7 +500,11 @@ fn path_diagnostic(path: &PathSyntax, kind: DiagnosticKind) -> Diagnostic {
         kind,
         SeverityKind::Error,
     )
-    .with_primary_span(SourceSpan::new(path.source().source_id(), range));
+    .with_primary_span(SourceSpan::new(path.source().source_id(), range))
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::ModuleExport,
+        SourceSpan::new(path.source().source_id(), range),
+    ));
 
     if let Some(token) = token
         && let Some(text) = token.text(path.source().text())
@@ -459,22 +515,38 @@ fn path_diagnostic(path: &PathSyntax, kind: DiagnosticKind) -> Diagnostic {
     diagnostic
 }
 
-fn export_conflict_diagnostic(declaration: &DeclarationRecord, name: &SymbolName) -> Diagnostic {
-    Diagnostic::new(
+fn export_conflict_diagnostic(
+    declaration: &DeclarationRecord,
+    name: &SymbolName,
+    prior_spans: impl IntoIterator<Item = SourceSpan>,
+) -> Diagnostic {
+    let primary_span = SourceSpan::new(declaration.source_id(), declaration.full_range());
+
+    let mut diagnostic = Diagnostic::new(
         DiagnosticId::new(declaration.full_range().start().bytes()),
         DiagnosticKind::BindingConflictingModuleExport,
         SeverityKind::Error,
     )
-    .with_primary_span(SourceSpan::new(
-        declaration.source_id(),
-        declaration.full_range(),
+    .with_primary_span(primary_span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::ModuleExport,
+        primary_span,
     ))
-    .with_arg(DiagnosticArg::referenced_name(name.as_str()))
+    .with_arg(DiagnosticArg::referenced_name(name.as_str()));
+
+    for prior in prior_spans.into_iter().filter(|span| *span != primary_span) {
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::ConflictingDeclaration,
+            prior,
+        ));
+    }
+
+    diagnostic
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_symbols::{
         AnySymbolId, MemberLookupResult, ModulePathKey, ModuleSurfaceFact, PackageIdentity,
         SymbolFactRequest,
@@ -653,10 +725,28 @@ mod tests {
             ),
         ]);
 
-        assert_surface_diagnostic(
+        let conflicting_diagnostics = assert_surface_diagnostic(
             &conflicting,
             "b",
             DiagnosticKind::BindingConflictingModuleExport,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &conflicting_diagnostics,
+            DiagnosticKind::BindingConflictingModuleExport,
+        );
+
+        let [conflict] = conflicting_diagnostics.diagnostics() else {
+            panic!("one conflicting export diagnostic expected");
+        };
+
+        let [prior] = conflict.related_locations() else {
+            panic!("conflicting export must retain its prior declaration");
+        };
+
+        assert_eq!(
+            prior.kind(),
+            bray_diagnostics::DiagnosticRelatedLocationKind::ConflictingDeclaration
         );
 
         let child_module_conflict = compilation([
@@ -665,24 +755,63 @@ mod tests {
             "module source.child;\n",
         ]);
 
-        assert_surface_diagnostic(
+        let child_conflict_diagnostics = assert_surface_diagnostic(
             &child_module_conflict,
             "root",
             DiagnosticKind::BindingConflictingModuleExport,
         );
+
+        let [child_conflict] = child_conflict_diagnostics.diagnostics() else {
+            panic!("one child-module conflict diagnostic expected");
+        };
+
+        assert_eq!(child_conflict.related_locations().len(), 1);
+
+        let duplicate_export = compilation([
+            concat!("module a;\n", "\n", "func run()\n", "{\n", "}\n",),
+            concat!(
+                "module b;\n",
+                "\n",
+                "export a.run;\n",
+                "export a.run;\n",
+            ),
+        ]);
+
+        let duplicate_export_diagnostics = assert_surface_diagnostic(
+            &duplicate_export,
+            "b",
+            DiagnosticKind::BindingConflictingModuleExport,
+        );
+
+        let [duplicate_export] = duplicate_export_diagnostics.diagnostics() else {
+            panic!("one duplicate export diagnostic expected");
+        };
+
+        assert_eq!(duplicate_export.related_locations().len(), 1);
 
         let cyclic = compilation([
             concat!("module a;\n", "\n", "export b.run;\n",),
             concat!("module b;\n", "\n", "export a.run;\n",),
         ]);
 
-        assert_surface_diagnostic(&cyclic, "a", DiagnosticKind::BindingCyclicModuleExport);
+        let cyclic_diagnostics =
+            assert_surface_diagnostic(&cyclic, "a", DiagnosticKind::BindingCyclicModuleExport);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &cyclic_diagnostics,
+            DiagnosticKind::BindingCyclicModuleExport,
+        );
 
         let compiler_known = compilation([concat!("module app;\n", "\n", "export i32;\n",)]);
 
-        assert_surface_diagnostic(
+        let invalid_target_diagnostics = assert_surface_diagnostic(
             &compiler_known,
             "app",
+            DiagnosticKind::BindingInvalidModuleExportTarget,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_target_diagnostics,
             DiagnosticKind::BindingInvalidModuleExportTarget,
         );
     }
@@ -704,7 +833,7 @@ mod tests {
         compilation: &Compilation,
         module_path: &str,
         expected: DiagnosticKind,
-    ) {
+    ) -> DiagnosticBag {
         let symbols = symbol_graph(compilation);
         let module = module(symbols, module_path);
         let cancellation = CancellationToken::new();
@@ -712,6 +841,8 @@ mod tests {
         let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(module));
 
         assert!(surface.diagnostics().by_kind(expected).next().is_some());
+
+        surface.diagnostics().clone()
     }
 
     fn module(symbols: &bray_symbols::SymbolGraph, path: &str) -> bray_symbols::ModuleSymbolId {

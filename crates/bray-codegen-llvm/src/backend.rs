@@ -139,11 +139,11 @@ impl LlvmCodeGenerator {
         let context = Context::create();
 
         let Some((machine, module)) = self.prepare_module(request, &context)? else {
-            return Ok(CodegenOutcome::cancelled());
+            return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         };
 
         if request.cancellation().is_cancelled() {
-            return Ok(CodegenOutcome::cancelled());
+            return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
         module
@@ -151,13 +151,13 @@ impl LlvmCodeGenerator {
             .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
 
         if request.cancellation().is_cancelled() {
-            return Ok(CodegenOutcome::cancelled());
+            return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
         optimize_module(&module, &machine, *request.options())?;
 
         if request.cancellation().is_cancelled() {
-            return Ok(CodegenOutcome::cancelled());
+            return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
         module
@@ -170,7 +170,7 @@ impl LlvmCodeGenerator {
 
         for entry in request.artifacts().entries() {
             if request.cancellation().is_cancelled() {
-                return Ok(CodegenOutcome::cancelled());
+                return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
             }
 
             let kind = entry.id().kind();
@@ -206,7 +206,7 @@ impl LlvmCodeGenerator {
         }
 
         if request.cancellation().is_cancelled() {
-            return Ok(CodegenOutcome::cancelled());
+            return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
         let runtime_metadata = runtime_metadata(request)?;
@@ -244,18 +244,20 @@ impl CodeGenerator for LlvmCodeGenerator {
 
     fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome {
         if request.cancellation().is_cancelled() {
-            return CodegenOutcome::cancelled();
+            return CodegenOutcome::cancelled(DiagnosticBag::new());
         }
 
         if request.backend() != self.identity() {
             return CodegenOutcome::failed(
+                request,
                 CodegenFailure::InvalidConfiguration,
                 DiagnosticBag::new(),
             );
         }
 
-        self.generate_artifacts(request)
-            .unwrap_or_else(|failure| CodegenOutcome::failed(failure, DiagnosticBag::new()))
+        self.generate_artifacts(request).unwrap_or_else(|failure| {
+            CodegenOutcome::failed(request, failure, DiagnosticBag::new())
+        })
     }
 }
 

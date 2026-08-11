@@ -1,17 +1,18 @@
 use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
-use bray_diagnostics::DiagnosticKind;
+use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, ConstantBinaryOperation, ConstantUnaryOperation,
     ConstantValueId, ConstantValueKind, SemanticValueStore, TypeId,
 };
 
-use super::super::operation::{ConstantOperationError, operation_diagnostic_kind};
+use super::super::diagnostic::ConstantDiagnostic;
+use super::super::operation::ConstantOperationError;
 use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext};
 
 pub(super) enum TemplateEvaluationFailure {
     Cancelled,
     Infrastructure(CheckerInfrastructureError),
-    Diagnostic(DiagnosticKind),
+    Diagnostic(ConstantDiagnostic),
 }
 
 impl TemplateEvaluationFailure {
@@ -31,8 +32,11 @@ pub(super) fn fact_failure(error: CheckerFactError) -> TemplateEvaluationFailure
     }
 }
 
-pub(super) fn operation_failure(error: ConstantOperationError) -> TemplateEvaluationFailure {
-    TemplateEvaluationFailure::Diagnostic(operation_diagnostic_kind(error))
+pub(super) fn operation_failure(
+    operation: DiagnosticConstantOperation,
+    error: ConstantOperationError,
+) -> TemplateEvaluationFailure {
+    TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::operation(operation, error))
 }
 
 pub(super) fn constant_definition(symbol: AnySymbolId) -> Option<AnyConstantDefinitionId> {

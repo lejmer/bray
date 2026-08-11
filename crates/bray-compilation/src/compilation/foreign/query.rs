@@ -228,14 +228,16 @@ impl Compilation {
 
             match native_symbols.entry(contract.symbol().to_owned()) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(anchor);
+                    entry.insert(vec![anchor]);
                 }
-                std::collections::btree_map::Entry::Occupied(entry) => {
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
                     diagnostics.add(duplicate_native_symbol(
                         anchor,
                         contract.symbol(),
-                        *entry.get(),
+                        entry.get(),
                     ));
+
+                    entry.get_mut().push(anchor);
                 }
             }
         }
@@ -250,10 +252,16 @@ mod tests {
     use std::sync::Arc;
 
     use bray_base::NonEmptySharedStr;
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
+        DiagnosticCallableAbi, DiagnosticCallableExecution, DiagnosticDirectiveArgumentProblem,
+        DiagnosticKind, DiagnosticNativeLinkDirectiveProblem, DiagnosticNativeSymbolDirectiveProblem,
+        DiagnosticPlatformAbiType, DiagnosticPlatformServiceSignatureProblem,
+    };
     use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
     use bray_symbols::{ForeignCallableDirection, NativeLinkKind, NativeLinkRequirement};
     use bray_target::{TargetAbiFacts, TargetForeignAbiFacts, TargetProfile};
+    use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
 
     use crate::test_support::{
         compilation, compilation_with_options, package_identity, source_function, source_input,
@@ -305,8 +313,8 @@ internal struct PlatformStatus
     native_code: i64;
 }
 
-@abi(c)
-extern trusted internal func flush(pos handle: u32) -> PlatformStatus
+@abi(system)
+extern trusted internal async func flush(pos handle: i32, pos extra: bool) -> i32
     uses(foreign_call);
 "#,
             PlatformServiceRole::StreamFlush,
@@ -319,9 +327,73 @@ extern trusted internal func flush(pos handle: u32) -> PlatformStatus
             .foreign_callable_contract(function)
             .unwrap_or_else(|error| panic!("platform contract query must complete: {error:?}"));
 
-        assert!(result.diagnostics().iter().any(|diagnostic| {
-            diagnostic.kind() == DiagnosticKind::CheckingPlatformServiceSignatureMismatch
-        }));
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingPlatformServiceSignatureMismatch,
+        );
+
+        let problems = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingPlatformServiceSignatureMismatch)
+            .map(|diagnostic| {
+                let Some(DiagnosticArgValue::PlatformServiceSignatureProblem(problem)) = diagnostic
+                    .args()
+                    .iter()
+                    .find(|argument| {
+                        argument.name() == DiagnosticArgName::PlatformServiceSignatureProblem
+                    })
+                    .map(DiagnosticArg::value)
+                else {
+                    panic!("platform signature diagnostic must retain its exact mismatch");
+                };
+
+                problem
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(problems.len(), 5, "{problems:?}");
+
+        assert!(problems.iter().any(|problem| matches!(
+            problem,
+            DiagnosticPlatformServiceSignatureProblem::CallableAbi {
+                actual: DiagnosticCallableAbi::System,
+                ..
+            }
+        )));
+
+        assert!(problems.iter().any(|problem| matches!(
+            problem,
+            DiagnosticPlatformServiceSignatureProblem::Execution {
+                actual: DiagnosticCallableExecution::Asynchronous,
+                ..
+            }
+        )));
+
+        assert!(problems.iter().any(|problem| matches!(
+            problem,
+            DiagnosticPlatformServiceSignatureProblem::ParameterCount {
+                expected: 1,
+                actual: 2,
+                ..
+            }
+        )));
+
+        assert!(problems.iter().any(|problem| matches!(
+            problem,
+            DiagnosticPlatformServiceSignatureProblem::ParameterType {
+                ordinal: 0,
+                expected: DiagnosticPlatformAbiType::U64,
+                ..
+            }
+        )));
+
+        assert!(problems.iter().any(|problem| matches!(
+            problem,
+            DiagnosticPlatformServiceSignatureProblem::ResultType {
+                expected: DiagnosticPlatformAbiType::Status,
+                ..
+            }
+        )));
 
         assert!(result.value().is_none());
     }
@@ -558,6 +630,8 @@ extern trusted func native_read() -> i32
             .foreign_callable_contract(function)
             .unwrap_or_else(|error| panic!("foreign contract query must complete: {error:?}"));
 
+        assert_goal_state_diagnostics(result.diagnostics());
+
         let kinds = result
             .diagnostics()
             .iter()
@@ -567,6 +641,108 @@ extern trusted func native_read() -> i32
         assert!(kinds.contains(&DiagnosticKind::CheckingInvalidNativeLinkDirective));
         assert!(kinds.contains(&DiagnosticKind::CheckingInvalidNativeSymbolDirective));
         assert!(result.value().is_none());
+    }
+
+    #[test]
+    fn unknown_native_link_argument_retains_its_exact_cause() {
+        let compilation = compilation_with_link(
+            r#"trusted module app;
+
+@link(name = "native", unsupported = true)
+@symbol(name = "native_read")
+@abi(c)
+extern trusted func native_read() -> i32
+    uses(foreign_call);
+"#,
+            "native",
+        );
+
+        let function = source_function(&compilation, "native_read");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .unwrap_or_else(|error| panic!("foreign contract check must complete: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingInvalidNativeLinkDirective,
+        );
+
+        let diagnostic = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidNativeLinkDirective)
+            .next()
+            .unwrap_or_else(|| panic!("invalid link directive must be diagnosed"));
+
+        let Some(DiagnosticArgValue::NativeLinkDirectiveProblem(problem)) = diagnostic
+            .args()
+            .iter()
+            .find(|argument| argument.name() == DiagnosticArgName::NativeLinkDirectiveProblem)
+            .map(DiagnosticArg::value)
+        else {
+            panic!("invalid link directive must retain its cause: {diagnostic:?}");
+        };
+
+        assert_eq!(
+            problem,
+            &DiagnosticNativeLinkDirectiveProblem::Argument(
+                DiagnosticDirectiveArgumentProblem::Unknown {
+                    name: String::from("unsupported"),
+                },
+            )
+        );
+    }
+
+    #[test]
+    fn duplicate_native_symbol_argument_retains_its_first_origin() {
+        let compilation = compilation_with_link(
+            r#"trusted module app;
+
+@link(name = "native")
+@symbol(name = "native_read", name = "other")
+@abi(c)
+extern trusted func native_read() -> i32
+    uses(foreign_call);
+"#,
+            "native",
+        );
+
+        let function = source_function(&compilation, "native_read");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .unwrap_or_else(|error| panic!("foreign contract check must complete: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
+        );
+
+        let diagnostic = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidNativeSymbolDirective)
+            .next()
+            .unwrap_or_else(|| panic!("invalid symbol directive must be diagnosed"));
+
+        let Some(DiagnosticArgValue::NativeSymbolDirectiveProblem(problem)) = diagnostic
+            .args()
+            .iter()
+            .find(|argument| argument.name() == DiagnosticArgName::NativeSymbolDirectiveProblem)
+            .map(DiagnosticArg::value)
+        else {
+            panic!("invalid symbol directive must retain its cause: {diagnostic:?}");
+        };
+
+        assert_eq!(
+            problem,
+            &DiagnosticNativeSymbolDirectiveProblem::Argument(
+                DiagnosticDirectiveArgumentProblem::Duplicate {
+                    name: String::from("name"),
+                },
+            )
+        );
+
+        assert_eq!(diagnostic.related_locations().len(), 1);
     }
 
     #[test]
@@ -585,6 +761,8 @@ extern func native_read(pos value: &i32) -> i32;
             .foreign_callable_contract(function)
             .unwrap_or_else(|error| panic!("foreign contract query must complete: {error:?}"));
 
+        assert_goal_state_diagnostics(result.diagnostics());
+
         let kinds = result
             .diagnostics()
             .iter()
@@ -596,6 +774,54 @@ extern func native_read(pos value: &i32) -> i32;
         assert!(kinds.contains(&DiagnosticKind::CheckingForeignAbiTypeUnsupported));
         assert!(kinds.contains(&DiagnosticKind::CheckingMissingForeignCallableDirective));
         assert!(result.value().is_none());
+
+        let trusted = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingForeignCallableRequiresTrusted)
+            .next()
+            .cloned()
+            .unwrap_or_else(|| panic!("foreign trust failure must be present"));
+
+        assert_goal_state_diagnostic_kind(
+            &DiagnosticBag::single(trusted),
+            DiagnosticKind::CheckingForeignCallableRequiresTrusted,
+        );
+
+        let capability = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingForeignCallableRequiresCapability)
+            .next()
+            .cloned()
+            .unwrap_or_else(|| panic!("foreign capability failure must be present"));
+
+        assert_goal_state_diagnostic_kind(
+            &DiagnosticBag::single(capability),
+            DiagnosticKind::CheckingForeignCallableRequiresCapability,
+        );
+
+        let abi_type = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingForeignAbiTypeUnsupported)
+            .next()
+            .cloned()
+            .unwrap_or_else(|| panic!("foreign ABI type failure must be present"));
+
+        assert_goal_state_diagnostic_kind(
+            &DiagnosticBag::single(abi_type),
+            DiagnosticKind::CheckingForeignAbiTypeUnsupported,
+        );
+
+        let link = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingMissingForeignCallableDirective)
+            .next()
+            .cloned()
+            .unwrap_or_else(|| panic!("missing foreign link directive must be present"));
+
+        assert_goal_state_diagnostic_kind(
+            &DiagnosticBag::single(link),
+            DiagnosticKind::CheckingMissingForeignCallableDirective,
+        );
     }
 
     #[test]
@@ -657,6 +883,11 @@ extern trusted func native_read() -> i32
             diagnostic.kind() == DiagnosticKind::CheckingForeignCallableRequiresCapability
         }));
 
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingForeignCallableRequiresCapability,
+        );
+
         assert!(result.value().is_none());
     }
 
@@ -683,6 +914,11 @@ async func async_entry()
             diagnostic.kind() == DiagnosticKind::CheckingForeignCallableExecutionUnsupported
         }));
 
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingForeignCallableExecutionUnsupported,
+        );
+
         assert!(result.value().is_none());
     }
 
@@ -708,6 +944,11 @@ extern trusted func native_read() -> i32
         assert!(result.diagnostics().iter().any(|diagnostic| {
             diagnostic.kind() == DiagnosticKind::CheckingUnavailableNativeLinkInput
         }));
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingUnavailableNativeLinkInput,
+        );
 
         assert!(result.value().is_none());
     }
@@ -744,13 +985,18 @@ func third()
             .filter(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingDuplicateNativeSymbol)
             .collect::<Vec<_>>();
 
-        let first_spans = duplicates
-            .iter()
-            .map(|diagnostic| diagnostic.labels()[0].span())
-            .collect::<Vec<_>>();
-
         assert_eq!(duplicates.len(), 2);
-        assert_eq!(first_spans[0], first_spans[1]);
+        assert_eq!(duplicates[0].related_locations().len(), 1);
+        assert_eq!(duplicates[1].related_locations().len(), 2);
+
+        for diagnostic in &duplicates {
+            bray_testing::assert_goal_state_diagnostic(diagnostic);
+        }
+
+        assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::CheckingDuplicateNativeSymbol,
+        );
     }
 
     fn compilation_with_link(source: &str, name: &str) -> crate::Compilation {

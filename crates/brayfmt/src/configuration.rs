@@ -4,6 +4,7 @@ use std::io;
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 
+use bray_diagnostics::DiagnosticDocumentParseKind;
 use bray_formatter::{FormatterConfiguration, FormatterRule};
 use serde::Deserialize;
 
@@ -15,6 +16,9 @@ pub(crate) enum ConfigurationError {
     },
     Malformed {
         path: PathBuf,
+        parse_kind: DiagnosticDocumentParseKind,
+        line: u64,
+        column: u64,
     },
     UnknownRule {
         path: PathBuf,
@@ -42,9 +46,17 @@ pub(crate) fn load_configuration(
         io_error_kind: error.kind(),
     })?;
 
-    let file = serde_json::from_slice::<ConfigurationFile>(&bytes).map_err(|_| {
+    let file = serde_json::from_slice::<ConfigurationFile>(&bytes).map_err(|error| {
         ConfigurationError::Malformed {
             path: path.to_path_buf(),
+            parse_kind: match error.classify() {
+                serde_json::error::Category::Io => DiagnosticDocumentParseKind::Input,
+                serde_json::error::Category::Syntax => DiagnosticDocumentParseKind::Syntax,
+                serde_json::error::Category::Data => DiagnosticDocumentParseKind::Schema,
+                serde_json::error::Category::Eof => DiagnosticDocumentParseKind::UnexpectedEnd,
+            },
+            line: u64::try_from(error.line()).unwrap_or(u64::MAX),
+            column: u64::try_from(error.column()).unwrap_or(u64::MAX),
         }
     })?;
 

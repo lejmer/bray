@@ -11,6 +11,7 @@ use bray_symbols::{
     CallableAbi, CallableExecution, CallableSignatureTemplate, CallableTrust, DeclaredLayoutMode,
     FunctionSymbolId, GenericArgument, NamedTypeSymbolId, SemanticValueStore, StructFieldTypeFact,
     StructSymbolId, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
+    diagnostic_callable_abi, diagnostic_callable_execution,
 };
 use bray_syntax::FunctionDeclarationSyntax;
 
@@ -80,10 +81,13 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
     }
 
     if callable.execution == CallableExecution::Asynchronous {
-        diagnostics.add(source_diagnostic(
-            anchor,
-            bray_diagnostics::DiagnosticKind::CheckingForeignCallableExecutionUnsupported,
-        ));
+        diagnostics.add(
+            source_diagnostic(
+                anchor,
+                bray_diagnostics::DiagnosticKind::CheckingForeignCallableExecutionUnsupported,
+            )
+            .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi))),
+        );
     }
 
     let symbols = compilation.symbol_graph()?;
@@ -159,10 +163,13 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
     if syntax.function_modifiers().extern_token().is_some()
         && callable.trust != CallableTrust::Trusted
     {
-        diagnostics.add(source_diagnostic(
-            anchor,
-            bray_diagnostics::DiagnosticKind::CheckingForeignCallableRequiresTrusted,
-        ));
+        diagnostics.add(
+            source_diagnostic(
+                anchor,
+                bray_diagnostics::DiagnosticKind::CheckingForeignCallableRequiresTrusted,
+            )
+            .with_arg(DiagnosticArg::callable_abi(diagnostic_abi(abi))),
+        );
     }
 
     Ok(())
@@ -178,37 +185,127 @@ pub(in crate::compilation::foreign) fn validate_platform_service_surface(
 ) -> Result<(), FactQueryError> {
     let expected = role.signature();
 
-    let parameters_match = callable.parameters.len() == expected.parameters().len()
-        && callable
+    let role = bray_diagnostics::DiagnosticPlatformServiceRole::try_new(role.id())
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    if callable.abi != CallableAbi::C {
+        diagnostics.add(platform_service_signature_diagnostic(
+            anchor,
+            bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::CallableAbi {
+                role,
+                actual: diagnostic_callable_abi(callable.abi),
+            },
+        ));
+    }
+
+    if callable.execution != CallableExecution::Synchronous {
+        diagnostics.add(platform_service_signature_diagnostic(
+            anchor,
+            bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::Execution {
+                role,
+                actual: diagnostic_callable_execution(callable.execution),
+            },
+        ));
+    }
+
+    if callable.parameters.len() != expected.parameters().len() {
+        let actual = u64::try_from(callable.parameters.len())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let expected_count = u64::try_from(expected.parameters().len())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        diagnostics.add(platform_service_signature_diagnostic(
+            anchor,
+            bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::ParameterCount {
+                role,
+                expected: expected_count,
+                actual,
+            },
+        ));
+    }
+
+    for (ordinal, (actual, expected)) in (0u64..).zip(
+        callable
             .parameters
             .iter()
-            .zip(expected.parameters())
-            .map(|(actual, expected)| {
-                platform_abi_type_matches(compilation, actual, *expected, cancellation)
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .all(|matches| matches);
+            .zip(expected.parameters().iter().copied()),
+    ) {
+        if platform_abi_type_matches(compilation, actual, expected, cancellation)? {
+            continue;
+        }
 
-    let result_matches = platform_abi_type_matches(
+        diagnostics.add(platform_service_signature_diagnostic(
+            anchor,
+            bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::ParameterType {
+                role,
+                ordinal,
+                expected: diagnostic_platform_abi_type(expected),
+                actual: template_diagnostic_type(compilation, actual, cancellation)?,
+            },
+        ));
+    }
+
+    if !platform_abi_type_matches(
         compilation,
         &callable.result,
         expected.result(),
         cancellation,
-    )?;
-
-    if callable.abi != CallableAbi::C
-        || callable.execution != CallableExecution::Synchronous
-        || !parameters_match
-        || !result_matches
-    {
-        diagnostics.add(source_diagnostic(
+    )? {
+        diagnostics.add(platform_service_signature_diagnostic(
             anchor,
-            bray_diagnostics::DiagnosticKind::CheckingPlatformServiceSignatureMismatch,
+            bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::ResultType {
+                role,
+                expected: diagnostic_platform_abi_type(expected.result()),
+                actual: template_diagnostic_type(compilation, &callable.result, cancellation)?,
+            },
         ));
     }
 
     Ok(())
+}
+
+fn platform_service_signature_diagnostic(
+    anchor: bray_declarations::SyntaxAnchor,
+    problem: bray_diagnostics::DiagnosticPlatformServiceSignatureProblem,
+) -> bray_diagnostics::Diagnostic {
+    source_diagnostic(
+        anchor,
+        bray_diagnostics::DiagnosticKind::CheckingPlatformServiceSignatureMismatch,
+    )
+    .with_arg(DiagnosticArg::platform_service_signature_problem(problem))
+}
+
+const fn diagnostic_platform_abi_type(
+    ty: bray_runtime_interface::PlatformAbiType,
+) -> bray_diagnostics::DiagnosticPlatformAbiType {
+    use bray_diagnostics::DiagnosticPlatformAbiType as Diagnostic;
+    use bray_runtime_interface::PlatformAbiType;
+
+    match ty {
+        PlatformAbiType::I32 => Diagnostic::I32,
+        PlatformAbiType::U32 => Diagnostic::U32,
+        PlatformAbiType::U64 => Diagnostic::U64,
+        PlatformAbiType::I64 => Diagnostic::I64,
+        PlatformAbiType::PointerU8 => Diagnostic::PointerU8,
+        PlatformAbiType::PointerU32 => Diagnostic::PointerU32,
+        PlatformAbiType::PointerU64 => Diagnostic::PointerU64,
+        PlatformAbiType::PointerI64 => Diagnostic::PointerI64,
+        PlatformAbiType::RawAddressPointer => Diagnostic::RawAddressPointer,
+        PlatformAbiType::Path => Diagnostic::Path,
+        PlatformAbiType::NativeText => Diagnostic::NativeText,
+        PlatformAbiType::FileOptions => Diagnostic::FileOptions,
+        PlatformAbiType::FileMetadataPointer => Diagnostic::FileMetadataPointer,
+        PlatformAbiType::ChildRequest => Diagnostic::ChildRequest,
+        PlatformAbiType::ExitStatusPointer => Diagnostic::ExitStatusPointer,
+        PlatformAbiType::TemporalDateTime => Diagnostic::TemporalDateTime,
+        PlatformAbiType::TemporalDateTimePointer => Diagnostic::TemporalDateTimePointer,
+        PlatformAbiType::TemporalObservationPointer => Diagnostic::TemporalObservationPointer,
+        PlatformAbiType::TemporalResolutionPointer => Diagnostic::TemporalResolutionPointer,
+        PlatformAbiType::TemporalValue => Diagnostic::TemporalValue,
+        PlatformAbiType::TemporalValuePointer => Diagnostic::TemporalValuePointer,
+        PlatformAbiType::Status => Diagnostic::Status,
+    }
 }
 
 fn platform_abi_type_matches(

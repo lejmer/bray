@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod builder;
+mod fixed_text;
 mod fragment;
 mod green;
 mod kind;

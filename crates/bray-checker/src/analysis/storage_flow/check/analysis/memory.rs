@@ -1,9 +1,14 @@
+use std::collections::BTreeMap;
+
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpressionId, CheckedMemoryOperationKind, MemoryOperationDecision,
     MemoryOperationStatus, RefinementFact, RefinementFactKind, StorageAccessPurpose,
     StorageIdentity, StorageIdentityId,
 };
-use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
+};
 
 use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
@@ -42,13 +47,24 @@ fn copy_raw_state(
         state.raw_initialized.insert(destination, initialized);
     }
 
-    if state.active_allocations.contains(&source) {
-        state.active_allocations.insert(destination);
+    if let Some(origins) = state.active_allocations.get(&source).cloned() {
+        state.active_allocations.insert(destination, origins);
     }
 
-    if state.invalidated_allocations.contains(&source) {
-        state.invalidated_allocations.insert(destination);
+    if let Some(origins) = state.allocation_origins.get(&source).cloned() {
+        state.allocation_origins.insert(destination, origins);
     }
+
+    if let Some(origins) = state.invalidated_allocations.get(&source).cloned() {
+        state.invalidated_allocations.insert(destination, origins);
+    }
+}
+
+fn has_raw_state(state: &StorageFlowState, storage: StorageIdentityId) -> bool {
+    state.raw_initialized.contains_key(&storage)
+        || state.active_allocations.contains_key(&storage)
+        || state.allocation_origins.contains_key(&storage)
+        || state.invalidated_allocations.contains_key(&storage)
 }
 
 const fn conservative_memory_status(
@@ -77,7 +93,7 @@ const fn memory_status_rank(status: MemoryOperationStatus) -> u8 {
 const fn memory_diagnostic_kind(status: MemoryOperationStatus) -> Option<DiagnosticKind> {
     match status {
         MemoryOperationStatus::MissingTrustedFacts => {
-            Some(DiagnosticKind::CheckingMissingTrustedMemoryFacts)
+            Some(DiagnosticKind::CheckingMissingTrustedMemoryGuarantees)
         }
         MemoryOperationStatus::InvalidatedAllocation => {
             Some(DiagnosticKind::CheckingMemoryOperationAfterDeallocation)
@@ -107,15 +123,38 @@ where
             return;
         };
 
-        if self.memory.operation(expression).is_none() {
-            return;
-        }
-
-        let Some(source) = self.operation_result_storage(expression) else {
+        let Some(bound) = self.request.unit().tree().expression(expression) else {
             return;
         };
 
+        if let Some(result) = self.expression_result_storage(expression) {
+            let mut child_source = None;
+
+            for child in bound.child_expressions() {
+                let Some(storage) = self.expression_value_storage(state, child) else {
+                    continue;
+                };
+
+                match child_source {
+                    Some(previous) if previous != storage => {
+                        child_source = None;
+                        break;
+                    }
+                    Some(_) => {}
+                    None => child_source = Some(storage),
+                }
+            }
+
+            if let Some(source) = child_source {
+                copy_raw_state(state, source, result);
+            }
+        }
+
         let Some(destination) = self.input.initialization_destination(expression) else {
+            return;
+        };
+
+        let Some(source) = self.expression_value_storage(state, expression) else {
             return;
         };
 
@@ -203,7 +242,8 @@ where
                 .or_insert(status);
 
             if let Some(kind) = memory_diagnostic_kind(status) {
-                self.add_memory_diagnostic(kind, expression);
+                let origins = self.memory_failure_origins(state, operation, status);
+                self.add_memory_diagnostic(kind, operation, origins);
             }
         }
     }
@@ -225,7 +265,9 @@ where
                     .raw_initialized
                     .entry(result)
                     .or_default()
-                    .insert(pointee);
+                    .entry(pointee)
+                    .or_default()
+                    .insert(operation.expression());
             }
             CheckedMemoryOperationKind::Null { .. } => {}
             CheckedMemoryOperationKind::IsNull { .. }
@@ -263,7 +305,7 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_raw_write(state, pointer, pointee);
+                return apply_raw_write(state, pointer, pointee, operation.expression());
             }
             CheckedMemoryOperationKind::Copy { pointee, .. } => {
                 let [source, destination, ..] = arguments else {
@@ -278,14 +320,31 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_raw_copy(state, source, destination, pointee);
+                return apply_raw_copy(
+                    state,
+                    source,
+                    destination,
+                    pointee,
+                    operation.expression(),
+                );
             }
             CheckedMemoryOperationKind::RawAllocate | CheckedMemoryOperationKind::Allocate => {
                 let Some(result) = self.operation_result_storage(operation.expression()) else {
                     return MemoryOperationStatus::Recovered;
                 };
 
-                state.active_allocations.insert(result);
+                state
+                    .active_allocations
+                    .entry(result)
+                    .or_default()
+                    .insert(operation.expression());
+
+                state
+                    .allocation_origins
+                    .entry(result)
+                    .or_default()
+                    .insert(operation.expression());
+
                 state.invalidated_allocations.remove(&result);
             }
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
@@ -296,7 +355,7 @@ where
                     return MemoryOperationStatus::Recovered;
                 };
 
-                return apply_deallocation(state, pointer);
+                return apply_deallocation(state, pointer, operation.expression());
             }
             CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferCopy
@@ -326,6 +385,13 @@ where
     }
 
     fn operation_result_storage(&self, expression: BoundExpressionId) -> Option<StorageIdentityId> {
+        self.expression_result_storage(expression)
+    }
+
+    fn expression_result_storage(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<StorageIdentityId> {
         self.storage.identity_entries().find_map(|(id, identity)| {
             matches!(
                 identity,
@@ -336,7 +402,110 @@ where
         })
     }
 
-    fn add_memory_diagnostic(&mut self, kind: DiagnosticKind, expression: BoundExpressionId) {
+    fn expression_value_storage(
+        &self,
+        state: &StorageFlowState,
+        expression: BoundExpressionId,
+    ) -> Option<StorageIdentityId> {
+        self.expression_result_storage(expression)
+            .filter(|storage| has_raw_state(state, *storage))
+            .or_else(|| {
+                self.storage
+                    .access_plans()
+                    .iter()
+                    .filter(|plan| plan.expression() == expression)
+                    .filter_map(|plan| self.storage.root_identity(plan.access()))
+                    .find(|storage| has_raw_state(state, *storage))
+            })
+    }
+
+    fn memory_failure_origins(
+        &self,
+        state: &StorageFlowState,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+        status: MemoryOperationStatus,
+    ) -> Vec<(DiagnosticRelatedLocationKind, Vec<BoundExpressionId>)> {
+        let storages = operation
+            .arguments()
+            .iter()
+            .filter_map(|argument| self.argument_storage(*argument))
+            .collect::<Vec<_>>();
+
+        match status {
+            MemoryOperationStatus::InvalidatedAllocation => vec![
+                (
+                    DiagnosticRelatedLocationKind::AllocationOrigin,
+                    storages
+                        .iter()
+                        .flat_map(|storage| {
+                            state
+                                .allocation_origins
+                                .get(storage)
+                                .into_iter()
+                                .flatten()
+                                .copied()
+                        })
+                        .collect(),
+                ),
+                (
+                    DiagnosticRelatedLocationKind::DeallocationOrigin,
+                    storages
+                        .iter()
+                        .flat_map(|storage| {
+                            state
+                                .invalidated_allocations
+                                .get(storage)
+                                .into_iter()
+                                .flatten()
+                                .copied()
+                        })
+                        .collect(),
+                ),
+            ],
+            MemoryOperationStatus::UninitializedRawStorage => vec![(
+                DiagnosticRelatedLocationKind::AllocationOrigin,
+                storages
+                    .iter()
+                    .flat_map(|storage| {
+                        state
+                            .allocation_origins
+                            .get(storage)
+                            .into_iter()
+                            .flatten()
+                            .copied()
+                    })
+                    .collect(),
+            )],
+            MemoryOperationStatus::OutstandingObligations => vec![(
+                DiagnosticRelatedLocationKind::InitializationOrigin,
+                storages
+                    .iter()
+                    .flat_map(|storage| {
+                        state
+                            .raw_initialized
+                            .get(storage)
+                            .into_iter()
+                            .flat_map(BTreeMap::values)
+                            .flatten()
+                            .copied()
+                    })
+                    .collect(),
+            )],
+            MemoryOperationStatus::Unreachable
+            | MemoryOperationStatus::Valid
+            | MemoryOperationStatus::Recovered
+            | MemoryOperationStatus::MissingTrustedFacts => Vec::new(),
+        }
+    }
+
+    fn add_memory_diagnostic(
+        &mut self,
+        kind: DiagnosticKind,
+        operation: &bray_bound_tree::CheckedMemoryOperation,
+        origins: Vec<(DiagnosticRelatedLocationKind, Vec<BoundExpressionId>)>,
+    ) {
+        let expression = operation.expression();
+
         if !self.reported_memory_diagnostics.insert((kind, expression)) {
             return;
         }
@@ -356,14 +525,39 @@ where
             }
         };
 
-        self.diagnostics.add(
-            Diagnostic::new(
+        let mut diagnostic = Diagnostic::new(
                 DiagnosticId::from_index(self.diagnostics.len()),
                 kind,
                 SeverityKind::Error,
             )
-            .with_primary_span(span),
-        );
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::MemoryOperationFailure,
+                span,
+            ))
+            .with_arg(DiagnosticArg::memory_operation(
+                crate::memory::diagnostic_checked_memory_operation(operation.kind()),
+            ));
+
+        for (kind, origins) in origins {
+            for origin in origins.into_iter().collect::<std::collections::BTreeSet<_>>() {
+                let Some(node) = self.request.view().expression(origin) else {
+                    continue;
+                };
+
+                let Ok(source) = self.request.source(node.origin().source_anchor()) else {
+                    continue;
+                };
+
+                if source.span() != span {
+                    diagnostic = diagnostic.with_related_location(
+                        DiagnosticRelatedLocation::new(kind, source.span()),
+                    );
+                }
+            }
+        }
+
+        self.diagnostics.add(diagnostic);
     }
 
     pub(super) fn memory_decisions(&self) -> impl Iterator<Item = MemoryOperationDecision> + '_ {
@@ -379,7 +573,7 @@ fn apply_raw_read(
     pointee: bray_symbols::TypeId,
     kind: bray_bound_tree::MemoryReadKind,
 ) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains(&pointer) {
+    if state.invalidated_allocations.contains_key(&pointer) {
         return MemoryOperationStatus::InvalidatedAllocation;
     }
 
@@ -387,7 +581,7 @@ fn apply_raw_read(
         return MemoryOperationStatus::UninitializedRawStorage;
     };
 
-    if !initialized.contains(&pointee) {
+    if !initialized.contains_key(&pointee) {
         return MemoryOperationStatus::UninitializedRawStorage;
     }
 
@@ -402,8 +596,9 @@ fn apply_raw_write(
     state: &mut StorageFlowState,
     pointer: StorageIdentityId,
     pointee: bray_symbols::TypeId,
+    origin: BoundExpressionId,
 ) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains(&pointer) {
+    if state.invalidated_allocations.contains_key(&pointer) {
         return MemoryOperationStatus::InvalidatedAllocation;
     }
 
@@ -411,7 +606,9 @@ fn apply_raw_write(
         .raw_initialized
         .entry(pointer)
         .or_default()
-        .insert(pointee);
+        .entry(pointee)
+        .or_default()
+        .insert(origin);
 
     MemoryOperationStatus::Valid
 }
@@ -421,9 +618,10 @@ fn apply_raw_copy(
     source: StorageIdentityId,
     destination: StorageIdentityId,
     pointee: bray_symbols::TypeId,
+    origin: BoundExpressionId,
 ) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains(&source)
-        || state.invalidated_allocations.contains(&destination)
+    if state.invalidated_allocations.contains_key(&source)
+        || state.invalidated_allocations.contains_key(&destination)
     {
         return MemoryOperationStatus::InvalidatedAllocation;
     }
@@ -431,7 +629,7 @@ fn apply_raw_copy(
     if !state
         .raw_initialized
         .get(&source)
-        .is_some_and(|initialized| initialized.contains(&pointee))
+        .is_some_and(|initialized| initialized.contains_key(&pointee))
     {
         return MemoryOperationStatus::UninitializedRawStorage;
     }
@@ -440,7 +638,9 @@ fn apply_raw_copy(
         .raw_initialized
         .entry(destination)
         .or_default()
-        .insert(pointee);
+        .entry(pointee)
+        .or_default()
+        .insert(origin);
 
     MemoryOperationStatus::Valid
 }
@@ -448,8 +648,9 @@ fn apply_raw_copy(
 fn apply_deallocation(
     state: &mut StorageFlowState,
     pointer: StorageIdentityId,
+    origin: BoundExpressionId,
 ) -> MemoryOperationStatus {
-    if state.invalidated_allocations.contains(&pointer) {
+    if state.invalidated_allocations.contains_key(&pointer) {
         return MemoryOperationStatus::InvalidatedAllocation;
     }
 
@@ -463,7 +664,12 @@ fn apply_deallocation(
 
     state.active_allocations.remove(&pointer);
     state.raw_initialized.remove(&pointer);
-    state.invalidated_allocations.insert(pointer);
+
+    state
+        .invalidated_allocations
+        .entry(pointer)
+        .or_default()
+        .insert(origin);
 
     MemoryOperationStatus::Valid
 }
@@ -509,12 +715,12 @@ mod tests {
         let mut state = StorageFlowState::default();
 
         assert_eq!(
-            apply_raw_write(&mut state, source, ty),
+            apply_raw_write(&mut state, source, ty, expressions[0]),
             MemoryOperationStatus::Valid
         );
 
         assert_eq!(
-            apply_raw_copy(&mut state, source, destination, ty),
+            apply_raw_copy(&mut state, source, destination, ty, expressions[1]),
             MemoryOperationStatus::Valid
         );
 
@@ -534,19 +740,19 @@ mod tests {
         );
 
         assert_eq!(
-            apply_deallocation(&mut state, destination),
+            apply_deallocation(&mut state, destination, expressions[1]),
             MemoryOperationStatus::OutstandingObligations
         );
 
         state.raw_initialized.remove(&destination);
 
         assert_eq!(
-            apply_deallocation(&mut state, destination),
+            apply_deallocation(&mut state, destination, expressions[1]),
             MemoryOperationStatus::Valid
         );
 
         assert_eq!(
-            apply_raw_write(&mut state, destination, ty),
+            apply_raw_write(&mut state, destination, ty, expressions[1]),
             MemoryOperationStatus::InvalidatedAllocation
         );
     }

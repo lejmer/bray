@@ -4,13 +4,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use bray_base::{FileReplacementMode, StagedFile};
-use bray_compilation::{Compilation, CompilationProfileReport, CompilationRequest};
+use bray_compilation::{
+    Compilation, CompilationLoadError, CompilationProfileReport, CompilationRequest,
+};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    SeverityKind,
+    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticProjectCommandFailure,
 };
 use bray_tooling::{
-    InspectionOutput, OutputFormat, compilation_request_from_file_arguments,
+    InspectionError, InspectionOutput, OutputFormat, compilation_request_from_file_arguments,
     exit_code_from_diagnostics, load_compilation, render_bound_inspection,
     render_declaration_inspection, render_lowered_inspection, render_mir_inspection,
     render_source_inspection, render_symbol_inspection, render_syntax_inspection,
@@ -18,6 +19,7 @@ use bray_tooling::{
 };
 
 use crate::command::{DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions};
+use crate::run::diagnostic::artifact_write_failure;
 use crate::run::{run_build_command, write_driver_output, write_driver_output_error};
 
 /// Structured result from running the Bray compiler driver.
@@ -328,8 +330,8 @@ fn run_check_command(
     output_format: OutputFormat,
 ) -> DriverRunResult {
     let compilation = match load_compilation(request) {
-        Some(compilation) => compilation,
-        None => return compilation_load_failure_result(output_format),
+        Ok(compilation) => compilation,
+        Err(error) => return compilation_load_failure_result(error, output_format),
     };
 
     let mut diagnostics = compilation.check_diagnostics().clone();
@@ -359,8 +361,8 @@ fn run_inspect_source_command(
     output_format: OutputFormat,
 ) -> DriverRunResult {
     let compilation = match load_compilation(request) {
-        Some(compilation) => compilation,
-        None => return compilation_load_failure_result(output_format),
+        Ok(compilation) => compilation,
+        Err(error) => return compilation_load_failure_result(error, output_format),
     };
 
     if !compilation.source_diagnostics().is_empty() {
@@ -371,7 +373,7 @@ fn run_inspect_source_command(
 
     let stdout = match render_source_inspection(&compilation, output_format) {
         Ok(stdout) => stdout,
-        Err(_) => return compilation_load_failure_result(output_format),
+        Err(error) => return inspection_failure_result(error, output_format),
     };
 
     DriverRunResult::with_output_and_compilation(
@@ -383,14 +385,14 @@ fn run_inspect_source_command(
     )
 }
 
-fn run_fact_inspection_command<E>(
+fn run_fact_inspection_command(
     request: CompilationRequest,
     output_format: OutputFormat,
-    render: impl FnOnce(&Compilation, OutputFormat) -> Result<InspectionOutput, E>,
+    render: impl FnOnce(&Compilation, OutputFormat) -> Result<InspectionOutput, InspectionError>,
 ) -> DriverRunResult {
     let compilation = match load_compilation(request) {
-        Some(compilation) => compilation,
-        None => return compilation_load_failure_result(output_format),
+        Ok(compilation) => compilation,
+        Err(error) => return compilation_load_failure_result(error, output_format),
     };
 
     if !compilation.source_diagnostics().is_empty() {
@@ -401,7 +403,7 @@ fn run_fact_inspection_command<E>(
 
     let output = match render(&compilation, output_format) {
         Ok(output) => output,
-        Err(_) => return compilation_load_failure_result(output_format),
+        Err(error) => return inspection_failure_result(error, output_format),
     };
 
     let (stdout, diagnostics) = output.into_parts();
@@ -436,8 +438,38 @@ pub(super) fn driver_result_from_compilation(
     DriverRunResult::with_compilation(exit_code, diagnostics, output_format, compilation)
 }
 
-fn compilation_load_failure_result(output_format: OutputFormat) -> DriverRunResult {
-    DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format)
+fn compilation_load_failure_result(
+    error: CompilationLoadError,
+    output_format: OutputFormat,
+) -> DriverRunResult {
+    DriverRunResult::new(
+        ExitCode::FAILURE,
+        DiagnosticBag::single(error.diagnostic()),
+        output_format,
+    )
+}
+
+fn inspection_failure_result(
+    error: InspectionError,
+    output_format: OutputFormat,
+) -> DriverRunResult {
+    project_command_failure_result(
+        DiagnosticProjectCommandFailure::Inspection(error),
+        output_format,
+    )
+}
+
+fn project_command_failure_result(
+    failure: DiagnosticProjectCommandFailure,
+    output_format: OutputFormat,
+) -> DriverRunResult {
+    let diagnostic = failure.diagnostic(DiagnosticId::new(0));
+
+    DriverRunResult::new(
+        ExitCode::FAILURE,
+        DiagnosticBag::single(diagnostic),
+        output_format,
+    )
 }
 
 pub(super) fn compilation_request(
@@ -496,10 +528,10 @@ fn publish_package_interface(
     let bundle = compilation
         .package_interface_export_bundle()
         .and_then(|result| result.as_ref().ok())
-        .ok_or_else(|| publication_diagnostic(diagnostic_id, destination, io::ErrorKind::Other))?;
+        .ok_or_else(|| artifact_write_failure(diagnostic_id, destination, io::ErrorKind::Other))?;
 
     let artifact = bray_package_interface::encode_package_interface(bundle).map_err(|_| {
-        publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData)
+        artifact_write_failure(diagnostic_id, destination, io::ErrorKind::InvalidData)
     })?;
 
     let implementation =
@@ -509,7 +541,7 @@ fn publish_package_interface(
             bray_package_interface::InterfaceValidationLimits::default(),
         )
         .map_err(|_| {
-            publication_diagnostic(diagnostic_id, destination, io::ErrorKind::InvalidData)
+            artifact_write_failure(diagnostic_id, destination, io::ErrorKind::InvalidData)
         })?;
 
     publish_artifact(destination, artifact.bytes(), diagnostic_id)?;
@@ -530,28 +562,16 @@ fn publish_artifact(
 ) -> Result<(), Diagnostic> {
     let mut staging =
         StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
-            .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))?;
+            .map_err(|error| artifact_write_failure(diagnostic_id, destination, error.kind()))?;
 
     staging
         .write_all(bytes)
-        .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))?;
+        .map_err(|error| artifact_write_failure(diagnostic_id, destination, error.kind()))?;
 
     staging
         .finish()
         .and_then(|staged| staged.promote(destination))
-        .map_err(|error| publication_diagnostic(diagnostic_id, destination, error.kind()))
-}
-
-fn publication_diagnostic(id: DiagnosticId, path: &Path, kind: io::ErrorKind) -> Diagnostic {
-    Diagnostic::new(
-        id,
-        DiagnosticKind::EmissionArtifactWriteFailed,
-        SeverityKind::Error,
-    )
-    .with_arg(DiagnosticArg::file_path(path))
-    .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
-        kind,
-    )))
+        .map_err(|error| artifact_write_failure(diagnostic_id, destination, error.kind()))
 }
 
 #[cfg(test)]
@@ -732,7 +752,7 @@ mod tests {
             DiagnosticKind::CompilerProfileWriteFailed.as_str()
         );
 
-        assert_eq!(argument_names, ["file_path", "io_error_kind"]);
+        assert_eq!(argument_names, ["project_command_failure"]);
         assert!(!report.exists());
     }
 
@@ -775,6 +795,11 @@ mod tests {
                 .by_kind(DiagnosticKind::SourceInvalidUtf8)
                 .count(),
             1
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::SourceInvalidUtf8,
         );
     }
 
@@ -836,6 +861,11 @@ mod tests {
                 .count(),
             1
         );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::SourceFileReadFailed,
+        );
     }
 
     #[test]
@@ -894,7 +924,7 @@ mod tests {
             Err(error) => panic!("stdout should be UTF-8: {error:?}"),
         };
 
-        assert!(stdout.contains("The Bray compiler"));
+        assert!(stdout.contains("Compile and inspect explicitly selected Bray source files"));
         assert!(stdout.contains("\x1b[36mUsage:\x1b[0m"));
         assert!(stdout.contains("Usage:"));
         assert!(stdout.contains("check"));
@@ -1013,8 +1043,8 @@ mod tests {
         };
 
         assert!(stderr.contains("error E1002"));
-        assert!(stderr.contains("source input contains invalid UTF-8"));
-        assert!(!stderr.contains("byte offset 0"));
+        assert!(stderr.contains("file source input 0 at"));
+        assert!(stderr.contains("contains invalid UTF-8 starting at byte offset 0"));
         assert!(!stderr.contains("source_invalid_utf8"));
     }
 
@@ -1754,7 +1784,8 @@ mod tests {
         assert_eq!(exit_code, ExitCode::FAILURE);
         assert!(stdout.is_empty());
 
-        assert!(String::from_utf8_lossy(&stderr).contains("could not write inspection report"));
+        assert!(String::from_utf8_lossy(&stderr)
+            .contains("could not write the compiler inspection report at"));
 
         assert!(!report.exists());
     }

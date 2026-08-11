@@ -352,18 +352,22 @@ where
 
             let role = match expression {
                 BoundExpression::Structured(source) => match (source.kind(), borrow_kind) {
-                    (BoundStructuredExpressionKind::ElementIndex, bray_symbols::BorrowKind::Shared) => {
-                        CompilerKnownOperationRole::ElementIndex
-                    }
-                    (BoundStructuredExpressionKind::ElementIndex, bray_symbols::BorrowKind::Mutable) => {
-                        CompilerKnownOperationRole::MutableElementIndex
-                    }
-                    (BoundStructuredExpressionKind::SliceIndex, bray_symbols::BorrowKind::Shared) => {
-                        CompilerKnownOperationRole::SliceIndex
-                    }
-                    (BoundStructuredExpressionKind::SliceIndex, bray_symbols::BorrowKind::Mutable) => {
-                        CompilerKnownOperationRole::MutableSliceIndex
-                    }
+                    (
+                        BoundStructuredExpressionKind::ElementIndex,
+                        bray_symbols::BorrowKind::Shared,
+                    ) => CompilerKnownOperationRole::ElementIndex,
+                    (
+                        BoundStructuredExpressionKind::ElementIndex,
+                        bray_symbols::BorrowKind::Mutable,
+                    ) => CompilerKnownOperationRole::MutableElementIndex,
+                    (
+                        BoundStructuredExpressionKind::SliceIndex,
+                        bray_symbols::BorrowKind::Shared,
+                    ) => CompilerKnownOperationRole::SliceIndex,
+                    (
+                        BoundStructuredExpressionKind::SliceIndex,
+                        bray_symbols::BorrowKind::Mutable,
+                    ) => CompilerKnownOperationRole::MutableSliceIndex,
                     _ => {
                         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
                     }

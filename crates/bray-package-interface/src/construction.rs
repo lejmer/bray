@@ -53,13 +53,27 @@ impl<'surface> LoadedInterfaceSurface<'surface> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImportedSymbolConstructionError {
     /// More than one loaded interface uses the same package identity.
-    DuplicatePackage(PackageIdentity),
+    DuplicatePackage {
+        /// Repeated package identity.
+        package: PackageIdentity,
+        /// Previously loaded interface claiming the identity.
+        first: ImportedInterfaceId,
+        /// Later loaded interface claiming the identity.
+        duplicate: ImportedInterfaceId,
+    },
     /// A dependency package required by an interface is not loaded.
-    MissingDependency(PackageIdentity),
+    MissingDependency {
+        /// Interface requiring the unavailable dependency.
+        importing: ImportedInterfaceId,
+        /// Required dependency package.
+        package: PackageIdentity,
+    },
     /// A loaded dependency product does not match the exact selected product.
     DependencyProductMismatch {
         /// Required dependency package.
         package: PackageIdentity,
+        /// Interface declaring the dependency requirement.
+        importing: ImportedInterfaceId,
         /// Product required by the importing interface.
         expected: InterfaceProductIdentity,
         /// Product supplied by the loaded interface.
@@ -69,6 +83,8 @@ pub enum ImportedSymbolConstructionError {
     DependencyContentMismatch {
         /// Required dependency package.
         package: PackageIdentity,
+        /// Interface declaring the dependency requirement.
+        importing: ImportedInterfaceId,
         /// Content hash required by the importing interface.
         expected: InterfaceContentHash,
         /// Content hash supplied by the loaded interface.
@@ -90,13 +106,20 @@ pub enum ImportedSymbolConstructionError {
     },
     /// An exported dependency key is absent from the exact loaded dependency surface.
     MissingDependencySymbol {
+        /// Interface exporting the unavailable dependency symbol.
+        importing: ImportedInterfaceId,
         /// Defining dependency package.
         package: PackageIdentity,
         /// Missing stable external identity.
         key: ExternalSymbolKey,
     },
     /// An exported lookup attempted to project a compiler-known symbol.
-    CompilerKnownExportTarget(bray_symbols::SymbolKey),
+    CompilerKnownExportTarget {
+        /// Interface attempting the invalid export.
+        importing: ImportedInterfaceId,
+        /// Compiler-provided declaration targeted by the export.
+        key: bray_symbols::SymbolKey,
+    },
     /// Origin-neutral semantic construction rejected the translated surfaces.
     Symbols(ImportedSymbolSkeletonBuildError),
 }
@@ -203,8 +226,12 @@ fn package_index<'surface>(
     for loaded in surfaces {
         let package = loaded.surface().identity().package().clone();
 
-        if packages.insert(package.clone(), *loaded).is_some() {
-            return Err(ImportedSymbolConstructionError::DuplicatePackage(package));
+        if let Some(first) = packages.insert(package.clone(), *loaded) {
+            return Err(ImportedSymbolConstructionError::DuplicatePackage {
+                package,
+                first: first.interface(),
+                duplicate: loaded.interface(),
+            });
         }
     }
 
@@ -218,13 +245,15 @@ fn validate_dependencies(
     for loaded in surfaces {
         for dependency in loaded.surface().dependencies() {
             let Some(actual) = package_index.get(dependency.package()).copied() else {
-                return Err(ImportedSymbolConstructionError::MissingDependency(
-                    dependency.package().clone(),
-                ));
+                return Err(ImportedSymbolConstructionError::MissingDependency {
+                    importing: loaded.interface(),
+                    package: dependency.package().clone(),
+                });
             };
 
             if actual.surface().identity().product() != dependency.product() {
                 return Err(ImportedSymbolConstructionError::DependencyProductMismatch {
+                    importing: loaded.interface(),
                     package: dependency.package().clone(),
                     expected: dependency.product().clone(),
                     actual: actual.surface().identity().product().clone(),
@@ -233,6 +262,7 @@ fn validate_dependencies(
 
             if actual.content_hash() != dependency.content_hash() {
                 return Err(ImportedSymbolConstructionError::DependencyContentMismatch {
+                    importing: loaded.interface(),
                     package: dependency.package().clone(),
                     expected: dependency.content_hash(),
                     actual: actual.content_hash(),
@@ -314,13 +344,15 @@ fn lookup_target_key(
             };
 
             let Some(defining) = package_index.get(reference.package()) else {
-                return Err(ImportedSymbolConstructionError::MissingDependency(
-                    reference.package().clone(),
-                ));
+                return Err(ImportedSymbolConstructionError::MissingDependency {
+                    importing: loaded.interface(),
+                    package: reference.package().clone(),
+                });
             };
 
             if defining.surface().symbol_by_external_key(key).is_none() {
                 return Err(ImportedSymbolConstructionError::MissingDependencySymbol {
+                    importing: loaded.interface(),
                     package: reference.package().clone(),
                     key: key.clone(),
                 });
@@ -328,9 +360,12 @@ fn lookup_target_key(
 
             Ok(key.clone())
         }
-        InterfaceSymbolReference::CompilerKnown(reference) => Err(
-            ImportedSymbolConstructionError::CompilerKnownExportTarget(reference.key().clone()),
-        ),
+        InterfaceSymbolReference::CompilerKnown(reference) => {
+            Err(ImportedSymbolConstructionError::CompilerKnownExportTarget {
+                importing: loaded.interface(),
+                key: reference.key().clone(),
+            })
+        }
     }
 }
 
@@ -424,6 +459,7 @@ mod tests {
                 ],
             ),
             Err(ImportedSymbolConstructionError::DependencyProductMismatch {
+                importing: ImportedInterfaceId::new(2),
                 package: package("dependency.package"),
                 expected: product("expected-product"),
                 actual: product("actual-product"),
@@ -445,6 +481,7 @@ mod tests {
                 ],
             ),
             Err(ImportedSymbolConstructionError::DependencyContentMismatch {
+                importing: ImportedInterfaceId::new(2),
                 package: package("dependency.package"),
                 expected: DEPENDENCY_HASH,
                 actual: InterfaceContentHash::from_bytes([8; 32]),
@@ -467,6 +504,7 @@ mod tests {
                 ],
             ),
             Err(ImportedSymbolConstructionError::MissingDependencySymbol {
+                importing: ImportedInterfaceId::new(2),
                 package: package("dependency.package"),
                 key: missing,
             })

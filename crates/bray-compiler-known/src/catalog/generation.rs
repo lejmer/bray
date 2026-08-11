@@ -96,11 +96,7 @@ pub fn generate_catalog_output() -> Result<GeneratedCatalogOutput, CatalogGenera
     catalog.type_surfaces = type_surfaces.into();
 
     Ok(GeneratedCatalogOutput {
-        rust_source: render_catalog(
-            &catalog,
-            crate::CatalogGrammarRevision::SUPPORTED,
-            &digest,
-        ),
+        rust_source: render_catalog(&catalog, crate::CatalogGrammarRevision::SUPPORTED, &digest),
         grammar_revision: crate::CatalogGrammarRevision::SUPPORTED,
         source_digest: digest,
     })

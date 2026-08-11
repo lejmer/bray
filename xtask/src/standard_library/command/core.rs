@@ -458,10 +458,12 @@ fn build_target(
 
     let request = standard_library_source_request(product, version, source_paths, &selected)?;
 
-    let compilation = load_llvm_compilation(request).ok_or(BuildError::CompilerUnavailable)?;
+    let compilation = load_llvm_compilation(request).map_err(BuildError::CompilerUnavailable)?;
 
-    let linker =
-        native_linker(native).ok_or_else(|| BuildError::LinkerUnavailable(target.clone()))?;
+    let linker = native_linker(native).map_err(|error| BuildError::LinkerUnavailable {
+        target: target.clone(),
+        detail: format!("{error:?}"),
+    })?;
 
     let native_facts = compilation
         .native_product_facts(

@@ -7,7 +7,7 @@ use bray_bound_tree::{
     MatchCoverageEntry, PatternBindingTypeEntry, PatternCheckEntry, PatternProjection,
     PatternRefutability, walk_bound_unit_view,
 };
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{Diagnostic, DiagnosticBag};
 use bray_symbols::{
     AnySymbolId, MemberLookupResult, NamedTypeSymbolId, StructFieldTypeFact, TypeData, TypeId,
     UnionPayloadFieldTypeFact, UnionVariantSymbolId,
@@ -412,11 +412,7 @@ where
         } else if !pattern_mode_accepts_refutable(pattern.mode())
             && refutability == PatternRefutability::Refutable
         {
-            self.report(
-                id,
-                DiagnosticKind::CheckingRefutablePattern,
-                SeverityKind::Error,
-            )?;
+            self.report_refutable(id, subject.ty)?;
         }
 
         let predicate = self.pattern_predicate(

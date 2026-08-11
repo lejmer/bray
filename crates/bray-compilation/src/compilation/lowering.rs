@@ -244,7 +244,7 @@ impl Compilation {
                 ConstantReferenceResolution::Value(value) => value,
                 ConstantReferenceResolution::Evaluated(result) => result.value(),
                 ConstantReferenceResolution::Term(_)
-                | ConstantReferenceResolution::Cycle
+                | ConstantReferenceResolution::Cycle { .. }
                 | ConstantReferenceResolution::Invalid => continue,
             };
 
@@ -275,6 +275,7 @@ mod tests {
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_symbols::{BorrowKind, PackageIdentity, ProductKind, TypeData};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::Compilation;
     use crate::test_support::{
@@ -536,6 +537,15 @@ mod tests {
         "func main(pos value: Result<i32, i32>) -> i32\n",
         "{\n",
         "    return try value;\n",
+        "}\n",
+    );
+
+    const INCOMPATIBLE_NULLABLE_PROPAGATION_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func main(pos value: i32?) -> i32\n",
+        "{\n",
+        "    return value?;\n",
         "}\n",
     );
 
@@ -1344,15 +1354,18 @@ func both_bounds(pos values: Values) -> i32
 
             let mir = lowered_mir(&result);
 
-            assert!(mir.operations().iter().any(|operation| matches!(
-                operation.kind(),
-                MirOperationKind::Borrow { kind: actual, place }
-                    if *actual == kind
-                        && matches!(
-                            place.projections().first().map(bray_ir::MirProjection::kind),
-                            Some(MirProjectionKind::Dereference)
-                        )
-            )), "{function}: {mir:#?}");
+            assert!(
+                mir.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Borrow { kind: actual, place }
+                        if *actual == kind
+                            && matches!(
+                                place.projections().first().map(bray_ir::MirProjection::kind),
+                                Some(MirProjectionKind::Dereference)
+                            )
+                )),
+                "{function}: {mir:#?}"
+            );
         }
 
         for function in ["assign", "nested_assign", "compound_assign"] {
@@ -1362,17 +1375,20 @@ func both_bounds(pos values: Values) -> i32
 
             let assignment = lowered_mir(&assignment);
 
-            assert!(assignment.operations().iter().any(|operation| matches!(
-                operation.kind(),
-                MirOperationKind::Store {
-                    kind: MirStoreKind::Assign,
-                    destination,
-                    ..
-                } if matches!(
-                    destination.projections().first().map(bray_ir::MirProjection::kind),
-                    Some(MirProjectionKind::Dereference)
-                )
-            )), "{function}: {assignment:#?}");
+            assert!(
+                assignment.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Store {
+                        kind: MirStoreKind::Assign,
+                        destination,
+                        ..
+                    } if matches!(
+                        destination.projections().first().map(bray_ir::MirProjection::kind),
+                        Some(MirProjectionKind::Dereference)
+                    )
+                )),
+                "{function}: {assignment:#?}"
+            );
         }
 
         let lower_only = compilation
@@ -1424,10 +1440,7 @@ func both_bounds(pos values: Values) -> i32
             Some(lower_payload)
         );
 
-        assert_eq!(
-            nullable_payload(both_bounds, both_end),
-            Some(upper_payload)
-        );
+        assert_eq!(nullable_payload(both_bounds, both_end), Some(upper_payload));
 
         assert_ne!(lower_payload, upper_payload);
     }
@@ -1682,12 +1695,24 @@ func both_bounds(pos values: Values) -> i32
             .semantic_selections(key)
             .unwrap_or_else(|error| panic!("semantic selections must be available: {error:?}"));
 
-        assert!(
-            selections
-                .diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary)
-                .next()
-                .is_some()
+        assert_goal_state_diagnostic_kind(
+            selections.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+        );
+    }
+
+    #[test]
+    fn nullable_propagation_requires_a_nullable_lexical_boundary() {
+        let compilation = compilation(INCOMPATIBLE_NULLABLE_PROPAGATION_SOURCE);
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("semantic selections must be available: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            selections.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
         );
     }
 

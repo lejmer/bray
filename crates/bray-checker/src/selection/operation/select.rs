@@ -7,9 +7,11 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::super::{
     CandidateSelection, ImplementationSelectionEvidence, OperationCandidate,
-    OperationCandidatePlan, OperationCandidateState, OperationSelectionRequest, SelectionFailure,
+    OperationCandidatePlan, OperationCandidateState, OperationSelectionRequest,
+    SelectionCandidateRejectionReason, SelectionCandidateSignature, SelectionFailure,
+    SelectionFailureCandidate, SelectionInaccessibility, SelectionRejectedCandidate,
 };
-use super::construction::map_construction_inputs;
+use super::construction::{ConstructionInputMapping, map_construction_inputs};
 use super::conversion::{is_builtin_conversion, validate_conversion};
 use super::validation::{implementation_selections_match, validate_operation_instances};
 
@@ -50,8 +52,8 @@ where
 
     let mut applicable = Vec::new();
 
-    let mut has_inaccessible = false;
-    let mut has_incompatible = false;
+    let mut inaccessible = Vec::new();
+    let mut rejected = Vec::new();
     let mut has_recovered = false;
 
     for candidate in candidates {
@@ -73,6 +75,8 @@ where
         let (key, plan, implementation_selections, compiler_known_operations, _) =
             candidate.into_parts();
 
+        let diagnostic_candidate = operation_failure_candidate(key.clone(), &plan);
+
         let context = CandidateContext {
             request,
             types,
@@ -90,10 +94,14 @@ where
             CandidateCheck::Applicable(_operation)
                 if state == OperationCandidateState::Inaccessible =>
             {
-                has_inaccessible = true;
+                inaccessible.push(diagnostic_candidate);
             }
-            CandidateCheck::Applicable(operation) => applicable.push((key, operation)),
-            CandidateCheck::Incompatible => has_incompatible = true,
+            CandidateCheck::Applicable(operation) => {
+                applicable.push((diagnostic_candidate, key, operation));
+            }
+            CandidateCheck::Incompatible(reason) => rejected.push(
+                SelectionRejectedCandidate::new(diagnostic_candidate, reason),
+            ),
             CandidateCheck::Recovered => has_recovered = true,
         }
     }
@@ -101,28 +109,66 @@ where
     if kind == SelectionKind::Conversion
         && applicable
             .iter()
-            .any(|(_, operation)| is_builtin_conversion(operation))
+            .any(|(_, _, operation)| is_builtin_conversion(operation))
     {
-        applicable.retain(|(_, operation)| is_builtin_conversion(operation));
+        applicable.retain(|(_, _, operation)| is_builtin_conversion(operation));
     }
 
     let selection = match applicable.len() {
-        1 => CandidateSelection::Selected(applicable.remove(0).1),
+        1 => CandidateSelection::Selected(applicable.remove(0).2),
         count if count > 1 => CandidateSelection::Failed(SelectionFailure::Ambiguous(
-            applicable.into_iter().map(|(key, _)| key).collect(),
+            applicable
+                .into_iter()
+                .map(|(candidate, _, _)| candidate)
+                .collect(),
         )),
-        _ if has_inaccessible => CandidateSelection::Failed(SelectionFailure::Inaccessible),
+        _ if !inaccessible.is_empty() => {
+            CandidateSelection::Failed(SelectionFailure::Inaccessible {
+                candidates: inaccessible.into(),
+                reason: SelectionInaccessibility::NotVisibleFromRequestingContext,
+            })
+        }
         _ if has_recovered => CandidateSelection::Failed(SelectionFailure::Recovered),
-        _ if has_incompatible => CandidateSelection::Failed(SelectionFailure::Incompatible),
+        _ if !rejected.is_empty() => CandidateSelection::Failed(SelectionFailure::Incompatible(
+            rejected.into(),
+        )),
         _ => CandidateSelection::Failed(SelectionFailure::Unavailable),
     };
 
     Ok(Some(selection))
 }
 
+fn operation_failure_candidate(
+    key: super::super::SelectionCandidateKey,
+    plan: &OperationCandidatePlan,
+) -> SelectionFailureCandidate {
+    let (operand_types, result_type) = match plan {
+        OperationCandidatePlan::Exact {
+            operation,
+            operand_types,
+        } => (operand_types.clone(), operation.result_type()),
+        OperationCandidatePlan::Construction {
+            result_type,
+            inputs,
+            ..
+        } => (
+            inputs.iter().map(|input| input.ty()).collect(),
+            Some(*result_type),
+        ),
+    };
+
+    SelectionFailureCandidate::new(
+        key,
+        SelectionCandidateSignature::Operation {
+            operand_types,
+            result_type,
+        },
+    )
+}
+
 enum CandidateCheck {
     Applicable(SelectedOperation),
-    Incompatible,
+    Incompatible(SelectionCandidateRejectionReason),
     Recovered,
 }
 
@@ -169,7 +215,11 @@ where
                 .zip(actual_types)
                 .all(|(expected, actual)| *expected == actual.ty())
             {
-                return Ok(CandidateCheck::Incompatible);
+                return Ok(CandidateCheck::Incompatible(
+                    SelectionCandidateRejectionReason::OperandTypes {
+                        provided: actual_types.iter().map(|actual| actual.ty()).collect(),
+                    },
+                ));
             }
 
             operation
@@ -183,10 +233,13 @@ where
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
             }
 
-            let Some(inputs) =
-                map_construction_inputs(request, types, expression, target, &inputs)?
-            else {
-                return Ok(CandidateCheck::Incompatible);
+            let inputs = match map_construction_inputs(request, types, expression, target, &inputs)? {
+                ConstructionInputMapping::Mapped(inputs) => inputs,
+                ConstructionInputMapping::Rejected(reason) => {
+                    return Ok(CandidateCheck::Incompatible(
+                        SelectionCandidateRejectionReason::ConstructionInput(reason),
+                    ));
+                }
             };
 
             if inputs.recovered {
@@ -208,13 +261,17 @@ where
     if !operation.matches_expression(source_expression)
         || !operation_is_valid(request, types, expression, &operation)?
     {
-        return Ok(CandidateCheck::Incompatible);
+        return Ok(CandidateCheck::Incompatible(
+            SelectionCandidateRejectionReason::ExpressionForm,
+        ));
     }
 
     validate_operation_instances(request, &operation)?;
 
     if !implementation_selections_match(request, &operation, evidence)? {
-        return Ok(CandidateCheck::Incompatible);
+        return Ok(CandidateCheck::Incompatible(
+            SelectionCandidateRejectionReason::RequiredImplementation,
+        ));
     }
 
     if !super::validation::compiler_known_operations_match(
@@ -224,7 +281,9 @@ where
         actual_types,
         compiler_known_operations,
     )? {
-        return Ok(CandidateCheck::Incompatible);
+        return Ok(CandidateCheck::Incompatible(
+            SelectionCandidateRejectionReason::RequiredLanguageOperation,
+        ));
     }
 
     Ok(CandidateCheck::Applicable(operation))
@@ -552,7 +611,7 @@ mod tests {
 
         assert!(matches!(
             result.value(),
-            CandidateSelection::Failed(SelectionFailure::Incompatible)
+            CandidateSelection::Failed(SelectionFailure::Incompatible(_))
         ));
     }
 
@@ -618,7 +677,7 @@ mod tests {
 
         assert!(matches!(
             result.value(),
-            CandidateSelection::Failed(SelectionFailure::Incompatible)
+            CandidateSelection::Failed(SelectionFailure::Incompatible(_))
         ));
     }
 
@@ -763,10 +822,10 @@ mod tests {
         };
 
         assert_eq!(
-            keys.as_ref(),
+            keys.iter().map(|candidate| candidate.key()).collect::<Vec<_>>(),
             [
-                SelectionCandidateKey::Symbol(declaration_key(SymbolKind::Function, 1)),
-                SelectionCandidateKey::Symbol(declaration_key(SymbolKind::Function, 2)),
+                &SelectionCandidateKey::Symbol(declaration_key(SymbolKind::Function, 1)),
+                &SelectionCandidateKey::Symbol(declaration_key(SymbolKind::Function, 2)),
             ]
         );
     }
@@ -785,10 +844,10 @@ mod tests {
 
         assert!(matches!(
             inaccessible.value(),
-            CandidateSelection::Failed(SelectionFailure::Inaccessible)
+            CandidateSelection::Failed(SelectionFailure::Inaccessible { .. })
         ));
 
-        assert!(!inaccessible.diagnostics().is_empty());
+        assert!(inaccessible.diagnostics().is_empty());
 
         let unavailable = select(
             &fixture,

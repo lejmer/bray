@@ -1,6 +1,9 @@
 use std::process::ExitCode;
 
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation,
+};
 use bray_tooling::OutputFormat;
 
 use crate::tack::error::operation_diagnostics;
@@ -68,14 +71,20 @@ fn aggregate_json_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat)
         stderr.push_str(&child_stderr);
 
         let Ok(mut report) = serde_json::from_str::<serde_json::Value>(&stdout) else {
-            return failure(operation_diagnostics("compiler_json_output"), output_format);
+            return failure(
+                compiler_json_failure(DiagnosticDocumentParseKind::Syntax),
+                output_format,
+            );
         };
 
         let Some(entries) = report
             .get_mut("diagnostics")
             .and_then(serde_json::Value::as_array_mut)
         else {
-            return failure(operation_diagnostics("compiler_json_output"), output_format);
+            return failure(
+                compiler_json_failure(DiagnosticDocumentParseKind::Schema),
+                output_format,
+            );
         };
 
         diagnostics.append(entries);
@@ -86,7 +95,12 @@ fn aggregate_json_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat)
         "diagnostics": diagnostics,
     })) {
         Ok(stdout) => format!("{stdout}\n"),
-        Err(_) => return failure(operation_diagnostics("compiler_json_output"), output_format),
+        Err(_) => {
+            return failure(
+                compiler_json_failure(DiagnosticDocumentParseKind::Serialization),
+                output_format,
+            );
+        }
     };
 
     TackRunResult::with_output(
@@ -96,6 +110,14 @@ fn aggregate_json_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat)
         stdout,
         stderr,
     )
+}
+
+fn compiler_json_failure(problem: DiagnosticDocumentParseKind) -> DiagnosticBag {
+    operation_diagnostics(DiagnosticProjectCommandFailure::Document {
+        operation: DiagnosticProjectOperation::CompilerJsonOutput,
+        path: None,
+        problem,
+    })
 }
 
 pub(super) fn failure(diagnostics: DiagnosticBag, output_format: OutputFormat) -> TackRunResult {

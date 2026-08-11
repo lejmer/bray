@@ -3,7 +3,10 @@ use bray_bound_tree::{
     PatternBindingTypeEntry, PatternLiteralPredicate, PatternOperation, PatternPredicate,
     PatternProjection, PatternRefutability,
 };
-use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+};
 use bray_symbols::{
     AnySymbolId, ConstantValueData, NamedTypeSymbolId, StructFieldTypeFact, SymbolOrdinal,
     TypeData, TypeId, UnionPayloadFieldTypeFact,
@@ -230,7 +233,39 @@ where
                 SeverityKind::Error,
             )
             .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::PatternFailure,
+                span,
+            ))
             .with_arg(DiagnosticArg::actual_type(actual)),
+        );
+
+        Ok(())
+    }
+
+    pub(super) fn report_refutable(
+        &mut self,
+        pattern: BoundPatternId,
+        actual: TypeId,
+    ) -> Result<(), CheckerInfrastructureError> {
+        let actual = diagnostic_type(self.request, actual)?;
+        let span = pattern_span(self.request, pattern)?;
+
+        self.diagnostics.push(
+            Diagnostic::new(
+                diagnostic_id(self.diagnostics.len()),
+                DiagnosticKind::CheckingRefutablePattern,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::PatternFailure,
+                span,
+            ))
+            .with_arg(DiagnosticArg::actual_type(actual))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::RefutablePatternRequiresConditionalContext,
+            )),
         );
 
         Ok(())
@@ -257,21 +292,6 @@ where
         Ok(())
     }
 
-    pub(in crate::pattern) fn report(
-        &mut self,
-        pattern: BoundPatternId,
-        kind: DiagnosticKind,
-        severity: SeverityKind,
-    ) -> Result<(), CheckerInfrastructureError> {
-        let span = pattern_span(self.request, pattern)?;
-
-        self.diagnostics.push(
-            Diagnostic::new(diagnostic_id(self.diagnostics.len()), kind, severity)
-                .with_primary_span(span),
-        );
-
-        Ok(())
-    }
 }
 
 pub(super) fn pattern_refutability(

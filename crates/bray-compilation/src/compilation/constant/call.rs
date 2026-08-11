@@ -129,7 +129,13 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
                 result.diagnostics().clone(),
             )),
             Err(FactQueryError::Cycle(_)) => Ok(DiagnosticResult::without_diagnostics(
-                ConstantReferenceResolution::Cycle,
+                ConstantReferenceResolution::Cycle {
+                    definition: self
+                        .calls
+                        .compilation
+                        .constant_definition_span(instance.definition())
+                        .map_err(checker_call_fact_error)?,
+                },
             )),
             Err(error) => Err(checker_call_fact_error(error)),
         }

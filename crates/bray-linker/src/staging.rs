@@ -38,16 +38,16 @@ pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
                 continue;
             }
             Err(_) => {
-                return failed_outcome(LinkFailure::MissingOutput(destination.id()));
+                return failed_outcome(plan, LinkFailure::MissingOutput(destination.id()));
             }
         };
 
         let Some(byte_len) = NonZeroU64::new(metadata.len()) else {
-            return failed_outcome(LinkFailure::InvalidOutput(destination.id()));
+            return failed_outcome(plan, LinkFailure::InvalidOutput(destination.id()));
         };
 
         if !metadata.is_file() {
-            return failed_outcome(LinkFailure::InvalidOutput(destination.id()));
+            return failed_outcome(plan, LinkFailure::InvalidOutput(destination.id()));
         }
 
         artifacts.push(LinkedArtifact::new(
@@ -58,7 +58,7 @@ pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
     }
 
     LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new())
-        .unwrap_or_else(|error| failed_outcome(link_outcome_failure(error)))
+        .unwrap_or_else(|error| failed_outcome(plan, link_outcome_failure(error)))
 }
 
 fn link_outcome_failure(error: LinkOutcomeBuildError) -> LinkFailure {

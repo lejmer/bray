@@ -1,8 +1,9 @@
 use bray_bound_tree::BoundExpressionId;
-use bray_diagnostics::DiagnosticKind;
 use bray_symbols::{
     CallableInstanceData, ConstantTermData, ConstantTermId, ImplementationInstanceId, TypeId,
 };
+
+use crate::constant::diagnostic::{ConstantDiagnostic, ConstantLimitKind};
 
 use crate::{
     CheckerFactError, CheckerInfrastructureError, CheckerRequestContext, ConstantCallRequest,
@@ -91,7 +92,11 @@ where
         let Some(limits) = limits.nested_call() else {
             return Err(EvaluationFailure::Source {
                 expression,
-                kind: DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
+                diagnostic: ConstantDiagnostic::limit(
+                    ConstantLimitKind::EvaluationSteps,
+                    1,
+                    0,
+                ),
             });
         };
 
@@ -125,7 +130,7 @@ where
             }
             Ok(ConstantCallResolution::Cycle) => Err(EvaluationFailure::Source {
                 expression,
-                kind: DiagnosticKind::CheckingCyclicConstantDefinition,
+                diagnostic: ConstantDiagnostic::Cycle { definition: None },
             }),
             Ok(ConstantCallResolution::Ineligible(diagnostics)) => {
                 if diagnostics.has_errors() {

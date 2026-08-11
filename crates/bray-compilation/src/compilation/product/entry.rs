@@ -1,7 +1,12 @@
 use bray_binder::SymbolFactProvider;
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabelKind, DiagnosticNote,
+    DiagnosticNoteKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, CallableConstness, CallableContractTemplate,
     CallableContractTemplateFact, CallableContractsFact, CallableExecution, CallableSignatureFact,
@@ -12,8 +17,15 @@ use bray_symbols::{
 use bray_syntax::TrustBoundaryExpressionSyntax;
 
 use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
-use crate::compilation::diagnostics::source_diagnostic;
 use crate::fact::FactQueryError;
+
+fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
+    crate::compilation::diagnostics::labeled_source_diagnostic(
+        anchor,
+        kind,
+        DiagnosticLabelKind::InvalidProductEntry,
+    )
+}
 
 #[derive(Clone, Copy)]
 pub(super) enum ProductEntryKind {
@@ -74,14 +86,28 @@ pub(super) fn select_executable_entrypoint(
     symbols: &SymbolGraph,
     functions: &[FunctionSymbolId],
     explicit: &[(FunctionSymbolId, SyntaxAnchor)],
+    product_anchor: SyntaxAnchor,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<EntrypointSelection, FactQueryError> {
     if explicit.len() > 1 {
+        let first = symbols
+            .declaration_syntax_anchor(explicit[0].0.into())
+            .unwrap_or(explicit[0].1);
+
+        let count = u64::try_from(explicit.len()).unwrap_or(u64::MAX);
+
         for (_, anchor) in explicit.iter().skip(1) {
-            diagnostics.add(source_diagnostic(
-                *anchor,
-                DiagnosticKind::CheckingDuplicateEntrypoint,
-            ));
+            diagnostics.add(
+                source_diagnostic(*anchor, DiagnosticKind::CheckingDuplicateEntrypoint)
+                    .with_arg(DiagnosticArg::actual_count(count))
+                    .with_related_location(DiagnosticRelatedLocation::new(
+                        DiagnosticRelatedLocationKind::FirstDeclaration,
+                        SourceSpan::new(first.source_id(), first.full_range()),
+                    ))
+                    .with_note(DiagnosticNote::new(
+                        DiagnosticNoteKind::ExecutableEntrypointRequired,
+                    )),
+            );
         }
 
         return Ok(EntrypointSelection {
@@ -115,7 +141,7 @@ pub(super) fn select_executable_entrypoint(
         .collect::<Vec<_>>();
 
     if main_functions.is_empty() {
-        diagnostics.add(missing_entrypoint_diagnostic(symbols));
+        diagnostics.add(missing_entrypoint_diagnostic(symbols, product_anchor));
 
         return Ok(EntrypointSelection {
             is_recovered: true,
@@ -148,7 +174,7 @@ pub(super) fn select_executable_entrypoint(
             is_recovered: false,
         }),
         [] => {
-            diagnostics.add(missing_entrypoint_diagnostic(symbols));
+            diagnostics.add(missing_entrypoint_diagnostic(symbols, product_anchor));
 
             Ok(EntrypointSelection {
                 is_recovered: true,
@@ -156,12 +182,34 @@ pub(super) fn select_executable_entrypoint(
             })
         }
         [_, rest @ ..] => {
+            let first = valid[0].0;
+            let first_anchor = symbols.declaration_syntax_anchor(first.into());
+            let count = u64::try_from(valid.len()).unwrap_or(u64::MAX);
+
             for (function, _) in rest {
                 if let Some(anchor) = symbols.declaration_syntax_anchor((*function).into()) {
-                    diagnostics.add(source_diagnostic(
+                    let mut diagnostic = source_diagnostic(
                         anchor,
                         DiagnosticKind::CheckingDuplicateEntrypoint,
+                    )
+                    .with_arg(DiagnosticArg::actual_count(count))
+                    .with_note(DiagnosticNote::new(
+                        DiagnosticNoteKind::ExecutableEntrypointRequired,
                     ));
+
+                    if let Some(first_anchor) = first_anchor {
+                        diagnostic = diagnostic.with_related_location(
+                            DiagnosticRelatedLocation::new(
+                                DiagnosticRelatedLocationKind::FirstDeclaration,
+                                SourceSpan::new(
+                                    first_anchor.source_id(),
+                                    first_anchor.full_range(),
+                                ),
+                            ),
+                        );
+                    }
+
+                    diagnostics.add(diagnostic);
                 }
             }
 
@@ -227,19 +275,32 @@ pub(super) fn validate_entry(
 
     if !symbol.generic_type_parameters().is_empty() || !symbol.generic_const_parameters().is_empty()
     {
-        diagnostics.add(source_diagnostic(
-            anchor,
-            DiagnosticKind::CheckingEntryCannotBeGeneric,
-        ));
+        let count = symbol.generic_type_parameters().len()
+            + symbol.generic_const_parameters().len();
+
+        diagnostics.add(
+            source_diagnostic(anchor, DiagnosticKind::CheckingEntryCannotBeGeneric)
+                .with_arg(DiagnosticArg::actual_count(
+                    u64::try_from(count).unwrap_or(u64::MAX),
+                ))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::ProductEntryRequirements,
+                )),
+        );
 
         is_valid = false;
     }
 
     if !signature.value().parameters().is_empty() {
-        diagnostics.add(source_diagnostic(
-            anchor,
-            DiagnosticKind::CheckingEntryCannotTakeParameters,
-        ));
+        diagnostics.add(
+            source_diagnostic(anchor, DiagnosticKind::CheckingEntryCannotTakeParameters)
+                .with_arg(DiagnosticArg::actual_count(
+                    u64::try_from(signature.value().parameters().len()).unwrap_or(u64::MAX),
+                ))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::ProductEntryRequirements,
+                )),
+        );
 
         is_valid = false;
     }
@@ -250,10 +311,11 @@ pub(super) fn validate_entry(
     };
 
     if constness == CallableConstness::Constant {
-        diagnostics.add(source_diagnostic(
-            anchor,
-            DiagnosticKind::CheckingEntryCannotBeConstant,
-        ));
+        diagnostics.add(
+            source_diagnostic(anchor, DiagnosticKind::CheckingEntryCannotBeConstant).with_note(
+                DiagnosticNote::new(DiagnosticNoteKind::ProductEntryRequirements),
+            ),
+        );
 
         is_valid = false;
     }
@@ -275,10 +337,11 @@ pub(super) fn validate_entry(
     diagnostics.add_range(contract_template.diagnostics().iter().cloned());
 
     if exposes_trusted_caller_obligation(contract_template.value(), binder) {
-        diagnostics.add(source_diagnostic(
-            anchor,
-            DiagnosticKind::CheckingEntryCannotRequireTrust,
-        ));
+        diagnostics.add(
+            source_diagnostic(anchor, DiagnosticKind::CheckingEntryCannotRequireTrust).with_note(
+                DiagnosticNote::new(DiagnosticNoteKind::ProductEntryRequirements),
+            ),
+        );
 
         is_valid = false;
     }
@@ -308,7 +371,19 @@ pub(super) fn validate_entry(
             ProductEntryKind::Test => DiagnosticKind::CheckingInvalidTestResult,
         };
 
-        diagnostics.add(source_diagnostic(anchor, diagnostic));
+        let actual = crate::compilation::foreign::diagnostic::template_diagnostic_type(
+            binder.compilation(),
+            signature.value().result(),
+            &binder.compilation().state.cancellation,
+        )?;
+
+        diagnostics.add(
+            source_diagnostic(anchor, diagnostic)
+                .with_arg(DiagnosticArg::actual_type(actual))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::ProductEntryRequirements,
+                )),
+        );
 
         is_valid = false;
     }
@@ -492,7 +567,7 @@ fn named_role(
     }
 }
 
-fn missing_entrypoint_diagnostic(symbols: &SymbolGraph) -> Diagnostic {
+fn missing_entrypoint_diagnostic(symbols: &SymbolGraph, product_anchor: SyntaxAnchor) -> Diagnostic {
     let kind = DiagnosticKind::CheckingMissingEntrypoint;
 
     let anchor = symbols
@@ -501,8 +576,8 @@ fn missing_entrypoint_diagnostic(symbols: &SymbolGraph) -> Diagnostic {
         .find(|module| module.origin() == bray_symbols::SymbolOrigin::Source)
         .and_then(|module| symbols.declaration_syntax_anchor(module.id().into()));
 
-    anchor.map_or_else(
-        || Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error),
-        |anchor| source_diagnostic(anchor, kind),
-    )
+    source_diagnostic(anchor.unwrap_or(product_anchor), kind)
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ExecutableEntrypointRequired,
+    ))
 }

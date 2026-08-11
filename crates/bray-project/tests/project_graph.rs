@@ -2,9 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use bray_diagnostics::{DiagnosticArgName, DiagnosticId, DiagnosticKind, DiagnosticNoteKind};
+use bray_diagnostics::{
+    DiagnosticArgName, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNoteKind,
+};
 use bray_project::{
-    PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblem, TargetPredicate,
+    PackageRole, ProjectGraph, ProjectLoadError, ProjectManifestProblemKind, TargetPredicate,
     TargetPredicateValue, canonicalize_package_manifest, canonicalize_workspace_manifest,
     load_project_graph, load_standard_library_project_graph,
 };
@@ -13,6 +15,25 @@ use bray_symbols::PackageIdentity;
 use bray_target::{TargetFactKind, TargetOutputKind};
 
 static TEST_DIRECTORY_ORDINAL: AtomicUsize = AtomicUsize::new(0);
+
+fn assert_manifest_problem(
+    result: Result<ProjectGraph, ProjectLoadError>,
+    expected: ProjectManifestProblemKind,
+) {
+    let Err(ProjectLoadError::InvalidManifest { problem, .. }) = result else {
+        panic!("project graph must fail with a manifest validation problem");
+    };
+
+    assert_eq!(problem.kind(), expected);
+}
+
+fn manifest_diagnostic(result: Result<ProjectGraph, ProjectLoadError>) -> DiagnosticBag {
+    let Err(error) = result else {
+        panic!("project graph must fail with a manifest diagnostic");
+    };
+
+    DiagnosticBag::single(error.into_diagnostic(DiagnosticId::new(0)))
+}
 
 #[test]
 fn project_graphs_are_safe_to_share_between_workers() {
@@ -76,13 +97,29 @@ fn tested_libraries_must_name_sibling_library_products() {
         panic!("a missing tested library must reject the graph");
     };
 
-    assert!(matches!(
-        error,
-        ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::UnknownDependencyProduct,
-            ..
-        }
-    ));
+    assert_manifest_problem(
+        Err(error),
+        ProjectManifestProblemKind::UnknownDependencyProduct,
+    );
+
+    let non_test_workspace = TestWorkspace::new();
+    write_valid_workspace(non_test_workspace.path(), false);
+
+    replace(
+        non_test_workspace
+            .path()
+            .join("app")
+            .join("bray-package.json"),
+        r#""kind": "executable","#,
+        r#""kind": "executable", "tested_library": "application","#,
+    );
+
+    let diagnostics = manifest_diagnostic(load_project_graph(non_test_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectManifestUnexpectedTestedLibrary,
+    );
 }
 
 #[test]
@@ -222,6 +259,11 @@ fn package_versions_must_be_semantic_versions() {
         diagnostic.notes()[0].kind(),
         DiagnosticNoteKind::PackageVersionMustBeValid
     );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &DiagnosticBag::single(diagnostic),
+        DiagnosticKind::ProjectPackageVersionInvalid,
+    );
 }
 
 #[test]
@@ -235,13 +277,10 @@ fn workspace_package_versions_must_be_semantic_versions() {
         r#""package": {"version": "1.2"}"#,
     );
 
-    assert!(matches!(
+    assert_manifest_problem(
         load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::InvalidPackageVersion,
-            ..
-        })
-    ));
+        ProjectManifestProblemKind::InvalidPackageVersion,
+    );
 }
 
 #[test]
@@ -255,13 +294,10 @@ fn package_version_inheritance_must_be_enabled() {
         r#""version": {"workspace": false}"#,
     );
 
-    assert!(matches!(
+    assert_manifest_problem(
         load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::InvalidPackageVersion,
-            ..
-        })
-    ));
+        ProjectManifestProblemKind::InvalidPackageVersion,
+    );
 }
 
 #[test]
@@ -275,13 +311,12 @@ fn inherited_package_versions_require_workspace_metadata() {
         "",
     );
 
-    assert!(matches!(
-        load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::MissingWorkspacePackageVersion,
-            ..
-        })
-    ));
+    let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectPackageVersionMissingWorkspace,
+    );
 }
 
 #[test]
@@ -330,8 +365,14 @@ fn ordinary_projects_cannot_claim_standard_library_package_identities() {
             .collect::<Vec<_>>(),
         [
             DiagnosticArgName::FilePath,
-            DiagnosticArgName::ReferencedName
+            DiagnosticArgName::ProjectManifestField,
+            DiagnosticArgName::ActualPackageIdentity,
         ]
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &DiagnosticBag::single(diagnostic),
+        DiagnosticKind::ProjectPackageIdentityReserved,
     );
 }
 
@@ -346,13 +387,10 @@ fn ordinary_projects_cannot_claim_private_standard_library_package_identities() 
         r#""identity": "std.application""#,
     );
 
-    assert!(matches!(
+    assert_manifest_problem(
         load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::ReservedPackageIdentity,
-            ..
-        })
-    ));
+        ProjectManifestProblemKind::ReservedPackageIdentity,
+    );
 }
 
 #[test]
@@ -379,8 +417,14 @@ fn standard_library_projects_require_and_accept_reserved_package_identities() {
             .collect::<Vec<_>>(),
         [
             DiagnosticArgName::FilePath,
-            DiagnosticArgName::ReferencedName
+            DiagnosticArgName::ProjectManifestField,
+            DiagnosticArgName::ActualPackageIdentity,
         ]
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &DiagnosticBag::single(diagnostic),
+        DiagnosticKind::ProjectStandardLibraryPackageIdentityRequired,
     );
 
     let workspace = TestWorkspace::new();
@@ -432,14 +476,89 @@ fn unsupported_manifest_revisions_are_rejected_before_schema_interpretation() {
         r#""format": 7"#,
     );
 
-    assert!(matches!(
-        load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::UnsupportedFormat,
-            value,
-            ..
-        }) if value == "7"
-    ));
+    let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectManifestUnsupportedFormat,
+    );
+}
+
+#[test]
+fn invalid_project_paths_and_names_preserve_their_manifest_fields() {
+    let path_workspace = TestWorkspace::new();
+    write_valid_workspace(path_workspace.path(), false);
+
+    replace(
+        path_workspace.path().join("bray-workspace.json"),
+        r#""output_root": "build""#,
+        r#""output_root": "../build""#,
+    );
+
+    let path_diagnostics = manifest_diagnostic(load_project_graph(path_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &path_diagnostics,
+        DiagnosticKind::ProjectManifestInvalidPath,
+    );
+
+    let name_workspace = TestWorkspace::new();
+    write_valid_workspace(name_workspace.path(), false);
+
+    replace(
+        name_workspace.path().join("bray-workspace.json"),
+        r#""name": "native""#,
+        r#""name": "Native""#,
+    );
+
+    let name_diagnostics = manifest_diagnostic(load_project_graph(name_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &name_diagnostics,
+        DiagnosticKind::ProjectManifestInvalidName,
+    );
+}
+
+#[test]
+fn missing_output_selection_preserves_the_exact_manifest_field() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace.path().join("app").join("bray-package.json"),
+        r#""outputs": ["executable", "dependency_metadata"]"#,
+        r#""outputs": []"#,
+    );
+
+    let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectManifestMissingSelection,
+    );
+}
+
+#[test]
+fn unavailable_dependency_target_preserves_product_and_target_identity() {
+    let workspace = TestWorkspace::new();
+    write_valid_workspace(workspace.path(), false);
+
+    replace(
+        workspace
+            .path()
+            .join("vendor")
+            .join("math")
+            .join("bray-package.json"),
+        r#""targets": ["native", "portable"]"#,
+        r#""targets": ["native"]"#,
+    );
+
+    let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectDependencyProductTargetUnavailable,
+    );
 }
 
 #[test]
@@ -608,27 +727,43 @@ fn target_conditioned_dependencies_retain_predicates_and_per_target_orders() {
 
 #[test]
 fn target_predicates_reject_unknown_properties_and_mismatched_values() {
-    for predicate in [
-        r#"{"property": "target.unknown", "equals": true}"#,
-        r#"{"property": "target.pointer.BITS", "equals": "64"}"#,
-    ] {
-        let workspace = TestWorkspace::new();
-        write_valid_workspace(workspace.path(), false);
+    let unknown_workspace = TestWorkspace::new();
+    write_valid_workspace(unknown_workspace.path(), false);
 
-        replace(
-            workspace.path().join("app").join("bray-package.json"),
-            r#"{"package": "example.math", "product": "math"}"#,
-            &format!(r#"{{"package": "example.math", "product": "math", "when": {predicate}}}"#),
-        );
+    replace(
+        unknown_workspace
+            .path()
+            .join("app")
+            .join("bray-package.json"),
+        r#"{"package": "example.math", "product": "math"}"#,
+        r#"{"package": "example.math", "product": "math", "when": {"property": "target.unknown", "equals": true}}"#,
+    );
 
-        assert!(matches!(
-            load_project_graph(workspace.path()),
-            Err(ProjectLoadError::InvalidManifest {
-                problem: ProjectManifestProblem::InvalidTargetPredicate,
-                ..
-            })
-        ));
-    }
+    let unknown = manifest_diagnostic(load_project_graph(unknown_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &unknown,
+        DiagnosticKind::ProjectManifestUnknownTargetPredicateProperty,
+    );
+
+    let mismatch_workspace = TestWorkspace::new();
+    write_valid_workspace(mismatch_workspace.path(), false);
+
+    replace(
+        mismatch_workspace
+            .path()
+            .join("app")
+            .join("bray-package.json"),
+        r#"{"package": "example.math", "product": "math"}"#,
+        r#"{"package": "example.math", "product": "math", "when": {"property": "target.pointer.BITS", "equals": "64"}}"#,
+    );
+
+    let mismatch = manifest_diagnostic(load_project_graph(mismatch_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &mismatch,
+        DiagnosticKind::ProjectManifestTargetPredicateValueKindMismatch,
+    );
 }
 
 #[test]
@@ -677,8 +812,14 @@ fn standard_library_projects_require_the_public_std_root() {
             .collect::<Vec<_>>(),
         [
             DiagnosticArgName::FilePath,
-            DiagnosticArgName::ReferencedName
+            DiagnosticArgName::ProjectManifestField,
+            DiagnosticArgName::ActualPackageIdentity,
         ]
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &DiagnosticBag::single(diagnostic),
+        DiagnosticKind::ProjectStandardLibraryRootPackageRequired,
     );
 }
 
@@ -714,13 +855,12 @@ fn workspace_features_must_be_declared_by_the_selected_package() {
         r#""features": ["network"]"#,
     );
 
-    assert!(matches!(
-        load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::UndeclaredFeature,
-            ..
-        })
-    ));
+    let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectManifestUndeclaredFeature,
+    );
 }
 
 #[test]
@@ -742,7 +882,54 @@ fn dependency_edges_must_select_declared_library_products() {
 
     assert_eq!(
         diagnostic.kind(),
-        DiagnosticKind::ProjectDependencyProductInvalid
+        DiagnosticKind::ProjectDependencyProductUnknown
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &DiagnosticBag::single(diagnostic),
+        DiagnosticKind::ProjectDependencyProductUnknown,
+    );
+}
+
+#[test]
+fn dependency_edges_preserve_unknown_packages_and_non_library_products() {
+    let package_workspace = TestWorkspace::new();
+    write_valid_workspace(package_workspace.path(), false);
+
+    replace(
+        package_workspace
+            .path()
+            .join("app")
+            .join("bray-package.json"),
+        r#""package": "example.math""#,
+        r#""package": "example.missing""#,
+    );
+
+    let package = manifest_diagnostic(load_project_graph(package_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &package,
+        DiagnosticKind::ProjectDependencyPackageUnknown,
+    );
+
+    let product_workspace = TestWorkspace::new();
+    write_valid_workspace(product_workspace.path(), false);
+
+    replace(
+        product_workspace
+            .path()
+            .join("vendor")
+            .join("math")
+            .join("bray-package.json"),
+        r#""kind": "library""#,
+        r#""kind": "executable""#,
+    );
+
+    let product = manifest_diagnostic(load_project_graph(product_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &product,
+        DiagnosticKind::ProjectDependencyProductNotLibrary,
     );
 }
 
@@ -800,14 +987,12 @@ fn dependency_cycles_are_reported_deterministically() {
         r#""kind": "library""#,
     );
 
-    assert!(matches!(
-        load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::DependencyCycle,
-            value: package,
-            ..
-        }) if package == "example.application"
-    ));
+    let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectDependencyCycle,
+    );
 }
 
 #[test]
@@ -821,13 +1006,12 @@ fn output_and_source_roots_cannot_overlap() {
         r#""output_root": "app/src/generated""#,
     );
 
-    assert!(matches!(
-        load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::InvalidSourceRoot,
-            ..
-        })
-    ));
+    let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectSourceRootInvalid,
+    );
 }
 
 #[test]
@@ -844,13 +1028,10 @@ fn package_source_roots_cannot_overlap_each_other() {
         ]"#,
     );
 
-    assert!(matches!(
+    assert_manifest_problem(
         load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::InvalidSourceRoot,
-            ..
-        })
-    ));
+        ProjectManifestProblemKind::InvalidSourceRoot,
+    );
 }
 
 #[test]
@@ -864,13 +1045,69 @@ fn target_names_cannot_alias_one_target_identity() {
         r#""identity": "x86_64-unknown-linux-gnu""#,
     );
 
-    assert!(matches!(
-        load_project_graph(workspace.path()),
-        Err(ProjectLoadError::InvalidManifest {
-            problem: ProjectManifestProblem::DuplicateSelection,
-            ..
-        })
-    ));
+    let diagnostics = manifest_diagnostic(load_project_graph(workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectManifestDuplicateSelection,
+    );
+}
+
+#[test]
+fn project_selections_preserve_missing_root_unknown_source_and_unknown_target() {
+    let root_workspace = TestWorkspace::new();
+    write_valid_workspace(root_workspace.path(), false);
+
+    replace(
+        root_workspace.path().join("bray-workspace.json"),
+        r#""role": "root""#,
+        r#""role": "vendored""#,
+    );
+
+    let root = manifest_diagnostic(load_project_graph(root_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &root,
+        DiagnosticKind::ProjectManifestMissingRootPackage,
+    );
+
+    let source_workspace = TestWorkspace::new();
+    write_valid_workspace(source_workspace.path(), false);
+
+    replace(
+        source_workspace
+            .path()
+            .join("app")
+            .join("bray-package.json"),
+        r#""source_roots": ["main"]"#,
+        r#""source_roots": ["missing"]"#,
+    );
+
+    let source = manifest_diagnostic(load_project_graph(source_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &source,
+        DiagnosticKind::ProjectManifestUnknownSourceRoot,
+    );
+
+    let target_workspace = TestWorkspace::new();
+    write_valid_workspace(target_workspace.path(), false);
+
+    replace(
+        target_workspace
+            .path()
+            .join("app")
+            .join("bray-package.json"),
+        r#""targets": ["portable", "native"]"#,
+        r#""targets": ["missing"]"#,
+    );
+
+    let target = manifest_diagnostic(load_project_graph(target_workspace.path()));
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &target,
+        DiagnosticKind::ProjectManifestUnknownTarget,
+    );
 }
 
 fn write_valid_workspace(root: &Path, reversed: bool) {

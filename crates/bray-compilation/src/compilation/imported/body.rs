@@ -498,6 +498,40 @@ mod tests {
                 .count(),
             1
         );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::InterfaceConstantCallableBodyUnavailable,
+        );
+    }
+
+    #[test]
+    fn missing_imported_executable_templates_publish_structured_diagnostics() {
+        let (compilation, owner) = imported_body_compilation(true);
+
+        let address = constant_body_address(&compilation, owner);
+
+        let result = compilation
+            .imported_executable_template_with_cancellation(
+                address,
+                &compilation.state.cancellation,
+            )
+            .unwrap_or_else(|error| panic!("missing executable template must recover: {error:?}"));
+
+        assert!(result.value().is_none());
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .by_kind(DiagnosticKind::InterfaceExecutableTemplateUnavailable)
+                .count(),
+            1
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::InterfaceExecutableTemplateUnavailable,
+        );
     }
 
     fn imported_body_compilation(

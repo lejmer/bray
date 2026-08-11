@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "local symbol snapshot construction is one stateful builder enforcing shared rollback and identity invariants")
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_declarations::SyntaxAnchor;
@@ -506,6 +508,41 @@ impl LocalSymbolSnapshotBuilder {
             AnyLocalSymbolId::AnonymousCallable(_) => None,
         }
         .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)
+    }
+
+    /// Returns the source construct that introduced a symbol in this builder.
+    pub fn local_symbol_syntax_anchor(
+        &self,
+        symbol: AnyLocalSymbolId,
+    ) -> Result<SyntaxAnchor, LocalSymbolBuildError> {
+        if symbol.region() != self.region {
+            return Err(LocalSymbolBuildError::ForeignRegion);
+        }
+
+        let anchor = match symbol {
+            AnyLocalSymbolId::Binding(id) => self
+                .bindings
+                .get(id.to_index().ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?)
+                .and_then(|symbol| symbol.key().anchors().first().copied()),
+            AnyLocalSymbolId::Constant(id) => self
+                .constants
+                .get(id.to_index().ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?)
+                .and_then(|symbol| symbol.key().anchors().first().copied()),
+            AnyLocalSymbolId::AnonymousCallable(id) => self
+                .anonymous_callables
+                .get(id.to_index().ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?)
+                .and_then(|symbol| symbol.key().anchors().first().copied()),
+            AnyLocalSymbolId::AnonymousCallableParameter(id) => self
+                .anonymous_parameters
+                .get(id.to_index().ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?)
+                .and_then(|symbol| symbol.key().anchors().first().copied()),
+            AnyLocalSymbolId::PostconditionResult(id) => self
+                .postcondition_results
+                .get(id.to_index().ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?)
+                .map(PostconditionResultSymbol::syntax_anchor),
+        };
+
+        anchor.ok_or(LocalSymbolBuildError::MissingSyntaxAnchor)
     }
 
     /// Returns declaration-surface candidates currently visible in one scope.

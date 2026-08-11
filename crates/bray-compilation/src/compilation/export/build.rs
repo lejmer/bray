@@ -1086,13 +1086,15 @@ mod tests {
             .copied()
             .collect();
 
-        assert!(runtime_capabilities.contains(
-            &bray_runtime_interface::RuntimeCapability::StringOperations
-        ));
+        assert!(
+            runtime_capabilities
+                .contains(&bray_runtime_interface::RuntimeCapability::StringOperations)
+        );
 
-        assert!(runtime_capabilities.contains(
-            &bray_runtime_interface::RuntimeCapability::CharacterOperations
-        ));
+        assert!(
+            runtime_capabilities
+                .contains(&bray_runtime_interface::RuntimeCapability::CharacterOperations)
+        );
 
         let artifact = encode_package_interface(interface)
             .unwrap_or_else(|error| panic!("formatting interface must encode: {error:?}"));

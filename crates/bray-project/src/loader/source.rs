@@ -1,7 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::{ProjectLoadError, ProjectManifestProblem, ProjectPath};
+use bray_diagnostics::DiagnosticProjectManifestField;
+use crate::{ProjectLoadError, ProjectPath};
+
+#[derive(Clone, Copy)]
+enum SourcePathProblem {
+    Invalid,
+    Symlink,
+    NonUtf8,
+}
 
 pub(super) fn collect_sources(
     workspace_root: &Path,
@@ -15,7 +23,7 @@ pub(super) fn collect_sources(
     let metadata = fs::symlink_metadata(&source_directory).map_err(|_| {
         invalid_source_root(
             manifest_path,
-            ProjectManifestProblem::InvalidSourceRoot,
+            SourcePathProblem::Invalid,
             source_directory.to_path_buf(),
         )
     })?;
@@ -24,9 +32,9 @@ pub(super) fn collect_sources(
         return Err(invalid_source_root(
             manifest_path,
             if metadata.file_type().is_symlink() {
-                ProjectManifestProblem::SourceSymlink
+                SourcePathProblem::Symlink
             } else {
-                ProjectManifestProblem::InvalidSourceRoot
+                SourcePathProblem::Invalid
             },
             source_directory,
         ));
@@ -55,7 +63,7 @@ fn collect_directory(
     let entries = fs::read_dir(directory).map_err(|_| {
         invalid_source_root(
             manifest_path,
-            ProjectManifestProblem::InvalidSourceRoot,
+            SourcePathProblem::Invalid,
             directory.to_path_buf(),
         )
     })?;
@@ -65,7 +73,7 @@ fn collect_directory(
             let entry = entry.map_err(|_| {
                 invalid_source_root(
                     manifest_path,
-                    ProjectManifestProblem::InvalidSourceRoot,
+                    SourcePathProblem::Invalid,
                     directory.to_path_buf(),
                 )
             })?;
@@ -73,7 +81,7 @@ fn collect_directory(
             let name = entry.file_name().into_string().map_err(|_| {
                 invalid_source_root(
                     manifest_path,
-                    ProjectManifestProblem::NonUtf8SourcePath,
+                    SourcePathProblem::NonUtf8,
                     entry.path(),
                 )
             })?;
@@ -90,7 +98,7 @@ fn collect_directory(
         let metadata = fs::symlink_metadata(&entry_path).map_err(|_| {
             invalid_source_root(
                 manifest_path,
-                ProjectManifestProblem::InvalidSourceRoot,
+                SourcePathProblem::Invalid,
                 entry_path.to_path_buf(),
             )
         })?;
@@ -98,7 +106,7 @@ fn collect_directory(
         if metadata.file_type().is_symlink() {
             return Err(invalid_source_root(
                 manifest_path,
-                ProjectManifestProblem::SourceSymlink,
+                SourcePathProblem::Symlink,
                 entry_path,
             ));
         }
@@ -106,7 +114,7 @@ fn collect_directory(
         let Some(name_path) = ProjectPath::try_new(name.as_str(), false) else {
             return Err(invalid_source_root(
                 manifest_path,
-                ProjectManifestProblem::InvalidSourceRoot,
+                SourcePathProblem::Invalid,
                 entry_path,
             ));
         };
@@ -124,7 +132,7 @@ fn collect_directory(
         } else if !metadata.is_file() {
             return Err(invalid_source_root(
                 manifest_path,
-                ProjectManifestProblem::InvalidSourceRoot,
+                SourcePathProblem::Invalid,
                 entry_path,
             ));
         }
@@ -135,12 +143,66 @@ fn collect_directory(
 
 fn invalid_source_root(
     manifest_path: &Path,
-    problem: ProjectManifestProblem,
+    problem: SourcePathProblem,
     source_path: PathBuf,
 ) -> ProjectLoadError {
-    ProjectLoadError::invalid(
-        manifest_path.to_path_buf(),
-        problem,
-        source_path.display().to_string(),
-    )
+    match problem {
+        SourcePathProblem::Invalid => ProjectLoadError::invalid_source_root(
+            manifest_path.to_path_buf(),
+            DiagnosticProjectManifestField::SourceRootPath,
+            source_path,
+        ),
+        SourcePathProblem::Symlink => ProjectLoadError::source_symlink(
+            manifest_path.to_path_buf(),
+            DiagnosticProjectManifestField::SourceRootPath,
+            source_path,
+        ),
+        SourcePathProblem::NonUtf8 => ProjectLoadError::non_utf8_source_path(
+            manifest_path.to_path_buf(),
+            DiagnosticProjectManifestField::SourceRootPath,
+            source_path,
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use bray_diagnostics::{DiagnosticBag, DiagnosticId, DiagnosticKind};
+
+    use super::{SourcePathProblem, invalid_source_root};
+
+    #[test]
+    fn source_path_failures_keep_their_exact_project_diagnostics() {
+        let manifest = Path::new("bray-package.json");
+
+        let symlink = DiagnosticBag::single(
+            invalid_source_root(
+                manifest,
+                SourcePathProblem::Symlink,
+                PathBuf::from("src/generated"),
+            )
+            .into_diagnostic(DiagnosticId::new(0)),
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &symlink,
+            DiagnosticKind::ProjectSourceRootContainsSymlink,
+        );
+
+        let non_utf8 = DiagnosticBag::single(
+            invalid_source_root(
+                manifest,
+                SourcePathProblem::NonUtf8,
+                PathBuf::from("src/non-utf8"),
+            )
+            .into_diagnostic(DiagnosticId::new(1)),
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &non_utf8,
+            DiagnosticKind::ProjectSourceRootContainsNonUtf8Path,
+        );
+    }
 }

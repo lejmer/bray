@@ -309,6 +309,11 @@ mod tests {
 
         let diagnostics = parser.finish();
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::SyntaxNestingLimitExceeded,
+        );
+
         assert_eq!(
             diagnostic_kinds(&diagnostics),
             [DiagnosticKind::SyntaxNestingLimitExceeded]

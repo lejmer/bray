@@ -145,9 +145,14 @@ fn link_fixture(
     let executable = output.join(crate::native_toolchain::executable_name(name));
     let map = output.join(format!("{name}.map"));
 
-    let clang = bray_tooling::llvm_tool_path("clang").ok_or_else(|| {
-        BuildError::conformance("native provider retention", "clang is unavailable")
-    })?;
+    let clang =
+        bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
+            .map_err(|error| {
+                BuildError::conformance(
+                    "native provider retention",
+                    format!("clang is unavailable: {error}"),
+                )
+            })?;
 
     let mut command = Command::new(clang);
 

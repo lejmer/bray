@@ -602,8 +602,7 @@ fn resolve_accesses(
                 resolve_storage_access(unit, access, root, identities, alternatives, &resolved)
             }
             crate::StorageAccessRoot::Recovery(_) => None,
-            borrow
-            @ (crate::StorageAccessRoot::Borrow(_)
+            borrow @ (crate::StorageAccessRoot::Borrow(_)
             | crate::StorageAccessRoot::BorrowedStorage { .. }) => {
                 resolve_borrowed_access(unit, access, borrow, capabilities, &resolved)
             }

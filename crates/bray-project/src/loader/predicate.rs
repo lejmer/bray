@@ -1,11 +1,13 @@
 use std::path::Path;
 
 use bray_base::sorted_unique_shared_slice;
+use bray_diagnostics::DiagnosticProjectManifestField;
 use bray_target::{TargetFactKind, TargetIdentity};
 
 use crate::manifest::{TargetPredicateManifest, TargetPredicateValueManifest};
 use crate::{
-    ProjectLoadError, ProjectManifestProblem, ProjectTarget, TargetPredicate, TargetPredicateValue,
+    ProjectLoadError, ProjectTarget, TargetPredicate, TargetPredicateValue,
+    TargetPredicateValueKind,
 };
 
 pub(super) fn normalize_target_predicate(
@@ -111,9 +113,9 @@ fn target_property(
     manifest_path: &Path,
 ) -> Result<TargetFactKind, ProjectLoadError> {
     TargetFactKind::from_path(property).ok_or_else(|| {
-        ProjectLoadError::invalid(
+        ProjectLoadError::unknown_target_predicate_property(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::InvalidTargetPredicate,
+            DiagnosticProjectManifestField::TargetPredicate,
             property,
         )
     })
@@ -139,20 +141,26 @@ fn validate_target_predicate_values(
             .iter()
             .find(|candidate| candidate.identity() == target)
         else {
-            return Err(ProjectLoadError::invalid(
+            return Err(ProjectLoadError::unknown_target(
                 manifest_path.to_path_buf(),
-                ProjectManifestProblem::UnknownTarget,
+                DiagnosticProjectManifestField::ProductTargets,
                 target.as_str(),
             ));
         };
 
         let value = target.profile().fact(property);
 
-        if values.iter().any(|expected| !expected.has_kind_of(value)) {
-            return Err(ProjectLoadError::invalid(
+        if let Some(actual) = values
+            .iter()
+            .find(|expected| !expected.has_kind_of(value))
+            .map(TargetPredicateValue::kind)
+        {
+            return Err(ProjectLoadError::target_predicate_value_kind_mismatch(
                 manifest_path.to_path_buf(),
-                ProjectManifestProblem::InvalidTargetPredicate,
-                property.as_str(),
+                DiagnosticProjectManifestField::TargetPredicate,
+                property,
+                TargetPredicateValueKind::of_target_value(value),
+                actual,
             ));
         }
     }

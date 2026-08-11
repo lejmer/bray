@@ -26,7 +26,10 @@ pub use inspection::{
 pub use model::{InspectionTarget, OutputFormat};
 pub use output::{clap_styles, render_styled_text, write_diagnostic_groups, write_diagnostics};
 #[cfg(feature = "compiler")]
-pub use product::{llvm_tool_path, load_llvm_compilation, native_linker};
+pub use product::{
+    LlvmCompilationLoadError, LlvmToolPathError, NativeLinkerBuildError, llvm_tool_path,
+    load_llvm_compilation, native_linker,
+};
 #[cfg(feature = "analysis")]
 pub use product::{
     load_compilation, package_interface_export_request, project_interface_path,

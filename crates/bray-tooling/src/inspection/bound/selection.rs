@@ -147,9 +147,7 @@ impl InspectionSelectionTarget {
                 format!("custom {capability} index via {}", fulfillment.text())
             }
             Self::TraitConstraintIndex {
-                capability,
-                member,
-                ..
+                capability, member, ..
             } => {
                 format!(
                     "custom {capability} index via constraint for {}",

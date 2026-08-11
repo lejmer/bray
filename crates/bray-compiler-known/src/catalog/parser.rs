@@ -732,9 +732,7 @@ fn is_catalog_word(token: &SyntaxToken) -> bool {
 #[cfg(test)]
 mod tests {
     use super::parse_catalog_source;
-    use crate::catalog::diagnostic::{
-        CatalogDiagnosticKind, CatalogEntryKind, CatalogExpectation,
-    };
+    use crate::catalog::diagnostic::{CatalogDiagnosticKind, CatalogEntryKind, CatalogExpectation};
     use crate::catalog::entry::{
         ParsedDeclarationField, ParsedEntry, ParsedScopeLocation, ParsedValueField,
     };

@@ -212,23 +212,12 @@ impl Lowerer<'_> {
         let result_type = self
             .input
             .semantic_values()
-            .intern_type(TypeData::Borrow {
-                kind,
-                target,
-            })
+            .intern_type(TypeData::Borrow { kind, target })
             .map_err(|_| LoweringError::SemanticValueUnavailable)?;
 
         let source = self.expression_source(operand)?;
 
-        self.lower_storage_borrow(
-            operand,
-            parent,
-            current,
-            kind,
-            target,
-            result_type,
-            source,
-        )
+        self.lower_storage_borrow(operand, parent, current, kind, target, result_type, source)
     }
 
     pub(super) fn lower_member_access(

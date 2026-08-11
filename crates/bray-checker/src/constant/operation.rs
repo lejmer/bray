@@ -13,26 +13,10 @@ pub(super) enum ConstantOperationError {
     Invalid,
     DivisionByZero,
     NotRepresentable,
-    ResourceLimitExceeded,
-}
-
-pub(super) const fn operation_diagnostic_kind(
-    error: ConstantOperationError,
-) -> bray_diagnostics::DiagnosticKind {
-    match error {
-        ConstantOperationError::Invalid => {
-            bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression
-        }
-        ConstantOperationError::DivisionByZero => {
-            bray_diagnostics::DiagnosticKind::CheckingConstantDivisionByZero
-        }
-        ConstantOperationError::NotRepresentable => {
-            bray_diagnostics::DiagnosticKind::CheckingConstantValueNotRepresentable
-        }
-        ConstantOperationError::ResourceLimitExceeded => {
-            bray_diagnostics::DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded
-        }
-    }
+    ResourceLimitExceeded {
+        actual: u64,
+        maximum: u64,
+    },
 }
 
 pub(super) fn fold_unary(
@@ -173,7 +157,10 @@ fn fold_integer_binary(
         let result_bits = u64::try_from(significant_bits(value.magnitude())).unwrap_or(u64::MAX);
 
         if result_bits > u64::from(maximum_integer_bits) {
-            return Err(ConstantOperationError::ResourceLimitExceeded);
+            return Err(ConstantOperationError::ResourceLimitExceeded {
+                actual: result_bits,
+                maximum: u64::from(maximum_integer_bits),
+            });
         }
     }
 
@@ -234,10 +221,15 @@ fn shift_left(
     let available_bits = u64::from(maximum_integer_bits).saturating_sub(value_bits);
 
     if value_bits > u64::from(maximum_integer_bits) || count > &BigInt::from(available_bits) {
-        return Err(ConstantOperationError::ResourceLimitExceeded);
+        let count = u64::try_from(count).unwrap_or(u64::MAX);
+
+        return Err(ConstantOperationError::ResourceLimitExceeded {
+            actual: value_bits.saturating_add(count),
+            maximum: u64::from(maximum_integer_bits),
+        });
     }
 
-    let count = shift_count(count)?;
+    let count = shift_count(count, u64::from(maximum_integer_bits))?;
 
     Ok(integer(value << count))
 }
@@ -255,7 +247,7 @@ fn shift_right(value: BigInt, count: &BigInt) -> Result<ConstantValueKind, Const
         }));
     }
 
-    let count = shift_count(count)?;
+    let count = shift_count(count, u64::MAX)?;
 
     Ok(integer(value >> count))
 }
@@ -294,11 +286,17 @@ fn exponentiate(
     let minimum_result_bits = BigInt::from(value.bits() - 1) * exponent + BigInt::from(1_u8);
 
     if minimum_result_bits > BigInt::from(maximum_integer_bits) {
-        return Err(ConstantOperationError::ResourceLimitExceeded);
+        return Err(ConstantOperationError::ResourceLimitExceeded {
+            actual: u64::try_from(&minimum_result_bits).unwrap_or(u64::MAX),
+            maximum: u64::from(maximum_integer_bits),
+        });
     }
 
     let exponent =
-        u32::try_from(exponent).map_err(|_| ConstantOperationError::ResourceLimitExceeded)?;
+        u32::try_from(exponent).map_err(|_| ConstantOperationError::ResourceLimitExceeded {
+            actual: u64::MAX,
+            maximum: u64::from(maximum_integer_bits),
+        })?;
 
     let result = value.pow(exponent);
 
@@ -329,8 +327,11 @@ fn integer(value: BigInt) -> ConstantValueKind {
     ConstantValueKind::Integer(from_big_integer(value))
 }
 
-fn shift_count(value: &BigInt) -> Result<usize, ConstantOperationError> {
-    usize::try_from(value).map_err(|_| ConstantOperationError::ResourceLimitExceeded)
+fn shift_count(value: &BigInt, maximum: u64) -> Result<usize, ConstantOperationError> {
+    usize::try_from(value).map_err(|_| ConstantOperationError::ResourceLimitExceeded {
+        actual: u64::try_from(value).unwrap_or(u64::MAX),
+        maximum,
+    })
 }
 
 pub(super) fn negate_real(value: RealConstantBits) -> RealConstantBits {
@@ -352,36 +353,9 @@ mod tests {
 
     use bray_bound_tree::BoundOperator;
     use bray_compiler_known::RepresentationRole;
-    use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign};
 
-    use super::{ConstantOperationError, fold_binary, fold_unary, operation_diagnostic_kind};
-
-    #[test]
-    fn operation_failures_map_to_exact_structured_diagnostics() {
-        let cases = [
-            (
-                ConstantOperationError::Invalid,
-                DiagnosticKind::CheckingInvalidConstantExpression,
-            ),
-            (
-                ConstantOperationError::DivisionByZero,
-                DiagnosticKind::CheckingConstantDivisionByZero,
-            ),
-            (
-                ConstantOperationError::NotRepresentable,
-                DiagnosticKind::CheckingConstantValueNotRepresentable,
-            ),
-            (
-                ConstantOperationError::ResourceLimitExceeded,
-                DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded,
-            ),
-        ];
-
-        for (error, expected) in cases {
-            assert_eq!(operation_diagnostic_kind(error), expected);
-        }
-    }
+    use super::{ConstantOperationError, fold_binary, fold_unary};
 
     #[test]
     fn integer_arithmetic_keeps_exact_intermediates_beyond_the_selected_width() {
@@ -459,18 +433,23 @@ mod tests {
         let shift = fold_binary(BoundOperator::ShiftLeft, &one, &eight, 8);
         let exponentiation = fold_binary(BoundOperator::Exponentiate, &two, &eight, 8);
 
-        assert_eq!(addition, Err(ConstantOperationError::ResourceLimitExceeded));
+        let exceeded = ConstantOperationError::ResourceLimitExceeded {
+            actual: 9,
+            maximum: 8,
+        };
+
+        assert_eq!(addition, Err(exceeded));
 
         assert_eq!(
             multiplication,
-            Err(ConstantOperationError::ResourceLimitExceeded)
+            Err(exceeded)
         );
 
-        assert_eq!(shift, Err(ConstantOperationError::ResourceLimitExceeded));
+        assert_eq!(shift, Err(exceeded));
 
         assert_eq!(
             exponentiation,
-            Err(ConstantOperationError::ResourceLimitExceeded)
+            Err(exceeded)
         );
     }
 

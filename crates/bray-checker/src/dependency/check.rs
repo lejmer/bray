@@ -161,13 +161,9 @@ where
         (expression, BoundDependencyContract::new(requirements))
     });
 
-    let deferred_expressions =
-        deferred_expression_requirements
-            .into_iter()
-            .filter_map(|(expression, requirements)| {
-                (!requirements.is_empty())
-                    .then(|| (expression, BoundDependencyContract::new(requirements)))
-            });
+    let deferred_expressions = deferred_expression_requirements
+        .into_iter()
+        .map(|(expression, requirements)| (expression, BoundDependencyContract::new(requirements)));
 
     let borrows = storage
         .borrow_capability_entries()

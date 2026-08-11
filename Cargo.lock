@@ -423,6 +423,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-messages",
  "bray-package-interface",
+ "bray-parser",
  "bray-project",
  "bray-source",
  "bray-symbols",
@@ -526,6 +527,7 @@ dependencies = [
  "bray-standard-library",
  "bray-symbols",
  "bray-target",
+ "bray-testing",
  "serde",
  "serde_json",
 ]
@@ -647,13 +649,16 @@ version = "0.0.0"
 dependencies = [
  "bray-bound-tree",
  "bray-declarations",
+ "bray-diagnostics",
  "bray-ir",
+ "bray-messages",
  "bray-parser",
  "bray-runtime-interface",
  "bray-source",
  "bray-symbols",
  "bray-syntax",
  "bray-target",
+ "clap",
 ]
 
 [[package]]
@@ -698,6 +703,7 @@ version = "0.0.0"
 dependencies = [
  "bray-diagnostics",
  "bray-formatter",
+ "bray-messages",
  "bray-testing",
  "bray-tooling",
  "clap",

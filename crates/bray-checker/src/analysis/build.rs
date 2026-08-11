@@ -929,11 +929,7 @@ mod tests {
 
         let mut builder = BoundTreeBuilder::new(unit);
 
-        let start = push_task_call(
-            &mut builder,
-            origin,
-            ImplementationHook::FutureStart,
-        );
+        let start = push_task_call(&mut builder, origin, ImplementationHook::FutureStart);
 
         let join = push_task_call(&mut builder, origin, ImplementationHook::TaskJoin);
         let cancel = push_task_call(&mut builder, origin, ImplementationHook::TaskCancel);

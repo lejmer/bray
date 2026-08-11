@@ -1,11 +1,10 @@
-use std::path::PathBuf;
-
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
-    DiagnosticNoteKind, SeverityKind,
+    DiagnosticNoteKind, DiagnosticProjectCommandFailure, DiagnosticSourceInput,
+    DiagnosticSourceInputOrigin, SeverityKind,
 };
 use bray_source::{
-    SourceInput, SourceInputKind, SourceLoadError, SourceUtf8Error, TextSize, TextSizeOverflow,
+    SourceInput, SourceInputKind, SourceLoadError, SourceUtf8Error, TextSizeOverflow,
 };
 use bray_symbols::PackageIdentity;
 
@@ -35,6 +34,24 @@ impl std::fmt::Display for CompilationLoadError {
 }
 
 impl std::error::Error for CompilationLoadError {}
+
+impl CompilationLoadError {
+    /// Converts this terminal load failure into a locale-neutral diagnostic.
+    pub fn diagnostic(self) -> Diagnostic {
+        let failure = match self {
+            Self::TooManyDiagnostics { count } => match u64::try_from(count) {
+                Ok(count) => {
+                    DiagnosticProjectCommandFailure::CompilationDiagnosticCapacityExceeded { count }
+                }
+                Err(_) => {
+                    DiagnosticProjectCommandFailure::CompilationDiagnosticCountUnrepresentable
+                }
+            },
+        };
+
+        failure.diagnostic(DiagnosticId::new(0))
+    }
+}
 
 pub(super) fn next_diagnostic_id(
     diagnostics: &DiagnosticBag,
@@ -93,29 +110,29 @@ pub(super) fn package_source_authority_diagnostic(
 
 #[derive(Debug, Eq, PartialEq)]
 pub(super) struct SourceInputDiagnosticContext {
-    input_index: usize,
+    input_index: u64,
     kind: SourceInputKind,
-    origin: SourceInputDiagnosticOrigin,
+    origin: DiagnosticSourceInputOrigin,
 }
 
 impl SourceInputDiagnosticContext {
-    pub(super) fn from_input(input_index: usize, input: &SourceInput) -> Self {
+    pub(super) fn from_input(input_index: u64, input: &SourceInput) -> Self {
         let origin = match input.kind() {
             SourceInputKind::File => match input.file_path() {
-                Some(path) => SourceInputDiagnosticOrigin::File(path.to_path_buf()),
-                None => SourceInputDiagnosticOrigin::None,
+                Some(path) => DiagnosticSourceInputOrigin::File(path.to_path_buf()),
+                None => DiagnosticSourceInputOrigin::Missing,
             },
             SourceInputKind::VirtualText => match input.virtual_name() {
-                Some(name) => SourceInputDiagnosticOrigin::Name(name.to_owned()),
-                None => SourceInputDiagnosticOrigin::None,
+                Some(name) => DiagnosticSourceInputOrigin::Name(name.to_owned()),
+                None => DiagnosticSourceInputOrigin::Missing,
             },
             SourceInputKind::GeneratedText => match input.generated_name() {
-                Some(name) => SourceInputDiagnosticOrigin::Name(name.to_owned()),
-                None => SourceInputDiagnosticOrigin::None,
+                Some(name) => DiagnosticSourceInputOrigin::Name(name.to_owned()),
+                None => DiagnosticSourceInputOrigin::Missing,
             },
             SourceInputKind::LspOpenDocument => match input.lsp_uri() {
-                Some(uri) => SourceInputDiagnosticOrigin::Uri(uri.to_owned()),
-                None => SourceInputDiagnosticOrigin::None,
+                Some(uri) => DiagnosticSourceInputOrigin::Uri(uri.to_owned()),
+                None => DiagnosticSourceInputOrigin::Missing,
             },
         };
 
@@ -125,14 +142,10 @@ impl SourceInputDiagnosticContext {
             origin,
         }
     }
-}
 
-#[derive(Debug, Eq, PartialEq)]
-enum SourceInputDiagnosticOrigin {
-    File(PathBuf),
-    Name(String),
-    Uri(String),
-    None,
+    fn into_diagnostic_input(self) -> DiagnosticSourceInput {
+        DiagnosticSourceInput::new(self.input_index, self.kind, self.origin)
+    }
 }
 
 pub(super) fn source_load_diagnostic(
@@ -150,25 +163,10 @@ pub(super) fn source_load_diagnostic(
 }
 
 fn with_source_input_context_args(
-    mut diagnostic: Diagnostic,
+    diagnostic: Diagnostic,
     context: SourceInputDiagnosticContext,
 ) -> Diagnostic {
-    if let Some(input_index) = DiagnosticArg::input_index(context.input_index) {
-        diagnostic = diagnostic.with_arg(input_index);
-    }
-
-    diagnostic = diagnostic.with_arg(DiagnosticArg::source_input_kind(context.kind));
-
-    match context.origin {
-        SourceInputDiagnosticOrigin::File(path) => {
-            diagnostic.with_arg(DiagnosticArg::file_path(path))
-        }
-        SourceInputDiagnosticOrigin::Name(name) => {
-            diagnostic.with_arg(DiagnosticArg::source_name(name))
-        }
-        SourceInputDiagnosticOrigin::Uri(uri) => diagnostic.with_arg(DiagnosticArg::uri(uri)),
-        SourceInputDiagnosticOrigin::None => diagnostic,
-    }
+    diagnostic.with_arg(DiagnosticArg::source_input(context.into_diagnostic_input()))
 }
 
 fn too_many_sources_diagnostic(id: DiagnosticId, count: u64) -> Diagnostic {
@@ -193,11 +191,8 @@ fn text_too_large_diagnostic(id: DiagnosticId, error: TextSizeOverflow) -> Diagn
 fn invalid_utf8_diagnostic(id: DiagnosticId, error: SourceUtf8Error) -> Diagnostic {
     let mut diagnostic =
         Diagnostic::new(id, DiagnosticKind::SourceInvalidUtf8, SeverityKind::Error)
+            .with_arg(DiagnosticArg::text_offset(error.valid_up_to()))
             .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8));
-
-    if let Ok(offset) = TextSize::try_from(error.valid_up_to()) {
-        diagnostic = diagnostic.with_arg(DiagnosticArg::text_offset(offset));
-    }
 
     if let Some(byte_count) = invalid_utf8_byte_count(error) {
         diagnostic = diagnostic.with_arg(byte_count);
@@ -216,15 +211,13 @@ fn invalid_utf8_byte_count(error: SourceUtf8Error) -> Option<DiagnosticArg> {
 mod tests {
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticId, DiagnosticKind,
-        DiagnosticNote, DiagnosticNoteKind,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticSourceInput, DiagnosticSourceInputOrigin,
     };
     use bray_source::{
         SourceInputKind, SourceLoadError, SourceUtf8Error, TextSize, TextSizeOverflow,
     };
 
-    use super::{
-        SourceInputDiagnosticContext, SourceInputDiagnosticOrigin, source_load_diagnostic,
-    };
+    use super::{SourceInputDiagnosticContext, source_load_diagnostic};
 
     #[test]
     fn source_load_errors_convert_to_source_diagnostics() {
@@ -233,7 +226,7 @@ mod tests {
             SourceInputDiagnosticContext {
                 input_index: 9,
                 kind: SourceInputKind::VirtualText,
-                origin: SourceInputDiagnosticOrigin::Name(String::from("buffer")),
+                origin: DiagnosticSourceInputOrigin::Name(String::from("buffer")),
             },
             SourceLoadError::TooManySources { count: 10 },
         );
@@ -248,16 +241,12 @@ mod tests {
                     DiagnosticArgValue::SourceCount(10)
                 ),
                 DiagnosticArg::new(
-                    DiagnosticArgName::InputIndex,
-                    DiagnosticArgValue::InputIndex(9)
-                ),
-                DiagnosticArg::new(
-                    DiagnosticArgName::SourceInputKind,
-                    DiagnosticArgValue::SourceInputKind(SourceInputKind::VirtualText)
-                ),
-                DiagnosticArg::new(
-                    DiagnosticArgName::SourceName,
-                    DiagnosticArgValue::SourceName(String::from("buffer"))
+                    DiagnosticArgName::SourceInput,
+                    DiagnosticArgValue::SourceInput(DiagnosticSourceInput::new(
+                        9,
+                        SourceInputKind::VirtualText,
+                        DiagnosticSourceInputOrigin::Name(String::from("buffer"))
+                    ))
                 )
             ]
         );
@@ -272,7 +261,7 @@ mod tests {
             SourceInputDiagnosticContext {
                 input_index: 3,
                 kind: SourceInputKind::LspOpenDocument,
-                origin: SourceInputDiagnosticOrigin::Uri(String::from("file:///main.bray")),
+                origin: DiagnosticSourceInputOrigin::Uri(String::from("file:///main.bray")),
             },
             SourceLoadError::TextTooLarge(TextSizeOverflow::new(usize::MAX)),
         );
@@ -286,9 +275,12 @@ mod tests {
             )]
         );
 
-        assert!(too_large.args().contains(&DiagnosticArg::new(
-            DiagnosticArgName::Uri,
-            DiagnosticArgValue::Uri(String::from("file:///main.bray"))
+        assert!(too_large.args().contains(&DiagnosticArg::source_input(
+            DiagnosticSourceInput::new(
+                3,
+                SourceInputKind::LspOpenDocument,
+                DiagnosticSourceInputOrigin::Uri(String::from("file:///main.bray"))
+            )
         )));
 
         if let Some(byte_count) = DiagnosticArg::byte_count(usize::MAX) {
@@ -300,9 +292,9 @@ mod tests {
             SourceInputDiagnosticContext {
                 input_index: 4,
                 kind: SourceInputKind::File,
-                origin: SourceInputDiagnosticOrigin::File("bad.bray".into()),
+                origin: DiagnosticSourceInputOrigin::File("bad.bray".into()),
             },
-            SourceLoadError::InvalidUtf8(SourceUtf8Error::new(2, Some(1))),
+            SourceLoadError::InvalidUtf8(SourceUtf8Error::new(TextSize::new(2), Some(1))),
         );
 
         assert_eq!(invalid_utf8.kind(), DiagnosticKind::SourceInvalidUtf8);
@@ -311,5 +303,24 @@ mod tests {
             DiagnosticArgName::TextOffset,
             DiagnosticArgValue::TextOffset(TextSize::new(2))
         )));
+
+        for diagnostic in [&too_many, &too_large, &invalid_utf8] {
+            bray_testing::assert_goal_state_diagnostic(diagnostic);
+        }
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &bray_diagnostics::DiagnosticBag::single(too_many),
+            DiagnosticKind::SourceTooManyInputs,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &bray_diagnostics::DiagnosticBag::single(too_large),
+            DiagnosticKind::SourceTextTooLarge,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &bray_diagnostics::DiagnosticBag::single(invalid_utf8),
+            DiagnosticKind::SourceInvalidUtf8,
+        );
     }
 }

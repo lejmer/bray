@@ -131,12 +131,17 @@ pub(super) struct StorageFlowState {
     pub(super) reachable: bool,
     pub(super) live: BTreeSet<StorageIdentityId>,
     pub(super) initialized: BTreeSet<StorageIdentityId>,
-    pub(super) moved: BTreeSet<StorageAccessId>,
+    pub(super) moved: BTreeMap<StorageAccessId, BoundExpressionId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
-    pub(super) raw_initialized: BTreeMap<StorageIdentityId, BTreeSet<TypeId>>,
-    pub(super) active_allocations: BTreeSet<StorageIdentityId>,
-    pub(super) invalidated_allocations: BTreeSet<StorageIdentityId>,
+    pub(super) raw_initialized:
+        BTreeMap<StorageIdentityId, BTreeMap<TypeId, BTreeSet<BoundExpressionId>>>,
+    pub(super) active_allocations:
+        BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
+    pub(super) allocation_origins:
+        BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
+    pub(super) invalidated_allocations:
+        BTreeMap<StorageIdentityId, BTreeSet<BoundExpressionId>>,
     pub(super) recovered: bool,
 }
 
@@ -156,12 +161,13 @@ impl StorageFlowState {
             reachable: true,
             live: initialized.clone(),
             initialized,
-            moved: BTreeSet::new(),
+            moved: BTreeMap::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
             raw_initialized: BTreeMap::new(),
-            active_allocations: BTreeSet::new(),
-            invalidated_allocations: BTreeSet::new(),
+            active_allocations: BTreeMap::new(),
+            allocation_origins: BTreeMap::new(),
+            invalidated_allocations: BTreeMap::new(),
             recovered: false,
         }
     }
@@ -188,10 +194,11 @@ impl StorageFlowState {
         let raw_initialized_count = self
             .raw_initialized
             .values()
-            .map(BTreeSet::len)
+            .map(BTreeMap::len)
             .sum::<usize>();
 
         let active_allocation_count = self.active_allocations.len();
+        let allocation_origin_count = self.allocation_origins.len();
         let invalidated_allocation_count = self.invalidated_allocations.len();
         let was_recovered = self.recovered;
 
@@ -200,7 +207,21 @@ impl StorageFlowState {
         self.initialized
             .retain(|storage| incoming.initialized.contains(storage));
 
-        self.moved.extend(incoming.moved.iter().copied());
+        let mut moved_changed = false;
+
+        for (&access, &origin) in &incoming.moved {
+            match self.moved.get_mut(&access) {
+                Some(current) if origin < *current => {
+                    *current = origin;
+                    moved_changed = true;
+                }
+                Some(_) => {}
+                None => {
+                    self.moved.insert(access, origin);
+                    moved_changed = true;
+                }
+            }
+        }
 
         self.active_borrows
             .extend(incoming.active_borrows.iter().copied());
@@ -208,38 +229,73 @@ impl StorageFlowState {
         self.definitely_active_borrows
             .retain(|borrow| incoming.definitely_active_borrows.contains(borrow));
 
+        let mut memory_origins_changed = false;
+
         self.raw_initialized.retain(|storage, initialized| {
             let Some(incoming) = incoming.raw_initialized.get(storage) else {
                 return false;
             };
 
-            initialized.retain(|ty| incoming.contains(ty));
+            initialized.retain(|ty, origins| {
+                let Some(incoming_origins) = incoming.get(ty) else {
+                    return false;
+                };
+
+                let count = origins.len();
+                origins.extend(incoming_origins.iter().copied());
+                memory_origins_changed |= origins.len() != count;
+
+                true
+            });
 
             !initialized.is_empty()
         });
 
-        self.active_allocations
-            .retain(|storage| incoming.active_allocations.contains(storage));
+        self.active_allocations.retain(|storage, origins| {
+            let Some(incoming_origins) = incoming.active_allocations.get(storage) else {
+                return false;
+            };
 
-        self.invalidated_allocations
-            .extend(incoming.invalidated_allocations.iter().copied());
+            let count = origins.len();
+            origins.extend(incoming_origins.iter().copied());
+            memory_origins_changed |= origins.len() != count;
+
+            true
+        });
+
+        for (&storage, incoming_origins) in &incoming.allocation_origins {
+            let origins = self.allocation_origins.entry(storage).or_default();
+            let count = origins.len();
+            origins.extend(incoming_origins.iter().copied());
+            memory_origins_changed |= origins.len() != count;
+        }
+
+        for (&storage, incoming_origins) in &incoming.invalidated_allocations {
+            let origins = self.invalidated_allocations.entry(storage).or_default();
+            let count = origins.len();
+            origins.extend(incoming_origins.iter().copied());
+            memory_origins_changed |= origins.len() != count;
+        }
 
         self.recovered |= incoming.recovered;
 
         self.live.len() != live_count
             || self.initialized.len() != initialized_count
             || self.moved.len() != moved_count
+            || moved_changed
             || self.active_borrows.len() != borrow_count
             || self.definitely_active_borrows.len() != definite_borrow_count
             || self.raw_initialized.len() != raw_storage_count
             || self
                 .raw_initialized
                 .values()
-                .map(BTreeSet::len)
+                .map(BTreeMap::len)
                 .sum::<usize>()
                 != raw_initialized_count
             || self.active_allocations.len() != active_allocation_count
+            || self.allocation_origins.len() != allocation_origin_count
             || self.invalidated_allocations.len() != invalidated_allocation_count
+            || memory_origins_changed
             || self.recovered != was_recovered
     }
 }
@@ -381,5 +437,147 @@ fn identity_definition_node(identity: StorageIdentity) -> Option<AnyBoundNodeId>
     match identity {
         StorageIdentity::Result(_) => None,
         _ => identity.definition_node(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{
+        BoundErrorExpression, BoundExpression, BoundUnitId, BoundUnitKind, StorageIdentity,
+        StoragePlanBuilder,
+    };
+
+    use super::StorageFlowState;
+    use crate::test_support::{error_type, expression_unit, push_expression};
+
+    #[test]
+    fn raw_memory_merge_preserves_conservative_state_and_branch_origin() {
+        let (identity, expressions) = storage_and_expressions(77);
+
+        let ty = error_type();
+        let mut left = reachable_state();
+
+        left.raw_initialized
+            .entry(identity)
+            .or_default()
+            .entry(ty)
+            .or_default()
+            .insert(expressions[1]);
+
+        left.active_allocations
+            .entry(identity)
+            .or_default()
+            .insert(expressions[0]);
+
+        assert!(left.merge(&reachable_state()));
+        assert!(!left.raw_initialized.contains_key(&identity));
+        assert!(!left.active_allocations.contains_key(&identity));
+
+        let mut invalidated = reachable_state();
+
+        invalidated
+            .invalidated_allocations
+            .entry(identity)
+            .or_default()
+            .insert(expressions[2]);
+
+        assert!(left.merge(&invalidated));
+
+        assert_eq!(
+            left.invalidated_allocations[&identity],
+            [expressions[2]].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn raw_memory_merge_unions_and_deduplicates_all_causative_origins() {
+        let (identity, expressions) = storage_and_expressions(78);
+
+        let ty = error_type();
+        let mut merged = memory_state(identity, ty, expressions[0], expressions[1]);
+        let incoming = memory_state(identity, ty, expressions[2], expressions[1]);
+
+        assert!(merged.merge(&incoming));
+
+        assert_eq!(
+            merged.raw_initialized[&identity][&ty],
+            [expressions[0], expressions[2]].into_iter().collect()
+        );
+
+        assert_eq!(
+            merged.invalidated_allocations[&identity],
+            [expressions[1]].into_iter().collect()
+        );
+
+        assert_eq!(
+            merged.allocation_origins[&identity],
+            [expressions[0], expressions[2]].into_iter().collect()
+        );
+    }
+
+    fn reachable_state() -> StorageFlowState {
+        StorageFlowState {
+            reachable: true,
+            ..StorageFlowState::default()
+        }
+    }
+
+    fn memory_state(
+        identity: bray_bound_tree::StorageIdentityId,
+        ty: bray_symbols::TypeId,
+        initialization: bray_bound_tree::BoundExpressionId,
+        invalidation: bray_bound_tree::BoundExpressionId,
+    ) -> StorageFlowState {
+        let mut state = reachable_state();
+
+        state
+            .raw_initialized
+            .entry(identity)
+            .or_default()
+            .entry(ty)
+            .or_default()
+            .insert(initialization);
+
+        state
+            .invalidated_allocations
+            .entry(identity)
+            .or_default()
+            .insert(invalidation);
+
+        state
+            .allocation_origins
+            .entry(identity)
+            .or_default()
+            .insert(initialization);
+
+        state
+    }
+
+    fn storage_and_expressions(
+        raw_unit: u32,
+    ) -> (
+        bray_bound_tree::StorageIdentityId,
+        Vec<bray_bound_tree::BoundExpressionId>,
+    ) {
+        let unit = BoundUnitId::new(raw_unit);
+
+        let (_, expressions) = expression_unit(unit, |tree, origin| {
+            (0..3)
+                .map(|_| {
+                    push_expression(
+                        tree,
+                        BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+
+        let mut storage = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+
+        let identity = storage
+            .push_identity(StorageIdentity::Allocation(expressions[0]))
+            .unwrap_or_else(|error| panic!("allocation identity must validate: {error:?}"));
+
+        (identity, expressions)
     }
 }

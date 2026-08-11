@@ -11,15 +11,16 @@ pub(crate) fn validate(
         for dependency in component.dependencies() {
             let valid = dependency != component.identity()
                 && components.iter().any(|candidate| {
-                    candidate.identity() == dependency
-                        && candidate.purpose() == component.purpose()
+                    candidate.identity() == dependency && candidate.purpose() == component.purpose()
                 });
 
             if !valid {
-                return Err(RuntimeArtifactMetadataBuildError::InvalidComponentDependency {
-                    component: component.identity().clone(),
-                    dependency: dependency.clone(),
-                });
+                return Err(
+                    RuntimeArtifactMetadataBuildError::InvalidComponentDependency {
+                        component: component.identity().clone(),
+                        dependency: dependency.clone(),
+                    },
+                );
             }
         }
 

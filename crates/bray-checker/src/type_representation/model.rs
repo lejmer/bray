@@ -49,6 +49,16 @@ impl RepresentationIntegerType {
         self.ty
     }
 
+    /// Returns the fixed or target-sized integer representation.
+    pub const fn representation(self) -> IntegerRepresentation {
+        self.representation
+    }
+
+    /// Returns the selected target pointer width used by target-sized integers.
+    pub const fn target_width(self) -> NonZeroU16 {
+        self.target_width
+    }
+
     /// Returns whether this type can represent one integer tag.
     pub fn accepts(self, value: &IntegerConstant) -> bool {
         crate::constant::fits_integer_representation(value, self.representation, || {

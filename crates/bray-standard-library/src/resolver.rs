@@ -200,7 +200,7 @@ fn load_manifest(
 
     decode_standard_library_manifest(&bytes)
         .map(Arc::new)
-        .map_err(StandardLibraryLoadError::Manifest)
+        .map_err(|error| StandardLibraryLoadError::Manifest { path, error })
 }
 
 fn load_artifact(
@@ -252,7 +252,12 @@ pub enum StandardLibraryLoadError {
         kind: ErrorKind,
     },
     /// The root manifest is malformed or violates its canonical contract.
-    Manifest(StandardLibraryManifestError),
+    Manifest {
+        /// Exact selected manifest path.
+        path: PathBuf,
+        /// Exact stable manifest contract violation.
+        error: StandardLibraryManifestError,
+    },
     /// An artifact has a different byte length than its manifest entry.
     ArtifactLengthMismatch {
         /// Exact selected path.

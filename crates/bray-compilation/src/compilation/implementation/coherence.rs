@@ -3,19 +3,25 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_binder::NameAccess;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticImplementationBorrowKind, DiagnosticImplementationFamily,
+    DiagnosticImplementationFamilySubject, DiagnosticImplementationOverloadProblem,
+    DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
+    DiagnosticType,
 };
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, ImplementationCoherenceDomainKey, ImplementationOverloadSymbolId,
-    ImplementationParticipationKind, ImplementationSymbolId, MemberLookupResult,
-    NamedTraitImplementationSymbolId, SymbolOrigin,
+    ImplementationParticipationKind, ImplementationSymbolId, ImportedSymbolSkeleton,
+    MemberLookupResult, NamedTraitImplementationSymbolId, SymbolGraph, SymbolOrigin,
+    diagnostic_symbol_kind,
 };
 use bray_syntax::{ImplementationOverloadDeclarationSyntax, PathSyntax};
 
 use super::super::Compilation;
 use super::index::{ImplementationFamilyKey, ImplementationFamilySubject};
 use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
-use crate::compilation::diagnostics::source_diagnostic;
+use crate::compilation::diagnostics::{source_diagnostic, symbol_diagnostic_identity};
 use crate::compilation::limits::try_count_comparison;
 use crate::compilation::overlap::{
     implementation_headers_overlap, implementation_subjects_overlap,
@@ -49,10 +55,17 @@ impl Compilation {
         let values = self.semantic_value_store()?;
         let symbols = self.symbol_graph()?;
         let facts = self.binder_facts(cancellation)?;
+        let imported = facts.imported_symbols().map_err(binder_fact_error)?;
 
         // The published coherence fact owns its merged diagnostic bag.
         let mut diagnostics = participation.diagnostics().clone();
-        let families = self.resolve_implementation_families(&facts, index.value(), cancellation)?;
+
+        let families = self.resolve_implementation_families(
+            &facts,
+            imported,
+            index.value(),
+            cancellation,
+        )?;
 
         diagnostics.add_range(families.diagnostics.iter().cloned());
 
@@ -93,10 +106,15 @@ impl Compilation {
                     cancellation.check()?;
 
                     if !try_count_comparison(&mut comparisons, maximum_comparisons) {
+                        let attempted = comparisons
+                            .checked_add(1)
+                            .ok_or(FactQueryError::InfrastructureFailure)?;
+
                         diagnostics.add(coherence_limit_diagnostic(
                             participants.get(&left.implementation()).copied(),
                             participants.get(&right.implementation()).copied(),
                             symbols,
+                            attempted,
                             maximum_comparisons,
                         ));
 
@@ -106,18 +124,43 @@ impl Compilation {
                     if implementation_headers_overlap(left, right, values)
                         .map_err(|_| FactQueryError::InfrastructureFailure)?
                     {
+                        let left_participant = participants.get(&left.implementation()).copied();
+                        let right_participant = participants.get(&right.implementation()).copied();
+
+                        let left_context = self.implementation_diagnostic_context(
+                            left,
+                            symbols,
+                            imported,
+                            cancellation,
+                        )?;
+
+                        let right_context = self.implementation_diagnostic_context(
+                            right,
+                            symbols,
+                            imported,
+                            cancellation,
+                        )?;
+
                         add_participant_diagnostic(
                             &mut diagnostics,
-                            participants.get(&left.implementation()).copied(),
+                            left_participant,
                             symbols,
                             DiagnosticKind::CheckingOverlappingImplementation,
+                            &left_context,
+                            right_participant.and_then(|participant| {
+                                participant_source_anchor(participant, symbols)
+                            }),
                         );
 
                         add_participant_diagnostic(
                             &mut diagnostics,
-                            participants.get(&right.implementation()).copied(),
+                            right_participant,
                             symbols,
                             DiagnosticKind::CheckingOverlappingImplementation,
+                            &right_context,
+                            left_participant.and_then(|participant| {
+                                participant_source_anchor(participant, symbols)
+                            }),
                         );
 
                         continue;
@@ -139,27 +182,80 @@ impl Compilation {
                 continue;
             }
 
+            let left_participant = participants.get(&left.implementation()).copied();
+            let right_participant = participants.get(&right.implementation()).copied();
+
+            let left_context = self.implementation_diagnostic_context(
+                left,
+                symbols,
+                imported,
+                cancellation,
+            )?;
+
+            let right_context = self.implementation_diagnostic_context(
+                right,
+                symbols,
+                imported,
+                cancellation,
+            )?;
+
             add_participant_diagnostic(
                 &mut diagnostics,
-                participants.get(&left.implementation()).copied(),
+                left_participant,
                 symbols,
                 DiagnosticKind::CheckingUngroupedImplementationOverloads,
+                &left_context,
+                right_participant
+                    .and_then(|participant| participant_source_anchor(participant, symbols)),
             );
 
             add_participant_diagnostic(
                 &mut diagnostics,
-                participants.get(&right.implementation()).copied(),
+                right_participant,
                 symbols,
                 DiagnosticKind::CheckingUngroupedImplementationOverloads,
+                &right_context,
+                left_participant
+                    .and_then(|participant| participant_source_anchor(participant, symbols)),
             );
         }
 
         Ok(diagnostics)
     }
 
+    fn implementation_diagnostic_context(
+        &self,
+        header: &super::index::ImplementationHeader,
+        symbols: &SymbolGraph,
+        imported: Option<&ImportedSymbolSkeleton>,
+        cancellation: &CancellationToken,
+    ) -> Result<ImplementationDiagnosticContext, FactQueryError> {
+        let checker = self.checker_context(cancellation)?;
+
+        let subject = bray_checker::diagnostic_type(&checker, header.subject())
+            .map_err(FactQueryError::CheckerInfrastructure)?;
+
+        let application = self
+            .semantic_value_store()?
+            .trait_application_data(header.trait_application())
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        let trait_definition = symbol_diagnostic_identity(
+            symbols,
+            imported,
+            application.definition().into(),
+        )?;
+
+        Ok(ImplementationDiagnosticContext {
+            subject,
+            trait_definition,
+        })
+    }
+
     fn resolve_implementation_families(
         &self,
         facts: &CompilationBinderFacts<'_>,
+        imported: Option<&ImportedSymbolSkeleton>,
         index: &super::index::ImplementationHeaderIndex,
         cancellation: &CancellationToken,
     ) -> Result<ResolvedImplementationFamilies, FactQueryError> {
@@ -194,10 +290,16 @@ impl Compilation {
                 .containing_module(family.id().into())
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let expected =
-                bind_family_header(facts, module.id(), &declaration, &mut resolved.diagnostics)?;
+            let expected = bind_family_header(
+                facts,
+                symbols,
+                imported,
+                module.id(),
+                &declaration,
+                &mut resolved.diagnostics,
+            )?;
 
-            let mut seen = BTreeSet::new();
+            let mut seen = BTreeMap::<ImplementationSymbolId, Vec<SyntaxAnchor>>::new();
 
             for arm_anchor in family.arm_syntax() {
                 let path = arm_anchor
@@ -205,7 +307,14 @@ impl Compilation {
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 let Some(implementation) =
-                    bind_family_arm(facts, module.id(), &path, &mut resolved.diagnostics)?
+                    bind_family_arm(
+                        facts,
+                        symbols,
+                        imported,
+                        module.id(),
+                        &path,
+                        &mut resolved.diagnostics,
+                    )?
                 else {
                     continue;
                 };
@@ -218,30 +327,74 @@ impl Compilation {
                     .or_default()
                     .insert(family.id());
 
-                if !seen.insert(implementation) {
-                    resolved.diagnostics.add(source_diagnostic(
+                let identity = symbol_diagnostic_identity(
+                    symbols,
+                    imported,
+                    implementation.into_any(),
+                )?;
+
+                if let Some(previous) = seen.get_mut(&implementation) {
+                    resolved.diagnostics.add(implementation_overload_diagnostic(
                         *arm_anchor,
-                        DiagnosticKind::CheckingInvalidImplementationOverloadArm,
+                        DiagnosticKind::CheckingDuplicateImplementationOverloadArm,
+                        DiagnosticImplementationOverloadProblem::DuplicateArm {
+                            implementation: identity,
+                        },
+                        previous,
                     ));
+
+                    previous.push(*arm_anchor);
 
                     continue;
                 }
 
-                let compatible = headers
-                    .get(&implementation)
-                    .and_then(|header| header.family_key(values).ok().flatten())
-                    .is_some_and(|actual| Some(actual) == expected);
+                seen.insert(implementation, vec![*arm_anchor]);
 
-                if !compatible {
-                    resolved.diagnostics.add(source_diagnostic(
+                let Some(expected) = expected else {
+                    continue;
+                };
+
+                let header = headers
+                    .get(&implementation)
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                let actual = header
+                    .family_key(values)
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                let Some(actual) = actual else {
+                    resolved.diagnostics.add(implementation_overload_diagnostic(
                         *arm_anchor,
                         DiagnosticKind::CheckingInvalidImplementationOverloadArm,
+                        DiagnosticImplementationOverloadProblem::ArmSubjectNotFamilyCompatible {
+                            implementation: identity,
+                        },
+                        &[],
+                    ));
+
+                    continue;
+                };
+
+                if actual != expected {
+                    resolved.diagnostics.add(implementation_overload_diagnostic(
+                        *arm_anchor,
+                        DiagnosticKind::CheckingInvalidImplementationOverloadArm,
+                        DiagnosticImplementationOverloadProblem::FamilyMismatch {
+                            implementation: identity,
+                            required: diagnostic_implementation_family(
+                                symbols, imported, expected,
+                            )?,
+                            provided: diagnostic_implementation_family(
+                                symbols, imported, actual,
+                            )?,
+                        },
+                        &[],
                     ));
                 }
             }
         }
 
-        if let Some(imported) = facts.imported_symbols().map_err(binder_fact_error)? {
+        if let Some(imported) = imported {
             for family in imported.implementation_overloads() {
                 for arm in family.arms() {
                     if let AnySymbolId::NamedTraitImplementation(implementation) = arm {
@@ -265,6 +418,11 @@ struct ResolvedImplementationFamilies {
     diagnostics: DiagnosticBag,
 }
 
+struct ImplementationDiagnosticContext {
+    subject: DiagnosticType,
+    trait_definition: bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
+}
+
 impl ResolvedImplementationFamilies {
     fn single_family(
         &self,
@@ -282,6 +440,8 @@ impl ResolvedImplementationFamilies {
 
 fn bind_family_header(
     facts: &CompilationBinderFacts<'_>,
+    symbols: &SymbolGraph,
+    imported: Option<&ImportedSymbolSkeleton>,
     module: bray_symbols::ModuleSymbolId,
     declaration: &ImplementationOverloadDeclarationSyntax,
     diagnostics: &mut DiagnosticBag,
@@ -303,16 +463,23 @@ fn bind_family_header(
         Some(AnySymbolId::Union(subject)) => {
             Some(ImplementationFamilySubject::Named(subject.into()))
         }
-        Some(_) => None,
+        Some(symbol) => {
+            diagnostics.add(implementation_overload_diagnostic(
+                SyntaxAnchor::from_node(&declaration.implementation_overload_subject().path()),
+                DiagnosticKind::CheckingInvalidImplementationOverloadHeader,
+                DiagnosticImplementationOverloadProblem::HeaderSubjectKind {
+                    subject: symbol_diagnostic_identity(symbols, imported, symbol)?,
+                    actual: diagnostic_symbol_kind(symbol.kind()),
+                },
+                &[],
+            ));
+
+            None
+        }
         None => return Ok(None),
     };
 
     let Some(subject) = subject else {
-        diagnostics.add(source_diagnostic(
-            SyntaxAnchor::from_node(declaration),
-            DiagnosticKind::CheckingInvalidImplementationOverloadHeader,
-        ));
-
         return Ok(None);
     };
 
@@ -335,15 +502,22 @@ fn bind_family_header(
         subject
     };
 
-    let Some(AnySymbolId::Trait(trait_definition)) = trait_definition else {
-        if trait_definition.is_some() {
-            diagnostics.add(source_diagnostic(
-                SyntaxAnchor::from_node(declaration),
+    let trait_definition = match trait_definition {
+        Some(AnySymbolId::Trait(trait_definition)) => trait_definition,
+        Some(symbol) => {
+            diagnostics.add(implementation_overload_diagnostic(
+                SyntaxAnchor::from_node(&declaration.trait_path()),
                 DiagnosticKind::CheckingInvalidImplementationOverloadHeader,
+                DiagnosticImplementationOverloadProblem::HeaderTraitKind {
+                    trait_definition: symbol_diagnostic_identity(symbols, imported, symbol)?,
+                    actual: diagnostic_symbol_kind(symbol.kind()),
+                },
+                &[],
             ));
-        }
 
-        return Ok(None);
+            return Ok(None);
+        }
+        None => return Ok(None),
     };
 
     Ok(Some(ImplementationFamilyKey::new(
@@ -354,6 +528,8 @@ fn bind_family_header(
 
 fn bind_family_arm(
     facts: &CompilationBinderFacts<'_>,
+    symbols: &SymbolGraph,
+    imported: Option<&ImportedSymbolSkeleton>,
     module: bray_symbols::ModuleSymbolId,
     path: &PathSyntax,
     diagnostics: &mut DiagnosticBag,
@@ -365,15 +541,90 @@ fn bind_family_arm(
     };
 
     let AnySymbolId::NamedTraitImplementation(implementation) = result else {
-        diagnostics.add(source_diagnostic(
+        diagnostics.add(implementation_overload_diagnostic(
             SyntaxAnchor::from_node(path),
             DiagnosticKind::CheckingInvalidImplementationOverloadArm,
+            DiagnosticImplementationOverloadProblem::ArmSymbolKind {
+                implementation: symbol_diagnostic_identity(symbols, imported, result)?,
+                actual: diagnostic_symbol_kind(result.kind()),
+            },
+            &[],
         ));
 
         return Ok(None);
     };
 
     Ok(Some(implementation))
+}
+
+fn implementation_overload_diagnostic(
+    anchor: SyntaxAnchor,
+    kind: DiagnosticKind,
+    problem: DiagnosticImplementationOverloadProblem,
+    previous: &[SyntaxAnchor],
+) -> Diagnostic {
+    let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+    let label = if kind == DiagnosticKind::CheckingDuplicateImplementationOverloadArm {
+        DiagnosticLabelKind::DuplicateOverloadArm
+    } else {
+        DiagnosticLabelKind::InvalidOverload
+    };
+
+    previous.iter().copied().fold(
+        source_diagnostic(anchor, kind)
+            .with_label(DiagnosticLabel::primary(label, span))
+            .with_arg(DiagnosticArg::implementation_overload_problem(problem)),
+        |diagnostic, previous| {
+            diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+                DiagnosticRelatedLocationKind::FirstDeclaration,
+                SourceSpan::new(previous.source_id(), previous.full_range()),
+            ))
+        },
+    )
+}
+
+fn diagnostic_implementation_family(
+    symbols: &SymbolGraph,
+    imported: Option<&ImportedSymbolSkeleton>,
+    family: ImplementationFamilyKey,
+) -> Result<DiagnosticImplementationFamily, FactQueryError> {
+    let subject = match family.subject() {
+        ImplementationFamilySubject::Named(subject) => {
+            DiagnosticImplementationFamilySubject::Named(symbol_diagnostic_identity(
+                symbols,
+                imported,
+                named_type_symbol(subject),
+            )?)
+        }
+        ImplementationFamilySubject::Borrowed(kind, subject) => {
+            DiagnosticImplementationFamilySubject::Borrowed {
+                kind: match kind {
+                    bray_symbols::BorrowKind::Shared => DiagnosticImplementationBorrowKind::Shared,
+                    bray_symbols::BorrowKind::Mutable => {
+                        DiagnosticImplementationBorrowKind::Mutable
+                    }
+                },
+                subject: symbol_diagnostic_identity(
+                    symbols,
+                    imported,
+                    named_type_symbol(subject),
+                )?,
+            }
+        }
+    };
+
+    Ok(DiagnosticImplementationFamily::new(
+        subject,
+        symbol_diagnostic_identity(symbols, imported, family.trait_definition().into())?,
+    ))
+}
+
+const fn named_type_symbol(subject: bray_symbols::NamedTypeSymbolId) -> AnySymbolId {
+    match subject {
+        bray_symbols::NamedTypeSymbolId::Struct(subject) => AnySymbolId::Struct(subject),
+        bray_symbols::NamedTypeSymbolId::Union(subject) => AnySymbolId::Union(subject),
+    }
 }
 
 fn bind_surface_path(
@@ -403,6 +654,8 @@ fn add_participant_diagnostic(
     participant: Option<&bray_symbols::ParticipatingImplementation>,
     symbols: &bray_symbols::SymbolGraph,
     kind: DiagnosticKind,
+    context: &ImplementationDiagnosticContext,
+    related: Option<SyntaxAnchor>,
 ) {
     let Some(participant) = participant else {
         return;
@@ -413,7 +666,7 @@ fn add_participant_diagnostic(
             if let Some(anchor) =
                 symbols.declaration_syntax_anchor(participant.implementation().into_any())
             {
-                diagnostics.add(source_diagnostic(anchor, kind));
+                diagnostics.add(participant_diagnostic(anchor, kind, context, related));
             }
         }
         ImplementationParticipationKind::ExplicitUsing => {
@@ -423,17 +676,53 @@ fn add_participant_diagnostic(
                     .using_declarations()
                     .iter()
                     .copied()
-                    .map(|anchor| source_diagnostic(anchor, kind)),
+                    .map(|anchor| participant_diagnostic(anchor, kind, context, related)),
             );
         }
         ImplementationParticipationKind::CompilerKnown => {}
     }
 }
 
+fn participant_diagnostic(
+    anchor: SyntaxAnchor,
+    kind: DiagnosticKind,
+    context: &ImplementationDiagnosticContext,
+    related: Option<SyntaxAnchor>,
+) -> Diagnostic {
+    let label = match kind {
+        DiagnosticKind::CheckingOverlappingImplementation => {
+            DiagnosticLabelKind::OverlappingImplementation
+        }
+        DiagnosticKind::CheckingUngroupedImplementationOverloads => {
+            DiagnosticLabelKind::UngroupedImplementationOverload
+        }
+        _ => unreachable!("participant diagnostics must describe implementation conflicts"),
+    };
+
+    let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+    let diagnostic = source_diagnostic(anchor, kind)
+        .with_label(DiagnosticLabel::primary(label, span))
+        .with_arg(DiagnosticArg::actual_type(context.subject.clone()))
+        .with_arg(DiagnosticArg::interface_symbol_identity(
+            context.trait_definition.clone(),
+        ));
+
+    let Some(related) = related else {
+        return diagnostic;
+    };
+
+    diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+        DiagnosticRelatedLocationKind::ConflictingDeclaration,
+        SourceSpan::new(related.source_id(), related.full_range()),
+    ))
+}
+
 fn coherence_limit_diagnostic(
     left: Option<&bray_symbols::ParticipatingImplementation>,
     right: Option<&bray_symbols::ParticipatingImplementation>,
     symbols: &bray_symbols::SymbolGraph,
+    actual: u64,
     maximum: u64,
 ) -> Diagnostic {
     let kind = DiagnosticKind::CheckingImplementationCoherenceLimitExceeded;
@@ -444,10 +733,19 @@ fn coherence_limit_diagnostic(
         .find_map(|participant| participant_source_anchor(participant, symbols))
         .map_or_else(
             || Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error),
-            |anchor| source_diagnostic(anchor, kind),
+            |anchor| {
+                let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+                source_diagnostic(anchor, kind).with_label(DiagnosticLabel::primary(
+                    DiagnosticLabelKind::ImplementationCoherenceLimitExceeded,
+                    span,
+                ))
+            },
         );
 
-    diagnostic.with_arg(DiagnosticArg::maximum_count(maximum))
+    diagnostic
+        .with_arg(DiagnosticArg::actual_count(actual))
+        .with_arg(DiagnosticArg::maximum_count(maximum))
 }
 
 fn participant_source_anchor(
@@ -558,6 +856,17 @@ mod tests {
             2
         );
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            exact.semantic_diagnostics(),
+            DiagnosticKind::CheckingOverlappingImplementation,
+        );
+
+        for diagnostic in exact.semantic_diagnostics().iter().filter(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingOverlappingImplementation
+        }) {
+            bray_testing::assert_goal_state_diagnostic(diagnostic);
+        }
+
         let generic = compilation(&format!(
             "{OVERLOAD_SURFACE}{}",
             concat!(
@@ -579,6 +888,12 @@ mod tests {
                 .count(),
             2
         );
+
+        for diagnostic in generic.semantic_diagnostics().iter().filter(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::CheckingOverlappingImplementation
+        }) {
+            bray_testing::assert_goal_state_diagnostic(diagnostic);
+        }
     }
 
     #[test]
@@ -613,6 +928,11 @@ mod tests {
         assert_eq!(
             diagnostic_kinds(diagnostics),
             [DiagnosticKind::CheckingImplementationCoherenceLimitExceeded]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingImplementationCoherenceLimitExceeded,
         );
     }
 
@@ -698,10 +1018,42 @@ mod tests {
                 .count(),
             2
         );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.semantic_diagnostics(),
+            DiagnosticKind::CheckingUngroupedImplementationOverloads,
+        );
     }
 
     #[test]
-    fn overload_headers_and_arms_must_match_their_implementations() {
+    fn implementation_overload_header_requires_a_structural_subject() {
+        let compilation = compilation(&format!(
+            "{OVERLOAD_SURFACE}{}",
+            concat!(
+                "\n",
+                "overload Reader(Buffer) =\n",
+                "{\n",
+                "}\n",
+            )
+        ));
+
+        let diagnostics = compilation
+            .implementation_coherence_diagnostics(&compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("coherence validation must complete: {error:?}"));
+
+        assert_eq!(
+            diagnostic_kinds(diagnostics),
+            [DiagnosticKind::CheckingInvalidImplementationOverloadHeader]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingInvalidImplementationOverloadHeader,
+        );
+    }
+
+    #[test]
+    fn implementation_overload_arm_reports_the_exact_family_mismatch() {
         let compilation = compilation(&format!(
             "{OVERLOAD_SURFACE}{}",
             concat!(
@@ -717,36 +1069,91 @@ mod tests {
                 "overload Buffer(Reader) =\n",
                 "{\n",
                 "    BytesWriter,\n",
-                "    BytesWriter,\n",
-                "}\n",
-                "\n",
-                "overload Reader(Buffer) =\n",
-                "{\n",
-                "    BytesWriter,\n",
                 "}\n",
             )
         ));
 
-        let diagnostic_kinds = diagnostic_kinds(compilation.semantic_diagnostics());
+        let diagnostics = compilation
+            .implementation_coherence_diagnostics(&compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("coherence validation must complete: {error:?}"));
 
         assert_eq!(
-            diagnostic_kinds
-                .iter()
-                .filter(|kind| {
-                    **kind == DiagnosticKind::CheckingInvalidImplementationOverloadHeader
-                })
-                .count(),
-            1
+            diagnostic_kinds(diagnostics),
+            [DiagnosticKind::CheckingInvalidImplementationOverloadArm]
         );
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingInvalidImplementationOverloadArm,
+        );
+    }
+
+    #[test]
+    fn implementation_overload_repeated_arm_retains_every_prior_origin() {
+        let compilation = compilation(&format!(
+            "{OVERLOAD_SURFACE}{}",
+            concat!(
+                "\n",
+                "impl BytesReader = Buffer<T>(Reader<Bytes>)\n",
+                "{\n",
+                "}\n",
+                "\n",
+                "overload Buffer(Reader) =\n",
+                "{\n",
+                "    BytesReader,\n",
+                "    BytesReader,\n",
+                "    BytesReader,\n",
+                "}\n",
+            )
+        ));
+
+        let diagnostics = compilation
+            .implementation_coherence_diagnostics(&compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("coherence validation must complete: {error:?}"));
+
+        let duplicates = diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.kind()
+                    == DiagnosticKind::CheckingDuplicateImplementationOverloadArm
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(duplicates.len(), 2);
+        assert_eq!(duplicates[0].related_locations().len(), 1);
+        assert_eq!(duplicates[1].related_locations().len(), 2);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingDuplicateImplementationOverloadArm,
+        );
+    }
+
+    #[test]
+    fn implementation_overload_arm_requires_a_named_trait_implementation() {
+        let compilation = compilation(&format!(
+            "{OVERLOAD_SURFACE}{}",
+            concat!(
+                "\n",
+                "overload Buffer(Reader) =\n",
+                "{\n",
+                "    Bytes,\n",
+                "}\n",
+            )
+        ));
+
+        let diagnostics = compilation
+            .implementation_coherence_diagnostics(&compilation.state.cancellation)
+            .unwrap_or_else(|error| panic!("coherence validation must complete: {error:?}"));
+
         assert_eq!(
-            diagnostic_kinds
-                .into_iter()
-                .filter(|kind| {
-                    *kind == DiagnosticKind::CheckingInvalidImplementationOverloadArm
-                })
-                .count(),
-            3
+            diagnostic_kinds(diagnostics),
+            [DiagnosticKind::CheckingInvalidImplementationOverloadArm]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingInvalidImplementationOverloadArm,
         );
     }
 }

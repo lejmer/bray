@@ -14,6 +14,7 @@ use bray_checker::{
     DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_definition_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_source::{SourceSpan};
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionFact, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
@@ -86,7 +87,9 @@ impl Compilation {
 
                 ConstantReferenceResolution::Evaluated(*result.value())
             }
-            Err(FactQueryError::Cycle(_)) => ConstantReferenceResolution::Cycle,
+            Err(FactQueryError::Cycle(_)) => ConstantReferenceResolution::Cycle {
+                definition: self.constant_definition_span(definition)?,
+            },
             Err(error) => return Err(error),
         };
 
@@ -709,7 +712,9 @@ impl Compilation {
 
                             Ok(ConstantReferenceResolution::Evaluated(*result.value()))
                         }
-                        Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle),
+                        Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle {
+                            definition: self.constant_definition_span(definition)?,
+                        }),
                         Err(error) => Err(error),
                     }
                 }
@@ -724,6 +729,31 @@ impl Compilation {
         definition: AnyConstantDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
         Ok(self.constant_template_keys()?.get(&definition).cloned())
+    }
+
+    pub(in crate::compilation) fn constant_definition_span(
+        &self,
+        definition: AnyConstantDefinitionId,
+    ) -> Result<Option<SourceSpan>, FactQueryError> {
+        let symbols = self.symbol_graph()?;
+
+        let Some(declaration) = symbols
+            .symbol_key(definition.into_any())
+            .and_then(bray_symbols::SymbolKey::source_declaration_id)
+        else {
+            return Ok(None);
+        };
+
+        let source_graph = self.product_source_graph()?;
+
+        let record = source_graph
+            .declarations()
+            .declaration(declaration)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let anchor = record.syntax_anchor();
+
+        Ok(Some(SourceSpan::new(anchor.source_id(), anchor.full_range())))
     }
 
     pub(in crate::compilation) fn callable_body_key(
@@ -806,7 +836,7 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticKind, DiagnosticRelatedLocationKind};
     use bray_symbols::{
         AnyConstantDefinitionId, CallableDefinitionId, CallableInstanceData,
         CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
@@ -817,6 +847,7 @@ mod tests {
         SymbolId, SymbolOrigin, TypeData, UnionSymbolId,
     };
     use bray_target::{TargetIdentity, TargetProfile};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::super::support::{
         call_parameter_values, constant_callable_root, empty_concrete_substitution,
@@ -1254,13 +1285,21 @@ mod tests {
         assert!(Arc::ptr_eq(&result, &repeated));
         assert_eq!(result.diagnostics(), repeated.diagnostics());
 
-        assert_eq!(
-            result
-                .diagnostics()
-                .by_kind(DiagnosticKind::CheckingCyclicConstantDefinition)
-                .count(),
-            1
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingCyclicConstantDefinition,
         );
+
+        let diagnostic = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingCyclicConstantDefinition)
+            .next()
+            .unwrap_or_else(|| panic!("cyclic constant must publish its diagnostic"));
+
+        assert!(diagnostic.related_locations().iter().any(|location| {
+            location.kind() == DiagnosticRelatedLocationKind::FirstDeclaration
+                && Some(location.span()) != diagnostic.primary_span()
+        }));
 
         assert!(matches!(
             constant_value(&compilation, result.value().value()).kind(),

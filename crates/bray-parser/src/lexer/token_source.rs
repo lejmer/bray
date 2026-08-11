@@ -286,14 +286,26 @@ fn share_token(token: &SyntaxToken) -> SyntaxToken {
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceVersion};
+    use bray_testing::assert_goal_state_diagnostics;
     use std::ops::Deref;
 
     use super::{LexerCachePolicy, LexerTokenSource};
     use crate::test_support::{diagnostic_kinds, token_kinds};
     use bray_source::{SourceSnapshot, TextRange, TextSize};
     use bray_syntax::{SyntaxKind, SyntaxToken, SyntaxTrivia};
+
+    fn diagnostics_of_kind(diagnostics: &DiagnosticBag, kind: DiagnosticKind) -> DiagnosticBag {
+        DiagnosticBag::from(
+            diagnostics
+                .diagnostics()
+                .iter()
+                .filter(|diagnostic| diagnostic.kind() == kind)
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+    }
 
     #[test]
     fn peek_does_not_consume_the_next_token() {
@@ -870,6 +882,68 @@ mod tests {
     fn invalid_lexical_forms_emit_structured_diagnostics_and_recover() {
         let source = consumed_source("a \u{feff} \r é _foo === $ z");
 
+        assert_goal_state_diagnostics(source.diagnostics());
+
+        let misplaced_bom = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalMisplacedBom,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &misplaced_bom,
+            DiagnosticKind::LexicalMisplacedBom,
+        );
+
+        let lone_carriage_return = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalLoneCarriageReturn,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &lone_carriage_return,
+            DiagnosticKind::LexicalLoneCarriageReturn,
+        );
+
+        let non_ascii_identifier = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalNonAsciiIdentifier,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &non_ascii_identifier,
+            DiagnosticKind::LexicalNonAsciiIdentifier,
+        );
+
+        let invalid_identifier = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalInvalidIdentifier,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_identifier,
+            DiagnosticKind::LexicalInvalidIdentifier,
+        );
+
+        let invalid_operator = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalInvalidOperatorOrPunctuation,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_operator,
+            DiagnosticKind::LexicalInvalidOperatorOrPunctuation,
+        );
+
+        let invalid_character = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalInvalidCharacter,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_character,
+            DiagnosticKind::LexicalInvalidCharacter,
+        );
+
         assert_eq!(
             diagnostic_kinds(source.diagnostics()),
             [
@@ -888,6 +962,58 @@ mod tests {
     #[test]
     fn malformed_literals_emit_specific_structured_diagnostics() {
         let source = consumed_source(r#"1u8 0x "bad\q" "\u{}" '' 'ab' '\u{110000}'"#);
+
+        assert_goal_state_diagnostics(source.diagnostics());
+
+        let invalid_suffix = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalInvalidNumericSuffix,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_suffix,
+            DiagnosticKind::LexicalInvalidNumericSuffix,
+        );
+
+        let malformed_numeric = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalMalformedNumericLiteral,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &malformed_numeric,
+            DiagnosticKind::LexicalMalformedNumericLiteral,
+        );
+
+        let unknown_escape = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalUnknownEscape,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &unknown_escape,
+            DiagnosticKind::LexicalUnknownEscape,
+        );
+
+        let invalid_unicode_escape = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalInvalidUnicodeEscape,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_unicode_escape,
+            DiagnosticKind::LexicalInvalidUnicodeEscape,
+        );
+
+        let malformed_character = diagnostics_of_kind(
+            source.diagnostics(),
+            DiagnosticKind::LexicalMalformedCharacterLiteral,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &malformed_character,
+            DiagnosticKind::LexicalMalformedCharacterLiteral,
+        );
 
         assert_eq!(
             diagnostic_kinds(source.diagnostics()),
@@ -908,6 +1034,25 @@ mod tests {
         let string_source = consumed_source(r#""open"#);
         let character_source = consumed_source("'o");
         let comment_source = consumed_source("value /* open");
+
+        assert_goal_state_diagnostics(string_source.diagnostics());
+        assert_goal_state_diagnostics(character_source.diagnostics());
+        assert_goal_state_diagnostics(comment_source.diagnostics());
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            string_source.diagnostics(),
+            DiagnosticKind::LexicalUnterminatedStringLiteral,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            character_source.diagnostics(),
+            DiagnosticKind::LexicalUnterminatedCharacterLiteral,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            comment_source.diagnostics(),
+            DiagnosticKind::LexicalUnterminatedBlockComment,
+        );
 
         assert_eq!(
             diagnostic_kinds(string_source.diagnostics()),

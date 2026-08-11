@@ -170,7 +170,7 @@ pub enum ExternalToolInvocationBuildError {
 }
 
 /// Captured result of one completed external tool.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ExternalToolOutput {
     success: bool,
     exit_code: Option<i32>,

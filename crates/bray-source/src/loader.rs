@@ -1,11 +1,13 @@
-use crate::encoding::{SourceUtf8Error, decode_source_bytes, normalize_source_text};
+use crate::encoding::{
+    SourceUtf8Error, decode_source_bytes, leading_utf8_bom_len, normalize_source_text,
+};
 use crate::id::SourceId;
 use crate::identity::SourceIdentity;
 use crate::input::{SourceInput, SourceInputContent};
 use crate::newline::SourceNewlinePolicy;
 use crate::origin::SourceOrigin;
 use crate::snapshot::SourceSnapshot;
-use crate::text::TextSizeOverflow;
+use crate::text::{TextSize, TextSizeOverflow};
 use crate::version::SourceVersion;
 
 /// Error returned when source input cannot be loaded into a snapshot.
@@ -91,7 +93,18 @@ impl SourceLoader {
         version: impl Into<SourceVersion>,
         bytes: impl Into<Vec<u8>>,
     ) -> Result<SourceSnapshot, SourceLoadError> {
-        let text = decode_source_bytes(bytes.into())?;
+        let bytes = bytes.into();
+
+        validate_source_byte_count(bytes.len(), leading_utf8_bom_len(&bytes))?;
+
+        let text = match decode_source_bytes(bytes) {
+            Ok(text) => text,
+            Err(error) => {
+                let valid_up_to = TextSize::try_from(error.valid_up_to())?;
+
+                return Err(SourceUtf8Error::new(valid_up_to, error.error_len()).into());
+            }
+        };
 
         self.load_decoded_text(identity, origin, version, text)
     }
@@ -141,12 +154,23 @@ impl SourceLoader {
     }
 }
 
+fn validate_source_byte_count(
+    byte_count: usize,
+    leading_bom_len: usize,
+) -> Result<(), TextSizeOverflow> {
+    let content_byte_count = byte_count
+        .checked_sub(leading_bom_len)
+        .ok_or_else(|| TextSizeOverflow::new(byte_count))?;
+
+    TextSize::try_from(content_byte_count).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{SourceLoadError, SourceLoader};
+    use super::{SourceLoadError, SourceLoader, validate_source_byte_count};
     use crate::{
         SourceId, SourceIdentity, SourceInput, SourceOrigin, SourceOriginKind, SourceUtf8Error,
-        SourceVersion,
+        SourceVersion, TextSize,
     };
 
     #[test]
@@ -283,7 +307,7 @@ mod tests {
 
         assert_eq!(
             error,
-            SourceLoadError::InvalidUtf8(SourceUtf8Error::new(1, Some(1)))
+            SourceLoadError::InvalidUtf8(SourceUtf8Error::new(TextSize::new(1), Some(1)))
         );
 
         assert_eq!(loader.loaded_count(), 0);
@@ -297,6 +321,19 @@ mod tests {
 
         assert_eq!(snapshot.source_id(), SourceId::new(0));
         assert_eq!(loader.loaded_count(), 1);
+    }
+
+    #[test]
+    fn oversized_source_bytes_are_rejected_before_utf8_offsets_are_reported() {
+        let byte_count = usize::try_from(u64::from(u32::MAX) + 1)
+            .unwrap_or_else(|_| panic!("test host must represent a byte count above TextSize"));
+
+        assert_eq!(
+            validate_source_byte_count(byte_count, 0),
+            Err(crate::TextSizeOverflow::new(byte_count))
+        );
+
+        assert_eq!(validate_source_byte_count(byte_count, 1), Ok(()));
     }
 
     #[test]

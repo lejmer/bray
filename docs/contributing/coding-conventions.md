@@ -121,6 +121,8 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 
 ## Compiler diagnostics and user-facing text
 
+See [Compiler diagnostics](diagnostics.md) for the structured producer, rendering, suggestion, and readiness contracts.
+
 - Compiler logic must emit structured diagnostics, not hardcoded user-facing English strings.
 - Use diagnostic codes, severities, spans, labels, notes, suggestions, related locations, message IDs, and typed message arguments.
 - User-facing text must be rendered through the locale-aware `bray-messages` infrastructure.

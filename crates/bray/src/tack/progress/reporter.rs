@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use bray_diagnostics::DiagnosticDocumentParseKind;
 use bray_messages::{BuildProgressLineKind, BuildProgressMessageRenderer, BuildProgressOperation};
 use bray_tooling::{OutputFormat, write_diagnostic_groups};
 
@@ -49,7 +50,10 @@ impl WorkflowProgress {
         self.interactive
     }
 
-    pub(crate) fn write_to_result(&self, result: &mut TackRunResult) -> Result<(), ()> {
+    pub(crate) fn write_to_result(
+        &self,
+        result: &mut TackRunResult,
+    ) -> Result<(), DiagnosticDocumentParseKind> {
         let reports = self
             .reports
             .lock()
@@ -334,7 +338,7 @@ fn render_plain(reports: &[BuildProgressReport], verbose: bool) -> String {
 fn write_json_report(
     result: &mut TackRunResult,
     reports: &[BuildProgressReport],
-) -> Result<(), ()> {
+) -> Result<(), DiagnosticDocumentParseKind> {
     let mut diagnostic_report = if result.diagnostics().is_empty() {
         None
     } else {
@@ -347,15 +351,19 @@ fn write_json_report(
             &mut output,
             &mut error,
         )
-        .map_err(|_| ())?;
+        .map_err(|_| DiagnosticDocumentParseKind::Serialization)?;
 
-        Some(serde_json::from_slice::<serde_json::Value>(&output).map_err(|_| ())?)
+        Some(
+            serde_json::from_slice::<serde_json::Value>(&output)
+                .map_err(|_| DiagnosticDocumentParseKind::Schema)?,
+        )
     };
 
     let has_child_report = !result.stdout().is_empty();
 
     let mut report = if has_child_report {
-        serde_json::from_str::<serde_json::Value>(result.stdout()).map_err(|_| ())?
+        serde_json::from_str::<serde_json::Value>(result.stdout())
+            .map_err(|_| DiagnosticDocumentParseKind::Schema)?
     } else {
         diagnostic_report.take().unwrap_or_else(|| {
             serde_json::json!({
@@ -366,18 +374,20 @@ fn write_json_report(
     };
 
     let Some(report) = report.as_object_mut() else {
-        return Err(());
+        return Err(DiagnosticDocumentParseKind::Schema);
     };
 
     if has_child_report {
         merge_diagnostic_report(report, diagnostic_report.as_ref())?;
     }
 
-    let workflow = serde_json::to_value(reports).map_err(|_| ())?;
+    let workflow =
+        serde_json::to_value(reports).map_err(|_| DiagnosticDocumentParseKind::Serialization)?;
 
     report.insert(String::from("build_progress"), workflow);
 
-    let output = serde_json::to_string_pretty(report).map_err(|_| ())?;
+    let output = serde_json::to_string_pretty(report)
+        .map_err(|_| DiagnosticDocumentParseKind::Serialization)?;
 
     result.replace_stdout(format!("{output}\n"));
     result.clear_diagnostics();
@@ -388,7 +398,7 @@ fn write_json_report(
 fn merge_diagnostic_report(
     report: &mut serde_json::Map<String, serde_json::Value>,
     additional: Option<&serde_json::Value>,
-) -> Result<(), ()> {
+) -> Result<(), DiagnosticDocumentParseKind> {
     let Some(additional) = additional else {
         return Ok(());
     };
@@ -396,17 +406,17 @@ fn merge_diagnostic_report(
     let additional_has_errors = additional
         .get("has_errors")
         .and_then(serde_json::Value::as_bool)
-        .ok_or(())?;
+        .ok_or(DiagnosticDocumentParseKind::Schema)?;
 
     let additional_diagnostics = additional
         .get("diagnostics")
         .and_then(serde_json::Value::as_array)
-        .ok_or(())?;
+        .ok_or(DiagnosticDocumentParseKind::Schema)?;
 
     let diagnostics = report
         .get_mut("diagnostics")
         .and_then(serde_json::Value::as_array_mut)
-        .ok_or(())?;
+        .ok_or(DiagnosticDocumentParseKind::Schema)?;
 
     diagnostics.extend(additional_diagnostics.iter().cloned());
 

@@ -1,15 +1,22 @@
+// rust-style: allow(module-too-large, reason = "storage flow collection is one transition engine whose diagnostics require the same plan, state, and decision context")
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinementFacts, CheckedSemanticSelections, LivenessFacts,
-    MemoryOperationStatus, RefinementFact, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageBinding, StorageExitDecision, StorageFlowFacts,
+    MemoryOperationStatus, RefinementFact, StorageAccessId, StorageAccessPlan, StorageAccessRoot,
+    StorageAccessPurpose, StorageBinding, StorageExitDecision, StorageFlowFacts, StorageIdentity,
     StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
     StorageRelationship, StorageSuspensionState,
 };
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
-use bray_symbols::CallableSignatureFact;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
+    DiagnosticStorageRoot, SeverityKind,
+};
+use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureFact};
 
 use crate::storage::StorageScopeOwners;
 use crate::{
@@ -26,6 +33,8 @@ use crate::analysis::storage_flow::authority::mutable_storage;
 use crate::analysis::storage_flow::copyability::CopyabilityResolver;
 use crate::analysis::storage_flow::decision::{diagnostic_kind, more_conservative};
 use crate::analysis::storage_flow::model::{StorageFlowDomain, StorageFlowInput, StorageFlowState};
+
+use super::access::BorrowConflict;
 
 pub(crate) fn check_storage_flow<C>(
     request: CheckerUnitView<'_, C>,
@@ -156,6 +165,10 @@ where
         }
     }
 
+    if let Some(error) = collector.infrastructure_failure.take() {
+        return CheckerOutcome::InfrastructureFailure(error);
+    }
+
     let decisions = collector.decisions().collect::<Vec<_>>();
     let memory_decisions = collector.memory_decisions().collect::<Vec<_>>();
 
@@ -183,6 +196,44 @@ where
     CheckerOutcome::complete(facts, collector.diagnostics)
 }
 
+struct StorageOperationOutcome {
+    status: StorageOperationStatus,
+    origin: Option<StorageOperationOrigin>,
+}
+
+enum StorageOperationOrigin {
+    Borrows(Vec<BorrowCapabilityId>),
+    Moves(Vec<BoundExpressionId>),
+}
+
+impl StorageOperationOutcome {
+    fn status(status: StorageOperationStatus) -> Self {
+        Self {
+            status,
+            origin: None,
+        }
+    }
+
+    fn borrow_conflict(conflict: BorrowConflict) -> Self {
+        let origin = match conflict {
+            BorrowConflict::Unlocated => None,
+            BorrowConflict::Borrows(borrows) => Some(StorageOperationOrigin::Borrows(borrows)),
+        };
+
+        Self {
+            status: StorageOperationStatus::ConflictingBorrow,
+            origin,
+        }
+    }
+
+    fn moved(origins: Vec<BoundExpressionId>) -> Self {
+        Self {
+            status: StorageOperationStatus::Moved,
+            origin: Some(StorageOperationOrigin::Moves(origins)),
+        }
+    }
+}
+
 pub(crate) struct StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
@@ -203,6 +254,7 @@ where
     pub(super) reported_memory_diagnostics: BTreeSet<(DiagnosticKind, BoundExpressionId)>,
     pub(super) publish: bool,
     pub(super) is_recovered: bool,
+    pub(super) infrastructure_failure: Option<CheckerInfrastructureError>,
 }
 
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
@@ -235,6 +287,7 @@ where
             reported_memory_diagnostics: BTreeSet::new(),
             publish: true,
             is_recovered: false,
+            infrastructure_failure: None,
         }
     }
 
@@ -307,8 +360,20 @@ where
         refinements: &[RefinementFact],
     ) {
         let purpose = self.effective_purpose(plan);
-        let status = self.operation_status(state, plan, purpose, refinements);
+        let outcome = self.operation_status(state, plan, purpose, refinements);
+        let status = outcome.status;
         let borrow = self.input.borrow(plan);
+
+        if matches!(
+            status,
+            StorageOperationStatus::Uninitialized
+                | StorageOperationStatus::InactiveProjection
+                | StorageOperationStatus::NotCopyable
+        ) {
+            self.infrastructure_failure = Some(CheckerInfrastructureError::InvalidStorageFlowFacts);
+
+            return;
+        }
 
         if matches!(status, StorageOperationStatus::Valid) {
             self.apply_valid_operation(state, plan, purpose, borrow);
@@ -326,7 +391,7 @@ where
             .or_insert(status);
 
         if let Some(kind) = diagnostic_kind(status) {
-            self.add_diagnostic(kind, plan.access());
+            self.add_diagnostic(kind, plan, purpose, outcome.origin);
         }
     }
 
@@ -336,23 +401,23 @@ where
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
         refinements: &[RefinementFact],
-    ) -> StorageOperationStatus {
+    ) -> StorageOperationOutcome {
         let Some(access) = self.storage.access(plan.access()) else {
-            return StorageOperationStatus::Recovered;
+            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
         };
 
         if access.is_recovered() {
-            return StorageOperationStatus::Recovered;
+            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
         }
 
         if !self.pattern_establishes_projection(plan.access())
             && !self.refinements_allow_access(plan.access(), refinements)
         {
-            return StorageOperationStatus::InactiveProjection;
+            return StorageOperationOutcome::status(StorageOperationStatus::InactiveProjection);
         }
 
         let Some(root) = self.storage.root_identity(plan.access()) else {
-            return StorageOperationStatus::Recovered;
+            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
         };
 
         let requires_value = matches!(
@@ -364,14 +429,15 @@ where
         );
 
         if requires_value && !state.initialized.contains(&root) {
-            return StorageOperationStatus::Uninitialized;
+            return StorageOperationOutcome::status(StorageOperationStatus::Uninitialized);
         }
 
-        if requires_value
-            && !self.pattern_establishes_projection(plan.access())
-            && self.access_is_moved(state, plan.access())
-        {
-            return StorageOperationStatus::Moved;
+        if requires_value && !self.pattern_establishes_projection(plan.access()) {
+            let origins = self.moved_origins(state, plan.access());
+
+            if !origins.is_empty() {
+                return StorageOperationOutcome::moved(origins);
+            }
         }
 
         let operation_access = self.operation_access(plan, purpose);
@@ -380,27 +446,29 @@ where
             && self.access_uses_borrow(operation_access)
             && !self.type_is_borrow(access.reached_type())
         {
-            return StorageOperationStatus::MissingOwnership;
+            return StorageOperationOutcome::status(StorageOperationStatus::MissingOwnership);
         }
 
-        if self.has_borrow_conflict(state, plan, purpose) {
-            return StorageOperationStatus::ConflictingBorrow;
+        if let Some(conflict) = self.borrow_conflict(state, plan, purpose) {
+            return StorageOperationOutcome::borrow_conflict(conflict);
         }
 
         if let Some(authority_access) = self.mutation_authority_access(plan, purpose)
             && (!self.has_mutation_authority(authority_access)
                 || !self.fields_allow_mutation(authority_access))
         {
-            return StorageOperationStatus::MissingMutationAuthority;
+            return StorageOperationOutcome::status(
+                StorageOperationStatus::MissingMutationAuthority,
+            );
         }
 
         if purpose == StorageAccessPurpose::Copy
             && !self.input.type_is_copyable(access.reached_type())
         {
-            return StorageOperationStatus::NotCopyable;
+            return StorageOperationOutcome::status(StorageOperationStatus::NotCopyable);
         }
 
-        StorageOperationStatus::Valid
+        StorageOperationOutcome::status(StorageOperationStatus::Valid)
     }
 
     fn apply_valid_operation(
@@ -412,12 +480,12 @@ where
     ) {
         match purpose {
             StorageAccessPurpose::Move => {
-                state.moved.insert(plan.access());
+                state.moved.insert(plan.access(), plan.expression());
 
                 if self.move_consumes_complete_union_payload(plan.access())
                     && let Some(root) = self.root_access(plan.access())
                 {
-                    state.moved.insert(root);
+                    state.moved.insert(root, plan.expression());
                 }
             }
             StorageAccessPurpose::Initialize | StorageAccessPurpose::Assignment => {
@@ -430,7 +498,7 @@ where
 
                 state
                     .moved
-                    .retain(|moved| !self.storage.access_contains(plan.access(), *moved));
+                    .retain(|moved, _| !self.storage.access_contains(plan.access(), *moved));
             }
             StorageAccessPurpose::Write => {}
             StorageAccessPurpose::Borrow(_) => {
@@ -501,7 +569,7 @@ where
     fn initialize_operation_storage(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {
         let definitions = self.input.definitions(node);
 
-        state.moved.retain(|access| {
+        state.moved.retain(|access, _| {
             self.storage
                 .root_identity(*access)
                 .is_none_or(|storage| !definitions.contains(&storage))
@@ -511,11 +579,24 @@ where
         state.initialized.extend(definitions.iter().copied());
     }
 
-    fn access_is_moved(&self, state: &StorageFlowState, access: StorageAccessId) -> bool {
-        state
+    fn moved_origins(
+        &self,
+        state: &StorageFlowState,
+        access: StorageAccessId,
+    ) -> Vec<BoundExpressionId> {
+        let mut origins = state
             .moved
             .iter()
-            .any(|moved| self.storage.relationship(*moved, access) != StorageRelationship::Disjoint)
+            .filter(|(moved, _)| {
+                self.storage.relationship(**moved, access) != StorageRelationship::Disjoint
+            })
+            .map(|(_, origin)| *origin)
+            .collect::<Vec<_>>();
+
+        origins.sort_unstable();
+        origins.dedup();
+
+        origins
     }
 
     pub(super) fn effective_purpose(&self, plan: StorageAccessPlan) -> StorageAccessPurpose {
@@ -537,7 +618,7 @@ where
     fn end_last_use_borrows(&self, state: &mut StorageFlowState, operation: AnyBoundNodeId) {
         let moved_borrows = state
             .moved
-            .iter()
+            .keys()
             .filter_map(|access| match self.storage.access(*access)?.root() {
                 root => root.borrow_capability(),
             })
@@ -588,7 +669,7 @@ where
             .definitely_active_borrows
             .retain(|borrow| !ended.contains(borrow));
 
-        state.moved.retain(|access| {
+        state.moved.retain(|access, _| {
             self.storage.access(*access).is_none_or(|access| {
                 access
                     .root()
@@ -607,7 +688,7 @@ where
             .initialized
             .retain(|storage| state.live.contains(storage));
 
-        state.moved.retain(|access| {
+        state.moved.retain(|access, _| {
             self.storage
                 .root_identity(*access)
                 .is_some_and(|storage| state.live.contains(&storage))
@@ -648,7 +729,7 @@ where
             block,
             exit,
             state.initialized.iter().copied(),
-            state.moved.iter().copied(),
+            state.moved.keys().copied(),
             state.active_borrows.iter().copied(),
             state.recovered,
         ));
@@ -663,30 +744,233 @@ where
             expression,
             state.live.iter().copied(),
             state.initialized.iter().copied(),
-            state.moved.iter().copied(),
+            state.moved.keys().copied(),
             state.definitely_active_borrows.iter().copied(),
         ));
     }
 
-    fn add_diagnostic(&mut self, kind: DiagnosticKind, access: StorageAccessId) {
-        if !self.reported_diagnostics.insert((kind, access)) {
+    fn add_diagnostic(
+        &mut self,
+        kind: DiagnosticKind,
+        plan: StorageAccessPlan,
+        purpose: StorageAccessPurpose,
+        origin: Option<StorageOperationOrigin>,
+    ) {
+        if self.infrastructure_failure.is_some() {
             return;
         }
 
-        let Some(access) = self.storage.access(access) else {
+        let access_id = plan.access();
+
+        let Some(access) = self.storage.access(access_id) else {
+            self.infrastructure_failure = Some(CheckerInfrastructureError::InvalidStorageFlowFacts);
             return;
         };
 
-        let Ok(source) = self.request.source(access.source()) else {
-            return;
+        let source = match self.request.source(access.source()) {
+            Ok(source) => source,
+            Err(error) => {
+                self.infrastructure_failure = Some(error);
+
+                return;
+            }
         };
+
+        let access_argument = match self.diagnostic_storage_access(access_id, purpose) {
+            Ok(access) => access,
+            Err(error) => {
+                self.infrastructure_failure = Some(error);
+
+                return;
+            }
+        };
+
+        if !self.reported_diagnostics.insert((kind, access_id)) {
+            return;
+        }
 
         let id = u32::try_from(self.diagnostics.len()).unwrap_or(u32::MAX);
 
-        self.diagnostics.add(
-            Diagnostic::new(DiagnosticId::new(id), kind, SeverityKind::Error)
-                .with_primary_span(source.span()),
-        );
+        let mut diagnostic = Diagnostic::new(DiagnosticId::new(id), kind, SeverityKind::Error)
+            .with_primary_span(source.span())
+            .with_label(DiagnosticLabel::primary(
+                storage_diagnostic_label(kind),
+                source.span(),
+            ))
+            .with_arg(DiagnosticArg::storage_access(access_argument));
+
+        if let Some(origin) = origin {
+            diagnostic = self.with_operation_origins(diagnostic, source.span(), origin);
+        }
+
+        self.diagnostics.add(diagnostic);
+    }
+
+    fn diagnostic_storage_access(
+        &self,
+        access_id: StorageAccessId,
+        purpose: StorageAccessPurpose,
+    ) -> Result<DiagnosticStorageAccess, CheckerInfrastructureError> {
+        let access = self
+            .storage
+            .access(access_id)
+            .ok_or(CheckerInfrastructureError::InvalidStorageFlowFacts)?;
+
+        let root = match access.root() {
+            StorageAccessRoot::Storage(storage) => self.diagnostic_storage_identity(storage)?,
+            StorageAccessRoot::Borrow(_) => DiagnosticStorageRoot::Borrow,
+            StorageAccessRoot::BorrowedStorage { .. } => DiagnosticStorageRoot::BorrowedStorage,
+            StorageAccessRoot::OwnedIndirection { .. } => DiagnosticStorageRoot::OwnedIndirection,
+            StorageAccessRoot::Recovery(_) => DiagnosticStorageRoot::Recovery,
+        };
+
+        let projections = access
+            .projections()
+            .iter()
+            .map(|projection| self.diagnostic_storage_projection(*projection))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let reached_type = crate::diagnostic::diagnostic_type(
+            self.request.context(),
+            access.reached_type(),
+        )?;
+
+        Ok(DiagnosticStorageAccess::new(
+            diagnostic_storage_purpose(purpose),
+            root,
+            projections,
+            reached_type,
+        ))
+    }
+
+    fn diagnostic_storage_identity(
+        &self,
+        identity: bray_bound_tree::StorageIdentityId,
+    ) -> Result<DiagnosticStorageRoot, CheckerInfrastructureError> {
+        let root = match self.storage.identity(identity) {
+            Some(StorageIdentity::LocalOwned(_)) => DiagnosticStorageRoot::Local,
+            Some(StorageIdentity::Parameter(_)) => DiagnosticStorageRoot::Parameter,
+            Some(StorageIdentity::Receiver(_)) => DiagnosticStorageRoot::Receiver,
+            Some(StorageIdentity::AnonymousParameter(_)) => {
+                DiagnosticStorageRoot::AnonymousParameter
+            }
+            Some(StorageIdentity::PredicateParameter(_)) => {
+                DiagnosticStorageRoot::PredicateParameter
+            }
+            Some(StorageIdentity::PostconditionResult(_)) => {
+                DiagnosticStorageRoot::PostconditionResult
+            }
+            Some(StorageIdentity::Result(_)) => DiagnosticStorageRoot::Result,
+            Some(StorageIdentity::Temporary(_)) => DiagnosticStorageRoot::Temporary,
+            Some(StorageIdentity::CustomIndexBorrow(_)) => {
+                DiagnosticStorageRoot::CustomIndexBorrow
+            }
+            Some(StorageIdentity::IterationCursor(_)) => {
+                DiagnosticStorageRoot::IterationCursor
+            }
+            Some(StorageIdentity::IterationElement(_)) => {
+                DiagnosticStorageRoot::IterationElement
+            }
+            Some(StorageIdentity::Allocation(_)) => DiagnosticStorageRoot::Allocation,
+            Some(StorageIdentity::CompilerCreated(_)) => DiagnosticStorageRoot::CompilerCreated,
+            Some(StorageIdentity::Alternative { .. }) => DiagnosticStorageRoot::Alternative,
+            Some(StorageIdentity::Error(_)) => DiagnosticStorageRoot::Recovery,
+            None => return Err(CheckerInfrastructureError::InvalidStorageFlowFacts),
+        };
+
+        Ok(root)
+    }
+
+    fn diagnostic_storage_projection(
+        &self,
+        projection: StorageProjection,
+    ) -> Result<DiagnosticStorageProjection, CheckerInfrastructureError> {
+        let projection = match projection {
+            StorageProjection::ProductField(field) => DiagnosticStorageProjection::ProductField(
+                self.diagnostic_symbol_name(field.into())?,
+            ),
+            StorageProjection::TupleElement(ordinal) => {
+                DiagnosticStorageProjection::TupleElement(u64::from(ordinal.raw()))
+            }
+            StorageProjection::ElementFromStart(ordinal) => {
+                DiagnosticStorageProjection::ElementFromStart(u64::from(ordinal.raw()))
+            }
+            StorageProjection::ElementFromEnd(ordinal) => {
+                DiagnosticStorageProjection::ElementFromEnd(u64::from(ordinal.raw()))
+            }
+            StorageProjection::ActiveUnionPayloadField { variant, field } => {
+                DiagnosticStorageProjection::ActiveUnionPayloadField {
+                    variant: self.diagnostic_symbol_name(variant.into())?,
+                    field: self.diagnostic_symbol_name(field.into())?,
+                }
+            }
+            StorageProjection::Element(_) => DiagnosticStorageProjection::IndexedElement,
+            StorageProjection::SliceRange { start, end } => {
+                DiagnosticStorageProjection::SliceRange {
+                    has_start: start.is_some(),
+                    has_end: end.is_some(),
+                }
+            }
+            StorageProjection::NullableValue => DiagnosticStorageProjection::NullableValue,
+            StorageProjection::OwnedTarget => DiagnosticStorageProjection::OwnedTarget,
+        };
+
+        Ok(projection)
+    }
+
+    fn diagnostic_symbol_name(
+        &self,
+        symbol: AnySymbolId,
+    ) -> Result<String, CheckerInfrastructureError> {
+        self.request
+            .context()
+            .symbols()
+            .member_name(symbol)
+            .map(|name| name.as_str().to_owned())
+            .ok_or(CheckerInfrastructureError::InvalidStorageFlowFacts)
+    }
+
+    fn with_operation_origins(
+        &self,
+        mut diagnostic: Diagnostic,
+        primary: bray_source::SourceSpan,
+        origin: StorageOperationOrigin,
+    ) -> Diagnostic {
+        let (kind, sources) = match origin {
+            StorageOperationOrigin::Borrows(borrows) => (
+                DiagnosticRelatedLocationKind::BorrowOrigin,
+                borrows
+                    .into_iter()
+                    .filter_map(|borrow| self.storage.borrow_capability(borrow)?.source().into())
+                    .collect::<Vec<_>>(),
+            ),
+            StorageOperationOrigin::Moves(expressions) => (
+                DiagnosticRelatedLocationKind::MoveOrigin,
+                expressions
+                    .into_iter()
+                    .filter_map(|expression| {
+                        Some(
+                            self.request
+                                .view()
+                                .expression(expression)?
+                                .origin()
+                                .source_anchor(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        };
+
+        for related in sources
+            .into_iter()
+            .filter_map(|source| self.request.source(source).ok())
+            .filter(|related| related.span() != primary)
+        {
+            diagnostic = diagnostic
+                .with_related_location(DiagnosticRelatedLocation::new(kind, related.span()));
+        }
+
+        diagnostic
     }
 
     fn decisions(&self) -> impl Iterator<Item = StorageOperationDecision> + '_ {
@@ -702,5 +986,44 @@ where
                     .unwrap_or(StorageOperationStatus::Unreachable),
             )
         })
+    }
+}
+
+fn storage_diagnostic_label(kind: DiagnosticKind) -> DiagnosticLabelKind {
+    match kind {
+        DiagnosticKind::CheckingUseOfMovedStorage => DiagnosticLabelKind::MovedStorageUse,
+        DiagnosticKind::CheckingConflictingBorrow => {
+            DiagnosticLabelKind::ConflictingBorrowOperation
+        }
+        DiagnosticKind::CheckingMissingMutationAuthority => {
+            DiagnosticLabelKind::MissingMutationAuthority
+        }
+        DiagnosticKind::CheckingMissingStorageOwnership => {
+            DiagnosticLabelKind::MissingStorageOwnership
+        }
+        _ => unreachable!("storage-flow diagnostics must describe a storage operation"),
+    }
+}
+
+fn diagnostic_storage_purpose(purpose: StorageAccessPurpose) -> DiagnosticStorageAccessPurpose {
+    match purpose {
+        StorageAccessPurpose::Read => DiagnosticStorageAccessPurpose::Read,
+        StorageAccessPurpose::Initialize => DiagnosticStorageAccessPurpose::Initialize,
+        StorageAccessPurpose::Write => DiagnosticStorageAccessPurpose::Write,
+        StorageAccessPurpose::Move => DiagnosticStorageAccessPurpose::Move,
+        StorageAccessPurpose::Copy | StorageAccessPurpose::ValueTransfer => {
+            DiagnosticStorageAccessPurpose::Copy
+        }
+        StorageAccessPurpose::Borrow(BorrowKind::Shared) => {
+            DiagnosticStorageAccessPurpose::SharedBorrow
+        }
+        StorageAccessPurpose::Borrow(BorrowKind::Mutable) => {
+            DiagnosticStorageAccessPurpose::MutableBorrow
+        }
+        StorageAccessPurpose::Assignment => DiagnosticStorageAccessPurpose::Assignment,
+        StorageAccessPurpose::Member => DiagnosticStorageAccessPurpose::MemberSelection,
+        StorageAccessPurpose::Index => DiagnosticStorageAccessPurpose::IndexSelection,
+        StorageAccessPurpose::Slice => DiagnosticStorageAccessPurpose::SliceSelection,
+        StorageAccessPurpose::Projection => DiagnosticStorageAccessPurpose::Projection,
     }
 }

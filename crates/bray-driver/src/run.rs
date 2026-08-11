@@ -1,6 +1,7 @@
 //! Driver command execution.
 
 mod build;
+mod diagnostic;
 mod execute;
 mod output;
 

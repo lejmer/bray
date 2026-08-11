@@ -26,7 +26,7 @@ pub(crate) struct SemanticTokensClientCapabilities {
     pub(crate) multiline_token_support: bool,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub(crate) struct Position {
     pub(crate) line: u32,
     pub(crate) character: u32,
@@ -64,6 +64,35 @@ pub(crate) struct TextDocumentItem {
 pub(crate) struct TextDocumentPositionParams {
     pub(crate) text_document: TextDocumentIdentifier,
     pub(crate) position: Position,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodeActionParams {
+    pub(crate) text_document: TextDocumentIdentifier,
+    pub(crate) range: Range,
+    pub(crate) context: CodeActionContext,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodeActionContext {
+    pub(crate) diagnostics: Vec<CodeActionContextDiagnostic>,
+    pub(crate) only: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct CodeActionContextDiagnostic {
+    pub(crate) range: Range,
+    pub(crate) code: u32,
+    pub(crate) data: Option<DiagnosticData>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiagnosticData {
+    pub(crate) source_version: u64,
+    pub(crate) diagnostic_ordinal: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -184,6 +213,37 @@ pub(crate) struct Diagnostic {
     pub(crate) code: u32,
     pub(crate) source: &'static str,
     pub(crate) message: String,
+    pub(crate) data: DiagnosticData,
+    #[serde(rename = "relatedInformation", skip_serializing_if = "Vec::is_empty")]
+    pub(crate) related_information: Vec<DiagnosticRelatedInformation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct DiagnosticRelatedInformation {
+    pub(crate) location: Location,
+    pub(crate) message: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodeAction {
+    pub(crate) title: String,
+    pub(crate) kind: &'static str,
+    pub(crate) is_preferred: bool,
+    pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) edit: WorkspaceEdit,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct WorkspaceEdit {
+    pub(crate) changes: std::collections::BTreeMap<String, Vec<TextEdit>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct TextEdit {
+    pub(crate) range: Range,
+    #[serde(rename = "newText")]
+    pub(crate) new_text: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

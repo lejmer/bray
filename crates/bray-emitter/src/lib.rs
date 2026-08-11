@@ -28,7 +28,7 @@ pub use link::{
     LinkStagingError, ProductLinkFacts, StagedArtifact, StagedArtifactBuildError,
     construct_link_plan,
 };
-pub use outcome::{EmissionFailure, EmissionOutcome, EmissionStatus};
+pub use outcome::{EmissionFailure, EmissionOutcome, EmissionOutcomeBuildError, EmissionStatus};
 pub use plan::{
     BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, EmissionPlan,
     EmissionPlanner, EmissionPlanningError, PlannedArtifact, PlannedArtifactDestination,

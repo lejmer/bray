@@ -1,7 +1,6 @@
 use bray_bound_tree::{
     BoundDependencyGuard, BoundDependencyRequirement, BoundDependencyRequirementKind,
-    BoundDependencySubject, StorageAccessId, StorageAccessPurpose, StoragePlan,
-    StorageProjection,
+    BoundDependencySubject, StorageAccessId, StorageAccessPurpose, StoragePlan, StorageProjection,
 };
 use bray_symbols::BorrowKind;
 

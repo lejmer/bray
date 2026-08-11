@@ -1,9 +1,8 @@
 use std::io;
 
-use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm};
+use bray_codegen::ArtifactDigest;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticOutputSink,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
     SeverityKind,
 };
 
@@ -115,7 +114,7 @@ impl PublicationError {
         let mut diagnostic = self.kind.with_detail_args(diagnostic);
 
         if let Some(sink) = self.sink {
-            diagnostic = diagnostic.with_arg(DiagnosticArg::output_sink(diagnostic_sink(*sink)));
+            diagnostic = diagnostic.with_arg(DiagnosticArg::output_sink(sink.diagnostic_sink()));
         }
 
         if let Some(kind) = io_error_kind {
@@ -214,12 +213,12 @@ impl PublicationErrorKind {
                 .with_arg(DiagnosticArg::expected_byte_count(expected))
                 .with_arg(DiagnosticArg::actual_byte_count(actual)),
             Self::DigestMismatch(facts) => diagnostic
-                .with_arg(DiagnosticArg::expected_artifact_digest(diagnostic_digest(
-                    facts.expected,
-                )))
-                .with_arg(DiagnosticArg::actual_artifact_digest(diagnostic_digest(
-                    facts.actual,
-                ))),
+                .with_arg(DiagnosticArg::expected_artifact_digest(
+                    facts.expected.diagnostic_digest(),
+                ))
+                .with_arg(DiagnosticArg::actual_artifact_digest(
+                    facts.actual.diagnostic_digest(),
+                )),
             Self::MissingContribution
             | Self::InvalidContribution
             | Self::Read(_)
@@ -257,33 +256,16 @@ impl PublicationFailureKind {
     }
 }
 
-fn diagnostic_sink(sink: OutputSink) -> DiagnosticOutputSink {
-    match sink {
-        OutputSink::ManagedFilesystem { root, .. } => DiagnosticOutputSink::Filesystem(root),
-        OutputSink::Filesystem(path) => DiagnosticOutputSink::Filesystem(path),
-        OutputSink::Memory { collector, .. } => {
-            DiagnosticOutputSink::Memory(collector.as_str().to_owned())
-        }
-        OutputSink::Stream(stream) => DiagnosticOutputSink::Stream(stream.as_str().to_owned()),
-    }
-}
-
-fn diagnostic_digest(digest: ArtifactDigest) -> DiagnosticArtifactDigest {
-    let algorithm = match digest.algorithm() {
-        ArtifactDigestAlgorithm::Blake3 => DiagnosticArtifactDigestAlgorithm::Blake3,
-        ArtifactDigestAlgorithm::Sha256 => DiagnosticArtifactDigestAlgorithm::Sha256,
-    };
-
-    DiagnosticArtifactDigest::new(algorithm, digest.into_bytes())
-}
-
 #[cfg(test)]
 mod tests {
     use std::io;
 
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+    use bray_testing::{assert_goal_state_diagnostic, assert_goal_state_diagnostic_kind};
 
-    use super::PublicationErrorKind;
+    use super::{PublicationError, PublicationErrorKind};
+    use crate::test_support::product_identity;
+    use crate::{ArtifactId, ArtifactKind};
 
     #[test]
     fn publication_failures_map_to_exact_structured_diagnostics() {
@@ -307,6 +289,91 @@ mod tests {
 
         for (error, expected) in cases {
             assert_eq!(error.diagnostic_kind(), expected);
+        }
+
+        let artifact = ArtifactId::new(product_identity(), ArtifactKind::Executable, 0);
+
+        let (_, read) = PublicationError::new(
+            artifact.clone(),
+            None,
+            PublicationErrorKind::Read(io::ErrorKind::NotFound),
+        )
+        .into_diagnostic(DiagnosticId::new(0), SeverityKind::Error);
+
+        assert_goal_state_diagnostic_kind(
+            &DiagnosticBag::single(read),
+            DiagnosticKind::EmissionArtifactReadFailed,
+        );
+
+        let (_, length) = PublicationError::new(
+            artifact.clone(),
+            None,
+            PublicationErrorKind::LengthMismatch {
+                expected: 1,
+                actual: 2,
+            },
+        )
+        .into_diagnostic(DiagnosticId::new(0), SeverityKind::Error);
+
+        assert_goal_state_diagnostic_kind(
+            &DiagnosticBag::single(length),
+            DiagnosticKind::EmissionArtifactLengthMismatch,
+        );
+
+        let (_, flush) = PublicationError::new(
+            artifact,
+            None,
+            PublicationErrorKind::Flush(io::ErrorKind::BrokenPipe),
+        )
+        .into_diagnostic(DiagnosticId::new(0), SeverityKind::Error);
+
+        assert_goal_state_diagnostic_kind(
+            &DiagnosticBag::single(flush),
+            DiagnosticKind::EmissionArtifactFlushFailed,
+        );
+    }
+
+    #[test]
+    fn managed_publication_failures_publish_goal_state_diagnostics() {
+        let cases = [
+            (
+                PublicationErrorKind::ManagedPublicationUnsupported,
+                DiagnosticKind::EmissionManagedPublicationUnsupported,
+            ),
+            (
+                PublicationErrorKind::InvalidGenerationManifest,
+                DiagnosticKind::EmissionGenerationManifestInvalid,
+            ),
+        ];
+
+        for (index, (kind, expected)) in cases.into_iter().enumerate() {
+            let error = PublicationError::new(
+                ArtifactId::new(product_identity(), ArtifactKind::Executable, 0),
+                None,
+                kind,
+            );
+
+            let (_, diagnostic) =
+                error.into_diagnostic(DiagnosticId::from_index(index), SeverityKind::Error);
+
+            assert_eq!(diagnostic.kind(), expected);
+            assert_goal_state_diagnostic(&diagnostic);
+
+            match expected {
+                DiagnosticKind::EmissionManagedPublicationUnsupported => {
+                    assert_goal_state_diagnostic_kind(
+                        &DiagnosticBag::single(diagnostic),
+                        DiagnosticKind::EmissionManagedPublicationUnsupported,
+                    );
+                }
+                DiagnosticKind::EmissionGenerationManifestInvalid => {
+                    assert_goal_state_diagnostic_kind(
+                        &DiagnosticBag::single(diagnostic),
+                        DiagnosticKind::EmissionGenerationManifestInvalid,
+                    );
+                }
+                _ => panic!("test case must remain a managed-publication failure"),
+            }
         }
     }
 }

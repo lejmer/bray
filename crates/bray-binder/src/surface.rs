@@ -30,6 +30,30 @@ enum SurfaceUnitKind {
     ContractClause,
 }
 
+/// One trusted capability resolved from an exact source path in a `uses` clause.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct BoundTrustedCapability {
+    symbol: TrustedCapabilitySymbolId,
+    source: SyntaxAnchor,
+}
+
+impl BoundTrustedCapability {
+    /// Creates a source-correlated trusted capability after successful name binding.
+    pub const fn new(symbol: TrustedCapabilitySymbolId, source: SyntaxAnchor) -> Self {
+        Self { symbol, source }
+    }
+
+    /// Returns the resolved trusted-capability declaration.
+    pub const fn symbol(self) -> TrustedCapabilitySymbolId {
+        self.symbol
+    }
+
+    /// Returns the source path that requested the capability.
+    pub const fn source(self) -> SyntaxAnchor {
+        self.source
+    }
+}
+
 /// Binds one declaration-surface predicate clause through the ordinary expression binder.
 pub fn bind_predicate_clause<C>(
     facts: &C,
@@ -102,7 +126,7 @@ pub fn bind_trusted_capability_clause<C>(
     facts: &C,
     owner: AnySymbolId,
     clause: &UsesClauseSyntax,
-) -> BinderFactResult<DiagnosticResult<Box<[TrustedCapabilitySymbolId]>>>
+) -> BinderFactResult<DiagnosticResult<Box<[BoundTrustedCapability]>>>
 where
     C: BinderFactContext + ?Sized,
     C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
@@ -117,7 +141,9 @@ where
 
             for capability in clause.paths() {
                 match binder.bind_trusted_capability_path(path, &capability)? {
-                    MemberLookupResult::Found(symbol) => capabilities.push(symbol),
+                    MemberLookupResult::Found(symbol) => capabilities.push(
+                        BoundTrustedCapability::new(symbol, SyntaxAnchor::from_node(&capability)),
+                    ),
                     MemberLookupResult::NotFound
                     | MemberLookupResult::WrongKind(_)
                     | MemberLookupResult::Ambiguous(_)

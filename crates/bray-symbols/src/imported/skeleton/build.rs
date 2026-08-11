@@ -89,21 +89,41 @@ fn assign_symbol_ids(
         })
         .collect::<Vec<_>>();
 
+    let imported_count = u64::try_from(identities.len()).unwrap_or(u64::MAX);
+    let actual_symbol_count = u64::from(first_symbol_id.raw()).saturating_add(imported_count);
+    let maximum_symbol_count = SymbolId::CAPACITY;
+
+    if actual_symbol_count > maximum_symbol_count {
+        return Err(
+            ImportedSymbolSkeletonBuildError::SymbolCapacityExceeded {
+                actual: actual_symbol_count,
+                maximum: maximum_symbol_count,
+            },
+        );
+    }
+
     identities.sort_by(|left, right| left.1.key().cmp(right.1.key()));
 
     let mut assigned = Vec::with_capacity(identities.len());
 
     let mut local_index = BTreeMap::new();
     let mut external_index = BTreeMap::new();
+    let mut external_origins = BTreeMap::new();
 
     for (offset, (interface, identity)) in identities.into_iter().enumerate() {
-        let offset = u32::try_from(offset)
-            .map_err(|_| ImportedSymbolSkeletonBuildError::SymbolIdOverflow)?;
+        let offset = u32::try_from(offset).map_err(|_| {
+            ImportedSymbolSkeletonBuildError::SymbolCapacityExceeded {
+                actual: actual_symbol_count,
+                maximum: maximum_symbol_count,
+            }
+        })?;
 
-        let raw = first_symbol_id
-            .raw()
-            .checked_add(offset)
-            .ok_or(ImportedSymbolSkeletonBuildError::SymbolIdOverflow)?;
+        let raw = first_symbol_id.raw().checked_add(offset).ok_or(
+            ImportedSymbolSkeletonBuildError::SymbolCapacityExceeded {
+                actual: actual_symbol_count,
+                maximum: maximum_symbol_count,
+            },
+        )?;
 
         let symbol_id = SymbolId::new(raw);
 
@@ -111,11 +131,15 @@ fn assign_symbol_ids(
             ImportedSymbolSkeletonBuildError::UnsupportedSymbolKind(identity.kind()),
         )?;
 
-        if external_index.insert(identity.key().clone(), id).is_some() {
-            return Err(ImportedSymbolSkeletonBuildError::DuplicateExternalKey(
-                identity.key().clone(),
-            ));
+        if let Some(first) = external_origins.insert(identity.key().clone(), interface) {
+            return Err(ImportedSymbolSkeletonBuildError::DuplicateExternalKey {
+                key: identity.key().clone(),
+                first,
+                duplicate: interface,
+            });
         }
+
+        external_index.insert(identity.key().clone(), id);
 
         local_index.insert((interface, identity.id()), id);
 
@@ -194,9 +218,9 @@ fn build_relationships(
 
         let expected = next_ordinals
             .entry((relationship.kind(), owner))
-            .or_insert(0);
+            .or_insert(0_u64);
 
-        if relationship.ordinal() != *expected {
+        if u64::from(relationship.ordinal()) != *expected {
             return Err(
                 ImportedSymbolSkeletonBuildError::NonCanonicalRelationshipOrdinal {
                     relationship: relationship.kind(),
@@ -207,9 +231,7 @@ fn build_relationships(
             );
         }
 
-        *expected = expected
-            .checked_add(1)
-            .ok_or(ImportedSymbolSkeletonBuildError::SymbolIdOverflow)?;
+        *expected += 1;
 
         if relationship.allows_mutation() {
             if !matches!(

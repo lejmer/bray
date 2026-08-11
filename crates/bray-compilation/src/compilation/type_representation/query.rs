@@ -453,8 +453,11 @@ impl CompilationTypeRepresentationContext<'_> {
 mod tests {
     use std::sync::Arc;
 
-    use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticKind, DiagnosticRelatedLocationKind,
+    };
     use bray_symbols::{DeclaredCopyContract, DeclaredLayoutMode, NamedTypeSymbolId, SymbolOrigin};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::test_support::{
         compilation, compilation_with_options, diagnostic_kinds, encoded_semantic_dependency,
@@ -601,10 +604,65 @@ mod tests {
 
         assert_eq!(
             diagnostic_kinds(result.diagnostics()),
-            [
-                DiagnosticKind::CheckingInvalidStoredType,
-                DiagnosticKind::CheckingRecursiveTypeRepresentation,
-            ]
+            [DiagnosticKind::CheckingRecursiveTypeRepresentation]
+        );
+
+        let diagnostic = result
+            .diagnostics()
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::CheckingRecursiveTypeRepresentation
+            })
+            .unwrap_or_else(|| panic!("recursive representation diagnostic must be present"));
+
+        assert_eq!(diagnostic.args(), &[DiagnosticArg::actual_count(2)]);
+        assert_eq!(diagnostic.related_locations().len(), 1);
+
+        assert_eq!(
+            diagnostic.related_locations()[0].kind(),
+            DiagnosticRelatedLocationKind::RepresentationCycleLocation
+        );
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingRecursiveTypeRepresentation,
+        );
+    }
+
+    #[test]
+    fn mutual_representation_cycles_have_one_canonical_complete_path() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct First\n",
+            "{\n",
+            "    second: Second;\n",
+            "}\n",
+            "struct Second\n",
+            "{\n",
+            "    first: First;\n",
+            "}\n",
+        ));
+
+        let diagnostics = compilation.check_diagnostics();
+
+        let cycles = diagnostics
+            .by_kind(DiagnosticKind::CheckingRecursiveTypeRepresentation)
+            .collect::<Vec<_>>();
+
+        let [cycle] = cycles.as_slice() else {
+            panic!("mutual recursion must publish one canonical cycle: {cycles:?}");
+        };
+
+        assert_eq!(cycle.args(), &[DiagnosticArg::actual_count(4)]);
+        assert_eq!(cycle.related_locations().len(), 3);
+
+        assert!(cycle.related_locations().iter().all(|location| {
+            location.kind() == DiagnosticRelatedLocationKind::RepresentationCycleLocation
+        }));
+
+        assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingRecursiveTypeRepresentation,
         );
     }
 
@@ -666,7 +724,18 @@ mod tests {
             })
             .unwrap_or_else(|| panic!("recursion limit diagnostic must be present"));
 
-        assert_eq!(diagnostic.args(), &[DiagnosticArg::maximum_count(1)]);
+        assert_eq!(
+            diagnostic.args(),
+            &[
+                DiagnosticArg::actual_count(2),
+                DiagnosticArg::maximum_count(1),
+            ]
+        );
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded,
+        );
     }
 
     #[test]
@@ -772,9 +841,11 @@ mod tests {
             "}\n",
         ));
 
-        assert!(
-            diagnostic_kinds(compilation.check_diagnostics())
-                .contains(&DiagnosticKind::CheckingInvalidUnionTag)
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingInvalidUnionTag,
         );
     }
 
@@ -820,9 +891,9 @@ mod tests {
             "}\n",
         ));
 
-        assert!(
-            diagnostic_kinds(compilation.check_diagnostics())
-                .contains(&DiagnosticKind::CheckingInvalidLayoutDirective)
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingInvalidLayoutDirective,
         );
     }
 
@@ -842,9 +913,9 @@ mod tests {
             "}\n",
         ));
 
-        assert!(
-            diagnostic_kinds(compilation.check_diagnostics())
-                .contains(&DiagnosticKind::CheckingInvalidCopyContract)
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingInvalidCopyContract,
         );
     }
 
@@ -871,7 +942,7 @@ mod tests {
         let compilation = compilation(concat!(
             "module app;\n",
             "\n",
-            "@layout(stable, align = 3, align = 4)\n",
+            "@layout(stable, align = 3, align = 4, align = 8)\n",
             "struct Value\n",
             "{\n",
             "    value: i32;\n",
@@ -885,8 +956,133 @@ mod tests {
                 .iter()
                 .filter(|kind| **kind == DiagnosticKind::CheckingInvalidLayoutDirective)
                 .count(),
-            2
+            3
         );
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingInvalidLayoutDirective,
+        );
+
+        assert!(compilation
+            .check_diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidLayoutDirective)
+            .any(|diagnostic| diagnostic.related_locations().iter().any(|location| {
+                location.kind() == DiagnosticRelatedLocationKind::FirstDirective
+            })));
+
+        assert!(compilation
+            .check_diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidLayoutDirective)
+            .any(|diagnostic| diagnostic
+                .related_locations()
+                .iter()
+                .filter(|location| {
+                    location.kind() == DiagnosticRelatedLocationKind::FirstDirective
+                })
+                .count()
+                == 2));
+    }
+
+    #[test]
+    fn dynamically_sized_members_report_the_exact_storage_problem() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Buffer\n",
+            "{\n",
+            "    values: [i32];\n",
+            "}\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingInvalidStoredType,
+        );
+    }
+
+    #[test]
+    fn representation_contracts_preserve_every_causative_member_and_prior_tag() {
+        let transparent = compilation(concat!(
+            "module app;\n",
+            "@layout(transparent)\n",
+            "struct Pair\n",
+            "{\n",
+            "    first: i32;\n",
+            "    second: i32;\n",
+            "}\n",
+        ));
+
+        let layout = transparent
+            .check_diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidLayoutDirective)
+            .find(|diagnostic| {
+                diagnostic
+                    .related_locations()
+                    .iter()
+                    .filter(|location| {
+                        location.kind() == DiagnosticRelatedLocationKind::RepresentationMember
+                    })
+                    .count()
+                    == 2
+            })
+            .unwrap_or_else(|| panic!("transparent layout must retain both field origins"));
+
+        assert_eq!(layout.related_locations().len(), 2);
+
+        let copy = compilation(concat!(
+            "module app;\n",
+            "@copy\n",
+            "struct Pair\n",
+            "{\n",
+            "    first: box[Heap] i32;\n",
+            "    second: box[Heap] i32;\n",
+            "}\n",
+        ));
+
+        let copy_diagnostic = copy
+            .check_diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidCopyContract)
+            .find(|diagnostic| {
+                diagnostic
+                    .related_locations()
+                    .iter()
+                    .filter(|location| {
+                        location.kind() == DiagnosticRelatedLocationKind::NonCopyableMember
+                    })
+                    .count()
+                    == 2
+            })
+            .unwrap_or_else(|| panic!("copy failure must retain both member origins"));
+
+        assert_eq!(copy_diagnostic.related_locations().len(), 2);
+
+        let tags = compilation(concat!(
+            "module app;\n",
+            "@layout(stable, tag = u8)\n",
+            "union Choice\n",
+            "{\n",
+            "    @tag(1) First;\n",
+            "    @tag(1) Second;\n",
+            "    @tag(1) Third;\n",
+            "}\n",
+        ));
+
+        let duplicate = tags
+            .check_diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidUnionTag)
+            .find(|diagnostic| {
+                diagnostic
+                    .related_locations()
+                    .iter()
+                    .filter(|location| {
+                        location.kind() == DiagnosticRelatedLocationKind::FirstDirective
+                    })
+                    .count()
+                    == 2
+            })
+            .unwrap_or_else(|| panic!("duplicate tag must retain every prior variant origin"));
+
+        assert_eq!(duplicate.related_locations().len(), 2);
     }
 
     #[test]

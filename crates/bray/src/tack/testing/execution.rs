@@ -10,13 +10,18 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use bray_base::StableDigestHasher;
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
+    DiagnosticProjectSelectionProblem, DiagnosticTestExecutionPlanProblem,
+    DiagnosticTestSchedulingProblem,
+};
 use bray_platform::{NativeChildProcess, NativePipeWriter, NativeProcessCommand, NativeStdio};
 use bray_test_protocol::{
     CapturedStream, TestAdmission, TestAdmissionSchedule, TestCapturePolicy, TestCatalogEntryId,
-    TestCommandReport, TestDuration, TestExecutionMode, TestExecutionPlan, TestHostCommand,
-    TestHostCommandId, TestHostControl, TestInfrastructureFailure, TestInfrastructureFailureKind,
-    TestInvocationPlan, TestInvocationResult, TestOutcome, TestSelection, TestSelectionQuery,
+    TestCommandReport, TestDuration, TestExecutionMode, TestExecutionPlan,
+    TestExecutionPlanBuildError, TestHostCommand, TestHostCommandId, TestHostControl, TestIdentity,
+    TestInfrastructureFailure, TestInfrastructureFailureKind, TestInvocationPlan,
+    TestInvocationResult, TestOutcome, TestSchedulingError, TestSelection, TestSelectionQuery,
     TestSelectionSummary, TestStopReason, read_host_result, write_host_command, write_host_control,
 };
 use bray_tooling::OutputFormat;
@@ -24,13 +29,58 @@ use bray_tooling::OutputFormat;
 use super::model::{BuiltTestHost, HostLocation, LoadedTestHost};
 use super::progress::TestProgress;
 use super::report::{product_reports, render_report};
-use crate::tack::error::operation_diagnostics;
+use crate::tack::error::{operation_diagnostics, selection_diagnostics};
 use crate::tack::model::TackTestOptions;
 
 static COMMAND_CANCELLED: AtomicBool = AtomicBool::new(false);
 static CANCELLATION_HANDLER: OnceLock<Result<(), ()>> = OnceLock::new();
 const HOST_POLL_INTERVAL: Duration = Duration::from_millis(5);
 const CANCELLATION_GRACE_PERIOD: Duration = Duration::from_secs(1);
+
+fn test_execution_plan_problem(
+    error: TestExecutionPlanBuildError,
+) -> DiagnosticTestExecutionPlanProblem {
+    match error {
+        TestExecutionPlanBuildError::InvocationCountMismatch {
+            entries,
+            invocations,
+        } => DiagnosticTestExecutionPlanProblem::InvocationCountMismatch {
+            entries: u32::try_from(entries).unwrap_or(u32::MAX),
+            invocations: u32::try_from(invocations).unwrap_or(u32::MAX),
+        },
+        TestExecutionPlanBuildError::InvocationIdentityMismatch(test) => {
+            DiagnosticTestExecutionPlanProblem::InvocationIdentityMismatch(test_identity(&test))
+        }
+        TestExecutionPlanBuildError::DuplicateIdentity(test) => {
+            DiagnosticTestExecutionPlanProblem::DuplicateIdentity(test_identity(&test))
+        }
+        TestExecutionPlanBuildError::CaptureBudgetExceeded {
+            test,
+            required,
+            maximum,
+        } => DiagnosticTestExecutionPlanProblem::CaptureBudgetExceeded {
+            test: test_identity(&test),
+            required_bytes: required,
+            maximum_bytes: maximum,
+        },
+    }
+}
+
+fn test_identity(identity: &TestIdentity) -> String {
+    let declaration = identity.declaration();
+
+    let module = declaration
+        .module()
+        .segments()
+        .collect::<Vec<_>>()
+        .join("::");
+
+    format!(
+        "{}::{module}::{}",
+        identity.product(),
+        declaration.name().as_str()
+    )
+}
 
 pub(crate) fn execute(
     workspace_root: &Path,
@@ -57,14 +107,15 @@ pub(crate) fn execute(
         .map(|selection| selection.entries().len())
         .sum();
 
-    let maximum_concurrency = options.maximum_concurrency.min(worker_count).max(1);
+    let maximum_concurrency =
+        NonZeroUsize::new(options.maximum_concurrency.min(worker_count).max(1))
+            .unwrap_or(NonZeroUsize::MIN);
 
-    let mode = if maximum_concurrency == 1 {
+    let mode = if maximum_concurrency.get() == 1 {
         TestExecutionMode::Sequential
     } else {
         TestExecutionMode::Parallel {
-            maximum_concurrency: NonZeroUsize::new(maximum_concurrency)
-                .ok_or_else(|| operation_diagnostics("test_concurrency"))?,
+            maximum_concurrency,
         }
     };
 
@@ -75,10 +126,15 @@ pub(crate) fn execute(
     });
 
     let capture_budget = capture_reservation(options.capture)
-        .saturating_mul(u64::try_from(maximum_concurrency).unwrap_or(u64::MAX));
+        .saturating_mul(u64::try_from(maximum_concurrency.get()).unwrap_or(u64::MAX));
 
-    let plan = TestExecutionPlan::try_new(&selections, invocations, mode, capture_budget)
-        .map_err(|_| operation_diagnostics("test_execution_plan"))?;
+    let plan = TestExecutionPlan::try_new(&selections, invocations, mode, capture_budget).map_err(
+        |error| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::TestExecutionPlan(
+                test_execution_plan_problem(error),
+            ))
+        },
+    )?;
 
     let locations = host_locations(&hosts);
 
@@ -114,10 +170,11 @@ fn load_hosts(hosts: Vec<BuiltTestHost>) -> Result<Vec<LoadedTestHost>, Diagnost
     let mut loaded = Vec::with_capacity(hosts.len());
 
     for host in hosts {
-        loaded.push(
-            host.load()
-                .ok_or_else(|| operation_diagnostics("test_host_publication"))?,
-        );
+        loaded.push(host.load().ok_or_else(|| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
+                DiagnosticProjectOperation::TestHostPublication,
+            ))
+        })?);
     }
 
     loaded.sort_by(|left, right| left.catalog.product().cmp(right.catalog.product()));
@@ -130,8 +187,11 @@ fn selection_query(options: &TackTestOptions) -> Result<TestSelectionQuery, Diag
         .filters
         .iter()
         .map(|filter| {
-            bray_test_protocol::TestFilter::name_contains(filter.as_str())
-                .ok_or_else(|| operation_diagnostics("test_filter"))
+            bray_test_protocol::TestFilter::name_contains(filter.as_str()).ok_or_else(|| {
+                selection_diagnostics(DiagnosticProjectSelectionProblem::InvalidTestFilter(
+                    filter.clone(),
+                ))
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -185,7 +245,11 @@ fn run_schedule(
 
         while let Some(admission) = schedule.admit_next() {
             let Some(location) = locations.get(admission.invocation().identity()).cloned() else {
-                return Err(operation_diagnostics("test_host_location"));
+                return Err(operation_diagnostics(
+                    DiagnosticProjectCommandFailure::MissingTestHostLocation(test_identity(
+                        admission.invocation().identity(),
+                    )),
+                ));
             };
 
             let workspace_root = workspace_root.to_path_buf();
@@ -209,14 +273,22 @@ fn run_schedule(
         }
 
         if active == 0 {
-            return Err(operation_diagnostics("test_admission_stalled"));
+            return Err(operation_diagnostics(
+                DiagnosticProjectCommandFailure::Invariant(
+                    DiagnosticProjectOperation::TestAdmission,
+                ),
+            ));
         }
 
         let completion = match receiver.recv_timeout(HOST_POLL_INTERVAL) {
             Ok(completion) => completion,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(operation_diagnostics("test_host_completion"));
+                return Err(operation_diagnostics(
+                    DiagnosticProjectCommandFailure::Invariant(
+                        DiagnosticProjectOperation::TestHostCompletion,
+                    ),
+                ));
             }
         };
 
@@ -230,9 +302,18 @@ fn run_schedule(
 
         progress.finish_result(&result);
 
-        schedule
-            .complete(&admission, result)
-            .map_err(|_| operation_diagnostics("test_schedule_completion"))?;
+        schedule.complete(&admission, result).map_err(|error| {
+            let problem = match error {
+                TestSchedulingError::InvocationNotActive(test) => {
+                    DiagnosticTestSchedulingProblem::InvocationNotActive(test_identity(&test))
+                }
+                TestSchedulingError::ResultIdentityMismatch(test) => {
+                    DiagnosticTestSchedulingProblem::ResultIdentityMismatch(test_identity(&test))
+                }
+            };
+
+            operation_diagnostics(DiagnosticProjectCommandFailure::TestScheduling(problem))
+        })?;
     }
 
     let completed = schedule
@@ -486,10 +567,11 @@ fn prepare_command_cancellation() -> Result<(), DiagnosticBag> {
         ctrlc::set_handler(|| COMMAND_CANCELLED.store(true, Ordering::Release)).map_err(|_| ())
     });
 
-    installed
-        .as_ref()
-        .map(|()| ())
-        .map_err(|()| operation_diagnostics("test_cancellation_handler"))
+    installed.as_ref().map(|()| ()).map_err(|()| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
+            DiagnosticProjectOperation::TestCancellationHandler,
+        ))
+    })
 }
 
 const fn capture_reservation(capture: TestCapturePolicy) -> u64 {

@@ -8,6 +8,7 @@ use bray_compilation::{
     WorkerBudget,
 };
 use bray_diagnostics::DiagnosticKind;
+use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_linker::{LinkSearchPath, LinkSearchPathKind};
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceValidationPolicy, encode_package_interface,
@@ -187,7 +188,7 @@ fn build_native_fixture(
         FIXTURE_LIBRARY,
     )?);
 
-    let clang = native_tool("clang")?;
+    let clang = native_tool(DiagnosticLlvmToolRole::CompilerDriver)?;
     let mut compile = Command::new(&clang);
 
     compile
@@ -222,7 +223,7 @@ fn build_native_fixture(
         fs::remove_file(&archive).map_err(|error| BuildError::write(&archive, error))?;
     }
 
-    let mut archive_command = Command::new(native_tool("llvm-ar")?);
+    let mut archive_command = Command::new(native_tool(DiagnosticLlvmToolRole::Archiver)?);
 
     archive_command.args(["rcs"]).arg(&archive).arg(&object);
 
@@ -284,10 +285,10 @@ fn emit_fixture(
     let request = CompilationRequest::with_options(package, vec![source], options)
         .with_standard_library_root(standard_library);
 
-    let compilation = load_llvm_compilation(request).ok_or_else(|| {
+    let compilation = load_llvm_compilation(request).map_err(|error| {
         BuildError::conformance(
             "foreign interoperability",
-            "LLVM compiler backend is unavailable",
+            format!("LLVM compiler backend is unavailable: {error}"),
         )
     })?;
 
@@ -403,11 +404,14 @@ const fn target_handle_assertion(target: NativeTarget) -> &'static str {
     }
 }
 
-fn native_tool(name: &str) -> Result<PathBuf, BuildError> {
-    llvm_tool_path(name).ok_or_else(|| {
+fn native_tool(tool: DiagnosticLlvmToolRole) -> Result<PathBuf, BuildError> {
+    llvm_tool_path(tool).map_err(|error| {
         BuildError::conformance(
             "foreign interoperability",
-            format!("the provisioned {name} tool is unavailable"),
+            format!(
+                "the provisioned {} tool is unavailable: {error}",
+                tool.executable_name()
+            ),
         )
     })
 }

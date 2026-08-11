@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticModuleTrust, DiagnosticVisibility, SeverityKind,
+    DiagnosticLabelKind, DiagnosticModuleTrust, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticVisibility, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_syntax::SyntaxKind;
@@ -306,8 +307,8 @@ fn duplicate_name_diagnostic(
         DiagnosticLabelKind::DuplicateDeclaration,
         duplicate_span,
     ))
-    .with_label(DiagnosticLabel::secondary(
-        DiagnosticLabelKind::FirstDeclaration,
+    .with_related_location(DiagnosticRelatedLocation::new(
+        DiagnosticRelatedLocationKind::FirstDeclaration,
         first_span,
     ));
 
@@ -371,8 +372,8 @@ fn conflicting_module_diagnostic(
         DiagnosticLabelKind::ConflictingModuleDeclaration,
         conflicting_span,
     ))
-    .with_label(DiagnosticLabel::secondary(
-        DiagnosticLabelKind::FirstModuleDeclaration,
+    .with_related_location(DiagnosticRelatedLocation::new(
+        DiagnosticRelatedLocationKind::FirstDeclaration,
         first_span,
     ));
 
@@ -450,10 +451,12 @@ impl PendingDiagnostic {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLabelKind,
-        DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticVisibility,
+        DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticKind,
+        DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticVisibility,
     };
-    use bray_testing::{test_source_at as source, test_source_store as source_store};
+    use bray_testing::{
+        assert_goal_state_diagnostics, test_source_at as source, test_source_store as source_store,
+    };
 
     use crate::test_support::{
         parse_recovered_source_unit_for_test, parse_valid_source_unit_for_test,
@@ -462,6 +465,16 @@ mod tests {
         discover_source_unit_declarations, merge_declaration_chunks,
         merge_selected_declaration_chunks,
     };
+
+    fn diagnostics_of_kind(diagnostics: &DiagnosticBag, kind: DiagnosticKind) -> DiagnosticBag {
+        DiagnosticBag::from(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.kind() == kind)
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+    }
 
     #[test]
     fn table_validation_reports_duplicate_names_in_each_declaration_domain() {
@@ -491,6 +504,8 @@ mod tests {
 
         let result = forward;
 
+        assert_goal_state_diagnostics(result.diagnostics());
+
         assert_eq!(
             result
                 .diagnostics()
@@ -515,14 +530,22 @@ mod tests {
         );
 
         for diagnostic in result.diagnostics() {
-            let [duplicate, first] = diagnostic.labels() else {
-                panic!("expected duplicate and first-declaration labels: {diagnostic:?}");
+            let [duplicate] = diagnostic.labels() else {
+                panic!("expected one duplicate-declaration label: {diagnostic:?}");
             };
 
             assert_eq!(duplicate.kind(), DiagnosticLabelKind::DuplicateDeclaration);
             assert_eq!(duplicate.style(), DiagnosticLabelStyle::Primary);
-            assert_eq!(first.kind(), DiagnosticLabelKind::FirstDeclaration);
-            assert_eq!(first.style(), DiagnosticLabelStyle::Secondary);
+
+            let [first] = diagnostic.related_locations() else {
+                panic!("expected the first declaration as a related location: {diagnostic:?}");
+            };
+
+            assert_eq!(
+                first.kind(),
+                bray_diagnostics::DiagnosticRelatedLocationKind::FirstDeclaration
+            );
+
             assert!(first.span() < duplicate.span());
         }
     }
@@ -546,6 +569,8 @@ mod tests {
 
         let result = forward;
 
+        assert_goal_state_diagnostics(result.diagnostics());
+
         let [visibility, trust] = result.diagnostics().diagnostics() else {
             panic!(
                 "expected visibility and trust diagnostics: {:?}",
@@ -556,6 +581,16 @@ mod tests {
         assert_eq!(
             visibility.kind(),
             DiagnosticKind::DeclarationConflictingModuleVisibility
+        );
+
+        let visibility_diagnostics = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationConflictingModuleVisibility,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &visibility_diagnostics,
+            DiagnosticKind::DeclarationConflictingModuleVisibility,
         );
 
         assert_eq!(declaration_name(visibility), "core");
@@ -572,6 +607,16 @@ mod tests {
         assert_eq!(
             trust.kind(),
             DiagnosticKind::DeclarationConflictingModuleTrust
+        );
+
+        let trust_diagnostics = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationConflictingModuleTrust,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &trust_diagnostics,
+            DiagnosticKind::DeclarationConflictingModuleTrust,
         );
 
         assert_eq!(
@@ -595,8 +640,8 @@ mod tests {
 
             assert_eq!(primary_span.source_id(), source(&sources, 1).source_id());
 
-            let [conflicting, first] = diagnostic.labels() else {
-                panic!("expected conflicting and first-module labels: {diagnostic:?}");
+            let [conflicting] = diagnostic.labels() else {
+                panic!("expected one conflicting-module label: {diagnostic:?}");
             };
 
             assert_eq!(
@@ -604,7 +649,15 @@ mod tests {
                 DiagnosticLabelKind::ConflictingModuleDeclaration
             );
 
-            assert_eq!(first.kind(), DiagnosticLabelKind::FirstModuleDeclaration);
+            let [first] = diagnostic.related_locations() else {
+                panic!("expected the first module declaration as a related location");
+            };
+
+            assert_eq!(
+                first.kind(),
+                bray_diagnostics::DiagnosticRelatedLocationKind::FirstDeclaration
+            );
+
             assert_eq!(first.span().source_id(), source(&sources, 0).source_id());
         }
     }
@@ -638,6 +691,58 @@ mod tests {
         )));
 
         let result = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
+
+        assert_goal_state_diagnostics(result.diagnostics());
+
+        let duplicate_modifier = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationDuplicateModifier,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &duplicate_modifier,
+            DiagnosticKind::DeclarationDuplicateModifier,
+        );
+
+        let duplicate_directive = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationDuplicateDirective,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &duplicate_directive,
+            DiagnosticKind::DeclarationDuplicateDirective,
+        );
+
+        let body_not_allowed = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationBodyNotAllowed,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &body_not_allowed,
+            DiagnosticKind::DeclarationBodyNotAllowed,
+        );
+
+        let body_required = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationBodyRequired,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &body_required,
+            DiagnosticKind::DeclarationBodyRequired,
+        );
+
+        let incompatible_modifiers = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationIncompatibleModifiers,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &incompatible_modifiers,
+            DiagnosticKind::DeclarationIncompatibleModifiers,
+        );
 
         assert_eq!(
             result
@@ -678,6 +783,8 @@ mod tests {
 
         let result = merge_declaration_chunks([&chunk]);
 
+        assert_goal_state_diagnostics(result.diagnostics());
+
         let [diagnostic] = result.diagnostics().diagnostics() else {
             panic!(
                 "expected one lifecycle-slot diagnostic: {:?}",
@@ -690,12 +797,25 @@ mod tests {
             DiagnosticKind::DeclarationDuplicateLifecycleSlot
         );
 
-        let [duplicate, first] = diagnostic.labels() else {
-            panic!("expected duplicate and first lifecycle labels: {diagnostic:?}");
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationDuplicateLifecycleSlot,
+        );
+
+        let [duplicate] = diagnostic.labels() else {
+            panic!("expected one duplicate lifecycle label: {diagnostic:?}");
         };
 
         assert_eq!(duplicate.kind(), DiagnosticLabelKind::DuplicateDeclaration);
-        assert_eq!(first.kind(), DiagnosticLabelKind::FirstDeclaration);
+
+        let [first] = diagnostic.related_locations() else {
+            panic!("expected the first lifecycle declaration as a related location");
+        };
+
+        assert_eq!(
+            first.kind(),
+            bray_diagnostics::DiagnosticRelatedLocationKind::FirstDeclaration
+        );
     }
 
     #[test]
@@ -730,6 +850,58 @@ mod tests {
         )));
 
         let result = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
+
+        assert_goal_state_diagnostics(result.diagnostics());
+
+        let invalid_directive_target = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationInvalidDirectiveTarget,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_directive_target,
+            DiagnosticKind::DeclarationInvalidDirectiveTarget,
+        );
+
+        let incompatible_directives = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationIncompatibleDirectives,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &incompatible_directives,
+            DiagnosticKind::DeclarationIncompatibleDirectives,
+        );
+
+        let invalid_parameter_order = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationInvalidParameterOrder,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_parameter_order,
+            DiagnosticKind::DeclarationInvalidParameterOrder,
+        );
+
+        let invalid_modifier = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationInvalidModifier,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_modifier,
+            DiagnosticKind::DeclarationInvalidModifier,
+        );
+
+        let invalid_member_placement = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::DeclarationInvalidMemberPlacement,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_member_placement,
+            DiagnosticKind::DeclarationInvalidMemberPlacement,
+        );
 
         assert_eq!(
             result

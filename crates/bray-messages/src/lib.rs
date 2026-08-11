@@ -5,6 +5,7 @@
 mod argument;
 mod build_progress;
 mod catalog;
+pub mod command_help;
 mod language_server;
 mod locale;
 mod profile;
@@ -20,7 +21,8 @@ pub use language_server::{LanguageServerMessage, LanguageServerMessageRenderer};
 pub use locale::DiagnosticLocale;
 pub use profile::CompilerProfileMessageRenderer;
 pub use rendered_diagnostic::{
-    RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote, RenderedDiagnosticNoteKind,
+    RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote,
+    RenderedDiagnosticNoteKind, RenderedDiagnosticRelatedLocation, RenderedDiagnosticSuggestion,
 };
 pub use renderer::DiagnosticRenderer;
 pub use test_report::{

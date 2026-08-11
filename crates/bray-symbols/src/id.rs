@@ -27,6 +27,9 @@ pub trait ExactSymbolId: sealed::Sealed + Copy + Into<AnySymbolId> {
 pub struct SymbolId(u32);
 
 impl SymbolId {
+    /// Number of distinct values in the compact compilation-wide symbol identity domain.
+    pub const CAPACITY: u64 = 4_294_967_296;
+
     /// Creates a compilation-local ID from its numeric representation.
     pub const fn new(raw: u32) -> Self {
         Self(raw)

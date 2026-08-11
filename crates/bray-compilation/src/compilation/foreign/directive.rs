@@ -3,7 +3,13 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
-use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticDirectiveArgumentProblem, DiagnosticKind,
+    DiagnosticNativeLinkDirectiveProblem, DiagnosticNativeLinkKind,
+    DiagnosticNativeSymbolDirectiveProblem, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
     CallableContractSet, ConstantExpressionExpectedType, ConstantExpressionOccurrence,
     ConstantExpressionOccurrenceKey, DirectiveArgumentName, DirectiveArgumentTemplate,
@@ -97,35 +103,54 @@ pub(super) fn foreign_link_requirements(
     let mut links = Vec::new();
 
     for directive in &link_directives {
-        let Some(arguments) = named_arguments(directive, &["name", "kind"]) else {
-            diagnostics.add(source_diagnostic(
-                directive.syntax(),
-                DiagnosticKind::CheckingInvalidNativeLinkDirective,
-            ));
+        let arguments = match named_arguments(directive, &["name", "kind"]) {
+            Ok(arguments) => arguments,
+            Err(error) => {
+                diagnostics.add(invalid_native_link_directive(
+                    error.anchor,
+                    DiagnosticNativeLinkDirectiveProblem::Argument(error.problem),
+                    error.previous,
+                ));
 
-            continue;
+                continue;
+            }
         };
 
         let Some(name_argument) = arguments.get("name") else {
-            diagnostics.add(source_diagnostic(
+            diagnostics.add(invalid_native_link_directive(
                 directive.syntax(),
-                DiagnosticKind::CheckingInvalidNativeLinkDirective,
+                DiagnosticNativeLinkDirectiveProblem::Argument(
+                    DiagnosticDirectiveArgumentProblem::Missing {
+                        name: String::from("name"),
+                    },
+                ),
+                None,
             ));
 
             continue;
         };
 
-        let name =
-            directive_string_argument(compilation, name_argument, cancellation, diagnostics)?
-                .and_then(NonEmptySharedStr::try_new);
+        let name = match directive_string_argument(
+            compilation,
+            name_argument,
+            cancellation,
+            diagnostics,
+        )? {
+            DirectiveStringValue::Value(value) => NonEmptySharedStr::try_new(value),
+            DirectiveStringValue::Recovered => continue,
+        };
 
-        let Some(kind) = directive_link_kind(compilation, arguments.get("kind").copied())? else {
-            diagnostics.add(source_diagnostic(
-                directive.syntax(),
-                DiagnosticKind::CheckingInvalidNativeLinkDirective,
-            ));
+        let kind = match directive_link_kind(compilation, arguments.get("kind").copied())? {
+            Ok(kind) => kind,
+            Err((anchor, provided)) => {
+                diagnostics.add(invalid_native_link_directive(
+                    anchor,
+                    DiagnosticNativeLinkDirectiveProblem::UnsupportedKind { provided },
+                    None,
+                ));
 
-            continue;
+                continue;
+            }
         };
 
         match name {
@@ -135,9 +160,14 @@ pub(super) fn foreign_link_requirements(
 
                 links.extend(requirement);
             }
-            _ => diagnostics.add(source_diagnostic(
-                directive.syntax(),
-                DiagnosticKind::CheckingInvalidNativeLinkDirective,
+            _ => diagnostics.add(invalid_native_link_directive(
+                name_argument.expression().syntax(),
+                DiagnosticNativeLinkDirectiveProblem::Argument(
+                    DiagnosticDirectiveArgumentProblem::EmptyString {
+                        name: String::from("name"),
+                    },
+                ),
+                None,
             )),
         }
     }
@@ -151,31 +181,47 @@ pub(super) fn foreign_symbol_name(
     cancellation: &CancellationToken,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<NonEmptySharedStr>, FactQueryError> {
-    let Some(arguments) = named_arguments(directive, &["name"]) else {
-        diagnostics.add(source_diagnostic(
-            directive.syntax(),
-            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
-        ));
+    let arguments = match named_arguments(directive, &["name"]) {
+        Ok(arguments) => arguments,
+        Err(error) => {
+            diagnostics.add(invalid_native_symbol_directive(
+                error.anchor,
+                DiagnosticNativeSymbolDirectiveProblem::Argument(error.problem),
+                error.previous,
+            ));
 
-        return Ok(None);
+            return Ok(None);
+        }
     };
 
     let Some(argument) = arguments.get("name") else {
-        diagnostics.add(source_diagnostic(
+        diagnostics.add(invalid_native_symbol_directive(
             directive.syntax(),
-            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
+            DiagnosticNativeSymbolDirectiveProblem::Argument(
+                DiagnosticDirectiveArgumentProblem::Missing {
+                    name: String::from("name"),
+                },
+            ),
+            None,
         ));
 
         return Ok(None);
     };
 
-    let name = directive_string_argument(compilation, argument, cancellation, diagnostics)?
-        .and_then(NonEmptySharedStr::try_new);
+    let name = match directive_string_argument(compilation, argument, cancellation, diagnostics)? {
+        DirectiveStringValue::Value(value) => NonEmptySharedStr::try_new(value),
+        DirectiveStringValue::Recovered => return Ok(None),
+    };
 
     if name.is_none() {
-        diagnostics.add(source_diagnostic(
-            directive.syntax(),
-            DiagnosticKind::CheckingInvalidNativeSymbolDirective,
+        diagnostics.add(invalid_native_symbol_directive(
+            argument.expression().syntax(),
+            DiagnosticNativeSymbolDirectiveProblem::Argument(
+                DiagnosticDirectiveArgumentProblem::EmptyString {
+                    name: String::from("name"),
+                },
+            ),
+            None,
         ));
     }
 
@@ -187,7 +233,7 @@ fn directive_string_argument(
     argument: &DirectiveArgumentTemplate,
     cancellation: &CancellationToken,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<Arc<str>>, FactQueryError> {
+) -> Result<DirectiveStringValue, FactQueryError> {
     let string = compilation
         .available_compiler_known_symbols()
         .representation_symbol::<StructSymbolId>(RepresentationRole::String)
@@ -210,7 +256,7 @@ fn directive_string_argument(
     diagnostics.add_range(value.diagnostics().iter().cloned());
 
     if value.diagnostics().has_errors() {
-        return Ok(None);
+        return Ok(DirectiveStringValue::Recovered);
     }
 
     let data = compilation
@@ -219,18 +265,23 @@ fn directive_string_argument(
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     let bray_symbols::ConstantValueKind::String(value) = data.kind() else {
-        return Ok(None);
+        return Ok(DirectiveStringValue::Recovered);
     };
 
-    Ok(Some(Arc::clone(value)))
+    Ok(DirectiveStringValue::Value(Arc::clone(value)))
+}
+
+enum DirectiveStringValue {
+    Value(Arc<str>),
+    Recovered,
 }
 
 fn directive_link_kind(
     compilation: &Compilation,
     argument: Option<&DirectiveArgumentTemplate>,
-) -> Result<Option<Option<NativeLinkKind>>, FactQueryError> {
+) -> Result<Result<Option<NativeLinkKind>, (bray_declarations::SyntaxAnchor, String)>, FactQueryError> {
     let Some(argument) = argument else {
-        return Ok(Some(None));
+        return Ok(Ok(None));
     };
 
     let syntax = argument.expression().syntax();
@@ -244,7 +295,9 @@ fn directive_link_kind(
         .ok_or(FactQueryError::InfrastructureFailure)?
         .trim();
 
-    Ok(NativeLinkKind::for_name(text).map(Some))
+    Ok(NativeLinkKind::for_name(text)
+        .map(Some)
+        .ok_or_else(|| (syntax, text.to_owned())))
 }
 
 fn native_link_requirement(
@@ -275,10 +328,19 @@ fn native_link_requirement(
         return None;
     }
 
-    if available.next().is_some() {
-        diagnostics.add(source_diagnostic(
+    let additional = available.count();
+
+    if additional != 0 {
+        let matches = u64::try_from(additional.saturating_add(1)).unwrap_or(u64::MAX);
+
+        diagnostics.add(invalid_native_link_directive(
             directive.syntax(),
-            DiagnosticKind::CheckingInvalidNativeLinkDirective,
+            DiagnosticNativeLinkDirectiveProblem::AmbiguousInput {
+                name: name.as_str().to_owned(),
+                kind: kind.map(diagnostic_native_link_kind),
+                matches,
+            },
+            None,
         ));
 
         return None;
@@ -290,20 +352,94 @@ fn native_link_requirement(
 fn named_arguments<'directive>(
     directive: &'directive DirectiveTemplate,
     accepted: &[&str],
-) -> Option<BTreeMap<&'directive str, &'directive DirectiveArgumentTemplate>> {
+) -> Result<
+    BTreeMap<&'directive str, &'directive DirectiveArgumentTemplate>,
+    NamedArgumentError,
+> {
     let mut arguments = BTreeMap::new();
 
-    for argument in directive.arguments() {
+    for (ordinal, argument) in (0u64..).zip(directive.arguments()) {
         let DirectiveArgumentName::Named(name) = argument.name() else {
-            return None;
+            return Err(NamedArgumentError {
+                anchor: argument.expression().syntax(),
+                problem: DiagnosticDirectiveArgumentProblem::Positional { ordinal },
+                previous: None,
+            });
         };
 
         let name = name.as_str();
 
-        if !accepted.contains(&name) || arguments.insert(name, argument).is_some() {
-            return None;
+        if !accepted.contains(&name) {
+            return Err(NamedArgumentError {
+                anchor: argument.expression().syntax(),
+                problem: DiagnosticDirectiveArgumentProblem::Unknown {
+                    name: name.to_owned(),
+                },
+                previous: None,
+            });
+        }
+
+        if let Some(previous) = arguments.insert(name, argument) {
+            return Err(NamedArgumentError {
+                anchor: argument.expression().syntax(),
+                problem: DiagnosticDirectiveArgumentProblem::Duplicate {
+                    name: name.to_owned(),
+                },
+                previous: Some(previous.expression().syntax()),
+            });
         }
     }
 
-    Some(arguments)
+    Ok(arguments)
+}
+
+struct NamedArgumentError {
+    anchor: bray_declarations::SyntaxAnchor,
+    problem: DiagnosticDirectiveArgumentProblem,
+    previous: Option<bray_declarations::SyntaxAnchor>,
+}
+
+fn invalid_native_link_directive(
+    anchor: bray_declarations::SyntaxAnchor,
+    problem: DiagnosticNativeLinkDirectiveProblem,
+    previous: Option<bray_declarations::SyntaxAnchor>,
+) -> Diagnostic {
+    invalid_native_directive(
+        source_diagnostic(anchor, DiagnosticKind::CheckingInvalidNativeLinkDirective)
+            .with_arg(DiagnosticArg::native_link_directive_problem(problem)),
+        previous,
+    )
+}
+
+fn invalid_native_symbol_directive(
+    anchor: bray_declarations::SyntaxAnchor,
+    problem: DiagnosticNativeSymbolDirectiveProblem,
+    previous: Option<bray_declarations::SyntaxAnchor>,
+) -> Diagnostic {
+    invalid_native_directive(
+        source_diagnostic(anchor, DiagnosticKind::CheckingInvalidNativeSymbolDirective)
+            .with_arg(DiagnosticArg::native_symbol_directive_problem(problem)),
+        previous,
+    )
+}
+
+fn invalid_native_directive(
+    diagnostic: Diagnostic,
+    previous: Option<bray_declarations::SyntaxAnchor>,
+) -> Diagnostic {
+    previous.map_or(diagnostic.clone(), |previous| {
+        diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::FirstDeclaration,
+            SourceSpan::new(previous.source_id(), previous.full_range()),
+        ))
+    })
+}
+
+const fn diagnostic_native_link_kind(kind: NativeLinkKind) -> DiagnosticNativeLinkKind {
+    match kind {
+        NativeLinkKind::Dynamic => DiagnosticNativeLinkKind::Dynamic,
+        NativeLinkKind::Static => DiagnosticNativeLinkKind::Static,
+        NativeLinkKind::System => DiagnosticNativeLinkKind::System,
+        NativeLinkKind::Framework => DiagnosticNativeLinkKind::Framework,
+    }
 }

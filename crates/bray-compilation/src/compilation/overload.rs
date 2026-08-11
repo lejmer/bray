@@ -3,25 +3,32 @@ use std::sync::Arc;
 
 use bray_binder::{NameAccess, SymbolFactProvider};
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticCallableOverloadArm,
+    DiagnosticCallableOverloadContext, DiagnosticCallableOverloadProblem, DiagnosticKind,
+    DiagnosticLabelKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableOverloadSymbolId, CallableSignatureFact, CallableSignatureTemplate,
     CallableSymbolId, GenericDeclarationTemplate, GenericDeclarationTemplateFact, GenericOwnerId,
-    ImplementationSymbolId, MemberLookupResult, NamedTypeSymbolId, SymbolFactRequest, SymbolOrigin,
-    TraitSymbolId,
+    ImplementationSymbolId, ImportedSymbolSkeleton, MemberLookupResult, NamedTypeSymbolId,
+    SymbolFactRequest, SymbolGraph, SymbolOrigin, TraitSymbolId, diagnostic_symbol_kind,
 };
 use bray_syntax::PathSyntax;
 
 use super::Compilation;
 use super::binder::{CompilationBinderFacts, binder_fact_error};
-use super::diagnostics::source_diagnostic;
+use super::diagnostics::symbol_diagnostic_identity;
+use super::foreign::diagnostic::template_diagnostic_type;
 use super::limits::try_count_comparison;
 use super::overlap::callable_selection_surfaces_overlap;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CallableFamilyContext {
-    Module,
+    Module(bray_symbols::ModuleSymbolId),
     NamedType(NamedTypeSymbolId),
     Trait(TraitSymbolId),
     Implementation(ImplementationSymbolId),
@@ -34,6 +41,7 @@ struct CallableArm {
     generic: Arc<bray_diagnostics::DiagnosticResult<GenericDeclarationTemplate>>,
     context: Option<CallableFamilyContext>,
     may_be_satisfied: bool,
+    diagnostic: DiagnosticCallableOverloadArm,
 }
 
 impl Compilation {
@@ -55,6 +63,7 @@ impl Compilation {
     ) -> Result<DiagnosticBag, FactQueryError> {
         let symbols = self.symbol_graph()?;
         let facts = self.binder_facts(cancellation)?;
+        let imported = facts.imported_symbols().map_err(binder_fact_error)?;
         let values = self.semantic_value_store()?;
 
         let mut diagnostics = DiagnosticBag::new();
@@ -80,7 +89,7 @@ impl Compilation {
                 .containing_module(family.id().into())
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let mut seen = BTreeSet::new();
+            let mut seen = BTreeMap::<CallableSymbolId, Vec<SyntaxAnchor>>::new();
             let mut arms: Vec<CallableArm> = Vec::new();
 
             for anchor in family.arm_syntax() {
@@ -99,34 +108,22 @@ impl Compilation {
                 };
 
                 let Some(callable) = CallableSymbolId::try_from_any(*symbol) else {
-                    diagnostics.add(source_diagnostic(
+                    diagnostics.add(problem_diagnostic(
                         *anchor,
                         DiagnosticKind::CheckingInvalidCallableOverloadArm,
+                        DiagnosticCallableOverloadProblem::ArmSymbolKind {
+                            symbol: symbol_diagnostic_identity(symbols, imported, *symbol)?,
+                            actual: diagnostic_symbol_kind(symbol.kind()),
+                        },
+                        &[],
                     ));
 
                     continue;
                 };
 
-                if !seen.insert(callable) {
-                    diagnostics.add(source_diagnostic(
-                        *anchor,
-                        DiagnosticKind::CheckingDuplicateCallableOverloadArm,
-                    ));
-
-                    continue;
-                }
-
-                record_family_membership(
-                    &mut diagnostics,
-                    &mut memberships,
-                    &mut reported_membership_conflicts,
-                    family.id(),
-                    callable,
-                    *anchor,
-                );
-
                 let Some(arm) = self.callable_overload_arm(
                     &facts,
+                    imported,
                     callable,
                     *anchor,
                     cancellation,
@@ -136,28 +133,60 @@ impl Compilation {
                     continue;
                 };
 
-                if expected_context.is_some()
-                    && arm.context.is_some()
-                    && arm.context != expected_context
-                {
-                    diagnostics.add(source_diagnostic(
+                if let Some(previous) = seen.get_mut(&callable) {
+                    diagnostics.add(problem_diagnostic(
                         *anchor,
-                        DiagnosticKind::CheckingInvalidCallableOverloadArm,
+                        DiagnosticKind::CheckingDuplicateCallableOverloadArm,
+                        DiagnosticCallableOverloadProblem::DuplicateArm {
+                            arm: arm.diagnostic,
+                        },
+                        previous,
                     ));
+
+                    previous.push(*anchor);
 
                     continue;
                 }
 
-                if let Some(first) = arms.first()
-                    && first.signature.value().receiver().is_some()
-                        != arm.signature.value().receiver().is_some()
-                {
-                    diagnostics.add(source_diagnostic(
-                        *anchor,
-                        DiagnosticKind::CheckingInvalidCallableOverloadArm,
-                    ));
+                seen.insert(callable, vec![*anchor]);
 
-                    continue;
+                record_family_membership(
+                    &mut diagnostics,
+                    &mut memberships,
+                    &mut reported_membership_conflicts,
+                    symbols,
+                    imported,
+                    family.id(),
+                    callable,
+                    &arm.diagnostic,
+                    *anchor,
+                )?;
+
+                if let (Some(expected_context), Some(provided_context)) =
+                    (expected_context, arm.context)
+                {
+                    if provided_context != expected_context {
+                        diagnostics.add(problem_diagnostic(
+                            *anchor,
+                            DiagnosticKind::CheckingInvalidCallableOverloadArm,
+                            DiagnosticCallableOverloadProblem::ContextMismatch {
+                                arm: arm.diagnostic,
+                                required: diagnostic_callable_context(
+                                    symbols,
+                                    imported,
+                                    expected_context,
+                                )?,
+                                provided: diagnostic_callable_context(
+                                    symbols,
+                                    imported,
+                                    provided_context,
+                                )?,
+                            },
+                            &[],
+                        ));
+
+                        continue;
+                    }
                 }
 
                 arms.push(arm);
@@ -176,11 +205,16 @@ impl Compilation {
                     }
 
                     if !try_count_comparison(&mut comparisons, maximum_comparisons) {
+                        let attempted = comparisons
+                            .checked_add(1)
+                            .ok_or(FactQueryError::InfrastructureFailure)?;
+
                         diagnostics.add(
                             source_diagnostic(
                                 left.anchor,
                                 DiagnosticKind::CheckingCallableOverloadLimitExceeded,
                             )
+                            .with_arg(DiagnosticArg::actual_count(attempted))
                             .with_arg(DiagnosticArg::maximum_count(maximum_comparisons)),
                         );
 
@@ -196,14 +230,24 @@ impl Compilation {
                     )
                     .map_err(|_| FactQueryError::InfrastructureFailure)?
                     {
-                        diagnostics.add(source_diagnostic(
+                        diagnostics.add(problem_diagnostic(
                             left.anchor,
                             DiagnosticKind::CheckingConflictingCallableOverloadSignature,
+                            DiagnosticCallableOverloadProblem::ConflictingSignatures {
+                                arm: left.diagnostic.clone(),
+                                conflicting: right.diagnostic.clone(),
+                            },
+                            &[right.anchor],
                         ));
 
-                        diagnostics.add(source_diagnostic(
+                        diagnostics.add(problem_diagnostic(
                             right.anchor,
                             DiagnosticKind::CheckingConflictingCallableOverloadSignature,
+                            DiagnosticCallableOverloadProblem::ConflictingSignatures {
+                                arm: right.diagnostic.clone(),
+                                conflicting: left.diagnostic.clone(),
+                            },
+                            &[left.anchor],
                         ));
                     }
                 }
@@ -216,6 +260,7 @@ impl Compilation {
     fn callable_overload_arm(
         &self,
         facts: &CompilationBinderFacts<'_>,
+        imported: Option<&ImportedSymbolSkeleton>,
         callable: CallableSymbolId,
         anchor: SyntaxAnchor,
         cancellation: &CancellationToken,
@@ -247,19 +292,35 @@ impl Compilation {
             .containing_symbol(callable.into_any())
             .and_then(callable_family_context);
 
+        let parameter_types = signature
+            .value()
+            .parameter_type_templates(self.semantic_value_store()?)
+            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .iter()
+            .map(|ty| template_diagnostic_type(self, ty, cancellation))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let diagnostic = DiagnosticCallableOverloadArm::new(
+            symbol_diagnostic_identity(self.symbol_graph()?, imported, callable.into_any())?,
+            signature.value().receiver().is_some(),
+            parameter_types,
+            template_diagnostic_type(self, signature.value().result(), cancellation)?,
+        );
+
         Ok(Some(CallableArm {
             anchor,
             signature,
             generic,
             context,
             may_be_satisfied,
+            diagnostic,
         }))
     }
 }
 
 fn callable_family_context(symbol: AnySymbolId) -> Option<CallableFamilyContext> {
     match symbol {
-        AnySymbolId::Module(_) => Some(CallableFamilyContext::Module),
+        AnySymbolId::Module(id) => Some(CallableFamilyContext::Module(id)),
         AnySymbolId::Struct(id) => Some(CallableFamilyContext::NamedType(id.into())),
         AnySymbolId::Union(id) => Some(CallableFamilyContext::NamedType(id.into())),
         AnySymbolId::Trait(id) => Some(CallableFamilyContext::Trait(id)),
@@ -276,6 +337,40 @@ fn callable_family_context(symbol: AnySymbolId) -> Option<CallableFamilyContext>
     }
 }
 
+fn diagnostic_callable_context(
+    symbols: &SymbolGraph,
+    imported: Option<&ImportedSymbolSkeleton>,
+    context: CallableFamilyContext,
+) -> Result<DiagnosticCallableOverloadContext, FactQueryError> {
+    let context = match context {
+        CallableFamilyContext::Module(id) => DiagnosticCallableOverloadContext::Module(
+            symbol_diagnostic_identity(symbols, imported, id.into())?,
+        ),
+        CallableFamilyContext::NamedType(id) => {
+            let symbol = match id {
+                NamedTypeSymbolId::Struct(id) => AnySymbolId::Struct(id),
+                NamedTypeSymbolId::Union(id) => AnySymbolId::Union(id),
+            };
+
+            DiagnosticCallableOverloadContext::NamedType(symbol_diagnostic_identity(
+                symbols, imported, symbol,
+            )?)
+        }
+        CallableFamilyContext::Trait(id) => DiagnosticCallableOverloadContext::Trait(
+            symbol_diagnostic_identity(symbols, imported, id.into())?,
+        ),
+        CallableFamilyContext::Implementation(id) => {
+            DiagnosticCallableOverloadContext::Implementation(symbol_diagnostic_identity(
+                symbols,
+                imported,
+                id.into_any(),
+            )?)
+        }
+    };
+
+    Ok(context)
+}
+
 fn record_family_membership(
     diagnostics: &mut DiagnosticBag,
     memberships: &mut BTreeMap<CallableSymbolId, (CallableOverloadSymbolId, SyntaxAnchor)>,
@@ -284,18 +379,21 @@ fn record_family_membership(
         CallableOverloadSymbolId,
         CallableSymbolId,
     )>,
+    symbols: &SymbolGraph,
+    imported: Option<&ImportedSymbolSkeleton>,
     family: CallableOverloadSymbolId,
     callable: CallableSymbolId,
+    arm: &DiagnosticCallableOverloadArm,
     anchor: SyntaxAnchor,
-) {
+) -> Result<(), FactQueryError> {
     let Some((previous_family, previous_anchor)) = memberships.get(&callable).copied() else {
         memberships.insert(callable, (family, anchor));
 
-        return;
+        return Ok(());
     };
 
     if previous_family == family {
-        return;
+        return Ok(());
     }
 
     let key = if previous_family < family {
@@ -305,23 +403,85 @@ fn record_family_membership(
     };
 
     if !reported.insert(key) {
-        return;
+        return Ok(());
     }
 
-    diagnostics.add(source_diagnostic(
+    let first = symbol_diagnostic_identity(symbols, imported, previous_family.into())?;
+    let second = symbol_diagnostic_identity(symbols, imported, family.into())?;
+
+    diagnostics.add(problem_diagnostic(
         previous_anchor,
         DiagnosticKind::CheckingConflictingCallableOverloadFamily,
+        DiagnosticCallableOverloadProblem::ConflictingFamilies {
+            arm: arm.clone(),
+            first: first.clone(),
+            second: second.clone(),
+        },
+        &[anchor],
     ));
 
-    diagnostics.add(source_diagnostic(
+    diagnostics.add(problem_diagnostic(
         anchor,
         DiagnosticKind::CheckingConflictingCallableOverloadFamily,
+        DiagnosticCallableOverloadProblem::ConflictingFamilies {
+            arm: arm.clone(),
+            first,
+            second,
+        },
+        &[previous_anchor],
     ));
+
+    Ok(())
+}
+
+fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
+    let label = match kind {
+        DiagnosticKind::CheckingDuplicateCallableOverloadArm => {
+            DiagnosticLabelKind::DuplicateOverloadArm
+        }
+        DiagnosticKind::CheckingConflictingCallableOverloadFamily
+        | DiagnosticKind::CheckingConflictingCallableOverloadSignature => {
+            DiagnosticLabelKind::ConflictingOverload
+        }
+        DiagnosticKind::CheckingInvalidCallableOverloadArm
+        | DiagnosticKind::CheckingCallableOverloadLimitExceeded => {
+            DiagnosticLabelKind::InvalidOverload
+        }
+        _ => unreachable!("callable overload diagnostics must use an overload category"),
+    };
+
+    crate::compilation::diagnostics::labeled_source_diagnostic(anchor, kind, label)
+}
+
+fn problem_diagnostic(
+    anchor: SyntaxAnchor,
+    kind: DiagnosticKind,
+    problem: DiagnosticCallableOverloadProblem,
+    related: &[SyntaxAnchor],
+) -> Diagnostic {
+    let relationship = if kind == DiagnosticKind::CheckingDuplicateCallableOverloadArm {
+        DiagnosticRelatedLocationKind::FirstDeclaration
+    } else {
+        DiagnosticRelatedLocationKind::ConflictingDeclaration
+    };
+
+    related.iter().copied().fold(
+        source_diagnostic(anchor, kind)
+            .with_arg(DiagnosticArg::callable_overload_problem(problem)),
+        |diagnostic, related| {
+            diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+                relationship,
+                SourceSpan::new(related.source_id(), related.full_range()),
+            ))
+        },
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{
+        DiagnosticArgName, DiagnosticArgValue, DiagnosticCallableOverloadProblem, DiagnosticKind,
+    };
 
     use crate::test_support::{compilation, compilation_with_options, diagnostic_kinds};
     use crate::{CompilationOptions, SelectedTarget, SemanticAnalysisLimits, WorkerBudget};
@@ -357,7 +517,7 @@ overload choose =
     }
 
     #[test]
-    fn callable_overload_families_report_duplicate_and_indistinguishable_arms() {
+    fn callable_overload_families_report_indistinguishable_arms() {
         let compilation = compilation(
             r#"module app;
 
@@ -372,7 +532,6 @@ func second(pos value: bool)
 overload choose =
 {
     first,
-    first,
     second,
 }
 "#,
@@ -383,19 +542,52 @@ overload choose =
         assert_eq!(
             diagnostics
                 .iter()
-                .filter(|kind| **kind == DiagnosticKind::CheckingDuplicateCallableOverloadArm)
-                .count(),
-            1
-        );
-
-        assert_eq!(
-            diagnostics
-                .iter()
                 .filter(|kind| {
                     **kind == DiagnosticKind::CheckingConflictingCallableOverloadSignature
                 })
                 .count(),
             2
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.semantic_diagnostics(),
+            DiagnosticKind::CheckingConflictingCallableOverloadSignature,
+        );
+    }
+
+    #[test]
+    fn callable_overload_repeated_arm_retains_every_prior_origin() {
+        let compilation = compilation(
+            r#"module app;
+
+func first(pos value: bool)
+{
+}
+
+overload choose =
+{
+    first,
+    first,
+    first,
+}
+"#,
+        );
+
+        let diagnostics = compilation
+            .semantic_diagnostics()
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::CheckingDuplicateCallableOverloadArm
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].related_locations().len(), 1);
+        assert_eq!(diagnostics[1].related_locations().len(), 2);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.semantic_diagnostics(),
+            DiagnosticKind::CheckingDuplicateCallableOverloadArm,
         );
     }
 
@@ -436,16 +628,17 @@ overload choose =
             diagnostic_kinds(diagnostics),
             [DiagnosticKind::CheckingCallableOverloadLimitExceeded]
         );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingCallableOverloadLimitExceeded,
+        );
     }
 
     #[test]
-    fn callable_overload_families_report_invalid_and_cross_family_arms() {
+    fn callable_overload_families_report_cross_family_arms() {
         let compilation = compilation(
             r#"module app;
-
-struct Value
-{
-}
 
 func convert(pos value: bool)
 {
@@ -453,7 +646,6 @@ func convert(pos value: bool)
 
 overload first =
 {
-    Value,
     convert,
 }
 
@@ -469,19 +661,75 @@ overload second =
         assert_eq!(
             diagnostics
                 .iter()
-                .filter(|kind| **kind == DiagnosticKind::CheckingInvalidCallableOverloadArm)
-                .count(),
-            1
-        );
-
-        assert_eq!(
-            diagnostics
-                .iter()
                 .filter(|kind| {
                     **kind == DiagnosticKind::CheckingConflictingCallableOverloadFamily
                 })
                 .count(),
             2
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.semantic_diagnostics(),
+            DiagnosticKind::CheckingConflictingCallableOverloadFamily,
+        );
+    }
+
+    #[test]
+    fn callable_overload_arm_reports_the_exact_non_callable_symbol() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Value
+{
+}
+
+overload first =
+{
+    Value,
+}
+"#,
+        );
+
+        assert_eq!(
+            diagnostic_kinds(compilation.semantic_diagnostics()),
+            [DiagnosticKind::CheckingInvalidCallableOverloadArm]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.semantic_diagnostics(),
+            DiagnosticKind::CheckingInvalidCallableOverloadArm,
+        );
+    }
+
+    #[test]
+    fn callable_overload_arm_reports_its_different_owning_context() {
+        let compilation = compilation(
+            r#"module app;
+
+func outside()
+{
+}
+
+struct Value
+{
+    func member()
+    {
+    }
+
+    overload choose =
+    {
+        member,
+        outside,
+    }
+}
+"#,
+        );
+
+        let problem = callable_overload_problem(compilation.semantic_diagnostics());
+
+        assert!(
+            matches!(problem, DiagnosticCallableOverloadProblem::ContextMismatch { .. }),
+            "unexpected overload problem: {problem:?}"
         );
     }
 
@@ -522,5 +770,32 @@ overload choose =
                 | DiagnosticKind::CheckingConflictingCallableOverloadFamily
                 | DiagnosticKind::CheckingConflictingCallableOverloadSignature
         )
+    }
+
+    fn callable_overload_problem(
+        diagnostics: &bray_diagnostics::DiagnosticBag,
+    ) -> &DiagnosticCallableOverloadProblem {
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::CheckingInvalidCallableOverloadArm
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected one invalid callable overload diagnostic, got: {diagnostics:?}"
+                )
+            });
+
+        let argument = diagnostic
+            .args()
+            .iter()
+            .find(|argument| argument.name() == DiagnosticArgName::CallableOverloadProblem)
+            .unwrap_or_else(|| panic!("expected callable overload problem argument"));
+
+        let DiagnosticArgValue::CallableOverloadProblem(problem) = argument.value() else {
+            panic!("callable overload problem argument has wrong value: {argument:?}");
+        };
+
+        problem
     }
 }

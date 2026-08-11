@@ -1,7 +1,13 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::SymbolFactProvider;
-use bray_diagnostics::{DiagnosticBag, DiagnosticKind, DiagnosticResult};
+use bray_declarations::SyntaxAnchor;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabelKind, DiagnosticNote,
+    DiagnosticNoteKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticResult,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, DeclarationDirectivesFact, DirectiveArgumentName, DirectiveKind,
     DirectiveTemplate, ProductKind, ProductSemanticFacts, ProductTestEntry, SymbolFactRequest,
@@ -13,9 +19,19 @@ use super::entry::{ProductEntryKind, select_executable_entrypoint, validate_entr
 use super::visibility::{symbol_is_publicly_reachable, validate_public_surface};
 use crate::compilation::Compilation;
 use crate::compilation::binder::binder_fact_error;
-use crate::compilation::diagnostics::source_diagnostic;
-use crate::compilation::directive::{bare_directive_argument_name, first_directive};
+use crate::compilation::diagnostics::{diagnostic_product_kind, labeled_source_diagnostic};
+use crate::compilation::directive::{
+    bare_directive_argument_name, directive_source_text, first_directive,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
+
+fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
+    labeled_source_diagnostic(
+        anchor,
+        kind,
+        DiagnosticLabelKind::InvalidProductConfiguration,
+    )
+}
 
 impl Compilation {
     /// Returns semantic roots and public declarations for the selected product.
@@ -72,7 +88,7 @@ impl Compilation {
 
         let mut explicit_entrypoints = Vec::new();
         let mut test_entries = Vec::new();
-        let mut test_identities = BTreeSet::new();
+        let mut test_identities: BTreeMap<_, SyntaxAnchor> = BTreeMap::new();
         let mut requires_async_runtime = false;
         let mut is_recovered = false;
 
@@ -92,10 +108,18 @@ impl Compilation {
                 if kind == ProductKind::Executable {
                     explicit_entrypoints.push((function, entrypoint.syntax()));
                 } else {
-                    diagnostics.add(source_diagnostic(
-                        entrypoint.syntax(),
-                        DiagnosticKind::CheckingEntrypointNotAllowed,
-                    ));
+                    diagnostics.add(
+                        source_diagnostic(
+                            entrypoint.syntax(),
+                            DiagnosticKind::CheckingEntrypointNotAllowed,
+                        )
+                        .with_arg(DiagnosticArg::actual_product_kind(diagnostic_product_kind(
+                            kind,
+                        )))
+                        .with_note(DiagnosticNote::new(
+                            DiagnosticNoteKind::EntrypointDirectiveRequiresExecutableProduct,
+                        )),
+                    );
 
                     is_recovered = true;
                 }
@@ -138,16 +162,38 @@ impl Compilation {
 
                     let identity = (module.path().clone(), name.clone());
 
-                    if !test_identities.insert(identity) {
-                        diagnostics.add(source_diagnostic(
-                            directive.syntax(),
+                    let declaration = symbols
+                        .declaration_syntax_anchor(function.into())
+                        .unwrap_or(directive.syntax());
+
+                    if let Some(previous) = test_identities.get(&identity).copied() {
+                        let diagnostic = source_diagnostic(
+                            declaration,
                             DiagnosticKind::CheckingDuplicateTestIdentity,
+                        )
+                        .with_arg(DiagnosticArg::declaration_name(format!(
+                            "{}::{}",
+                            module.path().segments().collect::<Vec<_>>().join("::"),
+                            name.as_str()
+                        )))
+                        .with_related_location(
+                            DiagnosticRelatedLocation::new(
+                                DiagnosticRelatedLocationKind::FirstDeclaration,
+                                SourceSpan::new(previous.source_id(), previous.full_range()),
+                            ),
+                        )
+                        .with_note(DiagnosticNote::new(
+                            DiagnosticNoteKind::UniqueTestIdentityRequired,
                         ));
+
+                        diagnostics.add(diagnostic);
 
                         is_recovered = true;
 
                         continue;
                     }
+
+                    test_identities.insert(identity, declaration);
 
                     test_entries.push(ProductTestEntry::new(
                         function,
@@ -167,6 +213,13 @@ impl Compilation {
         }
 
         let entrypoint = if kind == ProductKind::Executable {
+            let product_anchor = source_graph
+                .declarations()
+                .module_parts()
+                .first()
+                .map(bray_declarations::ModulePartRecord::syntax_anchor)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
             let selection = select_executable_entrypoint(
                 &binder,
                 semantic_values,
@@ -174,6 +227,7 @@ impl Compilation {
                 symbols,
                 &functions,
                 &explicit_entrypoints,
+                product_anchor,
                 &mut diagnostics,
             )?;
 
@@ -243,10 +297,21 @@ impl Compilation {
         };
 
         if constraint.is_none() {
-            diagnostics.add(source_diagnostic(
-                directive.syntax(),
-                DiagnosticKind::CheckingInvalidTestEntryDirective,
-            ));
+            let text = directive_source_text(self, directive)?;
+
+            diagnostics.add(
+                source_diagnostic(
+                    directive.syntax(),
+                    DiagnosticKind::CheckingInvalidTestEntryDirective,
+                )
+                .with_arg(DiagnosticArg::actual_count(
+                    u64::try_from(directive.arguments().len()).unwrap_or(u64::MAX),
+                ))
+                .with_arg(DiagnosticArg::token_text(text))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::TestDirectiveRequirements,
+                )),
+            );
         }
 
         Ok(constraint)
@@ -255,8 +320,12 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticKind, DiagnosticProductKind, DiagnosticRelatedLocation,
+        DiagnosticRelatedLocationKind, DiagnosticType,
+    };
     use bray_symbols::ProductKind;
+    use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
 
     use crate::test_support::{compilation_with_product, diagnostic_kinds};
 
@@ -331,6 +400,11 @@ func main()
                 "func second()\n",
                 "{\n",
                 "}\n",
+                "\n",
+                "@entrypoint\n",
+                "func third()\n",
+                "{\n",
+                "}\n",
             ),
             ProductKind::Executable,
         );
@@ -340,10 +414,37 @@ func main()
             [DiagnosticKind::CheckingMissingEntrypoint]
         );
 
+        assert_goal_state_diagnostic_kind(
+            product_facts(&missing).diagnostics(),
+            DiagnosticKind::CheckingMissingEntrypoint,
+        );
+
         assert_eq!(
             diagnostic_kinds(product_facts(&duplicate).diagnostics()),
-            [DiagnosticKind::CheckingDuplicateEntrypoint]
+            [
+                DiagnosticKind::CheckingDuplicateEntrypoint,
+                DiagnosticKind::CheckingDuplicateEntrypoint,
+            ]
         );
+
+        assert_goal_state_diagnostic_kind(
+            product_facts(&duplicate).diagnostics(),
+            DiagnosticKind::CheckingDuplicateEntrypoint,
+        );
+
+        let duplicate_diagnostics = product_facts(&duplicate)
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingDuplicateEntrypoint)
+            .collect::<Vec<_>>();
+
+        assert_eq!(duplicate_diagnostics.len(), 2);
+
+        assert!(duplicate_diagnostics.iter().all(|diagnostic| {
+            diagnostic.args() == [DiagnosticArg::actual_count(3)]
+                && diagnostic.related_locations().len() == 1
+                && diagnostic.related_locations()[0].span()
+                    == duplicate_diagnostics[0].related_locations()[0].span()
+        }));
     }
 
     #[test]
@@ -374,6 +475,25 @@ func main()
                 diagnostic_kinds(product_facts(&compilation).diagnostics())
                     .contains(&DiagnosticKind::CheckingEntrypointNotAllowed)
             );
+
+            assert_goal_state_diagnostic_kind(
+                product_facts(&compilation).diagnostics(),
+                DiagnosticKind::CheckingEntrypointNotAllowed,
+            );
+
+            let diagnostic = product_facts(&compilation)
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingEntrypointNotAllowed)
+                .next()
+                .unwrap_or_else(|| panic!("disallowed entrypoint diagnostic must be produced"));
+
+            let expected = match kind {
+                ProductKind::Library => DiagnosticProductKind::Library,
+                ProductKind::Test => DiagnosticProductKind::Test,
+                ProductKind::Executable => unreachable!("test only selects non-executable products"),
+            };
+
+            assert_eq!(diagnostic.args(), &[DiagnosticArg::actual_product_kind(expected)]);
         }
     }
 
@@ -430,6 +550,11 @@ func main()
             [DiagnosticKind::CheckingInvalidTestEntryDirective]
         );
 
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingInvalidTestEntryDirective,
+        );
+
         assert!(facts.value().test_entries().is_empty());
         assert!(facts.value().is_recovered());
     }
@@ -449,6 +574,11 @@ func main()
                 "func repeated()\n",
                 "{\n",
                 "}\n",
+                "\n",
+                "@test\n",
+                "func repeated()\n",
+                "{\n",
+                "}\n",
             ),
             ProductKind::Test,
         );
@@ -457,11 +587,43 @@ func main()
 
         assert_eq!(
             diagnostic_kinds(facts.diagnostics()),
-            [DiagnosticKind::CheckingDuplicateTestIdentity]
+            [
+                DiagnosticKind::CheckingDuplicateTestIdentity,
+                DiagnosticKind::CheckingDuplicateTestIdentity,
+            ]
         );
 
         assert_eq!(facts.value().test_entries().len(), 1);
         assert!(facts.value().is_recovered());
+
+        bray_testing::assert_goal_state_diagnostics(facts.diagnostics());
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingDuplicateTestIdentity,
+        );
+
+        let duplicate_diagnostics = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingDuplicateTestIdentity)
+            .collect::<Vec<_>>();
+
+        let first_origins = duplicate_diagnostics
+            .iter()
+            .flat_map(|diagnostic| diagnostic.related_locations())
+            .filter(|location| {
+                location.kind() == DiagnosticRelatedLocationKind::FirstDeclaration
+            })
+            .map(DiagnosticRelatedLocation::span)
+            .collect::<Vec<_>>();
+
+        assert_eq!(first_origins.len(), 2);
+        assert_eq!(first_origins[0], first_origins[1]);
+
+        assert_ne!(
+            duplicate_diagnostics[0].primary_span(),
+            duplicate_diagnostics[1].primary_span()
+        );
     }
 
     #[test]
@@ -486,21 +648,100 @@ func main()
                 .contains(&DiagnosticKind::CheckingInvalidTestResult)
         );
 
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingInvalidTestResult,
+        );
+
+        let diagnostic = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidTestResult)
+            .next()
+            .unwrap_or_else(|| panic!("invalid test result diagnostic must be produced"));
+
+        assert_eq!(
+            diagnostic.args(),
+            &[DiagnosticArg::actual_type(DiagnosticType::I32)]
+        );
+
         assert!(facts.value().test_entries().is_empty());
         assert!(facts.value().is_recovered());
     }
 
     #[test]
-    fn invalid_entry_contracts_remain_diagnostic_product_facts() {
+    fn generic_entrypoints_report_the_actual_parameter_count() {
         let compilation = compilation_with_product(
             concat!(
-                "trusted module app;\n",
-                "\n",
-                "trusted predicate permitted();\n",
+                "module app;\n",
                 "\n",
                 "@entrypoint\n",
-                "const func start<T>(pos value: i32) -> bool\n",
-                "    requires(trusted permitted())\n",
+                "func start<T>()\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Executable,
+        );
+
+        let facts = product_facts(&compilation);
+        assert_goal_state_diagnostics(facts.diagnostics());
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingEntryCannotBeGeneric,
+        );
+
+        let generic = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingEntryCannotBeGeneric)
+            .next()
+            .unwrap_or_else(|| panic!("generic entry diagnostic must be produced"));
+
+        assert_eq!(generic.args(), &[DiagnosticArg::actual_count(1)]);
+        assert!(facts.value().entrypoint().is_none());
+        assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn entrypoint_parameters_report_the_actual_parameter_count() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "@entrypoint\n",
+                "func start(pos value: i32)\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Executable,
+        );
+
+        let facts = product_facts(&compilation);
+        assert_goal_state_diagnostics(facts.diagnostics());
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingEntryCannotTakeParameters,
+        );
+
+        let parameters = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingEntryCannotTakeParameters)
+            .next()
+            .unwrap_or_else(|| panic!("entry parameter diagnostic must be produced"));
+
+        assert_eq!(parameters.args(), &[DiagnosticArg::actual_count(1)]);
+        assert!(facts.value().entrypoint().is_none());
+        assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn invalid_entrypoint_results_report_the_actual_type() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "@entrypoint\n",
+                "func start() -> bool\n",
                 "{\n",
                 "    false\n",
                 "}\n",
@@ -509,13 +750,79 @@ func main()
         );
 
         let facts = product_facts(&compilation);
-        let kinds = diagnostic_kinds(facts.diagnostics());
+        assert_goal_state_diagnostics(facts.diagnostics());
 
-        assert!(kinds.contains(&DiagnosticKind::CheckingEntryCannotBeGeneric));
-        assert!(kinds.contains(&DiagnosticKind::CheckingEntryCannotTakeParameters));
-        assert!(kinds.contains(&DiagnosticKind::CheckingInvalidEntrypointResult));
-        assert!(kinds.contains(&DiagnosticKind::CheckingEntryCannotBeConstant));
-        assert!(kinds.contains(&DiagnosticKind::CheckingEntryCannotRequireTrust));
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingInvalidEntrypointResult,
+        );
+
+        let result = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidEntrypointResult)
+            .next()
+            .unwrap_or_else(|| panic!("entry result diagnostic must be produced"));
+
+        assert_eq!(
+            result.args(),
+            &[DiagnosticArg::actual_type(DiagnosticType::Boolean)]
+        );
+
+        assert!(facts.value().entrypoint().is_none());
+        assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn constant_entrypoints_produce_a_goal_state_diagnostic() {
+        let compilation = compilation_with_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "@entrypoint\n",
+                "const func start()\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Executable,
+        );
+
+        let facts = product_facts(&compilation);
+        assert_goal_state_diagnostics(facts.diagnostics());
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingEntryCannotBeConstant,
+        );
+
+        assert!(facts.value().entrypoint().is_none());
+        assert!(facts.value().is_recovered());
+    }
+
+    #[test]
+    fn entrypoints_requiring_trusted_callers_produce_a_goal_state_diagnostic() {
+        let compilation = compilation_with_product(
+            concat!(
+                "trusted module app;\n",
+                "\n",
+                "trusted predicate permitted();\n",
+                "\n",
+                "@entrypoint\n",
+                "func start()\n",
+                "    requires(trusted permitted())\n",
+                "{\n",
+                "}\n",
+            ),
+            ProductKind::Executable,
+        );
+
+        let facts = product_facts(&compilation);
+        assert_goal_state_diagnostics(facts.diagnostics());
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingEntryCannotRequireTrust,
+        );
+
         assert!(facts.value().entrypoint().is_none());
         assert!(facts.value().is_recovered());
     }
@@ -573,6 +880,18 @@ func main()
                 })
                 .count(),
             2
+        );
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingExportDependsOnInternalDeclaration,
+        );
+
+        assert!(
+            facts
+                .diagnostics()
+                .by_kind(DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
+                .all(|diagnostic| diagnostic.related_locations().len() == 1)
         );
 
         assert!(facts.value().is_recovered());

@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "semantic diagnostic aggregation and its source index form one cached query boundary")
+
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
@@ -13,14 +15,17 @@ use bray_checker::{
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
+    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticProductKind, DiagnosticResult, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableContractsFact, CallableSymbolId, ConstantDefinitionState,
     DeclaredTypeRepresentation, ImplementationSymbolId, ModuleSurface, ModuleSurfaceFact,
-    NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest, SymbolFactResult, SymbolGraph,
-    SymbolKey, SymbolOrigin, TraitImplementationConformanceFact,
+    ImportedSymbolSkeleton, NamedTypeSymbolId, SemanticFactResult, SymbolFactRequest,
+    ProductKind, SymbolFactResult, SymbolGraph, SymbolKey, SymbolOrigin,
+    TraitImplementationConformanceFact, diagnostic_symbol_identity, diagnostic_symbol_kind,
 };
 use bray_syntax::{
     ExpressionSyntax, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree,
@@ -38,6 +43,50 @@ pub(super) fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> D
         SeverityKind::Error,
     )
     .with_primary_span(SourceSpan::new(anchor.source_id(), anchor.full_range()))
+}
+
+pub(super) fn labeled_source_diagnostic(
+    anchor: SyntaxAnchor,
+    kind: DiagnosticKind,
+    label: DiagnosticLabelKind,
+) -> Diagnostic {
+    let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+    source_diagnostic(anchor, kind).with_label(DiagnosticLabel::primary(label, span))
+}
+
+pub(super) const fn diagnostic_product_kind(kind: ProductKind) -> DiagnosticProductKind {
+    match kind {
+        ProductKind::Executable => DiagnosticProductKind::Executable,
+        ProductKind::Library => DiagnosticProductKind::Library,
+        ProductKind::Test => DiagnosticProductKind::Test,
+    }
+}
+
+pub(super) fn symbol_diagnostic_identity(
+    symbols: &SymbolGraph,
+    imported: Option<&ImportedSymbolSkeleton>,
+    symbol: AnySymbolId,
+) -> Result<DiagnosticInterfaceSymbolIdentity, FactQueryError> {
+    let key = symbols
+        .symbol_key(symbol)
+        .or_else(|| imported.and_then(|imported| imported.symbol_key(symbol)))
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    if let Some(name) = symbols.member_name(symbol)
+        && let Some(owner) = symbols.containing_symbol(symbol)
+        && let Some(owner_key) = symbols
+            .symbol_key(owner)
+            .or_else(|| imported.and_then(|imported| imported.symbol_key(owner)))
+    {
+        return Ok(DiagnosticInterfaceSymbolIdentity::Declaration {
+            owner: Box::new(diagnostic_symbol_identity(owner_key)),
+            kind: diagnostic_symbol_kind(key.data().kind()),
+            identity: DiagnosticInterfaceDeclarationIdentity::Name(name.as_str().to_owned()),
+        });
+    }
+
+    Ok(diagnostic_symbol_identity(key))
 }
 
 impl Compilation {

@@ -45,6 +45,11 @@ where
             return CheckerOutcome::Cancelled;
         }
 
+        let source = request
+            .view()
+            .expression(entry.expression())
+            .map(|expression| expression.origin().source_anchor());
+
         match entry.selection() {
             SemanticSelection::Call(call) => {
                 enters_current_run_cancellation |= matches!(
@@ -54,6 +59,10 @@ where
 
                 let mut contribution =
                     BodyBehaviorCall::new(call.target(), BodyBehaviorPhase::Invocation);
+
+                if let Some(source) = source {
+                    contribution = contribution.with_source(source);
+                }
 
                 let async_anonymous = matches!(
                     (call.target(), call.resolution().result()),
@@ -86,14 +95,19 @@ where
                 );
             }
             SemanticSelection::Operation(operation) => {
-                collect_operation_behavior(operation, &mut calls, &mut defaults);
+                collect_operation_behavior(operation, source, &mut calls, &mut defaults);
             }
             SemanticSelection::Iteration(selection) => {
                 calls.extend([selection.iterate(), selection.next()].map(|target| {
-                    BodyBehaviorCall::new(
+                    let contribution = BodyBehaviorCall::new(
                         BoundCallableTarget::Declaration(target),
                         BodyBehaviorPhase::Invocation,
-                    )
+                    );
+
+                    match source {
+                        Some(source) => contribution.with_source(source),
+                        None => contribution,
+                    }
                 }));
             }
             SemanticSelection::Reference(_)
@@ -138,13 +152,18 @@ where
 
 fn collect_operation_behavior(
     operation: &SelectedOperation,
+    source: Option<bray_bound_tree::BoundSourceAnchor>,
     calls: &mut Vec<BodyBehaviorCall>,
     defaults: &mut Vec<ConstructionDefaultProvider>,
 ) {
     if let Some(target) = operation.operator_target() {
         match target {
-            OperatorTarget::Trait { fulfillment, .. } => calls.push(invocation(fulfillment)),
-            OperatorTarget::TraitConstraint { member, .. } => calls.push(invocation(member)),
+            OperatorTarget::Trait { fulfillment, .. } => {
+                calls.push(invocation(fulfillment, source));
+            }
+            OperatorTarget::TraitConstraint { member, .. } => {
+                calls.push(invocation(member, source));
+            }
             OperatorTarget::BuiltIn(_) => {}
         }
 
@@ -155,14 +174,14 @@ fn collect_operation_behavior(
         SelectedOperation::Index {
             target: IndexTarget::Custom { fulfillment, .. },
             ..
-        } => calls.push(invocation(*fulfillment)),
+        } => calls.push(invocation(*fulfillment, source)),
         SelectedOperation::Index {
             target: IndexTarget::TraitConstraint { member, .. },
             ..
-        } => calls.push(invocation(*member)),
+        } => calls.push(invocation(*member, source)),
         SelectedOperation::Construction(construction) => {
             if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
-                calls.push(invocation(callable));
+                calls.push(invocation(callable, source));
             }
 
             defaults.extend(
@@ -176,7 +195,7 @@ fn collect_operation_behavior(
             );
         }
         SelectedOperation::Conversion(conversion) => {
-            collect_conversion_behavior(conversion, calls);
+            collect_conversion_behavior(conversion, source, calls);
         }
         SelectedOperation::Member(_)
         | SelectedOperation::Operator { .. }
@@ -186,28 +205,40 @@ fn collect_operation_behavior(
     }
 }
 
-fn collect_conversion_behavior(conversion: &SelectedConversion, calls: &mut Vec<BodyBehaviorCall>) {
+fn collect_conversion_behavior(
+    conversion: &SelectedConversion,
+    source: Option<bray_bound_tree::BoundSourceAnchor>,
+    calls: &mut Vec<BodyBehaviorCall>,
+) {
     match conversion.target() {
         ConversionTarget::Trait { fulfillment, .. } => {
-            calls.push(invocation(*fulfillment));
+            calls.push(invocation(*fulfillment, source));
         }
         ConversionTarget::TraitConstraint { member, .. } => {
-            calls.push(invocation(*member));
+            calls.push(invocation(*member, source));
         }
         ConversionTarget::Composite(conversions) => {
             for conversion in conversions.iter() {
-                collect_conversion_behavior(conversion, calls);
+                collect_conversion_behavior(conversion, source, calls);
             }
         }
         ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
     }
 }
 
-fn invocation(callable: bray_symbols::CallableInstanceData) -> BodyBehaviorCall {
-    BodyBehaviorCall::new(
+fn invocation(
+    callable: bray_symbols::CallableInstanceData,
+    source: Option<bray_bound_tree::BoundSourceAnchor>,
+) -> BodyBehaviorCall {
+    let contribution = BodyBehaviorCall::new(
         BoundCallableTarget::Declaration(callable),
         BodyBehaviorPhase::Invocation,
-    )
+    );
+
+    match source {
+        Some(source) => contribution.with_source(source),
+        None => contribution,
+    }
 }
 
 #[cfg(test)]

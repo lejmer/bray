@@ -33,6 +33,8 @@ define_diagnostic_kinds! {
     StandardLibraryArtifactReadFailed,
     /// A configured standard library manifest is invalid.
     StandardLibraryManifestInvalid,
+    /// Bray could not publish a resolved standard library artifact.
+    StandardLibraryInfrastructureFailure,
     /// A configured standard library artifact has an unexpected byte length.
     StandardLibraryArtifactLengthMismatch,
     /// A configured standard library artifact has an unexpected digest.
@@ -45,7 +47,7 @@ define_diagnostic_kinds! {
     RequestDuplicateSourceInput,
     /// The requested worker budget is not valid.
     RequestInvalidWorkerBudget,
-    /// The selected product configuration cannot yet form a complete emission request.
+    /// The selected target lacks one required host toolchain component for product emission.
     RequestUnsupportedProductEmission,
     /// An inspection report could not be written to its requested file.
     InspectionReportWriteFailed,
@@ -55,10 +57,32 @@ define_diagnostic_kinds! {
     ProjectManifestReadFailed,
     /// A Bray project manifest does not match the serialized schema.
     ProjectManifestParseFailed,
-    /// A Bray project manifest value violates a project invariant.
-    ProjectManifestInvalid,
-    /// A Bray package manifest declares an invalid or unavailable semantic version.
+    /// A Bray project manifest selects an unsupported format revision.
+    ProjectManifestUnsupportedFormat,
+    /// A Bray project manifest contains a non-portable path.
+    ProjectManifestInvalidPath,
+    /// A Bray project manifest contains an invalid package, product, feature, root, or target name.
+    ProjectManifestInvalidName,
+    /// A Bray project manifest omits a required selection.
+    ProjectManifestMissingSelection,
+    /// A Bray workspace manifest omits its root package.
+    ProjectManifestMissingRootPackage,
+    /// A Bray project selects a feature not declared by its package.
+    ProjectManifestUndeclaredFeature,
+    /// A Bray product selects a source root not declared by its package.
+    ProjectManifestUnknownSourceRoot,
+    /// A Bray product selects a target not declared by its workspace.
+    ProjectManifestUnknownTarget,
+    /// A Bray target predicate names a property outside the language-defined target profile.
+    ProjectManifestUnknownTargetPredicateProperty,
+    /// A Bray target predicate supplies a literal category its property does not accept.
+    ProjectManifestTargetPredicateValueKindMismatch,
+    /// A non-test Bray product declares a sibling library under test.
+    ProjectManifestUnexpectedTestedLibrary,
+    /// A Bray package manifest declares an invalid semantic version.
     ProjectPackageVersionInvalid,
+    /// A Bray package inherits a version that its workspace does not declare.
+    ProjectPackageVersionMissingWorkspace,
     /// An ordinary project package claims the reserved standard library namespace.
     ProjectPackageIdentityReserved,
     /// A standard library project package is outside the reserved namespace.
@@ -67,18 +91,28 @@ define_diagnostic_kinds! {
     ProjectStandardLibraryRootPackageRequired,
     /// A Bray project manifest repeats one canonical selection.
     ProjectManifestDuplicateSelection,
-    /// A declared Bray source root is not a valid project-owned source tree.
+    /// A declared Bray source root cannot be read as a project-owned source tree.
     ProjectSourceRootInvalid,
+    /// A declared Bray source tree contains a symbolic link.
+    ProjectSourceRootContainsSymlink,
+    /// A declared Bray source tree contains a non-UTF-8 path.
+    ProjectSourceRootContainsNonUtf8Path,
     /// A package depends on a package absent from the explicit workspace inventory.
     ProjectDependencyPackageUnknown,
-    /// A package dependency does not select a declared library product.
-    ProjectDependencyProductInvalid,
-    /// Declared package dependencies form a cycle.
+    /// A package dependency selects a product absent from its package.
+    ProjectDependencyProductUnknown,
+    /// A package dependency selects a product that is not a library.
+    ProjectDependencyProductNotLibrary,
+    /// A dependency product is unavailable for an active edge target.
+    ProjectDependencyProductTargetUnavailable,
+    /// Declared package or product dependencies form a cycle.
     ProjectDependencyCycle,
     /// A Bray Tack command selection is absent from the explicit project graph.
     ProjectCommandSelectionInvalid,
     /// A Bray Tack project operation failed.
     ProjectCommandFailed,
+    /// Bray violated an internal project-command or toolchain invariant.
+    ProjectCompilerDefect,
     /// A Bray Tack initialization package identity is invalid.
     ProjectInitializationIdentityInvalid,
     /// A Bray Tack initialization output path already exists.
@@ -189,10 +223,38 @@ define_diagnostic_kinds! {
     InterfacePackageIdentityMismatch,
     /// A package interface does not describe the product selected by package resolution.
     InterfaceProductIdentityMismatch,
-    /// Selected dependency interfaces do not form the exact required dependency graph.
-    InterfaceDependencyGraphInvalid,
-    /// Decoded package-interface semantic facts cannot be used in this compilation.
-    InterfaceSemanticFactsInvalid,
+    /// Two selected package interfaces claim the same package identity.
+    InterfaceDuplicatePackage,
+    /// A package interface requires a dependency that package resolution did not select.
+    InterfaceMissingDependency,
+    /// A selected dependency product differs from the exact product required by its consumer.
+    InterfaceDependencyProductMismatch,
+    /// A selected dependency interface differs from the exact content required by its consumer.
+    InterfaceDependencyContentMismatch,
+    /// A package interface contains an invalid local symbol reference.
+    InterfaceSymbolReferenceInvalid,
+    /// A package interface contains an invalid dependency reference.
+    InterfaceDependencyReferenceInvalid,
+    /// A package interface references an exported dependency symbol that is unavailable.
+    InterfaceDependencySymbolMissing,
+    /// A package interface attempts to export a compiler-provided declaration.
+    InterfaceCompilerDeclarationExported,
+    /// Package-interface symbol identities and relationships are internally inconsistent.
+    InterfaceSymbolGraphInvalid,
+    /// The compiler cannot allocate another imported symbol or interface identity.
+    InterfaceSymbolCapacityExceeded,
+    /// Package-interface semantic content references an unavailable declaration.
+    InterfaceSemanticSymbolUnresolved,
+    /// Package-interface semantic content uses a declaration with an incompatible category.
+    InterfaceSemanticSymbolKindInvalid,
+    /// Package-interface semantic values cannot be resolved into one coherent graph.
+    InterfaceSemanticValueGraphInvalid,
+    /// Package-interface semantic values violate the canonical compiled-content contract.
+    InterfaceSemanticValueInvalid,
+    /// A package-interface executable template violates the checked template contract.
+    InterfaceExecutableTemplateInvalid,
+    /// Package-interface semantic content references an incompatible private support entity.
+    InterfaceSupportEntityInvalid,
     /// A selected imported const callable has no compatible implementation body.
     InterfaceConstantCallableBodyUnavailable,
     /// A selected imported generic callable has no compatible executable template.
@@ -215,10 +277,6 @@ define_diagnostic_kinds! {
     BindingInvalidCallableAbi,
     /// A callable surface contains more than one ABI directive.
     BindingDuplicateCallableAbi,
-    /// An ordinary predicate declaration does not provide its required body.
-    BindingPredicateBodyRequired,
-    /// A trusted predicate declaration provides a body despite being opaque.
-    BindingTrustedPredicateBodyNotAllowed,
     /// An export declaration depends on itself through one or more module surfaces.
     BindingCyclicModuleExport,
     /// A re-exported name conflicts with another declaration in the exporting module.
@@ -235,8 +293,8 @@ define_diagnostic_kinds! {
     CheckingNoCompatiblePropagationBoundary,
     /// An expression is not permitted in compile-time constant context.
     CheckingInvalidConstantExpression,
-    /// A fixed array length is not greater than zero.
-    CheckingArrayLengthNotPositive,
+    /// A compile-time operator is not defined for the evaluated operands.
+    CheckingInvalidConstantOperation,
     /// A literal value cannot be represented by its selected type.
     CheckingConstantLiteralNotRepresentable,
     /// Constant evaluation exhausted its deterministic operation budget.
@@ -263,8 +321,6 @@ define_diagnostic_kinds! {
     CheckingUnknownUnionVariant,
     /// More than one candidate can perform the requested semantic operation.
     CheckingAmbiguousCandidate,
-    /// Matching candidates exist but cannot be accessed from the current context.
-    CheckingInaccessibleCandidate,
     /// Candidate parameter or operand types do not accept the supplied expressions.
     CheckingIncompatibleCandidate,
     /// The selected target does not provide the required scalar representation.
@@ -275,8 +331,8 @@ define_diagnostic_kinds! {
     CheckingTargetAbiRepresentationUnsupported,
     /// The selected target does not provide a compiler-provided memory operation.
     CheckingTargetMemoryOperationUnavailable,
-    /// A compiler-provided memory operation lacks trusted supporting facts.
-    CheckingMissingTrustedMemoryFacts,
+    /// A compiler-provided memory operation lacks a required trusted guarantee.
+    CheckingMissingTrustedMemoryGuarantees,
     /// A compiler-provided memory operation uses invalidated allocation storage.
     CheckingMemoryOperationAfterDeallocation,
     /// A compiler-provided memory read has no initialized value of the required type.
@@ -313,22 +369,16 @@ define_diagnostic_kinds! {
     CheckingInvalidCopyContract,
     /// A union tag contract is incomplete, duplicated, or otherwise invalid.
     CheckingInvalidUnionTag,
-    /// Flow-sensitive fact analysis exceeded its deterministic capacity.
+    /// Flow-sensitive semantic analysis exceeded its deterministic capacity.
     CheckingRefinementCapacityExceeded,
-    /// Storage is used before it is initialized on every incoming path.
-    CheckingUseOfUninitializedStorage,
     /// Storage or substorage is used after ownership was moved from it.
     CheckingUseOfMovedStorage,
     /// An operation conflicts with an active overlapping borrow.
     CheckingConflictingBorrow,
     /// An operation requires mutation authority that is not available.
     CheckingMissingMutationAuthority,
-    /// A copy operation was requested for a non-copyable type.
-    CheckingTypeIsNotCopyable,
     /// An operation requires ownership of storage reached only through a borrow.
     CheckingMissingStorageOwnership,
-    /// A nullable or union projection is inactive on the current control-flow path.
-    CheckingInactiveStorageProjection,
     /// A trait implementation omits a required member fulfillment.
     CheckingMissingTraitFulfillment,
     /// A trait implementation declares a member that does not fulfill its trait.
@@ -343,8 +393,10 @@ define_diagnostic_kinds! {
     CheckingUngroupedImplementationOverloads,
     /// An implementation overload header does not name a supported subject and trait.
     CheckingInvalidImplementationOverloadHeader,
-    /// An implementation overload arm is duplicated or incompatible with its family.
+    /// An implementation overload arm does not name an implementation in its family.
     CheckingInvalidImplementationOverloadArm,
+    /// A named implementation occurs more than once in one implementation overload family.
+    CheckingDuplicateImplementationOverloadArm,
     /// A callable overload arm does not name an accessible callable valid for its family.
     CheckingInvalidCallableOverloadArm,
     /// A callable declaration occurs more than once in one overload family.
@@ -439,6 +491,32 @@ define_diagnostic_kinds! {
     EmissionGenerationCollision,
     /// A product generation manifest could not be encoded or validated.
     EmissionGenerationManifestInvalid,
+    /// A completed link result cannot be related to a linked emission plan.
+    EmissionLinkedPlanMissing,
+    /// Product emission reached an unsuccessful terminal phase.
+    EmissionFailed,
+    /// Emission request and compilation select different targets.
+    EmissionTargetMismatch,
+    /// Emission request selects a product outside the loaded compilation.
+    EmissionProductMismatch,
+    /// An I/O operation failed while staging one exact emission artifact.
+    EmissionArtifactIoFailed,
+    /// The selected code generation backend cannot represent the target.
+    CodegenUnsupportedTarget,
+    /// The selected code generation backend cannot produce a required artifact.
+    CodegenUnsupportedArtifact,
+    /// The selected code generation backend configuration is inconsistent with the request.
+    CodegenInvalidConfiguration,
+    /// Code generation exhausted an available resource budget.
+    CodegenResourceExhausted,
+    /// The selected backend library failed while processing a valid request.
+    CodegenBackendLibraryFailed,
+    /// Generated backend IR violated the backend module contract.
+    CodegenGeneratedModuleInvalid,
+    /// A requested backend artifact could not be constructed.
+    CodegenArtifactConstructionFailed,
+    /// Native product planning could not complete for an exact structured reason.
+    NativeProductPreparationFailed,
     /// The selected linker does not support the exact target.
     LinkerUnsupportedTarget,
     /// The selected linker does not support the product category.
@@ -467,10 +545,33 @@ define_diagnostic_kinds! {
     LinkerUnsupportedStartup,
     /// The selected linker does not support the runtime ownership mode.
     LinkerUnsupportedRuntime,
+    /// No configured native linker can execute the selected link plan.
+    LinkerDriverUnavailable,
+    /// The selected native linker is incompatible with the validated link plan.
+    LinkerDriverIncompatible,
+    /// A planned native link input is unavailable.
+    LinkerInputMissing,
+    /// The native linker response file could not be prepared.
+    LinkerResponseFileFailed,
+    /// The native linker process could not complete successfully.
+    LinkerInvocationFailed,
+    /// A native linker host operation failed with a stable I/O category.
+    LinkerExternalToolIoFailed,
+    /// A native linker host operation violated its process contract.
+    LinkerExternalToolContractFailed,
+    /// An external native linker or archiver completed with an unsuccessful status.
+    LinkerExternalToolExitedUnsuccessfully,
+    /// A required native linker output was not produced.
+    LinkerOutputMissing,
+    /// A produced native linker output violates its staging contract.
+    LinkerOutputInvalid,
+    /// The native linker could not acquire its required process resources.
+    LinkerResourceExhausted,
 }
 
 impl DiagnosticKind {
     /// Returns the numeric code for this diagnostic category.
+    // rust-style: allow(function-too-large, reason = "diagnostic kind codes form one exhaustive flat mapping")
     pub const fn code(self) -> DiagnosticCode {
         let raw = match self {
             Self::SourceFileReadFailed => 1001,
@@ -488,20 +589,32 @@ impl DiagnosticKind {
             Self::RequestStandardLibraryPackageIdentityRequired => 1108,
             Self::StandardLibraryArtifactReadFailed => 1109,
             Self::StandardLibraryManifestInvalid => 1110,
+            Self::StandardLibraryInfrastructureFailure => 1126,
             Self::StandardLibraryArtifactLengthMismatch => 1111,
             Self::StandardLibraryArtifactDigestMismatch => 1112,
             Self::StandardLibraryTargetUnavailable => 1113,
             Self::StandardLibraryRuntimeAbiMismatch => 1114,
             Self::ProjectManifestReadFailed => 1201,
             Self::ProjectManifestParseFailed => 1202,
-            Self::ProjectManifestInvalid => 1203,
+            Self::ProjectManifestUnsupportedFormat => 1220,
+            Self::ProjectManifestInvalidPath => 1221,
+            Self::ProjectManifestInvalidName => 1222,
+            Self::ProjectManifestMissingSelection => 1223,
+            Self::ProjectManifestMissingRootPackage => 1224,
+            Self::ProjectManifestUndeclaredFeature => 1225,
+            Self::ProjectManifestUnknownSourceRoot => 1226,
+            Self::ProjectManifestUnknownTarget => 1227,
+            Self::ProjectManifestUnknownTargetPredicateProperty => 1228,
+            Self::ProjectManifestTargetPredicateValueKindMismatch => 1237,
+            Self::ProjectManifestUnexpectedTestedLibrary => 1229,
             Self::ProjectManifestDuplicateSelection => 1204,
             Self::ProjectSourceRootInvalid => 1205,
             Self::ProjectDependencyPackageUnknown => 1206,
-            Self::ProjectDependencyProductInvalid => 1207,
+            Self::ProjectDependencyProductUnknown => 1207,
             Self::ProjectDependencyCycle => 1208,
             Self::ProjectCommandSelectionInvalid => 1209,
             Self::ProjectCommandFailed => 1211,
+            Self::ProjectCompilerDefect => 1236,
             Self::ProjectPackageIdentityReserved => 1212,
             Self::ProjectStandardLibraryPackageIdentityRequired => 1213,
             Self::ProjectStandardLibraryRootPackageRequired => 1214,
@@ -510,6 +623,11 @@ impl DiagnosticKind {
             Self::ProjectInitializationWriteFailed => 1217,
             Self::ProjectInitializationTargetUnsupported => 1218,
             Self::ProjectPackageVersionInvalid => 1219,
+            Self::ProjectPackageVersionMissingWorkspace => 1230,
+            Self::ProjectSourceRootContainsSymlink => 1231,
+            Self::ProjectSourceRootContainsNonUtf8Path => 1232,
+            Self::ProjectDependencyProductNotLibrary => 1234,
+            Self::ProjectDependencyProductTargetUnavailable => 1235,
             Self::FormatterSourceNotFormatted => 1301,
             Self::FormatterSourceInvalidUtf8 => 1302,
             Self::FormatterSourceTooLarge => 1303,
@@ -561,8 +679,22 @@ impl DiagnosticKind {
             Self::InterfaceResourceLimitExceeded => 5009,
             Self::InterfacePackageIdentityMismatch => 5010,
             Self::InterfaceProductIdentityMismatch => 5011,
-            Self::InterfaceDependencyGraphInvalid => 5012,
-            Self::InterfaceSemanticFactsInvalid => 5013,
+            Self::InterfaceDuplicatePackage => 5016,
+            Self::InterfaceMissingDependency => 5017,
+            Self::InterfaceDependencyProductMismatch => 5018,
+            Self::InterfaceDependencyContentMismatch => 5019,
+            Self::InterfaceSymbolReferenceInvalid => 5020,
+            Self::InterfaceDependencyReferenceInvalid => 5021,
+            Self::InterfaceDependencySymbolMissing => 5022,
+            Self::InterfaceCompilerDeclarationExported => 5023,
+            Self::InterfaceSymbolGraphInvalid => 5024,
+            Self::InterfaceSymbolCapacityExceeded => 5025,
+            Self::InterfaceSemanticSymbolUnresolved => 5026,
+            Self::InterfaceSemanticSymbolKindInvalid => 5027,
+            Self::InterfaceSemanticValueGraphInvalid => 5028,
+            Self::InterfaceSemanticValueInvalid => 5029,
+            Self::InterfaceExecutableTemplateInvalid => 5030,
+            Self::InterfaceSupportEntityInvalid => 5031,
             Self::InterfaceConstantCallableBodyUnavailable => 5014,
             Self::InterfaceExecutableTemplateUnavailable => 5015,
             Self::BindingUnresolvedName => 6001,
@@ -574,8 +706,6 @@ impl DiagnosticKind {
             Self::BindingIncoherentAlternativePattern => 6007,
             Self::BindingInvalidCallableAbi => 6008,
             Self::BindingDuplicateCallableAbi => 6009,
-            Self::BindingPredicateBodyRequired => 6010,
-            Self::BindingTrustedPredicateBodyNotAllowed => 6011,
             Self::BindingCyclicModuleExport => 6012,
             Self::BindingConflictingModuleExport => 6013,
             Self::BindingInvalidModuleExportTarget => 6014,
@@ -584,7 +714,7 @@ impl DiagnosticKind {
             Self::CheckingCannotInferExpressionType => 7002,
             Self::CheckingNoCompatiblePropagationBoundary => 7082,
             Self::CheckingInvalidConstantExpression => 7003,
-            Self::CheckingArrayLengthNotPositive => 7013,
+            Self::CheckingInvalidConstantOperation => 7013,
             Self::CheckingConstantLiteralNotRepresentable => 7004,
             Self::CheckingConstantEvaluationStepLimitExceeded => 7005,
             Self::CheckingConstantAggregateLimitExceeded => 7006,
@@ -598,14 +728,13 @@ impl DiagnosticKind {
             Self::CheckingMutableIndexContractRequired => 7094,
             Self::CheckingUnknownUnionVariant => 7088,
             Self::CheckingAmbiguousCandidate => 7010,
-            Self::CheckingInaccessibleCandidate => 7011,
             Self::CheckingIncompatibleCandidate => 7012,
             Self::CheckingTargetRepresentationUnavailable => 7014,
             Self::CheckingTargetCallableAbiUnavailable => 7015,
             Self::CheckingTargetAlignmentUnsupported => 7016,
             Self::CheckingTargetAbiRepresentationUnsupported => 7017,
             Self::CheckingTargetMemoryOperationUnavailable => 7083,
-            Self::CheckingMissingTrustedMemoryFacts => 7084,
+            Self::CheckingMissingTrustedMemoryGuarantees => 7084,
             Self::CheckingMemoryOperationAfterDeallocation => 7085,
             Self::CheckingDeallocationWithOutstandingObligations => 7086,
             Self::CheckingUninitializedRawStorage => 7087,
@@ -624,13 +753,10 @@ impl DiagnosticKind {
             Self::CheckingInvalidCopyContract => 7031,
             Self::CheckingInvalidUnionTag => 7032,
             Self::CheckingRefinementCapacityExceeded => 7033,
-            Self::CheckingUseOfUninitializedStorage => 7034,
             Self::CheckingUseOfMovedStorage => 7035,
             Self::CheckingConflictingBorrow => 7036,
             Self::CheckingMissingMutationAuthority => 7037,
-            Self::CheckingTypeIsNotCopyable => 7038,
             Self::CheckingMissingStorageOwnership => 7039,
-            Self::CheckingInactiveStorageProjection => 7044,
             Self::CheckingMissingTraitFulfillment => 7040,
             Self::CheckingExtraTraitFulfillment => 7041,
             Self::CheckingIncompatibleTraitFulfillment => 7042,
@@ -639,6 +765,7 @@ impl DiagnosticKind {
             Self::CheckingUngroupedImplementationOverloads => 7046,
             Self::CheckingInvalidImplementationOverloadHeader => 7047,
             Self::CheckingInvalidImplementationOverloadArm => 7048,
+            Self::CheckingDuplicateImplementationOverloadArm => 7095,
             Self::CheckingInvalidCallableOverloadArm => 7049,
             Self::CheckingDuplicateCallableOverloadArm => 7050,
             Self::CheckingConflictingCallableOverloadFamily => 7051,
@@ -686,6 +813,19 @@ impl DiagnosticKind {
             Self::EmissionManagedPublicationUnsupported => 9010,
             Self::EmissionGenerationCollision => 9011,
             Self::EmissionGenerationManifestInvalid => 9012,
+            Self::EmissionLinkedPlanMissing => 9013,
+            Self::EmissionFailed => 9014,
+            Self::EmissionTargetMismatch => 9016,
+            Self::EmissionProductMismatch => 9017,
+            Self::EmissionArtifactIoFailed => 9018,
+            Self::CodegenUnsupportedTarget => 9051,
+            Self::CodegenUnsupportedArtifact => 9052,
+            Self::CodegenInvalidConfiguration => 9053,
+            Self::CodegenResourceExhausted => 9054,
+            Self::CodegenBackendLibraryFailed => 9055,
+            Self::CodegenGeneratedModuleInvalid => 9056,
+            Self::CodegenArtifactConstructionFailed => 9057,
+            Self::NativeProductPreparationFailed => 9058,
             Self::LinkerUnsupportedTarget => 9101,
             Self::LinkerUnsupportedProduct => 9102,
             Self::LinkerUnsupportedInput => 9103,
@@ -700,6 +840,17 @@ impl DiagnosticKind {
             Self::LinkerUnsupportedSymbol => 9112,
             Self::LinkerUnsupportedStartup => 9113,
             Self::LinkerUnsupportedRuntime => 9114,
+            Self::LinkerDriverUnavailable => 9115,
+            Self::LinkerDriverIncompatible => 9116,
+            Self::LinkerInputMissing => 9117,
+            Self::LinkerResponseFileFailed => 9118,
+            Self::LinkerInvocationFailed => 9119,
+            Self::LinkerOutputMissing => 9120,
+            Self::LinkerOutputInvalid => 9121,
+            Self::LinkerResourceExhausted => 9122,
+            Self::LinkerExternalToolIoFailed => 9123,
+            Self::LinkerExternalToolContractFailed => 9124,
+            Self::LinkerExternalToolExitedUnsuccessfully => 9125,
         };
 
         DiagnosticCode::new(raw)
@@ -721,6 +872,7 @@ impl DiagnosticKind {
             }
             Self::StandardLibraryArtifactReadFailed => "standard_library_artifact_read_failed",
             Self::StandardLibraryManifestInvalid => "standard_library_manifest_invalid",
+            Self::StandardLibraryInfrastructureFailure => "standard_library_infrastructure_failure",
             Self::StandardLibraryArtifactLengthMismatch => {
                 "standard_library_artifact_length_mismatch"
             }
@@ -736,8 +888,27 @@ impl DiagnosticKind {
             Self::CompilerProfileWriteFailed => "compiler_profile_write_failed",
             Self::ProjectManifestReadFailed => "project_manifest_read_failed",
             Self::ProjectManifestParseFailed => "project_manifest_parse_failed",
-            Self::ProjectManifestInvalid => "project_manifest_invalid",
+            Self::ProjectManifestUnsupportedFormat => "project_manifest_unsupported_format",
+            Self::ProjectManifestInvalidPath => "project_manifest_invalid_path",
+            Self::ProjectManifestInvalidName => "project_manifest_invalid_name",
+            Self::ProjectManifestMissingSelection => "project_manifest_missing_selection",
+            Self::ProjectManifestMissingRootPackage => "project_manifest_missing_root_package",
+            Self::ProjectManifestUndeclaredFeature => "project_manifest_undeclared_feature",
+            Self::ProjectManifestUnknownSourceRoot => "project_manifest_unknown_source_root",
+            Self::ProjectManifestUnknownTarget => "project_manifest_unknown_target",
+            Self::ProjectManifestUnknownTargetPredicateProperty => {
+                "project_manifest_unknown_target_predicate_property"
+            }
+            Self::ProjectManifestTargetPredicateValueKindMismatch => {
+                "project_manifest_target_predicate_value_kind_mismatch"
+            }
+            Self::ProjectManifestUnexpectedTestedLibrary => {
+                "project_manifest_unexpected_tested_library"
+            }
             Self::ProjectPackageVersionInvalid => "project_package_version_invalid",
+            Self::ProjectPackageVersionMissingWorkspace => {
+                "project_package_version_missing_workspace"
+            }
             Self::ProjectPackageIdentityReserved => "project_package_identity_reserved",
             Self::ProjectStandardLibraryPackageIdentityRequired => {
                 "project_standard_library_package_identity_required"
@@ -747,11 +918,20 @@ impl DiagnosticKind {
             }
             Self::ProjectManifestDuplicateSelection => "project_manifest_duplicate_selection",
             Self::ProjectSourceRootInvalid => "project_source_root_invalid",
+            Self::ProjectSourceRootContainsSymlink => "project_source_root_contains_symlink",
+            Self::ProjectSourceRootContainsNonUtf8Path => {
+                "project_source_root_contains_non_utf8_path"
+            }
             Self::ProjectDependencyPackageUnknown => "project_dependency_package_unknown",
-            Self::ProjectDependencyProductInvalid => "project_dependency_product_invalid",
+            Self::ProjectDependencyProductUnknown => "project_dependency_product_unknown",
+            Self::ProjectDependencyProductNotLibrary => "project_dependency_product_not_library",
+            Self::ProjectDependencyProductTargetUnavailable => {
+                "project_dependency_product_target_unavailable"
+            }
             Self::ProjectDependencyCycle => "project_dependency_cycle",
             Self::ProjectCommandSelectionInvalid => "project_command_selection_invalid",
             Self::ProjectCommandFailed => "project_command_failed",
+            Self::ProjectCompilerDefect => "project_compiler_defect",
             Self::ProjectInitializationIdentityInvalid => "project_initialization_identity_invalid",
             Self::ProjectInitializationPathConflict => "project_initialization_path_conflict",
             Self::ProjectInitializationWriteFailed => "project_initialization_write_failed",
@@ -811,8 +991,22 @@ impl DiagnosticKind {
             Self::InterfaceResourceLimitExceeded => "interface_resource_limit_exceeded",
             Self::InterfacePackageIdentityMismatch => "interface_package_identity_mismatch",
             Self::InterfaceProductIdentityMismatch => "interface_product_identity_mismatch",
-            Self::InterfaceDependencyGraphInvalid => "interface_dependency_graph_invalid",
-            Self::InterfaceSemanticFactsInvalid => "interface_semantic_facts_invalid",
+            Self::InterfaceDuplicatePackage => "interface_duplicate_package",
+            Self::InterfaceMissingDependency => "interface_missing_dependency",
+            Self::InterfaceDependencyProductMismatch => "interface_dependency_product_mismatch",
+            Self::InterfaceDependencyContentMismatch => "interface_dependency_content_mismatch",
+            Self::InterfaceSymbolReferenceInvalid => "interface_symbol_reference_invalid",
+            Self::InterfaceDependencyReferenceInvalid => "interface_dependency_reference_invalid",
+            Self::InterfaceDependencySymbolMissing => "interface_dependency_symbol_missing",
+            Self::InterfaceCompilerDeclarationExported => "interface_compiler_declaration_exported",
+            Self::InterfaceSymbolGraphInvalid => "interface_symbol_graph_invalid",
+            Self::InterfaceSymbolCapacityExceeded => "interface_symbol_capacity_exceeded",
+            Self::InterfaceSemanticSymbolUnresolved => "interface_semantic_symbol_unresolved",
+            Self::InterfaceSemanticSymbolKindInvalid => "interface_semantic_symbol_kind_invalid",
+            Self::InterfaceSemanticValueGraphInvalid => "interface_semantic_value_graph_invalid",
+            Self::InterfaceSemanticValueInvalid => "interface_semantic_value_invalid",
+            Self::InterfaceExecutableTemplateInvalid => "interface_executable_template_invalid",
+            Self::InterfaceSupportEntityInvalid => "interface_support_entity_invalid",
             Self::InterfaceConstantCallableBodyUnavailable => INTERFACE_CONSTANT_BODY_KEY,
             Self::InterfaceExecutableTemplateUnavailable => INTERFACE_EXECUTABLE_TEMPLATE_KEY,
             Self::BindingUnresolvedName => "binding_unresolved_name",
@@ -824,10 +1018,6 @@ impl DiagnosticKind {
             Self::BindingIncoherentAlternativePattern => "binding_incoherent_alternative_pattern",
             Self::BindingInvalidCallableAbi => "binding_invalid_callable_abi",
             Self::BindingDuplicateCallableAbi => "binding_duplicate_callable_abi",
-            Self::BindingPredicateBodyRequired => "binding_predicate_body_required",
-            Self::BindingTrustedPredicateBodyNotAllowed => {
-                "binding_trusted_predicate_body_not_allowed"
-            }
             Self::BindingCyclicModuleExport => "binding_cyclic_module_export",
             Self::BindingConflictingModuleExport => "binding_conflicting_module_export",
             Self::BindingInvalidModuleExportTarget => "binding_invalid_module_export_target",
@@ -836,7 +1026,7 @@ impl DiagnosticKind {
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::CheckingNoCompatiblePropagationBoundary => CHECKING_PROPAGATION_BOUNDARY_KEY,
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
-            Self::CheckingArrayLengthNotPositive => "checking_array_length_not_positive",
+            Self::CheckingInvalidConstantOperation => "checking_invalid_constant_operation",
             Self::CheckingConstantLiteralNotRepresentable => {
                 "checking_constant_literal_not_representable"
             }
@@ -866,7 +1056,6 @@ impl DiagnosticKind {
             }
             Self::CheckingUnknownUnionVariant => "checking_unknown_union_variant",
             Self::CheckingAmbiguousCandidate => "checking_ambiguous_candidate",
-            Self::CheckingInaccessibleCandidate => "checking_inaccessible_candidate",
             Self::CheckingIncompatibleCandidate => "checking_incompatible_candidate",
             Self::CheckingTargetRepresentationUnavailable => {
                 "checking_target_representation_unavailable"
@@ -881,7 +1070,9 @@ impl DiagnosticKind {
             Self::CheckingTargetMemoryOperationUnavailable => {
                 "checking_target_memory_operation_unavailable"
             }
-            Self::CheckingMissingTrustedMemoryFacts => "checking_missing_trusted_memory_facts",
+            Self::CheckingMissingTrustedMemoryGuarantees => {
+                "checking_missing_trusted_memory_guarantees"
+            }
             Self::CheckingMemoryOperationAfterDeallocation => {
                 "checking_memory_operation_after_deallocation"
             }
@@ -912,13 +1103,10 @@ impl DiagnosticKind {
             Self::CheckingInvalidCopyContract => "checking_invalid_copy_contract",
             Self::CheckingInvalidUnionTag => "checking_invalid_union_tag",
             Self::CheckingRefinementCapacityExceeded => "checking_refinement_capacity_exceeded",
-            Self::CheckingUseOfUninitializedStorage => "checking_use_of_uninitialized_storage",
             Self::CheckingUseOfMovedStorage => "checking_use_of_moved_storage",
             Self::CheckingConflictingBorrow => "checking_conflicting_borrow",
             Self::CheckingMissingMutationAuthority => "checking_missing_mutation_authority",
-            Self::CheckingTypeIsNotCopyable => "checking_type_is_not_copyable",
             Self::CheckingMissingStorageOwnership => "checking_missing_storage_ownership",
-            Self::CheckingInactiveStorageProjection => "checking_inactive_storage_projection",
             Self::CheckingMissingTraitFulfillment => "checking_missing_trait_fulfillment",
             Self::CheckingExtraTraitFulfillment => "checking_extra_trait_fulfillment",
             Self::CheckingIncompatibleTraitFulfillment => "checking_incompatible_trait_fulfillment",
@@ -932,6 +1120,9 @@ impl DiagnosticKind {
             }
             Self::CheckingInvalidImplementationOverloadArm => {
                 "checking_invalid_implementation_overload_arm"
+            }
+            Self::CheckingDuplicateImplementationOverloadArm => {
+                "checking_duplicate_implementation_overload_arm"
             }
             Self::CheckingInvalidCallableOverloadArm => "checking_invalid_callable_overload_arm",
             Self::CheckingDuplicateCallableOverloadArm => {
@@ -1010,6 +1201,19 @@ impl DiagnosticKind {
             }
             Self::EmissionGenerationCollision => "emission_generation_collision",
             Self::EmissionGenerationManifestInvalid => "emission_generation_manifest_invalid",
+            Self::EmissionLinkedPlanMissing => "emission_linked_plan_missing",
+            Self::EmissionFailed => "emission_failed",
+            Self::EmissionTargetMismatch => "emission_target_mismatch",
+            Self::EmissionProductMismatch => "emission_product_mismatch",
+            Self::EmissionArtifactIoFailed => "emission_artifact_io_failed",
+            Self::CodegenUnsupportedTarget => "codegen_unsupported_target",
+            Self::CodegenUnsupportedArtifact => "codegen_unsupported_artifact",
+            Self::CodegenInvalidConfiguration => "codegen_invalid_configuration",
+            Self::CodegenResourceExhausted => "codegen_resource_exhausted",
+            Self::CodegenBackendLibraryFailed => "codegen_backend_library_failed",
+            Self::CodegenGeneratedModuleInvalid => "codegen_generated_module_invalid",
+            Self::CodegenArtifactConstructionFailed => "codegen_artifact_construction_failed",
+            Self::NativeProductPreparationFailed => "native_product_preparation_failed",
             Self::LinkerUnsupportedTarget => "linker_unsupported_target",
             Self::LinkerUnsupportedProduct => "linker_unsupported_product",
             Self::LinkerUnsupportedInput => "linker_unsupported_input",
@@ -1026,6 +1230,19 @@ impl DiagnosticKind {
             Self::LinkerUnsupportedSymbol => "linker_unsupported_symbol",
             Self::LinkerUnsupportedStartup => "linker_unsupported_startup",
             Self::LinkerUnsupportedRuntime => "linker_unsupported_runtime",
+            Self::LinkerDriverUnavailable => "linker_driver_unavailable",
+            Self::LinkerDriverIncompatible => "linker_driver_incompatible",
+            Self::LinkerInputMissing => "linker_input_missing",
+            Self::LinkerResponseFileFailed => "linker_response_file_failed",
+            Self::LinkerInvocationFailed => "linker_invocation_failed",
+            Self::LinkerOutputMissing => "linker_output_missing",
+            Self::LinkerOutputInvalid => "linker_output_invalid",
+            Self::LinkerResourceExhausted => "linker_resource_exhausted",
+            Self::LinkerExternalToolIoFailed => "linker_external_tool_io_failed",
+            Self::LinkerExternalToolContractFailed => "linker_external_tool_contract_failed",
+            Self::LinkerExternalToolExitedUnsuccessfully => {
+                "linker_external_tool_exited_unsuccessfully"
+            }
         }
     }
 }

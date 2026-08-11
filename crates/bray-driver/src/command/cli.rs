@@ -4,8 +4,11 @@ use std::process::ExitCode;
 
 use bray_compilation::{CompilationProfileConfiguration, CompilationProfileMode, WorkerBudget};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticProjectSelectionProblem,
+    SeverityKind,
 };
+use bray_messages::command_help as help;
 use bray_standard_library::StandardLibraryRoot;
 use bray_tooling::{
     InspectionTarget, OutputFormat, clap_styles, exit_code_from_diagnostics, render_styled_text,
@@ -103,7 +106,7 @@ impl DriverInvocation {
 #[command(
     name = "brayc",
     version = env!("CARGO_PKG_VERSION"),
-    about = "The Bray compiler",
+    about = help::COMPILER_ABOUT,
     styles = clap_styles(),
     arg_required_else_help = true
 )]
@@ -156,26 +159,34 @@ impl Cli {
 
 #[derive(Args, Debug)]
 struct CliOptions {
-    #[arg(long = "cpu-count", global = true, value_name = "N")]
+    #[arg(long = "cpu-count", global = true, value_name = "N", help = help::CPU_COUNT)]
     cpu_count: Option<usize>,
-    #[arg(long = "format", global = true, value_enum, default_value = "text")]
+    #[arg(
+        long = "format",
+        global = true,
+        value_enum,
+        default_value = "text",
+        help = help::OUTPUT_FORMAT
+    )]
     format: OutputFormat,
     #[arg(
         long = "standard-library-root",
         global = true,
-        value_name = "DIRECTORY"
+        value_name = "DIRECTORY",
+        help = help::TOOLCHAIN_ROOT
     )]
     standard_library_root: Option<PathBuf>,
     #[arg(long = "standard-library-source", global = true, hide = true)]
     standard_library_source: bool,
-    #[arg(long, global = true, value_enum, value_name = "MODE")]
+    #[arg(long, global = true, value_enum, value_name = "MODE", help = help::PROFILE)]
     profile: Option<CliProfileMode>,
     #[arg(
         long,
         global = true,
         value_name = "FILE",
         requires = "profile",
-        required_if_eq("profile", "trace")
+        required_if_eq("profile", "trace"),
+        help = help::PROFILE_OUTPUT
     )]
     profile_output: Option<PathBuf>,
     #[command(flatten)]
@@ -201,10 +212,16 @@ impl CliOptions {
         let standard_library_root = self
             .standard_library_root
             .map(|root| {
-                let root =
-                    std::path::absolute(root).map_err(|_| invalid_standard_library_root())?;
+                let root = std::path::absolute(&root).map_err(|error| {
+                    project_command_failure(DiagnosticProjectCommandFailure::Io {
+                        operation: DiagnosticProjectOperation::ToolchainRoot,
+                        path: root.clone(),
+                        error: DiagnosticIoErrorKind::from(error.kind()),
+                    })
+                })?;
 
-                StandardLibraryRoot::try_new(root).ok_or_else(invalid_standard_library_root)
+                StandardLibraryRoot::try_new(&root)
+                    .ok_or_else(|| invalid_standard_library_root(root))
             })
             .transpose()?;
 
@@ -232,7 +249,9 @@ impl CliOptions {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliProfileMode {
+    #[value(help = help::PROFILE_SUMMARY)]
     Summary,
+    #[value(help = help::PROFILE_TRACE)]
     Trace,
 }
 
@@ -245,21 +264,30 @@ impl From<CliProfileMode> for CompilationProfileMode {
     }
 }
 
-fn invalid_standard_library_root() -> DiagnosticBag {
+fn invalid_standard_library_root(path: PathBuf) -> DiagnosticBag {
     DiagnosticBag::single(
         Diagnostic::new(
             DiagnosticId::new(0),
             DiagnosticKind::ProjectCommandSelectionInvalid,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::referenced_name("standard_library_root")),
+        .with_arg(DiagnosticArg::project_selection_problem(
+            DiagnosticProjectSelectionProblem::InvalidStandardLibraryRoot { path },
+        )),
     )
+}
+
+fn project_command_failure(failure: DiagnosticProjectCommandFailure) -> DiagnosticBag {
+    DiagnosticBag::single(failure.diagnostic(DiagnosticId::new(0)))
 }
 
 #[derive(Debug, Subcommand)]
 enum CliCommand {
+    #[command(about = help::BUILD)]
     Build(CliBuildCommand),
+    #[command(about = help::CHECK)]
     Check(CliCheckCommand),
+    #[command(about = help::INSPECT)]
     Inspect(CliInspectCommand),
 }
 
@@ -278,7 +306,7 @@ impl CliCommand {
 
 #[derive(Args, Debug)]
 struct CliInspectCommand {
-    #[arg(long, global = true, value_name = "PATH")]
+    #[arg(long, global = true, value_name = "PATH", help = help::REPORT_OUTPUT)]
     output_file: Option<PathBuf>,
     #[command(subcommand)]
     command: CliInspectSubcommand,
@@ -317,23 +345,31 @@ impl CliInspectCommand {
 
 #[derive(Debug, Subcommand)]
 enum CliInspectSubcommand {
+    #[command(about = help::INSPECT_SOURCE)]
     Source(CliSourceFiles),
+    #[command(about = help::INSPECT_TOKENS)]
     Tokens(CliSourceFiles),
+    #[command(about = help::INSPECT_SYNTAX)]
     Syntax(CliSourceFiles),
+    #[command(about = help::INSPECT_DECLARATIONS)]
     Declarations(CliSourceFiles),
+    #[command(about = help::INSPECT_SYMBOLS)]
     Symbols(CliSourceFiles),
+    #[command(about = help::INSPECT_BOUND)]
     Bound(CliUnitInspection),
+    #[command(about = help::INSPECT_LOWERED)]
     Lowered(CliUnitInspection),
+    #[command(about = help::INSPECT_MIR)]
     Mir(CliUnitInspection),
 }
 
 #[derive(Args, Debug)]
 struct CliUnitInspection {
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, help = help::SOURCE_ID)]
     source_id: u32,
-    #[arg(long)]
+    #[arg(long, help = help::SOURCE_OFFSET)]
     offset: Option<u32>,
-    #[arg(value_name = "FILE", num_args = 0..)]
+    #[arg(value_name = "FILE", num_args = 0.., help = help::SOURCE_FILE)]
     files: Vec<PathBuf>,
 }
 
@@ -348,15 +384,15 @@ impl CliUnitInspection {
 
 #[derive(Args, Debug)]
 struct CliSourceFiles {
-    #[arg(value_name = "FILE", num_args = 0..)]
+    #[arg(value_name = "FILE", num_args = 0.., help = help::SOURCE_FILE)]
     files: Vec<PathBuf>,
 }
 
 #[derive(Args, Debug)]
 struct CliCheckCommand {
-    #[arg(long = "emit-interface", value_name = "PATH")]
+    #[arg(long = "emit-interface", value_name = "PATH", help = help::EMIT_INTERFACE)]
     emit_interface: Option<PathBuf>,
-    #[arg(value_name = "FILE", num_args = 0..)]
+    #[arg(value_name = "FILE", num_args = 0.., help = help::SOURCE_FILE)]
     files: Vec<PathBuf>,
 }
 
@@ -371,11 +407,27 @@ mod tests {
     use bray_symbols::ProductKind;
     use bray_target::{NativeTarget, TargetOutputKind};
     use bray_tooling::OutputFormat;
+    use clap::CommandFactory;
 
+    use super::Cli;
     use crate::command::{
         DriverBackend, DriverCommandKind, DriverInspectionArtifact, DriverInvocation,
         DriverRuntimeSelection,
     };
+
+    #[test]
+    fn compiler_help_describes_every_public_command_argument_and_value() {
+        let mut command = Cli::command();
+
+        bray_testing::assert_complete_command_help(&mut command);
+
+        let help = command.render_long_help().to_string();
+
+        assert!(help.contains("--cpu-count <N>"));
+        assert!(help.contains("N must be positive"));
+        assert!(help.contains("--profile <MODE>"));
+        assert!(help.contains("Collect compiler timing and unit statistics"));
+    }
 
     #[test]
     fn accepts_an_explicit_standard_library_bundle_root() {

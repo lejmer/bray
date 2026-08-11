@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticIoErrorKind, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation,
+};
 use bray_target::TargetIdentity;
 
 use crate::tack::error::operation_diagnostics;
@@ -21,8 +24,15 @@ impl Toolchain {
             .map(Ok)
             .unwrap_or_else(default_toolchain_root)?;
 
-        let root =
-            std::path::absolute(root).map_err(|_| operation_diagnostics("toolchain_root"))?;
+        let selected = root.clone();
+
+        let root = std::path::absolute(root).map_err(|error| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                operation: DiagnosticProjectOperation::ToolchainRoot,
+                path: selected,
+                error: DiagnosticIoErrorKind::from(error.kind()),
+            })
+        })?;
 
         Ok(Self { root })
     }
@@ -44,18 +54,27 @@ impl Toolchain {
 }
 
 fn default_toolchain_root() -> Result<PathBuf, DiagnosticBag> {
-    let executable =
-        std::env::current_exe().map_err(|_| operation_diagnostics("toolchain_executable"))?;
+    let executable = std::env::current_exe().map_err(|error| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::CurrentExecutable {
+            operation: DiagnosticProjectOperation::ToolchainExecutable,
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        })
+    })?;
 
-    let directory = executable
-        .parent()
-        .ok_or_else(|| operation_diagnostics("toolchain_executable"))?;
+    let directory = executable.parent().ok_or_else(|| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::MissingParent {
+            operation: DiagnosticProjectOperation::ToolchainExecutable,
+            path: executable.clone(),
+        })
+    })?;
 
     if directory.file_name().is_some_and(|name| name == "bin") {
-        return directory
-            .parent()
-            .map(Path::to_path_buf)
-            .ok_or_else(|| operation_diagnostics("toolchain_executable"));
+        return directory.parent().map(Path::to_path_buf).ok_or_else(|| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::MissingParent {
+                operation: DiagnosticProjectOperation::ToolchainExecutable,
+                path: directory.to_path_buf(),
+            })
+        });
     }
 
     Ok(directory.to_path_buf())

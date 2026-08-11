@@ -10,8 +10,9 @@ use bray_checker::{
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::ModulePartId;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult,
-    SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticResult, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -27,7 +28,7 @@ use super::binder::bind_module_part_directives_for_selection;
 use super::checker::checker_result;
 use super::constant::collect_constant_references;
 use super::diagnostics::source_diagnostic;
-use super::directive::first_directive;
+use super::directive::{directive_source_text, first_directive};
 use super::substitution::named_type;
 use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
@@ -151,10 +152,28 @@ impl Compilation {
         if let Some(directive) = test_directive
             && !directive.arguments().is_empty()
         {
-            diagnostics.add(source_diagnostic(
-                directive.syntax(),
-                DiagnosticKind::CheckingInvalidTestModuleDirective,
-            ));
+            let text = directive_source_text(self, directive)?;
+
+            diagnostics.add(
+                source_diagnostic(
+                    directive.syntax(),
+                    DiagnosticKind::CheckingInvalidTestModuleDirective,
+                )
+                .with_arg(DiagnosticArg::actual_count(
+                    u64::try_from(directive.arguments().len()).unwrap_or(u64::MAX),
+                ))
+                .with_arg(DiagnosticArg::token_text(text))
+                .with_label(DiagnosticLabel::primary(
+                    DiagnosticLabelKind::InvalidProductConfiguration,
+                    SourceSpan::new(
+                        directive.syntax().source_id(),
+                        directive.syntax().full_range(),
+                    ),
+                ))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::TestDirectiveRequirements,
+                )),
+            );
         }
 
         let test_enabled = test_directive.is_none_or(|_| self.product_kind() == ProductKind::Test);
@@ -358,28 +377,50 @@ impl Compilation {
 
 fn add_duplicate_gate_diagnostics(directives: &DirectiveSurface, diagnostics: &mut DiagnosticBag) {
     for kind in [DirectiveKind::Target, DirectiveKind::Test] {
-        for directive in directives
+        let matching = directives
             .directives()
             .iter()
             .filter(|directive| directive.kind() == kind)
-            .skip(1)
-        {
-            diagnostics.add(duplicate_module_contribution_directive(directive));
+            .collect::<Vec<_>>();
+
+        for (index, directive) in matching.iter().copied().enumerate().skip(1) {
+            diagnostics.add(duplicate_module_contribution_directive(
+                directive,
+                &matching[..index],
+            ));
         }
     }
 }
 
-fn duplicate_module_contribution_directive(directive: &DirectiveTemplate) -> Diagnostic {
+fn duplicate_module_contribution_directive(
+    directive: &DirectiveTemplate,
+    prior: &[&DirectiveTemplate],
+) -> Diagnostic {
     let syntax = directive.syntax();
     let span = SourceSpan::new(syntax.source_id(), syntax.full_range());
 
-    Diagnostic::new(
+    let mut diagnostic = Diagnostic::new(
         DiagnosticId::new(span.range().start().bytes()),
         DiagnosticKind::CheckingDuplicateModuleContributionDirective,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::actual_syntax_kind(syntax.syntax_kind()))
     .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::DuplicateModuleContribution,
+        span,
+    ));
+
+    for prior in prior {
+        let prior = prior.syntax();
+
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::FirstDeclaration,
+            SourceSpan::new(prior.source_id(), prior.full_range()),
+        ));
+    }
+
+    diagnostic
 }
 
 fn unsigned_integer(value: u64) -> IntegerConstant {
@@ -397,7 +438,7 @@ fn unsigned_integer(value: u64) -> IntegerConstant {
 mod tests {
     use std::sync::Arc;
 
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
     use bray_symbols::{
         AnyConstantDefinitionId, ConstantInstanceKey, ConstantValueKind, TargetFactDependency,
     };
@@ -580,6 +621,20 @@ mod tests {
             gate.diagnostics().iter().any(|diagnostic| diagnostic.kind()
                 == DiagnosticKind::CheckingInvalidTestModuleDirective)
         );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            gate.diagnostics(),
+            DiagnosticKind::CheckingInvalidTestModuleDirective,
+        );
+
+        let diagnostic = gate
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingInvalidTestModuleDirective)
+            .next()
+            .unwrap_or_else(|| panic!("invalid module test directive must be produced"));
+
+        assert_eq!(diagnostic.args().first(), Some(&DiagnosticArg::actual_count(1)));
+        assert_eq!(diagnostic.args().len(), 2);
     }
 
     #[test]

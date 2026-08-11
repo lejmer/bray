@@ -69,36 +69,36 @@ impl LinkerDriver for LlvmArchiveDriver {
         }
 
         if plan.driver() != self.capabilities.identity() {
-            return failed_outcome(LinkFailure::DriverIncompatible);
+            return failed_outcome(plan, LinkFailure::DriverIncompatible);
         }
 
         if let Err(requirement) = self.capabilities.validate(plan) {
-            return failed_outcome(LinkFailure::UnsupportedRequirement(requirement));
+            return failed_outcome(plan, LinkFailure::UnsupportedRequirement(requirement));
         }
 
         if let Err(failure) = validate_file_inputs(plan) {
-            return failed_outcome(failure);
+            return failed_outcome(plan, failure);
         }
 
         let Some(format) = ArchiveFormat::for_target(plan.target()) else {
-            return failed_outcome(LinkFailure::DriverIncompatible);
+            return failed_outcome(plan, LinkFailure::DriverIncompatible);
         };
 
         let invocation = match invocation(&self.invocation_template, plan, format) {
             Ok(invocation) => invocation,
             Err(error) => {
-                return outcome_from_invocation_error(error);
+                return outcome_from_invocation_error(plan, error);
             }
         };
 
         if let Err(failure) = clear_staging_output(plan) {
-            return failed_outcome(failure);
+            return failed_outcome(plan, failure);
         }
 
         let output = match self.host.run(&invocation, cancellation) {
             Ok(output) => output,
             Err(error) => {
-                return LinkOutcome::from_external_tool_failure(error);
+                return LinkOutcome::from_external_tool_failure(plan, error);
             }
         };
 
@@ -107,7 +107,7 @@ impl LinkerDriver for LlvmArchiveDriver {
         }
 
         if !output.success() {
-            return failed_outcome(LinkFailure::Invocation);
+            return failed_outcome(plan, LinkFailure::ToolExit(output));
         }
 
         complete_linked_outputs(plan)
@@ -139,14 +139,19 @@ fn clear_staging_output(plan: &LinkPlan) -> Result<(), LinkFailure> {
     }
 }
 
-fn outcome_from_invocation_error(error: ArchiveInvocationBuildError) -> LinkOutcome {
+fn outcome_from_invocation_error(
+    plan: &LinkPlan,
+    error: ArchiveInvocationBuildError,
+) -> LinkOutcome {
     match error {
         ArchiveInvocationBuildError::InvalidPlan
         | ArchiveInvocationBuildError::ResponseEncoding(_) => {
-            failed_outcome(LinkFailure::DriverIncompatible)
+            failed_outcome(plan, LinkFailure::DriverIncompatible)
         }
-        ArchiveInvocationBuildError::Invocation(_) => failed_outcome(LinkFailure::Invocation),
-        ArchiveInvocationBuildError::ResponseFile(_) => failed_outcome(LinkFailure::ResponseFile),
+        ArchiveInvocationBuildError::Invocation(_) => failed_outcome(plan, LinkFailure::Invocation),
+        ArchiveInvocationBuildError::ResponseFile(_) => {
+            failed_outcome(plan, LinkFailure::DriverIncompatible)
+        }
     }
 }
 
@@ -158,7 +163,8 @@ mod tests {
 
     use bray_base::Cancellation;
     use bray_target::{ObjectFormat, TargetArchitecture};
-    use bray_testing::TemporaryFile;
+    use bray_diagnostics::DiagnosticKind;
+    use bray_testing::{TemporaryFile, assert_goal_state_diagnostic_kind};
 
     use super::{LlvmArchiveDriver, LlvmArchiveDriverBuildError};
     use crate::test_support::{
@@ -568,9 +574,19 @@ mod tests {
             )),
         );
 
-        assert_eq!(
-            tool_failure.link(&plan, &|| false).status(),
-            &LinkStatus::Failed(LinkFailure::Invocation)
+        let outcome = tool_failure.link(&plan, &|| false);
+
+        assert!(matches!(
+            outcome.status(),
+            LinkStatus::Failed(LinkFailure::ToolExit(output))
+                if output.exit_code() == Some(1)
+                    && output.standard_output() == b"tool stdout"
+                    && output.standard_error() == b"tool stderr"
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            outcome.diagnostics(),
+            DiagnosticKind::LinkerExternalToolExitedUnsuccessfully,
         );
     }
 

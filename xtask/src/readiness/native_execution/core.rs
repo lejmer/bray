@@ -415,7 +415,10 @@ fn build_fixtures(
 }
 
 fn compile_host(root: &Path, output: &Path) -> Result<(), String> {
-    let mut command = Command::new(llvm_tool(root, "clang"));
+    let mut command = Command::new(llvm_tool(
+        root,
+        bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver,
+    ));
 
     command
         .arg("--target=x86_64-unknown-linux-gnu")
@@ -433,7 +436,10 @@ fn link_host(
     bray_objects: &[PathBuf],
     output: &Path,
 ) -> Result<(), String> {
-    let mut command = Command::new(llvm_tool(root, "ld.lld"));
+    let mut command = Command::new(llvm_tool(
+        root,
+        bray_diagnostics::DiagnosticLlvmToolRole::Linker,
+    ));
 
     command
         .args(["--static", "--entry=_start", "-o"])
@@ -507,7 +513,11 @@ fn require_equal_artifacts(left: &[PathBuf], right: &[PathBuf]) -> Result<(), St
 }
 
 fn inspect_objects(root: &Path, objects: &[PathBuf]) -> Result<String, String> {
-    let tool = llvm_tool(root, "llvm-readobj");
+    let tool = llvm_tool(
+        root,
+        bray_diagnostics::DiagnosticLlvmToolRole::ObjectInspector,
+    );
+
     let mut report = String::new();
 
     for object in objects {
@@ -596,6 +606,7 @@ fn output_contains(output: &Output, required: &str) -> bool {
         || String::from_utf8_lossy(&output.stderr).contains(required)
 }
 
-fn llvm_tool(root: &Path, name: &str) -> PathBuf {
-    bray_tooling::llvm_tool_path(name).unwrap_or_else(|| bray_llvm_toolchain::tool_path(root, name))
+fn llvm_tool(root: &Path, tool: bray_diagnostics::DiagnosticLlvmToolRole) -> PathBuf {
+    bray_tooling::llvm_tool_path(tool)
+        .unwrap_or_else(|_| bray_llvm_toolchain::tool_path(root, tool.executable_name()))
 }

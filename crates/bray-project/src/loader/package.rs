@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
+use bray_diagnostics::DiagnosticProjectManifestField as Field;
 use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
 use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
@@ -13,8 +14,8 @@ use crate::manifest::{
     decode_package_manifest,
 };
 use crate::{
-    FeatureName, PackageRole, ProjectDependency, ProjectLoadError, ProjectManifestProblem,
-    ProjectPackage, ProjectPath, ProjectProduct, ProjectSourceRoot, ProjectTarget,
+    FeatureName, PackageRole, ProjectDependency, ProjectLoadError, ProjectPackage, ProjectPath,
+    ProjectProduct, ProjectSourceRoot, ProjectTarget,
 };
 
 use super::predicate::normalize_target_predicate;
@@ -60,7 +61,12 @@ pub(super) fn load_package(
     workspace_package_version: Option<&PackageVersion>,
     source_authority: PackageSourceAuthority,
 ) -> Result<PendingPackage, ProjectLoadError> {
-    let package_path = project_path(selection.path, true, workspace_manifest_path)?;
+    let package_path = project_path(
+        selection.path,
+        true,
+        workspace_manifest_path,
+        Field::WorkspacePackagePath,
+    )?;
 
     require_owned_package_path(workspace_root, &package_path, workspace_manifest_path)?;
 
@@ -69,18 +75,31 @@ pub(super) fn load_package(
     let manifest_source = read_manifest_source(&manifest_path)?;
     let manifest = decode_package_manifest(&manifest_source, &manifest_path)?;
 
-    let identity = package_identity(manifest.identity, &manifest_path, source_authority)?;
+    let identity = package_identity(
+        manifest.identity,
+        &manifest_path,
+        source_authority,
+        Field::PackageIdentity,
+    )?;
+
     let version = package_version(manifest.version, workspace_package_version, &manifest_path)?;
-    let declared_feature_names = sorted_unique_names(manifest.features, &manifest_path)?;
-    let enabled_feature_names = sorted_unique_names(selection.features, workspace_manifest_path)?;
+
+    let declared_feature_names =
+        sorted_unique_names(manifest.features, &manifest_path, Field::PackageFeatures)?;
+
+    let enabled_feature_names = sorted_unique_names(
+        selection.features,
+        workspace_manifest_path,
+        Field::PackageFeatures,
+    )?;
 
     if let Some(feature) = enabled_feature_names
         .iter()
         .find(|feature| declared_feature_names.binary_search(feature).is_err())
     {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::undeclared_feature(
             workspace_manifest_path.to_path_buf(),
-            ProjectManifestProblem::UndeclaredFeature,
+            Field::PackageFeatures,
             feature.to_string(),
         ));
     }
@@ -141,9 +160,9 @@ fn package_version(
     match manifest {
         PackageVersionManifest::Explicit(value) => {
             PackageVersion::try_new(&value).ok_or_else(|| {
-                ProjectLoadError::invalid(
+                ProjectLoadError::invalid_package_version(
                     manifest_path.to_path_buf(),
-                    ProjectManifestProblem::InvalidPackageVersion,
+                    Field::PackageVersion,
                     value,
                 )
             })
@@ -151,16 +170,15 @@ fn package_version(
         PackageVersionManifest::Inherited(inherited) if inherited.workspace => {
             // Package nodes share the immutable Arc-backed workspace version.
             workspace_version.cloned().ok_or_else(|| {
-                ProjectLoadError::invalid(
+                ProjectLoadError::missing_workspace_package_version(
                     manifest_path.to_path_buf(),
-                    ProjectManifestProblem::MissingWorkspacePackageVersion,
-                    "version",
+                    Field::WorkspacePackageVersion,
                 )
             })
         }
-        PackageVersionManifest::Inherited(_) => Err(ProjectLoadError::invalid(
+        PackageVersionManifest::Inherited(_) => Err(ProjectLoadError::invalid_package_version(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::InvalidPackageVersion,
+            Field::PackageVersion,
             "workspace",
         )),
     }
@@ -174,21 +192,24 @@ fn load_source_roots(
     manifest_path: &Path,
 ) -> Result<Arc<[ProjectSourceRoot]>, ProjectLoadError> {
     if manifests.is_empty() {
-        return Err(missing_selection(manifest_path, "source_roots"));
+        return Err(missing_selection(
+            manifest_path,
+            Field::PackageSourceRoots,
+        ));
     }
 
     let mut roots = manifests
         .into_iter()
         .map(|root| {
-            let name = local_name(root.name, manifest_path)?;
-            let path = project_path(root.path, false, manifest_path)?;
+            let name = local_name(root.name, manifest_path, Field::SourceRootName)?;
+            let path = project_path(root.path, false, manifest_path, Field::SourceRootPath)?;
             let workspace_source_path = package_path.joined(&path);
 
             if paths_overlap(&workspace_source_path, output_root) {
-                return Err(ProjectLoadError::invalid(
+                return Err(ProjectLoadError::invalid_source_root(
                     manifest_path.to_path_buf(),
-                    ProjectManifestProblem::InvalidSourceRoot,
-                    path.as_str().to_owned(),
+                    Field::SourceRootPath,
+                    path.as_str().into(),
                 ));
             }
 
@@ -210,6 +231,7 @@ fn load_source_roots(
             .windows(2)
             .find(|pair| pair[0].name() == pair[1].name()),
         manifest_path,
+        Field::SourceRootName,
         |pair| pair[0].name(),
     )?;
 
@@ -225,7 +247,7 @@ fn load_products(
     source_authority: PackageSourceAuthority,
 ) -> Result<Arc<[ProjectProduct]>, ProjectLoadError> {
     if manifests.is_empty() {
-        return Err(missing_selection(manifest_path, "products"));
+        return Err(missing_selection(manifest_path, Field::PackageProducts));
     }
 
     let mut products = manifests
@@ -249,6 +271,7 @@ fn load_products(
             .windows(2)
             .find(|pair| pair[0].identity().name() == pair[1].identity().name()),
         manifest_path,
+        Field::ProductIdentity,
         |pair| pair[0].identity().name(),
     )?;
 
@@ -267,9 +290,9 @@ fn validate_tested_libraries(
         };
 
         if product.kind() != ProductKind::Test {
-            return Err(ProjectLoadError::invalid(
+            return Err(ProjectLoadError::tested_library_on_non_test_product(
                 manifest_path.to_path_buf(),
-                ProjectManifestProblem::TestedLibraryOnNonTestProduct,
+                Field::ProductTestedLibrary,
                 product.identity().name(),
             ));
         }
@@ -278,26 +301,18 @@ fn validate_tested_libraries(
             .iter()
             .find(|candidate| candidate.identity() == tested_library)
         else {
-            return Err(ProjectLoadError::invalid(
+            return Err(ProjectLoadError::unknown_dependency_product(
                 manifest_path.to_path_buf(),
-                ProjectManifestProblem::UnknownDependencyProduct,
-                format!(
-                    "{}/{}",
-                    tested_library.package().as_str(),
-                    tested_library.name()
-                ),
+                Field::ProductTestedLibrary,
+                tested_library.clone(),
             ));
         };
 
         if library.kind() != ProductKind::Library {
-            return Err(ProjectLoadError::invalid(
+            return Err(ProjectLoadError::dependency_product_not_library(
                 manifest_path.to_path_buf(),
-                ProjectManifestProblem::DependencyProductNotLibrary,
-                format!(
-                    "{}/{}",
-                    tested_library.package().as_str(),
-                    tested_library.name()
-                ),
+                Field::ProductTestedLibrary,
+                tested_library.clone(),
             ));
         }
     }
@@ -313,13 +328,13 @@ fn load_product(
     manifest_path: &Path,
     source_authority: PackageSourceAuthority,
 ) -> Result<ProjectProduct, ProjectLoadError> {
-    let name = local_name(manifest.name, manifest_path)?;
+    let name = local_name(manifest.name, manifest_path, Field::ProductIdentity)?;
 
     // Product identities retain the package's immutable Arc-backed canonical identity.
     let Some(identity) = ProductIdentity::try_new(package.clone(), Arc::clone(&name)) else {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::invalid_name(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::InvalidName,
+            Field::ProductIdentity,
             name.to_string(),
         ));
     };
@@ -329,12 +344,12 @@ fn load_product(
     let tested_library = manifest
         .tested_library
         .map(|name| {
-            let name = local_name(name, manifest_path)?;
+            let name = local_name(name, manifest_path, Field::ProductTestedLibrary)?;
 
             ProductIdentity::try_new(package.clone(), name.clone()).ok_or_else(|| {
-                ProjectLoadError::invalid(
+                ProjectLoadError::invalid_name(
                     manifest_path.to_path_buf(),
-                    ProjectManifestProblem::InvalidName,
+                    Field::ProductTestedLibrary,
                     name.to_string(),
                 )
             })
@@ -375,17 +390,17 @@ fn select_platform_services(
         .into_iter()
         .map(|manifest| {
             let Some(role) = PlatformServiceRole::from_name(&manifest.role) else {
-                return Err(ProjectLoadError::invalid(
+                return Err(ProjectLoadError::invalid_name(
                     manifest_path.to_path_buf(),
-                    ProjectManifestProblem::InvalidName,
+                    Field::PlatformServiceRole,
                     manifest.role,
                 ));
             };
 
             PlatformServiceBinding::try_new(role, &manifest.declaration).ok_or_else(|| {
-                ProjectLoadError::invalid(
+                ProjectLoadError::invalid_name(
                     manifest_path.to_path_buf(),
-                    ProjectManifestProblem::InvalidName,
+                    Field::PlatformServiceDeclaration,
                     manifest.declaration,
                 )
             })
@@ -397,9 +412,9 @@ fn select_platform_services(
     if let Some(duplicate) = bindings.windows(2).find(|pair| {
         pair[0].role() == pair[1].role() || pair[0].dotted_path() == pair[1].dotted_path()
     }) {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::duplicate_selection(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::DuplicateSelection,
+            Field::PackagePlatformServices,
             duplicate[1].dotted_path(),
         ));
     }
@@ -412,7 +427,7 @@ fn select_sources(
     roots: &[ProjectSourceRoot],
     manifest_path: &Path,
 ) -> Result<Arc<[ProjectPath]>, ProjectLoadError> {
-    let names = require_names(selections, manifest_path, "product.source_roots")?;
+    let names = require_names(selections, manifest_path, Field::ProductSourceRoots)?;
     let mut sources = Vec::new();
 
     for name in names.iter() {
@@ -421,7 +436,8 @@ fn select_sources(
             name,
             ProjectSourceRoot::name,
             manifest_path,
-            ProjectManifestProblem::UnknownSourceRoot,
+            Field::ProductSourceRoots,
+            ProjectLoadError::unknown_source_root,
         )?;
 
         // Product source lists retain the roots' immutable, Arc-backed portable paths.
@@ -436,7 +452,7 @@ fn select_targets(
     targets: &[ProjectTarget],
     manifest_path: &Path,
 ) -> Result<Arc<[TargetIdentity]>, ProjectLoadError> {
-    let names = require_names(selections, manifest_path, "product.targets")?;
+    let names = require_names(selections, manifest_path, Field::ProductTargets)?;
     let mut identities = Vec::with_capacity(names.len());
 
     for name in names.iter() {
@@ -445,7 +461,8 @@ fn select_targets(
             name,
             ProjectTarget::name,
             manifest_path,
-            ProjectManifestProblem::UnknownTarget,
+            Field::ProductTargets,
+            ProjectLoadError::unknown_target,
         )?;
 
         // Product selections retain immutable Arc-backed target identities.
@@ -462,13 +479,14 @@ fn select_named<'a, T>(
     name: &str,
     value_name: impl Fn(&T) -> &str,
     manifest_path: &Path,
-    problem: ProjectManifestProblem,
+    field: Field,
+    missing: impl FnOnce(PathBuf, Field, String) -> ProjectLoadError,
 ) -> Result<&'a T, ProjectLoadError> {
     values
         .iter()
         .find(|value| value_name(value) == name)
         .ok_or_else(|| {
-            ProjectLoadError::invalid(manifest_path.to_path_buf(), problem, name.to_string())
+            missing(manifest_path.to_path_buf(), field, name.to_string())
         })
 }
 
@@ -477,16 +495,16 @@ fn select_outputs(
     manifest_path: &Path,
 ) -> Result<Arc<[TargetOutputKind]>, ProjectLoadError> {
     if selections.is_empty() {
-        return Err(missing_selection(manifest_path, "product.outputs"));
+        return Err(missing_selection(manifest_path, Field::ProductOutputs));
     }
 
     let mut outputs: Vec<_> = selections.into_iter().map(output_kind).collect();
     outputs.sort_unstable();
 
     if let Some(output) = outputs.windows(2).find(|pair| pair[0] == pair[1]) {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::duplicate_selection(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::DuplicateSelection,
+            Field::ProductOutputs,
             output_kind_name(output[0]).to_owned(),
         ));
     }
@@ -504,14 +522,23 @@ fn load_dependencies(
     let mut dependencies = manifests
         .into_iter()
         .map(|dependency| {
-            let package = package_identity(dependency.package, manifest_path, source_authority)?;
+            let package = package_identity(
+                dependency.package,
+                manifest_path,
+                source_authority,
+                Field::DependencyPackage,
+            )?;
 
-            let product = local_name(dependency.product, manifest_path)?;
+            let product = local_name(
+                dependency.product,
+                manifest_path,
+                Field::DependencyProduct,
+            )?;
 
             let Some(product) = ProductIdentity::try_new(package, product) else {
-                return Err(ProjectLoadError::invalid(
+                return Err(ProjectLoadError::invalid_name(
                     manifest_path.to_path_buf(),
-                    ProjectManifestProblem::InvalidName,
+                    Field::DependencyProduct,
                     "dependency.product",
                 ));
             };
@@ -560,9 +587,9 @@ fn load_dependencies(
         .windows(2)
         .find(|pair| pair[0].product() == pair[1].product())
     {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::duplicate_selection(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::DuplicateSelection,
+            Field::ProductDependencies,
             format!(
                 "{}/{}",
                 pair[0].product().package().as_str(),
@@ -577,35 +604,32 @@ fn load_dependencies(
 fn require_names(
     names: Vec<String>,
     manifest_path: &Path,
-    field: &str,
+    field: Field,
 ) -> Result<Arc<[Arc<str>]>, ProjectLoadError> {
     if names.is_empty() {
         return Err(missing_selection(manifest_path, field));
     }
 
-    sorted_unique_names(names, manifest_path)
+    sorted_unique_names(names, manifest_path, field)
 }
 
-fn missing_selection(manifest_path: &Path, field: &str) -> ProjectLoadError {
-    ProjectLoadError::invalid(
-        manifest_path.to_path_buf(),
-        ProjectManifestProblem::MissingSelection,
-        field.to_owned(),
-    )
+fn missing_selection(manifest_path: &Path, field: Field) -> ProjectLoadError {
+    ProjectLoadError::missing_selection(manifest_path.to_path_buf(), field)
 }
 
 fn reject_duplicate<T>(
     duplicate: Option<&[T]>,
     manifest_path: &Path,
+    field: Field,
     value: impl FnOnce(&[T]) -> &str,
 ) -> Result<(), ProjectLoadError> {
     let Some(duplicate) = duplicate else {
         return Ok(());
     };
 
-    Err(ProjectLoadError::invalid(
+    Err(ProjectLoadError::duplicate_selection(
         manifest_path.to_path_buf(),
-        ProjectManifestProblem::DuplicateSelection,
+        field,
         value(duplicate).to_owned(),
     ))
 }

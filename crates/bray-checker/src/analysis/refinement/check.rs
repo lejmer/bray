@@ -4,7 +4,10 @@ use bray_bound_tree::{
     AnyBoundNodeId, CheckedPatternFacts, CheckedRefinementFacts, CheckedSemanticSelections,
     RefinementOccurrence, StoragePlan,
 };
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticRefinementCapacity, SeverityKind,
+};
 
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
@@ -56,8 +59,18 @@ where
 
     let universe = match RefinementUniverse::new(&graph, request, patterns, storage) {
         Ok(universe) => universe,
-        Err(RefinementUniverseError::CapacityExceeded) => {
-            return capacity_recovery(request);
+        Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
+            return capacity_recovery(request, capacity);
+        }
+        Err(RefinementUniverseError::CountUnrepresentable) => {
+            return CheckerOutcome::InfrastructureFailure(
+                crate::CheckerInfrastructureError::RefinementCapacityUnrepresentable,
+            );
+        }
+        Err(RefinementUniverseError::AllocationFailed) => {
+            return CheckerOutcome::InfrastructureFailure(
+                crate::CheckerInfrastructureError::RefinementStorageUnavailable,
+            );
         }
         Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
     };
@@ -85,7 +98,10 @@ where
     CheckerOutcome::without_diagnostics(facts)
 }
 
-fn capacity_recovery<C>(request: CheckerUnitView<'_, C>) -> CheckerOutcome<CheckedRefinementFacts>
+fn capacity_recovery<C>(
+    request: CheckerUnitView<'_, C>,
+    capacity: DiagnosticRefinementCapacity,
+) -> CheckerOutcome<CheckedRefinementFacts>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -94,7 +110,7 @@ where
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     };
 
-    let diagnostic = capacity_diagnostic(source.span());
+    let diagnostic = capacity_diagnostic(source.span(), capacity);
 
     let facts =
         CheckedRefinementFacts::try_new(request.view().unit(), request.view().kind(), [], true)
@@ -105,13 +121,21 @@ where
     CheckerOutcome::complete(facts, DiagnosticBag::single(diagnostic))
 }
 
-fn capacity_diagnostic(span: bray_source::SourceSpan) -> Diagnostic {
+fn capacity_diagnostic(
+    span: bray_source::SourceSpan,
+    capacity: DiagnosticRefinementCapacity,
+) -> Diagnostic {
     Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::CheckingRefinementCapacityExceeded,
         SeverityKind::Error,
     )
     .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::RefinementCapacityExceeded,
+        span,
+    ))
+    .with_arg(DiagnosticArg::refinement_capacity(capacity))
 }
 
 struct RefinementResult<'universe> {
@@ -311,26 +335,65 @@ fn transfer_operation(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticKind, SeverityKind};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticRefinementCapacity,
+        DiagnosticRefinementCapacitySurface, SeverityKind,
+    };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::capacity_diagnostic;
+    use super::super::universe::{MAX_REFINEMENT_CELLS, MAX_REFINEMENT_FACTS};
 
     #[test]
-    fn refinement_capacity_recovery_publishes_an_exact_structured_diagnostic() {
+    fn refinement_capacity_recovery_preserves_each_exact_configured_surface() {
         let span = SourceSpan::new(
             SourceId::new(1),
             TextRange::new(TextSize::new(2), TextSize::new(3)),
         );
 
-        let diagnostic = capacity_diagnostic(span);
+        let capacities = [
+            capacity(
+                DiagnosticRefinementCapacitySurface::RefinementEntries,
+                MAX_REFINEMENT_FACTS,
+            ),
+            capacity(
+                DiagnosticRefinementCapacitySurface::RetainedStateCells,
+                MAX_REFINEMENT_CELLS,
+            ),
+            capacity(
+                DiagnosticRefinementCapacitySurface::PublishedRefinements,
+                MAX_REFINEMENT_CELLS,
+            ),
+        ];
 
-        assert_eq!(
-            diagnostic.kind(),
-            DiagnosticKind::CheckingRefinementCapacityExceeded
-        );
+        for capacity in capacities {
+            let diagnostic = capacity_diagnostic(span, capacity);
 
-        assert_eq!(diagnostic.severity(), SeverityKind::Error);
-        assert_eq!(diagnostic.primary_span(), Some(span));
+            assert_eq!(
+                diagnostic.kind(),
+                DiagnosticKind::CheckingRefinementCapacityExceeded
+            );
+
+            assert_eq!(diagnostic.severity(), SeverityKind::Error);
+            assert_eq!(diagnostic.primary_span(), Some(span));
+            assert_eq!(diagnostic.args(), [DiagnosticArg::refinement_capacity(capacity)]);
+
+            assert_goal_state_diagnostic_kind(
+                &DiagnosticBag::single(diagnostic),
+                DiagnosticKind::CheckingRefinementCapacityExceeded,
+            );
+        }
+    }
+
+    fn capacity(
+        surface: DiagnosticRefinementCapacitySurface,
+        maximum: usize,
+    ) -> DiagnosticRefinementCapacity {
+        let maximum = u64::try_from(maximum)
+            .unwrap_or_else(|_| panic!("refinement capacity maximum must fit the protocol"));
+
+        DiagnosticRefinementCapacity::try_new(surface, maximum + 1, maximum)
+            .unwrap_or_else(|| panic!("limit plus one must be a capacity violation"))
     }
 }

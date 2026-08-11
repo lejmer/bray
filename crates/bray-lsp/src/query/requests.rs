@@ -14,14 +14,18 @@ use bray_syntax::{
 use bray_tooling::format_semantic_type;
 
 use crate::model::{
-    CompletionItem, DocumentSymbol, Hover, Location, MarkupContent, ParameterInformation, Position,
-    Range, SignatureHelp, SignatureInformation,
+    CodeActionContext, CompletionItem, DocumentSymbol, Hover, Location, MarkupContent,
+    ParameterInformation, Position, Range, SignatureHelp, SignatureInformation,
 };
 use crate::workspace::{DocumentSnapshot, WorkspaceError, offset_for_position};
 
-use super::semantic::{diagnostics, semantic_tokens};
+use super::semantic::{code_actions, diagnostics, semantic_tokens};
 
 pub(crate) enum Query {
+    CodeActions {
+        range: Range,
+        context: CodeActionContext,
+    },
     Completion(Position),
     Definition(Position),
     Diagnostics,
@@ -43,6 +47,9 @@ pub(crate) fn execute(
     cancellation: &CancellationToken,
 ) -> Result<serde_json::Value, QueryError> {
     let result = match query {
+        Query::CodeActions { range, context } => {
+            serde_json::to_value(code_actions(document, range, &context, cancellation)?)
+        }
         Query::Completion(position) => {
             serde_json::to_value(completion(document, position, cancellation)?)
         }
@@ -945,7 +952,7 @@ mod tests {
             diagnostics.items.iter().any(|diagnostic| {
                 diagnostic.code == 3003
                     && diagnostic.message
-                        == "unexpected end of file while expecting semicolon token"
+                        == "unexpected end of file while expecting semicolon token\nsource ends here\ninsert semicolon token"
             }),
             "missing localized syntax diagnostic: {:?}",
             diagnostics.items

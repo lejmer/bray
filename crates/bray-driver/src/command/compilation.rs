@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticProjectSelectionProblem, SeverityKind,
 };
+use bray_messages::command_help as help;
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
 };
@@ -194,25 +195,33 @@ pub(crate) struct CliCompilationOptions {
         long,
         global = true,
         value_name = "IDENTITY",
-        default_value = "command.line"
+        default_value = "command.line",
+        help = help::PACKAGE
     )]
     package: String,
-    #[arg(long = "source-package", global = true, value_name = "IDENTITY")]
+    #[arg(
+        long = "source-package",
+        global = true,
+        value_name = "IDENTITY",
+        help = help::SOURCE_PACKAGE
+    )]
     source_package: Option<String>,
     #[arg(
         long = "package-version",
         global = true,
         value_name = "VERSION",
-        default_value = "0.0.0"
+        default_value = "0.0.0",
+        help = help::PACKAGE_VERSION
     )]
     package_version: String,
-    #[arg(long, global = true, value_name = "NAME")]
+    #[arg(long, global = true, value_name = "NAME", help = help::PRODUCT)]
     product: Option<String>,
     #[arg(
         long = "product-kind",
         global = true,
         value_enum,
-        default_value = "library"
+        default_value = "library",
+        help = help::PRODUCT_KIND
     )]
     product_kind: CliProductKind,
     #[arg(
@@ -220,18 +229,30 @@ pub(crate) struct CliCompilationOptions {
         global = true,
         value_enum,
         default_value = "x86_64-unknown-linux-gnu",
-        value_name = "TRIPLE"
+        value_name = "TRIPLE",
+        help = help::TARGET
     )]
     target: CliTarget,
     #[arg(
         long = "dependency-product",
         global = true,
-        value_name = "PACKAGE/PRODUCT"
+        value_name = "PACKAGE/PRODUCT",
+        help = help::DEPENDENCY_PRODUCT
     )]
     dependency_products: Vec<String>,
-    #[arg(long = "dependency-interface", global = true, value_name = "PATH")]
+    #[arg(
+        long = "dependency-interface",
+        global = true,
+        value_name = "PATH",
+        help = help::DEPENDENCY_INTERFACE
+    )]
     dependency_interfaces: Vec<PathBuf>,
-    #[arg(long = "dependency-implementation", global = true, value_name = "PATH")]
+    #[arg(
+        long = "dependency-implementation",
+        global = true,
+        value_name = "PATH",
+        help = help::DEPENDENCY_IMPLEMENTATION
+    )]
     dependency_implementations: Vec<PathBuf>,
 }
 
@@ -239,33 +260,52 @@ impl CliCompilationOptions {
     pub(crate) fn into_configuration(
         self,
     ) -> Result<DriverCompilationConfiguration, DiagnosticBag> {
-        let package = PackageIdentity::try_new(self.package.clone())
-            .ok_or_else(|| invalid_selection(&self.package))?;
+        let package = PackageIdentity::try_new(self.package.clone()).ok_or_else(|| {
+            invalid_selection(DiagnosticProjectSelectionProblem::InvalidPackageIdentity(
+                self.package.clone(),
+            ))
+        })?;
 
         let source_package = self
             .source_package
             .map(|identity| {
-                PackageIdentity::try_new(identity.clone())
-                    .ok_or_else(|| invalid_selection(identity))
+                PackageIdentity::try_new(identity.clone()).ok_or_else(|| {
+                    invalid_selection(
+                        DiagnosticProjectSelectionProblem::InvalidSourcePackageIdentity(identity),
+                    )
+                })
             })
             .transpose()?
             .unwrap_or_else(|| package.clone());
 
-        let package_version = PackageVersion::try_new(&self.package_version)
-            .ok_or_else(|| invalid_selection(&self.package_version))?;
+        let package_version = PackageVersion::try_new(&self.package_version).ok_or_else(|| {
+            invalid_selection(DiagnosticProjectSelectionProblem::InvalidPackageVersion(
+                self.package_version.clone(),
+            ))
+        })?;
 
         let product_name = self
             .product
             .unwrap_or_else(|| self.product_kind.default_product_name().to_owned());
 
-        let product = ProductIdentity::try_new(package, product_name.clone())
-            .ok_or_else(|| invalid_selection(product_name))?;
+        let product = ProductIdentity::try_new(package, product_name.clone()).ok_or_else(|| {
+            invalid_selection(DiagnosticProjectSelectionProblem::InvalidProductIdentity(
+                product_name,
+            ))
+        })?;
 
         if self.dependency_products.len() != self.dependency_interfaces.len()
             || (!self.dependency_implementations.is_empty()
                 && self.dependency_products.len() != self.dependency_implementations.len())
         {
-            return Err(invalid_selection("dependency-interface"));
+            return Err(invalid_selection(
+                DiagnosticProjectSelectionProblem::DependencyArgumentCountMismatch {
+                    products: u32::try_from(self.dependency_products.len()).unwrap_or(u32::MAX),
+                    interfaces: u32::try_from(self.dependency_interfaces.len()).unwrap_or(u32::MAX),
+                    implementations: u32::try_from(self.dependency_implementations.len())
+                        .unwrap_or(u32::MAX),
+                },
+            ));
         }
 
         let dependencies = self
@@ -277,7 +317,13 @@ impl CliCompilationOptions {
                 let implementation_path = self.dependency_implementations.get(index).cloned();
 
                 DriverDependencyInterface::try_from_arguments(identity, path, implementation_path)
-                    .ok_or_else(|| invalid_selection(identity))
+                    .ok_or_else(|| {
+                        invalid_selection(
+                            DiagnosticProjectSelectionProblem::InvalidDependencyProduct(
+                                identity.clone(),
+                            ),
+                        )
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -292,21 +338,24 @@ impl CliCompilationOptions {
     }
 }
 
-fn invalid_selection(value: impl Into<String>) -> DiagnosticBag {
+fn invalid_selection(problem: DiagnosticProjectSelectionProblem) -> DiagnosticBag {
     DiagnosticBag::single(
         Diagnostic::new(
             DiagnosticId::new(0),
             DiagnosticKind::ProjectCommandSelectionInvalid,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::referenced_name(value)),
+        .with_arg(DiagnosticArg::project_selection_problem(problem)),
     )
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliProductKind {
+    #[value(help = help::PRODUCT_LIBRARY)]
     Library,
+    #[value(help = help::PRODUCT_EXECUTABLE)]
     Executable,
+    #[value(help = help::PRODUCT_TEST)]
     Test,
 }
 
@@ -332,17 +381,17 @@ impl From<CliProductKind> for ProductKind {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliTarget {
-    #[value(name = "x86_64-unknown-linux-gnu")]
+    #[value(name = "x86_64-unknown-linux-gnu", help = help::TARGET_X86_64_LINUX_GNU)]
     X86_64UnknownLinuxGnu,
-    #[value(name = "aarch64-unknown-linux-gnu")]
+    #[value(name = "aarch64-unknown-linux-gnu", help = help::TARGET_AARCH64_LINUX_GNU)]
     Aarch64UnknownLinuxGnu,
-    #[value(name = "x86_64-pc-windows-msvc")]
+    #[value(name = "x86_64-pc-windows-msvc", help = help::TARGET_X86_64_WINDOWS_MSVC)]
     X86_64PcWindowsMsvc,
-    #[value(name = "aarch64-pc-windows-msvc")]
+    #[value(name = "aarch64-pc-windows-msvc", help = help::TARGET_AARCH64_WINDOWS_MSVC)]
     Aarch64PcWindowsMsvc,
-    #[value(name = "x86_64-apple-darwin")]
+    #[value(name = "x86_64-apple-darwin", help = help::TARGET_X86_64_MACOS)]
     X86_64AppleDarwin,
-    #[value(name = "aarch64-apple-darwin")]
+    #[value(name = "aarch64-apple-darwin", help = help::TARGET_AARCH64_MACOS)]
     Aarch64AppleDarwin,
 }
 

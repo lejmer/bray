@@ -144,5 +144,10 @@ mod tests {
                 DiagnosticNoteKind::WorkerBudgetMustBePositive
             )]
         );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &bray_diagnostics::DiagnosticBag::single(diagnostic),
+            DiagnosticKind::RequestInvalidWorkerBudget,
+        );
     }
 }
