@@ -6,7 +6,7 @@ use bray_bound_tree::{
 use bray_checker::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableParameterData, CallableParameterSignature, CallableSignature,
+    AnySymbolId, BorrowKind, CallableParameterData, CallableParameterSignature, CallableSignature,
     CallableSignatureFact, CallableTypeData, CheckedConstraint, CheckedConstraintKind,
     GenericArgument, GenericParameterSymbolId, ImplementationSelection, NamedTypeSymbolId,
     ReceiverMode, ReceiverParameterSignature, SymbolFactRequest, TraitConstraintDispatch, TypeData,
@@ -233,9 +233,9 @@ impl Compilation {
             return Ok(None);
         };
 
-        let callable_result_type = match operation {
+        let operation_result_type = match operation {
             TraitOperation::Conversion(target) => Some(target),
-            TraitOperation::Operator(_) | TraitOperation::Index => self.operation_result_type(
+            TraitOperation::Operator(_) | TraitOperation::Index(_) => self.operation_result_type(
                 facts,
                 contract,
                 instance.substitution(),
@@ -244,12 +244,15 @@ impl Compilation {
             )?,
         };
 
-        let Some(callable_result_type) = callable_result_type else {
+        let Some(operation_result_type) = operation_result_type else {
             return Ok(None);
         };
 
         let result_type =
-            self.operation_expression_result_type(facts, role, callable_result_type)?;
+            self.operation_expression_result_type(facts, role, operation_result_type)?;
+
+        let callable_result_type =
+            self.operation_callable_result_type(facts, operation, operation_result_type)?;
 
         let trait_application = facts
             .semantic_values()
@@ -279,8 +282,9 @@ impl Compilation {
                 },
                 result_type,
             },
-            TraitOperation::Index => SelectedOperation::Index {
+            TraitOperation::Index(borrow_kind) => SelectedOperation::Index {
                 target: IndexTarget::Custom {
+                    borrow_kind,
                     member: member_instance,
                     fulfillment: fulfillment_instance,
                     requirement,
@@ -304,7 +308,10 @@ impl Compilation {
 
         let receiver_mode = match operation {
             TraitOperation::Conversion(_) => ReceiverMode::Consuming,
-            TraitOperation::Operator(_) | TraitOperation::Index => ReceiverMode::Shared,
+            TraitOperation::Operator(_) | TraitOperation::Index(BorrowKind::Shared) => {
+                ReceiverMode::Shared
+            }
+            TraitOperation::Index(BorrowKind::Mutable) => ReceiverMode::Mutable,
         };
 
         let signature = self.operation_signature(
@@ -370,9 +377,9 @@ impl Compilation {
             [application.substitution()],
         )?;
 
-        let callable_result_type = match operation {
+        let operation_result_type = match operation {
             TraitOperation::Conversion(target) => target,
-            TraitOperation::Operator(_) | TraitOperation::Index => self
+            TraitOperation::Operator(_) | TraitOperation::Index(_) => self
                 .constrained_operation_result_type(
                     facts,
                     contract,
@@ -384,7 +391,10 @@ impl Compilation {
         };
 
         let result_type =
-            self.operation_expression_result_type(facts, role, callable_result_type)?;
+            self.operation_expression_result_type(facts, role, operation_result_type)?;
+
+        let callable_result_type =
+            self.operation_callable_result_type(facts, operation, operation_result_type)?;
 
         let selected_operation = match operation {
             TraitOperation::Operator(operator) => SelectedOperation::Operator {
@@ -396,8 +406,9 @@ impl Compilation {
                 },
                 result_type,
             },
-            TraitOperation::Index => SelectedOperation::Index {
+            TraitOperation::Index(borrow_kind) => SelectedOperation::Index {
                 target: IndexTarget::TraitConstraint {
+                    borrow_kind,
                     member: member_instance,
                     requirement,
                     dispatch,
@@ -419,7 +430,10 @@ impl Compilation {
 
         let receiver_mode = match operation {
             TraitOperation::Conversion(_) => ReceiverMode::Consuming,
-            TraitOperation::Operator(_) | TraitOperation::Index => ReceiverMode::Shared,
+            TraitOperation::Operator(_) | TraitOperation::Index(BorrowKind::Shared) => {
+                ReceiverMode::Shared
+            }
+            TraitOperation::Index(BorrowKind::Mutable) => ReceiverMode::Mutable,
         };
 
         let signature = self.operation_signature(
@@ -556,6 +570,25 @@ impl Compilation {
         }
 
         Ok(callable_result)
+    }
+
+    fn operation_callable_result_type(
+        &self,
+        facts: &CompilationBinderFacts<'_>,
+        operation: TraitOperation,
+        result: TypeId,
+    ) -> Result<TypeId, FactQueryError> {
+        let TraitOperation::Index(kind) = operation else {
+            return Ok(result);
+        };
+
+        facts
+            .semantic_values()
+            .intern_type(TypeData::Borrow {
+                kind,
+                target: result,
+            })
+            .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
     #[expect(

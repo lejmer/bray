@@ -1,29 +1,444 @@
 use std::sync::Arc;
 
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExternalToolExit,
+    DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticId,
+    DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLinkRequirement,
+    DiagnosticLinkerDriverIdentity, DiagnosticLinkerDriverKind, DiagnosticNote, DiagnosticNoteKind,
+    SeverityKind,
+};
+use bray_platform::{PlatformErrorKind, PlatformOperation};
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
 use crate::{
-    ExternalToolFailure, LinkInputId, LinkPlan, LinkedArtifact, LinkedArtifactRequirement,
-    LinkerDriverIdentity, StagingDestinationId, UnsupportedLinkRequirement,
+    ExternalToolFailure, ExternalToolOutput, ExternalToolResponseFileOperation, ExternalToolStream,
+    LinkInputId, LinkPlan, LinkedArtifact, LinkedArtifactRequirement, LinkerDriverIdentity,
+    StagingDestinationId, UnsupportedLinkRequirement,
 };
 
-pub(crate) fn failed_outcome(failure: LinkFailure) -> LinkOutcome {
-    let diagnostics = link_failure_diagnostics(&failure);
-
-    LinkOutcome::failed(failure, diagnostics)
+pub(crate) fn failed_outcome(plan: &LinkPlan, failure: LinkFailure) -> LinkOutcome {
+    LinkOutcome::failed(plan, failure, DiagnosticBag::new())
 }
 
 /// Creates stable structured diagnostics for one typed native link failure.
 pub fn link_failure_diagnostics(failure: &LinkFailure) -> DiagnosticBag {
+    DiagnosticBag::single(link_failure_diagnostic(failure))
+}
+
+fn link_failure_diagnostics_for_plan(plan: &LinkPlan, failure: &LinkFailure) -> DiagnosticBag {
+    let mut diagnostic = with_plan_context(link_failure_diagnostic(failure), plan);
+
     match failure {
-        LinkFailure::UnsupportedRequirement(requirement) => DiagnosticBag::single(Diagnostic::new(
+        LinkFailure::MissingInput(id) => {
+            if let Some(input) = plan.input(*id) {
+                diagnostic = diagnostic.with_arg(DiagnosticArg::link_requirement(
+                    diagnostic_input_requirement(input.kind()),
+                ));
+
+                if let crate::LinkInputSource::File(path) = input.source() {
+                    diagnostic = diagnostic.with_arg(DiagnosticArg::file_path(path));
+                }
+            }
+        }
+        LinkFailure::MissingOutput(id) | LinkFailure::InvalidOutput(id) => {
+            if let Some(output) = plan.output(*id) {
+                diagnostic = diagnostic
+                    .with_arg(DiagnosticArg::link_requirement(
+                        diagnostic_output_requirement(output.kind()),
+                    ))
+                    .with_arg(DiagnosticArg::file_path(output.destination().path()));
+            }
+        }
+        LinkFailure::DriverUnavailable
+        | LinkFailure::DriverIncompatible
+        | LinkFailure::UnsupportedRequirement(_)
+        | LinkFailure::ResponseFile
+        | LinkFailure::Invocation
+        | LinkFailure::ToolExit(_)
+        | LinkFailure::ResourceExhausted => {}
+    }
+
+    DiagnosticBag::single(diagnostic)
+}
+
+fn with_plan_context(diagnostic: Diagnostic, plan: &LinkPlan) -> Diagnostic {
+    diagnostic
+        .with_arg(DiagnosticArg::target_triple(plan.target().triple()))
+        .with_arg(DiagnosticArg::actual_product_identity(
+            plan.product().to_string(),
+        ))
+        .with_arg(DiagnosticArg::linker_driver_identity(
+            diagnostic_driver_identity(plan.driver()),
+        ))
+        .with_note(
+            DiagnosticNote::new(DiagnosticNoteKind::LinkPlanContext)
+                .with_arg(DiagnosticArg::actual_product_identity(
+                    plan.product().to_string(),
+                ))
+                .with_arg(DiagnosticArg::target_triple(plan.target().triple()))
+                .with_arg(DiagnosticArg::linker_driver_identity(
+                    diagnostic_driver_identity(plan.driver()),
+                )),
+        )
+}
+
+fn diagnostic_driver_identity(driver: &LinkerDriverIdentity) -> DiagnosticLinkerDriverIdentity {
+    let kind = match driver.kind() {
+        crate::LinkerDriverKind::EmbeddedLld => DiagnosticLinkerDriverKind::EmbeddedLld,
+        crate::LinkerDriverKind::ExternalLld => DiagnosticLinkerDriverKind::ExternalLld,
+        crate::LinkerDriverKind::System => DiagnosticLinkerDriverKind::System,
+        crate::LinkerDriverKind::Archiver => DiagnosticLinkerDriverKind::Archiver,
+        crate::LinkerDriverKind::TargetSpecific => DiagnosticLinkerDriverKind::TargetSpecific,
+    };
+
+    DiagnosticLinkerDriverIdentity::new(
+        kind,
+        driver.name(),
+        driver.capability_revision(),
+        driver.toolchain_revision(),
+    )
+}
+
+fn link_failure_diagnostic(failure: &LinkFailure) -> Diagnostic {
+    match failure {
+        LinkFailure::UnsupportedRequirement(requirement) => Diagnostic::new(
             DiagnosticId::new(0),
             unsupported_requirement_diagnostic(requirement),
             SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::link_requirement(
+            diagnostic_link_requirement(requirement),
         )),
-        _ => DiagnosticBag::new(),
+        LinkFailure::DriverUnavailable => {
+            failure_diagnostic(DiagnosticKind::LinkerDriverUnavailable)
+        }
+        LinkFailure::DriverIncompatible => {
+            compiler_defect_diagnostic(DiagnosticKind::LinkerDriverIncompatible)
+        }
+        LinkFailure::MissingInput(input) => failure_diagnostic(DiagnosticKind::LinkerInputMissing)
+            .with_arg(
+                DiagnosticArg::input_index(
+                    usize::try_from(input.ordinal())
+                        .unwrap_or_else(|_| unreachable!("u32 link input ordinal must fit usize")),
+                )
+                .unwrap_or_else(|| unreachable!("u32 link input ordinal must fit usize")),
+            ),
+        LinkFailure::ResponseFile => failure_diagnostic(DiagnosticKind::LinkerResponseFileFailed),
+        LinkFailure::Invocation => {
+            compiler_defect_diagnostic(DiagnosticKind::LinkerInvocationFailed)
+        }
+        LinkFailure::ToolExit(output) => {
+            failure_diagnostic(DiagnosticKind::LinkerExternalToolExitedUnsuccessfully)
+                .with_arg(DiagnosticArg::external_tool_exit(
+                    DiagnosticExternalToolExit::new(
+                        output.exit_code(),
+                        output.standard_output(),
+                        output.standard_error(),
+                    ),
+                ))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::ExternalToolExitRequiresCorrection,
+                ))
+        }
+        LinkFailure::MissingOutput(output) => {
+            failure_diagnostic(DiagnosticKind::LinkerOutputMissing)
+                .with_arg(DiagnosticArg::artifact_ordinal(output.ordinal()))
+        }
+        LinkFailure::InvalidOutput(output) => {
+            failure_diagnostic(DiagnosticKind::LinkerOutputInvalid)
+                .with_arg(DiagnosticArg::artifact_ordinal(output.ordinal()))
+        }
+        LinkFailure::ResourceExhausted => {
+            failure_diagnostic(DiagnosticKind::LinkerResourceExhausted)
+        }
+    }
+}
+
+fn failure_diagnostic(kind: DiagnosticKind) -> Diagnostic {
+    Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+}
+
+fn compiler_defect_diagnostic(kind: DiagnosticKind) -> Diagnostic {
+    failure_diagnostic(kind).with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ReportCompilerDefect,
+    ))
+}
+
+fn external_tool_io_diagnostics(
+    plan: &LinkPlan,
+    operation: DiagnosticExternalToolOperation,
+    kind: std::io::ErrorKind,
+) -> DiagnosticBag {
+    DiagnosticBag::single(with_plan_context(
+        failure_diagnostic(DiagnosticKind::LinkerExternalToolIoFailed)
+            .with_arg(DiagnosticArg::external_tool_operation(operation))
+            .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+                kind,
+            ))),
+        plan,
+    ))
+}
+
+fn external_tool_contract_diagnostics(
+    plan: &LinkPlan,
+    operation: DiagnosticExternalToolOperation,
+    kind: DiagnosticExternalToolFailureKind,
+) -> DiagnosticBag {
+    DiagnosticBag::single(with_plan_context(
+        failure_diagnostic(DiagnosticKind::LinkerExternalToolContractFailed)
+            .with_arg(DiagnosticArg::external_tool_operation(operation))
+            .with_arg(DiagnosticArg::external_tool_failure_kind(kind)),
+        plan,
+    ))
+}
+
+const fn response_file_operation(
+    operation: ExternalToolResponseFileOperation,
+) -> DiagnosticExternalToolOperation {
+    match operation {
+        ExternalToolResponseFileOperation::Write => {
+            DiagnosticExternalToolOperation::ResponseFileWrite
+        }
+        ExternalToolResponseFileOperation::Remove => {
+            DiagnosticExternalToolOperation::ResponseFileRemove
+        }
+    }
+}
+
+const fn stream_operation(
+    stream: ExternalToolStream,
+    stdout: DiagnosticExternalToolOperation,
+    stderr: DiagnosticExternalToolOperation,
+) -> DiagnosticExternalToolOperation {
+    match stream {
+        ExternalToolStream::StandardOutput => stdout,
+        ExternalToolStream::StandardError => stderr,
+    }
+}
+
+const fn platform_operation(operation: PlatformOperation) -> DiagnosticExternalToolOperation {
+    match operation {
+        PlatformOperation::ThreadSpawn => DiagnosticExternalToolOperation::ThreadSpawn,
+        PlatformOperation::ThreadJoin => DiagnosticExternalToolOperation::ThreadJoin,
+        PlatformOperation::ThreadRuntimeInitialization => {
+            DiagnosticExternalToolOperation::ThreadRuntimeInitialization
+        }
+        PlatformOperation::Event => DiagnosticExternalToolOperation::Event,
+        PlatformOperation::EventPoll => DiagnosticExternalToolOperation::EventPoll,
+        PlatformOperation::EventRegistration => DiagnosticExternalToolOperation::EventRegistration,
+        PlatformOperation::VirtualMemory => DiagnosticExternalToolOperation::VirtualMemory,
+        PlatformOperation::ProcessSpawn => DiagnosticExternalToolOperation::ProcessSpawn,
+        PlatformOperation::ProcessSignal => DiagnosticExternalToolOperation::ProcessSignal,
+        PlatformOperation::ProcessWait => DiagnosticExternalToolOperation::ProcessWait,
+        PlatformOperation::SocketAddressResolution => {
+            DiagnosticExternalToolOperation::SocketAddressResolution
+        }
+        PlatformOperation::SocketAddress => DiagnosticExternalToolOperation::SocketAddress,
+        PlatformOperation::SocketBind => DiagnosticExternalToolOperation::SocketBind,
+        PlatformOperation::SocketConfiguration => {
+            DiagnosticExternalToolOperation::SocketConfiguration
+        }
+        PlatformOperation::SocketConnect => DiagnosticExternalToolOperation::SocketConnect,
+        PlatformOperation::SocketAccept => DiagnosticExternalToolOperation::SocketAccept,
+        PlatformOperation::SocketReceive => DiagnosticExternalToolOperation::SocketReceive,
+        PlatformOperation::SocketSend => DiagnosticExternalToolOperation::SocketSend,
+    }
+}
+
+const fn platform_failure(kind: PlatformErrorKind) -> DiagnosticExternalToolFailureKind {
+    match kind {
+        PlatformErrorKind::Io(_) => DiagnosticExternalToolFailureKind::Io,
+        PlatformErrorKind::InvalidSize => DiagnosticExternalToolFailureKind::InvalidSize,
+        PlatformErrorKind::ThreadIdentityExhausted => {
+            DiagnosticExternalToolFailureKind::ThreadIdentityExhausted
+        }
+        PlatformErrorKind::EventGenerationExhausted => {
+            DiagnosticExternalToolFailureKind::EventGenerationExhausted
+        }
+        PlatformErrorKind::InvalidEventIdentity => {
+            DiagnosticExternalToolFailureKind::InvalidEventIdentity
+        }
+        PlatformErrorKind::RuntimeThreadAlreadyInitialized => {
+            DiagnosticExternalToolFailureKind::RuntimeThreadAlreadyInitialized
+        }
+        PlatformErrorKind::SynchronizationPoisoned => {
+            DiagnosticExternalToolFailureKind::SynchronizationPoisoned
+        }
+        PlatformErrorKind::Unsupported => DiagnosticExternalToolFailureKind::Unsupported,
+    }
+}
+
+fn diagnostic_link_requirement(
+    requirement: &UnsupportedLinkRequirement,
+) -> DiagnosticLinkRequirement {
+    match requirement {
+        UnsupportedLinkRequirement::Target { triple, .. } => {
+            DiagnosticLinkRequirement::Target(triple.to_string())
+        }
+        UnsupportedLinkRequirement::Product(value) => diagnostic_product_requirement(*value),
+        UnsupportedLinkRequirement::Input(value) => diagnostic_input_requirement(*value),
+        UnsupportedLinkRequirement::InputMode(value) => diagnostic_input_mode_requirement(*value),
+        UnsupportedLinkRequirement::Output(value) => diagnostic_output_requirement(*value),
+        UnsupportedLinkRequirement::SearchPath(value) => diagnostic_search_path_requirement(*value),
+        UnsupportedLinkRequirement::LinkModel(value) => diagnostic_link_model_requirement(*value),
+        UnsupportedLinkRequirement::DeadStrip(value) => diagnostic_dead_strip_requirement(*value),
+        UnsupportedLinkRequirement::SectionGarbageCollection(value) => {
+            diagnostic_section_garbage_collection_requirement(*value)
+        }
+        UnsupportedLinkRequirement::Debug(value) => diagnostic_debug_requirement(*value),
+        UnsupportedLinkRequirement::Subsystem(value) => diagnostic_subsystem_requirement(*value),
+        UnsupportedLinkRequirement::Symbol(value) => diagnostic_symbol_requirement(*value),
+        UnsupportedLinkRequirement::Startup(value) => diagnostic_startup_requirement(*value),
+        UnsupportedLinkRequirement::Runtime(value) => diagnostic_runtime_requirement(*value),
+    }
+}
+
+const fn diagnostic_product_requirement(
+    value: crate::LinkedProductKind,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkedProductKind::Executable => DiagnosticLinkRequirement::ProductExecutable,
+        crate::LinkedProductKind::SharedLibrary => DiagnosticLinkRequirement::ProductSharedLibrary,
+        crate::LinkedProductKind::StaticLibrary => DiagnosticLinkRequirement::ProductStaticLibrary,
+    }
+}
+
+const fn diagnostic_input_requirement(value: crate::LinkInputKind) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkInputKind::RelocatableObject => {
+            DiagnosticLinkRequirement::InputRelocatableObject
+        }
+        crate::LinkInputKind::Bitcode => DiagnosticLinkRequirement::InputBitcode,
+        crate::LinkInputKind::Archive => DiagnosticLinkRequirement::InputArchive,
+        crate::LinkInputKind::StartupObject => DiagnosticLinkRequirement::InputStartupObject,
+        crate::LinkInputKind::TerminationObject => {
+            DiagnosticLinkRequirement::InputTerminationObject
+        }
+        crate::LinkInputKind::RuntimeComponent => DiagnosticLinkRequirement::InputRuntimeComponent,
+        crate::LinkInputKind::NativeLibrary => DiagnosticLinkRequirement::InputNativeLibrary,
+        crate::LinkInputKind::Framework => DiagnosticLinkRequirement::InputFramework,
+    }
+}
+
+const fn diagnostic_input_mode_requirement(
+    value: crate::LinkInputMode,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkInputMode::Ordinary => DiagnosticLinkRequirement::InputModeOrdinary,
+        crate::LinkInputMode::WholeArchive => DiagnosticLinkRequirement::InputModeWholeArchive,
+    }
+}
+
+const fn diagnostic_output_requirement(
+    value: crate::LinkedArtifactKind,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkedArtifactKind::Executable => DiagnosticLinkRequirement::OutputExecutable,
+        crate::LinkedArtifactKind::SharedLibrary => DiagnosticLinkRequirement::OutputSharedLibrary,
+        crate::LinkedArtifactKind::StaticLibrary => DiagnosticLinkRequirement::OutputStaticLibrary,
+        crate::LinkedArtifactKind::ImportLibrary => DiagnosticLinkRequirement::OutputImportLibrary,
+        crate::LinkedArtifactKind::DebugCompanion => {
+            DiagnosticLinkRequirement::OutputDebugCompanion
+        }
+        crate::LinkedArtifactKind::PlatformCompanion => {
+            DiagnosticLinkRequirement::OutputPlatformCompanion
+        }
+    }
+}
+
+const fn diagnostic_search_path_requirement(
+    value: crate::LinkSearchPathKind,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkSearchPathKind::Library => DiagnosticLinkRequirement::SearchPathLibrary,
+        crate::LinkSearchPathKind::Framework => DiagnosticLinkRequirement::SearchPathFramework,
+    }
+}
+
+const fn diagnostic_link_model_requirement(value: crate::LinkModel) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkModel::Default => DiagnosticLinkRequirement::LinkModelDefault,
+        crate::LinkModel::Static => DiagnosticLinkRequirement::LinkModelStatic,
+        crate::LinkModel::Dynamic => DiagnosticLinkRequirement::LinkModelDynamic,
+    }
+}
+
+const fn diagnostic_dead_strip_requirement(
+    value: crate::DeadStripPolicy,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::DeadStripPolicy::Preserve => DiagnosticLinkRequirement::DeadStripPreserve,
+        crate::DeadStripPolicy::RemoveUnreachable => {
+            DiagnosticLinkRequirement::DeadStripRemoveUnreachable
+        }
+    }
+}
+
+const fn diagnostic_section_garbage_collection_requirement(
+    value: crate::SectionGarbageCollectionPolicy,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::SectionGarbageCollectionPolicy::Preserve => {
+            DiagnosticLinkRequirement::SectionGarbageCollectionPreserve
+        }
+        crate::SectionGarbageCollectionPolicy::RemoveUnreferenced => {
+            DiagnosticLinkRequirement::SectionGarbageCollectionRemoveUnreferenced
+        }
+    }
+}
+
+const fn diagnostic_debug_requirement(value: crate::DebugLinkPolicy) -> DiagnosticLinkRequirement {
+    match value {
+        crate::DebugLinkPolicy::None => DiagnosticLinkRequirement::DebugNone,
+        crate::DebugLinkPolicy::Embedded => DiagnosticLinkRequirement::DebugEmbedded,
+        crate::DebugLinkPolicy::Companion => DiagnosticLinkRequirement::DebugCompanion,
+    }
+}
+
+const fn diagnostic_subsystem_requirement(
+    value: crate::LinkSubsystem,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkSubsystem::Console => DiagnosticLinkRequirement::SubsystemConsole,
+        crate::LinkSubsystem::Windowed => DiagnosticLinkRequirement::SubsystemWindowed,
+        crate::LinkSubsystem::Native => DiagnosticLinkRequirement::SubsystemNative,
+        crate::LinkSubsystem::WasiCommand => DiagnosticLinkRequirement::SubsystemWasiCommand,
+        crate::LinkSubsystem::WasiReactor => DiagnosticLinkRequirement::SubsystemWasiReactor,
+    }
+}
+
+const fn diagnostic_symbol_requirement(
+    value: crate::LinkSymbolRequirement,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkSymbolRequirement::EntryPoint => DiagnosticLinkRequirement::SymbolEntryPoint,
+        crate::LinkSymbolRequirement::ExportedSymbols => {
+            DiagnosticLinkRequirement::SymbolExportedSymbols
+        }
+        crate::LinkSymbolRequirement::RetainedSymbols => {
+            DiagnosticLinkRequirement::SymbolRetainedSymbols
+        }
+    }
+}
+
+const fn diagnostic_startup_requirement(
+    value: crate::LinkStartupMode,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkStartupMode::NotApplicable => DiagnosticLinkRequirement::StartupNotApplicable,
+        crate::LinkStartupMode::ExplicitInputs => DiagnosticLinkRequirement::StartupExplicitInputs,
+        crate::LinkStartupMode::PlatformCompilerDriver => {
+            DiagnosticLinkRequirement::StartupPlatformCompilerDriver
+        }
+    }
+}
+
+const fn diagnostic_runtime_requirement(
+    value: crate::LinkRuntimeMode,
+) -> DiagnosticLinkRequirement {
+    match value {
+        crate::LinkRuntimeMode::ExplicitInput => DiagnosticLinkRequirement::RuntimeExplicitInput,
     }
 }
 
@@ -65,6 +480,8 @@ pub enum LinkFailure {
     ResponseFile,
     /// Linker or archiver invocation could not complete successfully.
     Invocation,
+    /// An external linker or archiver completed with an unsuccessful status and captured output.
+    ToolExit(ExternalToolOutput),
     /// One required linked output was not produced.
     MissingOutput(StagingDestinationId),
     /// One produced linked output violated its staging contract.
@@ -207,21 +624,87 @@ pub struct LinkOutcome {
 }
 
 impl LinkOutcome {
-    pub(crate) fn from_external_tool_failure(failure: ExternalToolFailure) -> Self {
+    pub(crate) fn from_external_tool_failure(
+        plan: &LinkPlan,
+        failure: ExternalToolFailure,
+    ) -> Self {
         match failure {
             ExternalToolFailure::Cancelled => Self::cancelled(DiagnosticBag::new()),
             ExternalToolFailure::ProcessBudgetUnavailable => {
-                Self::failed(LinkFailure::ResourceExhausted, DiagnosticBag::new())
+                failed_outcome(plan, LinkFailure::ResourceExhausted)
             }
-            ExternalToolFailure::ResponseFile { .. } => {
-                Self::failed(LinkFailure::ResponseFile, DiagnosticBag::new())
+            ExternalToolFailure::ResponseFile {
+                path,
+                operation,
+                kind,
+            } => {
+                let diagnostic = with_plan_context(
+                    failure_diagnostic(DiagnosticKind::LinkerResponseFileFailed)
+                        .with_arg(DiagnosticArg::file_path(path))
+                        .with_arg(DiagnosticArg::external_tool_operation(
+                            response_file_operation(operation),
+                        ))
+                        .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+                            kind,
+                        ))),
+                    plan,
+                );
+
+                Self::failed_with_diagnostics(
+                    LinkFailure::ResponseFile,
+                    DiagnosticBag::single(diagnostic),
+                )
             }
-            ExternalToolFailure::Process(_)
-            | ExternalToolFailure::MissingOutputPipe(_)
-            | ExternalToolFailure::OutputCapture { .. }
-            | ExternalToolFailure::OutputReaderTerminated(_) => {
-                Self::failed(LinkFailure::Invocation, DiagnosticBag::new())
+            ExternalToolFailure::Process(error) => {
+                let operation = platform_operation(error.operation());
+
+                let diagnostics = match error.kind() {
+                    PlatformErrorKind::Io(kind) => {
+                        external_tool_io_diagnostics(plan, operation, kind)
+                    }
+                    kind => {
+                        external_tool_contract_diagnostics(plan, operation, platform_failure(kind))
+                    }
+                };
+
+                Self::failed_with_diagnostics(LinkFailure::Invocation, diagnostics)
             }
+            ExternalToolFailure::MissingOutputPipe(stream) => Self::failed_with_diagnostics(
+                LinkFailure::Invocation,
+                external_tool_contract_diagnostics(
+                    plan,
+                    stream_operation(
+                        stream,
+                        DiagnosticExternalToolOperation::StandardOutputPipe,
+                        DiagnosticExternalToolOperation::StandardErrorPipe,
+                    ),
+                    DiagnosticExternalToolFailureKind::MissingOutputPipe,
+                ),
+            ),
+            ExternalToolFailure::OutputCapture { stream, kind } => Self::failed_with_diagnostics(
+                LinkFailure::Invocation,
+                external_tool_io_diagnostics(
+                    plan,
+                    stream_operation(
+                        stream,
+                        DiagnosticExternalToolOperation::StandardOutputCapture,
+                        DiagnosticExternalToolOperation::StandardErrorCapture,
+                    ),
+                    kind,
+                ),
+            ),
+            ExternalToolFailure::OutputReaderTerminated(stream) => Self::failed_with_diagnostics(
+                LinkFailure::Invocation,
+                external_tool_contract_diagnostics(
+                    plan,
+                    stream_operation(
+                        stream,
+                        DiagnosticExternalToolOperation::StandardOutputReader,
+                        DiagnosticExternalToolOperation::StandardErrorReader,
+                    ),
+                    DiagnosticExternalToolFailureKind::OutputReaderTerminated,
+                ),
+            ),
         }
     }
 
@@ -244,8 +727,14 @@ impl LinkOutcome {
         })
     }
 
-    /// Creates a failed result without partial staged outputs.
-    pub const fn failed(failure: LinkFailure, diagnostics: DiagnosticBag) -> Self {
+    /// Creates a failed result with a canonical plan-aware terminal diagnostic.
+    pub fn failed(plan: &LinkPlan, failure: LinkFailure, diagnostics: DiagnosticBag) -> Self {
+        let diagnostics = diagnostics.merged(&link_failure_diagnostics_for_plan(plan, &failure));
+
+        Self::failed_with_diagnostics(failure, diagnostics)
+    }
+
+    fn failed_with_diagnostics(failure: LinkFailure, diagnostics: DiagnosticBag) -> Self {
         Self {
             status: LinkStatus::Failed(failure),
             diagnostics,
@@ -295,19 +784,25 @@ pub enum LinkOutcomeBuildError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use std::num::NonZeroU64;
 
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
     use super::{
         LinkFailure, LinkOutcome, LinkOutcomeBuildError, LinkStatus, LinkedArtifactSetBuildError,
-        link_failure_diagnostics,
+        failed_outcome, link_failure_diagnostics,
     };
     use crate::test_support::{link_plan, linked_artifact};
     use crate::{
-        LinkInputKind, LinkedArtifact, LinkedArtifactKind, StagingDestinationId,
-        UnsupportedLinkRequirement,
+        DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkModel, LinkRuntimeMode,
+        LinkSearchPathKind, LinkStartupMode, LinkSubsystem, LinkSymbolRequirement, LinkedArtifact,
+        LinkedArtifactKind, LinkedProductKind, SectionGarbageCollectionPolicy,
+        StagingDestinationId, UnsupportedLinkRequirement,
     };
+    use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation};
+    use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
 
     #[test]
     fn complete_outcomes_publish_only_plan_validated_artifacts() {
@@ -373,7 +868,9 @@ mod tests {
 
     #[test]
     fn failed_and_cancelled_outcomes_expose_no_partial_artifacts() {
-        let failed = LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new());
+        let failure = LinkFailure::Invocation;
+        let plan = link_plan();
+        let failed = LinkOutcome::failed(&plan, failure.clone(), DiagnosticBag::new());
 
         let diagnostics = DiagnosticBag::single(Diagnostic::new(
             DiagnosticId::new(1),
@@ -392,20 +889,273 @@ mod tests {
     }
 
     #[test]
+    fn failed_outcomes_add_the_matching_plan_aware_terminal_diagnostic() {
+        let plan = link_plan();
+        let failed = LinkOutcome::failed(&plan, LinkFailure::Invocation, DiagnosticBag::new());
+
+        assert!(failed.diagnostics().has_errors());
+
+        assert!(
+            failed
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| { diagnostic.kind() == DiagnosticKind::LinkerInvocationFailed })
+        );
+    }
+
+    #[test]
     fn unsupported_requirements_produce_stable_error_diagnostics() {
-        let failure = LinkFailure::UnsupportedRequirement(UnsupportedLinkRequirement::Input(
-            LinkInputKind::Bitcode,
-        ));
+        let plan = link_plan();
+        let target = plan.target();
 
-        let diagnostics = link_failure_diagnostics(&failure);
+        let cases = [
+            (
+                UnsupportedLinkRequirement::Target {
+                    identity: target.identity().clone(),
+                    triple: Arc::from(target.triple()),
+                    architecture: target.architecture(),
+                    object_format: target.object_format(),
+                },
+                DiagnosticKind::LinkerUnsupportedTarget,
+            ),
+            (
+                UnsupportedLinkRequirement::Product(LinkedProductKind::Executable),
+                DiagnosticKind::LinkerUnsupportedProduct,
+            ),
+            (
+                UnsupportedLinkRequirement::Input(LinkInputKind::Bitcode),
+                DiagnosticKind::LinkerUnsupportedInput,
+            ),
+            (
+                UnsupportedLinkRequirement::InputMode(LinkInputMode::WholeArchive),
+                DiagnosticKind::LinkerUnsupportedInputMode,
+            ),
+            (
+                UnsupportedLinkRequirement::Output(LinkedArtifactKind::Executable),
+                DiagnosticKind::LinkerUnsupportedOutput,
+            ),
+            (
+                UnsupportedLinkRequirement::SearchPath(LinkSearchPathKind::Framework),
+                DiagnosticKind::LinkerUnsupportedSearchPath,
+            ),
+            (
+                UnsupportedLinkRequirement::LinkModel(LinkModel::Static),
+                DiagnosticKind::LinkerUnsupportedLinkModel,
+            ),
+            (
+                UnsupportedLinkRequirement::DeadStrip(DeadStripPolicy::RemoveUnreachable),
+                DiagnosticKind::LinkerUnsupportedDeadStrip,
+            ),
+            (
+                UnsupportedLinkRequirement::SectionGarbageCollection(
+                    SectionGarbageCollectionPolicy::RemoveUnreferenced,
+                ),
+                DiagnosticKind::LinkerUnsupportedSectionGarbageCollection,
+            ),
+            (
+                UnsupportedLinkRequirement::Debug(DebugLinkPolicy::Companion),
+                DiagnosticKind::LinkerUnsupportedDebug,
+            ),
+            (
+                UnsupportedLinkRequirement::Subsystem(LinkSubsystem::Windowed),
+                DiagnosticKind::LinkerUnsupportedSubsystem,
+            ),
+            (
+                UnsupportedLinkRequirement::Symbol(LinkSymbolRequirement::EntryPoint),
+                DiagnosticKind::LinkerUnsupportedSymbol,
+            ),
+            (
+                UnsupportedLinkRequirement::Startup(LinkStartupMode::ExplicitInputs),
+                DiagnosticKind::LinkerUnsupportedStartup,
+            ),
+            (
+                UnsupportedLinkRequirement::Runtime(LinkRuntimeMode::ExplicitInput),
+                DiagnosticKind::LinkerUnsupportedRuntime,
+            ),
+        ];
 
-        assert!(diagnostics.has_errors());
+        for (requirement, expected) in cases {
+            let diagnostics =
+                link_failure_diagnostics(&LinkFailure::UnsupportedRequirement(requirement));
 
-        assert_eq!(
-            diagnostics
-                .by_kind(DiagnosticKind::LinkerUnsupportedInput)
-                .count(),
-            1
+            assert_eq!(diagnostics.by_kind(expected).count(), 1);
+            assert_goal_state_diagnostics(&diagnostics);
+
+            match expected {
+                DiagnosticKind::LinkerUnsupportedTarget => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedTarget,
+                ),
+                DiagnosticKind::LinkerUnsupportedProduct => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedProduct,
+                ),
+                DiagnosticKind::LinkerUnsupportedInput => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedInput,
+                ),
+                DiagnosticKind::LinkerUnsupportedInputMode => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedInputMode,
+                ),
+                DiagnosticKind::LinkerUnsupportedOutput => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedOutput,
+                ),
+                DiagnosticKind::LinkerUnsupportedSearchPath => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedSearchPath,
+                ),
+                DiagnosticKind::LinkerUnsupportedLinkModel => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedLinkModel,
+                ),
+                DiagnosticKind::LinkerUnsupportedDeadStrip => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedDeadStrip,
+                ),
+                DiagnosticKind::LinkerUnsupportedSectionGarbageCollection => {
+                    assert_goal_state_diagnostic_kind(
+                        &diagnostics,
+                        DiagnosticKind::LinkerUnsupportedSectionGarbageCollection,
+                    );
+                }
+                DiagnosticKind::LinkerUnsupportedDebug => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedDebug,
+                ),
+                DiagnosticKind::LinkerUnsupportedSubsystem => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedSubsystem,
+                ),
+                DiagnosticKind::LinkerUnsupportedSymbol => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedSymbol,
+                ),
+                DiagnosticKind::LinkerUnsupportedStartup => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedStartup,
+                ),
+                DiagnosticKind::LinkerUnsupportedRuntime => assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::LinkerUnsupportedRuntime,
+                ),
+                _ => panic!("test case must remain an unsupported-link requirement"),
+            }
+        }
+    }
+
+    #[test]
+    fn every_terminal_link_failure_publishes_its_exact_diagnostic() {
+        let plan = link_plan();
+
+        let cases = [
+            (
+                LinkFailure::DriverUnavailable,
+                DiagnosticKind::LinkerDriverUnavailable,
+            ),
+            (
+                LinkFailure::DriverIncompatible,
+                DiagnosticKind::LinkerDriverIncompatible,
+            ),
+            (
+                LinkFailure::MissingInput(crate::LinkInputId::new(0)),
+                DiagnosticKind::LinkerInputMissing,
+            ),
+            (
+                LinkFailure::Invocation,
+                DiagnosticKind::LinkerInvocationFailed,
+            ),
+            (
+                LinkFailure::MissingOutput(StagingDestinationId::new(0)),
+                DiagnosticKind::LinkerOutputMissing,
+            ),
+            (
+                LinkFailure::InvalidOutput(StagingDestinationId::new(0)),
+                DiagnosticKind::LinkerOutputInvalid,
+            ),
+            (
+                LinkFailure::ResourceExhausted,
+                DiagnosticKind::LinkerResourceExhausted,
+            ),
+        ];
+
+        for (failure, expected) in cases {
+            let outcome = failed_outcome(&plan, failure);
+
+            match expected {
+                DiagnosticKind::LinkerDriverUnavailable => assert_goal_state_diagnostic_kind(
+                    outcome.diagnostics(),
+                    DiagnosticKind::LinkerDriverUnavailable,
+                ),
+                DiagnosticKind::LinkerDriverIncompatible => assert_goal_state_diagnostic_kind(
+                    outcome.diagnostics(),
+                    DiagnosticKind::LinkerDriverIncompatible,
+                ),
+                DiagnosticKind::LinkerInputMissing => assert_goal_state_diagnostic_kind(
+                    outcome.diagnostics(),
+                    DiagnosticKind::LinkerInputMissing,
+                ),
+                DiagnosticKind::LinkerInvocationFailed => assert_goal_state_diagnostic_kind(
+                    outcome.diagnostics(),
+                    DiagnosticKind::LinkerInvocationFailed,
+                ),
+                DiagnosticKind::LinkerOutputMissing => assert_goal_state_diagnostic_kind(
+                    outcome.diagnostics(),
+                    DiagnosticKind::LinkerOutputMissing,
+                ),
+                DiagnosticKind::LinkerOutputInvalid => assert_goal_state_diagnostic_kind(
+                    outcome.diagnostics(),
+                    DiagnosticKind::LinkerOutputInvalid,
+                ),
+                DiagnosticKind::LinkerResourceExhausted => assert_goal_state_diagnostic_kind(
+                    outcome.diagnostics(),
+                    DiagnosticKind::LinkerResourceExhausted,
+                ),
+                _ => panic!("test case must remain a terminal link failure"),
+            }
+        }
+    }
+
+    #[test]
+    fn external_tool_failures_preserve_typed_operation_and_failure_context() {
+        let plan = link_plan();
+
+        let response = LinkOutcome::from_external_tool_failure(
+            &plan,
+            crate::ExternalToolFailure::ResponseFile {
+                path: "build/link.rsp".into(),
+                operation: crate::ExternalToolResponseFileOperation::Write,
+                kind: std::io::ErrorKind::PermissionDenied,
+            },
+        );
+
+        assert_goal_state_diagnostic_kind(
+            response.diagnostics(),
+            DiagnosticKind::LinkerResponseFileFailed,
+        );
+
+        let process = LinkOutcome::from_external_tool_failure(
+            &plan,
+            crate::ExternalToolFailure::Process(PlatformError::new(
+                PlatformOperation::ProcessSpawn,
+                PlatformErrorKind::Io(std::io::ErrorKind::NotFound),
+            )),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            process.diagnostics(),
+            DiagnosticKind::LinkerExternalToolIoFailed,
+        );
+
+        let pipe = LinkOutcome::from_external_tool_failure(
+            &plan,
+            crate::ExternalToolFailure::MissingOutputPipe(crate::ExternalToolStream::StandardError),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            pipe.diagnostics(),
+            DiagnosticKind::LinkerExternalToolContractFailed,
         );
     }
 }

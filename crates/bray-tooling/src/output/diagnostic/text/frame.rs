@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::ops::Range;
 
+use bray_diagnostics::DiagnosticLabelStyle;
 use bray_messages::{DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticNote};
 use bray_source::{LineColumn, LineIndex, SourceLocation, SourceOrigin, SourceSnapshot};
 
@@ -101,11 +102,23 @@ fn write_marker_line(
         color_frame_text(&format!("{:>gutter_width$} | ", ""))
     )?;
 
-    writeln!(
+    let label = diagnostic.labels().iter().find(|label| {
+        label.style() == DiagnosticLabelStyle::Primary
+            && Some(label.span()) == diagnostic.primary_span()
+            && line.number == location.end().line()
+    });
+
+    write!(
         writer,
         "{}",
         color_severity_label(diagnostic.severity(), &marker)
-    )
+    )?;
+
+    if let Some(label) = label {
+        write!(writer, " {}", label.message())?;
+    }
+
+    writeln!(writer)
 }
 
 fn write_frame_notes(

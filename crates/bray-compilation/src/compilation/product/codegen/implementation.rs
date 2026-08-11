@@ -690,7 +690,6 @@ mod tests {
         OptimizationLevel, partition_codegen_units,
     };
     use bray_compiler_known::RepresentationRole;
-    use bray_diagnostics::DiagnosticBag;
     use bray_ir::{
         MirHelperReference, MirHostOperation, MirOperationKind, MirUnitKey, MirUnitKind,
     };
@@ -2490,10 +2489,14 @@ mod tests {
 
         fn link(
             &self,
-            _plan: &LinkPlan,
+            plan: &LinkPlan,
             _cancellation: &dyn bray_base::Cancellation,
         ) -> LinkOutcome {
-            LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new())
+            LinkOutcome::failed(
+                plan,
+                LinkFailure::Invocation,
+                bray_diagnostics::DiagnosticBag::new(),
+            )
         }
     }
 

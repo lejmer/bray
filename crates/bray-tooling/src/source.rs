@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use bray_compilation::{CompilationOptions, CompilationRequest};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticSourceInput, DiagnosticSourceInputOrigin,
+    SeverityKind,
 };
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_symbols::PackageIdentity;
@@ -18,12 +19,14 @@ pub enum SourceInputError {
     /// A file argument index cannot fit in a stable source identity.
     SourceIdentityOverflow {
         /// Zero-based file argument index.
-        input_index: usize,
+        input_index: u64,
+        /// Exact file argument that could not receive a compact identity.
+        path: PathBuf,
     },
     /// A file argument could not be read as bytes.
     ReadFile {
         /// Zero-based file argument index.
-        input_index: usize,
+        input_index: u64,
         /// File path that could not be read.
         path: PathBuf,
         /// Structured I/O error category reported by the host.
@@ -33,9 +36,9 @@ pub enum SourceInputError {
 
 impl SourceInputError {
     /// Returns the zero-based file argument index associated with this error.
-    pub const fn input_index(&self) -> usize {
+    pub const fn input_index(&self) -> u64 {
         match self {
-            Self::SourceIdentityOverflow { input_index } => *input_index,
+            Self::SourceIdentityOverflow { input_index, .. } => *input_index,
             Self::ReadFile { input_index, .. } => *input_index,
         }
     }
@@ -43,46 +46,39 @@ impl SourceInputError {
     /// Converts this user-facing source-input error into a diagnostic.
     pub fn into_diagnostic(self, id: DiagnosticId) -> Diagnostic {
         match self {
-            Self::SourceIdentityOverflow { input_index } => {
-                let mut diagnostic = Diagnostic::new(
-                    id,
-                    DiagnosticKind::RequestInvalidSourceInput,
-                    SeverityKind::Error,
-                )
-                .with_note(DiagnosticNote::new(
-                    DiagnosticNoteKind::SourceInputNeedsStableIdentity,
-                ));
-
-                if let Some(input_index) = DiagnosticArg::input_index(input_index) {
-                    diagnostic = diagnostic.with_arg(input_index);
-                }
-
-                diagnostic
-            }
+            Self::SourceIdentityOverflow { input_index, path } => Diagnostic::new(
+                id,
+                DiagnosticKind::RequestInvalidSourceInput,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::source_input(DiagnosticSourceInput::new(
+                input_index,
+                bray_source::SourceInputKind::File,
+                DiagnosticSourceInputOrigin::File(path),
+            )))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::SourceInputNeedsStableIdentity,
+            )),
             Self::ReadFile {
                 input_index,
                 path,
                 kind,
-            } => {
-                let mut diagnostic = Diagnostic::new(
-                    id,
-                    DiagnosticKind::SourceFileReadFailed,
-                    SeverityKind::Error,
-                )
-                .with_arg(DiagnosticArg::file_path(path))
-                .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
-                    kind,
-                )))
-                .with_note(DiagnosticNote::new(
-                    DiagnosticNoteKind::SourceFileMustBeReadable,
-                ));
-
-                if let Some(input_index) = DiagnosticArg::input_index(input_index) {
-                    diagnostic = diagnostic.with_arg(input_index);
-                }
-
-                diagnostic
-            }
+            } => Diagnostic::new(
+                id,
+                DiagnosticKind::SourceFileReadFailed,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::source_input(DiagnosticSourceInput::new(
+                input_index,
+                bray_source::SourceInputKind::File,
+                DiagnosticSourceInputOrigin::File(path),
+            )))
+            .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
+                kind,
+            )))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::SourceFileMustBeReadable,
+            )),
         }
     }
 
@@ -129,7 +125,7 @@ where
 {
     let mut sources = Vec::new();
 
-    for (input_index, file_argument) in file_arguments.into_iter().enumerate() {
+    for (input_index, file_argument) in (0_u64..).zip(file_arguments) {
         let path = file_argument.into();
 
         sources.push(source_input_from_file_argument(input_index, path)?);
@@ -139,10 +135,15 @@ where
 }
 
 fn source_input_from_file_argument(
-    input_index: usize,
+    input_index: u64,
     path: PathBuf,
 ) -> Result<SourceInput, SourceInputError> {
-    let identity = source_identity_for_input_index(input_index)?;
+    let identity = source_identity_for_input_index(input_index).ok_or_else(|| {
+        SourceInputError::SourceIdentityOverflow {
+            input_index,
+            path: path.clone(),
+        }
+    })?;
 
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -163,23 +164,20 @@ fn source_input_from_file_argument(
     ))
 }
 
-fn source_identity_for_input_index(input_index: usize) -> Result<SourceIdentity, SourceInputError> {
-    let raw = match u32::try_from(input_index) {
-        Ok(raw) => raw,
-        Err(_) => return Err(SourceInputError::SourceIdentityOverflow { input_index }),
-    };
-
-    Ok(SourceIdentity::new(raw))
+fn source_identity_for_input_index(input_index: u64) -> Option<SourceIdentity> {
+    u32::try_from(input_index).ok().map(SourceIdentity::new)
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::ErrorKind;
+    use std::path::PathBuf;
 
     use bray_compilation::{Compilation, CompilationOptions, WorkerBudget};
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticIoErrorKind,
-        DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
+        DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticSourceInput,
+        DiagnosticSourceInputOrigin,
     };
     use bray_source::{SourceId, SourceIdentity, SourceVersion};
 
@@ -302,16 +300,16 @@ mod tests {
             diagnostic.args(),
             &[
                 DiagnosticArg::new(
-                    DiagnosticArgName::FilePath,
-                    DiagnosticArgValue::FilePath(missing_path)
+                    DiagnosticArgName::SourceInput,
+                    DiagnosticArgValue::SourceInput(DiagnosticSourceInput::new(
+                        0,
+                        bray_source::SourceInputKind::File,
+                        DiagnosticSourceInputOrigin::File(missing_path)
+                    ))
                 ),
                 DiagnosticArg::new(
                     DiagnosticArgName::IoErrorKind,
                     DiagnosticArgValue::IoErrorKind(DiagnosticIoErrorKind::NotFound)
-                ),
-                DiagnosticArg::new(
-                    DiagnosticArgName::InputIndex,
-                    DiagnosticArgValue::InputIndex(0)
                 )
             ]
         );
@@ -322,24 +320,22 @@ mod tests {
                 DiagnosticNoteKind::SourceFileMustBeReadable
             )]
         );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::SourceFileReadFailed,
+        );
     }
 
     #[test]
     fn file_argument_identity_overflow_is_reported() {
-        let overflow_index = match usize::try_from(u64::from(u32::MAX) + 1) {
-            Ok(overflow_index) => overflow_index,
-            Err(_) => return,
-        };
+        let overflow_index = u64::from(u32::MAX) + 1;
 
-        assert_eq!(
-            source_identity_for_input_index(overflow_index),
-            Err(SourceInputError::SourceIdentityOverflow {
-                input_index: overflow_index
-            })
-        );
+        assert_eq!(source_identity_for_input_index(overflow_index), None);
 
         let diagnostic = SourceInputError::SourceIdentityOverflow {
             input_index: overflow_index,
+            path: PathBuf::from("overflow.bray"),
         }
         .into_diagnostic(bray_diagnostics::DiagnosticId::new(0));
 
@@ -350,6 +346,11 @@ mod tests {
             &[DiagnosticNote::new(
                 DiagnosticNoteKind::SourceInputNeedsStableIdentity
             )]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &bray_diagnostics::DiagnosticBag::single(diagnostic),
+            DiagnosticKind::RequestInvalidSourceInput,
         );
     }
 }

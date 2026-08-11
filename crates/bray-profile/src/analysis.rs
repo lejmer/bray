@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    CompilationProfileMetric, CompilationProfileMetricDescriptor,
+    CompilationProfileContext, CompilationProfileMetric, CompilationProfileMetricDescriptor,
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
     CompilationProfileQueryDescriptor, CompilationProfileQueryStatistics, CompilationProfileReport,
 };
@@ -203,12 +203,18 @@ pub struct CompilationProfileComparison<'profile> {
 }
 
 /// Reason two valid compiler profiles cannot be compared meaningfully.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompilationProfileComparisonError {
     /// Package, product, or target identity differs.
-    Context,
+    Context {
+        before: CompilationProfileContext,
+        after: CompilationProfileContext,
+    },
     /// A shared descriptor identity has different metadata.
-    Descriptor,
+    Descriptor {
+        kind: crate::CompilationProfileDescriptorKind,
+        id: u16,
+    },
 }
 
 impl<'profile> CompilationProfileComparison<'profile> {
@@ -218,11 +224,14 @@ impl<'profile> CompilationProfileComparison<'profile> {
         after: &'profile CompilationProfileReport,
     ) -> Result<Self, CompilationProfileComparisonError> {
         if before.context != after.context {
-            return Err(CompilationProfileComparisonError::Context);
+            return Err(CompilationProfileComparisonError::Context {
+                before: before.context.clone(),
+                after: after.context.clone(),
+            });
         }
 
-        if !descriptors_are_compatible(before, after) {
-            return Err(CompilationProfileComparisonError::Descriptor);
+        if let Some((kind, id)) = incompatible_descriptor(before, after) {
+            return Err(CompilationProfileComparisonError::Descriptor { kind, id });
         }
 
         Ok(Self { before, after })
@@ -304,35 +313,65 @@ impl<'profile> CompilationProfileComparison<'profile> {
     }
 }
 
-fn descriptors_are_compatible(
+fn incompatible_descriptor(
     before: &CompilationProfileReport,
     after: &CompilationProfileReport,
-) -> bool {
-    before.descriptors.operations.iter().all(|descriptor| {
-        after
+) -> Option<(crate::CompilationProfileDescriptorKind, u16)> {
+    for descriptor in before
+        .descriptors
+        .operations
+        .iter()
+        .chain(&after.descriptors.operations)
+    {
+        if before
             .operation_descriptor(descriptor.id)
-            .is_none_or(|candidate| candidate == descriptor)
-    }) && before.descriptors.queries.iter().all(|descriptor| {
-        after
+            .zip(after.operation_descriptor(descriptor.id))
+            .is_some_and(|(left, right)| left != right)
+        {
+            return Some((
+                crate::CompilationProfileDescriptorKind::Operation,
+                descriptor.id,
+            ));
+        }
+    }
+
+    for descriptor in before
+        .descriptors
+        .queries
+        .iter()
+        .chain(&after.descriptors.queries)
+    {
+        if before
             .query_descriptor(descriptor.id)
-            .is_none_or(|candidate| candidate == descriptor)
-    }) && before.descriptors.metrics.iter().all(|descriptor| {
-        after
+            .zip(after.query_descriptor(descriptor.id))
+            .is_some_and(|(left, right)| left != right)
+        {
+            return Some((
+                crate::CompilationProfileDescriptorKind::Query,
+                descriptor.id,
+            ));
+        }
+    }
+
+    for descriptor in before
+        .descriptors
+        .metrics
+        .iter()
+        .chain(&after.descriptors.metrics)
+    {
+        if before
             .metric_descriptor(descriptor.id)
-            .is_none_or(|candidate| candidate == descriptor)
-    }) && after.descriptors.operations.iter().all(|descriptor| {
-        before
-            .operation_descriptor(descriptor.id)
-            .is_none_or(|candidate| candidate == descriptor)
-    }) && after.descriptors.queries.iter().all(|descriptor| {
-        before
-            .query_descriptor(descriptor.id)
-            .is_none_or(|candidate| candidate == descriptor)
-    }) && after.descriptors.metrics.iter().all(|descriptor| {
-        before
-            .metric_descriptor(descriptor.id)
-            .is_none_or(|candidate| candidate == descriptor)
-    })
+            .zip(after.metric_descriptor(descriptor.id))
+            .is_some_and(|(left, right)| left != right)
+        {
+            return Some((
+                crate::CompilationProfileDescriptorKind::Metric,
+                descriptor.id,
+            ));
+        }
+    }
+
+    None
 }
 
 fn operation_ids(
@@ -467,7 +506,7 @@ mod tests {
 
         assert!(matches!(
             CompilationProfileComparison::new(&before, &other_target),
-            Err(CompilationProfileComparisonError::Context)
+            Err(CompilationProfileComparisonError::Context { .. })
         ));
     }
 }

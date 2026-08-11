@@ -112,11 +112,19 @@ impl CodeGeneratorRegistry {
         };
 
         if let Err(failure) = validate_capabilities(generator.as_ref(), request) {
-            return Ok(CodegenOutcome::failed(failure, DiagnosticBag::new()));
+            return Ok(CodegenOutcome::failed(
+                request,
+                failure,
+                DiagnosticBag::new(),
+            ));
         }
 
         if let Err(failure) = generator.validate_target(request.target()) {
-            return Ok(CodegenOutcome::failed(failure, DiagnosticBag::new()));
+            return Ok(CodegenOutcome::failed(
+                request,
+                failure,
+                DiagnosticBag::new(),
+            ));
         }
 
         Ok(generator.generate(request))
@@ -398,9 +406,12 @@ mod tests {
             Ok(())
         }
 
-        fn generate(&self, _request: CodegenRequest<'_>) -> CodegenOutcome {
-            let outcome =
-                CodegenOutcome::failed(CodegenFailure::BackendLibrary, DiagnosticBag::new());
+        fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome {
+            let outcome = CodegenOutcome::failed(
+                request,
+                CodegenFailure::BackendLibrary,
+                DiagnosticBag::new(),
+            );
 
             assert!(matches!(
                 outcome.status(),

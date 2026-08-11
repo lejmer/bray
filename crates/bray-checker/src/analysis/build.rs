@@ -922,27 +922,30 @@ mod tests {
     }
 
     #[test]
-    fn compiler_known_task_calls_retain_their_execution_roles() {
+    fn compiler_known_task_calls_use_distinct_callees_and_retain_their_execution_roles() {
         let key = callable_key();
         let unit = BoundUnitId::new(11);
         let origin = BoundNodeOrigin::source(key.source());
 
         let mut builder = BoundTreeBuilder::new(unit);
 
-        let callee = push_name_expression(&mut builder, origin, error_type());
+        let start = push_task_call(&mut builder, origin, ImplementationHook::FutureStart);
 
-        let start = push_task_call(
-            &mut builder,
-            origin,
-            callee,
-            ImplementationHook::FutureStart,
-        );
+        let join = push_task_call(&mut builder, origin, ImplementationHook::TaskJoin);
+        let cancel = push_task_call(&mut builder, origin, ImplementationHook::TaskCancel);
 
-        let join = push_task_call(&mut builder, origin, callee, ImplementationHook::TaskJoin);
-        let cancel = push_task_call(&mut builder, origin, callee, ImplementationHook::TaskCancel);
         let root = push_callable_root(&mut builder, origin, [start, join, cancel]);
 
         let tree = builder.finish();
+
+        let start_callee = call_callee(&tree, start);
+        let join_callee = call_callee(&tree, join);
+        let cancel_callee = call_callee(&tree, cancel);
+
+        assert_ne!(start_callee, join_callee);
+        assert_ne!(start_callee, cancel_callee);
+        assert_ne!(join_callee, cancel_callee);
+
         let graph = graph(&tree, &key, root);
 
         let operations = graph
@@ -1293,9 +1296,10 @@ mod tests {
     fn push_task_call(
         builder: &mut BoundTreeBuilder,
         origin: BoundNodeOrigin,
-        callee: BoundExpressionId,
         hook: ImplementationHook,
     ) -> BoundExpressionId {
+        let callee = push_name_expression(builder, origin, error_type());
+
         let definition = available_compiler_known_symbols()
             .implementation_symbols::<TypeCallableMemberSymbolId>(hook)
             .next()
@@ -1324,6 +1328,14 @@ mod tests {
                 BoundResolvedCall::new(BoundCallableTarget::Declaration(callable), [], result),
             )),
         )
+    }
+
+    fn call_callee(tree: &BoundTree, expression: BoundExpressionId) -> BoundExpressionId {
+        let Some(BoundExpression::Call(call)) = tree.expression(expression) else {
+            panic!("compiler-known task operation must remain a call");
+        };
+
+        call.callee()
     }
 
     fn callable_instance(definition: TypeCallableMemberSymbolId) -> CallableInstanceData {

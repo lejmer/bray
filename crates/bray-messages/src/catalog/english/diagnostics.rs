@@ -8,84 +8,257 @@ use crate::rendered_diagnostic::RenderedDiagnosticNoteKind;
 use super::interface::diagnostic_template as interface_diagnostic_template;
 
 const SOURCE_FILE_READ_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not read source file "),
-    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text("could not read "),
+    MessageTemplatePart::Arg(DiagnosticArgName::SourceInput),
     MessageTemplatePart::Text(": "),
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
-const SOURCE_INVALID_UTF8: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "source input contains invalid UTF-8",
-)];
+const SOURCE_INVALID_UTF8: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::SourceInput),
+    MessageTemplatePart::Text(" contains invalid UTF-8 starting at byte offset "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TextOffset),
+];
 
-const LINKER_UNSUPPORTED_TARGET: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support the exact target",
+const CODEGEN_UNSUPPORTED_TARGET: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" does not support target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const CODEGEN_UNSUPPORTED_ARTIFACT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" cannot produce required "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" output for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const CODEGEN_INVALID_CONFIGURATION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" has an incompatible configuration for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const CODEGEN_RESOURCE_EXHAUSTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" exhausted an available resource while compiling target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const CODEGEN_BACKEND_LIBRARY_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" failed while compiling target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const CODEGEN_GENERATED_MODULE_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" rejected the generated module for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const CODEGEN_ARTIFACT_CONSTRUCTION_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" could not construct "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" output for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const NATIVE_PRODUCT_PREPARATION_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cannot prepare native product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::NativeProductFailureKind),
+];
+const EMISSION_LINKED_PLAN_MISSING: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cannot publish linked product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(
+        " because its completed native output was not requested for this product",
+    ),
+];
+const EMISSION_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cannot emit product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::EmissionFailure),
+];
+const EMISSION_TARGET_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cannot emit product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" because it requests target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualTargetTriple),
+    MessageTemplatePart::Text(" but the compilation selected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedTargetTriple),
+];
+const EMISSION_PRODUCT_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cannot emit requested product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" because this compilation loaded package "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedPackageIdentity),
+];
+const EMISSION_ARTIFACT_IO_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not "),
+    MessageTemplatePart::Arg(DiagnosticArgName::EmissionArtifactOperation),
+    MessageTemplatePart::Text(" for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" of product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const LINKER_UNSUPPORTED_TARGET: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_PRODUCT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support product category "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_INPUT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support input category "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_INPUT_MODE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support input treatment "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_OUTPUT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support output category "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_SEARCH_PATH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support search-path category "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_LINK_MODEL: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support linkage model "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_DEAD_STRIP: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support dead-code removal policy "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_SECTION_GARBAGE_COLLECTION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support section-removal policy "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_DEBUG: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support debug-information policy "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_SUBSYSTEM: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support subsystem "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_SYMBOL: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support symbol requirement "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_STARTUP: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support startup ownership "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_UNSUPPORTED_RUNTIME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("selected linker does not support runtime ownership "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+];
+const LINKER_DRIVER_UNAVAILABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "no configured native linker can satisfy this target and product",
 )];
-const LINKER_UNSUPPORTED_PRODUCT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support the product category",
+const LINKER_DRIVER_INCOMPATIBLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "the selected native linker is incompatible with the validated link plan",
 )];
-const LINKER_UNSUPPORTED_INPUT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support a link input category",
+const LINKER_INPUT_MISSING: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native link input "),
+    MessageTemplatePart::Arg(DiagnosticArgName::InputIndex),
+    MessageTemplatePart::Text(" of category "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+    MessageTemplatePart::Text(" is unavailable"),
+];
+const LINKER_RESPONSE_FILE_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExternalToolOperation),
+    MessageTemplatePart::Text(" "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+const LINKER_INVOCATION_FAILED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "the native linker process did not complete successfully",
 )];
-const LINKER_UNSUPPORTED_INPUT_MODE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support a link input treatment mode",
-)];
-const LINKER_UNSUPPORTED_OUTPUT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support a linked output category",
-)];
-const LINKER_UNSUPPORTED_SEARCH_PATH: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support a search-path category",
-)];
-const LINKER_UNSUPPORTED_LINK_MODEL: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support the linkage model",
-)];
-const LINKER_UNSUPPORTED_DEAD_STRIP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support the dead-code removal policy",
-)];
-const LINKER_UNSUPPORTED_SECTION_GARBAGE_COLLECTION: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "selected linker does not support the section garbage-collection policy",
-    )];
-const LINKER_UNSUPPORTED_DEBUG: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support the debug-information policy",
-)];
-const LINKER_UNSUPPORTED_SUBSYSTEM: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support the target subsystem",
-)];
-const LINKER_UNSUPPORTED_SYMBOL: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support a symbol-control requirement",
-)];
-const LINKER_UNSUPPORTED_STARTUP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support the startup ownership mode",
-)];
-const LINKER_UNSUPPORTED_RUNTIME: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected linker does not support the runtime ownership mode",
+const LINKER_EXTERNAL_TOOL_IO_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExternalToolOperation),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+const LINKER_EXTERNAL_TOOL_CONTRACT_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExternalToolOperation),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExternalToolFailureKind),
+];
+const LINKER_EXTERNAL_TOOL_EXITED_UNSUCCESSFULLY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("the native linker completed unsuccessfully: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExternalToolExit),
+];
+const LINKER_OUTPUT_MISSING: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native linker output "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" of category "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+    MessageTemplatePart::Text(" was not produced at "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+const LINKER_OUTPUT_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("native linker output "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" of category "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkRequirement),
+    MessageTemplatePart::Text(" at "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" does not satisfy its staging contract"),
+];
+const LINKER_RESOURCE_EXHAUSTED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "the native linker could not acquire an external-process slot",
 )];
 
 const SOURCE_TOO_MANY_INPUTS: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("too many source inputs: "),
+    MessageTemplatePart::Text("cannot load "),
+    MessageTemplatePart::Arg(DiagnosticArgName::SourceInput),
+    MessageTemplatePart::Text(": source input count "),
     MessageTemplatePart::Arg(DiagnosticArgName::SourceCount),
+    MessageTemplatePart::Text(" exceeds the compact source identity range"),
 ];
 
 const SOURCE_TEXT_TOO_LARGE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("source text is too large: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::SourceInput),
+    MessageTemplatePart::Text(" is too large: "),
     MessageTemplatePart::Arg(DiagnosticArgName::ByteCount),
     MessageTemplatePart::Text(" bytes"),
 ];
 
-const INSPECTION_REPORT_WRITE_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not write inspection report to "),
-    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
-    MessageTemplatePart::Text(": "),
-    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
-];
+const INSPECTION_REPORT_WRITE_FAILED: &[MessageTemplatePart] = &[MessageTemplatePart::Arg(
+    DiagnosticArgName::ProjectCommandFailure,
+)];
 
-const COMPILER_PROFILE_WRITE_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not write compiler profile to "),
-    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
-    MessageTemplatePart::Text(": "),
-    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
-];
+const COMPILER_PROFILE_WRITE_FAILED: &[MessageTemplatePart] = &[MessageTemplatePart::Arg(
+    DiagnosticArgName::ProjectCommandFailure,
+)];
 
 const RUNTIME_ARTIFACT_METADATA_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read runtime artifact metadata "),
@@ -148,67 +321,223 @@ const PROJECT_MANIFEST_READ_FAILED: &[MessageTemplatePart] = &[
 ];
 
 const PROJECT_MANIFEST_PARSE_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("Bray project manifest does not match the required schema: "),
+    MessageTemplatePart::Text("could not decode Bray project manifest "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" at line "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DocumentLine),
+    MessageTemplatePart::Text(", column "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DocumentColumn),
+    MessageTemplatePart::Text(": found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DocumentParseKind),
+];
+
+const PROJECT_MANIFEST_UNSUPPORTED_FORMAT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" uses format revision "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualRevision),
+    MessageTemplatePart::Text(", but Bray accepts revision "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRevision),
+];
+
+const PROJECT_MANIFEST_INVALID_PATH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" contains non-portable project path "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectPath),
+    MessageTemplatePart::Text(" in "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
-const PROJECT_MANIFEST_INVALID: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("invalid Bray project manifest selection "),
+const PROJECT_MANIFEST_INVALID_NAME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" contains invalid project name "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
     MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+macro_rules! project_manifest_selection_message {
+    ($name:ident, $text:literal) => {
+        const $name: &[MessageTemplatePart] = &[
+            MessageTemplatePart::Text($text),
+            MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+            MessageTemplatePart::Text(" selected by "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+            MessageTemplatePart::Text(" in "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+        ];
+    };
+}
+
+const PROJECT_MANIFEST_MISSING_SELECTION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" has no selection in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_MANIFEST_MISSING_ROOT_PACKAGE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" has no root package in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+project_manifest_selection_message!(
+    PROJECT_MANIFEST_UNDECLARED_FEATURE,
+    "undeclared package feature "
+);
+project_manifest_selection_message!(
+    PROJECT_MANIFEST_UNKNOWN_SOURCE_ROOT,
+    "unknown package source root "
+);
+const PROJECT_MANIFEST_UNKNOWN_TARGET: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" selected by "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" is not declared in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+const PROJECT_MANIFEST_UNKNOWN_TARGET_PREDICATE_PROPERTY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("target predicate property "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" is not defined for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_MANIFEST_TARGET_PREDICATE_VALUE_KIND_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("target predicate property "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" accepts "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedTargetPredicateValueKind),
+    MessageTemplatePart::Text(" values, but received a "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualTargetPredicateValueKind),
+    MessageTemplatePart::Text(" value"),
+];
+const PROJECT_MANIFEST_UNEXPECTED_TESTED_LIBRARY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("non-test product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" has a tested library in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" of "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
 const PROJECT_PACKAGE_VERSION_INVALID: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("invalid Bray package version declaration "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" contains invalid Bray package version "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
     MessageTemplatePart::Text(" in "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
+const PROJECT_PACKAGE_VERSION_MISSING_WORKSPACE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" inherits a package version absent from "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
 const PROJECT_MANIFEST_DUPLICATE_SELECTION: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("duplicate Bray project manifest selection "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" repeats selection "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
     MessageTemplatePart::Text(" in "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
 const PROJECT_SOURCE_ROOT_INVALID: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("invalid project-owned source root "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
-    MessageTemplatePart::Text(" selected by "),
+    MessageTemplatePart::Text("could not read project-owned source root "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectPath),
+    MessageTemplatePart::Text(" from "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_SOURCE_ROOT_CONTAINS_SYMLINK: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("project-owned source tree contains symbolic link "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectPath),
+    MessageTemplatePart::Text(" under "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_SOURCE_ROOT_CONTAINS_NON_UTF8_PATH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("project-owned source tree contains non-UTF-8 path "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectPath),
+    MessageTemplatePart::Text(" under "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" in "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
 const PROJECT_DEPENDENCY_PACKAGE_UNKNOWN: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("dependency package "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
-    MessageTemplatePart::Text(" is absent from the explicit workspace inventory in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualPackageIdentity),
+    MessageTemplatePart::Text(" selected by "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" is absent from the workspace inventory in "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
-const PROJECT_DEPENDENCY_PRODUCT_INVALID: &[MessageTemplatePart] = &[
+const PROJECT_DEPENDENCY_PRODUCT_UNKNOWN: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("dependency product "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
-    MessageTemplatePart::Text(" is not a declared library product in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualPackageIdentity),
+    MessageTemplatePart::Text("/"),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" selected by "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" is absent from its package in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_DEPENDENCY_PRODUCT_NOT_LIBRARY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("dependency product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualPackageIdentity),
+    MessageTemplatePart::Text("/"),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" selected by "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" is not a library in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+];
+
+const PROJECT_DEPENDENCY_PRODUCT_TARGET_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("dependency product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualPackageIdentity),
+    MessageTemplatePart::Text("/"),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" does not support target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" selected by "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" in "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
 const PROJECT_DEPENDENCY_CYCLE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("package dependency cycle includes "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text("dependency cycle includes "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectDependencyCycleMember),
+    MessageTemplatePart::Text(" from "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
     MessageTemplatePart::Text(" in "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
 ];
 
 const PROJECT_COMMAND_SELECTION_INVALID: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("project command selection is not present in the explicit graph: "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text("invalid project command selection: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectSelectionProblem),
 ];
 
 const PROJECT_COMMAND_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("project command operation failed: "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text("project command failed: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectCommandFailure),
 ];
 
 const PROJECT_INITIALIZATION_IDENTITY_INVALID: &[MessageTemplatePart] = &[
@@ -269,8 +598,14 @@ const FORMATTER_CONFIGURATION_READ_FAILED: &[MessageTemplatePart] = &[
 ];
 
 const FORMATTER_CONFIGURATION_MALFORMED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("formatter configuration is malformed: "),
+    MessageTemplatePart::Text("could not decode formatter configuration "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" at line "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DocumentLine),
+    MessageTemplatePart::Text(", column "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DocumentColumn),
+    MessageTemplatePart::Text(": found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DocumentParseKind),
 ];
 
 const FORMATTER_CONFIGURATION_UNKNOWN_RULE: &[MessageTemplatePart] = &[
@@ -287,11 +622,15 @@ const FORMATTER_CONFIGURATION_INVALID_MAXIMUM_WIDTH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
 ];
 
-const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("no source inputs were provided")];
+const REQUEST_MISSING_SOURCE_INPUT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("at least one source input is required, but the request contains "),
+    MessageTemplatePart::Arg(DiagnosticArgName::SourceCount),
+];
 
-const REQUEST_INVALID_SOURCE_INPUT: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("source input is invalid")];
+const REQUEST_INVALID_SOURCE_INPUT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::SourceInput),
+    MessageTemplatePart::Text(" does not provide a stable source identity"),
+];
 
 const REQUEST_RESERVED_PACKAGE_IDENTITY: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("package identity "),
@@ -301,21 +640,32 @@ const REQUEST_RESERVED_PACKAGE_IDENTITY: &[MessageTemplatePart] = &[
 
 const PROJECT_PACKAGE_IDENTITY_RESERVED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("package identity "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
-    MessageTemplatePart::Text(" is reserved for toolchain-owned standard library source in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualPackageIdentity),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" of "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" is reserved for toolchain-owned standard library source"),
 ];
 
 const PROJECT_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("standard library workspace package "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
-    MessageTemplatePart::Text(" must use the reserved standard library namespace in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualPackageIdentity),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" of "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" is outside the reserved standard library namespace"),
 ];
 
 const PROJECT_STANDARD_LIBRARY_ROOT_PACKAGE_REQUIRED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("standard library workspace must select package std as its root in "),
+    MessageTemplatePart::Text("standard library workspace root package "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualPackageIdentity),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectManifestField),
+    MessageTemplatePart::Text(" of "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" is not the required public package std"),
 ];
 
 const REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart] = &[
@@ -326,11 +676,23 @@ const REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart]
 const STANDARD_LIBRARY_ARTIFACT_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read standard library artifact "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
-const STANDARD_LIBRARY_MANIFEST_INVALID: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "standard library manifest is invalid",
-)];
+const STANDARD_LIBRARY_MANIFEST_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library manifest "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" contains "),
+    MessageTemplatePart::Arg(DiagnosticArgName::StandardLibraryManifestProblem),
+];
+const STANDARD_LIBRARY_INFRASTRUCTURE_FAILURE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("standard library artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(
+        " could not be resolved because Bray could not publish the selected artifact",
+    ),
+];
 
 const STANDARD_LIBRARY_ARTIFACT_LENGTH_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("standard library artifact "),
@@ -352,12 +714,12 @@ const STANDARD_LIBRARY_ARTIFACT_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
 
 const STANDARD_LIBRARY_TARGET_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("standard library does not support target "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 
 const STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("target "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
     MessageTemplatePart::Text(" requires runtime ABI "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRuntimeAbi),
     MessageTemplatePart::Text(" but the standard library provides "),
@@ -365,18 +727,21 @@ const STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH: &[MessageTemplatePart] = &[
 ];
 
 const REQUEST_DUPLICATE_SOURCE_INPUT: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("source input "),
-    MessageTemplatePart::Arg(DiagnosticArgName::InputIndex),
+    MessageTemplatePart::Arg(DiagnosticArgName::SourceInput),
     MessageTemplatePart::Text(" selects a source that is already present"),
 ];
 
-const REQUEST_INVALID_WORKER_BUDGET: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "worker budget must be greater than zero",
-)];
+const REQUEST_INVALID_WORKER_BUDGET: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("worker budget must be greater than zero, but the request contains "),
+    MessageTemplatePart::Arg(DiagnosticArgName::WorkerCount),
+];
 
-const REQUEST_UNSUPPORTED_PRODUCT_EMISSION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "the selected product configuration cannot form a complete emission request",
-)];
+const REQUEST_UNSUPPORTED_PRODUCT_EMISSION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cannot emit a native product for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" because "),
+    MessageTemplatePart::Arg(DiagnosticArgName::UnsupportedEmissionReason),
+];
 
 const SYNTAX_NESTING_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("syntax nesting exceeds the maximum depth of "),
@@ -389,6 +754,11 @@ const CHECKING_NO_APPLICABLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" candidate"),
 ];
 
+const CHECKING_MUTABLE_INDEX_CONTRACT_REQUIRED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("mutable indexing requires an implementation of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
 const CHECKING_UNKNOWN_UNION_VARIANT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("expected union type has no variant named "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -396,28 +766,28 @@ const CHECKING_UNKNOWN_UNION_VARIANT: &[MessageTemplatePart] = &[
 
 const CHECKING_AMBIGUOUS_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
-    MessageTemplatePart::Text(" selection is ambiguous"),
-];
-
-const CHECKING_INACCESSIBLE_CANDIDATE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("matching "),
-    MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
-    MessageTemplatePart::Text(" candidate is inaccessible"),
+    MessageTemplatePart::Text(" selection is ambiguous between "),
+    MessageTemplatePart::Arg(DiagnosticArgName::SelectionCandidates),
 ];
 
 const CHECKING_INCOMPATIBLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::SelectionKind),
-    MessageTemplatePart::Text(" candidate is incompatible with the supplied expressions"),
+    MessageTemplatePart::Text(" candidates reject the supplied expressions: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::SelectionRejections),
 ];
 
 const CHECKING_TARGET_REPRESENTATION_UNAVAILABLE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("selected target does not provide the required "),
+    MessageTemplatePart::Text("target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" does not provide the required "),
     MessageTemplatePart::Arg(DiagnosticArgName::TargetRepresentation),
     MessageTemplatePart::Text(" representation"),
 ];
 
 const CHECKING_TARGET_CALLABLE_ABI_UNAVAILABLE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("selected target does not provide the required "),
+    MessageTemplatePart::Text("target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" does not provide the required "),
     MessageTemplatePart::Arg(DiagnosticArgName::CallableAbi),
     MessageTemplatePart::Text(" callable ABI"),
 ];
@@ -427,62 +797,65 @@ const CHECKING_TARGET_ALIGNMENT_UNSUPPORTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::AlignmentKind),
     MessageTemplatePart::Text(" alignment "),
     MessageTemplatePart::Arg(DiagnosticArgName::RequiredAlignment),
-    MessageTemplatePart::Text(" exceeds the selected target maximum of "),
+    MessageTemplatePart::Text(" exceeds target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" maximum of "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumAlignment),
 ];
 
 const CHECKING_TARGET_ABI_REPRESENTATION_UNSUPPORTED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("the selected "),
+    MessageTemplatePart::Text("target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" "),
     MessageTemplatePart::Arg(DiagnosticArgName::CallableAbi),
     MessageTemplatePart::Text(" callable ABI does not accept "),
     MessageTemplatePart::Arg(DiagnosticArgName::TargetRepresentation),
     MessageTemplatePart::Text(" values by value"),
 ];
 
-const CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "selected target does not provide this compiler-provided memory operation",
-    )];
-
-const CHECKING_INVALID_CALLBACK_STATE_CONTEXT: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
-        "callback state can only be borrowed from the first context parameter of a trusted foreign ABI entry",
-    ),
+const CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" does not provide the required "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
 ];
 
-const CHECKING_MISSING_TRUSTED_MEMORY_FACTS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "compiler-provided memory operation requires trusted supporting facts",
-)];
-
-const CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "compiler-provided memory operation uses an invalidated allocation",
+const CHECKING_INVALID_CALLBACK_STATE_CONTEXT: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Arg(
+        DiagnosticArgName::CallbackStateProblem,
     )];
 
-const CHECKING_UNINITIALIZED_RAW_STORAGE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "compiler-provided memory operation reads uninitialized raw storage",
-)];
+const CHECKING_MISSING_TRUSTED_MEMORY_GUARANTEES: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
+    MessageTemplatePart::Text(" requires trusted memory guarantees"),
+];
 
-const CHECKING_DEALLOCATION_WITH_OUTSTANDING_OBLIGATIONS: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "cannot deallocate raw storage while initialized values remain",
-    )];
+const CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
+    MessageTemplatePart::Text(" uses an invalidated allocation"),
+];
 
-const BINDING_INVALID_CALLABLE_ABI: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("invalid callable ABI directive")];
+const CHECKING_UNINITIALIZED_RAW_STORAGE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
+    MessageTemplatePart::Text(" reads raw storage without an initialized value"),
+];
 
-const BINDING_DUPLICATE_CALLABLE_ABI: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "callable ABI directive is repeated",
-)];
+const CHECKING_DEALLOCATION_WITH_OUTSTANDING_OBLIGATIONS: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
+    MessageTemplatePart::Text(" cannot release raw storage while initialized values remain"),
+];
 
-const BINDING_PREDICATE_BODY_REQUIRED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "ordinary predicate declaration requires a body",
-)];
+const BINDING_INVALID_CALLABLE_ABI: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("callable ABI directive "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+    MessageTemplatePart::Text(" does not match a supported ABI form"),
+];
 
-const BINDING_TRUSTED_PREDICATE_BODY_NOT_ALLOWED: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "trusted predicate declaration cannot have a body",
-    )];
+const BINDING_DUPLICATE_CALLABLE_ABI: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("callable ABI directive "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+    MessageTemplatePart::Text(" repeats an earlier ABI selection"),
+];
 
 const BINDING_CYCLIC_MODULE_EXPORT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("module export path through "),
@@ -510,61 +883,56 @@ const CHECKING_DUPLICATE_MODULE_CONTRIBUTION_DIRECTIVE: &[MessageTemplatePart] =
     MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
 ];
 
-const CHECKING_INVALID_STORED_TYPE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "stored type does not have a finite outer representation",
+const CHECKING_INVALID_STORED_TYPE: &[MessageTemplatePart] = &[MessageTemplatePart::Arg(
+    DiagnosticArgName::StoredTypeProblem,
 )];
 
-const CHECKING_RECURSIVE_TYPE_REPRESENTATION: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "declared type has an inline recursive representation",
-    )];
+const CHECKING_RECURSIVE_TYPE_REPRESENTATION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("declared type has an inline recursive representation through "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" source locations"),
+];
 
 const CHECKING_TYPE_REPRESENTATION_RECURSION_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("type representation analysis exceeded its recursion limit of "),
+    MessageTemplatePart::Text("type representation analysis required "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" nested declarations but the limit is "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
 
 const CHECKING_INVALID_LAYOUT_DIRECTIVE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("invalid type layout contract")];
+    &[MessageTemplatePart::Arg(DiagnosticArgName::LayoutProblem)];
 
-const CHECKING_INVALID_COPY_CONTRACT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "type does not satisfy its copy contract",
+const CHECKING_INVALID_COPY_CONTRACT: &[MessageTemplatePart] = &[MessageTemplatePart::Arg(
+    DiagnosticArgName::CopyContractProblem,
 )];
 
 const CHECKING_INVALID_UNION_TAG: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("invalid union tag contract")];
+    &[MessageTemplatePart::Arg(DiagnosticArgName::UnionTagProblem)];
 
-const CHECKING_REFINEMENT_CAPACITY_EXCEEDED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "program requires too many flow-sensitive facts",
+const CHECKING_REFINEMENT_CAPACITY_EXCEEDED: &[MessageTemplatePart] = &[MessageTemplatePart::Arg(
+    DiagnosticArgName::RefinementCapacity,
 )];
 
-const CHECKING_USE_OF_UNINITIALIZED_STORAGE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "storage is used before it is initialized",
-)];
+const CHECKING_USE_OF_MOVED_STORAGE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::StorageAccess),
+    MessageTemplatePart::Text(" reaches storage whose value was moved"),
+];
 
-const CHECKING_USE_OF_MOVED_STORAGE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "storage is used after its value was moved",
-)];
+const CHECKING_CONFLICTING_BORROW: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::StorageAccess),
+    MessageTemplatePart::Text(" conflicts with an active borrow"),
+];
 
-const CHECKING_CONFLICTING_BORROW: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "operation conflicts with an active borrow",
-)];
+const CHECKING_MISSING_MUTATION_AUTHORITY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::StorageAccess),
+    MessageTemplatePart::Text(" has no mutable access to the reached storage"),
+];
 
-const CHECKING_MISSING_MUTATION_AUTHORITY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "operation requires mutable access to storage",
-)];
-
-const CHECKING_TYPE_IS_NOT_COPYABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "value type does not support implicit copying",
-)];
-
-const CHECKING_MISSING_STORAGE_OWNERSHIP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "operation requires ownership of the reached storage",
-)];
-
-const CHECKING_INACTIVE_STORAGE_PROJECTION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "selected storage is not active on this control-flow path",
-)];
+const CHECKING_MISSING_STORAGE_OWNERSHIP: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::StorageAccess),
+    MessageTemplatePart::Text(" does not own the reached storage"),
+];
 
 const CHECKING_MISSING_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("trait implementation does not fulfill "),
@@ -577,8 +945,10 @@ const CHECKING_EXTRA_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
 ];
 
 const CHECKING_INCOMPATIBLE_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("trait fulfillment is incompatible with "),
+    MessageTemplatePart::Text("trait fulfillment of "),
     MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
+    MessageTemplatePart::Text(" is incompatible: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TraitFulfillmentMismatch),
 ];
 
 const CHECKING_DUPLICATE_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
@@ -586,56 +956,68 @@ const CHECKING_DUPLICATE_TRAIT_FULFILLMENT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TraitMemberName),
 ];
 
-const CHECKING_OVERLAPPING_IMPLEMENTATION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "implementation overlaps another participating implementation",
-)];
+const CHECKING_OVERLAPPING_IMPLEMENTATION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("implementation of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::InterfaceSymbolIdentity),
+    MessageTemplatePart::Text(" for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+    MessageTemplatePart::Text(" overlaps another participating implementation"),
+];
 
-const CHECKING_UNGROUPED_IMPLEMENTATION_OVERLOADS: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "implementations sharing a subject and trait must belong to one overload family",
-    )];
+const CHECKING_UNGROUPED_IMPLEMENTATION_OVERLOADS: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("implementation of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::InterfaceSymbolIdentity),
+    MessageTemplatePart::Text(" for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+    MessageTemplatePart::Text(" conflicts with an implementation outside its overload family"),
+];
 
-const CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_HEADER: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "implementation overload header must name a supported subject and trait",
-    )];
+const CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_HEADER: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("implementation overload header is invalid: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ImplementationOverloadProblem),
+];
 
-const CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_ARM: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "implementation overload arm is duplicated or incompatible with its family",
-    )];
+const CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_ARM: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("implementation overload arm is invalid: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ImplementationOverloadProblem),
+];
 
-const CHECKING_INVALID_CALLABLE_OVERLOAD_ARM: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "callable overload arm must name an accessible callable with a compatible call context",
-    )];
+const CHECKING_DUPLICATE_IMPLEMENTATION_OVERLOAD_ARM: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("implementation overload arm is duplicated: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ImplementationOverloadProblem),
+];
 
-const CHECKING_DUPLICATE_CALLABLE_OVERLOAD_ARM: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "callable declaration occurs more than once in this overload family",
-    )];
+const CHECKING_INVALID_CALLABLE_OVERLOAD_ARM: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("callable overload arm is invalid: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableOverloadProblem),
+];
 
-const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_FAMILY: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "callable declaration cannot belong to more than one overload family",
-    )];
+const CHECKING_DUPLICATE_CALLABLE_OVERLOAD_ARM: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("callable overload arm is duplicated: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableOverloadProblem),
+];
 
-const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "callable overload arms have indistinguishable selection signatures",
-    )];
+const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_FAMILY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("callable overload family membership conflicts: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableOverloadProblem),
+];
+
+const CHECKING_CONFLICTING_CALLABLE_OVERLOAD_SIGNATURE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("callable overload signatures conflict: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableOverloadProblem),
+];
 
 const CHECKING_IMPLEMENTATION_COHERENCE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
-        "implementation coherence analysis exceeded its pairwise comparison limit of ",
-    ),
+    MessageTemplatePart::Text("implementation coherence comparison "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" exceeds the configured limit of "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
 
 const CHECKING_CALLABLE_OVERLOAD_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
-        "callable overload analysis exceeded its pairwise comparison limit of ",
-    ),
+    MessageTemplatePart::Text("callable overload comparison "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" exceeds the configured limit of "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
 
@@ -644,20 +1026,21 @@ const CHECKING_MISSING_FOREIGN_CALLABLE_DIRECTIVE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedSyntaxKind),
 ];
 
-const CHECKING_FOREIGN_CALLABLE_REQUIRES_TRUSTED: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "foreign callable must establish a trusted boundary",
-    )];
+const CHECKING_FOREIGN_CALLABLE_REQUIRES_TRUSTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableAbi),
+    MessageTemplatePart::Text(" foreign callable is not declared trusted"),
+];
 
 const CHECKING_FOREIGN_CALLABLE_REQUIRES_CAPABILITY: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("foreign callable requires capability "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
-const CHECKING_FOREIGN_CALLABLE_EXECUTION_UNSUPPORTED: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "asynchronous callable cannot cross a foreign ABI boundary",
-    )];
+const CHECKING_FOREIGN_CALLABLE_EXECUTION_UNSUPPORTED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("asynchronous callable cannot cross the "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableAbi),
+    MessageTemplatePart::Text(" ABI boundary"),
+];
 
 const CHECKING_FOREIGN_ABI_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
@@ -667,18 +1050,17 @@ const CHECKING_FOREIGN_ABI_TYPE_UNSUPPORTED: &[MessageTemplatePart] = &[
 ];
 
 const CHECKING_PLATFORM_SERVICE_SIGNATURE_MISMATCH: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "platform service declaration does not match its required ABI signature",
+    &[MessageTemplatePart::Arg(
+        DiagnosticArgName::PlatformServiceSignatureProblem,
     )];
 
-const CHECKING_INVALID_NATIVE_LINK_DIRECTIVE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "link directive must provide a non-empty constant string name and a supported link kind",
-    )];
+const CHECKING_INVALID_NATIVE_LINK_DIRECTIVE: &[MessageTemplatePart] = &[MessageTemplatePart::Arg(
+    DiagnosticArgName::NativeLinkDirectiveProblem,
+)];
 
 const CHECKING_INVALID_NATIVE_SYMBOL_DIRECTIVE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "symbol directive must provide a non-empty constant string name",
+    &[MessageTemplatePart::Arg(
+        DiagnosticArgName::NativeSymbolDirectiveProblem,
     )];
 
 const CHECKING_DUPLICATE_NATIVE_SYMBOL: &[MessageTemplatePart] = &[
@@ -707,137 +1089,189 @@ const CHECKING_TRUSTED_CAPABILITY_REQUIRES_TRUSTED_CALLABLE: &[MessageTemplatePa
 ];
 
 const CHECKING_AWAIT_OUTSIDE_ASYNC_CALLABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "await is only permitted in an asynchronous callable body",
+    "await is used in a synchronous callable body",
 )];
 
 const CHECKING_TASK_START_OUTSIDE_ASYNC_CALLABLE: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text(
-        "a future can only be started from an asynchronous callable body",
+        "a future is started in a synchronous callable body",
     )];
 
-const CHECKING_UNAVAILABLE_AWAIT_DEPENDENCY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "awaited computation depends on a value or borrow that is no longer available",
-)];
+const CHECKING_UNAVAILABLE_AWAIT_DEPENDENCY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("await requires "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
+    MessageTemplatePart::Text(" to "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DependencyRequirementKind),
+];
 
-const CHECKING_ENTRYPOINT_NOT_ALLOWED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "entrypoint directive is not allowed for this product",
-)];
+const CHECKING_ENTRYPOINT_NOT_ALLOWED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("the entrypoint directive is not allowed on a "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductKind),
+];
 
 const CHECKING_MISSING_ENTRYPOINT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "executable product requires an entry point",
 )];
 
-const CHECKING_DUPLICATE_ENTRYPOINT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "executable product has more than one entry point",
-)];
+const CHECKING_DUPLICATE_ENTRYPOINT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("executable product has "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" entry points"),
+];
 
-const CHECKING_ENTRY_CANNOT_BE_GENERIC: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "product entry function cannot declare generic parameters",
-)];
+const CHECKING_ENTRY_CANNOT_BE_GENERIC: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("product entry function declares "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" generic parameters"),
+];
 
-const CHECKING_ENTRY_CANNOT_TAKE_PARAMETERS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "product entry function cannot require caller-supplied parameters",
-)];
+const CHECKING_ENTRY_CANNOT_TAKE_PARAMETERS: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("product entry function requires "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" caller-supplied parameters"),
+];
 
-const CHECKING_INVALID_ENTRYPOINT_RESULT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "entry point result must be unit, Result<unit, E>, or i32",
-)];
+const CHECKING_INVALID_ENTRYPOINT_RESULT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("entry point has unsupported result type "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
 
-const CHECKING_INVALID_TEST_RESULT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "test entry result must be unit or Result<unit, E>",
-)];
+const CHECKING_INVALID_TEST_RESULT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("test entry has unsupported result type "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
 
-const CHECKING_INVALID_TEST_ENTRY_DIRECTIVE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "@test on a function accepts no arguments or the positional argument serial",
-)];
+const CHECKING_INVALID_TEST_ENTRY_DIRECTIVE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("@test on a function uses unsupported form "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+    MessageTemplatePart::Text(" with argument count "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+];
 
-const CHECKING_INVALID_TEST_MODULE_DIRECTIVE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "@test on a module does not accept arguments",
-    )];
+const CHECKING_INVALID_TEST_MODULE_DIRECTIVE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("@test on a module uses unsupported form "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+    MessageTemplatePart::Text(" with argument count "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+];
 
-const CHECKING_DUPLICATE_TEST_IDENTITY: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "more than one test has the same fully qualified declaration path",
-)];
+const CHECKING_DUPLICATE_TEST_IDENTITY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("test declaration path is used more than once: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
+];
 
 const CHECKING_ENTRY_CANNOT_BE_CONSTANT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "product entry function cannot be constant",
 )];
 
 const CHECKING_ENTRY_CANNOT_REQUIRE_TRUST: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "product entry function cannot expose trusted caller obligations",
+    "product entry function requires a trusted caller",
 )];
 
-const CHECKING_EXPORT_DEPENDS_ON_INTERNAL_DECLARATION: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "public signature exposes an internal declaration",
-    )];
+const CHECKING_EXPORT_DEPENDS_ON_INTERNAL_DECLARATION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("public declaration exposes internal declaration "),
+    MessageTemplatePart::Arg(DiagnosticArgName::InterfaceSymbolIdentity),
+];
 
 const EMISSION_MISSING_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("missing required "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
-    MessageTemplatePart::Text(" artifact contribution"),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" content"),
 ];
 
 const EMISSION_INVALID_CONTRIBUTION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
-    MessageTemplatePart::Text(" artifact contribution does not match the emission plan"),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" content does not match the output request"),
 ];
 
 const EMISSION_ARTIFACT_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
-    MessageTemplatePart::Text(" artifact content: "),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" content: "),
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
 const EMISSION_ARTIFACT_OPEN_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not open artifact output "),
+    MessageTemplatePart::Text("could not open "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" output "),
     MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
     MessageTemplatePart::Text(": "),
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
 const EMISSION_ARTIFACT_WRITE_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not write artifact output "),
+    MessageTemplatePart::Text("could not write "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" output "),
     MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
     MessageTemplatePart::Text(": "),
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
 const EMISSION_ARTIFACT_FLUSH_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not flush artifact output "),
+    MessageTemplatePart::Text("could not flush "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" output "),
     MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
     MessageTemplatePart::Text(": "),
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
 const EMISSION_ARTIFACT_COMMIT_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not commit artifact output "),
+    MessageTemplatePart::Text("could not commit "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" output "),
     MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
     MessageTemplatePart::Text(": "),
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
 ];
 
 const EMISSION_MANAGED_PUBLICATION_UNSUPPORTED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("filesystem output "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" targets filesystem output "),
     MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
     MessageTemplatePart::Text(" does not support atomic managed product publication"),
 ];
 
 const EMISSION_GENERATION_COLLISION: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("content-addressed product generation conflicts at "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" conflicts with different content at "),
     MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
 ];
 
 const EMISSION_GENERATION_MANIFEST_INVALID: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("managed product generation manifest is invalid at "),
+    MessageTemplatePart::Text("managed generation manifest for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" is invalid at "),
     MessageTemplatePart::Arg(DiagnosticArgName::OutputSink),
 ];
 
 const EMISSION_ARTIFACT_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
-    MessageTemplatePart::Text(" artifact declared digest "),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" declared digest "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
     MessageTemplatePart::Text(", but content digest was "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
@@ -845,7 +1279,9 @@ const EMISSION_ARTIFACT_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
 
 const EMISSION_ARTIFACT_LENGTH_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
-    MessageTemplatePart::Text(" artifact declared "),
+    MessageTemplatePart::Text(" artifact "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactOrdinal),
+    MessageTemplatePart::Text(" declared "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedByteCount),
     MessageTemplatePart::Text(" bytes, but content contained "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualByteCount),
@@ -902,6 +1338,8 @@ const LEXICAL_UNTERMINATED_BLOCK_COMMENT: &[MessageTemplatePart] =
 const SYNTAX_EXPECTED_TOKEN: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("expected "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedSyntaxKind),
+    MessageTemplatePart::Text(" but found "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
 ];
 
 const SYNTAX_EXPECTED_EXPRESSION: &[MessageTemplatePart] = &[
@@ -1023,84 +1461,111 @@ const CHECKING_INCOMPATIBLE_PATTERN: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
 ];
 
-const CHECKING_REFUTABLE_PATTERN: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("pattern must be irrefutable")];
+const CHECKING_REFUTABLE_PATTERN: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("pattern can reject values of type "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
 
-const CHECKING_NON_EXHAUSTIVE_MATCH: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "match does not cover every possible value",
-)];
+const CHECKING_NON_EXHAUSTIVE_MATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("match coverage is incomplete: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::PatternCoverage),
+];
 
-const CHECKING_UNREACHABLE_MATCH_ARM: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("match arm is unreachable")];
+const CHECKING_UNREACHABLE_MATCH_ARM: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("match arm is unreachable because "),
+    MessageTemplatePart::Arg(DiagnosticArgName::PatternUnreachability),
+];
 
-const CHECKING_UNREACHABLE_PATTERN_ALTERNATIVE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "pattern alternative is unreachable",
-    )];
+const CHECKING_UNREACHABLE_PATTERN_ALTERNATIVE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("pattern alternative is unreachable because "),
+    MessageTemplatePart::Arg(DiagnosticArgName::PatternUnreachability),
+];
 
-const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text("cannot infer expression type")];
+const CHECKING_CANNOT_INFER_EXPRESSION_TYPE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("cannot infer the type of this "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
+];
 
 const CHECKING_NO_COMPATIBLE_PROPAGATION_BOUNDARY: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "no compatible propagation boundary is available",
+    &[MessageTemplatePart::Arg(
+        DiagnosticArgName::PropagationProblem,
     )];
 
-const CHECKING_INVALID_CONSTANT_EXPRESSION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "expression is not valid in compile-time constant context",
-)];
+const CHECKING_INVALID_CONSTANT_EXPRESSION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("this "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpressionCategory),
+    MessageTemplatePart::Text(" cannot be evaluated as a compile-time constant"),
+];
 
-const CHECKING_ARRAY_LENGTH_NOT_POSITIVE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "array length must be greater than zero",
-)];
+const CHECKING_INVALID_CONSTANT_OPERATION: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("compile-time "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ConstantOperation),
+    MessageTemplatePart::Text(" is not defined for these operands"),
+];
 
 const CHECKING_ARRAY_GENERATOR_CARDINALITY_NOT_PROVABLE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "array generator element count cannot be proven",
+    &[MessageTemplatePart::Arg(
+        DiagnosticArgName::ArrayGeneratorCardinalityProblem,
     )];
 
-const CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "literal value cannot be represented by its selected type",
-    )];
+const CHECKING_CONSTANT_LITERAL_NOT_REPRESENTABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("literal value cannot be represented by "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
 
-const CHECKING_CONSTANT_EVALUATION_STEP_LIMIT_EXCEEDED: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "constant evaluation exceeded its operation limit",
-    )];
+const CHECKING_CONSTANT_EVALUATION_STEP_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("constant evaluation requires "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" operations, exceeding the limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+];
 
-const CHECKING_CONSTANT_AGGREGATE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "constant evaluation exceeded its aggregate element limit",
-    )];
+const CHECKING_CONSTANT_AGGREGATE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("constant evaluation materializes "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" aggregate elements, exceeding the limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+];
 
-const CHECKING_CONSTANT_EXPANSION_LIMIT_EXCEEDED: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "constant evaluation exceeded its expansion limit",
-    )];
+const CHECKING_CONSTANT_EXPANSION_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("constant evaluation expands "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" elements, exceeding the limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+];
 
-const CHECKING_CONSTANT_LITERAL_SIZE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "constant evaluation exceeded its literal size limit",
-    )];
+const CHECKING_CONSTANT_LITERAL_SIZE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("constant evaluation reads "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" literal bytes, exceeding the limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+];
 
-const CHECKING_CONSTANT_INTEGER_SIZE_LIMIT_EXCEEDED: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "constant evaluation exceeded its exact integer size limit",
-    )];
+const CHECKING_CONSTANT_INTEGER_SIZE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("compile-time "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ConstantOperation),
+    MessageTemplatePart::Text(" requires an integer with "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+    MessageTemplatePart::Text(" bits, exceeding the limit of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
+];
 
 const CHECKING_CYCLIC_CONSTANT_DEFINITION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "constant definition depends on itself through a cycle",
 )];
 
-const CHECKING_CONSTANT_DIVISION_BY_ZERO: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "constant operation divides by zero",
-)];
+const CHECKING_CONSTANT_DIVISION_BY_ZERO: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("compile-time "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ConstantOperation),
+    MessageTemplatePart::Text(" divides by zero"),
+];
 
-const CHECKING_CONSTANT_VALUE_NOT_REPRESENTABLE: &[MessageTemplatePart] =
-    &[MessageTemplatePart::Text(
-        "constant result cannot be represented by its selected type",
-    )];
+const CHECKING_CONSTANT_VALUE_NOT_REPRESENTABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("result of compile-time "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ConstantOperation),
+    MessageTemplatePart::Text(" cannot be represented by "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+];
 
 const BINDING_AMBIGUOUS_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("name "),
@@ -1134,6 +1599,11 @@ const NOTE_SOURCE_FILE_MUST_BE_READABLE: &[MessageTemplatePart] = &[MessageTempl
 const NOTE_SOURCE_MUST_BE_UTF8: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "source inputs must be valid UTF-8",
 )];
+
+const NOTE_SOURCE_MUST_MATCH_FORMATTER_OUTPUT: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "format checks require the source to match `bray fmt` output",
+    )];
 
 const NOTE_SOURCE_IDS_ARE_COMPACT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "source IDs use compact 32-bit storage",
@@ -1214,6 +1684,16 @@ const NOTE_UNICODE_ESCAPE_MUST_BE_SCALAR: &[MessageTemplatePart] = &[MessageTemp
 const NOTE_BLOCK_COMMENT_NEEDS_TERMINATOR: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("block comments must be closed")];
 
+const NOTE_CALLABLE_ABI_DIRECTIVE_MUST_NAME_SUPPORTED_ABI: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "callable ABI directives accept exactly one positional ABI name: c or system",
+    )];
+
+const NOTE_DIRECTIVE_ARGUMENT_MUST_HAVE_COMPLETE_FORM: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "directive arguments must be a complete positional expression or name = expression pair",
+    )];
+
 const NOTE_INTERFACE_DEPENDENCY_CONTEXT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("while loading package "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedPackageIdentity),
@@ -1222,6 +1702,112 @@ const NOTE_INTERFACE_DEPENDENCY_CONTEXT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" from "),
     MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
 ];
+const NOTE_LINK_PLAN_CONTEXT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("while linking product "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
+    MessageTemplatePart::Text(" for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" with driver "),
+    MessageTemplatePart::Arg(DiagnosticArgName::LinkerDriverIdentity),
+];
+const NOTE_RUNTIME_ARTIFACT_MUST_BE_USABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "select a readable runtime artifact built for the selected target and runtime ABI",
+)];
+const NOTE_AWAIT_DEPENDENCY_UNAVAILABLE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
+    MessageTemplatePart::Text(" must "),
+    MessageTemplatePart::Arg(DiagnosticArgName::DependencyRequirementKind),
+];
+
+const NOTE_ASYNCHRONOUS_CALLABLE_REQUIRED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "make the enclosing callable asynchronous or perform this operation from an asynchronous callable",
+)];
+
+const NOTE_EXECUTABLE_ENTRYPOINT_REQUIRED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "declare one valid module-level main function or mark one function with @entrypoint",
+)];
+
+const NOTE_ENTRYPOINT_DIRECTIVE_REQUIRES_EXECUTABLE_PRODUCT: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "remove @entrypoint or declare this package product as an executable",
+    )];
+
+const NOTE_PRODUCT_ENTRY_REQUIREMENTS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "use a non-generic, non-constant function without parameters or trusted caller requirements and with a supported result type",
+)];
+
+const NOTE_TEST_DIRECTIVE_REQUIREMENTS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "use @test without arguments, or use @test(serial) on a function",
+)];
+
+const NOTE_UNIQUE_TEST_IDENTITY_REQUIRED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "rename one test so every test has a unique module-qualified declaration path",
+)];
+
+const NOTE_PUBLIC_DEPENDENCY_REQUIRED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "make the exposed declaration public or remove it from the public declaration's signature or contract",
+)];
+
+const NOTE_REPORT_COMPILER_DEFECT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "report this compiler defect with the command and complete diagnostic output",
+)];
+
+const NOTE_EXTERNAL_TOOL_EXIT_REQUIRES_CORRECTION: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "correct the errors reported by the native linker, then build again",
+    )];
+
+const NOTE_TYPE_INFERENCE_NEEDS_CONSTRAINT: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "provide a type annotation or use the expression where an expected type is known",
+)];
+
+const NOTE_CONSTANT_EXPRESSION_MUST_BE_EVALUABLE: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "use only operations and values that can be evaluated at compile time",
+    )];
+
+const NOTE_CONSTANT_EVALUATION_MUST_FIT_LIMITS: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "reduce the compile-time work or select larger constant-evaluation limits",
+    )];
+
+const NOTE_TYPE_LAYOUT_DIRECTIVE_FORMS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "select stable, C-compatible, or transparent layout and use only compatible align, pack, and tag options",
+)];
+
+const NOTE_UNION_TAG_DIRECTIVE_FORMS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "use one representable integer tag on every variant of an explicitly laid-out union, or omit all explicit variant tags",
+)];
+
+const NOTE_COPY_CONTRACT_REQUIREMENTS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "a copy contract takes no arguments and requires every stored member to be copyable without lifecycle behavior",
+)];
+
+const NOTE_STORED_TYPE_REQUIRES_INDIRECTION: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "store this value behind an owned or borrowed indirection",
+)];
+const NOTE_SELECTION_MUST_BE_DISAMBIGUATED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "qualify the intended declaration or make the supplied types select one candidate",
+)];
+
+const NOTE_PROPAGATION_BOUNDARY_MUST_MATCH: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "return or yield a compatible nullable or result type at an enclosing boundary",
+)];
+
+const NOTE_ARRAY_GENERATOR_MUST_YIELD_ONCE_PER_ELEMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "use a source with an exact count and yield exactly once on every continuing iteration path",
+    ),
+];
+
+const NOTE_CALLBACK_STATE_REQUIREMENTS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "use the first context parameter of a trusted C or system ABI callable with a native symbol directive",
+)];
+
+const NOTE_REFUTABLE_PATTERN_REQUIRES_CONDITIONAL_CONTEXT: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "use this pattern in a match or another conditional pattern context",
+    )];
 
 pub(crate) const fn severity_label(severity: SeverityKind) -> &'static str {
     match severity {
@@ -1241,9 +1827,13 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::OnlyImaginaryNumericSuffix
         | DiagnosticNoteKind::CharacterLiteralMustContainOneScalar
         | DiagnosticNoteKind::UnicodeEscapeMustBeScalar
-        | DiagnosticNoteKind::InterfaceDependencyContext => RenderedDiagnosticNoteKind::Note,
+        | DiagnosticNoteKind::InterfaceDependencyContext
+        | DiagnosticNoteKind::LinkPlanContext
+        | DiagnosticNoteKind::AwaitDependencyUnavailable
+        | DiagnosticNoteKind::ReportCompilerDefect => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::SourceFileMustBeReadable
         | DiagnosticNoteKind::SourceMustBeUtf8
+        | DiagnosticNoteKind::SourceMustMatchFormatterOutput
         | DiagnosticNoteKind::SourceInputRequired
         | DiagnosticNoteKind::SourceInputNeedsStableIdentity
         | DiagnosticNoteKind::WorkerBudgetMustBePositive
@@ -1255,7 +1845,32 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::CharacterLiteralNeedsTerminator
         | DiagnosticNoteKind::StringLiteralNeedsTerminator
         | DiagnosticNoteKind::EscapeMustBeKnown
-        | DiagnosticNoteKind::BlockCommentNeedsTerminator => RenderedDiagnosticNoteKind::Help,
+        | DiagnosticNoteKind::BlockCommentNeedsTerminator
+        | DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi
+        | DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm
+        | DiagnosticNoteKind::TypeInferenceNeedsConstraint
+        | DiagnosticNoteKind::ConstantExpressionMustBeEvaluable
+        | DiagnosticNoteKind::ConstantEvaluationMustFitLimits
+        | DiagnosticNoteKind::TypeLayoutDirectiveForms
+        | DiagnosticNoteKind::UnionTagDirectiveForms
+        | DiagnosticNoteKind::CopyContractRequirements
+        | DiagnosticNoteKind::StoredTypeRequiresIndirection
+        | DiagnosticNoteKind::SelectionMustBeDisambiguated
+        | DiagnosticNoteKind::PropagationBoundaryMustMatch
+        | DiagnosticNoteKind::ArrayGeneratorMustYieldOncePerElement
+        | DiagnosticNoteKind::CallbackStateRequirements
+        | DiagnosticNoteKind::RefutablePatternRequiresConditionalContext
+        | DiagnosticNoteKind::AsynchronousCallableRequired
+        | DiagnosticNoteKind::ExecutableEntrypointRequired
+        | DiagnosticNoteKind::EntrypointDirectiveRequiresExecutableProduct
+        | DiagnosticNoteKind::ProductEntryRequirements
+        | DiagnosticNoteKind::TestDirectiveRequirements
+        | DiagnosticNoteKind::UniqueTestIdentityRequired
+        | DiagnosticNoteKind::PublicDependencyRequired
+        | DiagnosticNoteKind::ExternalToolExitRequiresCorrection
+        | DiagnosticNoteKind::RuntimeArtifactMustBeUsable => {
+            RenderedDiagnosticNoteKind::Help
+        }
     }
 }
 
@@ -1290,6 +1905,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::StandardLibraryManifestInvalid => {
             MessageTemplate::new(STANDARD_LIBRARY_MANIFEST_INVALID)
+        }
+        DiagnosticKind::StandardLibraryInfrastructureFailure => {
+            MessageTemplate::new(STANDARD_LIBRARY_INFRASTRUCTURE_FAILURE)
         }
         DiagnosticKind::StandardLibraryArtifactLengthMismatch => {
             MessageTemplate::new(STANDARD_LIBRARY_ARTIFACT_LENGTH_MISMATCH)
@@ -1345,9 +1963,44 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::ProjectManifestParseFailed => {
             MessageTemplate::new(PROJECT_MANIFEST_PARSE_FAILED)
         }
-        DiagnosticKind::ProjectManifestInvalid => MessageTemplate::new(PROJECT_MANIFEST_INVALID),
+        DiagnosticKind::ProjectManifestUnsupportedFormat => {
+            MessageTemplate::new(PROJECT_MANIFEST_UNSUPPORTED_FORMAT)
+        }
+        DiagnosticKind::ProjectManifestInvalidPath => {
+            MessageTemplate::new(PROJECT_MANIFEST_INVALID_PATH)
+        }
+        DiagnosticKind::ProjectManifestInvalidName => {
+            MessageTemplate::new(PROJECT_MANIFEST_INVALID_NAME)
+        }
+        DiagnosticKind::ProjectManifestMissingSelection => {
+            MessageTemplate::new(PROJECT_MANIFEST_MISSING_SELECTION)
+        }
+        DiagnosticKind::ProjectManifestMissingRootPackage => {
+            MessageTemplate::new(PROJECT_MANIFEST_MISSING_ROOT_PACKAGE)
+        }
+        DiagnosticKind::ProjectManifestUndeclaredFeature => {
+            MessageTemplate::new(PROJECT_MANIFEST_UNDECLARED_FEATURE)
+        }
+        DiagnosticKind::ProjectManifestUnknownSourceRoot => {
+            MessageTemplate::new(PROJECT_MANIFEST_UNKNOWN_SOURCE_ROOT)
+        }
+        DiagnosticKind::ProjectManifestUnknownTarget => {
+            MessageTemplate::new(PROJECT_MANIFEST_UNKNOWN_TARGET)
+        }
+        DiagnosticKind::ProjectManifestUnknownTargetPredicateProperty => {
+            MessageTemplate::new(PROJECT_MANIFEST_UNKNOWN_TARGET_PREDICATE_PROPERTY)
+        }
+        DiagnosticKind::ProjectManifestTargetPredicateValueKindMismatch => {
+            MessageTemplate::new(PROJECT_MANIFEST_TARGET_PREDICATE_VALUE_KIND_MISMATCH)
+        }
+        DiagnosticKind::ProjectManifestUnexpectedTestedLibrary => {
+            MessageTemplate::new(PROJECT_MANIFEST_UNEXPECTED_TESTED_LIBRARY)
+        }
         DiagnosticKind::ProjectPackageVersionInvalid => {
             MessageTemplate::new(PROJECT_PACKAGE_VERSION_INVALID)
+        }
+        DiagnosticKind::ProjectPackageVersionMissingWorkspace => {
+            MessageTemplate::new(PROJECT_PACKAGE_VERSION_MISSING_WORKSPACE)
         }
         DiagnosticKind::ProjectPackageIdentityReserved => {
             MessageTemplate::new(PROJECT_PACKAGE_IDENTITY_RESERVED)
@@ -1364,17 +2017,30 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::ProjectSourceRootInvalid => {
             MessageTemplate::new(PROJECT_SOURCE_ROOT_INVALID)
         }
+        DiagnosticKind::ProjectSourceRootContainsSymlink => {
+            MessageTemplate::new(PROJECT_SOURCE_ROOT_CONTAINS_SYMLINK)
+        }
+        DiagnosticKind::ProjectSourceRootContainsNonUtf8Path => {
+            MessageTemplate::new(PROJECT_SOURCE_ROOT_CONTAINS_NON_UTF8_PATH)
+        }
         DiagnosticKind::ProjectDependencyPackageUnknown => {
             MessageTemplate::new(PROJECT_DEPENDENCY_PACKAGE_UNKNOWN)
         }
-        DiagnosticKind::ProjectDependencyProductInvalid => {
-            MessageTemplate::new(PROJECT_DEPENDENCY_PRODUCT_INVALID)
+        DiagnosticKind::ProjectDependencyProductUnknown => {
+            MessageTemplate::new(PROJECT_DEPENDENCY_PRODUCT_UNKNOWN)
+        }
+        DiagnosticKind::ProjectDependencyProductNotLibrary => {
+            MessageTemplate::new(PROJECT_DEPENDENCY_PRODUCT_NOT_LIBRARY)
+        }
+        DiagnosticKind::ProjectDependencyProductTargetUnavailable => {
+            MessageTemplate::new(PROJECT_DEPENDENCY_PRODUCT_TARGET_UNAVAILABLE)
         }
         DiagnosticKind::ProjectDependencyCycle => MessageTemplate::new(PROJECT_DEPENDENCY_CYCLE),
         DiagnosticKind::ProjectCommandSelectionInvalid => {
             MessageTemplate::new(PROJECT_COMMAND_SELECTION_INVALID)
         }
         DiagnosticKind::ProjectCommandFailed => MessageTemplate::new(PROJECT_COMMAND_FAILED),
+        DiagnosticKind::ProjectCompilerDefect => MessageTemplate::new(PROJECT_COMMAND_FAILED),
         DiagnosticKind::ProjectInitializationIdentityInvalid => {
             MessageTemplate::new(PROJECT_INITIALIZATION_IDENTITY_INVALID)
         }
@@ -1531,8 +2197,8 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingInvalidConstantExpression => {
             MessageTemplate::new(CHECKING_INVALID_CONSTANT_EXPRESSION)
         }
-        DiagnosticKind::CheckingArrayLengthNotPositive => {
-            MessageTemplate::new(CHECKING_ARRAY_LENGTH_NOT_POSITIVE)
+        DiagnosticKind::CheckingInvalidConstantOperation => {
+            MessageTemplate::new(CHECKING_INVALID_CONSTANT_OPERATION)
         }
         DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable => {
             MessageTemplate::new(CHECKING_ARRAY_GENERATOR_CARDINALITY_NOT_PROVABLE)
@@ -1556,9 +2222,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingRefinementCapacityExceeded => {
             MessageTemplate::new(CHECKING_REFINEMENT_CAPACITY_EXCEEDED)
         }
-        DiagnosticKind::CheckingUseOfUninitializedStorage => {
-            MessageTemplate::new(CHECKING_USE_OF_UNINITIALIZED_STORAGE)
-        }
         DiagnosticKind::CheckingUseOfMovedStorage => {
             MessageTemplate::new(CHECKING_USE_OF_MOVED_STORAGE)
         }
@@ -1568,14 +2231,8 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingMissingMutationAuthority => {
             MessageTemplate::new(CHECKING_MISSING_MUTATION_AUTHORITY)
         }
-        DiagnosticKind::CheckingTypeIsNotCopyable => {
-            MessageTemplate::new(CHECKING_TYPE_IS_NOT_COPYABLE)
-        }
         DiagnosticKind::CheckingMissingStorageOwnership => {
             MessageTemplate::new(CHECKING_MISSING_STORAGE_OWNERSHIP)
-        }
-        DiagnosticKind::CheckingInactiveStorageProjection => {
-            MessageTemplate::new(CHECKING_INACTIVE_STORAGE_PROJECTION)
         }
         DiagnosticKind::CheckingMissingTraitFulfillment => {
             MessageTemplate::new(CHECKING_MISSING_TRAIT_FULFILLMENT)
@@ -1600,6 +2257,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingInvalidImplementationOverloadArm => {
             MessageTemplate::new(CHECKING_INVALID_IMPLEMENTATION_OVERLOAD_ARM)
+        }
+        DiagnosticKind::CheckingDuplicateImplementationOverloadArm => {
+            MessageTemplate::new(CHECKING_DUPLICATE_IMPLEMENTATION_OVERLOAD_ARM)
         }
         DiagnosticKind::CheckingInvalidCallableOverloadArm => {
             MessageTemplate::new(CHECKING_INVALID_CALLABLE_OVERLOAD_ARM)
@@ -1736,14 +2396,14 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingNoApplicableCandidate => {
             MessageTemplate::new(CHECKING_NO_APPLICABLE_CANDIDATE)
         }
+        DiagnosticKind::CheckingMutableIndexContractRequired => {
+            MessageTemplate::new(CHECKING_MUTABLE_INDEX_CONTRACT_REQUIRED)
+        }
         DiagnosticKind::CheckingUnknownUnionVariant => {
             MessageTemplate::new(CHECKING_UNKNOWN_UNION_VARIANT)
         }
         DiagnosticKind::CheckingAmbiguousCandidate => {
             MessageTemplate::new(CHECKING_AMBIGUOUS_CANDIDATE)
-        }
-        DiagnosticKind::CheckingInaccessibleCandidate => {
-            MessageTemplate::new(CHECKING_INACCESSIBLE_CANDIDATE)
         }
         DiagnosticKind::CheckingIncompatibleCandidate => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_CANDIDATE)
@@ -1766,8 +2426,8 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingInvalidCallbackStateContext => {
             MessageTemplate::new(CHECKING_INVALID_CALLBACK_STATE_CONTEXT)
         }
-        DiagnosticKind::CheckingMissingTrustedMemoryFacts => {
-            MessageTemplate::new(CHECKING_MISSING_TRUSTED_MEMORY_FACTS)
+        DiagnosticKind::CheckingMissingTrustedMemoryGuarantees => {
+            MessageTemplate::new(CHECKING_MISSING_TRUSTED_MEMORY_GUARANTEES)
         }
         DiagnosticKind::CheckingMemoryOperationAfterDeallocation => {
             MessageTemplate::new(CHECKING_MEMORY_OPERATION_AFTER_DEALLOCATION)
@@ -1783,12 +2443,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::BindingDuplicateCallableAbi => {
             MessageTemplate::new(BINDING_DUPLICATE_CALLABLE_ABI)
-        }
-        DiagnosticKind::BindingPredicateBodyRequired => {
-            MessageTemplate::new(BINDING_PREDICATE_BODY_REQUIRED)
-        }
-        DiagnosticKind::BindingTrustedPredicateBodyNotAllowed => {
-            MessageTemplate::new(BINDING_TRUSTED_PREDICATE_BODY_NOT_ALLOWED)
         }
         DiagnosticKind::BindingCyclicModuleExport => {
             MessageTemplate::new(BINDING_CYCLIC_MODULE_EXPORT)
@@ -1841,6 +2495,39 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::EmissionGenerationManifestInvalid => {
             MessageTemplate::new(EMISSION_GENERATION_MANIFEST_INVALID)
         }
+        DiagnosticKind::EmissionLinkedPlanMissing => {
+            MessageTemplate::new(EMISSION_LINKED_PLAN_MISSING)
+        }
+        DiagnosticKind::EmissionFailed => MessageTemplate::new(EMISSION_FAILED),
+        DiagnosticKind::EmissionTargetMismatch => MessageTemplate::new(EMISSION_TARGET_MISMATCH),
+        DiagnosticKind::EmissionProductMismatch => MessageTemplate::new(EMISSION_PRODUCT_MISMATCH),
+        DiagnosticKind::EmissionArtifactIoFailed => {
+            MessageTemplate::new(EMISSION_ARTIFACT_IO_FAILED)
+        }
+        DiagnosticKind::CodegenUnsupportedTarget => {
+            MessageTemplate::new(CODEGEN_UNSUPPORTED_TARGET)
+        }
+        DiagnosticKind::CodegenUnsupportedArtifact => {
+            MessageTemplate::new(CODEGEN_UNSUPPORTED_ARTIFACT)
+        }
+        DiagnosticKind::CodegenInvalidConfiguration => {
+            MessageTemplate::new(CODEGEN_INVALID_CONFIGURATION)
+        }
+        DiagnosticKind::CodegenResourceExhausted => {
+            MessageTemplate::new(CODEGEN_RESOURCE_EXHAUSTED)
+        }
+        DiagnosticKind::CodegenBackendLibraryFailed => {
+            MessageTemplate::new(CODEGEN_BACKEND_LIBRARY_FAILED)
+        }
+        DiagnosticKind::CodegenGeneratedModuleInvalid => {
+            MessageTemplate::new(CODEGEN_GENERATED_MODULE_INVALID)
+        }
+        DiagnosticKind::CodegenArtifactConstructionFailed => {
+            MessageTemplate::new(CODEGEN_ARTIFACT_CONSTRUCTION_FAILED)
+        }
+        DiagnosticKind::NativeProductPreparationFailed => {
+            MessageTemplate::new(NATIVE_PRODUCT_PREPARATION_FAILED)
+        }
         DiagnosticKind::LinkerUnsupportedTarget => MessageTemplate::new(LINKER_UNSUPPORTED_TARGET),
         DiagnosticKind::LinkerUnsupportedProduct => {
             MessageTemplate::new(LINKER_UNSUPPORTED_PRODUCT)
@@ -1873,6 +2560,27 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::LinkerUnsupportedRuntime => {
             MessageTemplate::new(LINKER_UNSUPPORTED_RUNTIME)
         }
+        DiagnosticKind::LinkerDriverUnavailable => MessageTemplate::new(LINKER_DRIVER_UNAVAILABLE),
+        DiagnosticKind::LinkerDriverIncompatible => {
+            MessageTemplate::new(LINKER_DRIVER_INCOMPATIBLE)
+        }
+        DiagnosticKind::LinkerInputMissing => MessageTemplate::new(LINKER_INPUT_MISSING),
+        DiagnosticKind::LinkerResponseFileFailed => {
+            MessageTemplate::new(LINKER_RESPONSE_FILE_FAILED)
+        }
+        DiagnosticKind::LinkerInvocationFailed => MessageTemplate::new(LINKER_INVOCATION_FAILED),
+        DiagnosticKind::LinkerExternalToolIoFailed => {
+            MessageTemplate::new(LINKER_EXTERNAL_TOOL_IO_FAILED)
+        }
+        DiagnosticKind::LinkerExternalToolContractFailed => {
+            MessageTemplate::new(LINKER_EXTERNAL_TOOL_CONTRACT_FAILED)
+        }
+        DiagnosticKind::LinkerExternalToolExitedUnsuccessfully => {
+            MessageTemplate::new(LINKER_EXTERNAL_TOOL_EXITED_UNSUCCESSFULLY)
+        }
+        DiagnosticKind::LinkerOutputMissing => MessageTemplate::new(LINKER_OUTPUT_MISSING),
+        DiagnosticKind::LinkerOutputInvalid => MessageTemplate::new(LINKER_OUTPUT_INVALID),
+        DiagnosticKind::LinkerResourceExhausted => MessageTemplate::new(LINKER_RESOURCE_EXHAUSTED),
         DiagnosticKind::InterfaceInvalidMagic
         | DiagnosticKind::InterfaceUnsupportedFormatRevision
         | DiagnosticKind::InterfaceUnsupportedLanguageRevision
@@ -1884,8 +2592,22 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         | DiagnosticKind::InterfaceResourceLimitExceeded
         | DiagnosticKind::InterfacePackageIdentityMismatch
         | DiagnosticKind::InterfaceProductIdentityMismatch
-        | DiagnosticKind::InterfaceDependencyGraphInvalid
-        | DiagnosticKind::InterfaceSemanticFactsInvalid
+        | DiagnosticKind::InterfaceDuplicatePackage
+        | DiagnosticKind::InterfaceMissingDependency
+        | DiagnosticKind::InterfaceDependencyProductMismatch
+        | DiagnosticKind::InterfaceDependencyContentMismatch
+        | DiagnosticKind::InterfaceSymbolReferenceInvalid
+        | DiagnosticKind::InterfaceDependencyReferenceInvalid
+        | DiagnosticKind::InterfaceDependencySymbolMissing
+        | DiagnosticKind::InterfaceCompilerDeclarationExported
+        | DiagnosticKind::InterfaceSymbolGraphInvalid
+        | DiagnosticKind::InterfaceSymbolCapacityExceeded
+        | DiagnosticKind::InterfaceSemanticSymbolUnresolved
+        | DiagnosticKind::InterfaceSemanticSymbolKindInvalid
+        | DiagnosticKind::InterfaceSemanticValueGraphInvalid
+        | DiagnosticKind::InterfaceSemanticValueInvalid
+        | DiagnosticKind::InterfaceExecutableTemplateInvalid
+        | DiagnosticKind::InterfaceSupportEntityInvalid
         | DiagnosticKind::InterfaceConstantCallableBodyUnavailable
         | DiagnosticKind::InterfaceExecutableTemplateUnavailable => {
             interface_diagnostic_template(kind)
@@ -1899,6 +2621,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
             MessageTemplate::new(NOTE_SOURCE_FILE_MUST_BE_READABLE)
         }
         DiagnosticNoteKind::SourceMustBeUtf8 => MessageTemplate::new(NOTE_SOURCE_MUST_BE_UTF8),
+        DiagnosticNoteKind::SourceMustMatchFormatterOutput => {
+            MessageTemplate::new(NOTE_SOURCE_MUST_MATCH_FORMATTER_OUTPUT)
+        }
         DiagnosticNoteKind::SourceIdsAreCompact => {
             MessageTemplate::new(NOTE_SOURCE_IDS_ARE_COMPACT)
         }
@@ -1952,8 +2677,92 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::BlockCommentNeedsTerminator => {
             MessageTemplate::new(NOTE_BLOCK_COMMENT_NEEDS_TERMINATOR)
         }
+        DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi => {
+            MessageTemplate::new(NOTE_CALLABLE_ABI_DIRECTIVE_MUST_NAME_SUPPORTED_ABI)
+        }
+        DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm => {
+            MessageTemplate::new(NOTE_DIRECTIVE_ARGUMENT_MUST_HAVE_COMPLETE_FORM)
+        }
+        DiagnosticNoteKind::TypeInferenceNeedsConstraint => {
+            MessageTemplate::new(NOTE_TYPE_INFERENCE_NEEDS_CONSTRAINT)
+        }
+        DiagnosticNoteKind::ConstantExpressionMustBeEvaluable => {
+            MessageTemplate::new(NOTE_CONSTANT_EXPRESSION_MUST_BE_EVALUABLE)
+        }
+        DiagnosticNoteKind::ConstantEvaluationMustFitLimits => {
+            MessageTemplate::new(NOTE_CONSTANT_EVALUATION_MUST_FIT_LIMITS)
+        }
+        DiagnosticNoteKind::TypeLayoutDirectiveForms => {
+            MessageTemplate::new(NOTE_TYPE_LAYOUT_DIRECTIVE_FORMS)
+        }
+        DiagnosticNoteKind::UnionTagDirectiveForms => {
+            MessageTemplate::new(NOTE_UNION_TAG_DIRECTIVE_FORMS)
+        }
+        DiagnosticNoteKind::CopyContractRequirements => {
+            MessageTemplate::new(NOTE_COPY_CONTRACT_REQUIREMENTS)
+        }
+        DiagnosticNoteKind::StoredTypeRequiresIndirection => {
+            MessageTemplate::new(NOTE_STORED_TYPE_REQUIRES_INDIRECTION)
+        }
+        DiagnosticNoteKind::SelectionMustBeDisambiguated => {
+            MessageTemplate::new(NOTE_SELECTION_MUST_BE_DISAMBIGUATED)
+        }
+        DiagnosticNoteKind::PropagationBoundaryMustMatch => {
+            MessageTemplate::new(NOTE_PROPAGATION_BOUNDARY_MUST_MATCH)
+        }
+        DiagnosticNoteKind::ArrayGeneratorMustYieldOncePerElement => {
+            MessageTemplate::new(NOTE_ARRAY_GENERATOR_MUST_YIELD_ONCE_PER_ELEMENT)
+        }
+        DiagnosticNoteKind::CallbackStateRequirements => {
+            MessageTemplate::new(NOTE_CALLBACK_STATE_REQUIREMENTS)
+        }
+        DiagnosticNoteKind::RefutablePatternRequiresConditionalContext => {
+            MessageTemplate::new(NOTE_REFUTABLE_PATTERN_REQUIRES_CONDITIONAL_CONTEXT)
+        }
         DiagnosticNoteKind::InterfaceDependencyContext => {
             MessageTemplate::new(NOTE_INTERFACE_DEPENDENCY_CONTEXT)
         }
+        DiagnosticNoteKind::LinkPlanContext => MessageTemplate::new(NOTE_LINK_PLAN_CONTEXT),
+        DiagnosticNoteKind::ExternalToolExitRequiresCorrection => {
+            MessageTemplate::new(NOTE_EXTERNAL_TOOL_EXIT_REQUIRES_CORRECTION)
+        }
+        DiagnosticNoteKind::RuntimeArtifactMustBeUsable => {
+            MessageTemplate::new(NOTE_RUNTIME_ARTIFACT_MUST_BE_USABLE)
+        }
+        DiagnosticNoteKind::AwaitDependencyUnavailable => {
+            MessageTemplate::new(NOTE_AWAIT_DEPENDENCY_UNAVAILABLE)
+        }
+        DiagnosticNoteKind::AsynchronousCallableRequired => {
+            MessageTemplate::new(NOTE_ASYNCHRONOUS_CALLABLE_REQUIRED)
+        }
+        DiagnosticNoteKind::ExecutableEntrypointRequired => {
+            MessageTemplate::new(NOTE_EXECUTABLE_ENTRYPOINT_REQUIRED)
+        }
+        DiagnosticNoteKind::EntrypointDirectiveRequiresExecutableProduct => {
+            MessageTemplate::new(NOTE_ENTRYPOINT_DIRECTIVE_REQUIRES_EXECUTABLE_PRODUCT)
+        }
+        DiagnosticNoteKind::ProductEntryRequirements => {
+            MessageTemplate::new(NOTE_PRODUCT_ENTRY_REQUIREMENTS)
+        }
+        DiagnosticNoteKind::TestDirectiveRequirements => {
+            MessageTemplate::new(NOTE_TEST_DIRECTIVE_REQUIREMENTS)
+        }
+        DiagnosticNoteKind::UniqueTestIdentityRequired => {
+            MessageTemplate::new(NOTE_UNIQUE_TEST_IDENTITY_REQUIRED)
+        }
+        DiagnosticNoteKind::PublicDependencyRequired => {
+            MessageTemplate::new(NOTE_PUBLIC_DEPENDENCY_REQUIRED)
+        }
+        DiagnosticNoteKind::ReportCompilerDefect => {
+            MessageTemplate::new(NOTE_REPORT_COMPILER_DEFECT)
+        }
     }
+}
+
+pub(crate) const fn label_heading() -> &'static str {
+    "label"
+}
+
+pub(crate) const fn related_location_heading() -> &'static str {
+    "related"
 }

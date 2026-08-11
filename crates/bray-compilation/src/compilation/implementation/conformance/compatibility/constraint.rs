@@ -5,6 +5,7 @@ use bray_symbols::{
 
 use crate::fact::FactQueryError;
 
+use super::mismatch::{ConstraintCategory, GenericConstraintMismatch};
 use super::types::{dependency_contracts_are_compatible, substitute_requirement_type};
 
 pub(super) fn constraints_are_compatible(
@@ -14,31 +15,36 @@ pub(super) fn constraints_are_compatible(
     generic_substitution: GenericSubstitutionId,
     requirement: &GenericConstraintSet,
     fulfillment: &GenericConstraintSet,
-) -> Result<bool, FactQueryError> {
+) -> Result<Option<GenericConstraintMismatch>, FactQueryError> {
     if requirement.constraints().len() != fulfillment.constraints().len() {
-        return Ok(false);
+        return Ok(Some(GenericConstraintMismatch::Count {
+            required: requirement.constraints().len(),
+            provided: fulfillment.constraints().len(),
+        }));
     }
 
-    for (requirement, fulfillment) in requirement
+    for (index, (requirement, fulfillment)) in requirement
         .constraints()
         .iter()
         .zip(fulfillment.constraints())
+        .enumerate()
     {
         if requirement.ordinal() != fulfillment.ordinal() {
-            return Ok(false);
+            return Ok(Some(GenericConstraintMismatch::Ordinal { index }));
         }
 
-        let compatible = match (requirement.kind(), fulfillment.kind()) {
+        let mismatch = match (requirement.kind(), fulfillment.kind()) {
             (
                 CheckedConstraintKind::Predicate(requirement),
                 CheckedConstraintKind::Predicate(fulfillment),
-            ) => dependency_contracts_are_compatible(
+            ) => (!dependency_contracts_are_compatible(
                 values,
                 trait_application,
                 Some(generic_substitution),
                 requirement.dependency_contract(),
                 fulfillment.dependency_contract(),
-            )?,
+            )?)
+            .then_some(GenericConstraintMismatch::PredicateDependencies { index }),
             (
                 CheckedConstraintKind::TraitSatisfaction {
                     subject: requirement_subject,
@@ -48,30 +54,65 @@ pub(super) fn constraints_are_compatible(
                     subject: fulfillment_subject,
                     application: fulfillment_application,
                 },
-            ) => {
-                substitute_requirement_type(
+            ) => (!(substitute_requirement_type(
+                values,
+                subject,
+                trait_application,
+                Some(generic_substitution),
+                requirement_subject,
+            )? == fulfillment_subject
+                && substitute_requirement_trait_application(
+                    values,
+                    trait_application,
+                    Some(generic_substitution),
+                    requirement_application,
+                )? == fulfillment_application))
+                .then_some(GenericConstraintMismatch::TraitSatisfaction { index }),
+            (
+                CheckedConstraintKind::TypeEquality {
+                    left: required_left,
+                    right: required_right,
+                },
+                CheckedConstraintKind::TypeEquality {
+                    left: provided_left,
+                    right: provided_right,
+                },
+            ) => (!(substitute_requirement_type(
+                values,
+                subject,
+                trait_application,
+                Some(generic_substitution),
+                required_left,
+            )? == provided_left
+                && substitute_requirement_type(
                     values,
                     subject,
                     trait_application,
                     Some(generic_substitution),
-                    requirement_subject,
-                )? == fulfillment_subject
-                    && substitute_requirement_trait_application(
-                        values,
-                        trait_application,
-                        Some(generic_substitution),
-                        requirement_application,
-                    )? == fulfillment_application
-            }
-            _ => false,
+                    required_right,
+                )? == provided_right))
+                .then_some(GenericConstraintMismatch::TypeEquality { index }),
+            (requirement, fulfillment) => Some(GenericConstraintMismatch::Category {
+                index,
+                required: constraint_category(&requirement),
+                provided: constraint_category(&fulfillment),
+            }),
         };
 
-        if !compatible {
-            return Ok(false);
+        if mismatch.is_some() {
+            return Ok(mismatch);
         }
     }
 
-    Ok(true)
+    Ok(None)
+}
+
+const fn constraint_category(kind: &CheckedConstraintKind) -> ConstraintCategory {
+    match kind {
+        CheckedConstraintKind::Predicate(_) => ConstraintCategory::Predicate,
+        CheckedConstraintKind::TraitSatisfaction { .. } => ConstraintCategory::TraitSatisfaction,
+        CheckedConstraintKind::TypeEquality { .. } => ConstraintCategory::TypeEquality,
+    }
 }
 
 pub(super) fn substitute_requirement_trait_application(

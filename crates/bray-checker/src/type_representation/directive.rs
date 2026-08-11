@@ -1,8 +1,13 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::DiagnosticKind;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticCopyContractProblem, DiagnosticId, DiagnosticKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticLayoutOption, DiagnosticLayoutProblem,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    DiagnosticUnionTagProblem, SeverityKind,
+};
 use bray_source::SourceSpan;
 use bray_symbols::{
     DeclarationExpressionTemplate, DeclaredCopyContract, DeclaredLayoutMode, DeclaredUnionTag,
@@ -34,15 +39,15 @@ where
         };
 
         let mut layout = RequestedLayout::default();
-        let mut mode_present = false;
-        let mut alignment_present = false;
-        let mut packing_present = false;
-        let mut tag_present = false;
+        let mut mode_span = None;
+        let mut alignment_spans = Vec::new();
+        let mut packing_spans = Vec::new();
+        let mut tag_spans = Vec::new();
 
         for argument in directive.arguments() {
             match argument.name() {
-                DirectiveArgumentName::Positional if !mode_present => {
-                    mode_present = true;
+                DirectiveArgumentName::Positional if mode_span.is_none() => {
+                    mode_span = Some(expression_span(argument.expression()));
 
                     let text = self.argument_text(argument.expression())?;
 
@@ -51,9 +56,10 @@ where
                         "c" => DeclaredLayoutMode::C,
                         "transparent" => DeclaredLayoutMode::Transparent,
                         _ => {
-                            self.add_diagnostic(
-                                DiagnosticKind::CheckingInvalidLayoutDirective,
+                            self.add_layout_diagnostic(
+                                DiagnosticLayoutProblem::UnsupportedMode(text.to_owned()),
                                 expression_span(argument.expression()),
+                                &[],
                             );
 
                             *recovered = true;
@@ -63,63 +69,165 @@ where
                     };
                 }
                 DirectiveArgumentName::Named(name)
-                    if name.as_str() == "align" && !alignment_present =>
+                    if name.as_str() == "align" && alignment_spans.is_empty() =>
                 {
-                    alignment_present = true;
-                    layout.alignment = self.check_power_of_two(argument.expression(), recovered)?;
+                    alignment_spans.push(expression_span(argument.expression()));
+
+                    layout.alignment = self.check_power_of_two(
+                        argument.expression(),
+                        DiagnosticLayoutOption::Alignment,
+                        recovered,
+                    )?;
                 }
                 DirectiveArgumentName::Named(name)
-                    if name.as_str() == "pack" && !packing_present =>
+                    if name.as_str() == "pack" && packing_spans.is_empty() =>
                 {
-                    packing_present = true;
-                    layout.packing = self.check_power_of_two(argument.expression(), recovered)?;
+                    packing_spans.push(expression_span(argument.expression()));
+
+                    layout.packing = self.check_power_of_two(
+                        argument.expression(),
+                        DiagnosticLayoutOption::Packing,
+                        recovered,
+                    )?;
                 }
-                DirectiveArgumentName::Named(name) if name.as_str() == "tag" && !tag_present => {
-                    tag_present = true;
+                DirectiveArgumentName::Named(name)
+                    if name.as_str() == "tag" && tag_spans.is_empty() =>
+                {
+                    tag_spans.push(expression_span(argument.expression()));
                     layout.tag_type = self.context.integer_type(argument.expression())?;
 
                     if layout.tag_type.is_none() {
-                        self.add_diagnostic(
-                            DiagnosticKind::CheckingInvalidUnionTag,
+                        self.add_union_tag_diagnostic(
+                            DiagnosticUnionTagProblem::UnsupportedType(
+                                self.argument_text(argument.expression())?.to_owned(),
+                            ),
                             expression_span(argument.expression()),
+                            &[],
                         );
 
                         *recovered = true;
                     }
                 }
-                DirectiveArgumentName::Positional
-                | DirectiveArgumentName::Named(_)
-                | DirectiveArgumentName::Recovered => {
-                    self.add_diagnostic(
-                        DiagnosticKind::CheckingInvalidLayoutDirective,
+                DirectiveArgumentName::Positional => {
+                    self.add_layout_diagnostic(
+                        DiagnosticLayoutProblem::UnexpectedPositionalArgument,
                         expression_span(argument.expression()),
+                        mode_span.as_slice(),
                     );
 
                     *recovered = true;
                 }
+                DirectiveArgumentName::Named(name) => {
+                    let (problem, previous) = match name.as_str() {
+                        "align" => (
+                            DiagnosticLayoutProblem::DuplicateOption(
+                                DiagnosticLayoutOption::Alignment,
+                            ),
+                            &mut alignment_spans,
+                        ),
+                        "pack" => (
+                            DiagnosticLayoutProblem::DuplicateOption(
+                                DiagnosticLayoutOption::Packing,
+                            ),
+                            &mut packing_spans,
+                        ),
+                        "tag" => (
+                            DiagnosticLayoutProblem::DuplicateOption(DiagnosticLayoutOption::Tag),
+                            &mut tag_spans,
+                        ),
+                        _ => {
+                            self.add_layout_diagnostic(
+                                DiagnosticLayoutProblem::UnknownOption(name.as_str().to_owned()),
+                                expression_span(argument.expression()),
+                                &[],
+                            );
+
+                            *recovered = true;
+
+                            continue;
+                        }
+                    };
+
+                    let span = expression_span(argument.expression());
+
+                    self.add_layout_diagnostic(problem, span, previous);
+
+                    previous.push(span);
+
+                    *recovered = true;
+                }
+                DirectiveArgumentName::Recovered => {}
             }
         }
 
         let is_union = matches!(definition.subject(), NamedTypeSymbolId::Union(_));
 
-        let invalid = !mode_present
-            || layout.mode == DeclaredLayoutMode::Transparent
-                && (is_union
-                    || definition.fields().len() != 1
-                    || layout.alignment.is_some()
-                    || layout.packing.is_some()
-                    || layout.tag_type.is_some())
-            || layout.packing.is_some()
-                && (layout.mode != DeclaredLayoutMode::Stable || !members.plain)
-            || layout.tag_type.is_some() && !is_union
-            || is_union && layout.mode == DeclaredLayoutMode::C && layout.tag_type.is_none();
+        let directive_span = directive_span(directive.syntax());
+        let mut problems = Vec::new();
 
-        if invalid {
-            self.add_diagnostic(
-                DiagnosticKind::CheckingInvalidLayoutDirective,
-                directive_span(directive.syntax()),
-            );
+        if mode_span.is_none() {
+            problems.push(DiagnosticLayoutProblem::MissingMode);
+        }
 
+        if layout.mode == DeclaredLayoutMode::Transparent {
+            if is_union {
+                problems.push(DiagnosticLayoutProblem::TransparentUnion);
+            }
+
+            if definition.fields().len() != 1 {
+                problems.push(DiagnosticLayoutProblem::TransparentFieldCount {
+                    actual: u64::try_from(definition.fields().len()).unwrap_or(u64::MAX),
+                });
+            }
+
+            if layout.alignment.is_some() {
+                problems.push(DiagnosticLayoutProblem::TransparentOption(
+                    DiagnosticLayoutOption::Alignment,
+                ));
+            }
+
+            if layout.packing.is_some() {
+                problems.push(DiagnosticLayoutProblem::TransparentOption(
+                    DiagnosticLayoutOption::Packing,
+                ));
+            }
+
+            if layout.tag_type.is_some() {
+                problems.push(DiagnosticLayoutProblem::TransparentOption(
+                    DiagnosticLayoutOption::Tag,
+                ));
+            }
+        }
+
+        if layout.packing.is_some() && layout.mode != DeclaredLayoutMode::Stable {
+            problems.push(DiagnosticLayoutProblem::PackingRequiresStable);
+        }
+
+        if layout.packing.is_some() && !members.plain {
+            problems.push(DiagnosticLayoutProblem::PackingRequiresPlainStorage);
+        }
+
+        if layout.tag_type.is_some() && !is_union {
+            problems.push(DiagnosticLayoutProblem::TagRequiresUnion);
+        }
+
+        if is_union && layout.mode == DeclaredLayoutMode::C && layout.tag_type.is_none() {
+            problems.push(DiagnosticLayoutProblem::CUnionRequiresTag);
+        }
+
+        for problem in problems {
+            let mut diagnostic = self.layout_diagnostic(problem, directive_span, &[]);
+
+            if layout.mode == DeclaredLayoutMode::Transparent {
+                for member in definition.fields() {
+                    diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+                        DiagnosticRelatedLocationKind::RepresentationMember,
+                        member.span(),
+                    ));
+                }
+            }
+
+            self.diagnostics.add(diagnostic);
             *recovered = true;
         }
 
@@ -129,6 +237,7 @@ where
     fn check_power_of_two(
         &mut self,
         expression: DeclarationExpressionTemplate,
+        option: DiagnosticLayoutOption,
         recovered: &mut bool,
     ) -> CheckerFactResult<Option<u64>> {
         let result = self.context.unsigned_integer(expression)?;
@@ -138,11 +247,28 @@ where
 
         match result.value() {
             Some(value) if value.is_power_of_two() => Ok(Some(*value)),
-            Some(_) | None => {
-                self.add_diagnostic(
-                    DiagnosticKind::CheckingInvalidLayoutDirective,
+            Some(value) => {
+                self.add_layout_diagnostic(
+                    DiagnosticLayoutProblem::OptionNotPowerOfTwo {
+                        option,
+                        value: *value,
+                    },
                     expression_span(expression),
+                    &[],
                 );
+
+                *recovered = true;
+
+                Ok(None)
+            }
+            None => {
+                if result.diagnostics().is_empty() {
+                    self.add_layout_diagnostic(
+                        DiagnosticLayoutProblem::OptionNotConstant(option),
+                        expression_span(expression),
+                        &[],
+                    );
+                }
 
                 *recovered = true;
 
@@ -169,7 +295,7 @@ where
 
         let mut tags = Vec::with_capacity(definition.variants().len());
         let mut explicit_count = 0_usize;
-        let mut values = BTreeSet::new();
+        let mut values: BTreeMap<IntegerConstant, Vec<SourceSpan>> = BTreeMap::new();
 
         for (ordinal, variant) in definition.variants().iter().enumerate() {
             let declared = variant
@@ -179,9 +305,10 @@ where
                 .find(|directive| directive.kind() == DirectiveKind::Tag);
 
             if !explicitly_laid_out && let Some(directive) = declared {
-                self.add_diagnostic(
-                    DiagnosticKind::CheckingInvalidUnionTag,
+                self.add_union_tag_diagnostic(
+                    DiagnosticUnionTagProblem::RequiresExplicitLayout,
                     directive_span(directive.syntax()),
+                    &[],
                 );
 
                 *recovered = true;
@@ -194,27 +321,32 @@ where
                     explicit_count += 1;
 
                     let [argument] = directive.arguments() else {
-                        self.add_diagnostic(
-                            DiagnosticKind::CheckingInvalidUnionTag,
+                        self.add_union_tag_diagnostic(
+                            DiagnosticUnionTagProblem::ArgumentCount {
+                                actual: u64::try_from(directive.arguments().len())
+                                    .unwrap_or(u64::MAX),
+                            },
                             directive_span(directive.syntax()),
+                            &[],
                         );
 
                         *recovered = true;
                         continue;
                     };
 
-                    let result = self
-                        .context
-                        .integer_constant(argument.expression(), tag_type)?;
+                    let result = self.context.integer_constant(argument.expression(), None)?;
 
                     self.diagnostics
                         .add_range(result.diagnostics().iter().cloned());
 
                     let Some(value) = result.value() else {
-                        self.add_diagnostic(
-                            DiagnosticKind::CheckingInvalidUnionTag,
-                            expression_span(argument.expression()),
-                        );
+                        if result.diagnostics().is_empty() {
+                            self.add_union_tag_diagnostic(
+                                DiagnosticUnionTagProblem::ValueNotConstant,
+                                expression_span(argument.expression()),
+                                &[],
+                            );
+                        }
 
                         *recovered = true;
                         continue;
@@ -228,14 +360,28 @@ where
             };
 
             // The uniqueness set and published tag share immutable magnitude storage.
-            if !values.insert(value.clone()) {
-                self.add_diagnostic(DiagnosticKind::CheckingInvalidUnionTag, variant.span());
+            let previous = values.entry(value.clone()).or_default();
+
+            if !previous.is_empty() {
+                self.add_union_tag_diagnostic(
+                    DiagnosticUnionTagProblem::DuplicateValue,
+                    variant.span(),
+                    previous,
+                );
 
                 *recovered = true;
             }
 
-            if tag_type.is_some_and(|tag_type| !tag_type.accepts(&value)) {
-                self.add_diagnostic(DiagnosticKind::CheckingInvalidUnionTag, variant.span());
+            previous.push(variant.span());
+
+            if let Some(tag_type) = tag_type
+                && !tag_type.accepts(&value)
+            {
+                self.add_union_tag_diagnostic(
+                    tag_value_outside_type_problem(tag_type, &value),
+                    variant.span(),
+                    &[],
+                );
 
                 *recovered = true;
             }
@@ -244,7 +390,14 @@ where
         }
 
         if explicit_count != 0 && explicit_count != definition.variants().len() {
-            self.add_diagnostic(DiagnosticKind::CheckingInvalidUnionTag, definition.span());
+            self.add_union_tag_diagnostic(
+                DiagnosticUnionTagProblem::PartialExplicitTags {
+                    explicit: u64::try_from(explicit_count).unwrap_or(u64::MAX),
+                    total: u64::try_from(definition.variants().len()).unwrap_or(u64::MAX),
+                },
+                definition.span(),
+                &[],
+            );
 
             *recovered = true;
         }
@@ -264,7 +417,12 @@ where
                 };
 
                 if maximum.sign() == IntegerSign::Negative {
-                    self.add_diagnostic(DiagnosticKind::CheckingInvalidUnionTag, definition.span());
+                    self.add_union_tag_diagnostic(
+                        DiagnosticUnionTagProblem::NegativeInferredValue,
+                        definition.span(),
+                        &[],
+                    );
+
                     *recovered = true;
 
                     None
@@ -274,9 +432,16 @@ where
                     match role {
                         Some(role) => Some(self.context.integer_type_for_role(role)?),
                         None => {
-                            self.add_diagnostic(
-                                DiagnosticKind::CheckingInvalidUnionTag,
+                            self.add_union_tag_diagnostic(
+                                DiagnosticUnionTagProblem::InferredValueTooWide {
+                                    actual_bits: u64::try_from(crate::constant::significant_bits(
+                                        maximum.magnitude(),
+                                    ))
+                                    .unwrap_or(u64::MAX),
+                                    maximum_bits: 128,
+                                },
                                 definition.span(),
+                                &[],
                             );
 
                             *recovered = true;
@@ -307,31 +472,141 @@ where
             return DeclaredCopyContract::Absent;
         };
 
-        let copy = if definition.has_lifecycle() || !directive.arguments().is_empty() {
-            None
-        } else {
-            match members.copyable {
-                Copyability::Always => Some(DeclaredCopyContract::Unconditional),
-                Copyability::Conditional if definition.is_generic() => {
-                    Some(DeclaredCopyContract::Conditional)
-                }
-                Copyability::Conditional | Copyability::Never => None,
-            }
-        };
+        let span = directive_span(directive.syntax());
+        let mut problems = Vec::new();
 
-        match copy {
-            Some(copy) => copy,
-            None => {
-                self.add_diagnostic(
-                    DiagnosticKind::CheckingInvalidCopyContract,
-                    directive_span(directive.syntax()),
-                );
-
-                *recovered = true;
-
-                DeclaredCopyContract::Absent
-            }
+        if definition.has_lifecycle() {
+            problems.push(DiagnosticCopyContractProblem::LifecycleBehavior);
         }
+
+        if !directive.arguments().is_empty() {
+            problems.push(DiagnosticCopyContractProblem::UnexpectedArguments {
+                actual: u64::try_from(directive.arguments().len()).unwrap_or(u64::MAX),
+            });
+        }
+
+        if members.copyable == Copyability::Conditional && !definition.is_generic() {
+            problems.push(DiagnosticCopyContractProblem::ConditionalMembersRequireGenericType);
+        }
+
+        if members.copyable == Copyability::Never {
+            problems.push(DiagnosticCopyContractProblem::NonCopyableMember);
+        }
+
+        let copy_invalid = !problems.is_empty();
+
+        for problem in problems {
+            let mut diagnostic = self.copy_diagnostic(problem, span);
+
+            if problem == DiagnosticCopyContractProblem::NonCopyableMember {
+                for member in &members.non_copyable_members {
+                    diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+                        DiagnosticRelatedLocationKind::NonCopyableMember,
+                        *member,
+                    ));
+                }
+            }
+
+            self.diagnostics.add(diagnostic);
+            *recovered = true;
+        }
+
+        if copy_invalid {
+            return DeclaredCopyContract::Absent;
+        }
+
+        match members.copyable {
+            Copyability::Always => DeclaredCopyContract::Unconditional,
+            Copyability::Conditional => DeclaredCopyContract::Conditional,
+            Copyability::Never => DeclaredCopyContract::Absent,
+        }
+    }
+
+    fn add_layout_diagnostic(
+        &mut self,
+        problem: DiagnosticLayoutProblem,
+        span: SourceSpan,
+        previous: &[SourceSpan],
+    ) {
+        let diagnostic = self.layout_diagnostic(problem, span, previous);
+        self.diagnostics.add(diagnostic);
+    }
+
+    fn layout_diagnostic(
+        &self,
+        problem: DiagnosticLayoutProblem,
+        span: SourceSpan,
+        previous: &[SourceSpan],
+    ) -> Diagnostic {
+        let mut diagnostic = self
+            .representation_diagnostic(DiagnosticKind::CheckingInvalidLayoutDirective, span)
+            .with_arg(DiagnosticArg::layout_problem(problem))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::TypeLayoutDirectiveForms,
+            ));
+
+        for previous in previous
+            .iter()
+            .copied()
+            .filter(|previous| *previous != span)
+        {
+            diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+                DiagnosticRelatedLocationKind::FirstDirective,
+                previous,
+            ));
+        }
+
+        diagnostic
+    }
+
+    fn add_union_tag_diagnostic(
+        &mut self,
+        problem: DiagnosticUnionTagProblem,
+        span: SourceSpan,
+        previous: &[SourceSpan],
+    ) {
+        let mut diagnostic = self
+            .representation_diagnostic(DiagnosticKind::CheckingInvalidUnionTag, span)
+            .with_arg(DiagnosticArg::union_tag_problem(problem))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::UnionTagDirectiveForms,
+            ));
+
+        for previous in previous
+            .iter()
+            .copied()
+            .filter(|previous| *previous != span)
+        {
+            diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+                DiagnosticRelatedLocationKind::FirstDirective,
+                previous,
+            ));
+        }
+
+        self.diagnostics.add(diagnostic);
+    }
+
+    fn copy_diagnostic(
+        &self,
+        problem: DiagnosticCopyContractProblem,
+        span: SourceSpan,
+    ) -> Diagnostic {
+        self.representation_diagnostic(DiagnosticKind::CheckingInvalidCopyContract, span)
+            .with_arg(DiagnosticArg::copy_contract_problem(problem))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::CopyContractRequirements,
+            ))
+    }
+
+    fn representation_diagnostic(&self, kind: DiagnosticKind, span: SourceSpan) -> Diagnostic {
+        let id = u32::try_from(self.diagnostics.len()).unwrap_or(u32::MAX);
+
+        Diagnostic::new(DiagnosticId::new(id), kind, SeverityKind::Error)
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::InvalidTypeRepresentationContract,
+                span,
+            ))
     }
 
     fn argument_text(&self, expression: DeclarationExpressionTemplate) -> CheckerFactResult<&str> {
@@ -350,6 +625,30 @@ fn default_tag_role(maximum: &IntegerConstant) -> Option<RepresentationRole> {
         33..=64 => Some(RepresentationRole::ScalarU64),
         65..=128 => Some(RepresentationRole::ScalarU128),
         _ => None,
+    }
+}
+
+fn tag_value_outside_type_problem(
+    tag_type: RepresentationIntegerType,
+    value: &IntegerConstant,
+) -> DiagnosticUnionTagProblem {
+    let (signed, width_bits) = match tag_type.representation() {
+        bray_compiler_known::IntegerRepresentation::Signed(bits) => (true, bits),
+        bray_compiler_known::IntegerRepresentation::Unsigned(bits) => (false, bits),
+        bray_compiler_known::IntegerRepresentation::TargetSigned => {
+            (true, tag_type.target_width().get())
+        }
+        bray_compiler_known::IntegerRepresentation::TargetUnsigned => {
+            (false, tag_type.target_width().get())
+        }
+    };
+
+    DiagnosticUnionTagProblem::ValueOutsideSelectedType {
+        signed,
+        width_bits,
+        value_negative: value.sign() == IntegerSign::Negative,
+        value_bits: u64::try_from(crate::constant::significant_bits(value.magnitude()))
+            .unwrap_or(u64::MAX),
     }
 }
 

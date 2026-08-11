@@ -31,12 +31,14 @@ pub(super) fn decode_pre_specialized_mir(
 ) -> Result<InterfacePreSpecializedMir, InterfaceValidationError> {
     let mut reader = WireReader::new(payload);
     let key = decode_specialization_key(&mut reader, limits)?;
+
     let mir_schema_revision =
         ImplementationMirSchemaRevision::new(reader.read_u16().map_err(map_wire_error)?);
 
     if mir_schema_revision != CURRENT_MIR_SCHEMA_REVISION {
         return Err(InterfaceValidationError::Malformed);
     }
+
     let length = reader.read_u64().map_err(map_wire_error)?;
 
     limits.check(InterfaceLimit::BlobLength, length)?;

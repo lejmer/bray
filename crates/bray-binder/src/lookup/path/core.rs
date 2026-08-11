@@ -827,7 +827,7 @@ fn bind_remaining_path(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_source::{TextRange, TextSize};
     use bray_symbols::{
         AnyLocalSymbolId, AnySymbolId, LocalSymbolRegionId, MemberEntry, MemberLookupIndex,
@@ -844,6 +844,16 @@ mod tests {
     use crate::lookup::category::{ResolvedName, ResolvedTypeName, ResolvedValueName};
     use crate::lookup::test_support::{path, source_module, text_range};
     use crate::unit::test_support::{builder, fixture, push_binding};
+
+    fn diagnostics_of_kind(diagnostics: &DiagnosticBag, kind: DiagnosticKind) -> DiagnosticBag {
+        DiagnosticBag::from(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.kind() == kind)
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+    }
 
     #[test]
     fn typed_paths_resolve_modules_declarations_overloads_and_members() {
@@ -1249,6 +1259,48 @@ mod tests {
         ));
 
         let result = finish(binder);
+
+        let unresolved =
+            diagnostics_of_kind(result.diagnostics(), DiagnosticKind::BindingUnresolvedName);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &unresolved,
+            DiagnosticKind::BindingUnresolvedName,
+        );
+
+        let wrong_kind =
+            diagnostics_of_kind(result.diagnostics(), DiagnosticKind::BindingWrongNameKind);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &wrong_kind,
+            DiagnosticKind::BindingWrongNameKind,
+        );
+
+        let inaccessible = diagnostics_of_kind(
+            result.diagnostics(),
+            DiagnosticKind::BindingInaccessibleName,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &inaccessible,
+            DiagnosticKind::BindingInaccessibleName,
+        );
+
+        let ambiguous =
+            diagnostics_of_kind(result.diagnostics(), DiagnosticKind::BindingAmbiguousName);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &ambiguous,
+            DiagnosticKind::BindingAmbiguousName,
+        );
+
+        let malformed =
+            diagnostics_of_kind(result.diagnostics(), DiagnosticKind::BindingMalformedName);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &malformed,
+            DiagnosticKind::BindingMalformedName,
+        );
 
         let kinds = result
             .diagnostics()

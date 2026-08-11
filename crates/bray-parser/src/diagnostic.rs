@@ -1,6 +1,6 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    SeverityKind,
+    DiagnosticSourceEdit, DiagnosticSuggestion, DiagnosticSuggestionKind, SeverityKind,
 };
 use bray_source::{SourceSnapshot, SourceSpan, TextSize};
 use bray_syntax::{SyntaxKind, SyntaxToken};
@@ -13,14 +13,20 @@ pub(crate) fn expected_token(
     let span = SourceSpan::empty(snapshot.source_id(), actual.start());
     let expected_arg = DiagnosticArg::expected_syntax_kind(expected);
 
-    diagnostic(span, DiagnosticKind::SyntaxExpectedToken)
+    let mut diagnostic = diagnostic(span, DiagnosticKind::SyntaxExpectedToken)
         .with_arg(expected_arg.clone())
         .with_arg(DiagnosticArg::actual_syntax_kind(actual.kind()))
         .with_optional_arg(token_text_arg(snapshot, actual))
         .with_label(
             DiagnosticLabel::primary(DiagnosticLabelKind::ExpectedTokenInsertionPoint, span)
                 .with_arg(expected_arg),
-        )
+        );
+
+    if let Some(suggestion) = insertion_suggestion(expected, span) {
+        diagnostic = diagnostic.with_suggestion(suggestion);
+    }
+
+    diagnostic
 }
 
 pub(crate) fn unexpected_eof(
@@ -31,13 +37,19 @@ pub(crate) fn unexpected_eof(
     let span = SourceSpan::empty(snapshot.source_id(), eof.start());
     let expected_arg = DiagnosticArg::expected_syntax_kind(expected);
 
-    diagnostic(span, DiagnosticKind::SyntaxUnexpectedEof)
+    let mut diagnostic = diagnostic(span, DiagnosticKind::SyntaxUnexpectedEof)
         .with_arg(expected_arg)
         .with_arg(DiagnosticArg::actual_syntax_kind(eof.kind()))
         .with_label(DiagnosticLabel::primary(
             DiagnosticLabelKind::UnexpectedEof,
             span,
-        ))
+        ));
+
+    if let Some(suggestion) = insertion_suggestion(expected, span) {
+        diagnostic = diagnostic.with_suggestion(suggestion);
+    }
+
+    diagnostic
 }
 
 pub(crate) fn expected_expression(snapshot: &SourceSnapshot, actual: &SyntaxToken) -> Diagnostic {
@@ -64,26 +76,17 @@ pub(crate) fn nesting_limit_exceeded(
 
     diagnostic(span, DiagnosticKind::SyntaxNestingLimitExceeded)
         .with_arg(DiagnosticArg::maximum_count(maximum_depth))
-}
-
-trait WithOptionalArg {
-    fn with_optional_arg(self, arg: Option<DiagnosticArg>) -> Self;
-}
-
-impl WithOptionalArg for Diagnostic {
-    fn with_optional_arg(self, arg: Option<DiagnosticArg>) -> Self {
-        match arg {
-            Some(arg) => self.with_arg(arg),
-            None => self,
-        }
-    }
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::NestingLimitExceeded,
+            span,
+        ))
 }
 
 fn diagnostic(span: SourceSpan, kind: DiagnosticKind) -> Diagnostic {
     Diagnostic::new(diagnostic_id(span.start()), kind, SeverityKind::Error).with_primary_span(span)
 }
 
-fn diagnostic_id(start: TextSize) -> DiagnosticId {
+pub(crate) fn diagnostic_id(start: TextSize) -> DiagnosticId {
     DiagnosticId::new(start.bytes())
 }
 
@@ -95,6 +98,18 @@ fn token_text_arg(snapshot: &SourceSnapshot, token: &SyntaxToken) -> Option<Diag
     }
 
     Some(DiagnosticArg::token_text(text))
+}
+
+fn insertion_suggestion(expected: SyntaxKind, span: SourceSpan) -> Option<DiagnosticSuggestion> {
+    let replacement = expected.fixed_text()?;
+
+    Some(
+        DiagnosticSuggestion::maybe_edit(
+            DiagnosticSuggestionKind::InsertExpectedSyntax,
+            DiagnosticSourceEdit::new(span, replacement),
+        )
+        .with_arg(DiagnosticArg::expected_syntax_kind(expected)),
+    )
 }
 
 #[cfg(test)]
@@ -138,6 +153,21 @@ mod tests {
                 ),
             ]
         );
+
+        let [suggestion] = diagnostic.suggestions() else {
+            panic!("expected one exact insertion suggestion: {diagnostic:?}");
+        };
+
+        let [edit] = suggestion.edits() else {
+            panic!("expected one insertion edit: {suggestion:?}");
+        };
+
+        assert_eq!(
+            edit.span(),
+            diagnostic.primary_span().expect("test span exists")
+        );
+
+        assert_eq!(edit.replacement(), "func");
     }
 
     #[test]
@@ -156,6 +186,33 @@ mod tests {
                 TextSize::new(4)
             ))
         );
+
+        let [suggestion] = diagnostic.suggestions() else {
+            panic!("expected one exact EOF insertion suggestion: {diagnostic:?}");
+        };
+
+        assert_eq!(suggestion.edits()[0].replacement(), "}");
+    }
+
+    #[test]
+    fn non_fixed_expected_syntax_is_actionable_without_an_insertion() {
+        let snapshot = snapshot("value");
+
+        let token = SyntaxToken::new(
+            SyntaxKind::IdentifierToken,
+            TextRange::new(TextSize::ZERO, TextSize::new(5)),
+        );
+
+        let expected = expected_token(&snapshot, SyntaxKind::Expression, &token);
+
+        assert!(expected.suggestions().is_empty());
+        bray_testing::assert_goal_state_diagnostic(&expected);
+
+        let eof = SyntaxToken::end_of_file(TextSize::new(5));
+        let unexpected = unexpected_eof(&snapshot, SyntaxKind::IdentifierToken, &eof);
+
+        assert!(unexpected.suggestions().is_empty());
+        bray_testing::assert_goal_state_diagnostic(&unexpected);
     }
 
     #[test]

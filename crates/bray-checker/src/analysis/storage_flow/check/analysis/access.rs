@@ -10,16 +10,22 @@ use super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::model::StorageFlowState;
 
+#[derive(Clone)]
+pub(super) enum BorrowConflict {
+    Unlocated,
+    Borrows(Vec<BorrowCapabilityId>),
+}
+
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn has_borrow_conflict(
+    pub(super) fn borrow_conflict(
         &self,
         state: &StorageFlowState,
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
-    ) -> bool {
+    ) -> Option<BorrowConflict> {
         let requested = match purpose {
             StorageAccessPurpose::Borrow(kind) => Some(kind),
             StorageAccessPurpose::Write
@@ -36,13 +42,24 @@ where
         };
 
         let Some(requested) = requested else {
-            return false;
+            return None;
         };
 
         let access = self.operation_access(plan, purpose);
 
         if let Some(kind) = self.projected_storage_borrow_kind(access) {
-            return requested == BorrowKind::Mutable && kind == BorrowKind::Shared;
+            if requested != BorrowKind::Mutable || kind != BorrowKind::Shared {
+                return None;
+            }
+
+            let origin = self
+                .storage
+                .access(access)
+                .and_then(|access| access.root().borrow_capability());
+
+            return Some(origin.map_or(BorrowConflict::Unlocated, |borrow| {
+                BorrowConflict::Borrows(vec![borrow])
+            }));
         }
 
         let authority = match purpose {
@@ -51,33 +68,46 @@ where
         };
 
         let Some(authorizing_borrows) = self.borrow_chain(authority) else {
-            return true;
+            return Some(BorrowConflict::Unlocated);
         };
 
         let created_borrow = self.input.borrow(plan);
 
-        if authorizing_borrows
+        let inactive_authorizing_borrows = authorizing_borrows
             .iter()
-            .any(|borrow| Some(*borrow) != created_borrow && !state.active_borrows.contains(borrow))
-        {
-            return true;
+            .copied()
+            .filter(|borrow| {
+                Some(*borrow) != created_borrow && !state.active_borrows.contains(borrow)
+            })
+            .collect::<Vec<_>>();
+
+        if !inactive_authorizing_borrows.is_empty() {
+            return Some(BorrowConflict::Borrows(inactive_authorizing_borrows));
         }
 
-        state.active_borrows.iter().copied().any(|active| {
+        let mut conflicts = Vec::new();
+
+        for active in state.active_borrows.iter().copied() {
             if authorizing_borrows.contains(&active) {
-                return false;
+                continue;
             }
 
             let Some(capability) = self.storage.borrow_capability(active) else {
-                return true;
+                return Some(BorrowConflict::Unlocated);
             };
 
             if requested == BorrowKind::Shared && capability.kind() == BorrowKind::Shared {
-                return false;
+                continue;
             }
 
-            self.storage.relationship(capability.access(), access) != StorageRelationship::Disjoint
-        })
+            if self.storage.relationship(capability.access(), access)
+                != StorageRelationship::Disjoint
+            {
+                conflicts.push(active);
+            }
+        }
+
+        (!conflicts.is_empty()).then_some(BorrowConflict::Borrows(conflicts))
     }
 
     pub(super) fn has_mutation_authority(&self, access: StorageAccessId) -> bool {
@@ -85,21 +115,25 @@ where
             return false;
         };
 
-        match storage_access.root() {
-            StorageAccessRoot::Borrow(_) => self.borrow_chain(access).is_some_and(|borrows| {
+        if storage_access.root().borrow_capability().is_some() {
+            return self.borrow_chain(access).is_some_and(|borrows| {
                 !borrows.is_empty()
                     && borrows.iter().all(|borrow| {
                         self.storage
                             .borrow_capability(*borrow)
                             .is_some_and(|borrow| borrow.kind() == BorrowKind::Mutable)
                     })
-            }),
+            });
+        }
+
+        match storage_access.root() {
             StorageAccessRoot::Recovery(_) => false,
             StorageAccessRoot::Storage(storage)
             | StorageAccessRoot::OwnedIndirection { storage, .. } => {
                 self.projected_storage_borrow_kind(access) == Some(BorrowKind::Mutable)
                     || self.owned_storage_is_mutable(storage)
             }
+            StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => false,
         }
     }
 
@@ -160,7 +194,7 @@ where
 
     pub(super) fn access_uses_borrow(&self, access: StorageAccessId) -> bool {
         self.storage.access(access).is_some_and(|record| {
-            matches!(record.root(), StorageAccessRoot::Borrow(_))
+            record.root().borrow_capability().is_some()
                 || self.projected_storage_borrow_kind(access).is_some()
         })
     }
@@ -214,12 +248,7 @@ where
     }
 
     pub(super) fn borrow_chain(&self, access: StorageAccessId) -> Option<Vec<BorrowCapabilityId>> {
-        let mut capability = match self.storage.access(access)?.root() {
-            StorageAccessRoot::Borrow(capability) => Some(capability),
-            StorageAccessRoot::Storage(_)
-            | StorageAccessRoot::OwnedIndirection { .. }
-            | StorageAccessRoot::Recovery(_) => None,
-        };
+        let mut capability = self.storage.access(access)?.root().borrow_capability();
 
         let mut chain = Vec::new();
 
@@ -273,6 +302,7 @@ where
             Some(
                 StorageIdentity::Result(_)
                 | StorageIdentity::Temporary(_)
+                | StorageIdentity::CustomIndexBorrow(_)
                 | StorageIdentity::IterationCursor(_)
                 | StorageIdentity::IterationElement(_)
                 | StorageIdentity::Allocation(_)

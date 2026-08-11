@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    AnySymbolId, CallableInstanceData, CallableParameterDefaultProviderSymbolId,
+    AnySymbolId, BorrowKind, CallableInstanceData, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, CallableSignature, ImplementationRequirementKey,
     ReceiverParameterSignature, StructFieldDefaultProviderSymbolId, StructFieldSymbolId,
     StructSymbolId, TypeId, UnionPayloadDefaultProviderSymbolId, UnionPayloadFieldSymbolId,
@@ -216,6 +216,8 @@ pub enum IndexTarget {
     Slice,
     /// A selected custom indexing contract callable and witness.
     Custom {
+        /// The receiver and result-borrow capability selected for this access.
+        borrow_kind: BorrowKind,
         /// The exact substituted trait member selected for indexing.
         member: CallableInstanceData,
         /// The exact substituted implementation callable that executes indexing.
@@ -227,6 +229,8 @@ pub enum IndexTarget {
     },
     /// A custom indexing operation supplied by a surrounding generic constraint.
     TraitConstraint {
+        /// The receiver and result-borrow capability selected for this access.
+        borrow_kind: BorrowKind,
         /// The exact substituted trait member selected for indexing.
         member: CallableInstanceData,
         /// The exact trait requirement supplied by the constraint.
@@ -234,6 +238,18 @@ pub enum IndexTarget {
         /// The surrounding generic constraint that supplies dispatch.
         dispatch: bray_symbols::TraitConstraintDispatch,
     },
+}
+
+impl IndexTarget {
+    /// Returns the borrow capability required by a custom indexing contract.
+    pub const fn custom_borrow_kind(self) -> Option<BorrowKind> {
+        match self {
+            Self::Custom { borrow_kind, .. } | Self::TraitConstraint { borrow_kind, .. } => {
+                Some(borrow_kind)
+            }
+            Self::ArrayElement | Self::SliceElement | Self::ArraySlice | Self::Slice => None,
+        }
+    }
 }
 
 /// The exact declaration or type-form behavior used for construction.

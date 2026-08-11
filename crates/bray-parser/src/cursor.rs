@@ -306,10 +306,10 @@ impl ParserCursor {
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
+    use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticSuggestionApplicability};
     use bray_source::{TextRange, TextSize};
     use bray_syntax::SyntaxKind;
-    use bray_testing::test_source_snapshot as snapshot;
+    use bray_testing::{assert_goal_state_diagnostic_kind, test_source_snapshot as snapshot};
 
     use super::{ParserCursor, RecoverySet};
     use crate::lexer::LexerTokenSource;
@@ -375,6 +375,17 @@ mod tests {
             diagnostic.primary_span().map(|span| span.range()),
             Some(TextRange::empty(TextSize::ZERO))
         );
+
+        let [suggestion] = diagnostic.suggestions() else {
+            panic!("fixed expected syntax should provide one plausible edit");
+        };
+
+        assert_eq!(
+            suggestion.applicability(),
+            DiagnosticSuggestionApplicability::MaybeApplicable
+        );
+
+        assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::SyntaxExpectedToken);
     }
 
     #[test]
@@ -408,6 +419,57 @@ mod tests {
                 DiagnosticArg::actual_syntax_kind(SyntaxKind::EndOfFileToken),
             ]
         );
+
+        let [suggestion] = diagnostic.suggestions() else {
+            panic!("fixed EOF syntax should provide one plausible edit");
+        };
+
+        assert_eq!(
+            suggestion.applicability(),
+            DiagnosticSuggestionApplicability::MaybeApplicable
+        );
+
+        assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::SyntaxUnexpectedEof);
+    }
+
+    #[test]
+    fn cursor_non_fixed_expected_syntax_keeps_context_without_fabricating_an_edit() {
+        let mut cursor = cursor("func");
+
+        let expected = cursor.expect(SyntaxKind::IdentifierToken);
+
+        assert!(expected.is_missing());
+
+        let diagnostics = cursor.finish();
+
+        let diagnostic = diagnostics
+            .by_kind(DiagnosticKind::SyntaxExpectedToken)
+            .next()
+            .unwrap_or_else(|| panic!("non-fixed expected syntax must be diagnosed"));
+
+        assert!(diagnostic.suggestions().is_empty());
+
+        assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::SyntaxExpectedToken);
+    }
+
+    #[test]
+    fn cursor_non_fixed_eof_keeps_context_without_fabricating_an_edit() {
+        let mut cursor = cursor("");
+
+        let expected = cursor.expect(SyntaxKind::IdentifierToken);
+
+        assert!(expected.is_missing());
+
+        let diagnostics = cursor.finish();
+
+        let diagnostic = diagnostics
+            .by_kind(DiagnosticKind::SyntaxUnexpectedEof)
+            .next()
+            .unwrap_or_else(|| panic!("non-fixed EOF syntax must be diagnosed"));
+
+        assert!(diagnostic.suggestions().is_empty());
+
+        assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::SyntaxUnexpectedEof);
     }
 
     #[test]

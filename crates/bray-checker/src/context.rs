@@ -73,6 +73,10 @@ pub enum CheckerInfrastructureError {
     InvalidLivenessFacts,
     /// Refinement inputs do not describe the requested bound unit.
     InvalidRefinementInput,
+    /// Refinement resource counts cannot be represented by the diagnostic protocol.
+    RefinementCapacityUnrepresentable,
+    /// Host allocation failed while constructing refinement analysis storage.
+    RefinementStorageUnavailable,
     /// Storage-flow inputs or durable decisions violate the requested unit contract.
     InvalidStorageFlowFacts,
     /// A committed bound relationship names a node absent from the requested unit.
@@ -314,6 +318,12 @@ pub trait CheckerRequestContext: Sync {
     fn source(
         &self,
         anchor: BoundSourceAnchor,
+    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
+
+    /// Resolves one declaration syntax anchor from the current immutable compilation snapshot.
+    fn source_syntax(
+        &self,
+        anchor: bray_declarations::SyntaxAnchor,
     ) -> Result<CheckerSource<'_>, CheckerInfrastructureError>;
 
     /// Returns the cancellation source for the current request.

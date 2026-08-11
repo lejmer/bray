@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bray_base::StableDigestHasher;
+use bray_diagnostics::{DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm};
 
 static NEXT_SPOOL_ID: AtomicU64 = AtomicU64::new(0);
 const SPOOL_CREATE_ATTEMPTS: usize = 128;
@@ -397,6 +398,16 @@ impl ArtifactDigest {
     /// Returns the exact digest bytes by value.
     pub const fn into_bytes(self) -> [u8; 32] {
         self.bytes
+    }
+
+    /// Returns the locale-neutral diagnostic representation of this digest.
+    pub const fn diagnostic_digest(&self) -> DiagnosticArtifactDigest {
+        let algorithm = match self.algorithm {
+            ArtifactDigestAlgorithm::Blake3 => DiagnosticArtifactDigestAlgorithm::Blake3,
+            ArtifactDigestAlgorithm::Sha256 => DiagnosticArtifactDigestAlgorithm::Sha256,
+        };
+
+        DiagnosticArtifactDigest::new(algorithm, self.bytes)
     }
 }
 

@@ -28,7 +28,12 @@ impl ValueEnum for OutputFormat {
     }
 
     fn to_possible_value(&self) -> Option<PossibleValue> {
-        Some(PossibleValue::new(self.as_str()))
+        let help = match self {
+            Self::Text => bray_messages::command_help::OUTPUT_TEXT,
+            Self::Json => bray_messages::command_help::OUTPUT_JSON,
+        };
+
+        Some(PossibleValue::new(self.as_str()).help(help))
     }
 }
 

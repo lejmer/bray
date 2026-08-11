@@ -5,14 +5,15 @@ use bray_bound_tree::{
     PatternPredicate, RefinementFact, RefinementFactKind, StorageAccessId, StorageAccessPurpose,
     StoragePlan, StorageRelationship,
 };
+use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface};
 
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::model::{AnalysisRefinement, ControlFlowGraph};
 use super::set::FactSet;
 
-const MAX_REFINEMENT_FACTS: usize = 1 << 20;
-const MAX_REFINEMENT_CELLS: usize = 1 << 24;
+pub(super) const MAX_REFINEMENT_FACTS: usize = 1 << 20;
+pub(super) const MAX_REFINEMENT_CELLS: usize = 1 << 24;
 
 pub(super) struct RefinementUniverse {
     facts: Vec<RefinementFact>,
@@ -38,10 +39,14 @@ impl RefinementUniverse {
             .len()
             .checked_add(graph.operations().len())
             .and_then(|count| count.checked_add(patterns.patterns().len()))
-            .ok_or(RefinementUniverseError::CapacityExceeded)?;
+            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
 
         if potential_facts > MAX_REFINEMENT_FACTS {
-            return Err(RefinementUniverseError::CapacityExceeded);
+            return Err(capacity_error(
+                DiagnosticRefinementCapacitySurface::RefinementEntries,
+                potential_facts,
+                MAX_REFINEMENT_FACTS,
+            ));
         }
 
         let direct_dependencies = direct_expression_dependencies(storage);
@@ -59,7 +64,7 @@ impl RefinementUniverse {
         universe
             .facts
             .try_reserve_exact(potential_facts)
-            .map_err(|_| RefinementUniverseError::CapacityExceeded)?;
+            .map_err(|_| RefinementUniverseError::AllocationFailed)?;
 
         for edge in graph.edges() {
             if request.is_cancelled() {
@@ -112,19 +117,31 @@ impl RefinementUniverse {
             .blocks()
             .len()
             .checked_add(graph.operations().len())
-            .ok_or(RefinementUniverseError::CapacityExceeded)?;
+            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
 
         let bitset_cells = words
             .checked_mul(retained_states)
-            .ok_or(RefinementUniverseError::CapacityExceeded)?;
+            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
 
         let published_facts = universe
             .len()
             .checked_mul(graph.operations().len())
-            .ok_or(RefinementUniverseError::CapacityExceeded)?;
+            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
 
-        if bitset_cells > MAX_REFINEMENT_CELLS || published_facts > MAX_REFINEMENT_CELLS {
-            return Err(RefinementUniverseError::CapacityExceeded);
+        if bitset_cells > MAX_REFINEMENT_CELLS {
+            return Err(capacity_error(
+                DiagnosticRefinementCapacitySurface::RetainedStateCells,
+                bitset_cells,
+                MAX_REFINEMENT_CELLS,
+            ));
+        }
+
+        if published_facts > MAX_REFINEMENT_CELLS {
+            return Err(capacity_error(
+                DiagnosticRefinementCapacitySurface::PublishedRefinements,
+                published_facts,
+                MAX_REFINEMENT_CELLS,
+            ));
         }
 
         Ok(universe)
@@ -263,8 +280,30 @@ impl RefinementUniverse {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum RefinementUniverseError {
-    CapacityExceeded,
+    CapacityExceeded(DiagnosticRefinementCapacity),
+    CountUnrepresentable,
+    AllocationFailed,
     Cancelled,
+}
+
+fn capacity_error(
+    surface: DiagnosticRefinementCapacitySurface,
+    actual: usize,
+    maximum: usize,
+) -> RefinementUniverseError {
+    let Ok(actual) = u64::try_from(actual) else {
+        return RefinementUniverseError::CountUnrepresentable;
+    };
+
+    let Ok(maximum) = u64::try_from(maximum) else {
+        return RefinementUniverseError::CountUnrepresentable;
+    };
+
+    let Some(capacity) = DiagnosticRefinementCapacity::try_new(surface, actual, maximum) else {
+        return RefinementUniverseError::CountUnrepresentable;
+    };
+
+    RefinementUniverseError::CapacityExceeded(capacity)
 }
 
 fn expression_dependencies(

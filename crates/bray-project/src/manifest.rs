@@ -2,7 +2,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ProjectLoadError, ProjectManifestProblem};
+use crate::ProjectLoadError;
+use bray_diagnostics::DiagnosticProjectManifestField;
 
 pub(crate) const MANIFEST_FORMAT_REVISION: u32 = 1;
 
@@ -259,17 +260,15 @@ pub fn canonicalize_package_manifest(
 }
 
 fn manifest_revision(source: &str, path: &Path) -> Result<ManifestRevision, ProjectLoadError> {
-    let probe = serde_json::from_str::<ManifestRevisionProbe>(source).map_err(|_| {
-        ProjectLoadError::ParseManifest {
-            path: path.to_path_buf(),
-        }
-    })?;
+    let probe = serde_json::from_str::<ManifestRevisionProbe>(source)
+        .map_err(|error| parse_manifest_error(path, &error))?;
 
     ManifestRevision::from_number(probe.format).ok_or_else(|| {
-        ProjectLoadError::invalid(
+        ProjectLoadError::unsupported_format(
             path.to_path_buf(),
-            ProjectManifestProblem::UnsupportedFormat,
-            probe.format.to_string(),
+            DiagnosticProjectManifestField::WorkspaceFormat,
+            u64::from(probe.format),
+            u64::from(MANIFEST_FORMAT_REVISION),
         )
     })
 }
@@ -278,9 +277,7 @@ fn decode_revision_1<T>(source: &str, path: &Path) -> Result<T, ProjectLoadError
 where
     T: serde::de::DeserializeOwned,
 {
-    serde_json::from_str(source).map_err(|_| ProjectLoadError::ParseManifest {
-        path: path.to_path_buf(),
-    })
+    serde_json::from_str(source).map_err(|error| parse_manifest_error(path, &error))
 }
 
 fn encode_manifest<T>(manifest: &T, path: &Path) -> Result<String, ProjectLoadError>
@@ -291,7 +288,30 @@ where
         .map(|source| format!("{source}\n"))
         .map_err(|_| ProjectLoadError::ParseManifest {
             path: path.to_path_buf(),
+            kind: bray_diagnostics::DiagnosticDocumentParseKind::Serialization,
+            line: None,
+            column: None,
         })
+}
+
+fn parse_manifest_error(path: &Path, error: &serde_json::Error) -> ProjectLoadError {
+    let kind = match error.classify() {
+        serde_json::error::Category::Io => bray_diagnostics::DiagnosticDocumentParseKind::Input,
+        serde_json::error::Category::Syntax => {
+            bray_diagnostics::DiagnosticDocumentParseKind::Syntax
+        }
+        serde_json::error::Category::Data => bray_diagnostics::DiagnosticDocumentParseKind::Schema,
+        serde_json::error::Category::Eof => {
+            bray_diagnostics::DiagnosticDocumentParseKind::UnexpectedEnd
+        }
+    };
+
+    ProjectLoadError::ParseManifest {
+        path: path.to_path_buf(),
+        kind,
+        line: u64::try_from(error.line()).ok(),
+        column: u64::try_from(error.column()).ok(),
+    }
 }
 
 impl WorkspaceManifest {

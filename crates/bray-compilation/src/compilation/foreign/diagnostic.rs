@@ -1,6 +1,6 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticCallableAbi, DiagnosticId, DiagnosticKind,
-    DiagnosticLabel, DiagnosticLabelKind, DiagnosticType, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticCallableAbi, DiagnosticKind, DiagnosticLabelKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticType,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{CallableAbi, TypeExpressionTemplate};
@@ -13,12 +13,11 @@ pub(super) fn source_diagnostic(
     anchor: bray_declarations::SyntaxAnchor,
     kind: DiagnosticKind,
 ) -> Diagnostic {
-    Diagnostic::new(
-        DiagnosticId::new(anchor.full_range().start().bytes()),
+    crate::compilation::diagnostics::labeled_source_diagnostic(
+        anchor,
         kind,
-        SeverityKind::Error,
+        DiagnosticLabelKind::InvalidForeignBoundary,
     )
-    .with_primary_span(SourceSpan::new(anchor.source_id(), anchor.full_range()))
 }
 
 pub(super) fn missing_directive(
@@ -35,14 +34,19 @@ pub(super) fn missing_directive(
 pub(super) fn duplicate_native_symbol(
     anchor: bray_declarations::SyntaxAnchor,
     symbol: &str,
-    previous: bray_declarations::SyntaxAnchor,
+    previous: &[bray_declarations::SyntaxAnchor],
 ) -> Diagnostic {
-    source_diagnostic(anchor, DiagnosticKind::CheckingDuplicateNativeSymbol)
-        .with_arg(DiagnosticArg::declaration_name(symbol))
-        .with_label(DiagnosticLabel::secondary(
-            DiagnosticLabelKind::FirstDeclaration,
+    let mut diagnostic = source_diagnostic(anchor, DiagnosticKind::CheckingDuplicateNativeSymbol)
+        .with_arg(DiagnosticArg::declaration_name(symbol));
+
+    for previous in previous {
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::FirstDeclaration,
             SourceSpan::new(previous.source_id(), previous.full_range()),
-        ))
+        ));
+    }
+
+    diagnostic
 }
 
 pub(super) fn diagnostic_abi(abi: CallableAbi) -> DiagnosticCallableAbi {
@@ -53,7 +57,7 @@ pub(super) fn diagnostic_abi(abi: CallableAbi) -> DiagnosticCallableAbi {
     }
 }
 
-pub(super) fn template_diagnostic_type(
+pub(in crate::compilation) fn template_diagnostic_type(
     compilation: &Compilation,
     template: &TypeExpressionTemplate,
     cancellation: &crate::fact::CancellationToken,

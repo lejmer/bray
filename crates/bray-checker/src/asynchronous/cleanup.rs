@@ -300,6 +300,7 @@ where
             | StorageIdentity::PredicateParameter(_)
             | StorageIdentity::PostconditionResult(_)
             | StorageIdentity::Temporary(_)
+            | StorageIdentity::CustomIndexBorrow(_)
             | StorageIdentity::IterationCursor(_)
             | StorageIdentity::IterationElement(_)
             | StorageIdentity::Allocation(_)

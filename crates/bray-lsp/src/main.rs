@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use bray_compilation::WorkerBudget;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
+    DiagnosticProjectSelectionProblem, SeverityKind,
 };
 use bray_lsp::LanguageServer;
 use bray_project::load_project_graph;
@@ -47,7 +48,9 @@ fn main() -> ExitCode {
                 DiagnosticKind::ProjectCommandSelectionInvalid,
                 SeverityKind::Error,
             )
-            .with_arg(DiagnosticArg::referenced_name(cli.target)),
+            .with_arg(DiagnosticArg::project_selection_problem(
+                DiagnosticProjectSelectionProblem::UnknownTarget(cli.target),
+            )),
         ));
     };
 

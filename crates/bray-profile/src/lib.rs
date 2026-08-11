@@ -24,4 +24,4 @@ pub use model::{
     CompilationProfileSubject, CompilationProfileSubjectKind, CompilationProfileTimeBreakdown,
     CompilationProfileUnit,
 };
-pub use validation::CompilationProfileValidationError;
+pub use validation::{CompilationProfileDescriptorKind, CompilationProfileValidationError};

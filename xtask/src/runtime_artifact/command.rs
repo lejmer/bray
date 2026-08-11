@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "runtime artifact command parsing, construction, and metadata publication form one reproducible packaging contract")
+
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -678,12 +680,12 @@ pub(super) enum CommandError {
     TemporaryDirectory(std::io::Error),
     NonUtf8Path,
     Rustc(std::io::Error),
-    NativeSymbolToolUnavailable,
+    NativeSymbolToolUnavailable(bray_tooling::LlvmToolPathError),
     NativeSymbolInspection(std::io::Error),
     NativeSymbolInspectionFailed,
     RuntimeComponentBoundary(RuntimeArchiveKind),
     RuntimePartitionTool(std::io::Error),
-    RuntimePartitionToolUnavailable,
+    RuntimePartitionToolUnavailable(bray_tooling::LlvmToolPathError),
     RuntimePartitionFailed,
     RuntimePartitionMissingOwner(RuntimeArchiveKind),
     SynchronousLinkMapBoundary(String),
@@ -745,8 +747,11 @@ impl fmt::Display for CommandError {
             }
             Self::NonUtf8Path => formatter.write_str("runtime archive path is not valid UTF-8"),
             Self::Rustc(error) => write!(formatter, "could not run rustc: {error}"),
-            Self::NativeSymbolToolUnavailable => {
-                formatter.write_str("llvm-nm is unavailable for runtime artifact inspection")
+            Self::NativeSymbolToolUnavailable(error) => {
+                write!(
+                    formatter,
+                    "llvm-nm is unavailable for runtime artifact inspection: {error}"
+                )
             }
             Self::NativeSymbolInspection(error) => {
                 write!(
@@ -769,8 +774,11 @@ impl fmt::Display for CommandError {
                     "could not run runtime archive partition tool: {error}"
                 )
             }
-            Self::RuntimePartitionToolUnavailable => {
-                formatter.write_str("llvm-ar is unavailable for runtime archive partitioning")
+            Self::RuntimePartitionToolUnavailable(error) => {
+                write!(
+                    formatter,
+                    "llvm-ar is unavailable for runtime archive partitioning: {error}"
+                )
             }
             Self::RuntimePartitionFailed => {
                 formatter.write_str("runtime archive partitioning failed")

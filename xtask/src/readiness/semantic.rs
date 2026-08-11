@@ -46,6 +46,13 @@ const REQUIRED_CROSS_CUTTING_CONTRACTS: &[&str] = &[
     "diagnostic-order",
 ];
 
+const REQUIRED_DIAGNOSTIC_SURFACE_TESTS: &[&str] = &[
+    "json_output_preserves_related_locations_and_suggestions",
+    "declaration_diagnostic_publishes_the_actual_related_origin",
+    "parser_diagnostic_publishes_labels_and_safe_code_actions",
+    "text_output_renders_related_locations_labels_and_suggestions",
+];
+
 #[derive(Deserialize)]
 struct CoverageFixture {
     rule_families: Vec<RuleFamily>,
@@ -99,17 +106,33 @@ pub(super) fn audit_coverage(workspace: &RustWorkspace) -> Result<(), String> {
 
 pub(super) fn audit_diagnostics(workspace: &RustWorkspace) -> Result<(), String> {
     let mut coverage = BTreeMap::new();
+    let mut candidates = BTreeMap::new();
 
     for &kind in DiagnosticKind::ALL {
         let variant = format!("{kind:?}");
         let reference = format!("DiagnosticKind :: {variant}");
 
-        let producers = workspace
+        let kind_candidates = workspace
             .tests()
             .iter()
             .filter(|test| test.body().contains(&reference))
+            .collect::<Vec<_>>();
+
+        let producers = kind_candidates
+            .iter()
+            .copied()
+            .filter(|test| test.asserted_diagnostic_kinds().contains(&variant))
             .map(test_location)
             .collect::<Vec<_>>();
+
+        candidates.insert(
+            kind,
+            kind_candidates
+                .into_iter()
+                .map(test_location)
+                .take(3)
+                .collect::<Vec<_>>(),
+        );
 
         coverage.insert(kind, producers);
     }
@@ -117,14 +140,29 @@ pub(super) fn audit_diagnostics(workspace: &RustWorkspace) -> Result<(), String>
     let missing = coverage
         .iter()
         .filter(|(_, tests)| tests.is_empty())
-        .map(|(kind, _)| format!("{kind:?}"))
+        .map(|(kind, _)| format!("{kind:?} ({:?})", candidates[kind]))
         .collect::<Vec<_>>();
 
-    if missing.is_empty() {
+    if !missing.is_empty() {
+        return Err(format!(
+            "{} diagnostic kinds lack quality-asserted executable producer tests: {missing:?}",
+            missing.len(),
+        ));
+    }
+
+    let tests = rust_test_locations(workspace);
+
+    let missing_surfaces = REQUIRED_DIAGNOSTIC_SURFACE_TESTS
+        .iter()
+        .filter(|test| !tests.contains_key(**test))
+        .copied()
+        .collect::<Vec<_>>();
+
+    if missing_surfaces.is_empty() {
         Ok(())
     } else {
         Err(format!(
-            "diagnostic kinds without executable producer tests: {missing:?}"
+            "diagnostic rendered surfaces lack executable coverage: {missing_surfaces:?}"
         ))
     }
 }

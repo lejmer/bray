@@ -127,5 +127,6 @@ pub(super) fn standard_library_compilation(
     let request = CompilationRequest::with_options(package, sources, options)
         .with_standard_library_source_authority();
 
-    load_llvm_compilation(request).ok_or_else(|| "LLVM compiler backend is unavailable".to_owned())
+    load_llvm_compilation(request)
+        .map_err(|error| format!("LLVM compiler backend is unavailable: {error}"))
 }

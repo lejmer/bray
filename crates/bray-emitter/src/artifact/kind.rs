@@ -41,7 +41,8 @@ impl ArtifactKind {
         self.diagnostic_kind().as_str()
     }
 
-    pub(crate) const fn diagnostic_kind(self) -> DiagnosticArtifactKind {
+    /// Returns the locale-neutral diagnostic artifact category.
+    pub const fn diagnostic_kind(self) -> DiagnosticArtifactKind {
         match self {
             Self::Assembly => DiagnosticArtifactKind::Assembly,
             Self::BackendIr => DiagnosticArtifactKind::BackendIr,

@@ -143,6 +143,7 @@ pub(crate) fn selected_fact_sections(
         InterfaceSectionTag::SymbolFactDirectory,
         InterfaceSectionTag::SemanticTypes,
         InterfaceSectionTag::Constants,
+        InterfaceSectionTag::Contracts,
         InterfaceSectionTag::TargetDependencies,
     ];
 
@@ -240,7 +241,7 @@ mod tests {
         OwnedSection, append_record, owned_section_views, record_directory_entry, record_range,
         record_range_with_local_owner,
     };
-    use super::{decode_semantic_fact_graph, decode_semantic_facts};
+    use super::{decode_semantic_fact_graph, decode_semantic_facts, selected_fact_sections};
     use crate::semantic::codec::{encode_semantic_facts, encode_validated_semantic_facts};
     use crate::test_support::{local_by_kind, package_interface_export_bundle};
     use crate::{
@@ -426,8 +427,17 @@ mod tests {
             panic!("test runtime requirement owner must be local");
         };
 
+        let selected_tags = selected_fact_sections(InterfaceSemanticFactKind::Runtime)
+            .unwrap_or_else(|| panic!("runtime facts must support selective decoding"));
+
+        let selected_views = views
+            .iter()
+            .copied()
+            .filter(|section| selected_tags.contains(&section.tag()))
+            .collect::<Vec<_>>();
+
         let decoded = decode_semantic_fact_graph(
-            &views,
+            &selected_views,
             &surface,
             owner_id,
             InterfaceSemanticFactKind::Runtime,

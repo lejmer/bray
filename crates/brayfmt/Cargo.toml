@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-formatter = { path = "../bray-formatter" }
+bray-messages = { path = "../bray-messages" }
 bray-tooling = { path = "../bray-tooling", default-features = false }
 
 clap = { version = "4", default-features = false, features = ["color", "derive", "help", "std", "usage"] }

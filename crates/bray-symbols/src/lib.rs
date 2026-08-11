@@ -7,6 +7,7 @@ mod availability;
 mod build;
 mod collection;
 mod compiler_known;
+mod diagnostic;
 mod error;
 mod external;
 mod fact;
@@ -44,6 +45,10 @@ pub use compiler_known::{
     CompilerKnownResultRepresentation, CompilerKnownRunResultRepresentation,
     CompilerKnownScopeSymbolId, CompilerKnownSymbolBuildError, CompilerKnownSymbolFactKey,
     CompilerKnownSymbolProvider, CompilerKnownSymbolRoleRegistry, CompilerKnownTargetProfile,
+};
+pub use diagnostic::{
+    diagnostic_callable_abi, diagnostic_callable_execution, diagnostic_symbol_identity,
+    diagnostic_symbol_kind,
 };
 pub use error::SymbolGraphBuildError;
 pub use graph::{SymbolGraph, SymbolGraphRoots};

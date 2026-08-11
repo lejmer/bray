@@ -20,6 +20,13 @@ macro_rules! define_catalog_enum {
             /// Every closed value in canonical declaration order.
             pub const ALL: &'static [Self] = &[$(Self::$variant),+];
 
+            /// Returns this value's canonical catalog spelling.
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $spelling,)+
+                }
+            }
+
             #[cfg(any(test, feature = "generation"))]
             pub(crate) fn from_catalog_spelling(spelling: &str) -> Option<Self> {
                 match spelling {

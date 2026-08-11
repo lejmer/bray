@@ -7,7 +7,11 @@ use bray_bound_tree::{
     SelectedArgument, SemanticSelection,
 };
 use bray_compiler_known::ImplementationHook;
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, DiagnosticResult, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticMemoryOperation, DiagnosticNote,
+    DiagnosticNoteKind, DiagnosticResult, SeverityKind,
+};
 use bray_symbols::{
     CallableAbi, CallableInstanceData, CallableSignatureFact, CallableTrust,
     DeclarationDirectivesFact, DirectiveKind, GenericArgument, SymbolFactRequest, TypeData,
@@ -72,6 +76,10 @@ where
         };
 
         if !resolution.is_available() {
+            let Some(operation) = diagnostic_memory_operation(resolution.hook()) else {
+                continue;
+            };
+
             let span = match expression_span(request, entry.expression()) {
                 Ok(span) => span,
                 Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -83,7 +91,15 @@ where
                     DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
                     SeverityKind::Error,
                 )
-                .with_primary_span(span),
+                .with_primary_span(span)
+                .with_label(DiagnosticLabel::primary(
+                    DiagnosticLabelKind::UnsupportedTargetRequirement,
+                    span,
+                ))
+                .with_arg(DiagnosticArg::target_triple(
+                    request.selected_target().identity().as_str(),
+                ))
+                .with_arg(DiagnosticArg::memory_operation(operation)),
             );
 
             continue;
@@ -112,12 +128,12 @@ where
         };
 
         if matches!(kind, CheckedMemoryOperationKind::CallbackState { .. }) {
-            let valid = match valid_callback_state_entry(request, arguments.as_slice()) {
-                Ok(valid) => valid,
+            let problem = match callback_state_problem(request, arguments.as_slice()) {
+                Ok(problem) => problem,
                 Err(outcome) => return outcome,
             };
 
-            if !valid {
+            if let Some(problem) = problem {
                 let span = match expression_span(request, entry.expression()) {
                     Ok(span) => span,
                     Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -129,7 +145,15 @@ where
                         DiagnosticKind::CheckingInvalidCallbackStateContext,
                         SeverityKind::Error,
                     )
-                    .with_primary_span(span),
+                    .with_primary_span(span)
+                    .with_label(DiagnosticLabel::primary(
+                        DiagnosticLabelKind::InvalidForeignBoundary,
+                        span,
+                    ))
+                    .with_arg(DiagnosticArg::callback_state_problem(problem))
+                    .with_note(DiagnosticNote::new(
+                        DiagnosticNoteKind::CallbackStateRequirements,
+                    )),
                 );
 
                 continue;
@@ -160,10 +184,10 @@ where
     CheckerOutcome::Complete(DiagnosticResult::new(facts, diagnostics))
 }
 
-fn valid_callback_state_entry<C>(
+fn callback_state_problem<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[bray_bound_tree::BoundExpressionId],
-) -> Result<bool, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<Option<DiagnosticCallbackStateProblem>, CheckerOutcome<CheckedMemoryOperations>>
 where
     C: CheckerRequestContext
         + CheckerSemanticFactProvider<CallableSignatureFact>
@@ -177,7 +201,7 @@ where
     };
 
     let Some(callable) = request.containing_callable() else {
-        return Ok(false);
+        return Ok(Some(DiagnosticCallbackStateProblem::OutsideCallable));
     };
 
     let signature =
@@ -213,11 +237,16 @@ where
         }
     };
 
-    if abi == CallableAbi::Bray
-        || trust != CallableTrust::Trusted
-        || signature.value().receiver().is_some()
-    {
-        return Ok(false);
+    if abi == CallableAbi::Bray {
+        return Ok(Some(DiagnosticCallbackStateProblem::LanguageAbi));
+    }
+
+    if trust != CallableTrust::Trusted {
+        return Ok(Some(DiagnosticCallbackStateProblem::CallableNotTrusted));
+    }
+
+    if signature.value().receiver().is_some() {
+        return Ok(Some(DiagnosticCallbackStateProblem::ReceiverPresent));
     }
 
     let directives = match request.symbol_fact(SymbolFactRequest::<DeclarationDirectivesFact>::new(
@@ -236,23 +265,188 @@ where
         .iter()
         .any(|directive| directive.kind() == DirectiveKind::Symbol)
     {
-        return Ok(false);
+        return Ok(Some(DiagnosticCallbackStateProblem::MissingSymbolDirective));
     }
 
-    let Some((parameters, None)) = request.symbols().callable_parameters_and_receiver(callable)
+    let Some((parameters, receiver)) = request.symbols().callable_parameters_and_receiver(callable)
     else {
-        return Ok(false);
+        return Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        ));
     };
 
-    let Some(first) = parameters.first().copied() else {
-        return Ok(false);
+    if receiver.is_some() {
+        return Ok(Some(DiagnosticCallbackStateProblem::ReceiverPresent));
+    }
+
+    if parameters.is_empty() {
+        return Ok(Some(
+            DiagnosticCallbackStateProblem::MissingContextParameter,
+        ));
     };
 
     let Some(BoundExpression::Name(context)) = request.view().expression(*context) else {
-        return Ok(false);
+        return Ok(Some(DiagnosticCallbackStateProblem::ContextArgumentNotName));
     };
 
-    Ok(context.target() == BoundReferenceTarget::Surface(first.into()))
+    let BoundReferenceTarget::Surface(target) = context.target() else {
+        return Ok(Some(
+            DiagnosticCallbackStateProblem::ContextArgumentNotParameter,
+        ));
+    };
+
+    let Some(ordinal) = parameters
+        .iter()
+        .position(|parameter| bray_symbols::AnySymbolId::from(*parameter) == target)
+    else {
+        return Ok(Some(
+            DiagnosticCallbackStateProblem::ContextArgumentNotParameter,
+        ));
+    };
+
+    if ordinal != 0 {
+        let actual_ordinal = u64::try_from(ordinal).map_err(|_| {
+            CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            )
+        })?;
+
+        return Ok(Some(
+            DiagnosticCallbackStateProblem::ContextParameterNotFirst { actual_ordinal },
+        ));
+    }
+
+    Ok(None)
+}
+
+const fn diagnostic_memory_operation(
+    hook: ImplementationHook,
+) -> Option<DiagnosticMemoryOperation> {
+    use DiagnosticMemoryOperation as Operation;
+    use ImplementationHook as Hook;
+
+    Some(match hook {
+        Hook::AddressOf => Operation::AddressOf,
+        Hook::AddressOfMut => Operation::MutableAddressOf,
+        Hook::RawPointerNull => Operation::NullPointer,
+        Hook::RawPointerIsNull => Operation::PointerNullCheck,
+        Hook::RawPointerOffset => Operation::PointerElementOffset,
+        Hook::RawPointerByteOffset => Operation::PointerByteOffset,
+        Hook::RawPointerReinterpret => Operation::PointerReinterpretation,
+        Hook::CallbackState => Operation::CallbackState,
+        Hook::RawPointerRead => Operation::PointerRead,
+        Hook::RawPointerWrite => Operation::PointerWrite,
+        Hook::MemoryCopy => Operation::MemoryCopy,
+        Hook::MemoryCopyOverlapping => Operation::OverlappingMemoryCopy,
+        Hook::MemorySizeOf => Operation::SizeDetermination,
+        Hook::MemoryAlignOf => Operation::AlignmentDetermination,
+        Hook::MemoryStrideOf => Operation::StrideDetermination,
+        Hook::MemoryLayoutOf => Operation::LayoutDetermination,
+        Hook::RawAllocate => Operation::RawAllocation,
+        Hook::RawDeallocate => Operation::RawDeallocation,
+        Hook::Allocate => Operation::Allocation,
+        Hook::Deallocate => Operation::Deallocation,
+        Hook::RawBufferCapacity => Operation::RawBufferCapacity,
+        Hook::RawBufferInitializedCount => Operation::RawBufferInitializedCount,
+        Hook::RawBufferPointer => Operation::RawBufferPointer,
+        Hook::RawBufferInitializedSlice => Operation::RawBufferInitializedSlice,
+        Hook::RawBufferInitializedSliceMut => Operation::MutableRawBufferInitializedSlice,
+        Hook::RawBufferSparePointer => Operation::RawBufferSparePointer,
+        Hook::RawBufferSetInitializedCount => Operation::RawBufferSetInitializedCount,
+        Hook::RawBufferRelease => Operation::RawBufferRelease,
+        Hook::RawBufferReplace => Operation::RawBufferReplace,
+        Hook::ByteBufferFill => Operation::ByteBufferFill,
+        Hook::ByteBufferCopy => Operation::ByteBufferCopy,
+        Hook::ByteBufferRead => Operation::ByteBufferRead,
+        Hook::SliceLength => Operation::SliceLength,
+        _ => return None,
+    })
+}
+
+pub(crate) const fn diagnostic_checked_memory_operation(
+    kind: CheckedMemoryOperationKind,
+) -> DiagnosticMemoryOperation {
+    use DiagnosticMemoryOperation as Operation;
+
+    use bray_bound_tree::{
+        MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind, MemoryOffsetUnit,
+    };
+
+    match kind {
+        CheckedMemoryOperationKind::Address {
+            kind: MemoryAddressKind::Shared,
+            ..
+        } => Operation::AddressOf,
+        CheckedMemoryOperationKind::Address {
+            kind: MemoryAddressKind::Mutable,
+            ..
+        } => Operation::MutableAddressOf,
+        CheckedMemoryOperationKind::Null { .. } => Operation::NullPointer,
+        CheckedMemoryOperationKind::IsNull { .. } => Operation::PointerNullCheck,
+        CheckedMemoryOperationKind::Offset {
+            unit: MemoryOffsetUnit::Element,
+            ..
+        } => Operation::PointerElementOffset,
+        CheckedMemoryOperationKind::Offset {
+            unit: MemoryOffsetUnit::Byte,
+            ..
+        } => Operation::PointerByteOffset,
+        CheckedMemoryOperationKind::Reinterpret { .. } => Operation::PointerReinterpretation,
+        CheckedMemoryOperationKind::Read { .. } => Operation::PointerRead,
+        CheckedMemoryOperationKind::Write { .. } => Operation::PointerWrite,
+        CheckedMemoryOperationKind::Copy {
+            kind: MemoryCopyKind::NonOverlapping,
+            ..
+        } => Operation::MemoryCopy,
+        CheckedMemoryOperationKind::Copy {
+            kind: MemoryCopyKind::Overlapping,
+            ..
+        } => Operation::OverlappingMemoryCopy,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Size,
+            ..
+        } => Operation::SizeDetermination,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Alignment,
+            ..
+        } => Operation::AlignmentDetermination,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Stride,
+            ..
+        } => Operation::StrideDetermination,
+        CheckedMemoryOperationKind::LayoutQuery {
+            kind: MemoryLayoutQueryKind::Layout,
+            ..
+        } => Operation::LayoutDetermination,
+        CheckedMemoryOperationKind::RawAllocate => Operation::RawAllocation,
+        CheckedMemoryOperationKind::RawDeallocate => Operation::RawDeallocation,
+        CheckedMemoryOperationKind::Allocate => Operation::Allocation,
+        CheckedMemoryOperationKind::Deallocate => Operation::Deallocation,
+        CheckedMemoryOperationKind::RawBufferCapacity => Operation::RawBufferCapacity,
+        CheckedMemoryOperationKind::RawBufferInitializedCount => {
+            Operation::RawBufferInitializedCount
+        }
+        CheckedMemoryOperationKind::RawBufferPointer => Operation::RawBufferPointer,
+        CheckedMemoryOperationKind::RawBufferInitializedSlice => {
+            Operation::RawBufferInitializedSlice
+        }
+        CheckedMemoryOperationKind::RawBufferInitializedSliceMut => {
+            Operation::MutableRawBufferInitializedSlice
+        }
+        CheckedMemoryOperationKind::RawBufferSparePointer { .. } => {
+            Operation::RawBufferSparePointer
+        }
+        CheckedMemoryOperationKind::RawBufferSetInitializedCount => {
+            Operation::RawBufferSetInitializedCount
+        }
+        CheckedMemoryOperationKind::RawBufferRelease { .. } => Operation::RawBufferRelease,
+        CheckedMemoryOperationKind::RawBufferReplace { .. } => Operation::RawBufferReplace,
+        CheckedMemoryOperationKind::ByteBufferFill => Operation::ByteBufferFill,
+        CheckedMemoryOperationKind::ByteBufferCopy => Operation::ByteBufferCopy,
+        CheckedMemoryOperationKind::ByteBufferRead => Operation::ByteBufferRead,
+        CheckedMemoryOperationKind::SliceLength => Operation::SliceLength,
+        CheckedMemoryOperationKind::CallbackState { .. } => Operation::CallbackState,
+    }
 }
 
 fn selected_arguments(

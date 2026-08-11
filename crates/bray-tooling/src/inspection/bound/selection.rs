@@ -80,11 +80,13 @@ enum InspectionSelectionTarget {
         operation: &'static str,
     },
     CustomIndex {
+        capability: &'static str,
         member: InspectionSymbolIdentity,
         fulfillment: InspectionSymbolIdentity,
         evidence: Box<InspectionImplementationEvidence>,
     },
     TraitConstraintIndex {
+        capability: &'static str,
         member: InspectionSymbolIdentity,
         constraint_owner: InspectionSymbolIdentity,
         constraint_ordinal: u32,
@@ -137,11 +139,20 @@ impl InspectionSelectionTarget {
                 operator, member, ..
             } => format!("trait {operator} via constraint for {}", member.text()),
             Self::BuiltInIndex { operation } => format!("built-in {operation}"),
-            Self::CustomIndex { fulfillment, .. } => {
-                format!("custom index via {}", fulfillment.text())
+            Self::CustomIndex {
+                capability,
+                fulfillment,
+                ..
+            } => {
+                format!("custom {capability} index via {}", fulfillment.text())
             }
-            Self::TraitConstraintIndex { member, .. } => {
-                format!("custom index via constraint for {}", member.text())
+            Self::TraitConstraintIndex {
+                capability, member, ..
+            } => {
+                format!(
+                    "custom {capability} index via constraint for {}",
+                    member.text()
+                )
             }
             Self::Construction { callable, .. } => {
                 format!("type-form construction via {}", callable.text())
@@ -483,12 +494,14 @@ fn index_target(
         IndexTarget::ArraySlice => "array_slice",
         IndexTarget::Slice => "slice",
         IndexTarget::Custom {
+            borrow_kind,
             member,
             fulfillment,
             requirement,
             witness,
         } => {
             return Ok(InspectionSelectionTarget::CustomIndex {
+                capability: borrow_kind.as_str(),
                 member: callable_identity(symbols, member),
                 fulfillment: callable_identity(symbols, fulfillment),
                 evidence: Box::new(implementation_evidence(
@@ -500,9 +513,13 @@ fn index_target(
             });
         }
         IndexTarget::TraitConstraint {
-            member, dispatch, ..
+            borrow_kind,
+            member,
+            dispatch,
+            ..
         } => {
             return Ok(InspectionSelectionTarget::TraitConstraintIndex {
+                capability: borrow_kind.as_str(),
                 member: callable_identity(symbols, member),
                 constraint_owner: InspectionSymbolIdentity::from_symbol(
                     symbols,

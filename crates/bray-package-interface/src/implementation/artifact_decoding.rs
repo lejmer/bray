@@ -56,6 +56,7 @@ pub(super) fn decode_directory_entry(
     limits.check(InterfaceLimit::RecordCount, record_count)?;
 
     let offset = usize::try_from(offset).map_err(|_| InterfaceValidationError::Malformed)?;
+
     let encoded_length =
         usize::try_from(encoded_length).map_err(|_| InterfaceValidationError::Malformed)?;
 

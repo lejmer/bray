@@ -503,7 +503,6 @@ mod tests {
         AssemblySyntaxKind, BackendSerializationOptions, DebugInformationMode,
         DebugInformationOutputMode, LinkableArtifactKind,
     };
-    use bray_diagnostics::DiagnosticBag;
     use bray_linker::{
         DeadStripPolicy, DebugLinkPolicy, LinkCancellationCapability, LinkDeterminismCapability,
         LinkEnvironmentCapability, LinkFailure, LinkInputKind, LinkInputMode, LinkInputProvenance,
@@ -1173,12 +1172,16 @@ mod tests {
 
         fn link(
             &self,
-            _plan: &bray_linker::LinkPlan,
+            plan: &bray_linker::LinkPlan,
             _cancellation: &dyn Cancellation,
         ) -> LinkOutcome {
             self.invocations.fetch_add(1, Ordering::SeqCst);
 
-            LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new())
+            LinkOutcome::failed(
+                plan,
+                LinkFailure::Invocation,
+                bray_diagnostics::DiagnosticBag::new(),
+            )
         }
     }
 

@@ -9,9 +9,9 @@ use crate::severity::SeverityKind;
 /// A bag preserves insertion order. Callers that need global deterministic
 /// ordering should add diagnostics in deterministic phase order or sort them.
 ///
-/// Merge deduplication compares structured facts: severity, kind, primary span,
-/// labels, notes, and typed arguments. Localized rendered text and diagnostic
-/// IDs are excluded from the key.
+/// Merge deduplication compares structured content: severity, kind, primary span,
+/// labels, notes, related locations, suggestions, and typed arguments. Localized
+/// rendered text and diagnostic IDs are excluded from the key.
 ///
 /// Shared access is thread-safe. Mutation requires exclusive `&mut self` access
 /// or caller-owned synchronization.

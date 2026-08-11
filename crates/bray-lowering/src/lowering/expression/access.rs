@@ -197,28 +197,27 @@ impl Lowerer<'_> {
         operand: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        self.lower_implicit_borrow(parent, operand, current, BorrowKind::Shared)
+    }
+
+    pub(super) fn lower_implicit_borrow(
+        &mut self,
+        parent: BoundExpressionId,
+        operand: BoundExpressionId,
+        current: MirBlockId,
+        kind: BorrowKind,
+    ) -> Result<LoweredExpression, LoweringError> {
         let target = self.expression_type(operand)?;
 
         let result_type = self
             .input
             .semantic_values()
-            .intern_type(TypeData::Borrow {
-                kind: BorrowKind::Shared,
-                target,
-            })
+            .intern_type(TypeData::Borrow { kind, target })
             .map_err(|_| LoweringError::SemanticValueUnavailable)?;
 
         let source = self.expression_source(operand)?;
 
-        self.lower_storage_borrow(
-            operand,
-            parent,
-            current,
-            BorrowKind::Shared,
-            target,
-            result_type,
-            source,
-        )
+        self.lower_storage_borrow(operand, parent, current, kind, target, result_type, source)
     }
 
     pub(super) fn lower_member_access(
@@ -474,20 +473,25 @@ impl Lowerer<'_> {
             .identity(identity)
             .ok_or(LoweringError::MissingStorageIdentityRecord(identity))?;
 
-        let owner = match model {
+        let (owner, custom_index) = match model {
+            StorageIdentity::CustomIndexBorrow(owner) => (Some(owner), true),
             StorageIdentity::Temporary(owner) | StorageIdentity::Allocation(owner)
                 if owner != expression =>
             {
-                Some(owner)
+                (Some(owner), false)
             }
-            _ => None,
+            _ => (None, false),
         };
 
         let mut current = current;
         let mut initial_value = None;
 
         if let Some(owner) = owner {
-            let lowered = self.lower_expression(owner, current)?;
+            let lowered = if custom_index {
+                self.lower_custom_index_borrow(owner, current)?
+            } else {
+                self.lower_expression(owner, current)?
+            };
 
             let Some(continuation) = lowered.block else {
                 return Ok(RootInitialization::Terminated(lowered));
@@ -501,6 +505,15 @@ impl Lowerer<'_> {
             initial_value = Some((owner, value));
         }
 
+        self.initialize_access_storage(identity, current, initial_value)
+    }
+
+    fn initialize_access_storage(
+        &mut self,
+        identity: StorageIdentityId,
+        current: MirBlockId,
+        initial_value: Option<(BoundExpressionId, MirOperand)>,
+    ) -> Result<RootInitialization, LoweringError> {
         let root_type = self.storage_identity_type(identity)?;
 
         let origin = initial_value.as_ref().map_or_else(

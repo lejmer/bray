@@ -1,13 +1,18 @@
 use bray_bound_tree::BoundReferenceTarget;
 use bray_compilation::{CancellationToken, QueryPriority, SemanticAvailability};
 use bray_declarations::DeclarationKind;
-use bray_diagnostics::{DiagnosticBag, SeverityKind};
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticLabelStyle, DiagnosticSuggestionApplicability, SeverityKind,
+};
 use bray_messages::DiagnosticRenderer;
-use bray_source::SourceSnapshot;
+use bray_source::{SourceSnapshot, SourceSpan, SourceStore};
 use bray_symbols::SymbolKind;
 use bray_syntax::SyntaxKind;
 
-use crate::model::{Diagnostic, DocumentDiagnosticReport, SemanticTokens};
+use crate::model::{
+    CodeAction, CodeActionContext, Diagnostic, DiagnosticData, DiagnosticRelatedInformation,
+    DocumentDiagnosticReport, Location, Range, SemanticTokens, TextEdit, WorkspaceEdit,
+};
 use crate::workspace::DocumentSnapshot;
 
 use super::requests::{QueryError, lsp_range, source};
@@ -77,6 +82,114 @@ pub(super) fn diagnostics(
     document: &DocumentSnapshot,
     cancellation: &CancellationToken,
 ) -> Result<DocumentDiagnosticReport, QueryError> {
+    let diagnostics = document_diagnostics(document, cancellation)?;
+
+    Ok(DocumentDiagnosticReport {
+        kind: "full",
+        items: lsp_diagnostics(
+            source(document)?,
+            document.compilation.sources(),
+            &diagnostics,
+        ),
+    })
+}
+
+pub(super) fn code_actions(
+    document: &DocumentSnapshot,
+    requested_range: Range,
+    context: &CodeActionContext,
+    cancellation: &CancellationToken,
+) -> Result<Vec<CodeAction>, QueryError> {
+    let source = source(document)?;
+    let sources = document.compilation.sources();
+    let diagnostics = document_diagnostics(document, cancellation)?;
+
+    Ok(suggestion_actions(
+        source,
+        sources,
+        &diagnostics,
+        requested_range,
+        context,
+    ))
+}
+
+fn suggestion_actions(
+    source: &SourceSnapshot,
+    sources: &SourceStore,
+    diagnostics: &DiagnosticBag,
+    requested_range: Range,
+    context: &CodeActionContext,
+) -> Vec<CodeAction> {
+    if context
+        .only
+        .as_ref()
+        .is_some_and(|only| !only.iter().any(|kind| kind == "quickfix"))
+    {
+        return Vec::new();
+    }
+
+    let renderer = DiagnosticRenderer::english();
+    let mut actions = Vec::new();
+
+    for (diagnostic, diagnostic_ordinal) in diagnostics.iter().zip(0_u64..) {
+        let Some(span) = diagnostic.primary_span() else {
+            continue;
+        };
+
+        if span.source_id() != source.source_id() {
+            continue;
+        }
+
+        let Some(range) = lsp_range(source, span.range()) else {
+            continue;
+        };
+
+        if !ranges_overlap(range, requested_range) {
+            continue;
+        }
+
+        let data = DiagnosticData {
+            source_version: source.version().raw(),
+            diagnostic_ordinal,
+        };
+
+        let Some(originating_diagnostic) = lsp_diagnostic(source, sources, diagnostic, data) else {
+            continue;
+        };
+
+        if !context.diagnostics.iter().any(|candidate| {
+            candidate.range == range
+                && candidate.code == diagnostic.kind().code().raw()
+                && candidate.data == Some(data)
+        }) {
+            continue;
+        }
+
+        let rendered = renderer.render(diagnostic);
+
+        for suggestion in rendered.suggestions() {
+            let Some(edit) = workspace_edit(sources, suggestion.edits()) else {
+                continue;
+            };
+
+            actions.push(CodeAction {
+                title: suggestion.message().to_owned(),
+                kind: "quickfix",
+                is_preferred: suggestion.applicability()
+                    == DiagnosticSuggestionApplicability::MachineApplicable,
+                diagnostics: vec![originating_diagnostic.clone()],
+                edit,
+            });
+        }
+    }
+
+    actions
+}
+
+fn document_diagnostics(
+    document: &DocumentSnapshot,
+    cancellation: &CancellationToken,
+) -> Result<DiagnosticBag, QueryError> {
     let compilation = document.compilation.as_ref();
 
     let mut diagnostics = compilation.diagnostics_for_source(
@@ -99,10 +212,7 @@ pub(super) fn diagnostics(
         diagnostics = diagnostics.merged(&unit_diagnostics);
     }
 
-    Ok(DocumentDiagnosticReport {
-        kind: "full",
-        items: lsp_diagnostics(source(document)?, &diagnostics),
-    })
+    Ok(diagnostics)
 }
 
 fn encode_semantic_tokens(tokens: Vec<(u32, u32, u32, u32)>) -> Vec<u32> {
@@ -128,30 +238,149 @@ fn encode_semantic_tokens(tokens: Vec<(u32, u32, u32, u32)>) -> Vec<u32> {
     data
 }
 
-fn lsp_diagnostics(source: &SourceSnapshot, diagnostics: &DiagnosticBag) -> Vec<Diagnostic> {
-    let renderer = DiagnosticRenderer::english();
-
+fn lsp_diagnostics(
+    source: &SourceSnapshot,
+    sources: &SourceStore,
+    diagnostics: &DiagnosticBag,
+) -> Vec<Diagnostic> {
     diagnostics
         .iter()
-        .filter_map(|diagnostic| {
-            let span = diagnostic.primary_span()?;
-
-            if span.source_id() != source.source_id() {
-                return None;
-            }
-
-            let range = lsp_range(source, span.range())?;
-            let rendered = renderer.render(diagnostic);
-
-            Some(Diagnostic {
-                range,
-                severity: diagnostic_severity(diagnostic.severity()),
-                code: diagnostic.kind().code().raw(),
-                source: "bray",
-                message: rendered.message().to_owned(),
-            })
+        .zip(0_u64..)
+        .filter_map(|(diagnostic, diagnostic_ordinal)| {
+            lsp_diagnostic(
+                source,
+                sources,
+                diagnostic,
+                DiagnosticData {
+                    source_version: source.version().raw(),
+                    diagnostic_ordinal,
+                },
+            )
         })
         .collect()
+}
+
+fn lsp_diagnostic(
+    source: &SourceSnapshot,
+    sources: &SourceStore,
+    diagnostic: &bray_diagnostics::Diagnostic,
+    data: DiagnosticData,
+) -> Option<Diagnostic> {
+    let span = diagnostic.primary_span()?;
+
+    if span.source_id() != source.source_id() {
+        return None;
+    }
+
+    let range = lsp_range(source, span.range())?;
+    let rendered = DiagnosticRenderer::english().render(diagnostic);
+
+    let mut related_information = Vec::new();
+
+    for related in rendered.related_locations() {
+        let Some(location) = lsp_location(sources, related.span()) else {
+            continue;
+        };
+
+        push_related_information(
+            &mut related_information,
+            DiagnosticRelatedInformation {
+                location,
+                message: related.message().to_owned(),
+            },
+        );
+    }
+
+    let mut message = rendered.message().to_owned();
+
+    for label in rendered.labels() {
+        if label.style() == DiagnosticLabelStyle::Primary || label.span() == span {
+            append_distinct_message(&mut message, label.message());
+        } else if let Some(location) = lsp_location(sources, label.span()) {
+            push_related_information(
+                &mut related_information,
+                DiagnosticRelatedInformation {
+                    location,
+                    message: label.message().to_owned(),
+                },
+            );
+        }
+    }
+
+    for note in rendered.notes() {
+        append_distinct_message(&mut message, note.message());
+    }
+
+    for suggestion in rendered.suggestions() {
+        append_distinct_message(&mut message, suggestion.message());
+    }
+
+    Some(Diagnostic {
+        range,
+        severity: diagnostic_severity(diagnostic.severity()),
+        code: diagnostic.kind().code().raw(),
+        source: "bray",
+        message,
+        data,
+        related_information,
+    })
+}
+
+fn push_related_information(
+    related_information: &mut Vec<DiagnosticRelatedInformation>,
+    information: DiagnosticRelatedInformation,
+) {
+    if !related_information.contains(&information) {
+        related_information.push(information);
+    }
+}
+
+fn append_distinct_message(message: &mut String, addition: &str) {
+    if message.lines().any(|line| line == addition) {
+        return;
+    }
+
+    message.push('\n');
+    message.push_str(addition);
+}
+
+fn lsp_location(sources: &SourceStore, span: SourceSpan) -> Option<Location> {
+    let source = sources.get(span.source_id())?;
+    let uri = source.origin().document_uri().ok()??;
+    let range = lsp_range(source, span.range())?;
+
+    Some(Location { uri, range })
+}
+
+fn workspace_edit(
+    sources: &SourceStore,
+    edits: &[bray_diagnostics::DiagnosticSourceEdit],
+) -> Option<WorkspaceEdit> {
+    let mut changes = std::collections::BTreeMap::<String, Vec<TextEdit>>::new();
+
+    for edit in edits {
+        let location = lsp_location(sources, edit.span())?;
+
+        changes.entry(location.uri).or_default().push(TextEdit {
+            range: location.range,
+            new_text: edit.replacement().to_owned(),
+        });
+    }
+
+    if changes.is_empty() {
+        return None;
+    }
+
+    Some(WorkspaceEdit { changes })
+}
+
+fn ranges_overlap(left: Range, right: Range) -> bool {
+    match (left.start == left.end, right.start == right.end) {
+        (true, true) => left.start == right.start,
+        (true, false) => right.start <= left.start && left.start < right.end,
+        (false, true) => left.start <= right.start && right.start < left.end,
+        (false, false) => left.start < right.end && right.start < left.end,
+    }
 }
 
 fn identifier_token_type(
@@ -377,5 +606,291 @@ const fn diagnostic_severity(severity: SeverityKind) -> u32 {
         SeverityKind::Warning => 2,
         SeverityKind::Note => 3,
         SeverityKind::Help => 4,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::DiagnosticKind;
+    use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceStore, SourceVersion};
+
+    use super::{lsp_diagnostics, ranges_overlap, suggestion_actions};
+    use crate::model::{CodeActionContext, CodeActionContextDiagnostic, Position, Range};
+
+    #[test]
+    fn parser_diagnostic_publishes_labels_and_safe_code_actions() {
+        let mut sources = SourceStore::new();
+        let text = "module main; extern func main()\nusing core;";
+
+        sources
+            .insert(
+                SourceIdentity::new(0),
+                SourceOrigin::lsp_document("file:///main.bray"),
+                SourceVersion::new(1),
+                text,
+            )
+            .unwrap_or_else(|error| panic!("test LSP source should load: {error:?}"));
+
+        let source = sources
+            .get(SourceId::new(0))
+            .unwrap_or_else(|| panic!("test source should exist"));
+
+        let parsed = bray_parser::parse_source_unit(source);
+        let published = lsp_diagnostics(source, &sources, parsed.diagnostics());
+
+        let diagnostic = published
+            .iter()
+            .find(|diagnostic| diagnostic.code == DiagnosticKind::SyntaxExpectedToken.code().raw())
+            .unwrap_or_else(|| panic!("parser should publish the missing semicolon"));
+
+        let source_diagnostic = parsed
+            .diagnostics()
+            .by_kind(DiagnosticKind::SyntaxExpectedToken)
+            .next()
+            .unwrap_or_else(|| panic!("parser diagnostic should remain available"));
+
+        let rendered = bray_messages::DiagnosticRenderer::english().render(source_diagnostic);
+
+        let primary_label = rendered
+            .labels()
+            .iter()
+            .find(|label| label.style() == bray_diagnostics::DiagnosticLabelStyle::Primary)
+            .unwrap_or_else(|| panic!("parser diagnostic should retain its primary label"));
+
+        let context = CodeActionContext {
+            diagnostics: vec![CodeActionContextDiagnostic {
+                range: diagnostic.range,
+                code: diagnostic.code,
+                data: Some(diagnostic.data),
+            }],
+            only: Some(vec!["quickfix".to_owned()]),
+        };
+
+        assert_ne!(primary_label.message(), rendered.message());
+
+        assert!(
+            diagnostic
+                .message
+                .lines()
+                .any(|line| line == primary_label.message())
+        );
+
+        let actions = suggestion_actions(
+            source,
+            &sources,
+            parsed.diagnostics(),
+            diagnostic.range,
+            &context,
+        );
+
+        assert_eq!(actions.len(), 1);
+        assert!(!actions[0].is_preferred);
+        assert_eq!(actions[0].kind, "quickfix");
+        assert_eq!(actions[0].diagnostics, [diagnostic.clone()]);
+
+        assert_eq!(
+            actions[0].edit.changes["file:///main.bray"][0].new_text,
+            ";"
+        );
+
+        let excluded = suggestion_actions(
+            source,
+            &sources,
+            parsed.diagnostics(),
+            diagnostic.range,
+            &CodeActionContext {
+                diagnostics: context.diagnostics,
+                only: Some(vec!["source.organizeImports".to_owned()]),
+            },
+        );
+
+        assert!(excluded.is_empty());
+    }
+
+    #[test]
+    fn declaration_diagnostic_publishes_the_actual_related_origin() {
+        let mut sources = SourceStore::new();
+        let text = "module main; struct Point {} struct Point {}";
+
+        sources
+            .insert(
+                SourceIdentity::new(0),
+                SourceOrigin::lsp_document("file:///main.bray"),
+                SourceVersion::new(1),
+                text,
+            )
+            .unwrap_or_else(|error| panic!("test LSP source should load: {error:?}"));
+
+        let source = sources
+            .get(SourceId::new(0))
+            .unwrap_or_else(|| panic!("test source should exist"));
+
+        let parsed = bray_parser::parse_source_unit(source);
+        let discovered = bray_declarations::discover_source_unit_declarations(parsed.source_unit());
+        let declarations = bray_declarations::merge_declaration_chunks([&discovered]);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            declarations.diagnostics(),
+            DiagnosticKind::DeclarationDuplicateName,
+        );
+
+        let source_diagnostic = declarations
+            .diagnostics()
+            .by_kind(DiagnosticKind::DeclarationDuplicateName)
+            .next()
+            .unwrap_or_else(|| panic!("declaration producer should report the duplicate name"));
+
+        let [related] = source_diagnostic.related_locations() else {
+            panic!("declaration producer should retain the first declaration");
+        };
+
+        let rendered = bray_messages::DiagnosticRenderer::english().render(source_diagnostic);
+        let published = lsp_diagnostics(source, &sources, declarations.diagnostics());
+
+        let diagnostic = published
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.code == DiagnosticKind::DeclarationDuplicateName.code().raw()
+            })
+            .unwrap_or_else(|| panic!("LSP should publish the duplicate declaration"));
+
+        assert_eq!(diagnostic.related_information.len(), 1);
+
+        assert_eq!(
+            diagnostic.related_information[0].message,
+            rendered.related_locations()[0].message()
+        );
+
+        assert_eq!(
+            diagnostic.related_information[0].location.range,
+            super::lsp_range(source, related.span().range())
+                .unwrap_or_else(|| panic!("related declaration range should map to LSP"))
+        );
+    }
+
+    #[test]
+    fn stale_or_unmatched_code_action_context_never_offers_edits() {
+        let mut sources = SourceStore::new();
+
+        sources
+            .insert(
+                SourceIdentity::new(0),
+                SourceOrigin::lsp_document("file:///main.bray"),
+                SourceVersion::new(4),
+                "module main; extern func main()\nusing core;",
+            )
+            .unwrap_or_else(|error| panic!("test LSP source should load: {error:?}"));
+
+        let source = sources
+            .get(SourceId::new(0))
+            .unwrap_or_else(|| panic!("test source should exist"));
+
+        let parsed = bray_parser::parse_source_unit(source);
+        let published = lsp_diagnostics(source, &sources, parsed.diagnostics());
+
+        let [diagnostic] = published.as_slice() else {
+            panic!("parser should publish one missing semicolon diagnostic");
+        };
+
+        let stale = CodeActionContext {
+            diagnostics: vec![CodeActionContextDiagnostic {
+                range: diagnostic.range,
+                code: diagnostic.code,
+                data: Some(crate::model::DiagnosticData {
+                    source_version: diagnostic.data.source_version - 1,
+                    diagnostic_ordinal: diagnostic.data.diagnostic_ordinal,
+                }),
+            }],
+            only: Some(vec!["quickfix".to_owned()]),
+        };
+
+        assert!(
+            suggestion_actions(
+                source,
+                &sources,
+                parsed.diagnostics(),
+                diagnostic.range,
+                &stale,
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn repeated_secondary_label_information_is_published_once() {
+        let mut sources = SourceStore::new();
+
+        sources
+            .insert(
+                SourceIdentity::new(0),
+                SourceOrigin::lsp_document("file:///main.bray"),
+                SourceVersion::new(1),
+                "main value",
+            )
+            .unwrap_or_else(|error| panic!("test LSP source should load: {error:?}"));
+
+        let source = sources
+            .get(SourceId::new(0))
+            .unwrap_or_else(|| panic!("test source should exist"));
+
+        let primary = bray_source::SourceSpan::new(
+            SourceId::new(0),
+            bray_source::TextRange::new(bray_source::TextSize::ZERO, bray_source::TextSize::new(4)),
+        );
+
+        let secondary = bray_source::SourceSpan::new(
+            SourceId::new(0),
+            bray_source::TextRange::new(
+                bray_source::TextSize::new(5),
+                bray_source::TextSize::new(10),
+            ),
+        );
+
+        let label = bray_diagnostics::DiagnosticLabel::secondary(
+            bray_diagnostics::DiagnosticLabelKind::InvalidIdentifier,
+            secondary,
+        );
+
+        let diagnostic = bray_diagnostics::Diagnostic::new(
+            bray_diagnostics::DiagnosticId::new(0),
+            DiagnosticKind::SyntaxExpectedExpression,
+            bray_diagnostics::SeverityKind::Error,
+        )
+        .with_primary_span(primary)
+        .with_arg(bray_diagnostics::DiagnosticArg::expected_syntax_kind(
+            bray_syntax::SyntaxKind::Expression,
+        ))
+        .with_label(label.clone())
+        .with_label(label);
+
+        let published = lsp_diagnostics(
+            source,
+            &sources,
+            &bray_diagnostics::DiagnosticBag::single(diagnostic),
+        );
+
+        assert_eq!(published[0].related_information.len(), 1);
+
+        assert_eq!(
+            published[0].related_information[0].message,
+            "invalid identifier"
+        );
+    }
+
+    #[test]
+    fn code_action_ranges_use_half_open_overlap_with_explicit_insertions() {
+        let position = |character| Position { line: 0, character };
+
+        let range = |start, end| Range {
+            start: position(start),
+            end: position(end),
+        };
+
+        assert!(!ranges_overlap(range(0, 2), range(2, 4)));
+        assert!(ranges_overlap(range(0, 2), range(1, 3)));
+        assert!(ranges_overlap(range(2, 2), range(0, 3)));
+        assert!(ranges_overlap(range(2, 2), range(2, 2)));
+        assert!(ranges_overlap(range(0, 3), range(2, 2)));
+        assert!(!ranges_overlap(range(3, 3), range(0, 3)));
     }
 }

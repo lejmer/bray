@@ -93,7 +93,9 @@ The compiler-known traits and contracts are:
 - `ConvertTo<Target>`,
 - `CheckedConvertTo<Target>`,
 - `ElementIndex<Selector>`,
+- `MutableElementIndex<Selector>`,
 - `SliceIndex<Bound>`,
+- `MutableSliceIndex<Bound>`,
 - `Copyable`,
 - overloadable operator traits defined by the type rules.
 

@@ -20,24 +20,22 @@ pub use availability::AvailabilityRule;
 pub use catalog::generator_input_inventory;
 pub use catalog::{
     CATALOG_GRAMMAR_REVISION, CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG,
-    CatalogDeclarationKind,
-    CatalogDeclarationSignature, CatalogDeclarationSurface, CatalogDeclarationSurfaceSyntax,
-    CatalogGenericParameter, CatalogGenericParameterKind, CatalogPath, CatalogScopeLocation,
-    CatalogSourceAnchor, CatalogSourceId, CatalogSurfaceContext, CatalogSurfaceElement,
-    CatalogSurfaceToken, CatalogTokenSpelling, CatalogTypeSurface, CatalogTypeSurfaceSyntax,
-    CompilerKnownCatalog, CompilerKnownCatalogRoleRegistry, CompilerKnownDeclarationDescriptor,
-    CompilerKnownDeclarationId, CompilerKnownDeclarationKey, CompilerKnownDeclarationOwner,
-    CompilerKnownImplementationBinding, CompilerKnownIterationBinding,
-    CompilerKnownOperationBinding, CompilerKnownRepresentationBinding,
-    CompilerKnownRepresentationTarget, CompilerKnownScopeDescriptor, CompilerKnownScopeId,
-    CompilerKnownScopeKey, CompilerKnownValueDescriptor, CompilerKnownValueId,
-    CompilerKnownValueKey, RecognizedStandardLibraryDeclarationDescriptor,
-    RecognizedStandardLibraryDeclarationId, RecognizedStandardLibraryDeclarationIdentity,
-    RecognizedStandardLibraryDeclarationKey, RecognizedStandardLibraryDeclarationOwner,
-    RecognizedStandardLibraryScopeDescriptor, RecognizedStandardLibraryScopeId,
-    RecognizedStandardLibraryScopeKey,
+    CatalogDeclarationKind, CatalogDeclarationSignature, CatalogDeclarationSurface,
+    CatalogDeclarationSurfaceSyntax, CatalogGenericParameter, CatalogGenericParameterKind,
+    CatalogPath, CatalogScopeLocation, CatalogSourceAnchor, CatalogSourceId, CatalogSurfaceContext,
+    CatalogSurfaceElement, CatalogSurfaceToken, CatalogTokenSpelling, CatalogTypeSurface,
+    CatalogTypeSurfaceSyntax, CompilerKnownCatalog, CompilerKnownCatalogRoleRegistry,
+    CompilerKnownDeclarationDescriptor, CompilerKnownDeclarationId, CompilerKnownDeclarationKey,
+    CompilerKnownDeclarationOwner, CompilerKnownImplementationBinding,
+    CompilerKnownIterationBinding, CompilerKnownOperationBinding,
+    CompilerKnownRepresentationBinding, CompilerKnownRepresentationTarget,
+    CompilerKnownScopeDescriptor, CompilerKnownScopeId, CompilerKnownScopeKey,
+    CompilerKnownValueDescriptor, CompilerKnownValueId, CompilerKnownValueKey,
+    RecognizedStandardLibraryDeclarationDescriptor, RecognizedStandardLibraryDeclarationId,
+    RecognizedStandardLibraryDeclarationIdentity, RecognizedStandardLibraryDeclarationKey,
+    RecognizedStandardLibraryDeclarationOwner, RecognizedStandardLibraryScopeDescriptor,
+    RecognizedStandardLibraryScopeId, RecognizedStandardLibraryScopeKey,
 };
-pub use catalog_revision::CatalogGrammarRevision;
 #[cfg(any(test, feature = "generation"))]
 pub use catalog::{
     CatalogBuildResult, CatalogDiagnostic, CatalogDiagnosticKind, CatalogDiagnostics,
@@ -47,6 +45,7 @@ pub use catalog::{
 };
 #[cfg(feature = "generation")]
 pub use catalog::{CatalogGenerationError, GeneratedCatalogOutput, generate_catalog_output};
+pub use catalog_revision::CatalogGrammarRevision;
 pub use implementation::ImplementationHook;
 pub use iteration::CompilerKnownIterationRole;
 pub use operation::CompilerKnownOperationRole;

@@ -305,6 +305,14 @@ where
         self.context.source(anchor)
     }
 
+    /// Resolves one declaration syntax anchor from the current compilation snapshot.
+    pub fn source_syntax(
+        self,
+        anchor: bray_declarations::SyntaxAnchor,
+    ) -> Result<CheckerSource<'view>, CheckerInfrastructureError> {
+        self.context.source_syntax(anchor)
+    }
+
     /// Requests one exact symbol-owned semantic fact.
     pub fn symbol_fact<F>(
         self,

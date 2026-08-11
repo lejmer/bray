@@ -160,9 +160,7 @@ pub enum CatalogDiagnosticKind {
     /// A catalog grammar revision is not a canonical compact decimal integer.
     InvalidCatalogRevision { spelling: Arc<str> },
     /// A catalog grammar revision has no exact parser implementation.
-    UnsupportedCatalogRevision {
-        revision: CatalogGrammarRevision,
-    },
+    UnsupportedCatalogRevision { revision: CatalogGrammarRevision },
     /// An entry category spelling is not recognized.
     UnknownEntryKind { spelling: Arc<str> },
     /// An entry field is not part of the private catalog language.

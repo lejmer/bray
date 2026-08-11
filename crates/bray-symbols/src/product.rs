@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, shared_slice};
@@ -29,6 +30,17 @@ impl ProductIdentity {
     /// Returns the package-local canonical product name.
     pub fn name(&self) -> &str {
         self.name.as_str()
+    }
+}
+
+impl fmt::Display for ProductIdentity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}/{}",
+            self.package.as_str(),
+            self.name.as_str()
+        )
     }
 }
 

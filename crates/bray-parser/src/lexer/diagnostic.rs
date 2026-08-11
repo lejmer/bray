@@ -1,8 +1,13 @@
+use std::num::NonZeroU32;
+
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticId, DiagnosticKind,
-    DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticSourceEdit,
+    DiagnosticSuggestion, DiagnosticSuggestionKind, SeverityKind,
 };
-use bray_source::{SourceSnapshot, SourceSpan, TextRange, TextSize};
+use bray_source::{SourceSnapshot, SourceSpan, TextRange};
+
+use crate::diagnostic::diagnostic_id;
 
 pub(super) fn misplaced_bom(snapshot: &SourceSnapshot, range: TextRange) -> Diagnostic {
     lexical_diagnostic(
@@ -26,6 +31,11 @@ pub(super) fn lone_carriage_return(snapshot: &SourceSnapshot, range: TextRange) 
     .with_note(DiagnosticNote::new(
         DiagnosticNoteKind::LineBreaksMustBeLfOrCrlf,
     ))
+    .with_suggestion(replacement_suggestion(
+        span(snapshot, range),
+        DiagnosticSuggestionKind::ReplaceWithLineFeed,
+        "\n",
+    ))
 }
 
 pub(super) fn invalid_character(
@@ -33,20 +43,14 @@ pub(super) fn invalid_character(
     range: TextRange,
     character: char,
 ) -> Diagnostic {
-    let span = span(snapshot, range);
-    let arg = character_arg(character);
-
-    Diagnostic::new(
-        diagnostic_id(range.start()),
+    character_diagnostic(
+        snapshot,
+        range,
+        character,
         DiagnosticKind::LexicalInvalidCharacter,
-        SeverityKind::Error,
-    )
-    .with_primary_span(span)
-    .with_arg(arg.clone())
-    .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::InvalidCharacter, span).with_arg(arg))
-    .with_note(DiagnosticNote::new(
+        DiagnosticLabelKind::InvalidCharacter,
         DiagnosticNoteKind::CharacterNotAccepted,
-    ))
+    )
 }
 
 pub(super) fn non_ascii_identifier(
@@ -54,22 +58,32 @@ pub(super) fn non_ascii_identifier(
     range: TextRange,
     character: char,
 ) -> Diagnostic {
+    character_diagnostic(
+        snapshot,
+        range,
+        character,
+        DiagnosticKind::LexicalNonAsciiIdentifier,
+        DiagnosticLabelKind::NonAsciiIdentifier,
+        DiagnosticNoteKind::IdentifiersMustBeAscii,
+    )
+}
+
+fn character_diagnostic(
+    snapshot: &SourceSnapshot,
+    range: TextRange,
+    character: char,
+    kind: DiagnosticKind,
+    label: DiagnosticLabelKind,
+    note: DiagnosticNoteKind,
+) -> Diagnostic {
     let span = span(snapshot, range);
     let arg = character_arg(character);
 
-    Diagnostic::new(
-        diagnostic_id(range.start()),
-        DiagnosticKind::LexicalNonAsciiIdentifier,
-        SeverityKind::Error,
-    )
-    .with_primary_span(span)
-    .with_arg(arg.clone())
-    .with_label(
-        DiagnosticLabel::primary(DiagnosticLabelKind::NonAsciiIdentifier, span).with_arg(arg),
-    )
-    .with_note(DiagnosticNote::new(
-        DiagnosticNoteKind::IdentifiersMustBeAscii,
-    ))
+    Diagnostic::new(diagnostic_id(range.start()), kind, SeverityKind::Error)
+        .with_primary_span(span)
+        .with_arg(arg.clone())
+        .with_label(DiagnosticLabel::primary(label, span).with_arg(arg))
+        .with_note(DiagnosticNote::new(note))
 }
 
 pub(super) fn invalid_identifier(snapshot: &SourceSnapshot, range: TextRange) -> Diagnostic {
@@ -155,6 +169,7 @@ pub(super) fn unterminated_character_literal(
     .with_note(DiagnosticNote::new(
         DiagnosticNoteKind::CharacterLiteralNeedsTerminator,
     ))
+    .with_suggestion(terminator_suggestion(snapshot, range, "'"))
 }
 
 pub(super) fn unterminated_string_literal(
@@ -170,6 +185,7 @@ pub(super) fn unterminated_string_literal(
     .with_note(DiagnosticNote::new(
         DiagnosticNoteKind::StringLiteralNeedsTerminator,
     ))
+    .with_suggestion(terminator_suggestion(snapshot, range, "\""))
 }
 
 pub(super) fn unknown_escape(
@@ -207,7 +223,10 @@ pub(super) fn invalid_unicode_escape(snapshot: &SourceSnapshot, range: TextRange
 pub(super) fn unterminated_block_comment(
     snapshot: &SourceSnapshot,
     range: TextRange,
+    remaining_depth: NonZeroU32,
 ) -> Diagnostic {
+    let terminators = block_comment_terminators(remaining_depth);
+
     lexical_diagnostic(
         snapshot,
         DiagnosticKind::LexicalUnterminatedBlockComment,
@@ -217,6 +236,17 @@ pub(super) fn unterminated_block_comment(
     .with_note(DiagnosticNote::new(
         DiagnosticNoteKind::BlockCommentNeedsTerminator,
     ))
+    .with_suggestion(terminator_suggestion(snapshot, range, &terminators))
+}
+
+fn block_comment_terminators(remaining_depth: NonZeroU32) -> String {
+    let mut terminators = String::new();
+
+    for _ in 0..remaining_depth.get() {
+        terminators.push_str("*/");
+    }
+
+    terminators
 }
 
 fn lexical_diagnostic(
@@ -236,13 +266,70 @@ fn span(snapshot: &SourceSnapshot, range: TextRange) -> SourceSpan {
     SourceSpan::new(snapshot.source_id(), range)
 }
 
-fn diagnostic_id(start: TextSize) -> DiagnosticId {
-    DiagnosticId::new(start.bytes())
-}
-
 fn character_arg(character: char) -> DiagnosticArg {
     DiagnosticArg::new(
         DiagnosticArgName::Character,
         DiagnosticArgValue::Character(character),
     )
+}
+
+fn terminator_suggestion(
+    snapshot: &SourceSnapshot,
+    range: TextRange,
+    terminator: &str,
+) -> DiagnosticSuggestion {
+    replacement_suggestion(
+        SourceSpan::empty(snapshot.source_id(), range.end()),
+        DiagnosticSuggestionKind::AddTerminator,
+        terminator,
+    )
+}
+
+fn replacement_suggestion(
+    span: SourceSpan,
+    kind: DiagnosticSuggestionKind,
+    replacement: &str,
+) -> DiagnosticSuggestion {
+    DiagnosticSuggestion::machine_edit(kind, DiagnosticSourceEdit::new(span, replacement))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU32;
+
+    use bray_source::{TextRange, TextSize};
+    use bray_testing::test_source_snapshot;
+
+    use super::{lone_carriage_return, unterminated_block_comment};
+
+    #[test]
+    fn lexical_corrections_publish_exact_machine_applicable_edits() {
+        let line_break_source = test_source_snapshot("\r");
+
+        let line_break = lone_carriage_return(
+            &line_break_source,
+            TextRange::new(TextSize::ZERO, TextSize::new(1)),
+        );
+
+        let [suggestion] = line_break.suggestions() else {
+            panic!("expected one line-break suggestion: {line_break:?}");
+        };
+
+        assert_eq!(suggestion.edits()[0].replacement(), "\n");
+
+        let comment_source = test_source_snapshot("/* open");
+
+        let comment = unterminated_block_comment(
+            &comment_source,
+            TextRange::new(TextSize::ZERO, TextSize::new(7)),
+            NonZeroU32::MIN,
+        );
+
+        let [suggestion] = comment.suggestions() else {
+            panic!("expected one comment terminator suggestion: {comment:?}");
+        };
+
+        assert_eq!(suggestion.edits()[0].replacement(), "*/");
+        assert!(suggestion.edits()[0].span().is_empty());
+    }
 }

@@ -333,11 +333,13 @@ where
         SelectedOperation::Index {
             target:
                 IndexTarget::Custom {
+                    borrow_kind,
                     member,
                     requirement,
                     ..
                 }
                 | IndexTarget::TraitConstraint {
+                    borrow_kind,
                     member,
                     requirement,
                     ..
@@ -349,13 +351,23 @@ where
             };
 
             let role = match expression {
-                BoundExpression::Structured(source) => match source.kind() {
-                    BoundStructuredExpressionKind::ElementIndex => {
-                        CompilerKnownOperationRole::ElementIndex
-                    }
-                    BoundStructuredExpressionKind::SliceIndex => {
-                        CompilerKnownOperationRole::SliceIndex
-                    }
+                BoundExpression::Structured(source) => match (source.kind(), borrow_kind) {
+                    (
+                        BoundStructuredExpressionKind::ElementIndex,
+                        bray_symbols::BorrowKind::Shared,
+                    ) => CompilerKnownOperationRole::ElementIndex,
+                    (
+                        BoundStructuredExpressionKind::ElementIndex,
+                        bray_symbols::BorrowKind::Mutable,
+                    ) => CompilerKnownOperationRole::MutableElementIndex,
+                    (
+                        BoundStructuredExpressionKind::SliceIndex,
+                        bray_symbols::BorrowKind::Shared,
+                    ) => CompilerKnownOperationRole::SliceIndex,
+                    (
+                        BoundStructuredExpressionKind::SliceIndex,
+                        bray_symbols::BorrowKind::Mutable,
+                    ) => CompilerKnownOperationRole::MutableSliceIndex,
                     _ => {
                         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
                     }
@@ -364,11 +376,20 @@ where
             };
 
             let parameter_types = match role {
-                CompilerKnownOperationRole::SliceIndex => {
+                CompilerKnownOperationRole::SliceIndex
+                | CompilerKnownOperationRole::MutableSliceIndex => {
                     custom_slice_parameter_types(request, *requirement)?
                 }
                 _ => parameter_types.iter().map(|result| result.ty()).collect(),
             };
+
+            let callable_result = request
+                .semantic_values()
+                .intern_type(TypeData::Borrow {
+                    kind: *borrow_kind,
+                    target: *result_type,
+                })
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
             required.push(RequiredTraitOperation::Callable {
                 role,
@@ -376,8 +397,11 @@ where
                 callable: *member,
                 receiver: receiver.ty(),
                 parameter_types,
-                callable_result: RequiredCallableResult::Expression(*result_type),
-                receiver_mode: ReceiverMode::Shared,
+                callable_result: RequiredCallableResult::Expression(callable_result),
+                receiver_mode: match borrow_kind {
+                    bray_symbols::BorrowKind::Shared => ReceiverMode::Shared,
+                    bray_symbols::BorrowKind::Mutable => ReceiverMode::Mutable,
+                },
             });
         }
         SelectedOperation::Conversion(conversion) => {

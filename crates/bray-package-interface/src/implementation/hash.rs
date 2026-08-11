@@ -93,7 +93,9 @@ pub(super) fn compute_content_hash(
 
 pub(super) fn compute_artifact_hash(bytes: &[u8]) -> Option<[u8; 32]> {
     let (before, after_hash) = bytes.split_at_checked(ARTIFACT_HASH_OFFSET)?;
+
     let (_, after) = after_hash.split_at_checked(32)?;
+
     let mut hasher = Hasher::new();
 
     hasher.update(before);

@@ -361,7 +361,27 @@ scope Ambient at ambient {
         owner ElementIndex;
         operation ElementIndex;
 
-        surface { func index(pos selector: &Selector) -> Output; }
+        surface { func index(pos selector: &Selector) -> &Output; }
+    }
+
+    declaration MutableElementIndex {
+        operation MutableElementIndex;
+
+        surface { trait MutableElementIndex<Selector> {} }
+    }
+
+    declaration MutableElementIndexOutput {
+        owner MutableElementIndex;
+        operation MutableElementIndex;
+
+        surface { type Output; }
+    }
+
+    declaration MutableElementIndexCall {
+        owner MutableElementIndex;
+        operation MutableElementIndex;
+
+        surface { mut func index(pos selector: &Selector) -> &mut Output; }
     }
 
     declaration SliceIndex {
@@ -381,6 +401,26 @@ scope Ambient at ambient {
         owner SliceIndex;
         operation SliceIndex;
 
-        surface { func slice(pos start: Bound?, pos end: Bound?) -> Output; }
+        surface { func slice(pos start: Bound?, pos end: Bound?) -> &Output; }
+    }
+
+    declaration MutableSliceIndex {
+        operation MutableSliceIndex;
+
+        surface { trait MutableSliceIndex<Bound> {} }
+    }
+
+    declaration MutableSliceIndexOutput {
+        owner MutableSliceIndex;
+        operation MutableSliceIndex;
+
+        surface { type Output; }
+    }
+
+    declaration MutableSliceIndexCall {
+        owner MutableSliceIndex;
+        operation MutableSliceIndex;
+
+        surface { mut func slice(pos start: Bound?, pos end: Bound?) -> &mut Output; }
     }
 }

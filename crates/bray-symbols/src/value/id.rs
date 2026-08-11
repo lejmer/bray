@@ -6,6 +6,11 @@ impl SemanticValueStoreId {
     pub(super) const fn new(raw: u64) -> Self {
         Self(raw)
     }
+
+    /// Returns the process-local numeric identity used in structured diagnostics.
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
 }
 
 /// Classifies a canonical semantic value table.

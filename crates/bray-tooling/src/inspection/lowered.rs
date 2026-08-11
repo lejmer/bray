@@ -4,4 +4,6 @@ mod model;
 mod notation;
 mod report;
 
-pub(crate) use report::{render_lowered_inspection, render_mir_inspection};
+pub(crate) use report::{
+    LoweredInspectionRenderError, render_lowered_inspection, render_mir_inspection,
+};

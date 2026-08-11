@@ -346,25 +346,35 @@ mod tests {
 
     #[test]
     fn duplicate_module_contribution_gates_are_diagnosed_structurally() {
-        let source = concat!("@test\n", "@test\n", "module app;\n");
+        let source = concat!("@test\n", "@test\n", "@test\n", "module app;\n");
         let compilation = compilation(&[source], ProductKind::Test);
 
         let graph = compilation
             .product_source_graph()
             .unwrap_or_else(|error| panic!("test source graph must build: {error:?}"));
 
-        let [diagnostic] = graph.diagnostics().diagnostics() else {
-            panic!("duplicate contribution gate must produce one diagnostic");
+        let [second, third] = graph.diagnostics().diagnostics() else {
+            panic!("each duplicate contribution gate must produce one diagnostic");
         };
 
-        assert_eq!(
-            diagnostic.kind(),
-            DiagnosticKind::CheckingDuplicateModuleContributionDirective
-        );
+        for diagnostic in [second, third] {
+            assert_eq!(
+                diagnostic.kind(),
+                DiagnosticKind::CheckingDuplicateModuleContributionDirective
+            );
 
-        assert_eq!(
-            diagnostic.args(),
-            &[DiagnosticArg::actual_syntax_kind(SyntaxKind::TestDirective)]
+            assert_eq!(
+                diagnostic.args(),
+                &[DiagnosticArg::actual_syntax_kind(SyntaxKind::TestDirective)]
+            );
+        }
+
+        assert_eq!(second.related_locations().len(), 1);
+        assert_eq!(third.related_locations().len(), 2);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            graph.diagnostics(),
+            DiagnosticKind::CheckingDuplicateModuleContributionDirective,
         );
     }
 

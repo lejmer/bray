@@ -732,6 +732,11 @@ mod tests {
         assert_eq!(expression.full_text(), "@value");
         assert_eq!(skipped.full_text(), "@value");
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::SyntaxExpectedExpression,
+        );
+
         assert_eq!(
             diagnostic_kinds(&diagnostics),
             [DiagnosticKind::SyntaxExpectedExpression]

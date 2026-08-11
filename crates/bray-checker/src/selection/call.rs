@@ -17,7 +17,10 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
-    ImplementationSelectionEvidence, ReceiverCapability, SelectionCandidateKey, SelectionFailure,
+    ImplementationSelectionEvidence, ReceiverCapability, SelectionCallableArgumentRejection,
+    SelectionCandidateKey, SelectionCandidateRejectionReason, SelectionCandidateSignature,
+    SelectionFailure, SelectionFailureCandidate, SelectionInaccessibility,
+    SelectionRejectedCandidate,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -60,8 +63,8 @@ where
     }
 
     let mut applicable = Vec::new();
-    let mut has_inaccessible = false;
-    let mut has_incompatible = false;
+    let mut inaccessible = Vec::new();
+    let mut rejected = Vec::new();
     let mut has_recovered = false;
 
     let candidate_input = CandidateInput {
@@ -98,45 +101,72 @@ where
                 &mut |_| {},
                 &mut |_| {},
             )? {
-                CandidateApplicability::Applicable { .. } => has_inaccessible = true,
-                CandidateApplicability::Incompatible => has_incompatible = true,
+                CandidateApplicability::Applicable { .. } => {
+                    inaccessible.push(failure_candidate(candidate));
+                }
+                CandidateApplicability::Incompatible(reason) => rejected.push(
+                    SelectionRejectedCandidate::new(failure_candidate(candidate), reason),
+                ),
                 CandidateApplicability::Recovered => has_recovered = true,
             }
 
             continue;
         }
 
+        let diagnostic_candidate = failure_candidate(candidate);
+
         let Some(candidate) = check_candidate(request, candidate_input, candidate)? else {
             return Ok(None);
         };
 
         match candidate {
-            CandidateCheck::Applicable { key, call } => applicable.push((key, call)),
-            CandidateCheck::Incompatible => {
-                has_incompatible = true;
+            CandidateCheck::Applicable { key, call } => {
+                applicable.push((diagnostic_candidate, key, call));
             }
+            CandidateCheck::Incompatible(reason) => rejected.push(SelectionRejectedCandidate::new(
+                diagnostic_candidate,
+                reason,
+            )),
             CandidateCheck::Recovered => has_recovered = true,
         }
     }
 
     match applicable.len() {
-        1 => Ok(Some(CandidateSelection::Selected(applicable.remove(0).1))),
+        1 => Ok(Some(CandidateSelection::Selected(applicable.remove(0).2))),
         count if count > 1 => Ok(Some(CandidateSelection::Failed(
-            SelectionFailure::Ambiguous(applicable.into_iter().map(|(key, _)| key).collect()),
+            SelectionFailure::Ambiguous(
+                applicable
+                    .into_iter()
+                    .map(|(candidate, _, _)| candidate)
+                    .collect(),
+            ),
         ))),
-        _ if has_inaccessible => Ok(Some(CandidateSelection::Failed(
-            SelectionFailure::Inaccessible,
+        _ if !inaccessible.is_empty() => Ok(Some(CandidateSelection::Failed(
+            SelectionFailure::Inaccessible {
+                candidates: inaccessible.into(),
+                reason: SelectionInaccessibility::NotVisibleFromRequestingContext,
+            },
         ))),
         _ if has_recovered => Ok(Some(CandidateSelection::Failed(
             SelectionFailure::Recovered,
         ))),
-        _ if has_incompatible => Ok(Some(CandidateSelection::Failed(
-            SelectionFailure::Incompatible,
+        _ if !rejected.is_empty() => Ok(Some(CandidateSelection::Failed(
+            SelectionFailure::Incompatible(rejected.into()),
         ))),
         _ => Ok(Some(CandidateSelection::Failed(
             SelectionFailure::Unavailable,
         ))),
     }
+}
+
+fn failure_candidate(candidate: &CallableCandidate) -> SelectionFailureCandidate {
+    SelectionFailureCandidate::new(
+        candidate.key().clone(),
+        SelectionCandidateSignature::Callable {
+            callable_type: candidate.callable_type(),
+            result_type: candidate.result(),
+        },
+    )
 }
 
 pub(crate) fn viable_candidate_indices<C>(
@@ -187,7 +217,7 @@ where
             CandidateApplicability::Applicable { .. } | CandidateApplicability::Recovered => {
                 viable.push(index);
             }
-            CandidateApplicability::Incompatible => {}
+            CandidateApplicability::Incompatible(_) => {}
         }
     }
 
@@ -203,7 +233,7 @@ enum CandidateCheck {
         key: SelectionCandidateKey,
         call: SelectedCall,
     },
-    Incompatible,
+    Incompatible(SelectionCandidateRejectionReason),
     Recovered,
 }
 
@@ -284,7 +314,9 @@ where
                 .with_implementation_hook(implementation_hook),
             }))
         }
-        CandidateApplicability::Incompatible => Ok(Some(CandidateCheck::Incompatible)),
+        CandidateApplicability::Incompatible(reason) => {
+            Ok(Some(CandidateCheck::Incompatible(reason)))
+        }
         CandidateApplicability::Recovered => Ok(Some(CandidateCheck::Recovered)),
     }
 }
@@ -294,7 +326,7 @@ enum CandidateApplicability {
         abi: CallableAbi,
         phase_behaviors: bray_symbols::CallablePhaseBehaviors,
     },
-    Incompatible,
+    Incompatible(SelectionCandidateRejectionReason),
     Recovered,
 }
 
@@ -339,7 +371,9 @@ where
         input.generic_arguments,
         candidate.resolution().target(),
     )? {
-        Compatibility::No => return Ok(CandidateApplicability::Incompatible),
+        Compatibility::No(reason) => {
+            return Ok(CandidateApplicability::Incompatible(reason));
+        }
         Compatibility::Recovered => return Ok(CandidateApplicability::Recovered),
         Compatibility::Yes => {}
     }
@@ -357,12 +391,14 @@ where
                     .and_then(bray_bound_tree::MemberTarget::receiver)
             }),
     )? {
-        ReceiverApplicability::Incompatible => return Ok(CandidateApplicability::Incompatible),
+        ReceiverApplicability::Incompatible(reason) => {
+            return Ok(CandidateApplicability::Incompatible(reason));
+        }
         ReceiverApplicability::Recovered => return Ok(CandidateApplicability::Recovered),
         ReceiverApplicability::Applicable(receiver) => on_receiver(receiver),
     }
 
-    let Some(recovered) = map_arguments(
+    let recovered = match map_arguments(
         input.types,
         input.mode,
         input.arguments,
@@ -372,9 +408,13 @@ where
             .map(CallableSignature::parameters),
         candidate.defaults(),
         on_argument,
-    )?
-    else {
-        return Ok(CandidateApplicability::Incompatible);
+    )? {
+        ArgumentMapping::Mapped { recovered } => recovered,
+        ArgumentMapping::Rejected(reason) => {
+            return Ok(CandidateApplicability::Incompatible(
+                SelectionCandidateRejectionReason::CallableArgument(reason),
+            ));
+        }
     };
 
     if recovered {
@@ -388,7 +428,9 @@ where
         on_witness,
     )?
     else {
-        return Ok(CandidateApplicability::Incompatible);
+        return Ok(CandidateApplicability::Incompatible(
+            SelectionCandidateRejectionReason::RequiredImplementation,
+        ));
     };
 
     Ok(CandidateApplicability::Applicable {
@@ -428,7 +470,16 @@ where
     Ok(if arguments.len() <= expected_count {
         Compatibility::Yes
     } else {
-        Compatibility::No
+        let provided = u64::try_from(arguments.len())
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+        let maximum = u64::try_from(expected_count)
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+        Compatibility::No(SelectionCandidateRejectionReason::GenericArgumentCount {
+            provided,
+            maximum,
+        })
     })
 }
 
@@ -542,7 +593,7 @@ where
 
 enum ReceiverApplicability {
     Applicable(Option<SelectedReceiver>),
-    Incompatible,
+    Incompatible(SelectionCandidateRejectionReason),
     Recovered,
 }
 
@@ -559,7 +610,12 @@ where
         return Ok(if actual.is_none() && expected.is_none() {
             ReceiverApplicability::Applicable(None)
         } else {
-            ReceiverApplicability::Incompatible
+            ReceiverApplicability::Incompatible(
+                SelectionCandidateRejectionReason::ReceiverPresence {
+                    provided: actual.is_some(),
+                    required: expected.is_some(),
+                },
+            )
         });
     };
 
@@ -569,10 +625,22 @@ where
         return Ok(ReceiverApplicability::Recovered);
     }
 
-    if !receiver_type_supports(request, actual_type.ty(), expected.ty())?
-        || !receiver_capability_supports(actual.capability(), expected.mode())
-    {
-        return Ok(ReceiverApplicability::Incompatible);
+    if !receiver_type_supports(request, actual_type.ty(), expected.ty())? {
+        return Ok(ReceiverApplicability::Incompatible(
+            SelectionCandidateRejectionReason::ReceiverType {
+                provided: actual_type.ty(),
+                required: expected.ty(),
+            },
+        ));
+    }
+
+    if !receiver_capability_supports(actual.capability(), expected.mode()) {
+        return Ok(ReceiverApplicability::Incompatible(
+            SelectionCandidateRejectionReason::ReceiverCapability {
+                provided: actual.capability(),
+                required: expected.mode(),
+            },
+        ));
     }
 
     Ok(ReceiverApplicability::Applicable(Some(
@@ -628,6 +696,11 @@ const fn receiver_capability_supports(actual: ReceiverCapability, expected: Rece
     }
 }
 
+enum ArgumentMapping {
+    Mapped { recovered: bool },
+    Rejected(SelectionCallableArgumentRejection),
+}
+
 fn map_arguments(
     types: &CheckedExpressionTypes,
     mode: CallableSelectionMode,
@@ -639,23 +712,37 @@ fn map_arguments(
         CallableParameterDefaultProviderSymbolId,
     )],
     on_argument: &mut impl FnMut(SelectedArgument),
-) -> Result<Option<bool>, CheckerInfrastructureError> {
+) -> Result<ArgumentMapping, CheckerInfrastructureError> {
     let parameters = callable.parameters();
 
-    let Some(parameter_indices) = map_argument_parameter_indices(arguments, parameters) else {
-        return Ok(None);
-    };
+    let parameter_indices =
+        match map_argument_parameter_indices_for_diagnostic(arguments, parameters)? {
+            Ok(indices) => indices,
+            Err(reason) => return Ok(ArgumentMapping::Rejected(reason)),
+        };
 
     let mut supplied = vec![None; parameters.len()];
     let mut recovered = false;
 
-    for (argument, parameter_index) in arguments.iter().zip(parameter_indices) {
+    for (source_ordinal, (argument, parameter_index)) in
+        arguments.iter().zip(parameter_indices).enumerate()
+    {
         let actual = expression_type(types, argument.expression())?;
 
         recovered |= argument.is_recovered() || actual.is_recovered();
 
         if !actual.is_recovered() && actual.ty() != parameters[parameter_index].ty() {
-            return Ok(None);
+            let ordinal = u64::try_from(source_ordinal)
+                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+            return Ok(ArgumentMapping::Rejected(
+                SelectionCallableArgumentRejection::Type {
+                    name: argument.name().map(|name| name.as_str().to_owned()),
+                    ordinal,
+                    expected: parameters[parameter_index].ty(),
+                    actual: actual.ty(),
+                },
+            ));
         }
 
         supplied[parameter_index] = Some(argument.expression());
@@ -678,7 +765,20 @@ fn map_arguments(
     }
 
     let Some(signatures) = signatures else {
-        return Ok((supplied.iter().all(Option::is_some)).then_some(recovered));
+        if let Some(index) = supplied.iter().position(Option::is_none) {
+            let ordinal = u64::try_from(index)
+                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+            return Ok(ArgumentMapping::Rejected(
+                SelectionCallableArgumentRejection::Missing {
+                    name: parameters[index].name().as_str().to_owned(),
+                    ordinal,
+                    expected: parameters[index].ty(),
+                },
+            ));
+        }
+
+        return Ok(ArgumentMapping::Mapped { recovered });
     };
 
     let mut seen_parameters = BTreeSet::new();
@@ -693,7 +793,16 @@ fn map_arguments(
         }
 
         if mode == CallableSelectionMode::Overload {
-            return Ok(None);
+            let ordinal = u64::try_from(index)
+                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+            return Ok(ArgumentMapping::Rejected(
+                SelectionCallableArgumentRejection::Missing {
+                    name: parameters[index].name().as_str().to_owned(),
+                    ordinal,
+                    expected: parameters[index].ty(),
+                },
+            ));
         }
 
         let Some((_, provider)) = defaults
@@ -701,7 +810,16 @@ fn map_arguments(
             .find(|(parameter, _)| *parameter == signature.parameter())
             .copied()
         else {
-            return Ok(None);
+            let ordinal = u64::try_from(index)
+                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+            return Ok(ArgumentMapping::Rejected(
+                SelectionCallableArgumentRejection::Missing {
+                    name: parameters[index].name().as_str().to_owned(),
+                    ordinal,
+                    expected: parameters[index].ty(),
+                },
+            ));
         };
 
         let Ok(ordinal) = u32::try_from(index) else {
@@ -715,7 +833,77 @@ fn map_arguments(
         });
     }
 
-    Ok(Some(recovered))
+    Ok(ArgumentMapping::Mapped { recovered })
+}
+
+fn map_argument_parameter_indices_for_diagnostic(
+    arguments: &[BoundArgument],
+    parameters: &[bray_symbols::CallableParameterData],
+) -> Result<Result<Vec<usize>, SelectionCallableArgumentRejection>, CheckerInfrastructureError> {
+    let mut supplied = vec![false; parameters.len()];
+    let mut positional_index = 0;
+    let mut saw_named = false;
+    let mut mapped = Vec::with_capacity(arguments.len());
+
+    for (source_ordinal, argument) in arguments.iter().enumerate() {
+        let ordinal = u64::try_from(source_ordinal)
+            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+        let parameter_index = match argument.name() {
+            Some(name) => {
+                saw_named = true;
+
+                let Some(index) = parameters
+                    .iter()
+                    .position(|parameter| parameter.name().as_str() == name.as_str())
+                else {
+                    return Ok(Err(SelectionCallableArgumentRejection::UnknownName {
+                        provided: name.as_str().to_owned(),
+                        accepted: parameters
+                            .iter()
+                            .map(|parameter| parameter.name().as_str().to_owned())
+                            .collect(),
+                    }));
+                };
+
+                index
+            }
+            None if saw_named => {
+                return Ok(Err(
+                    SelectionCallableArgumentRejection::PositionalAfterNamed { ordinal },
+                ));
+            }
+            None => {
+                let index = positional_index;
+                positional_index += 1;
+
+                let Some(parameter) = parameters.get(index) else {
+                    return Ok(Err(
+                        SelectionCallableArgumentRejection::PositionalUnavailable { ordinal },
+                    ));
+                };
+
+                if parameter.position() != CallablePosition::PositionalOrNamed {
+                    return Ok(Err(
+                        SelectionCallableArgumentRejection::PositionalUnavailable { ordinal },
+                    ));
+                }
+
+                index
+            }
+        };
+
+        if std::mem::replace(&mut supplied[parameter_index], true) {
+            return Ok(Err(SelectionCallableArgumentRejection::Duplicate {
+                name: argument.name().map(|name| name.as_str().to_owned()),
+                ordinal,
+            }));
+        }
+
+        mapped.push(parameter_index);
+    }
+
+    Ok(Ok(mapped))
 }
 
 pub(crate) fn map_argument_parameter_indices(
@@ -757,10 +945,10 @@ pub(crate) fn map_argument_parameter_indices(
     Some(mapped)
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Compatibility {
     Yes,
-    No,
+    No(SelectionCandidateRejectionReason),
     Recovered,
 }
 
@@ -947,7 +1135,7 @@ mod tests {
 
         assert!(matches!(
             result.value(),
-            CandidateSelection::Failed(SelectionFailure::Incompatible)
+            CandidateSelection::Failed(SelectionFailure::Incompatible(_))
         ));
     }
 
@@ -999,7 +1187,7 @@ mod tests {
 
         assert!(matches!(
             result.value(),
-            CandidateSelection::Failed(SelectionFailure::Incompatible)
+            CandidateSelection::Failed(SelectionFailure::Incompatible(_))
         ));
     }
 
@@ -1111,7 +1299,7 @@ mod tests {
 
         assert!(matches!(
             result.value(),
-            CandidateSelection::Failed(SelectionFailure::Inaccessible)
+            CandidateSelection::Failed(SelectionFailure::Inaccessible { .. })
         ));
 
         let incompatible_type = tuple_type([fixture.value_type]);
@@ -1129,7 +1317,7 @@ mod tests {
 
         assert!(matches!(
             result.value(),
-            CandidateSelection::Failed(SelectionFailure::Incompatible)
+            CandidateSelection::Failed(SelectionFailure::Incompatible(_))
         ));
     }
 

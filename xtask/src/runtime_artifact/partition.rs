@@ -16,8 +16,8 @@ pub(super) struct RuntimeArchivePartitioner {
 
 impl RuntimeArchivePartitioner {
     pub(super) fn new(_root: &Path) -> Result<Self, CommandError> {
-        let tool = bray_tooling::llvm_tool_path("llvm-ar")
-            .ok_or(CommandError::RuntimePartitionToolUnavailable)?;
+        let tool = bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::Archiver)
+            .map_err(CommandError::RuntimePartitionToolUnavailable)?;
 
         Ok(Self {
             tool,

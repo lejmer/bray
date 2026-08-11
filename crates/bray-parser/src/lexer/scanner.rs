@@ -323,133 +323,27 @@ fn operator_cluster_end(snapshot: &SourceSnapshot, start: TextSize) -> TextSize 
 }
 
 fn keyword_kind(text: &str) -> Option<SyntaxKind> {
-    match text {
-        "all" => Some(SyntaxKind::AllKeyword),
-        "any" => Some(SyntaxKind::AnyKeyword),
-        "as" => Some(SyntaxKind::AsKeyword),
-        "assert" => Some(SyntaxKind::AssertKeyword),
-        "async" => Some(SyntaxKind::AsyncKeyword),
-        "await" => Some(SyntaxKind::AwaitKeyword),
-        "box" => Some(SyntaxKind::BoxKeyword),
-        "break" => Some(SyntaxKind::BreakKeyword),
-        "callable" => Some(SyntaxKind::CallableKeyword),
-        "case" => Some(SyntaxKind::CaseKeyword),
-        "catch" => Some(SyntaxKind::CatchKeyword),
-        "const" => Some(SyntaxKind::ConstKeyword),
-        "construct" => Some(SyntaxKind::ConstructKeyword),
-        "consume" => Some(SyntaxKind::ConsumeKeyword),
-        "continue" => Some(SyntaxKind::ContinueKeyword),
-        "destruct" => Some(SyntaxKind::DestructKeyword),
-        "each" => Some(SyntaxKind::EachKeyword),
-        "else" => Some(SyntaxKind::ElseKeyword),
-        "ensures" => Some(SyntaxKind::EnsuresKeyword),
-        "enter" => Some(SyntaxKind::EnterKeyword),
-        "exit" => Some(SyntaxKind::ExitKeyword),
-        "export" => Some(SyntaxKind::ExportKeyword),
-        "extern" => Some(SyntaxKind::ExternKeyword),
-        "false" => Some(SyntaxKind::FalseKeyword),
-        "finalize" => Some(SyntaxKind::FinalizeKeyword),
-        "for" => Some(SyntaxKind::ForKeyword),
-        "func" => Some(SyntaxKind::FuncKeyword),
-        "if" => Some(SyntaxKind::IfKeyword),
-        "impl" => Some(SyntaxKind::ImplKeyword),
-        "in" => Some(SyntaxKind::InKeyword),
-        "internal" => Some(SyntaxKind::InternalKeyword),
-        "lambda" => Some(SyntaxKind::LambdaKeyword),
-        "let" => Some(SyntaxKind::LetKeyword),
-        "loop" => Some(SyntaxKind::LoopKeyword),
-        "match" => Some(SyntaxKind::MatchKeyword),
-        "module" => Some(SyntaxKind::ModuleKeyword),
-        "move" => Some(SyntaxKind::MoveKeyword),
-        "mut" => Some(SyntaxKind::MutKeyword),
-        "none" => Some(SyntaxKind::NoneKeyword),
-        "overload" => Some(SyntaxKind::OverloadKeyword),
-        "panic" => Some(SyntaxKind::PanicKeyword),
-        "pos" => Some(SyntaxKind::PosKeyword),
-        "predicate" => Some(SyntaxKind::PredicateKeyword),
-        "public" => Some(SyntaxKind::PublicKeyword),
-        "requires" => Some(SyntaxKind::RequiresKeyword),
-        "return" => Some(SyntaxKind::ReturnKeyword),
-        "self" => Some(SyntaxKind::SelfValueKeyword),
-        "Self" => Some(SyntaxKind::SelfTypeKeyword),
-        "static" => Some(SyntaxKind::StaticKeyword),
-        "struct" => Some(SyntaxKind::StructKeyword),
-        "trait" => Some(SyntaxKind::TraitKeyword),
-        "trusted" => Some(SyntaxKind::TrustedKeyword),
-        "true" => Some(SyntaxKind::TrueKeyword),
-        "try" => Some(SyntaxKind::TryKeyword),
-        "type" => Some(SyntaxKind::TypeKeyword),
-        "union" => Some(SyntaxKind::UnionKeyword),
-        "unit" => Some(SyntaxKind::UnitKeyword),
-        "using" => Some(SyntaxKind::UsingKeyword),
-        "uses" => Some(SyntaxKind::UsesKeyword),
-        "view" => Some(SyntaxKind::ViewKeyword),
-        "when" => Some(SyntaxKind::WhenKeyword),
-        "while" => Some(SyntaxKind::WhileKeyword),
-        "with" => Some(SyntaxKind::WithKeyword),
-        "yield" => Some(SyntaxKind::YieldKeyword),
-        _ => None,
-    }
+    SyntaxKind::from_fixed_text(text).filter(|kind| kind.is_keyword())
 }
 
 fn operator_or_punctuation_kind(text: &str) -> Option<SyntaxKind> {
-    match text {
-        "->" => Some(SyntaxKind::ArrowToken),
-        "==" => Some(SyntaxKind::EqualsEqualsToken),
-        "!=" => Some(SyntaxKind::BangEqualsToken),
-        "<=" => Some(SyntaxKind::LessEqualsToken),
-        ">=" => Some(SyntaxKind::GreaterEqualsToken),
-        "&&" => Some(SyntaxKind::AmpersandAmpersandToken),
-        "||" => Some(SyntaxKind::PipePipeToken),
-        "<<" => Some(SyntaxKind::LessLessToken),
-        ">>" => Some(SyntaxKind::GreaterGreaterToken),
-        "**" => Some(SyntaxKind::StarStarToken),
-        "+=" => Some(SyntaxKind::PlusEqualsToken),
-        "-=" => Some(SyntaxKind::MinusEqualsToken),
-        "*=" => Some(SyntaxKind::StarEqualsToken),
-        "/=" => Some(SyntaxKind::SlashEqualsToken),
-        "%=" => Some(SyntaxKind::PercentEqualsToken),
-        "@=" => Some(SyntaxKind::AtEqualsToken),
-        "&=" => Some(SyntaxKind::AmpersandEqualsToken),
-        "|=" => Some(SyntaxKind::PipeEqualsToken),
-        "^=" => Some(SyntaxKind::CaretEqualsToken),
-        "<<=" => Some(SyntaxKind::LessLessEqualsToken),
-        ">>=" => Some(SyntaxKind::GreaterGreaterEqualsToken),
-        "**=" => Some(SyntaxKind::StarStarEqualsToken),
-        ".." => Some(SyntaxKind::DotDotToken),
-        ":" => Some(SyntaxKind::ColonToken),
-        "." => Some(SyntaxKind::DotToken),
-        "?" => Some(SyntaxKind::QuestionToken),
-        "=" => Some(SyntaxKind::EqualsToken),
-        "+" => Some(SyntaxKind::PlusToken),
-        "-" => Some(SyntaxKind::MinusToken),
-        "*" => Some(SyntaxKind::StarToken),
-        "/" => Some(SyntaxKind::SlashToken),
-        "%" => Some(SyntaxKind::PercentToken),
-        "@" => Some(SyntaxKind::AtToken),
-        "&" => Some(SyntaxKind::AmpersandToken),
-        "|" => Some(SyntaxKind::PipeToken),
-        "^" => Some(SyntaxKind::CaretToken),
-        "~" => Some(SyntaxKind::TildeToken),
-        "!" => Some(SyntaxKind::BangToken),
-        "<" => Some(SyntaxKind::LessToken),
-        ">" => Some(SyntaxKind::GreaterToken),
-        _ => None,
-    }
+    SyntaxKind::from_fixed_text(text)
 }
 
 fn delimiter_or_separator_kind(character: char) -> Option<SyntaxKind> {
-    match character {
-        '(' => Some(SyntaxKind::OpenParenToken),
-        ')' => Some(SyntaxKind::CloseParenToken),
-        '{' => Some(SyntaxKind::OpenBraceToken),
-        '}' => Some(SyntaxKind::CloseBraceToken),
-        '[' => Some(SyntaxKind::OpenBracketToken),
-        ']' => Some(SyntaxKind::CloseBracketToken),
-        ',' => Some(SyntaxKind::CommaToken),
-        ';' => Some(SyntaxKind::SemicolonToken),
-        _ => None,
-    }
+    SyntaxKind::from_fixed_character(character).filter(|kind| {
+        matches!(
+            kind,
+            SyntaxKind::OpenParenToken
+                | SyntaxKind::CloseParenToken
+                | SyntaxKind::OpenBraceToken
+                | SyntaxKind::CloseBraceToken
+                | SyntaxKind::OpenBracketToken
+                | SyntaxKind::CloseBracketToken
+                | SyntaxKind::CommaToken
+                | SyntaxKind::SemicolonToken
+        )
+    })
 }
 
 fn is_operator_cluster_character(character: char) -> bool {

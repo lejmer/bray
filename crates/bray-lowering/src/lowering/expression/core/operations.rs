@@ -982,7 +982,7 @@ impl Lowerer<'_> {
         self.push_typed_value_operation(expression, current, source, operation, result_type)
     }
 
-    fn push_typed_value_operation(
+    pub(in crate::lowering) fn push_typed_value_operation(
         &mut self,
         expression: BoundExpressionId,
         current: MirBlockId,
@@ -1122,6 +1122,7 @@ fn storage_kind(identity: StorageIdentity, parameter_position: Option<u32>) -> M
         }
         StorageIdentity::Result(_) => MirStorageKind::Return,
         StorageIdentity::Temporary(_)
+        | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::IterationCursor(_)
         | StorageIdentity::IterationElement(_)

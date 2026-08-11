@@ -1,6 +1,6 @@
 use bray_bound_tree::BoundExpressionId;
-use bray_diagnostics::DiagnosticKind;
 
+use super::diagnostic::{ConstantDiagnostic, ConstantLimitKind};
 use super::{ConstantEvaluationInput, evaluation::EvaluationFailure};
 
 /// Deterministic resource limits for one constant-evaluation request.
@@ -145,6 +145,10 @@ pub(super) struct EvaluationBudget {
     remaining_elements: u64,
     remaining_literal_bytes: u64,
     remaining_expansions: u64,
+    maximum_steps: u64,
+    maximum_elements: u64,
+    maximum_literal_bytes: u64,
+    maximum_expansions: u64,
 }
 
 impl EvaluationBudget {
@@ -158,6 +162,10 @@ impl EvaluationBudget {
             remaining_elements: limits.aggregate_elements(),
             remaining_literal_bytes: limits.literal_bytes(),
             remaining_expansions: limits.expansions(),
+            maximum_steps: limits.steps(),
+            maximum_elements: limits.aggregate_elements(),
+            maximum_literal_bytes: limits.literal_bytes(),
+            maximum_expansions: limits.expansions(),
         }
     }
 
@@ -166,7 +174,10 @@ impl EvaluationBudget {
         expression: BoundExpressionId,
     ) -> Result<(), EvaluationFailure> {
         self.try_charge_step()
-            .map_err(|kind| EvaluationFailure::Source { expression, kind })
+            .map_err(|diagnostic| EvaluationFailure::Source {
+                expression,
+                diagnostic,
+            })
     }
 
     pub(super) fn charge_elements(
@@ -175,7 +186,10 @@ impl EvaluationBudget {
         count: usize,
     ) -> Result<(), EvaluationFailure> {
         self.try_charge_elements(count)
-            .map_err(|kind| EvaluationFailure::Source { expression, kind })
+            .map_err(|diagnostic| EvaluationFailure::Source {
+                expression,
+                diagnostic,
+            })
     }
 
     pub(super) fn charge_literal(
@@ -184,7 +198,10 @@ impl EvaluationBudget {
         bytes: usize,
     ) -> Result<(), EvaluationFailure> {
         self.try_charge_literal(bytes)
-            .map_err(|kind| EvaluationFailure::Source { expression, kind })
+            .map_err(|diagnostic| EvaluationFailure::Source {
+                expression,
+                diagnostic,
+            })
     }
 
     pub(super) fn charge_expansion(
@@ -193,7 +210,10 @@ impl EvaluationBudget {
         count: usize,
     ) -> Result<(), EvaluationFailure> {
         self.try_charge_expansion(count)
-            .map_err(|kind| EvaluationFailure::Source { expression, kind })
+            .map_err(|diagnostic| EvaluationFailure::Source {
+                expression,
+                diagnostic,
+            })
     }
 
     pub(super) fn charge_usage(
@@ -202,67 +222,78 @@ impl EvaluationBudget {
         usage: ConstantEvaluationUsage,
     ) -> Result<(), EvaluationFailure> {
         self.try_charge_usage(usage)
-            .map_err(|kind| EvaluationFailure::Source { expression, kind })
+            .map_err(|diagnostic| EvaluationFailure::Source {
+                expression,
+                diagnostic,
+            })
     }
 
-    pub(super) fn try_charge_step(&mut self) -> Result<(), DiagnosticKind> {
+    pub(super) fn try_charge_step(&mut self) -> Result<(), ConstantDiagnostic> {
         charge(
             &mut self.remaining_steps,
+            self.maximum_steps,
             1,
-            DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
+            ConstantLimitKind::EvaluationSteps,
         )
     }
 
-    pub(super) fn try_charge_elements(&mut self, count: usize) -> Result<(), DiagnosticKind> {
+    pub(super) fn try_charge_elements(&mut self, count: usize) -> Result<(), ConstantDiagnostic> {
         charge(
             &mut self.remaining_elements,
+            self.maximum_elements,
             u64::try_from(count).unwrap_or(u64::MAX),
-            DiagnosticKind::CheckingConstantAggregateLimitExceeded,
+            ConstantLimitKind::AggregateElements,
         )
     }
 
-    pub(super) fn try_charge_literal(&mut self, bytes: usize) -> Result<(), DiagnosticKind> {
+    pub(super) fn try_charge_literal(&mut self, bytes: usize) -> Result<(), ConstantDiagnostic> {
         charge(
             &mut self.remaining_literal_bytes,
+            self.maximum_literal_bytes,
             u64::try_from(bytes).unwrap_or(u64::MAX),
-            DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+            ConstantLimitKind::LiteralBytes,
         )
     }
 
-    pub(super) fn try_charge_expansion(&mut self, count: usize) -> Result<(), DiagnosticKind> {
+    pub(super) fn try_charge_expansion(&mut self, count: usize) -> Result<(), ConstantDiagnostic> {
         charge(
             &mut self.remaining_expansions,
+            self.maximum_expansions,
             u64::try_from(count).unwrap_or(u64::MAX),
-            DiagnosticKind::CheckingConstantExpansionLimitExceeded,
+            ConstantLimitKind::ExpandedElements,
         )
     }
 
     pub(super) fn try_charge_usage(
         &mut self,
         usage: ConstantEvaluationUsage,
-    ) -> Result<(), DiagnosticKind> {
+    ) -> Result<(), ConstantDiagnostic> {
         charge(
             &mut self.remaining_steps,
+            self.maximum_steps,
             usage.steps(),
-            DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
+            ConstantLimitKind::EvaluationSteps,
         )?;
 
         charge(
             &mut self.remaining_elements,
+            self.maximum_elements,
             usage.aggregate_elements(),
-            DiagnosticKind::CheckingConstantAggregateLimitExceeded,
+            ConstantLimitKind::AggregateElements,
         )?;
 
         charge(
             &mut self.remaining_literal_bytes,
+            self.maximum_literal_bytes,
             usage.literal_bytes(),
-            DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+            ConstantLimitKind::LiteralBytes,
         )?;
 
         charge(
             &mut self.remaining_expansions,
+            self.maximum_expansions,
             usage.expansions(),
-            DiagnosticKind::CheckingConstantExpansionLimitExceeded,
+            ConstantLimitKind::ExpandedElements,
         )
     }
 
@@ -290,9 +321,20 @@ impl EvaluationBudget {
     }
 }
 
-fn charge(remaining: &mut u64, amount: u64, kind: DiagnosticKind) -> Result<(), DiagnosticKind> {
+fn charge(
+    remaining: &mut u64,
+    maximum: u64,
+    amount: u64,
+    resource: ConstantLimitKind,
+) -> Result<(), ConstantDiagnostic> {
     let Some(updated) = remaining.checked_sub(amount) else {
-        return Err(kind);
+        let consumed = maximum.saturating_sub(*remaining);
+
+        return Err(ConstantDiagnostic::limit(
+            resource,
+            consumed.saturating_add(amount),
+            maximum,
+        ));
     };
 
     *remaining = updated;
@@ -302,9 +344,8 @@ fn charge(remaining: &mut u64, amount: u64, kind: DiagnosticKind) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
-
     use super::{ConstantEvaluationLimits, ConstantEvaluationUsage, EvaluationBudget};
+    use crate::constant::diagnostic::{ConstantDiagnostic, ConstantLimitKind};
 
     #[test]
     fn default_limits_are_finite_and_nonzero() {
@@ -330,19 +371,19 @@ mod tests {
         let cases = [
             (
                 ConstantEvaluationUsage::new(4, 0, 0),
-                DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
+                ConstantLimitKind::EvaluationSteps,
             ),
             (
                 ConstantEvaluationUsage::new(0, 4, 0),
-                DiagnosticKind::CheckingConstantAggregateLimitExceeded,
+                ConstantLimitKind::AggregateElements,
             ),
             (
                 ConstantEvaluationUsage::new(0, 0, 4),
-                DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+                ConstantLimitKind::LiteralBytes,
             ),
             (
                 ConstantEvaluationUsage::new(0, 0, 0).with_expansions(4),
-                DiagnosticKind::CheckingConstantExpansionLimitExceeded,
+                ConstantLimitKind::ExpandedElements,
             ),
         ];
 
@@ -350,7 +391,10 @@ mod tests {
             let limits = ConstantEvaluationLimits::new(3, 3, 3).with_expansions(3);
             let mut budget = EvaluationBudget::from_limits(limits);
 
-            assert_eq!(budget.try_charge_usage(usage), Err(expected));
+            assert_eq!(
+                budget.try_charge_usage(usage),
+                Err(ConstantDiagnostic::limit(expected, 4, 3))
+            );
         }
     }
 

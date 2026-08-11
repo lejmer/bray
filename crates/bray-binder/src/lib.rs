@@ -40,5 +40,6 @@ pub use lookup::{
 pub use result::BoundUnitComputation;
 pub use semantic_context::{SemanticUnitContextError, semantic_unit_context};
 pub use surface::{
-    PredicateClauseBindingContext, bind_predicate_clause, bind_trusted_capability_clause,
+    BoundTrustedCapability, PredicateClauseBindingContext, bind_predicate_clause,
+    bind_trusted_capability_clause,
 };

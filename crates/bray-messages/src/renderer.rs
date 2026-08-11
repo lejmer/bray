@@ -1,6 +1,7 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticLabel, DiagnosticLabelStyle,
-    DiagnosticNote, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelStyle, DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticSuggestion, DiagnosticSuggestionKind, SeverityKind,
 };
 use bray_source::{SourceLocation, SourceSpan};
 
@@ -8,7 +9,8 @@ use crate::argument::{ArgumentFormatter, format_source_location, format_source_s
 use crate::catalog::{MessageCatalog, MessageTemplate, MessageTemplatePart};
 use crate::locale::DiagnosticLocale;
 use crate::rendered_diagnostic::{
-    RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote, RenderedDiagnosticNoteKind,
+    RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote,
+    RenderedDiagnosticNoteKind, RenderedDiagnosticRelatedLocation, RenderedDiagnosticSuggestion,
 };
 
 /// Locale-aware renderer for structured diagnostics.
@@ -50,6 +52,18 @@ impl DiagnosticRenderer {
             .map(|note| self.render_note(note))
             .collect();
 
+        let related_locations = diagnostic
+            .related_locations()
+            .iter()
+            .map(|location| self.render_related_location(location))
+            .collect();
+
+        let suggestions = diagnostic
+            .suggestions()
+            .iter()
+            .map(|suggestion| self.render_suggestion(suggestion))
+            .collect();
+
         RenderedDiagnostic::new(
             diagnostic.id(),
             diagnostic.kind(),
@@ -58,6 +72,8 @@ impl DiagnosticRenderer {
             self.render_template(template, diagnostic.args()),
             labels,
             notes,
+            related_locations,
+            suggestions,
         )
     }
 
@@ -93,6 +109,85 @@ impl DiagnosticRenderer {
         MessageCatalog::new(self.locale).note_heading(kind)
     }
 
+    /// Renders the heading for an ordinary source label.
+    pub fn render_label_heading(self) -> &'static str {
+        MessageCatalog::new(self.locale).label_heading()
+    }
+
+    /// Renders the heading for a supporting source location.
+    pub fn render_related_location_heading(self) -> &'static str {
+        MessageCatalog::new(self.locale).related_location_heading()
+    }
+
+    /// Returns typed arguments referenced by a diagnostic's primary message template.
+    pub fn diagnostic_argument_names(self, kind: DiagnosticKind) -> Vec<DiagnosticArgName> {
+        template_argument_names(MessageCatalog::new(self.locale).diagnostic_template(kind))
+    }
+
+    /// Returns whether the primary template contains recovery or next-action prose.
+    ///
+    /// This English-catalog guardrail complements semantic review. A primary diagnostic message
+    /// identifies what failed and why. Recovery belongs in structured notes or suggestions.
+    pub fn primary_message_contains_recovery_instruction(self, kind: DiagnosticKind) -> bool {
+        MessageCatalog::new(self.locale)
+            .diagnostic_template(kind)
+            .contains_recovery_instruction()
+    }
+
+    /// Returns typed arguments referenced by one note template.
+    pub fn note_argument_names(self, kind: DiagnosticNoteKind) -> Vec<DiagnosticArgName> {
+        template_argument_names(MessageCatalog::new(self.locale).note_template(kind))
+    }
+
+    /// Returns typed arguments referenced by one related-location template.
+    pub fn related_location_argument_names(
+        self,
+        kind: DiagnosticRelatedLocationKind,
+    ) -> Vec<DiagnosticArgName> {
+        template_argument_names(MessageCatalog::new(self.locale).related_location_template(kind))
+    }
+
+    /// Returns typed arguments referenced by one suggestion template.
+    pub fn suggestion_argument_names(
+        self,
+        kind: DiagnosticSuggestionKind,
+    ) -> Vec<DiagnosticArgName> {
+        template_argument_names(MessageCatalog::new(self.locale).suggestion_template(kind))
+    }
+
+    /// Returns every typed argument name consumed by an actually present rendered component.
+    pub fn component_argument_names(self, diagnostic: &Diagnostic) -> Vec<DiagnosticArgName> {
+        let catalog = MessageCatalog::new(self.locale);
+        let mut names = template_argument_names(catalog.diagnostic_template(diagnostic.kind()));
+
+        for label in diagnostic.labels() {
+            names.extend(template_argument_names(
+                catalog.label_template(label.kind()),
+            ));
+        }
+
+        for note in diagnostic.notes() {
+            names.extend(template_argument_names(catalog.note_template(note.kind())));
+        }
+
+        for location in diagnostic.related_locations() {
+            names.extend(template_argument_names(
+                catalog.related_location_template(location.kind()),
+            ));
+        }
+
+        for suggestion in diagnostic.suggestions() {
+            names.extend(template_argument_names(
+                catalog.suggestion_template(suggestion.kind()),
+            ));
+        }
+
+        names.sort_unstable();
+        names.dedup();
+
+        names
+    }
+
     fn render_label(self, label: &DiagnosticLabel) -> RenderedDiagnosticLabel {
         let template = MessageCatalog::new(self.locale).label_template(label.kind());
 
@@ -115,6 +210,30 @@ impl DiagnosticRenderer {
         )
     }
 
+    fn render_related_location(
+        self,
+        location: &DiagnosticRelatedLocation,
+    ) -> RenderedDiagnosticRelatedLocation {
+        let template = MessageCatalog::new(self.locale).related_location_template(location.kind());
+
+        RenderedDiagnosticRelatedLocation::new(
+            location.kind(),
+            location.span(),
+            self.render_template(template, location.args()),
+        )
+    }
+
+    fn render_suggestion(self, suggestion: &DiagnosticSuggestion) -> RenderedDiagnosticSuggestion {
+        let template = MessageCatalog::new(self.locale).suggestion_template(suggestion.kind());
+
+        RenderedDiagnosticSuggestion::new(
+            suggestion.kind(),
+            suggestion.applicability(),
+            suggestion.edits().to_vec(),
+            self.render_template(template, suggestion.args()),
+        )
+    }
+
     fn render_template(self, template: MessageTemplate, args: &[DiagnosticArg]) -> String {
         let formatter = ArgumentFormatter::new(self.locale);
 
@@ -133,24 +252,66 @@ impl DiagnosticRenderer {
     }
 }
 
+fn template_argument_names(template: MessageTemplate) -> Vec<DiagnosticArgName> {
+    template
+        .parts()
+        .iter()
+        .filter_map(|part| match part {
+            MessageTemplatePart::Text(_) => None,
+            MessageTemplatePart::Arg(name) => Some(*name),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
         Diagnostic, DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
+        DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength,
         DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
-        DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
-        DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticModuleTrust, DiagnosticNameKind,
-        DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
-        DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind, DiagnosticType,
-        DiagnosticTypeArgument, DiagnosticVisibility, SeverityKind,
+        DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticConstructionInputRejection,
+        DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind,
+        DiagnosticExpressionCategory, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+        DiagnosticLabel, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticLayoutOption,
+        DiagnosticLayoutProblem, DiagnosticMemoryOperation, DiagnosticModuleTrust,
+        DiagnosticNameKind, DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind,
+        DiagnosticOutputSink, DiagnosticPatternCoverage, DiagnosticPatternMissingCase,
+        DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
+        DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
+        DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
+        DiagnosticRuntimeArtifactProblem,
+        DiagnosticSelectionCandidate, DiagnosticSelectionCandidateIdentity,
+        DiagnosticSelectionCandidateSignature, DiagnosticSelectionCandidates,
+        DiagnosticSelectionKind, DiagnosticSelectionRejectionReason, DiagnosticSelectionRejections,
+        DiagnosticSourceInput, DiagnosticSourceInputOrigin, DiagnosticStorageAccess,
+        DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
+        DiagnosticSuggestion, DiagnosticSuggestionKind, DiagnosticTargetPredicateValueKind,
+        DiagnosticType, DiagnosticTypeArgument, DiagnosticUnionTagProblem, DiagnosticVisibility,
+        DiagnosticYieldCardinality, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_syntax::SyntaxKind;
 
     use super::DiagnosticRenderer;
+    use crate::catalog::{forbidden_internal_term, forbidden_ordinary_diagnostic_term};
     use crate::{
         DiagnosticLocale, RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNoteKind,
     };
+
+    #[test]
+    fn primary_templates_render_every_required_contract_argument() {
+        let renderer = DiagnosticRenderer::english();
+
+        for &kind in DiagnosticKind::ALL {
+            let required = kind.quality_contract().primary_message_args();
+            let rendered = renderer.diagnostic_argument_names(kind);
+
+            assert!(
+                required.iter().all(|name| rendered.contains(name)),
+                "{kind:?} primary template omits required context: required {required:?}, rendered {rendered:?}",
+            );
+        }
+    }
 
     #[test]
     fn renderer_renders_every_diagnostic_kind() {
@@ -161,11 +322,76 @@ mod tests {
                 .map(DiagnosticId::new)
                 .unwrap_or_else(|_| panic!("diagnostic inventory must fit diagnostic IDs"));
 
-            let diagnostic = Diagnostic::new(id, kind, SeverityKind::Error);
+            let span = SourceSpan::new(
+                SourceId::new(1),
+                TextRange::new(TextSize::new(2), TextSize::new(3)),
+            );
+
+            let diagnostic = Diagnostic::new(id, kind, SeverityKind::Error)
+                .with_label(DiagnosticLabel::primary(
+                    DiagnosticLabelKind::InvalidCharacter,
+                    span,
+                ))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::SourceFileMustBeReadable,
+                ))
+                .with_related_location(DiagnosticRelatedLocation::new(
+                    DiagnosticRelatedLocationKind::FirstDeclaration,
+                    span,
+                ))
+                .with_suggestion(DiagnosticSuggestion::manual(
+                    DiagnosticSuggestionKind::FormatSource,
+                ));
+
             let rendered = renderer.render(&diagnostic);
 
             assert_eq!(rendered.kind(), kind);
             assert!(!rendered.message().is_empty(), "{kind:?}");
+
+            for (component, message) in std::iter::once(("primary", rendered.message()))
+                .chain(
+                    rendered
+                        .labels()
+                        .iter()
+                        .map(|label| ("label", label.message())),
+                )
+                .chain(rendered.notes().iter().map(|note| ("note", note.message())))
+                .chain(
+                    rendered
+                        .related_locations()
+                        .iter()
+                        .map(|location| ("related location", location.message())),
+                )
+                .chain(
+                    rendered
+                        .suggestions()
+                        .iter()
+                        .map(|suggestion| ("suggestion", suggestion.message())),
+                )
+            {
+                let forbidden = if kind.as_str().starts_with("inspection_") {
+                    forbidden_internal_term(message)
+                } else {
+                    forbidden_ordinary_diagnostic_term(message)
+                };
+
+                assert_eq!(
+                    forbidden, None,
+                    "{kind:?} {component} exposes compiler implementation language: {message:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn primary_messages_never_contain_recovery_instructions() {
+        let renderer = DiagnosticRenderer::english();
+
+        for &kind in DiagnosticKind::ALL {
+            assert!(
+                !renderer.primary_message_contains_recovery_instruction(kind),
+                "{kind:?} must put recovery guidance in a typed note or suggestion"
+            );
         }
     }
 
@@ -176,7 +402,11 @@ mod tests {
             DiagnosticKind::SourceFileReadFailed,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::file_path("main.bray"))
+        .with_arg(DiagnosticArg::source_input(DiagnosticSourceInput::new(
+            0,
+            bray_source::SourceInputKind::File,
+            DiagnosticSourceInputOrigin::File("main.bray".into()),
+        )))
         .with_arg(DiagnosticArg::io_error_kind(
             DiagnosticIoErrorKind::NotFound,
         ))
@@ -192,7 +422,7 @@ mod tests {
 
         assert_eq!(
             rendered.message(),
-            "could not read source file main.bray: not found"
+            "could not read file source input 0 at main.bray: not found"
         );
 
         let [note] = rendered.notes() else {
@@ -205,27 +435,6 @@ mod tests {
         assert_eq!(
             note.message(),
             "source files must be readable before compilation"
-        );
-    }
-
-    #[test]
-    fn renderer_localizes_typed_runtime_metadata_failures() {
-        let diagnostic = Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::RuntimeArtifactMetadataInvalid,
-            SeverityKind::Error,
-        )
-        .with_arg(DiagnosticArg::artifact_path("runtime/bray-runtime.brayrt"))
-        .with_arg(DiagnosticArg::runtime_artifact_problem(
-            DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
-                component: "runtime.scheduler".to_owned(),
-                dependency: "runtime.reactor".to_owned(),
-            },
-        ));
-
-        assert_eq!(
-            DiagnosticRenderer::english().render(&diagnostic).message(),
-            "runtime artifact metadata is invalid: runtime/bray-runtime.brayrt: component `runtime.scheduler` has invalid dependency `runtime.reactor`"
         );
     }
 
@@ -247,19 +456,10 @@ mod tests {
             DiagnosticId::new(1),
             DiagnosticKind::CheckingCannotInferExpressionType,
             SeverityKind::Error,
-        );
-
-        let array_length = Diagnostic::new(
-            DiagnosticId::new(2),
-            DiagnosticKind::CheckingArrayLengthNotPositive,
-            SeverityKind::Error,
-        );
-
-        let generator_cardinality = Diagnostic::new(
-            DiagnosticId::new(3),
-            DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
-            SeverityKind::Error,
-        );
+        )
+        .with_arg(DiagnosticArg::expression_category(
+            DiagnosticExpressionCategory::NameReference,
+        ));
 
         let ambiguous = Diagnostic::new(
             DiagnosticId::new(4),
@@ -268,6 +468,54 @@ mod tests {
         )
         .with_arg(DiagnosticArg::selection_kind(
             DiagnosticSelectionKind::Operator,
+        ))
+        .with_arg(DiagnosticArg::selection_candidates(
+            DiagnosticSelectionCandidates::new([
+                DiagnosticSelectionCandidate::new(
+                    DiagnosticSelectionCandidateIdentity::BuiltIn,
+                    DiagnosticSelectionCandidateSignature::Operation {
+                        operand_types: Box::new([DiagnosticType::I32, DiagnosticType::I32]),
+                        result_type: Some(DiagnosticType::I32),
+                    },
+                ),
+                DiagnosticSelectionCandidate::new(
+                    DiagnosticSelectionCandidateIdentity::ExpressionValue,
+                    DiagnosticSelectionCandidateSignature::Callable {
+                        parameter_types: Box::new([DiagnosticType::I32, DiagnosticType::I32]),
+                        result_type: DiagnosticType::I32,
+                    },
+                ),
+            ]),
+        ));
+
+        let incompatible_candidate = Diagnostic::new(
+            DiagnosticId::new(10),
+            DiagnosticKind::CheckingIncompatibleCandidate,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::selection_kind(
+            DiagnosticSelectionKind::Construction,
+        ))
+        .with_arg(DiagnosticArg::selection_rejections(
+            DiagnosticSelectionRejections::try_from_prefix(
+                [DiagnosticRejectedSelectionCandidate::new(
+                    DiagnosticSelectionCandidate::new(
+                        DiagnosticSelectionCandidateIdentity::BuiltIn,
+                        DiagnosticSelectionCandidateSignature::Operation {
+                            operand_types: Box::new([DiagnosticType::I32]),
+                            result_type: Some(DiagnosticType::I32),
+                        },
+                    ),
+                    DiagnosticSelectionRejectionReason::ConstructionInput(
+                        DiagnosticConstructionInputRejection::UnknownName {
+                            provided: String::from("y"),
+                            accepted: Box::new([String::from("x")]),
+                        },
+                    ),
+                )],
+                1,
+            )
+            .unwrap_or_else(|_| panic!("one rejection must fit the diagnostic bound")),
         ));
 
         let target_alignment = Diagnostic::new(
@@ -280,6 +528,9 @@ mod tests {
         ))
         .with_arg(DiagnosticArg::required_alignment(64))
         .with_arg(DiagnosticArg::maximum_alignment(16));
+
+        let target_alignment =
+            target_alignment.with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"));
 
         let incompatible_pattern = Diagnostic::new(
             DiagnosticId::new(6),
@@ -294,7 +545,14 @@ mod tests {
             DiagnosticId::new(7),
             DiagnosticKind::CheckingNonExhaustiveMatch,
             SeverityKind::Error,
-        );
+        )
+        .with_arg(DiagnosticArg::pattern_coverage(
+            DiagnosticPatternCoverage::new(
+                DiagnosticType::Boolean,
+                [DiagnosticPatternMissingCase::Boolean(false)],
+                0,
+            ),
+        ));
 
         let named_type_mismatch = Diagnostic::new(
             DiagnosticId::new(8),
@@ -318,7 +576,13 @@ mod tests {
             DiagnosticId::new(9),
             DiagnosticKind::CheckingUnavailableAwaitDependency,
             SeverityKind::Error,
-        );
+        )
+        .with_arg(DiagnosticArg::dependency_subject_kind(
+            DiagnosticDependencySubjectKind::Storage,
+        ))
+        .with_arg(DiagnosticArg::dependency_requirement_kind(
+            DiagnosticDependencyRequirementKind::StorageAlive,
+        ));
 
         let renderer = DiagnosticRenderer::english();
 
@@ -334,32 +598,35 @@ mod tests {
 
         assert_eq!(
             renderer.render(&unavailable_await_dependency).message(),
-            "awaited computation depends on a value or borrow that is no longer available"
+            "await requires storage to remain alive"
         );
 
         assert_eq!(
             renderer.render(&unresolved).message(),
-            "cannot infer expression type"
-        );
-
-        assert_eq!(
-            renderer.render(&array_length).message(),
-            "array length must be greater than zero"
-        );
-
-        assert_eq!(
-            renderer.render(&generator_cardinality).message(),
-            "array generator element count cannot be proven"
+            "cannot infer the type of this name reference"
         );
 
         assert_eq!(
             renderer.render(&ambiguous).message(),
-            "operator selection is ambiguous"
+            concat!(
+                "operator selection is ambiguous between built-in operation with signature ",
+                "(i32, i32) -> i32 and callable expression value with signature ",
+                "(i32, i32) -> i32"
+            )
+        );
+
+        assert_eq!(
+            renderer.render(&incompatible_candidate).message(),
+            concat!(
+                "construction operation candidates reject the supplied expressions: ",
+                "built-in operation with signature (i32) -> i32: input name y is not accepted; ",
+                "candidate input names are x"
+            )
         );
 
         assert_eq!(
             renderer.render(&target_alignment).message(),
-            "required storage alignment 64 exceeds the selected target maximum of 16"
+            "required storage alignment 64 exceeds target 'x86_64-unknown-linux-gnu' maximum of 16"
         );
 
         assert_eq!(
@@ -369,7 +636,218 @@ mod tests {
 
         assert_eq!(
             renderer.render(&non_exhaustive_match).message(),
-            "match does not cover every possible value"
+            "match coverage is incomplete: bool is missing false"
+        );
+    }
+
+    #[test]
+    fn renderer_localizes_type_representation_causes() {
+        let invalid_layout = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingInvalidLayoutDirective,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::layout_problem(
+            DiagnosticLayoutProblem::OptionNotPowerOfTwo {
+                option: DiagnosticLayoutOption::Alignment,
+                value: 6,
+            },
+        ));
+
+        let invalid_tag = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::CheckingInvalidUnionTag,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::union_tag_problem(
+            DiagnosticUnionTagProblem::ValueOutsideSelectedType {
+                signed: false,
+                width_bits: 8,
+                value_negative: false,
+                value_bits: 9,
+            },
+        ));
+
+        let renderer = DiagnosticRenderer::english();
+
+        assert_eq!(
+            renderer.render(&invalid_layout).message(),
+            "the alignment value 6 is not a power of two"
+        );
+
+        assert_eq!(
+            renderer.render(&invalid_tag).message(),
+            "the nonnegative variant tag requires 9 magnitude bits, outside the selected unsigned 8-bit range 0 through 255"
+        );
+    }
+
+    #[test]
+    fn renderer_localizes_propagation_and_array_cardinality_causes() {
+        let result = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::propagation_problem(
+            DiagnosticPropagationProblem::ResultBoundaryUnavailable {
+                source_error: DiagnosticType::I32,
+                available_errors: vec![DiagnosticType::I64].into_boxed_slice(),
+            },
+        ));
+
+        let nullable = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::CheckingNoCompatiblePropagationBoundary,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::propagation_problem(
+            DiagnosticPropagationProblem::NullableBoundaryUnavailable {
+                operand: DiagnosticType::Nullable,
+                available_boundaries: vec![DiagnosticType::I32].into_boxed_slice(),
+            },
+        ));
+
+        let unavailable_count = Diagnostic::new(
+            DiagnosticId::new(2),
+            DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::array_generator_cardinality_problem(
+            DiagnosticArrayGeneratorCardinalityProblem::SourceCountUnavailable {
+                source: DiagnosticType::Named(DiagnosticNamedType::new(
+                    [String::from("app"), String::from("Items")],
+                    [],
+                )),
+                element: DiagnosticType::Boolean,
+                required: DiagnosticArrayLength::Exact(2),
+            },
+        ));
+
+        let divergent_yield = Diagnostic::new(
+            DiagnosticId::new(3),
+            DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::array_generator_cardinality_problem(
+            DiagnosticArrayGeneratorCardinalityProblem::YieldCountNotExact {
+                element: DiagnosticType::Boolean,
+                source_length: DiagnosticArrayLength::Symbolic,
+                required: DiagnosticArrayLength::Exact(2),
+                actual: DiagnosticYieldCardinality::Multiple,
+            },
+        ));
+
+        let renderer = DiagnosticRenderer::english();
+
+        assert_eq!(
+            renderer.render(&result).message(),
+            "cannot propagate error type i32 because no enclosing result boundary accepts it; available boundaries accept i64"
+        );
+
+        assert_eq!(
+            renderer.render(&nullable).message(),
+            "cannot propagate nullable type because no enclosing boundary returns a nullable type; available boundaries return i32"
+        );
+
+        assert_eq!(
+            renderer.render(&unavailable_count).message(),
+            "fixed-array generator of bool from app.Items requires 2 elements, but the source iteration count is not statically known"
+        );
+
+        assert_eq!(
+            renderer.render(&divergent_yield).message(),
+            "fixed-array generator of bool over a symbolic number of elements can yield multiple values per iteration but requires a result of 2 elements"
+        );
+    }
+
+    #[test]
+    fn renderer_localizes_exact_refinement_capacity() {
+        let capacity = DiagnosticRefinementCapacity::try_new(
+            DiagnosticRefinementCapacitySurface::PublishedRefinements,
+            16_777_217,
+            16_777_216,
+        )
+        .unwrap_or_else(|| panic!("limit plus one must be a capacity violation"));
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingRefinementCapacityExceeded,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::refinement_capacity(capacity));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            "flow-sensitive analysis requires 16777217 published refinements, exceeding the configured maximum of 16777216"
+        );
+    }
+
+    #[test]
+    fn renderer_localizes_memory_operation_and_callback_causes() {
+        let unavailable = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("wasm32-unknown-unknown"))
+        .with_arg(DiagnosticArg::memory_operation(
+            DiagnosticMemoryOperation::PointerRead,
+        ));
+
+        let callback = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::CheckingInvalidCallbackStateContext,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::callback_state_problem(
+            DiagnosticCallbackStateProblem::ContextParameterNotFirst { actual_ordinal: 2 },
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::CallbackStateRequirements,
+        ));
+
+        let renderer = DiagnosticRenderer::english();
+
+        assert_eq!(
+            renderer.render(&unavailable).message(),
+            "target 'wasm32-unknown-unknown' does not provide the required pointer read"
+        );
+
+        let callback = renderer.render(&callback);
+
+        assert_eq!(
+            callback.message(),
+            "callback state context references parameter 3, not the first parameter"
+        );
+
+        assert_eq!(
+            callback.notes()[0].message(),
+            "use the first context parameter of a trusted C or system ABI callable with a native symbol directive"
+        );
+    }
+
+    #[test]
+    fn renderer_localizes_exact_storage_access_path() {
+        let access = DiagnosticStorageAccess::new(
+            DiagnosticStorageAccessPurpose::MutableBorrow,
+            DiagnosticStorageRoot::Parameter,
+            [
+                DiagnosticStorageProjection::ProductField(String::from("payload")),
+                DiagnosticStorageProjection::TupleElement(1),
+            ],
+            DiagnosticType::I32,
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingMissingMutationAuthority,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::storage_access(access));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            "mutable borrow of parameter storage.payload.1 with type i32 has no mutable access to the reached storage"
         );
     }
 
@@ -393,12 +871,12 @@ mod tests {
 
         assert_eq!(
             rendered.message(),
-            "could not write artifact output memory collector 'host.output': other I/O error"
+            "could not write package interface artifact 0 output memory collector 'host.output': other I/O error"
         );
     }
 
     #[test]
-    fn renderer_localizes_artifact_digest_mismatch_facts() {
+    fn renderer_localizes_artifact_digest_mismatch_context() {
         let expected =
             DiagnosticArtifactDigest::new(DiagnosticArtifactDigestAlgorithm::Sha256, [0_u8; 32]);
 
@@ -413,13 +891,14 @@ mod tests {
         .with_arg(DiagnosticArg::artifact_kind(
             DiagnosticArtifactKind::PackageInterface,
         ))
+        .with_arg(DiagnosticArg::artifact_ordinal(0))
         .with_arg(DiagnosticArg::expected_artifact_digest(expected))
         .with_arg(DiagnosticArg::actual_artifact_digest(actual));
 
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
 
         let expected = format!(
-            "package interface artifact declared digest SHA-256 {}, but content digest was SHA-256 {}",
+            "package interface artifact 0 declared digest SHA-256 {}, but content digest was SHA-256 {}",
             "00".repeat(32),
             "01".repeat(32)
         );
@@ -443,7 +922,7 @@ mod tests {
             DiagnosticKind::StandardLibraryRuntimeAbiMismatch,
             SeverityKind::Error,
         )
-        .with_arg(DiagnosticArg::referenced_name("test-target"))
+        .with_arg(DiagnosticArg::target_triple("test-target"))
         .with_arg(DiagnosticArg::expected_runtime_abi(
             DiagnosticRuntimeAbiVersion::new(2, 1),
         ))
@@ -499,18 +978,69 @@ mod tests {
     }
 
     #[test]
+    fn renderer_preserves_both_target_predicate_failure_shapes() {
+        let unknown = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::ProjectManifestUnknownTargetPredicateProperty,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path("bray-package.json"))
+        .with_arg(DiagnosticArg::project_manifest_field(
+            DiagnosticProjectManifestField::TargetPredicate,
+        ))
+        .with_arg(DiagnosticArg::referenced_name("target.unknown"));
+
+        let mismatch = Diagnostic::new(
+            DiagnosticId::new(1),
+            DiagnosticKind::ProjectManifestTargetPredicateValueKindMismatch,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path("bray-package.json"))
+        .with_arg(DiagnosticArg::project_manifest_field(
+            DiagnosticProjectManifestField::TargetPredicate,
+        ))
+        .with_arg(DiagnosticArg::referenced_name("target.pointer.BITS"))
+        .with_arg(DiagnosticArg::expected_target_predicate_value_kind(
+            DiagnosticTargetPredicateValueKind::UnsignedInteger,
+        ))
+        .with_arg(DiagnosticArg::actual_target_predicate_value_kind(
+            DiagnosticTargetPredicateValueKind::String,
+        ));
+
+        let renderer = DiagnosticRenderer::english();
+
+        assert_eq!(
+            renderer.render(&unknown).message(),
+            "target predicate property 'target.unknown' is not defined for target predicate in bray-package.json"
+        );
+
+        assert_eq!(
+            renderer.render(&mismatch).message(),
+            "target predicate property 'target.pointer.BITS' in target predicate of bray-package.json accepts unsigned integer values, but received a string value"
+        );
+    }
+
+    #[test]
     fn renderer_formats_typed_arguments_for_utf8_diagnostics() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(2),
             DiagnosticKind::SourceInvalidUtf8,
             SeverityKind::Error,
         )
+        .with_arg(DiagnosticArg::source_input(DiagnosticSourceInput::new(
+            0,
+            bray_source::SourceInputKind::VirtualText,
+            DiagnosticSourceInputOrigin::Name("test source".to_owned()),
+        )))
         .with_arg(DiagnosticArg::text_offset(TextSize::new(4)))
         .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8));
 
         let rendered = DiagnosticRenderer::new(DiagnosticLocale::English).render(&diagnostic);
 
-        assert_eq!(rendered.message(), "source input contains invalid UTF-8");
+        assert_eq!(
+            rendered.message(),
+            "virtual text source input 0 named 'test source' contains invalid UTF-8 starting at byte offset 4"
+        );
 
         let [note] = rendered.notes() else {
             panic!("expected one rendered note: {rendered:?}");
@@ -518,6 +1048,43 @@ mod tests {
 
         assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
         assert_eq!(note.message(), "source inputs must be valid UTF-8");
+    }
+
+    #[test]
+    fn renderer_localizes_typed_runtime_metadata_failures_and_recovery() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::RuntimeArtifactMetadataInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::artifact_path("runtime/bray-runtime.brayrt"))
+        .with_arg(DiagnosticArg::runtime_artifact_problem(
+            DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
+                component: "runtime.scheduler".to_owned(),
+                dependency: "runtime.reactor".to_owned(),
+            },
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::RuntimeArtifactMustBeUsable,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "runtime artifact metadata is invalid: runtime/bray-runtime.brayrt: component `runtime.scheduler` has invalid dependency `runtime.reactor`"
+        );
+
+        let [note] = rendered.notes() else {
+            panic!("expected one rendered note: {rendered:?}");
+        };
+
+        assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
+
+        assert_eq!(
+            note.message(),
+            "select a readable runtime artifact built for the selected target and runtime ABI"
+        );
     }
 
     #[test]
@@ -601,6 +1168,9 @@ mod tests {
         )
         .with_primary_span(span)
         .with_arg(expected.clone())
+        .with_arg(DiagnosticArg::actual_syntax_kind(
+            SyntaxKind::EndOfFileToken,
+        ))
         .with_label(
             DiagnosticLabel::primary(DiagnosticLabelKind::ExpectedTokenInsertionPoint, span)
                 .with_arg(expected),
@@ -608,7 +1178,10 @@ mod tests {
 
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
 
-        assert_eq!(rendered.message(), "expected func keyword");
+        assert_eq!(
+            rendered.message(),
+            "expected func keyword but found end of file token"
+        );
 
         let [label] = rendered.labels() else {
             panic!("expected one rendered label: {rendered:?}");
@@ -619,11 +1192,6 @@ mod tests {
 
     #[test]
     fn renderer_renders_declaration_diagnostics_from_catalog() {
-        let first_span = SourceSpan::new(
-            SourceId::new(0),
-            TextRange::new(TextSize::ZERO, TextSize::new(5)),
-        );
-
         let duplicate_span = SourceSpan::new(
             SourceId::new(0),
             TextRange::new(TextSize::new(6), TextSize::new(11)),
@@ -639,9 +1207,12 @@ mod tests {
             DiagnosticLabelKind::DuplicateDeclaration,
             duplicate_span,
         ))
-        .with_label(DiagnosticLabel::secondary(
-            DiagnosticLabelKind::FirstDeclaration,
-            first_span,
+        .with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::FirstDeclaration,
+            SourceSpan::new(
+                SourceId::new(0),
+                TextRange::new(TextSize::new(0), TextSize::new(5)),
+            ),
         ));
 
         let visibility = Diagnostic::new(
@@ -694,12 +1265,17 @@ mod tests {
 
         assert_eq!(duplicate.message(), "duplicate declaration of 'Point'");
 
-        let [duplicate_label, first_label] = duplicate.labels() else {
-            panic!("expected duplicate declaration labels: {duplicate:?}");
+        let [duplicate_label] = duplicate.labels() else {
+            panic!("expected one duplicate declaration label: {duplicate:?}");
         };
 
         assert_eq!(duplicate_label.message(), "duplicate declaration");
-        assert_eq!(first_label.message(), "first declared here");
+
+        let [first_declaration] = duplicate.related_locations() else {
+            panic!("expected the first declaration location: {duplicate:?}");
+        };
+
+        assert_eq!(first_declaration.message(), "first declared here");
 
         assert_eq!(
             renderer.render(&visibility).message(),
@@ -798,18 +1374,6 @@ mod tests {
             SeverityKind::Error,
         );
 
-        let missing_predicate_body = Diagnostic::new(
-            DiagnosticId::new(17),
-            DiagnosticKind::BindingPredicateBodyRequired,
-            SeverityKind::Error,
-        );
-
-        let trusted_predicate_body = Diagnostic::new(
-            DiagnosticId::new(18),
-            DiagnosticKind::BindingTrustedPredicateBodyNotAllowed,
-            SeverityKind::Error,
-        );
-
         assert_eq!(
             DiagnosticRenderer::english().render(&shadowing).message(),
             "name is already defined: 'value'"
@@ -819,41 +1383,37 @@ mod tests {
             DiagnosticRenderer::english().render(&incoherent).message(),
             "alternative patterns must bind the same names"
         );
-
-        assert_eq!(
-            DiagnosticRenderer::english()
-                .render(&missing_predicate_body)
-                .message(),
-            "ordinary predicate declaration requires a body"
-        );
-
-        assert_eq!(
-            DiagnosticRenderer::english()
-                .render(&trusted_predicate_body)
-                .message(),
-            "trusted predicate declaration cannot have a body"
-        );
     }
 
     #[test]
     fn renderer_localizes_semantic_analysis_limits() {
+        let recursion = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::actual_count(18))
+        .with_arg(DiagnosticArg::maximum_count(17));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&recursion).message(),
+            "type representation analysis required 18 nested declarations but the limit is 17"
+        );
+
         let cases = [
             (
-                DiagnosticKind::CheckingTypeRepresentationRecursionLimitExceeded,
-                "type representation analysis exceeded its recursion limit of 17",
-            ),
-            (
                 DiagnosticKind::CheckingImplementationCoherenceLimitExceeded,
-                "implementation coherence analysis exceeded its pairwise comparison limit of 17",
+                "implementation coherence comparison 18 exceeds the configured limit of 17",
             ),
             (
                 DiagnosticKind::CheckingCallableOverloadLimitExceeded,
-                "callable overload analysis exceeded its pairwise comparison limit of 17",
+                "callable overload comparison 18 exceeds the configured limit of 17",
             ),
         ];
 
         for (kind, expected) in cases {
             let diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+                .with_arg(DiagnosticArg::actual_count(18))
                 .with_arg(DiagnosticArg::maximum_count(17));
 
             let rendered = DiagnosticRenderer::english().render(&diagnostic);
@@ -866,11 +1426,12 @@ mod tests {
             DiagnosticKind::CheckingCallableOverloadLimitExceeded,
             SeverityKind::Error,
         )
+        .with_arg(DiagnosticArg::actual_count(2))
         .with_arg(DiagnosticArg::maximum_count(1));
 
         assert_eq!(
             DiagnosticRenderer::english().render(&singular).message(),
-            "callable overload analysis exceeded its pairwise comparison limit of 1"
+            "callable overload comparison 2 exceeds the configured limit of 1"
         );
     }
 
@@ -911,7 +1472,7 @@ mod tests {
 
         assert_eq!(
             rendered.message(),
-            "source text is too large: {byte_count} bytes"
+            "{source_input} is too large: {byte_count} bytes"
         );
     }
 

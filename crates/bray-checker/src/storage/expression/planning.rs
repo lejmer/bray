@@ -513,12 +513,10 @@ where
             _ => None,
         };
 
-        let custom = matches!(
-            target,
-            Some(IndexTarget::Custom { .. } | IndexTarget::TraitConstraint { .. })
-        );
+        let custom_borrow_kind = target.and_then(IndexTarget::custom_borrow_kind);
+        let custom = custom_borrow_kind.is_some();
 
-        let receiver_purpose = custom.then_some(StorageAccessPurpose::Borrow(BorrowKind::Shared));
+        let receiver_purpose = custom_borrow_kind.map(StorageAccessPurpose::Borrow);
         let receiver_access = self.plan_expression(receiver, receiver_purpose)?;
 
         for selector in &operands[1..] {
@@ -610,7 +608,14 @@ where
             _ => return Err(CheckerInfrastructureError::InvalidStoragePlan.into()),
         };
 
-        let access = self.project_access(id, receiver_access, Some(projection))?;
+        let access = match custom_borrow_kind {
+            Some(kind) => self.custom_index_access(id, receiver_access, kind)?,
+            None => self.project_access(id, receiver_access, Some(projection))?,
+        };
+
+        if let Some(kind) = custom_borrow_kind {
+            self.record_purpose(id, Some(StorageAccessPurpose::Borrow(kind)), access)?;
+        }
 
         self.record_purpose(id, Some(purpose), access)?;
 

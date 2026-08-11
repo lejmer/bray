@@ -1036,7 +1036,7 @@ fn call_parts(
 
     for (index, witness) in call.dispatch_witnesses().iter().enumerate() {
         parts.semantic_value(
-            format!("dispatch_witness[{index}]"),
+            format!("dispatch_implementation[{index}]"),
             "implementation_instance",
             witness.slot(),
             None,
@@ -1045,20 +1045,20 @@ fn call_parts(
 
     for (index, witness) in call.witnesses().iter().enumerate() {
         parts.semantic_value(
-            format!("witness[{index}]"),
+            format!("implementation[{index}]"),
             "implementation_instance",
             witness.witness().slot(),
             None,
         );
 
         parts.r#type(
-            format!("witness_subject[{index}]"),
+            format!("implementation_subject[{index}]"),
             witness.requirement().subject(),
             context,
         )?;
 
         parts.semantic_value(
-            format!("witness_trait[{index}]"),
+            format!("implementation_trait[{index}]"),
             "trait_application",
             witness.requirement().trait_application().slot(),
             None,

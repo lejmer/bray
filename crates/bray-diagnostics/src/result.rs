@@ -1,6 +1,6 @@
 use crate::DiagnosticBag;
 
-/// An immutable compiler fact value and the diagnostics owned by that fact.
+/// An immutable semantic result and the diagnostics owned by that result.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DiagnosticResult<T> {
     value: T,
@@ -8,12 +8,12 @@ pub struct DiagnosticResult<T> {
 }
 
 impl<T> DiagnosticResult<T> {
-    /// Creates a fact result from its semantic value and owned diagnostics.
+    /// Creates a result from its semantic value and owned diagnostics.
     pub const fn new(value: T, diagnostics: DiagnosticBag) -> Self {
         Self { value, diagnostics }
     }
 
-    /// Creates a successful fact result without diagnostics.
+    /// Creates a successful semantic result without diagnostics.
     pub fn without_diagnostics(value: T) -> Self {
         Self::new(value, DiagnosticBag::new())
     }
@@ -23,7 +23,7 @@ impl<T> DiagnosticResult<T> {
         &self.value
     }
 
-    /// Returns the diagnostics owned by this fact.
+    /// Returns the diagnostics owned by this result.
     pub const fn diagnostics(&self) -> &DiagnosticBag {
         &self.diagnostics
     }

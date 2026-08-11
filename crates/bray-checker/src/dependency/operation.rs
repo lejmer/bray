@@ -1,7 +1,6 @@
 use bray_bound_tree::{
     BoundDependencyGuard, BoundDependencyRequirement, BoundDependencyRequirementKind,
-    BoundDependencySubject, StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StoragePlan,
-    StorageProjection,
+    BoundDependencySubject, StorageAccessId, StorageAccessPurpose, StoragePlan, StorageProjection,
 };
 use bray_symbols::BorrowKind;
 
@@ -122,12 +121,7 @@ fn access_borrow(
     storage: &StoragePlan,
     access: StorageAccessId,
 ) -> Option<bray_bound_tree::BorrowCapabilityId> {
-    match storage.access(access)?.root() {
-        StorageAccessRoot::Borrow(capability) => Some(capability),
-        StorageAccessRoot::Storage(_)
-        | StorageAccessRoot::OwnedIndirection { .. }
-        | StorageAccessRoot::Recovery(_) => None,
-    }
+    storage.access(access)?.root().borrow_capability()
 }
 
 fn requirement_kinds(

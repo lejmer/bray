@@ -46,7 +46,10 @@ pub use mapping::{
     demanded_debug_sources, demanded_runtime_references, demanded_types, mapped_runtime_references,
 };
 pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
-pub use outcome::{CodegenFailure, CodegenOutcome, CodegenStatus};
+pub use outcome::{
+    CodegenFailure, CodegenOutcome, CodegenOutcomeBuildError, CodegenStatus,
+    codegen_failure_diagnostic, codegen_failure_diagnostics,
+};
 pub use registry::{
     BackendSelectionError, CodeGeneratorRegistry, CodeGeneratorRegistryBuildError,
     CodegenConfiguration,

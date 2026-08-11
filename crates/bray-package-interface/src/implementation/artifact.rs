@@ -817,6 +817,7 @@ mod tests {
             .unwrap_or_else(|| panic!("second body must have a directory entry"));
 
         let mut bytes = encoded.to_vec();
+
         let payload = bytes
             .get_mut(entry.payload.clone())
             .unwrap_or_else(|| panic!("second body payload must be in bounds"));
@@ -824,6 +825,7 @@ mod tests {
         payload[0] ^= 0xff;
 
         let checksum = super::compute_payload_hash(entry, payload);
+
         let directory_offset = u64::from_le_bytes(
             bytes[32..40]
                 .try_into()
@@ -1051,14 +1053,17 @@ mod tests {
             artifact.identity().interface(),
             fixture.bundle.surface().identity()
         );
+
         assert_eq!(
             artifact.identity().dependencies(),
             fixture.bundle.surface().dependencies()
         );
+
         assert_eq!(
             artifact.identity().runtime_requirements(),
             expected_runtime_requirements
         );
+
         assert_eq!(
             artifact.identity().configuration(),
             fixture.bundle.implementation_configuration()
@@ -1179,6 +1184,7 @@ mod tests {
             key.cache_identity(),
             different_substitution.cache_identity()
         );
+
         assert_ne!(entry.discriminator, different_substitution.cache_identity());
 
         let loaded = LoadedInterfaceSurface::new(
@@ -1191,6 +1197,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test interface symbols must import: {error:?}"));
 
         let compiler_known = BTreeMap::new();
+
         let resolver = crate::ImportedInterfaceSymbolResolver::try_new(
             loaded,
             [loaded],

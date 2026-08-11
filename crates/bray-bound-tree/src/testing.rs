@@ -2,8 +2,18 @@
 
 use crate::{
     BoundExpression, BoundExpressionId, BoundTreeBuilder, BoundUnit, CheckedExpressionTypes,
-    ExpressionTypeEntry, ExpressionTypeResult,
+    ExpressionTypeEntry, ExpressionTypeResult, LifecycleObligationId, ScopedCapabilityId,
 };
+
+/// Creates a scoped-capability identity for cross-crate semantic tests.
+pub fn scoped_capability_id(unit: crate::BoundUnitId, ordinal: u32) -> ScopedCapabilityId {
+    ScopedCapabilityId::from_test_slot(unit, ordinal)
+}
+
+/// Creates a lifecycle-obligation identity for cross-crate semantic tests.
+pub fn lifecycle_obligation_id(unit: crate::BoundUnitId, ordinal: u32) -> LifecycleObligationId {
+    LifecycleObligationId::from_test_slot(unit, ordinal)
+}
 
 /// Appends a valid expression to a test bound tree.
 pub fn push_expression(

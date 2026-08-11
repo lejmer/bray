@@ -11,7 +11,7 @@ mod path;
 mod predicate;
 
 pub use contract::{PACKAGE_MANIFEST_FILE_NAME, WORKSPACE_MANIFEST_FILE_NAME};
-pub use error::{ProjectLoadError, ProjectManifestProblem};
+pub use error::{ProjectLoadError, ProjectManifestProblem, ProjectManifestProblemKind};
 pub use loader::{
     is_valid_ordinary_package_identity, load_project_graph, load_standard_library_project_graph,
 };
@@ -21,4 +21,4 @@ pub use model::{
     ProjectSourceRoot, ProjectTarget, ProjectTargetBuildPlan,
 };
 pub use path::ProjectPath;
-pub use predicate::{TargetPredicate, TargetPredicateValue};
+pub use predicate::{TargetPredicate, TargetPredicateValue, TargetPredicateValueKind};

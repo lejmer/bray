@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use bray_diagnostics::{DiagnosticBag, DiagnosticId};
+use bray_diagnostics::{DiagnosticBag, DiagnosticId, DiagnosticProjectSelectionProblem};
 use bray_project::{
     PackageRole, ProjectGraph, ProjectPackage, ProjectProduct, ProjectTarget, load_project_graph,
     load_standard_library_project_graph,
@@ -79,11 +79,17 @@ pub(crate) fn select_products(
     }
 
     if products.is_empty() {
-        return Err(selection_diagnostics(selection_text(selection)));
+        return Err(selection_diagnostics(
+            DiagnosticProjectSelectionProblem::NoMatchingProduct(selection_text(selection)),
+        ));
     }
 
     if require_one && products.len() != 1 {
-        return Err(selection_diagnostics("single_product_target_required"));
+        return Err(selection_diagnostics(
+            DiagnosticProjectSelectionProblem::SingleProductRequired {
+                actual: products.len().try_into().unwrap_or(u32::MAX),
+            },
+        ));
     }
 
     Ok(products)
@@ -123,11 +129,15 @@ fn select_packages<'graph>(
     };
 
     let Some(identity) = PackageIdentity::try_new(selected) else {
-        return Err(selection_diagnostics(selected));
+        return Err(selection_diagnostics(
+            DiagnosticProjectSelectionProblem::InvalidPackageSelector(selected.to_owned()),
+        ));
     };
 
     let Some(package) = graph.package(&identity) else {
-        return Err(selection_diagnostics(selected));
+        return Err(selection_diagnostics(
+            DiagnosticProjectSelectionProblem::UnknownPackage(selected.to_owned()),
+        ));
     };
 
     Ok(vec![package])
@@ -146,7 +156,11 @@ pub(crate) fn select_target<'graph>(
         .iter()
         .find(|target| target.name() == selected)
         .map(Some)
-        .ok_or_else(|| selection_diagnostics(selected))
+        .ok_or_else(|| {
+            selection_diagnostics(DiagnosticProjectSelectionProblem::UnknownTarget(
+                selected.to_owned(),
+            ))
+        })
 }
 
 fn product_matches(
@@ -170,7 +184,14 @@ fn product_targets(
 ) -> Result<Vec<PlannedProduct>, DiagnosticBag> {
     let targets = match selected {
         Some(target) if product.targets().contains(target.identity()) => vec![target],
-        Some(target) => return Err(selection_diagnostics(target.name())),
+        Some(target) => {
+            return Err(selection_diagnostics(
+                DiagnosticProjectSelectionProblem::ProductTargetUnavailable {
+                    product: product.identity().name().to_owned(),
+                    target: target.name().to_owned(),
+                },
+            ));
+        }
         None => product
             .targets()
             .iter()
@@ -179,7 +200,11 @@ fn product_targets(
                     .targets()
                     .iter()
                     .find(|target| target.identity() == identity)
-                    .ok_or_else(|| selection_diagnostics(identity.as_str()))
+                    .ok_or_else(|| {
+                        selection_diagnostics(DiagnosticProjectSelectionProblem::UnknownTarget(
+                            identity.as_str().to_owned(),
+                        ))
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?,
     };

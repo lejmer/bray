@@ -320,7 +320,7 @@ impl Compilation {
             )?));
         }
 
-        for (source_index, source_input) in source_inputs.into_iter().enumerate() {
+        for (source_index, source_input) in (0_u64..).zip(source_inputs) {
             // Preserve request metadata so source-load diagnostics can identify the input.
             let diagnostic_context =
                 SourceInputDiagnosticContext::from_input(source_index, &source_input);
@@ -944,7 +944,8 @@ mod tests {
     use bray_declarations::{DeclarationKind, ModulePath};
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticId, DiagnosticKind,
-        DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticSourceInput, DiagnosticSourceInputOrigin,
+        SeverityKind,
     };
     use bray_source::{
         SourceId, SourceIdentity, SourceInput, SourceInputKind, SourceOriginKind, SourceVersion,
@@ -992,6 +993,11 @@ mod tests {
             diagnostic.notes(),
             &[DiagnosticNote::new(DiagnosticNoteKind::SourceInputRequired)]
         );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.source_diagnostics(),
+            DiagnosticKind::RequestMissingSourceInput,
+        );
     }
 
     #[test]
@@ -1034,6 +1040,16 @@ mod tests {
         assert_eq!(
             diagnostic_kinds(invalid.source_diagnostics()),
             [DiagnosticKind::RequestStandardLibraryPackageIdentityRequired]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            ordinary.source_diagnostics(),
+            DiagnosticKind::RequestReservedPackageIdentity,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            invalid.source_diagnostics(),
+            DiagnosticKind::RequestStandardLibraryPackageIdentityRequired,
         );
     }
 
@@ -1189,21 +1205,22 @@ mod tests {
                     DiagnosticArgValue::ByteCount(1)
                 ),
                 DiagnosticArg::new(
-                    DiagnosticArgName::InputIndex,
-                    DiagnosticArgValue::InputIndex(1)
-                ),
-                DiagnosticArg::new(
-                    DiagnosticArgName::SourceInputKind,
-                    DiagnosticArgValue::SourceInputKind(SourceInputKind::File)
-                ),
-                DiagnosticArg::new(
-                    DiagnosticArgName::FilePath,
-                    DiagnosticArgValue::FilePath("bad.bray".into())
+                    DiagnosticArgName::SourceInput,
+                    DiagnosticArgValue::SourceInput(DiagnosticSourceInput::new(
+                        1,
+                        SourceInputKind::File,
+                        DiagnosticSourceInputOrigin::File("bad.bray".into())
+                    ))
                 )
             ]
         );
 
         assert_eq!(diagnostic.notes().len(), 1);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::SourceInvalidUtf8,
+        );
     }
 
     #[test]
@@ -1240,12 +1257,16 @@ mod tests {
 
         assert_eq!(
             diagnostic.args(),
-            &[
-                DiagnosticArg::input_index(1)
-                    .unwrap_or_else(|| panic!("test input index must fit in diagnostics")),
-                DiagnosticArg::source_input_kind(SourceInputKind::VirtualText),
-                DiagnosticArg::source_name("duplicate.bray"),
-            ]
+            &[DiagnosticArg::source_input(DiagnosticSourceInput::new(
+                1,
+                SourceInputKind::VirtualText,
+                DiagnosticSourceInputOrigin::Name("duplicate.bray".to_owned()),
+            ))]
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.source_diagnostics(),
+            DiagnosticKind::RequestDuplicateSourceInput,
         );
     }
 

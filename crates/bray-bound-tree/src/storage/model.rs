@@ -67,6 +67,8 @@ pub enum StorageIdentity {
     Result(AnyBoundNodeId),
     /// Source-correlated temporary storage.
     Temporary(BoundExpressionId),
+    /// The borrow returned by a custom indexing operation.
+    CustomIndexBorrow(BoundExpressionId),
     /// Cursor owned by an iteration expression.
     IterationCursor(BoundExpressionId),
     /// Current element produced by an iteration expression.
@@ -98,6 +100,7 @@ impl StorageIdentity {
             Self::PostconditionResult(_) => "postcondition_result",
             Self::Result(_) => "result",
             Self::Temporary(_) => "temporary",
+            Self::CustomIndexBorrow(_) => "custom_index_borrow",
             Self::IterationCursor(_) => "iteration_cursor",
             Self::IterationElement(_) => "iteration_element",
             Self::Allocation(_) => "allocation",
@@ -124,6 +127,7 @@ impl StorageIdentity {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => Some(node),
             Self::Temporary(expression)
+            | Self::CustomIndexBorrow(expression)
             | Self::IterationCursor(expression)
             | Self::IterationElement(expression)
             | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
@@ -142,6 +146,7 @@ impl StorageIdentity {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => node.unit() == unit,
             Self::Temporary(expression)
+            | Self::CustomIndexBorrow(expression)
             | Self::IterationCursor(expression)
             | Self::IterationElement(expression)
             | Self::Allocation(expression) => expression.unit() == unit,
@@ -167,6 +172,13 @@ pub enum StorageAccessRoot {
     Storage(StorageIdentityId),
     /// Access derived through an active borrow capability.
     Borrow(BorrowCapabilityId),
+    /// Access derived through a borrow capability whose runtime borrow value is retained in storage.
+    BorrowedStorage {
+        /// The capability that relates the borrow to its source access.
+        capability: BorrowCapabilityId,
+        /// The storage retaining the runtime borrow value.
+        storage: StorageIdentityId,
+    },
     /// Access to storage owned through a value's indirection layer.
     OwnedIndirection {
         /// The evaluated owner value occurrence.
@@ -183,9 +195,31 @@ impl StorageAccessRoot {
         match self {
             Self::Storage(storage) | Self::Recovery(storage) => storage.unit() == unit,
             Self::Borrow(capability) => capability.unit() == unit,
+            Self::BorrowedStorage {
+                capability,
+                storage,
+            } => capability.unit() == unit && storage.unit() == unit,
             Self::OwnedIndirection { owner, storage } => {
                 owner.unit() == unit && storage.unit() == unit
             }
+        }
+    }
+
+    /// Returns the borrow capability governing this access, when present.
+    pub const fn borrow_capability(self) -> Option<BorrowCapabilityId> {
+        match self {
+            Self::Borrow(capability) | Self::BorrowedStorage { capability, .. } => Some(capability),
+            Self::Storage(_) | Self::OwnedIndirection { .. } | Self::Recovery(_) => None,
+        }
+    }
+
+    pub(crate) const fn retained_borrow_storage(self) -> Option<StorageIdentityId> {
+        match self {
+            Self::BorrowedStorage { storage, .. } => Some(storage),
+            Self::Storage(_)
+            | Self::Borrow(_)
+            | Self::OwnedIndirection { .. }
+            | Self::Recovery(_) => None,
         }
     }
 }

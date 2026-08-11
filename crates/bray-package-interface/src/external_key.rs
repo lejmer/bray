@@ -121,6 +121,7 @@ pub(crate) fn read_external_key(
             }
             4 => {
                 let owner = key.take().ok_or(InterfaceValidationError::Malformed)?;
+
                 let role =
                     SynthesizedSymbolRole::from_wire(reader.read_u32().map_err(map_wire_error)?)
                         .ok_or(InterfaceValidationError::Malformed)?;

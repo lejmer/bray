@@ -4,10 +4,7 @@ use std::process::ExitCode;
 
 use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::ProductEmissionInputs;
-use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    SeverityKind,
-};
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId};
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
     RequestedArtifact, RequestedArtifactDestination,
@@ -18,6 +15,7 @@ use bray_tooling::{
     OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, native_linker,
 };
 
+use super::diagnostic::artifact_write_failure;
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
 use super::runtime::{resolve_runtime, runtime_selection_diagnostics};
 use crate::command::{DriverBackend, DriverOptions, DriverProductConfiguration};
@@ -70,16 +68,35 @@ pub(crate) fn run_build_command(
     };
 
     let compilation = match compilation {
-        Some(compilation) => compilation,
-        None => {
-            return DriverRunResult::new(ExitCode::FAILURE, DiagnosticBag::new(), output_format);
+        Ok(compilation) => compilation,
+        Err(error) => {
+            return DriverRunResult::new(
+                ExitCode::FAILURE,
+                DiagnosticBag::single(
+                    error.diagnostic(selected_target.profile().identity().as_str()),
+                ),
+                output_format,
+            );
         }
     };
 
     let linker = if linked {
         match native_linker(native_target) {
-            Some(linker) => Some(linker),
-            None => return unsupported_product_result(compilation, output_format),
+            Ok(linker) => Some(linker),
+            Err(error) => {
+                let diagnostics = compilation
+                    .check_diagnostics()
+                    .merged(&DiagnosticBag::single(
+                        error.diagnostic(selected_target.profile().identity().as_str()),
+                    ));
+
+                return driver_result_from_compilation(
+                    compilation,
+                    diagnostics,
+                    output_format,
+                    ExitCode::FAILURE,
+                );
+            }
         }
     } else {
         None
@@ -94,11 +111,14 @@ pub(crate) fn run_build_command(
             linker.as_ref(),
         ) {
             Ok(native) => Some(native),
-            Err(error) if error.is_unsupported() => {
-                return unsupported_product_result(compilation, output_format);
-            }
             Err(error) => {
-                return native_product_failure_result(compilation, output_format, &error);
+                return native_product_failure_result(
+                    compilation,
+                    output_format,
+                    &product,
+                    selected_target.profile().identity().as_str(),
+                    &error,
+                );
             }
         }
     } else {
@@ -167,36 +187,36 @@ fn publish_test_catalog(
     product: &ProductIdentity,
     destination: &std::path::Path,
 ) -> Result<(), Diagnostic> {
-    let discovery = compilation
-        .test_discovery(product.clone())
-        .map_err(|_| catalog_publication_diagnostic(destination, io::ErrorKind::InvalidData))?;
+    let discovery = compilation.test_discovery(product.clone()).map_err(|_| {
+        artifact_write_failure(
+            DiagnosticId::new(0),
+            destination,
+            io::ErrorKind::InvalidData,
+        )
+    })?;
 
-    let (bytes, _) = bray_test_protocol::encode_test_catalog(discovery.value().catalog())
-        .map_err(|_| catalog_publication_diagnostic(destination, io::ErrorKind::InvalidData))?;
+    let (bytes, _) =
+        bray_test_protocol::encode_test_catalog(discovery.value().catalog()).map_err(|_| {
+            artifact_write_failure(
+                DiagnosticId::new(0),
+                destination,
+                io::ErrorKind::InvalidData,
+            )
+        })?;
 
     let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
-        .map_err(|error| catalog_publication_diagnostic(destination, error.kind()))?;
+        .map_err(|error| {
+        artifact_write_failure(DiagnosticId::new(0), destination, error.kind())
+    })?;
 
     staging
         .write_all(&bytes)
-        .map_err(|error| catalog_publication_diagnostic(destination, error.kind()))?;
+        .map_err(|error| artifact_write_failure(DiagnosticId::new(0), destination, error.kind()))?;
 
     staging
         .finish()
         .and_then(|staged| staged.promote(destination))
-        .map_err(|error| catalog_publication_diagnostic(destination, error.kind()))
-}
-
-fn catalog_publication_diagnostic(path: &std::path::Path, kind: io::ErrorKind) -> Diagnostic {
-    Diagnostic::new(
-        DiagnosticId::new(0),
-        DiagnosticKind::EmissionArtifactWriteFailed,
-        SeverityKind::Error,
-    )
-    .with_arg(DiagnosticArg::file_path(path))
-    .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
-        kind,
-    )))
+        .map_err(|error| artifact_write_failure(DiagnosticId::new(0), destination, error.kind()))
 }
 
 fn required_artifacts(
@@ -295,43 +315,35 @@ fn emission_request(
     .unwrap_or_else(|error| panic!("validated build emission request must be valid: {error:?}"))
 }
 
-fn unsupported_product_result(
-    compilation: bray_compilation::Compilation,
-    output_format: OutputFormat,
-) -> DriverRunResult {
-    let unsupported = Diagnostic::new(
-        DiagnosticId::new(0),
-        DiagnosticKind::RequestUnsupportedProductEmission,
-        SeverityKind::Error,
-    );
-
-    let diagnostics = compilation
-        .check_diagnostics()
-        .merged(&DiagnosticBag::single(unsupported));
-
-    driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)
-}
-
 fn native_product_failure_result(
     compilation: bray_compilation::Compilation,
     output_format: OutputFormat,
+    product: &ProductIdentity,
+    target: &str,
     error: &bray_compilation::NativeProductFactError,
 ) -> DriverRunResult {
     let diagnostics = match error {
         bray_compilation::NativeProductFactError::StandardLibrary(error) => compilation
             .check_diagnostics()
             .merged(&compilation.standard_library_load_diagnostics(error)),
-        bray_compilation::NativeProductFactError::InvalidRuntimeSelection(error) => {
-            let Some(runtime) = runtime_selection_diagnostics(error) else {
-                return unsupported_product_result(compilation, output_format);
-            };
+        bray_compilation::NativeProductFactError::InvalidRuntimeSelection(selection_error) => {
+            let runtime = runtime_selection_diagnostics(selection_error).unwrap_or_else(|| {
+                error.diagnostic(product, target).unwrap_or_else(|| {
+                    panic!("runtime selection failure must publish an exact diagnostic")
+                })
+            });
 
             compilation.check_diagnostics().merged(&runtime)
         }
         error if let Some(diagnostics) = error.diagnostics() => {
             compilation.check_diagnostics().merged(diagnostics)
         }
-        _ => compilation.check_diagnostics().clone(),
+        error if error.is_cancelled() => compilation.check_diagnostics().clone(),
+        error => compilation.check_diagnostics().merged(
+            &error.diagnostic(product, target).unwrap_or_else(|| {
+                panic!("non-cancelled native product failure must publish an exact diagnostic")
+            }),
+        ),
     };
 
     driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)

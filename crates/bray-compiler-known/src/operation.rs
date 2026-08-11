@@ -38,8 +38,12 @@ define_catalog_enum! {
         PlainConversion => "PlainConversion",
         /// Element projection through `ElementIndex.index`.
         ElementIndex => "ElementIndex",
+        /// Mutable element projection through `MutableElementIndex.index`.
+        MutableElementIndex => "MutableElementIndex",
         /// Contiguous projection through `SliceIndex.slice`.
         SliceIndex => "SliceIndex",
+        /// Mutable contiguous projection through `MutableSliceIndex.slice`.
+        MutableSliceIndex => "MutableSliceIndex",
         /// Owned-indirection construction supported by `Storage`.
         BoxConstruction => "BoxConstruction",
     }
@@ -65,7 +69,9 @@ impl CompilerKnownOperationRole {
                 | Self::BinaryShiftLeft
                 | Self::BinaryShiftRight
                 | Self::ElementIndex
+                | Self::MutableElementIndex
                 | Self::SliceIndex
+                | Self::MutableSliceIndex
         ) {
             CompilerKnownOperationContractShape::AssociatedResultCallable
         } else if matches!(self, Self::Comparison) {
@@ -90,6 +96,16 @@ pub(crate) enum CompilerKnownOperationContractShape {
 #[cfg(test)]
 mod tests {
     use super::{CompilerKnownOperationContractShape, CompilerKnownOperationRole};
+
+    #[test]
+    fn operation_roles_expose_their_canonical_catalog_spelling() {
+        for role in CompilerKnownOperationRole::ALL {
+            assert_eq!(
+                CompilerKnownOperationRole::from_catalog_spelling(role.as_str()),
+                Some(*role)
+            );
+        }
+    }
 
     #[test]
     fn operation_shapes_distinguish_associated_results_and_type_forms() {

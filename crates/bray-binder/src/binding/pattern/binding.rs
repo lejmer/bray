@@ -1,11 +1,13 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BoundPattern, BoundPatternEntry, BoundPatternEntryKind, BoundPatternId, BoundPatternTarget,
     BoundReferenceTarget,
 };
 use bray_declarations::SyntaxAnchor;
-use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, SeverityKind,
+};
 use bray_symbols::{LocalBindingSymbolId, LocalScopeId, SymbolName, SymbolOrdinal, TypeId};
 use bray_syntax::{CasePatternSyntax, IrrefutablePatternSyntax, SourceSyntaxNode, SyntaxToken};
 
@@ -44,7 +46,7 @@ struct PatternBindingState {
     error_type: TypeId,
     mode: PatternBindingMode,
     coherent: Vec<(SymbolName, LocalBindingSymbolId)>,
-    pending_names: BTreeSet<SymbolName>,
+    pending_names: BTreeMap<SymbolName, bray_source::SourceSpan>,
     suppress_bindings: bool,
 }
 
@@ -81,8 +83,21 @@ macro_rules! define_pattern_binder {
             // Pending identities and coherent lookup independently retain shared name text.
             let pending_names = coherent
                 .iter()
-                .map(|(name, _)| name.clone())
-                .collect::<BTreeSet<_>>();
+                .filter_map(|(name, binding)| {
+                    self.unit()
+                        .local_symbol_syntax_anchor((*binding).into())
+                        .ok()
+                        .map(|anchor| {
+                            (
+                                name.clone(),
+                                bray_source::SourceSpan::new(
+                                    anchor.source_id(),
+                                    anchor.full_range(),
+                                ),
+                            )
+                        })
+                })
+                .collect::<BTreeMap<_, _>>();
 
             let mut state = PatternBindingState {
                 context,
@@ -286,12 +301,15 @@ where
         }
 
         // The pending-name set and local symbol independently retain shared name text.
-        if !state.pending_names.insert(name.clone()) {
-            let span = bray_source::SourceSpan::new(syntax.source().source_id(), token.range());
-            report_name_already_defined(self, name.as_str(), span);
+        let span = bray_source::SourceSpan::new(syntax.source().source_id(), token.range());
+
+        if let Some(prior) = state.pending_names.get(&name).copied() {
+            report_name_already_defined(self, name.as_str(), span, [prior]);
 
             return Ok(None);
         }
+
+        state.pending_names.insert(name.clone(), span);
 
         if !name_is_available(self, state.context, syntax.source(), &token) {
             return Ok(None);
@@ -545,7 +563,11 @@ where
             DiagnosticKind::BindingIncoherentAlternativePattern,
             SeverityKind::Error,
         )
-        .with_primary_span(span);
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::AlternativePattern,
+            span,
+        ));
 
         self.add_diagnostic(diagnostic);
     }
@@ -761,6 +783,11 @@ mod tests {
             Ok(result) => result,
             Err(error) => panic!("incoherent pattern recovery must freeze: {error:?}"),
         };
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            bray_diagnostics::DiagnosticKind::BindingIncoherentAlternativePattern,
+        );
 
         assert_eq!(
             result

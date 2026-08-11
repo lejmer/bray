@@ -4,7 +4,10 @@ use super::evaluator::TemplateEvaluator;
 use super::support::{TemplateEvaluationFailure, recovery_value};
 use crate::{CheckerOutcome, CheckerRequestContext, ConstantCallRequest};
 use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+};
 use bray_source::SourceSpan;
 use bray_symbols::{
     ConcreteGenericSubstitutionId, ConstantValueId, ImplementationInstanceId, TypeId,
@@ -58,17 +61,21 @@ where
             EvaluatedConstantCall::new(value, evaluator.budget.usage(limits)),
             evaluator.diagnostics,
         ),
-        Err(TemplateEvaluationFailure::Diagnostic(kind)) => {
+        Err(TemplateEvaluationFailure::Diagnostic(problem)) => {
             let value = match recovery_value(context.semantic_values(), request.result_type()) {
                 Ok(value) => value,
                 Err(error) => return CheckerOutcome::InfrastructureFailure(error),
             };
 
-            let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error);
-
-            if let Some(span) = diagnostic_span {
-                diagnostic = diagnostic.with_primary_span(span);
-            }
+            let diagnostic = match template_failure_diagnostic(
+                context,
+                request.result_type(),
+                problem,
+                diagnostic_span,
+            ) {
+                Ok(diagnostic) => diagnostic,
+                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            };
 
             evaluator.diagnostics.add(diagnostic);
 
@@ -181,12 +188,12 @@ where
             )),
             evaluator.diagnostics,
         ),
-        Err(TemplateEvaluationFailure::Diagnostic(kind)) => {
-            let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error);
-
-            if let Some(span) = diagnostic_span {
-                diagnostic = diagnostic.with_primary_span(span);
-            }
+        Err(TemplateEvaluationFailure::Diagnostic(problem)) => {
+            let diagnostic =
+                match template_failure_diagnostic(context, result_type, problem, diagnostic_span) {
+                    Ok(diagnostic) => diagnostic,
+                    Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                };
 
             evaluator.diagnostics.add(diagnostic);
 
@@ -199,6 +206,76 @@ where
     }
 }
 
+fn template_failure_diagnostic<C>(
+    context: &C,
+    result_type: TypeId,
+    problem: super::super::diagnostic::ConstantDiagnostic,
+    span: Option<SourceSpan>,
+) -> Result<Diagnostic, crate::CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut diagnostic = problem.apply(Diagnostic::new(
+        DiagnosticId::new(0),
+        problem.kind(),
+        SeverityKind::Error,
+    ));
+
+    if let Some(span) = span {
+        diagnostic = diagnostic
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::InvalidConstantExpression,
+                span,
+            ));
+    }
+
+    match problem {
+        super::super::diagnostic::ConstantDiagnostic::Literal(
+            crate::ConstantLiteralError::NotRepresentable,
+        )
+        | super::super::diagnostic::ConstantDiagnostic::Operation {
+            error: super::super::operation::ConstantOperationError::NotRepresentable,
+            ..
+        } => {
+            diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(
+                crate::diagnostic::diagnostic_type(context, result_type)?,
+            ));
+        }
+        super::super::diagnostic::ConstantDiagnostic::Operation {
+            error: super::super::operation::ConstantOperationError::Invalid,
+            ..
+        } => {
+            diagnostic = diagnostic.with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
+            ));
+        }
+        super::super::diagnostic::ConstantDiagnostic::Literal(
+            crate::ConstantLiteralError::SizeLimitExceeded { .. },
+        )
+        | super::super::diagnostic::ConstantDiagnostic::Operation {
+            error: super::super::operation::ConstantOperationError::ResourceLimitExceeded { .. },
+            ..
+        }
+        | super::super::diagnostic::ConstantDiagnostic::Limit { .. } => {
+            diagnostic = diagnostic.with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::ConstantEvaluationMustFitLimits,
+            ));
+        }
+        super::super::diagnostic::ConstantDiagnostic::Cycle { .. } => {}
+        super::super::diagnostic::ConstantDiagnostic::InvalidExpression
+        | super::super::diagnostic::ConstantDiagnostic::Literal(
+            crate::ConstantLiteralError::Invalid,
+        ) => return Err(crate::CheckerInfrastructureError::InvalidConstantEvaluationInput),
+        super::super::diagnostic::ConstantDiagnostic::Operation {
+            error: super::super::operation::ConstantOperationError::DivisionByZero,
+            ..
+        } => {}
+    }
+
+    Ok(diagnostic)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -208,11 +285,13 @@ mod tests {
         CheckedTemplateExecution, CheckedTemplateKind, CheckedTemplateNode,
         CheckedTemplateOperation,
     };
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_symbols::{
         CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
         CurrentRunCancellation, DependencyContractTemplateData, FunctionSymbolId, GenericOwnerId,
         GenericSubstitutionData, SymbolId, TypeData,
     };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::super::super::call::{
         ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantTemplateResolver,
@@ -291,6 +370,11 @@ mod tests {
         let callable = CallableInstanceData::new(callable, substitution);
         let request = |limits| ConstantCallRequest::new(callable, None, [], ty, limits);
 
+        let diagnostic_span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(0), TextSize::new(1)),
+        );
+
         let outcome = evaluate_constant_callable_template(
             &TestCheckerContext::new(false),
             &template,
@@ -308,34 +392,50 @@ mod tests {
         assert_eq!(outcome.value().usage().literal_bytes(), 3);
         assert_eq!(outcome.value().usage().expansions(), 4);
 
-        let cases = [
-            (
-                ConstantEvaluationLimits::new(16, 1, 16),
-                bray_diagnostics::DiagnosticKind::CheckingConstantAggregateLimitExceeded,
-            ),
-            (
-                ConstantEvaluationLimits::new(16, 16, 2),
-                bray_diagnostics::DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
-            ),
-            (
-                ConstantEvaluationLimits::new(16, 16, 16).with_expansions(3),
-                bray_diagnostics::DiagnosticKind::CheckingConstantExpansionLimitExceeded,
-            ),
-        ];
+        let aggregate_outcome = evaluate_constant_callable_template(
+            &TestCheckerContext::new(false),
+            &template,
+            &request(ConstantEvaluationLimits::new(16, 1, 16)),
+            &UnusedTemplateResolver,
+            Some(diagnostic_span),
+        )
+        .into_result()
+        .unwrap_or_else(|| panic!("constant aggregate limit failure must recover"));
 
-        for (limits, expected) in cases {
-            let outcome = evaluate_constant_callable_template(
-                &TestCheckerContext::new(false),
-                &template,
-                &request(limits),
-                &UnusedTemplateResolver,
-                None,
-            )
-            .into_result()
-            .unwrap_or_else(|| panic!("constant body limit failure must recover"));
+        assert_goal_state_diagnostic_kind(
+            aggregate_outcome.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingConstantAggregateLimitExceeded,
+        );
 
-            assert_eq!(outcome.diagnostics().by_kind(expected).count(), 1);
-        }
+        let literal_outcome = evaluate_constant_callable_template(
+            &TestCheckerContext::new(false),
+            &template,
+            &request(ConstantEvaluationLimits::new(16, 16, 2)),
+            &UnusedTemplateResolver,
+            Some(diagnostic_span),
+        )
+        .into_result()
+        .unwrap_or_else(|| panic!("constant literal limit failure must recover"));
+
+        assert_goal_state_diagnostic_kind(
+            literal_outcome.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+        );
+
+        let expansion_outcome = evaluate_constant_callable_template(
+            &TestCheckerContext::new(false),
+            &template,
+            &request(ConstantEvaluationLimits::new(16, 16, 16).with_expansions(3)),
+            &UnusedTemplateResolver,
+            Some(diagnostic_span),
+        )
+        .into_result()
+        .unwrap_or_else(|| panic!("constant expansion limit failure must recover"));
+
+        assert_goal_state_diagnostic_kind(
+            expansion_outcome.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingConstantExpansionLimitExceeded,
+        );
     }
 
     #[test]

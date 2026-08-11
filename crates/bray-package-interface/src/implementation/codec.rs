@@ -99,8 +99,10 @@ pub(super) fn decode_identity(
     }
 
     let configuration = read_configuration(&mut reader, &mut budget)?;
+
     let expected_runtime_requirements_identity =
         reader.read_array::<32>().map_err(map_wire_error)?;
+
     let runtime_requirements_count = reader.read_u32().map_err(map_wire_error)?;
 
     limits.check(
@@ -183,6 +185,7 @@ pub(super) fn decode_specialization_key(
     limits: InterfaceValidationLimits,
 ) -> Result<PackageImplementationSpecializationKey, InterfaceValidationError> {
     let mut budget = DecodeBudget::new(limits);
+
     let declaration =
         ImplementationExternalSymbolIdentity::new(&read_external_key(reader, &mut budget)?);
 
@@ -211,6 +214,7 @@ pub(super) fn decode_specialization_key(
     }
 
     let configuration = read_configuration(reader, &mut budget)?;
+
     let template_schema_revision = super::ImplementationTemplateSchemaRevision::new(
         reader.read_u16().map_err(map_wire_error)?,
     );
@@ -360,6 +364,7 @@ fn read_target_facts(
 
     for expected in TargetFactKind::ALL {
         let ordinal = usize::from(reader.read_u16().map_err(map_wire_error)?);
+
         let kind = TargetFactKind::ALL
             .get(ordinal)
             .copied()
@@ -502,6 +507,7 @@ fn write_runtime_requirements(encoder: &mut WireEncoder, requirements: &RuntimeR
     write_string(encoder, requirements.panic_abi().as_str());
     write_ordinals(encoder, RuntimeAbiRole::ALL, requirements.roles());
     write_ordinals(encoder, RuntimeCapability::ALL, requirements.capabilities());
+
     write_ordinals(
         encoder,
         [
@@ -571,6 +577,7 @@ fn read_runtime_requirements(
 
     let roles = read_ordinals(reader, budget, RuntimeAbiRole::ALL)?;
     let capabilities = read_ordinals(reader, budget, RuntimeCapability::ALL)?;
+
     let lanes = read_ordinals(
         reader,
         budget,
@@ -641,6 +648,7 @@ fn read_ordinals<T: Copy + Ord, const N: usize>(
 
     for _ in 0..count {
         let ordinal = usize::from(reader.read_u16().map_err(map_wire_error)?);
+
         let value = universe
             .get(ordinal)
             .copied()
@@ -788,6 +796,7 @@ mod tests {
     #[test]
     fn specialization_keys_round_trip_complete_structured_symbol_keys() {
         let declaration = nested_external_key();
+
         let witness = ExternalSymbolKey::named(
             declaration
                 .owner()
@@ -818,6 +827,7 @@ mod tests {
         encode_specialization_key(&key, &mut encoder);
 
         let mut reader = WireReader::new(encoder.bytes());
+
         let decoded = decode_specialization_key(&mut reader, InterfaceValidationLimits::default())
             .unwrap_or_else(|error| panic!("structured specialization key must decode: {error:?}"));
 

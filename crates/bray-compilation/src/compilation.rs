@@ -44,6 +44,7 @@ pub use configuration::BuildConfiguration;
 pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
 pub use export::PackageInterfaceExportError;
 pub use facts::Compilation;
+pub use linking::LinkedProductEmissionError;
 pub use load::CompilationLoadError;
 pub use product::{NativeProductFactError, NativeProductFacts};
 pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};

@@ -29,7 +29,7 @@ pub enum FormatBytesErrorKind {
 pub struct FormatBytesError {
     kind: FormatBytesErrorKind,
     byte_count: usize,
-    invalid_utf8_at: Option<usize>,
+    invalid_utf8_at: Option<u32>,
 }
 
 impl FormatBytesError {
@@ -44,7 +44,7 @@ impl FormatBytesError {
     }
 
     /// Returns the first invalid UTF-8 byte offset when available.
-    pub const fn invalid_utf8_at(self) -> Option<usize> {
+    pub const fn invalid_utf8_at(self) -> Option<u32> {
         self.invalid_utf8_at
     }
 
@@ -52,7 +52,7 @@ impl FormatBytesError {
         Self {
             kind: FormatBytesErrorKind::InvalidUtf8,
             byte_count,
-            invalid_utf8_at: Some(error.valid_up_to()),
+            invalid_utf8_at: Some(error.valid_up_to().bytes()),
         }
     }
 
@@ -112,7 +112,7 @@ pub struct FormatFileError {
     path: PathBuf,
     io_error_kind: Option<io::ErrorKind>,
     byte_count: Option<usize>,
-    invalid_utf8_at: Option<usize>,
+    invalid_utf8_at: Option<u32>,
 }
 
 impl FormatFileError {
@@ -137,7 +137,7 @@ impl FormatFileError {
     }
 
     /// Returns the first invalid UTF-8 byte offset when available.
-    pub const fn invalid_utf8_at(&self) -> Option<usize> {
+    pub const fn invalid_utf8_at(&self) -> Option<u32> {
         self.invalid_utf8_at
     }
 
@@ -151,7 +151,7 @@ impl FormatFileError {
         }
     }
 
-    fn invalid_utf8(path: &Path, valid_up_to: usize) -> Self {
+    fn invalid_utf8(path: &Path, valid_up_to: u32) -> Self {
         Self {
             kind: FormatFileErrorKind::InvalidUtf8,
             path: path.to_path_buf(),

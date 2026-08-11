@@ -184,6 +184,7 @@ impl InspectionStorageProvenance {
                 node: node.ordinal(),
             }),
             StorageIdentity::Temporary(expression)
+            | StorageIdentity::CustomIndexBorrow(expression)
             | StorageIdentity::IterationCursor(expression)
             | StorageIdentity::IterationElement(expression)
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {
@@ -304,6 +305,10 @@ enum InspectionStorageAccessRoot {
     Borrow {
         capability: u32,
     },
+    BorrowedStorage {
+        capability: u32,
+        identity: u32,
+    },
     OwnedIndirection {
         owner_expression: u32,
         identity: u32,
@@ -318,6 +323,10 @@ impl InspectionStorageAccessRoot {
         match self {
             Self::Storage { identity } => format!("storage:{identity}"),
             Self::Borrow { capability } => format!("borrow:{capability}"),
+            Self::BorrowedStorage {
+                capability,
+                identity,
+            } => format!("borrow:{capability} storage:{identity}"),
             Self::OwnedIndirection {
                 owner_expression,
                 identity,
@@ -335,6 +344,13 @@ impl From<StorageAccessRoot> for InspectionStorageAccessRoot {
             },
             StorageAccessRoot::Borrow(capability) => Self::Borrow {
                 capability: capability.ordinal(),
+            },
+            StorageAccessRoot::BorrowedStorage {
+                capability,
+                storage,
+            } => Self::BorrowedStorage {
+                capability: capability.ordinal(),
+                identity: storage.ordinal(),
             },
             StorageAccessRoot::OwnedIndirection { owner, storage } => Self::OwnedIndirection {
                 owner_expression: owner.ordinal(),

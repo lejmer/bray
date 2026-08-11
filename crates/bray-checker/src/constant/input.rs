@@ -4,6 +4,7 @@ use bray_bound_tree::{
     BoundBlockId, BoundExpressionId, CheckedExpressionTypes, CheckedPatternFacts,
     CheckedSemanticSelections,
 };
+use bray_source::SourceSpan;
 use bray_symbols::{AnyLocalSymbolId, ConstantTermId, ConstantValueId, TypeId};
 
 use super::{ConstantCallResolver, ConstantEvaluationLimits, EvaluatedConstantCall};
@@ -26,8 +27,11 @@ pub enum ConstantReferenceResolution {
     Evaluated(EvaluatedConstantCall),
     /// The reference remains a checked symbolic constant term.
     Term(ConstantTermId),
-    /// The compilation fact graph detected a constant-definition cycle.
-    Cycle,
+    /// Constant evaluation reached a cycle, retaining the referenced definition when source-owned.
+    Cycle {
+        /// The declaration that closed the cycle when it has a source location.
+        definition: Option<SourceSpan>,
+    },
     /// The reference is not permitted by this constant-evaluation context.
     Invalid,
 }

@@ -444,6 +444,17 @@ fn prepare_request(
 
             (params.text_document.uri, Query::Completion(params.position))
         }
+        "textDocument/codeAction" => {
+            let params = parameters::<crate::model::CodeActionParams>(params)?;
+
+            (
+                params.text_document.uri,
+                Query::CodeActions {
+                    range: params.range,
+                    context: params.context,
+                },
+            )
+        }
         "textDocument/signatureHelp" => {
             let params = parameters::<TextDocumentPositionParams>(params)?;
 
@@ -709,6 +720,7 @@ fn initialize_result() -> Value {
                 "resolveProvider": false,
                 "triggerCharacters": [".", ":"],
             },
+            "codeActionProvider": true,
             "signatureHelpProvider": {
                 "triggerCharacters": ["(", ","],
             },

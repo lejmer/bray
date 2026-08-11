@@ -127,28 +127,60 @@ fn write_clap_error(
 #[command(
     name = "brayfmt",
     version = env!("CARGO_PKG_VERSION"),
-    about = "The Bray source formatter",
+    about = bray_messages::command_help::FORMATTER_ABOUT,
     styles = clap_styles()
 )]
 struct Cli {
-    #[arg(long)]
+    #[arg(long, help = bray_messages::command_help::FORMAT_CHECK)]
     check: bool,
-    #[arg(long, value_enum, default_value = "text")]
+    #[arg(
+        long,
+        value_enum,
+        default_value = "text",
+        help = bray_messages::command_help::OUTPUT_FORMAT
+    )]
     format: OutputFormat,
-    #[arg(long, value_name = "FILE")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = bray_messages::command_help::FORMAT_CONFIG
+    )]
     config: Option<PathBuf>,
-    #[arg(long, value_name = "N")]
+    #[arg(
+        long,
+        value_name = "N",
+        help = bray_messages::command_help::CPU_COUNT
+    )]
     cpu_count: Option<NonZeroUsize>,
-    #[arg(value_name = "FILE", required = true)]
+    #[arg(
+        value_name = "FILE",
+        required = true,
+        help = bray_messages::command_help::SOURCE_FILE
+    )]
     files: Vec<PathBuf>,
 }
 
 #[cfg(test)]
 mod tests {
+    use clap::CommandFactory;
     use std::io::Cursor;
     use std::process::ExitCode;
 
-    use super::run_with_io;
+    use super::{Cli, run_with_io};
+
+    #[test]
+    fn formatter_help_describes_every_public_argument_and_value() {
+        let mut command = Cli::command();
+
+        bray_testing::assert_complete_command_help(&mut command);
+
+        let help = command.render_long_help().to_string();
+
+        assert!(help.contains("--check"));
+        assert!(help.contains("without rewriting"));
+        assert!(help.contains("<FILE>..."));
+        assert!(help.contains("use - for standard input"));
+    }
 
     #[test]
     fn formats_standard_input_for_pipeline_use() {

@@ -1,6 +1,12 @@
-use bray_bound_tree::{BoundExpressionId, BoundNodeOrigin, BoundPatternId};
+use bray_bound_tree::{
+    BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundPatternId,
+    BoundStructuredExpressionKind,
+};
 use bray_compiler_known::RepresentationRole;
-use bray_diagnostics::{DiagnosticId, DiagnosticNamedType, DiagnosticType, DiagnosticTypeArgument};
+use bray_diagnostics::{
+    DiagnosticExpressionCategory, DiagnosticId, DiagnosticNamedType, DiagnosticType,
+    DiagnosticTypeArgument,
+};
 use bray_source::SourceSpan;
 use bray_symbols::{
     AvailableCompilerKnownSymbols, ExternalSymbolKey, ExternalSymbolKeyData, GenericArgument,
@@ -8,6 +14,71 @@ use bray_symbols::{
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+
+pub(crate) const fn expression_category(
+    expression: &BoundExpression,
+) -> DiagnosticExpressionCategory {
+    match expression {
+        BoundExpression::Block(_) => DiagnosticExpressionCategory::Block,
+        BoundExpression::Literal(_) => DiagnosticExpressionCategory::Literal,
+        BoundExpression::Name(_) | BoundExpression::UnresolvedReference(_) => {
+            DiagnosticExpressionCategory::NameReference
+        }
+        BoundExpression::PatternReference(_) => DiagnosticExpressionCategory::PatternReference,
+        BoundExpression::Unary(_) => DiagnosticExpressionCategory::UnaryOperation,
+        BoundExpression::Binary(_) => DiagnosticExpressionCategory::BinaryOperation,
+        BoundExpression::Assignment(_) => DiagnosticExpressionCategory::Assignment,
+        BoundExpression::Call(_) | BoundExpression::ErrorCall(_) => {
+            DiagnosticExpressionCategory::Call
+        }
+        BoundExpression::Conversion(_) | BoundExpression::ErrorConversion(_) => {
+            DiagnosticExpressionCategory::Conversion
+        }
+        BoundExpression::AnonymousCallable(_) => DiagnosticExpressionCategory::AnonymousCallable,
+        BoundExpression::Await(_) => DiagnosticExpressionCategory::Await,
+        BoundExpression::Structured(expression) => match expression.kind() {
+            BoundStructuredExpressionKind::Tuple
+            | BoundStructuredExpressionKind::Array
+            | BoundStructuredExpressionKind::RepeatedArray
+            | BoundStructuredExpressionKind::Unit
+            | BoundStructuredExpressionKind::Absence => DiagnosticExpressionCategory::Aggregate,
+            BoundStructuredExpressionKind::ElementIndex
+            | BoundStructuredExpressionKind::SliceIndex => DiagnosticExpressionCategory::Indexing,
+            BoundStructuredExpressionKind::NullablePropagation
+            | BoundStructuredExpressionKind::ResultPropagation => {
+                DiagnosticExpressionCategory::Propagation
+            }
+            BoundStructuredExpressionKind::ArrayGenerator
+            | BoundStructuredExpressionKind::GeneralGenerator => {
+                DiagnosticExpressionCategory::Generator
+            }
+            BoundStructuredExpressionKind::TypeFormConstruction => {
+                DiagnosticExpressionCategory::Construction
+            }
+            BoundStructuredExpressionKind::Conditional
+            | BoundStructuredExpressionKind::While
+            | BoundStructuredExpressionKind::Loop
+            | BoundStructuredExpressionKind::With
+            | BoundStructuredExpressionKind::Borrow
+            | BoundStructuredExpressionKind::TrustBoundary
+            | BoundStructuredExpressionKind::Assertion
+            | BoundStructuredExpressionKind::Catch
+            | BoundStructuredExpressionKind::BooleanAllFold
+            | BoundStructuredExpressionKind::BooleanAnyFold
+            | BoundStructuredExpressionKind::Panic => DiagnosticExpressionCategory::ControlFlow,
+        },
+        BoundExpression::StructConstruction(_)
+        | BoundExpression::LeadingDotVariant(_)
+        | BoundExpression::UnqualifiedVariant(_) => DiagnosticExpressionCategory::Construction,
+        BoundExpression::MemberAccess(_) => DiagnosticExpressionCategory::MemberAccess,
+        BoundExpression::TraitQualifiedMember(_) => DiagnosticExpressionCategory::TraitMemberAccess,
+        BoundExpression::ControlTransfer(_)
+        | BoundExpression::For(_)
+        | BoundExpression::Match(_) => DiagnosticExpressionCategory::ControlFlow,
+        BoundExpression::Generator(_) => DiagnosticExpressionCategory::Generator,
+        BoundExpression::Error(_) => DiagnosticExpressionCategory::Recovered,
+    }
+}
 
 /// Describes one semantic type through the stable diagnostic vocabulary.
 pub fn diagnostic_type<C>(

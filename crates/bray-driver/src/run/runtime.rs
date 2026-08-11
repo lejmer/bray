@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use bray_compilation::SelectedTarget;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
+    DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote,
+    DiagnosticNoteKind, DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
     DiagnosticRuntimeArtifactPurpose, SeverityKind,
 };
 use bray_runtime_interface::{
@@ -49,31 +49,23 @@ pub(super) fn runtime_selection_diagnostics(
     error: &RuntimeArtifactSelectionError,
 ) -> Option<DiagnosticBag> {
     let diagnostic = match error {
-        RuntimeArtifactSelectionError::UnreadableArchive { path, kind, .. } => Diagnostic::new(
-            DiagnosticId::new(0),
+        RuntimeArtifactSelectionError::UnreadableArchive { path, kind, .. } => runtime_diagnostic(
             DiagnosticKind::RuntimeArtifactArchiveReadFailed,
-            SeverityKind::Error,
         )
         .with_arg(DiagnosticArg::artifact_path(path))
         .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
             *kind,
         ))),
-        RuntimeArtifactSelectionError::InvalidArchive { path, .. } => Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::RuntimeArtifactArchiveInvalid,
-            SeverityKind::Error,
-        )
+        RuntimeArtifactSelectionError::InvalidArchive { path, .. } => {
+            runtime_diagnostic(DiagnosticKind::RuntimeArtifactArchiveInvalid)
+        }
         .with_arg(DiagnosticArg::artifact_path(path)),
         RuntimeArtifactSelectionError::ArchiveDigestMismatch {
             path,
             expected,
             actual,
             ..
-        } => Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::RuntimeArtifactArchiveDigestMismatch,
-            SeverityKind::Error,
-        )
+        } => runtime_diagnostic(DiagnosticKind::RuntimeArtifactArchiveDigestMismatch)
         .with_arg(DiagnosticArg::artifact_path(path))
         .with_arg(DiagnosticArg::expected_artifact_digest(runtime_digest(
             *expected,
@@ -89,29 +81,23 @@ pub(super) fn runtime_selection_diagnostics(
 
 fn runtime_load_diagnostics(error: RuntimeArtifactLoadError) -> DiagnosticBag {
     let diagnostic = match error {
-        RuntimeArtifactLoadError::MetadataRead { path, kind } => Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::RuntimeArtifactMetadataReadFailed,
-            SeverityKind::Error,
-        )
+        RuntimeArtifactLoadError::MetadataRead { path, kind } => {
+            runtime_diagnostic(DiagnosticKind::RuntimeArtifactMetadataReadFailed)
+        }
         .with_arg(DiagnosticArg::artifact_path(path))
         .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
             kind,
         ))),
-        RuntimeArtifactLoadError::InvalidMetadata { path, source } => Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::RuntimeArtifactMetadataInvalid,
-            SeverityKind::Error,
-        )
+        RuntimeArtifactLoadError::InvalidMetadata { path, source } => {
+            runtime_diagnostic(DiagnosticKind::RuntimeArtifactMetadataInvalid)
+        }
         .with_arg(DiagnosticArg::artifact_path(path))
         .with_arg(DiagnosticArg::runtime_artifact_problem(
             metadata_problem(&source),
         )),
-        RuntimeArtifactLoadError::InvalidArtifact { path, source } => Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::RuntimeArtifactMetadataInvalid,
-            SeverityKind::Error,
-        )
+        RuntimeArtifactLoadError::InvalidArtifact { path, source } => {
+            runtime_diagnostic(DiagnosticKind::RuntimeArtifactMetadataInvalid)
+        }
         .with_arg(DiagnosticArg::artifact_path(path))
         .with_arg(DiagnosticArg::runtime_artifact_problem(build_problem(
             source,
@@ -120,11 +106,7 @@ fn runtime_load_diagnostics(error: RuntimeArtifactLoadError) -> DiagnosticBag {
             path,
             expected,
             actual,
-        } => Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::RuntimeArtifactTargetMismatch,
-            SeverityKind::Error,
-        )
+        } => runtime_diagnostic(DiagnosticKind::RuntimeArtifactTargetMismatch)
         .with_arg(DiagnosticArg::artifact_path(path))
         .with_arg(DiagnosticArg::expected_target_identity(expected.as_str()))
         .with_arg(DiagnosticArg::actual_target_identity(actual.as_str())),
@@ -132,17 +114,19 @@ fn runtime_load_diagnostics(error: RuntimeArtifactLoadError) -> DiagnosticBag {
             path,
             expected,
             actual,
-        } => Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::RuntimeArtifactAbiMismatch,
-            SeverityKind::Error,
-        )
+        } => runtime_diagnostic(DiagnosticKind::RuntimeArtifactAbiMismatch)
         .with_arg(DiagnosticArg::artifact_path(path))
         .with_arg(DiagnosticArg::expected_runtime_abi(runtime_abi(expected)))
         .with_arg(DiagnosticArg::actual_runtime_abi(runtime_abi(actual))),
     };
 
     DiagnosticBag::single(diagnostic)
+}
+
+fn runtime_diagnostic(kind: DiagnosticKind) -> Diagnostic {
+    Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error).with_note(
+        DiagnosticNote::new(DiagnosticNoteKind::RuntimeArtifactMustBeUsable),
+    )
 }
 
 fn metadata_problem(
@@ -351,12 +335,14 @@ mod tests {
     };
     use bray_runtime_interface::{
         RuntimeAbiRole, RuntimeArtifactBuildError, RuntimeArtifactId,
-        RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
-        RuntimeArtifactPurpose, RuntimeCapability, RuntimeContractBuildError,
+        RuntimeArtifactDigest, RuntimeArtifactMetadataBuildError,
+        RuntimeArtifactMetadataDecodeError, RuntimeArtifactPurpose, RuntimeArtifactSelectionError,
+        RuntimeAbiVersion, RuntimeCapability, RuntimeContractBuildError,
     };
+    use bray_target::TargetIdentity;
     use bray_tooling::RuntimeArtifactLoadError;
 
-    use super::{resolve_runtime, runtime_load_diagnostics};
+    use super::{resolve_runtime, runtime_load_diagnostics, runtime_selection_diagnostics};
     use crate::command::DriverRuntimeSelection;
 
     #[test]
@@ -398,6 +384,11 @@ mod tests {
         assert!(diagnostic.args().contains(&DiagnosticArg::io_error_kind(
             DiagnosticIoErrorKind::NotFound
         )));
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::RuntimeArtifactMetadataReadFailed,
+        );
     }
 
     #[test]
@@ -467,6 +458,11 @@ mod tests {
                 },
             );
 
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::RuntimeArtifactMetadataInvalid,
+            );
+
             assert_runtime_problem(&diagnostics, expected);
         }
 
@@ -510,6 +506,94 @@ mod tests {
             diagnostic
                 .args()
                 .contains(&DiagnosticArg::runtime_artifact_problem(expected))
+        );
+
+    }
+
+    #[test]
+    fn incompatible_runtime_metadata_preserves_target_and_abi_context() {
+        let path = std::path::PathBuf::from("runtime.brayrt");
+
+        let expected_target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            .unwrap_or_else(|| panic!("test target identity must be valid"));
+
+        let actual_target = TargetIdentity::try_new("aarch64-unknown-linux-gnu")
+            .unwrap_or_else(|| panic!("test target identity must be valid"));
+
+        let target_diagnostics = runtime_load_diagnostics(
+            RuntimeArtifactLoadError::IncompatibleTarget {
+                path: path.clone(),
+                expected: expected_target,
+                actual: actual_target,
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &target_diagnostics,
+            DiagnosticKind::RuntimeArtifactTargetMismatch,
+        );
+
+        let abi_diagnostics = runtime_load_diagnostics(
+            RuntimeArtifactLoadError::IncompatibleRuntimeAbi {
+                path,
+                expected: RuntimeAbiVersion::new(1, 0),
+                actual: RuntimeAbiVersion::new(2, 0),
+            },
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &abi_diagnostics,
+            DiagnosticKind::RuntimeArtifactAbiMismatch,
+        );
+    }
+
+    #[test]
+    fn runtime_archive_selection_failures_preserve_physical_artifact_context() {
+        let component = RuntimeArtifactId::try_new("runtime.scheduler")
+            .unwrap_or_else(|| panic!("test component identity must be valid"));
+
+        let path = std::path::PathBuf::from("runtime-scheduler.lib");
+
+        let read_diagnostics = runtime_selection_diagnostics(
+            &RuntimeArtifactSelectionError::UnreadableArchive {
+                component: component.clone(),
+                path: path.clone(),
+                kind: std::io::ErrorKind::PermissionDenied,
+            },
+        )
+        .unwrap_or_else(|| panic!("archive read failure must publish diagnostics"));
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &read_diagnostics,
+            DiagnosticKind::RuntimeArtifactArchiveReadFailed,
+        );
+
+        let invalid_diagnostics = runtime_selection_diagnostics(
+            &RuntimeArtifactSelectionError::InvalidArchive {
+                component: component.clone(),
+                path: path.clone(),
+            },
+        )
+        .unwrap_or_else(|| panic!("invalid archive must publish diagnostics"));
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &invalid_diagnostics,
+            DiagnosticKind::RuntimeArtifactArchiveInvalid,
+        );
+
+        let digest_diagnostics = runtime_selection_diagnostics(
+            &RuntimeArtifactSelectionError::ArchiveDigestMismatch {
+                component,
+                path,
+                expected: RuntimeArtifactDigest::new([1; 32]),
+                actual: RuntimeArtifactDigest::new([2; 32]),
+            },
+        )
+        .unwrap_or_else(|| panic!("archive digest mismatch must publish diagnostics"));
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &digest_diagnostics,
+            DiagnosticKind::RuntimeArtifactArchiveDigestMismatch,
         );
     }
 }

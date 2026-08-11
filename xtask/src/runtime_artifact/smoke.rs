@@ -313,7 +313,8 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
 
 fn defined_symbols(archive: &Path) -> Result<BTreeSet<String>, CommandError> {
     let tool =
-        bray_tooling::llvm_tool_path("llvm-nm").ok_or(CommandError::NativeSymbolToolUnavailable)?;
+        bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::SymbolInspector)
+            .map_err(CommandError::NativeSymbolToolUnavailable)?;
 
     let output = Command::new(tool)
         .args(["--defined-only", "--extern-only"])

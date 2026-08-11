@@ -123,6 +123,14 @@ pub struct EmissionCodegenError {
 
 impl EmissionCodegenError {
     pub(super) fn new(kind: EmissionCodegenErrorKind, diagnostics: DiagnosticBag) -> Self {
+        let diagnostics = match &kind {
+            EmissionCodegenErrorKind::Request { error, .. } => match error.as_ref() {
+                CodegenFactError::Diagnostics(produced) => diagnostics.merged(produced),
+                _ => diagnostics,
+            },
+            _ => diagnostics,
+        };
+
         Self { kind, diagnostics }
     }
 

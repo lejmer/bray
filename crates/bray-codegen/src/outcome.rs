@@ -1,4 +1,7 @@
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticArtifactKind, DiagnosticBag, DiagnosticId, DiagnosticKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+};
 
 use crate::{
     BackendArtifactContribution, BackendArtifactKind, BackendArtifactSet,
@@ -49,8 +52,13 @@ impl CodegenOutcome {
         contributions: impl IntoIterator<Item = BackendArtifactContribution>,
         runtime_metadata: CodegenRuntimeMetadata,
         diagnostics: DiagnosticBag,
-    ) -> Result<Self, BackendArtifactSetBuildError> {
-        let artifacts = BackendArtifactSet::try_new(request, contributions, runtime_metadata)?;
+    ) -> Result<Self, CodegenOutcomeBuildError> {
+        if diagnostics.has_errors() {
+            return Err(CodegenOutcomeBuildError::ErrorDiagnostics(diagnostics));
+        }
+
+        let artifacts = BackendArtifactSet::try_new(request, contributions, runtime_metadata)
+            .map_err(CodegenOutcomeBuildError::InvalidArtifacts)?;
 
         Ok(Self {
             status: CodegenStatus::Complete(Box::new(artifacts)),
@@ -58,19 +66,41 @@ impl CodegenOutcome {
         })
     }
 
-    /// Creates a failed outcome without partial artifacts.
-    pub const fn failed(failure: CodegenFailure, diagnostics: DiagnosticBag) -> Self {
+    /// Creates a failed outcome with exact backend-request context and no partial artifacts.
+    pub fn failed(
+        request: CodegenRequest<'_>,
+        failure: CodegenFailure,
+        diagnostics: DiagnosticBag,
+    ) -> Self {
+        let terminal = codegen_failure_diagnostic(
+            request.backend().name(),
+            request.target().identity().as_str(),
+            &failure,
+        );
+
+        let is_explained = diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity() == SeverityKind::Error
+                && diagnostic.kind() == terminal.kind()
+                && diagnostic.args() == terminal.args()
+        });
+
+        let diagnostics = if is_explained {
+            diagnostics
+        } else {
+            diagnostics.merged(&DiagnosticBag::single(terminal))
+        };
+
         Self {
             status: CodegenStatus::Failed(failure),
             diagnostics,
         }
     }
 
-    /// Creates a cancelled outcome without diagnostics or partial artifacts.
-    pub const fn cancelled() -> Self {
+    /// Creates a cancelled outcome that retains diagnostics completed before cancellation.
+    pub const fn cancelled(diagnostics: DiagnosticBag) -> Self {
         Self {
             status: CodegenStatus::Cancelled,
-            diagnostics: DiagnosticBag::new(),
+            diagnostics,
         }
     }
 
@@ -93,9 +123,92 @@ impl CodegenOutcome {
     }
 }
 
+/// A contract violation that prevents construction of a successful code generation outcome.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CodegenOutcomeBuildError {
+    /// One or more produced backend artifacts violate the authoritative request.
+    InvalidArtifacts(BackendArtifactSetBuildError),
+    /// Error diagnostics contradict a successful code generation status.
+    ErrorDiagnostics(DiagnosticBag),
+}
+
+/// Returns a structured terminal diagnostic for one exact backend request failure.
+pub fn codegen_failure_diagnostics(
+    request: CodegenRequest<'_>,
+    failure: &CodegenFailure,
+) -> DiagnosticBag {
+    DiagnosticBag::single(codegen_failure_diagnostic(
+        request.backend().name(),
+        request.target().identity().as_str(),
+        failure,
+    ))
+}
+
+/// Returns one structured terminal diagnostic for a backend failure with exact backend, target,
+/// and affected-artifact context.
+pub fn codegen_failure_diagnostic(
+    backend: &str,
+    target: &str,
+    failure: &CodegenFailure,
+) -> Diagnostic {
+    let (kind, artifact) = match failure {
+        CodegenFailure::UnsupportedTarget => (DiagnosticKind::CodegenUnsupportedTarget, None),
+        CodegenFailure::UnsupportedArtifact(artifact) => {
+            (DiagnosticKind::CodegenUnsupportedArtifact, Some(*artifact))
+        }
+        CodegenFailure::InvalidConfiguration => (DiagnosticKind::CodegenInvalidConfiguration, None),
+        CodegenFailure::ResourceExhausted => (DiagnosticKind::CodegenResourceExhausted, None),
+        CodegenFailure::BackendLibrary => (DiagnosticKind::CodegenBackendLibraryFailed, None),
+        CodegenFailure::GeneratedModuleInvariant => {
+            (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
+        }
+        CodegenFailure::ArtifactConstruction(artifact) => (
+            DiagnosticKind::CodegenArtifactConstructionFailed,
+            Some(*artifact),
+        ),
+    };
+
+    let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+        .with_arg(DiagnosticArg::codegen_backend_identity(backend))
+        .with_arg(DiagnosticArg::target_triple(target));
+
+    if let Some(artifact) = artifact {
+        diagnostic = diagnostic.with_arg(DiagnosticArg::artifact_kind(diagnostic_artifact_kind(
+            artifact,
+        )));
+    }
+
+    if matches!(
+        failure,
+        CodegenFailure::InvalidConfiguration
+            | CodegenFailure::ResourceExhausted
+            | CodegenFailure::BackendLibrary
+            | CodegenFailure::GeneratedModuleInvariant
+            | CodegenFailure::ArtifactConstruction(_)
+    ) {
+        diagnostic = diagnostic.with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::ReportCompilerDefect,
+        ));
+    }
+
+    diagnostic
+}
+
+const fn diagnostic_artifact_kind(kind: BackendArtifactKind) -> DiagnosticArtifactKind {
+    match kind {
+        BackendArtifactKind::RelocatableObject => DiagnosticArtifactKind::RelocatableObject,
+        BackendArtifactKind::Assembly => DiagnosticArtifactKind::Assembly,
+        BackendArtifactKind::BackendIr => DiagnosticArtifactKind::BackendIr,
+        BackendArtifactKind::BackendBitcode => DiagnosticArtifactKind::BackendBitcode,
+        BackendArtifactKind::ExecutableModule => DiagnosticArtifactKind::ExecutableModule,
+        BackendArtifactKind::DebugCompanion => DiagnosticArtifactKind::DebugCompanion,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticBag;
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{CodegenFailure, CodegenOutcome, CodegenStatus};
     use crate::CodegenRuntimeMetadata;
@@ -126,17 +239,125 @@ mod tests {
 
     #[test]
     fn failed_and_cancelled_outcomes_cannot_expose_partial_artifacts() {
+        let fixture = codegen_request();
+
         let failed = CodegenOutcome::failed(
+            fixture.request(),
             CodegenFailure::GeneratedModuleInvariant,
             DiagnosticBag::new(),
         );
 
-        let cancelled = CodegenOutcome::cancelled();
+        let cancelled = CodegenOutcome::cancelled(DiagnosticBag::new());
 
         assert!(matches!(failed.status(), CodegenStatus::Failed(_)));
         assert_eq!(failed.artifacts(), None);
+        assert!(failed.diagnostics().has_errors());
 
         assert!(matches!(cancelled.status(), CodegenStatus::Cancelled));
         assert_eq!(cancelled.artifacts(), None);
+    }
+
+    #[test]
+    fn every_terminal_codegen_failure_publishes_its_exact_diagnostic() {
+        let fixture = codegen_request();
+
+        let unsupported_target = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::UnsupportedTarget,
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            unsupported_target.diagnostics(),
+            DiagnosticKind::CodegenUnsupportedTarget,
+        );
+
+        let unsupported_artifact = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::UnsupportedArtifact(crate::BackendArtifactKind::Assembly),
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            unsupported_artifact.diagnostics(),
+            DiagnosticKind::CodegenUnsupportedArtifact,
+        );
+
+        let invalid_configuration = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::InvalidConfiguration,
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            invalid_configuration.diagnostics(),
+            DiagnosticKind::CodegenInvalidConfiguration,
+        );
+
+        let resource_exhausted = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::ResourceExhausted,
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            resource_exhausted.diagnostics(),
+            DiagnosticKind::CodegenResourceExhausted,
+        );
+
+        let backend_library = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::BackendLibrary,
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            backend_library.diagnostics(),
+            DiagnosticKind::CodegenBackendLibraryFailed,
+        );
+
+        let generated_module = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::GeneratedModuleInvariant,
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            generated_module.diagnostics(),
+            DiagnosticKind::CodegenGeneratedModuleInvalid,
+        );
+
+        let artifact_construction = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::ArtifactConstruction(crate::BackendArtifactKind::BackendBitcode),
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            artifact_construction.diagnostics(),
+            DiagnosticKind::CodegenArtifactConstructionFailed,
+        );
+    }
+
+    #[test]
+    fn successful_outcomes_reject_error_diagnostics() {
+        let fixture = codegen_request();
+        let artifact = contribution(&fixture, fixture.required_artifact().clone());
+
+        let diagnostics = DiagnosticBag::single(bray_diagnostics::Diagnostic::new(
+            bray_diagnostics::DiagnosticId::new(0),
+            bray_diagnostics::DiagnosticKind::CodegenGeneratedModuleInvalid,
+            bray_diagnostics::SeverityKind::Error,
+        ));
+
+        assert!(matches!(
+            CodegenOutcome::try_complete(
+                fixture.request(),
+                [artifact],
+                CodegenRuntimeMetadata::default(),
+                diagnostics.clone(),
+            ),
+            Err(super::CodegenOutcomeBuildError::ErrorDiagnostics(actual)) if actual == diagnostics
+        ));
     }
 }

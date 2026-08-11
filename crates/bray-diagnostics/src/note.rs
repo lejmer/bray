@@ -41,6 +41,8 @@ pub enum DiagnosticNoteKind {
     SourceFileMustBeReadable,
     /// Source UTF-8 requirement.
     SourceMustBeUtf8,
+    /// Requirement enforced by a source-format check.
+    SourceMustMatchFormatterOutput,
     /// Source ID compactness limit.
     SourceIdsAreCompact,
     /// Source text offset compactness limit.
@@ -79,8 +81,60 @@ pub enum DiagnosticNoteKind {
     UnicodeEscapeMustBeScalar,
     /// Block comment terminator rule.
     BlockCommentNeedsTerminator,
+    /// Accepted callable ABI directive forms.
+    CallableAbiDirectiveMustNameSupportedAbi,
+    /// Accepted directive argument forms.
+    DirectiveArgumentMustHaveCompleteForm,
+    /// Type-inference recovery guidance.
+    TypeInferenceNeedsConstraint,
+    /// Compile-time expression recovery guidance.
+    ConstantExpressionMustBeEvaluable,
+    /// Constant-evaluation resource-limit recovery guidance.
+    ConstantEvaluationMustFitLimits,
+    /// Accepted type-layout directive forms and constraints.
+    TypeLayoutDirectiveForms,
+    /// Accepted union-tag directive forms and consistency rules.
+    UnionTagDirectiveForms,
+    /// Requirements imposed by an explicit copy contract.
+    CopyContractRequirements,
+    /// Recovery guidance for a type that cannot be stored inline.
+    StoredTypeRequiresIndirection,
+    /// Recovery guidance for propagation without a compatible result boundary.
+    PropagationBoundaryMustMatch,
+    /// Recovery guidance for fixed-array generator cardinality.
+    ArrayGeneratorMustYieldOncePerElement,
+    /// Source contract required for callback-state access.
+    CallbackStateRequirements,
+    /// Recovery guidance for a refutable pattern used in an irrefutable context.
+    RefutablePatternRequiresConditionalContext,
+    /// Recovery guidance for an ambiguous semantic selection.
+    SelectionMustBeDisambiguated,
     /// Package-selection context for an external interface diagnostic.
     InterfaceDependencyContext,
+    /// Exact product, target, and driver context for a native link diagnostic.
+    LinkPlanContext,
+    /// Recovery guidance after an external native-link tool reports an unsuccessful exit.
+    ExternalToolExitRequiresCorrection,
+    /// Recovery guidance for an unusable selected runtime artifact.
+    RuntimeArtifactMustBeUsable,
+    /// One exact unavailable state required across an await.
+    AwaitDependencyUnavailable,
+    /// Recovery guidance for operations that require an asynchronous callable body.
+    AsynchronousCallableRequired,
+    /// Recovery guidance for executable product entrypoint selection.
+    ExecutableEntrypointRequired,
+    /// Product-kind requirement for the entrypoint directive.
+    EntrypointDirectiveRequiresExecutableProduct,
+    /// Recovery guidance for a callable selected as a product entry.
+    ProductEntryRequirements,
+    /// Accepted forms of the test directive.
+    TestDirectiveRequirements,
+    /// Uniqueness requirement for source-level test identities.
+    UniqueTestIdentityRequired,
+    /// Visibility requirement for dependencies exposed by public declarations.
+    PublicDependencyRequired,
+    /// Guidance for reporting a compiler-owned invariant failure.
+    ReportCompilerDefect,
 }
 
 impl DiagnosticNoteKind {
@@ -89,6 +143,7 @@ impl DiagnosticNoteKind {
         match self {
             Self::SourceFileMustBeReadable => "source_file_must_be_readable",
             Self::SourceMustBeUtf8 => "source_must_be_utf8",
+            Self::SourceMustMatchFormatterOutput => "source_must_match_formatter_output",
             Self::SourceIdsAreCompact => "source_ids_are_compact",
             Self::SourceTextOffsetsAreCompact => "source_text_offsets_are_compact",
             Self::SourceInputRequired => "source_input_required",
@@ -110,7 +165,43 @@ impl DiagnosticNoteKind {
             Self::EscapeMustBeKnown => "escape_must_be_known",
             Self::UnicodeEscapeMustBeScalar => "unicode_escape_must_be_scalar",
             Self::BlockCommentNeedsTerminator => "block_comment_needs_terminator",
+            Self::CallableAbiDirectiveMustNameSupportedAbi => {
+                "callable_abi_directive_must_name_supported_abi"
+            }
+            Self::DirectiveArgumentMustHaveCompleteForm => {
+                "directive_argument_must_have_complete_form"
+            }
+            Self::TypeInferenceNeedsConstraint => "type_inference_needs_constraint",
+            Self::ConstantExpressionMustBeEvaluable => "constant_expression_must_be_evaluable",
+            Self::ConstantEvaluationMustFitLimits => "constant_evaluation_must_fit_limits",
+            Self::TypeLayoutDirectiveForms => "type_layout_directive_forms",
+            Self::UnionTagDirectiveForms => "union_tag_directive_forms",
+            Self::CopyContractRequirements => "copy_contract_requirements",
+            Self::StoredTypeRequiresIndirection => "stored_type_requires_indirection",
+            Self::PropagationBoundaryMustMatch => "propagation_boundary_must_match",
+            Self::ArrayGeneratorMustYieldOncePerElement => {
+                "array_generator_must_yield_once_per_element"
+            }
+            Self::CallbackStateRequirements => "callback_state_requirements",
+            Self::RefutablePatternRequiresConditionalContext => {
+                "refutable_pattern_requires_conditional_context"
+            }
+            Self::SelectionMustBeDisambiguated => "selection_must_be_disambiguated",
             Self::InterfaceDependencyContext => "interface_dependency_context",
+            Self::LinkPlanContext => "link_plan_context",
+            Self::ExternalToolExitRequiresCorrection => "external_tool_exit_requires_correction",
+            Self::RuntimeArtifactMustBeUsable => "runtime_artifact_must_be_usable",
+            Self::AwaitDependencyUnavailable => "await_dependency_unavailable",
+            Self::AsynchronousCallableRequired => "asynchronous_callable_required",
+            Self::ExecutableEntrypointRequired => "executable_entrypoint_required",
+            Self::EntrypointDirectiveRequiresExecutableProduct => {
+                "entrypoint_directive_requires_executable_product"
+            }
+            Self::ProductEntryRequirements => "product_entry_requirements",
+            Self::TestDirectiveRequirements => "test_directive_requirements",
+            Self::UniqueTestIdentityRequired => "unique_test_identity_required",
+            Self::PublicDependencyRequired => "public_dependency_required",
+            Self::ReportCompilerDefect => "report_compiler_defect",
         }
     }
 }

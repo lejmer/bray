@@ -1,7 +1,10 @@
 use std::io::{self, Write};
 
 use bray_diagnostics::DiagnosticBag;
-use bray_messages::{DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticNote};
+use bray_messages::{
+    DiagnosticRenderer, RenderedDiagnostic, RenderedDiagnosticLabel, RenderedDiagnosticNote,
+    RenderedDiagnosticRelatedLocation, RenderedDiagnosticSuggestion,
+};
 use bray_source::SourceStore;
 
 use super::super::source_map::DiagnosticSourceMap;
@@ -46,10 +49,93 @@ fn write_text_diagnostic(
         Some(resolved) => {
             writeln!(writer)?;
 
-            write_source_frame(renderer, diagnostic, resolved, writer)
+            write_source_frame(renderer, diagnostic, resolved, writer)?;
         }
-        None => write_notes(renderer, diagnostic.notes(), writer),
+        None => write_notes(renderer, diagnostic.notes(), writer)?,
     }
+
+    write_labels(
+        renderer,
+        source_map,
+        diagnostic.primary_span(),
+        diagnostic.labels(),
+        writer,
+    )?;
+
+    write_related_locations(renderer, source_map, diagnostic.related_locations(), writer)?;
+
+    write_suggestions(renderer, diagnostic.suggestions(), writer)
+}
+
+fn write_labels(
+    renderer: DiagnosticRenderer,
+    source_map: &DiagnosticSourceMap<'_>,
+    primary_span: Option<bray_source::SourceSpan>,
+    labels: &[RenderedDiagnosticLabel],
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    for label in labels.iter().filter(|label| {
+        label.style() == bray_diagnostics::DiagnosticLabelStyle::Secondary
+            || Some(label.span()) != primary_span
+    }) {
+        let location = source_map
+            .resolve(label.span())
+            .map(|location| renderer.render_source_location(location))
+            .unwrap_or_else(|| renderer.render_source_span(label.span()));
+
+        writeln!(
+            writer,
+            "{}: {} at {}",
+            color_note_heading(renderer.render_label_heading()),
+            label.message(),
+            location,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn write_related_locations(
+    renderer: DiagnosticRenderer,
+    source_map: &DiagnosticSourceMap<'_>,
+    locations: &[RenderedDiagnosticRelatedLocation],
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    for related in locations {
+        let location = source_map
+            .resolve(related.span())
+            .map(|location| renderer.render_source_location(location))
+            .unwrap_or_else(|| renderer.render_source_span(related.span()));
+
+        writeln!(
+            writer,
+            "{}: {} at {}",
+            color_note_heading(renderer.render_related_location_heading()),
+            related.message(),
+            location,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn write_suggestions(
+    renderer: DiagnosticRenderer,
+    suggestions: &[RenderedDiagnosticSuggestion],
+    writer: &mut impl Write,
+) -> io::Result<()> {
+    for suggestion in suggestions {
+        writeln!(
+            writer,
+            "{}: {}",
+            color_note_heading(
+                renderer.render_note_heading(bray_messages::RenderedDiagnosticNoteKind::Help)
+            ),
+            suggestion.message(),
+        )?;
+    }
+
+    Ok(())
 }
 
 fn write_diagnostic_header(
@@ -90,7 +176,9 @@ fn write_notes(
 mod tests {
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
-        DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+        DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation,
+        DiagnosticRelatedLocationKind, DiagnosticSourceInput, DiagnosticSourceInputOrigin,
+        DiagnosticSuggestion, DiagnosticSuggestionKind, SeverityKind,
     };
     use bray_source::{SourceId, SourceSpan, SourceStore, TextRange, TextSize};
 
@@ -104,6 +192,11 @@ mod tests {
             DiagnosticKind::SourceInvalidUtf8,
             SeverityKind::Error,
         )
+        .with_arg(DiagnosticArg::source_input(DiagnosticSourceInput::new(
+            0,
+            bray_source::SourceInputKind::File,
+            DiagnosticSourceInputOrigin::File("main.bray".into()),
+        )))
         .with_arg(DiagnosticArg::text_offset(TextSize::new(4)))
         .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8));
 
@@ -111,9 +204,12 @@ mod tests {
         let output = render(&bag, None);
 
         assert!(output.contains("\x1b[31merror E1002\x1b[0m"));
-        assert!(output.contains("\x1b[97m: source input contains invalid UTF-8\x1b[0m"));
+
+        assert!(output.contains(
+            "\x1b[97m: file source input 0 at main.bray contains invalid UTF-8 starting at byte offset 4\x1b[0m"
+        ));
+
         assert!(output.contains("\x1b[97mhelp\x1b[0m: source inputs must be valid UTF-8"));
-        assert!(!output.contains("byte offset 4"));
         assert!(!output.contains("source_invalid_utf8"));
     }
 
@@ -172,6 +268,52 @@ mod tests {
         assert!(output.contains("error E4001"));
         assert!(output.contains("duplicate declaration of 'Point'"));
         assert!(output.contains("main.bray:2:1..2:15"));
+    }
+
+    #[test]
+    fn text_output_renders_related_locations_labels_and_suggestions() {
+        let sources = file_source_store("struct Point {}\nstruct Point {}");
+
+        let first = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::ZERO, TextSize::new(15)),
+        );
+
+        let duplicate = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(16), TextSize::new(31)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(16),
+            DiagnosticKind::DeclarationDuplicateName,
+            SeverityKind::Error,
+        )
+        .with_primary_span(duplicate)
+        .with_arg(DiagnosticArg::declaration_name("Point"))
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::DuplicateDeclaration,
+            duplicate,
+        ))
+        .with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::FirstDeclaration,
+            first,
+        ))
+        .with_suggestion(DiagnosticSuggestion::manual(
+            DiagnosticSuggestionKind::FormatSource,
+        ));
+
+        let output = render(&DiagnosticBag::single(diagnostic), Some(&sources));
+
+        assert!(
+            output
+                .lines()
+                .any(|line| line.contains('^') && line.contains("duplicate declaration")),
+            "expected the duplicate-declaration label on a source marker line:\n{output}"
+        );
+
+        assert!(output.contains("related\u{1b}[0m: first declared here at main.bray:1:1..1:15"));
+        assert!(output.contains("help\u{1b}[0m: format this source with `bray fmt`"));
     }
 
     #[test]

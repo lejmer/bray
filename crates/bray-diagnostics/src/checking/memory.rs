@@ -1,0 +1,109 @@
+/// Compiler-provided memory operation named by a structured diagnostic.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticMemoryOperation {
+    AddressOf,
+    MutableAddressOf,
+    NullPointer,
+    PointerNullCheck,
+    PointerElementOffset,
+    PointerByteOffset,
+    PointerReinterpretation,
+    CallbackState,
+    PointerRead,
+    PointerWrite,
+    MemoryCopy,
+    OverlappingMemoryCopy,
+    SizeDetermination,
+    AlignmentDetermination,
+    StrideDetermination,
+    LayoutDetermination,
+    RawAllocation,
+    RawDeallocation,
+    Allocation,
+    Deallocation,
+    RawBufferCapacity,
+    RawBufferInitializedCount,
+    RawBufferPointer,
+    RawBufferInitializedSlice,
+    MutableRawBufferInitializedSlice,
+    RawBufferSparePointer,
+    RawBufferSetInitializedCount,
+    RawBufferRelease,
+    RawBufferReplace,
+    ByteBufferFill,
+    ByteBufferCopy,
+    ByteBufferRead,
+    SliceLength,
+}
+
+impl DiagnosticMemoryOperation {
+    /// Returns the stable machine key for this memory operation.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AddressOf => "address_of",
+            Self::MutableAddressOf => "mutable_address_of",
+            Self::NullPointer => "null_pointer",
+            Self::PointerNullCheck => "pointer_null_check",
+            Self::PointerElementOffset => "pointer_element_offset",
+            Self::PointerByteOffset => "pointer_byte_offset",
+            Self::PointerReinterpretation => "pointer_reinterpretation",
+            Self::CallbackState => "callback_state",
+            Self::PointerRead => "pointer_read",
+            Self::PointerWrite => "pointer_write",
+            Self::MemoryCopy => "memory_copy",
+            Self::OverlappingMemoryCopy => "overlapping_memory_copy",
+            Self::SizeDetermination => "size_determination",
+            Self::AlignmentDetermination => "alignment_determination",
+            Self::StrideDetermination => "stride_determination",
+            Self::LayoutDetermination => "layout_determination",
+            Self::RawAllocation => "raw_allocation",
+            Self::RawDeallocation => "raw_deallocation",
+            Self::Allocation => "allocation",
+            Self::Deallocation => "deallocation",
+            Self::RawBufferCapacity => "raw_buffer_capacity",
+            Self::RawBufferInitializedCount => "raw_buffer_initialized_count",
+            Self::RawBufferPointer => "raw_buffer_pointer",
+            Self::RawBufferInitializedSlice => "raw_buffer_initialized_slice",
+            Self::MutableRawBufferInitializedSlice => "mutable_raw_buffer_initialized_slice",
+            Self::RawBufferSparePointer => "raw_buffer_spare_pointer",
+            Self::RawBufferSetInitializedCount => "raw_buffer_set_initialized_count",
+            Self::RawBufferRelease => "raw_buffer_release",
+            Self::RawBufferReplace => "raw_buffer_replace",
+            Self::ByteBufferFill => "byte_buffer_fill",
+            Self::ByteBufferCopy => "byte_buffer_copy",
+            Self::ByteBufferRead => "byte_buffer_read",
+            Self::SliceLength => "slice_length",
+        }
+    }
+}
+
+/// Exact source contract violated by a callback-state request.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticCallbackStateProblem {
+    OutsideCallable,
+    LanguageAbi,
+    CallableNotTrusted,
+    ReceiverPresent,
+    MissingSymbolDirective,
+    MissingContextParameter,
+    ContextArgumentNotName,
+    ContextArgumentNotParameter,
+    ContextParameterNotFirst { actual_ordinal: u64 },
+}
+
+impl DiagnosticCallbackStateProblem {
+    /// Returns the stable machine key for this callback-state problem.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OutsideCallable => "outside_callable",
+            Self::LanguageAbi => "language_abi",
+            Self::CallableNotTrusted => "callable_not_trusted",
+            Self::ReceiverPresent => "receiver_present",
+            Self::MissingSymbolDirective => "missing_symbol_directive",
+            Self::MissingContextParameter => "missing_context_parameter",
+            Self::ContextArgumentNotName => "context_argument_not_name",
+            Self::ContextArgumentNotParameter => "context_argument_not_parameter",
+            Self::ContextParameterNotFirst { .. } => "context_parameter_not_first",
+        }
+    }
+}

@@ -14,7 +14,12 @@ pub use operation::{
     CompilerKnownOperationEvidence, ConstructionInputSurface, OperationCandidate,
     OperationCandidateState, OperationSelectionRequest,
 };
-pub use result::{CandidateSelection, SelectionCandidateKey, SelectionFailure};
+pub use result::{
+    CandidateSelection, SelectionCallableArgumentRejection, SelectionCandidateKey,
+    SelectionCandidateRejectionReason, SelectionCandidateSignature,
+    SelectionConstructionInputRejection, SelectionFailure, SelectionFailureCandidate,
+    SelectionInaccessibility, SelectionRejectedCandidate,
+};
 pub use template::{
     CallableCandidateTemplate, CallableCandidateTemplateState, CallableCandidateTemplates,
     CallableDeclarationCandidateTemplate, CallableParameterDefaultTemplate,

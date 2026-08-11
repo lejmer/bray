@@ -9,6 +9,7 @@ pub(super) struct RustTest {
     name: String,
     path: String,
     body: String,
+    asserted_diagnostic_kinds: BTreeSet<String>,
 }
 
 impl RustTest {
@@ -22,6 +23,10 @@ impl RustTest {
 
     pub(super) fn body(&self) -> &str {
         &self.body
+    }
+
+    pub(super) fn asserted_diagnostic_kinds(&self) -> &BTreeSet<String> {
+        &self.asserted_diagnostic_kinds
     }
 }
 
@@ -257,11 +262,151 @@ impl<'syntax> Visit<'syntax> for TestCollector<'_, '_> {
             .iter()
             .any(|attribute| attribute.path().is_ident("test"))
         {
+            let asserted_diagnostic_kinds = asserted_diagnostic_kinds(&function.block);
+
             self.tests.push(RustTest {
                 name: function.sig.ident.to_string(),
                 path: self.path.to_owned(),
                 body: function.block.to_token_stream().to_string(),
+                asserted_diagnostic_kinds,
             });
         }
+    }
+}
+
+fn asserted_diagnostic_kinds(block: &syn::Block) -> BTreeSet<String> {
+    let mut collector = DiagnosticAssertionCollector::default();
+
+    collector.visit_block(block);
+
+    collector
+        .asserted
+        .difference(&collector.fabricated)
+        .cloned()
+        .collect()
+}
+
+#[derive(Default)]
+struct DiagnosticAssertionCollector {
+    asserted: BTreeSet<String>,
+    fabricated: BTreeSet<String>,
+}
+
+impl<'syntax> Visit<'syntax> for DiagnosticAssertionCollector {
+    fn visit_expr_call(&mut self, call: &'syntax syn::ExprCall) {
+        let Some(path) = expression_path(&call.func) else {
+            syn::visit::visit_expr_call(self, call);
+
+            return;
+        };
+
+        if path_ends_with(path, &["assert_goal_state_diagnostic_kind"])
+            && call.args.len() == 2
+            && let Some(kind) = diagnostic_kind(call.args.iter().nth(1))
+        {
+            self.asserted.insert(kind);
+        }
+
+        if path_ends_with(path, &["Diagnostic", "new"])
+            && let Some(kind) = diagnostic_kind(call.args.iter().nth(1))
+        {
+            self.fabricated.insert(kind);
+        }
+
+        syn::visit::visit_expr_call(self, call);
+    }
+}
+
+fn expression_path(expression: &syn::Expr) -> Option<&syn::Path> {
+    let syn::Expr::Path(expression) = expression else {
+        return None;
+    };
+
+    Some(&expression.path)
+}
+
+fn diagnostic_kind(expression: Option<&syn::Expr>) -> Option<String> {
+    let path = expression_path(expression?)?;
+    let mut segments = path.segments.iter().rev();
+    let variant = segments.next()?.ident.to_string();
+
+    (segments.next()?.ident == "DiagnosticKind").then_some(variant)
+}
+
+fn path_ends_with(path: &syn::Path, expected: &[&str]) -> bool {
+    path.segments
+        .iter()
+        .rev()
+        .zip(expected.iter().rev())
+        .all(|(actual, expected)| actual.ident == *expected)
+        && path.segments.len() >= expected.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::asserted_diagnostic_kinds;
+
+    #[test]
+    fn diagnostic_assertions_follow_exact_structured_calls() {
+        assert_eq!(
+            assertions(
+                "fn test() { assert_goal_state_diagnostic_kind(&bag, DiagnosticKind::Exact); }"
+            ),
+            BTreeSet::from(["Exact".to_owned()]),
+        );
+
+        assert_eq!(
+            assertions(
+                r#"
+                fn test() {
+                    assert_goal_state_diagnostic_kind(
+                        produced.diagnostics(),
+                        DiagnosticKind::Multiline,
+                    );
+                }
+                "#,
+            ),
+            BTreeSet::from(["Multiline".to_owned()]),
+        );
+    }
+
+    #[test]
+    fn diagnostic_assertions_reject_mentions_wrong_kinds_and_fabricated_records() {
+        assert!(assertions(
+            r#"fn test() { let mention = "assert_goal_state_diagnostic_kind(DiagnosticKind::Mention)"; }"#
+        )
+        .is_empty());
+
+        assert_eq!(
+            assertions(
+                "fn test() { assert_goal_state_diagnostic_kind(&bag, DiagnosticKind::Actual); }"
+            ),
+            BTreeSet::from(["Actual".to_owned()]),
+        );
+
+        assert!(
+            assertions(
+                r#"
+            fn test() {
+                let bag = DiagnosticBag::single(Diagnostic::new(
+                    DiagnosticId::new(0),
+                    DiagnosticKind::Fabricated,
+                    SeverityKind::Error,
+                ));
+                assert_goal_state_diagnostic_kind(&bag, DiagnosticKind::Fabricated);
+            }
+            "#,
+            )
+            .is_empty()
+        );
+    }
+
+    fn assertions(source: &str) -> BTreeSet<String> {
+        let function = syn::parse_str::<syn::ItemFn>(source)
+            .unwrap_or_else(|error| panic!("test function must parse: {error}"));
+
+        asserted_diagnostic_kinds(&function.block)
     }
 }

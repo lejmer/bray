@@ -141,11 +141,11 @@ const fn diagnostic_section(section: InterfaceSectionTag) -> DiagnosticInterface
         InterfaceSectionTag::SymbolIdentities => DiagnosticInterfaceSection::SymbolIdentities,
         InterfaceSectionTag::Relationships => DiagnosticInterfaceSection::Relationships,
         InterfaceSectionTag::ExportedLookup => DiagnosticInterfaceSection::ExportedLookup,
-        InterfaceSectionTag::SymbolFactDirectory => DiagnosticInterfaceSection::SymbolFactDirectory,
+        InterfaceSectionTag::SymbolFactDirectory => DiagnosticInterfaceSection::SymbolDirectory,
         InterfaceSectionTag::SemanticTypes => DiagnosticInterfaceSection::SemanticTypes,
         InterfaceSectionTag::Constants => DiagnosticInterfaceSection::Constants,
         InterfaceSectionTag::Contracts => DiagnosticInterfaceSection::Contracts,
-        InterfaceSectionTag::DeclarationFacts => DiagnosticInterfaceSection::DeclarationFacts,
+        InterfaceSectionTag::DeclarationFacts => DiagnosticInterfaceSection::Declarations,
         InterfaceSectionTag::DeclarationTemplates => {
             DiagnosticInterfaceSection::DeclarationTemplates
         }

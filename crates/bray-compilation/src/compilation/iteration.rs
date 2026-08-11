@@ -503,6 +503,7 @@ mod tests {
         BorrowKind, ImplementationCoherenceFact, ImplementationSymbolId, NamedTypeSymbolId,
         SemanticValueStore, StructSymbolId, SymbolFactRequest, SymbolKind, SymbolOrigin, TypeData,
     };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::CancellationToken;
     use crate::test_support::{compilation, source_callable_body_key};
@@ -606,6 +607,11 @@ mod tests {
             &[DiagnosticArg::selection_kind(
                 DiagnosticSelectionKind::IterationSource
             )]
+        );
+
+        assert_goal_state_diagnostic_kind(
+            first.diagnostics(),
+            DiagnosticKind::CheckingNoApplicableCandidate,
         );
     }
 

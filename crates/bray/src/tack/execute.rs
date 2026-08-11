@@ -5,12 +5,16 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticIoErrorKind, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation, DiagnosticProjectSelectionProblem, DiagnosticToolProtocolFailure,
+    DiagnosticToolStream,
+};
 use bray_project::ProjectGraph;
-use bray_tooling::{OutputFormat, write_diagnostic_groups};
+use bray_tooling::{OutputFormat, write_diagnostic_groups, write_diagnostics};
 
 use crate::tack::compiler::ProjectCompiler;
-use crate::tack::error::{operation_diagnostics, selection_diagnostics};
+use crate::tack::error::{operation_diagnostics, process_failure, selection_diagnostics};
 use crate::tack::init::initialize_project;
 use crate::tack::inspection::render_project_inspection;
 use crate::tack::install::{install_git_repository, run_project_process};
@@ -27,7 +31,9 @@ use crate::tack::project::{
 };
 use crate::tack::result::TackRunResult;
 use crate::tack::testing::BuiltTestHost;
-use crate::tack::tool::{NativeToolExecutor, Tool, ToolExecutor, ToolOutput, ToolRequest};
+use crate::tack::tool::{
+    NativeToolExecutor, Tool, ToolExecutionError, ToolExecutor, ToolOutput, ToolRequest, ToolStream,
+};
 use crate::tack::toolchain::Toolchain;
 
 /// Runs Bray Tack using independently installed toolchain executables.
@@ -46,26 +52,106 @@ pub fn run_tack(arguments: impl IntoIterator<Item = OsString>) -> ExitCode {
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
 
-    if stdout.write_all(&protocol_output).is_err()
-        || stderr.write_all(result.stderr().as_bytes()).is_err()
-        || stdout.write_all(result.stdout().as_bytes()).is_err()
-    {
+    if let Err(error) = stdout.write_all(&protocol_output) {
+        write_tack_output_failure(
+            DiagnosticProjectOperation::LanguageServerProtocolOutput,
+            error.kind(),
+            FailedTackStream::StandardOutput,
+            &mut stdout,
+            &mut stderr,
+        );
+
+        return ExitCode::FAILURE;
+    }
+
+    if let Err(error) = stderr.write_all(result.stderr().as_bytes()) {
+        write_tack_output_failure(
+            DiagnosticProjectOperation::StandardError,
+            error.kind(),
+            FailedTackStream::StandardError,
+            &mut stdout,
+            &mut stderr,
+        );
+
+        return ExitCode::FAILURE;
+    }
+
+    if let Err(error) = stdout.write_all(result.stdout().as_bytes()) {
+        write_tack_output_failure(
+            DiagnosticProjectOperation::StandardOutput,
+            error.kind(),
+            FailedTackStream::StandardOutput,
+            &mut stdout,
+            &mut stderr,
+        );
+
         return ExitCode::FAILURE;
     }
 
     if !result.diagnostics().is_empty()
-        && write_diagnostic_groups(
+        && let Err(error) = write_diagnostic_groups(
             result.diagnostic_groups(),
             result.output_format(),
             &mut stdout,
             &mut stderr,
         )
-        .is_err()
     {
+        let failed_stream = match result.output_format() {
+            OutputFormat::Text => FailedTackStream::StandardError,
+            OutputFormat::Json => FailedTackStream::StandardOutput,
+        };
+
+        write_tack_output_failure(
+            DiagnosticProjectOperation::DiagnosticOutput,
+            error.kind(),
+            failed_stream,
+            &mut stdout,
+            &mut stderr,
+        );
+
         return ExitCode::FAILURE;
     }
 
     result.exit_code()
+}
+
+#[derive(Clone, Copy)]
+enum FailedTackStream {
+    StandardOutput,
+    StandardError,
+}
+
+fn write_tack_output_failure(
+    operation: DiagnosticProjectOperation,
+    error: io::ErrorKind,
+    failed_stream: FailedTackStream,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) {
+    let diagnostic = DiagnosticProjectCommandFailure::HostIo {
+        operation,
+        error: DiagnosticIoErrorKind::from(error),
+    }
+    .diagnostic(bray_diagnostics::DiagnosticId::new(0));
+
+    let diagnostics = DiagnosticBag::single(diagnostic);
+
+    let _ = match failed_stream {
+        FailedTackStream::StandardOutput => write_diagnostics(
+            &diagnostics,
+            None,
+            OutputFormat::Text,
+            &mut io::sink(),
+            stderr,
+        ),
+        FailedTackStream::StandardError => write_diagnostics(
+            &diagnostics,
+            None,
+            OutputFormat::Text,
+            &mut io::sink(),
+            stdout,
+        ),
+    };
 }
 
 /// Runs Bray Tack and returns its structured outcome.
@@ -88,9 +174,20 @@ fn run_tack_result_with_input(
         false,
     );
 
-    if let Ok(protocol_output) = String::from_utf8(protocol_output) {
-        result.prepend_stdout(protocol_output);
-    }
+    let protocol_output = match String::from_utf8(protocol_output) {
+        Ok(output) => output,
+        Err(_) => {
+            return failure(
+                operation_diagnostics(tool_execution_failure(
+                    DiagnosticProjectOperation::LanguageServerProcess,
+                    ToolExecutionError::InvalidUtf8(ToolStream::StandardOutput),
+                )),
+                result.output_format(),
+            );
+        }
+    };
+
+    result.prepend_stdout(protocol_output);
 
     result
 }
@@ -138,9 +235,13 @@ fn execute_invocation(
     let mut result =
         execute_invocation_with_progress(invocation, executor, stdin, protocol_output, &progress);
 
-    if progress.write_to_result(&mut result).is_err() {
+    if let Err(problem) = progress.write_to_result(&mut result) {
         return failure(
-            operation_diagnostics("workflow_progress_output"),
+            operation_diagnostics(DiagnosticProjectCommandFailure::Document {
+                operation: DiagnosticProjectOperation::WorkflowProgressOutput,
+                path: None,
+                problem,
+            }),
             result.output_format(),
         );
     }
@@ -165,18 +266,36 @@ fn execute_invocation_with_progress(
         command,
     ) = invocation.into_parts();
 
-    let workspace_root = match std::path::absolute(workspace_root) {
+    let workspace_root = match std::path::absolute(&workspace_root) {
         Ok(workspace_root) => workspace_root,
-        Err(_) => return failure(operation_diagnostics("workspace_path"), output_format),
+        Err(error) => {
+            return failure(
+                operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                    operation: DiagnosticProjectOperation::WorkspacePath,
+                    path: workspace_root,
+                    error: DiagnosticIoErrorKind::from(error.kind()),
+                }),
+                output_format,
+            );
+        }
     };
 
     match command {
         TackCommand::Init { directory, package } => {
             let directory = directory.unwrap_or(workspace_root);
 
-            let directory = match std::path::absolute(directory) {
+            let directory = match std::path::absolute(&directory) {
                 Ok(directory) => directory,
-                Err(_) => return failure(operation_diagnostics("workspace_path"), output_format),
+                Err(error) => {
+                    return failure(
+                        operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                            operation: DiagnosticProjectOperation::WorkspacePath,
+                            path: directory,
+                            error: DiagnosticIoErrorKind::from(error.kind()),
+                        }),
+                        output_format,
+                    );
+                }
             };
 
             return result_from_operation(
@@ -317,9 +436,12 @@ fn execute_invocation_with_progress(
         | TackCommand::Format { .. }
         | TackCommand::ProfileShow { .. }
         | TackCommand::ProfileCompare { .. }
-        | TackCommand::VendorInstall { .. } => {
-            failure(operation_diagnostics("command_routing"), output_format)
-        }
+        | TackCommand::VendorInstall { .. } => failure(
+            operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
+                DiagnosticProjectOperation::CommandRouting,
+            )),
+            output_format,
+        ),
     }
 }
 
@@ -444,7 +566,10 @@ fn run_one(
     };
 
     let Some(product) = products.first() else {
-        return failure(selection_diagnostics("executable"), output_format);
+        return failure(
+            selection_diagnostics(DiagnosticProjectSelectionProblem::MissingExecutable),
+            output_format,
+        );
     };
 
     let mut compiler = ProjectCompiler::new(
@@ -482,7 +607,10 @@ fn run_one(
     }
 
     let Some(executable) = executable else {
-        return failure(selection_diagnostics("executable_output"), output_format);
+        return failure(
+            selection_diagnostics(DiagnosticProjectSelectionProblem::MissingExecutableOutput),
+            output_format,
+        );
     };
 
     let exit_code = match run_project_process(&executable, &arguments, workspace_root) {
@@ -561,18 +689,23 @@ fn run_tests(
 
         let Some(executable) = executable else {
             return failure(
-                selection_diagnostics("test_executable_output"),
+                selection_diagnostics(
+                    DiagnosticProjectSelectionProblem::MissingTestExecutableOutput,
+                ),
                 output_format,
             );
         };
 
         let Some(test_catalog) = test_catalog else {
-            return failure(selection_diagnostics("test_catalog_output"), output_format);
+            return failure(
+                selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestCatalogOutput),
+                output_format,
+            );
         };
 
         let Some(host) = BuiltTestHost::try_new(executable, test_catalog) else {
             return failure(
-                selection_diagnostics("test_host_publication"),
+                selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost),
                 output_format,
             );
         };
@@ -643,7 +776,14 @@ fn run_inspect(
     };
 
     let Some(product) = products.first() else {
-        return failure(selection_diagnostics("inspection_product"), output_format);
+        return failure(
+            selection_diagnostics(
+                DiagnosticProjectSelectionProblem::UnsupportedInspectionProduct(
+                    selection.product.as_deref().unwrap_or("*").to_owned(),
+                ),
+            ),
+            output_format,
+        );
     };
 
     let mut compiler = ProjectCompiler::new(
@@ -668,7 +808,14 @@ fn run_inspect(
             .into_iter()
             .next_back()
             .map(|output| result_from_output(output, output_format))
-            .unwrap_or_else(|| failure(operation_diagnostics("inspection"), output_format));
+            .unwrap_or_else(|| {
+                failure(
+                    operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
+                        DiagnosticProjectOperation::Inspection,
+                    )),
+                    output_format,
+                )
+            });
     }
 
     result_from_outputs(outputs, output_format)
@@ -692,7 +839,12 @@ fn run_language_server(
         Ok(Some(target)) => target,
         Ok(None) => match graph.targets().first() {
             Some(target) => target,
-            None => return failure(selection_diagnostics("target"), output_format),
+            None => {
+                return failure(
+                    selection_diagnostics(DiagnosticProjectSelectionProblem::TargetRequired),
+                    output_format,
+                );
+            }
         },
         Err(diagnostics) => return failure(diagnostics, output_format),
     };
@@ -709,8 +861,11 @@ fn run_language_server(
 
     match executor.serve(request, input, protocol_output) {
         Ok(output) => result_from_output(output, output_format),
-        Err(()) => failure(
-            operation_diagnostics("language_server_process"),
+        Err(error) => failure(
+            operation_diagnostics(tool_execution_failure(
+                DiagnosticProjectOperation::LanguageServerProcess,
+                error,
+            )),
             output_format,
         ),
     }
@@ -751,9 +906,12 @@ fn run_format(
     let invocation_directory = if needs_invocation_directory {
         match std::env::current_dir() {
             Ok(directory) => Some(directory),
-            Err(_) => {
+            Err(error) => {
                 return failure(
-                    operation_diagnostics("formatter_working_directory"),
+                    operation_diagnostics(DiagnosticProjectCommandFailure::HostIo {
+                        operation: DiagnosticProjectOperation::FormatterWorkingDirectory,
+                        error: DiagnosticIoErrorKind::from(error.kind()),
+                    }),
                     output_format,
                 );
             }
@@ -813,8 +971,14 @@ fn run_format(
     if files.as_slice() == [PathBuf::from("-")] {
         let mut bytes = Vec::new();
 
-        if stdin.read_to_end(&mut bytes).is_err() {
-            return failure(operation_diagnostics("formatter_input"), output_format);
+        if let Err(error) = stdin.read_to_end(&mut bytes) {
+            return failure(
+                operation_diagnostics(DiagnosticProjectCommandFailure::HostIo {
+                    operation: DiagnosticProjectOperation::FormatterInput,
+                    error: DiagnosticIoErrorKind::from(error.kind()),
+                }),
+                output_format,
+            );
         }
 
         request.input(bytes);
@@ -824,7 +988,61 @@ fn run_format(
 
     match executor.capture(request) {
         Ok(output) => result_from_output(output, output_format),
-        Err(()) => failure(operation_diagnostics("formatter_process"), output_format),
+        Err(error) => failure(
+            operation_diagnostics(tool_execution_failure(
+                DiagnosticProjectOperation::FormatterProcess,
+                error,
+            )),
+            output_format,
+        ),
+    }
+}
+
+fn tool_execution_failure(
+    operation: DiagnosticProjectOperation,
+    error: ToolExecutionError,
+) -> DiagnosticProjectCommandFailure {
+    match error {
+        ToolExecutionError::Platform { program, error } => {
+            process_failure(operation, program, error)
+        }
+        ToolExecutionError::MissingStream(stream) => {
+            DiagnosticProjectCommandFailure::ToolProtocol {
+                operation,
+                failure: DiagnosticToolProtocolFailure::MissingStream(diagnostic_tool_stream(
+                    stream,
+                )),
+            }
+        }
+        ToolExecutionError::StreamIo { stream, error } => {
+            DiagnosticProjectCommandFailure::ToolStreamIo {
+                operation,
+                stream: diagnostic_tool_stream(stream),
+                error: DiagnosticIoErrorKind::from(error),
+            }
+        }
+        ToolExecutionError::InvalidUtf8(stream) => {
+            DiagnosticProjectCommandFailure::ToolStreamInvalidUtf8 {
+                operation,
+                stream: diagnostic_tool_stream(stream),
+            }
+        }
+        ToolExecutionError::StreamThreadPanicked(stream) => {
+            DiagnosticProjectCommandFailure::ToolProtocol {
+                operation,
+                failure: DiagnosticToolProtocolFailure::StreamThreadPanicked(
+                    diagnostic_tool_stream(stream),
+                ),
+            }
+        }
+    }
+}
+
+const fn diagnostic_tool_stream(stream: ToolStream) -> DiagnosticToolStream {
+    match stream {
+        ToolStream::StandardInput => DiagnosticToolStream::StandardInput,
+        ToolStream::StandardOutput => DiagnosticToolStream::StandardOutput,
+        ToolStream::StandardError => DiagnosticToolStream::StandardError,
     }
 }
 
@@ -837,8 +1055,13 @@ mod tests {
     use std::process::ExitCode;
     use std::sync::Mutex;
 
+    use bray_diagnostics::DiagnosticKind;
+    use bray_testing::assert_goal_state_diagnostic_kind;
+
     use super::run_tack_result_with_input;
-    use crate::tack::tool::{Tool, ToolExecutor, ToolOutput, ToolRequest};
+    use crate::tack::tool::{
+        Tool, ToolExecutionError, ToolExecutor, ToolOutput, ToolRequest, ToolStream,
+    };
     use crate::test_support::{ProjectWorkspace, unique_temporary_directory};
 
     #[derive(Debug)]
@@ -852,6 +1075,32 @@ mod tests {
     #[derive(Default)]
     struct RecordingExecutor {
         requests: Mutex<Vec<RecordedRequest>>,
+    }
+
+    struct InvalidProtocolExecutor;
+
+    impl ToolExecutor for InvalidProtocolExecutor {
+        fn capture(&self, _request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
+            Err(ToolExecutionError::StreamThreadPanicked(
+                ToolStream::StandardOutput,
+            ))
+        }
+
+        fn serve(
+            &self,
+            _request: ToolRequest,
+            _input: Box<dyn Read + Send>,
+            output: &mut dyn Write,
+        ) -> Result<ToolOutput, ToolExecutionError> {
+            output
+                .write_all(&[0xff])
+                .map_err(|error| ToolExecutionError::StreamIo {
+                    stream: ToolStream::StandardOutput,
+                    error: error.kind(),
+                })?;
+
+            Ok(ToolOutput::new(true, String::new(), String::new()))
+        }
     }
 
     impl RecordingExecutor {
@@ -957,8 +1206,11 @@ mod tests {
     }
 
     impl ToolExecutor for RecordingExecutor {
-        fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()> {
-            self.publish_compiler_outputs(&request)?;
+        fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
+            self.publish_compiler_outputs(&request).map_err(|()| {
+                ToolExecutionError::StreamThreadPanicked(ToolStream::StandardOutput)
+            })?;
+
             self.record(&request);
 
             let json = request
@@ -982,10 +1234,13 @@ mod tests {
             request: ToolRequest,
             mut input: Box<dyn Read + Send>,
             output: &mut dyn Write,
-        ) -> Result<ToolOutput, ()> {
+        ) -> Result<ToolOutput, ToolExecutionError> {
             self.record(&request);
 
-            std::io::copy(&mut input, output).map_err(|_| ())?;
+            std::io::copy(&mut input, output).map_err(|error| ToolExecutionError::StreamIo {
+                stream: ToolStream::StandardOutput,
+                error: error.kind(),
+            })?;
 
             Ok(ToolOutput::new(true, String::new(), String::new()))
         }
@@ -994,10 +1249,12 @@ mod tests {
     struct DriverExecutor;
 
     impl ToolExecutor for DriverExecutor {
-        fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()> {
-            if request.tool() != Tool::Compiler {
-                return Err(());
-            }
+        fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
+            assert_eq!(
+                request.tool(),
+                Tool::Compiler,
+                "driver test executor only accepts compiler requests"
+            );
 
             let result = bray_driver::run_result(
                 std::iter::once(OsString::from("brayc"))
@@ -1014,12 +1271,17 @@ mod tests {
                 &mut stdout,
                 &mut stderr,
             )
-            .map_err(|_| ())?;
+            .map_err(|error| ToolExecutionError::StreamIo {
+                stream: ToolStream::StandardOutput,
+                error: error.kind(),
+            })?;
 
             Ok(ToolOutput::new(
                 result.exit_code() == ExitCode::SUCCESS,
-                String::from_utf8(stdout).map_err(|_| ())?,
-                String::from_utf8(stderr).map_err(|_| ())?,
+                String::from_utf8(stdout)
+                    .map_err(|_| ToolExecutionError::InvalidUtf8(ToolStream::StandardOutput))?,
+                String::from_utf8(stderr)
+                    .map_err(|_| ToolExecutionError::InvalidUtf8(ToolStream::StandardError))?,
             ))
         }
 
@@ -1028,8 +1290,8 @@ mod tests {
             _: ToolRequest,
             _: Box<dyn Read + Send>,
             _: &mut dyn Write,
-        ) -> Result<ToolOutput, ()> {
-            Err(())
+        ) -> Result<ToolOutput, ToolExecutionError> {
+            panic!("driver test executor does not serve streaming tools")
         }
     }
 
@@ -1746,6 +2008,29 @@ mod tests {
 
         assert_eq!(request.tool, Tool::LanguageServer);
         assert!(has_argument_pair(&request.arguments, "--target", "native"));
+    }
+
+    #[test]
+    fn invalid_language_server_protocol_bytes_fail_with_a_structured_diagnostic() {
+        let workspace = ProjectWorkspace::basic();
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "language-server".into(),
+            ],
+            &InvalidProtocolExecutor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::ProjectCommandFailed,
+        );
     }
 
     fn has_argument_pair(arguments: &[OsString], name: &str, value: impl AsRef<OsStr>) -> bool {

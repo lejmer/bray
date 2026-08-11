@@ -8,7 +8,7 @@ pub(crate) const fn message(message: LanguageServerMessage) -> &'static str {
         LanguageServerMessage::ContentModified => {
             "The document changed before the request completed."
         }
-        LanguageServerMessage::QueryFailed => "The language query could not be completed.",
+        LanguageServerMessage::QueryFailed => "The language-server request could not be completed.",
         LanguageServerMessage::CompilationFailed => {
             "The workspace compilation could not be created."
         }
