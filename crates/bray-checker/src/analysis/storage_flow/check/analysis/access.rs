@@ -85,21 +85,25 @@ where
             return false;
         };
 
-        match storage_access.root() {
-            StorageAccessRoot::Borrow(_) => self.borrow_chain(access).is_some_and(|borrows| {
+        if storage_access.root().borrow_capability().is_some() {
+            return self.borrow_chain(access).is_some_and(|borrows| {
                 !borrows.is_empty()
                     && borrows.iter().all(|borrow| {
                         self.storage
                             .borrow_capability(*borrow)
                             .is_some_and(|borrow| borrow.kind() == BorrowKind::Mutable)
                     })
-            }),
+            });
+        }
+
+        match storage_access.root() {
             StorageAccessRoot::Recovery(_) => false,
             StorageAccessRoot::Storage(storage)
             | StorageAccessRoot::OwnedIndirection { storage, .. } => {
                 self.projected_storage_borrow_kind(access) == Some(BorrowKind::Mutable)
                     || self.owned_storage_is_mutable(storage)
             }
+            StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => false,
         }
     }
 
@@ -160,7 +164,7 @@ where
 
     pub(super) fn access_uses_borrow(&self, access: StorageAccessId) -> bool {
         self.storage.access(access).is_some_and(|record| {
-            matches!(record.root(), StorageAccessRoot::Borrow(_))
+            record.root().borrow_capability().is_some()
                 || self.projected_storage_borrow_kind(access).is_some()
         })
     }
@@ -214,12 +218,11 @@ where
     }
 
     pub(super) fn borrow_chain(&self, access: StorageAccessId) -> Option<Vec<BorrowCapabilityId>> {
-        let mut capability = match self.storage.access(access)?.root() {
-            StorageAccessRoot::Borrow(capability) => Some(capability),
-            StorageAccessRoot::Storage(_)
-            | StorageAccessRoot::OwnedIndirection { .. }
-            | StorageAccessRoot::Recovery(_) => None,
-        };
+        let mut capability = self
+            .storage
+            .access(access)?
+            .root()
+            .borrow_capability();
 
         let mut chain = Vec::new();
 

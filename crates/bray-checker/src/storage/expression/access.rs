@@ -336,12 +336,7 @@ where
             .access(access)
             .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
-        let parent = match borrowed.root() {
-            StorageAccessRoot::Borrow(parent) => Some(parent),
-            StorageAccessRoot::Storage(_)
-            | StorageAccessRoot::OwnedIndirection { .. }
-            | StorageAccessRoot::Recovery(_) => None,
-        };
+        let parent = borrowed.root().borrow_capability();
 
         let node = self
             .request
@@ -426,9 +421,35 @@ where
     pub(super) fn custom_index_access(
         &mut self,
         expression: BoundExpressionId,
+        receiver_access: StorageAccessId,
         kind: bray_symbols::BorrowKind,
     ) -> Result<StorageAccessId, PlanError> {
         let result = self.expression_type(expression)?;
+
+        let receiver = self
+            .builder()?
+            .access(receiver_access)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let node = self
+            .request
+            .view()
+            .expression(expression)
+            .ok_or_else(|| invalid_node(expression))?;
+
+        let capability = PlannedBorrowCapability::new(
+            BorrowCapabilityOrigin::Expression(expression),
+            kind,
+            receiver_access,
+            receiver.root().borrow_capability(),
+            node.origin().source_anchor(),
+            receiver.is_recovered() || node.is_recovered(),
+        );
+
+        let capability = self
+            .builder_mut()?
+            .push_borrow_capability(capability)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
 
         let borrow_type = self
             .request
@@ -448,7 +469,15 @@ where
             .set_identity_type(storage, borrow_type)
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
 
-        self.push_expression_access(expression, StorageAccessRoot::Storage(storage), [], result)
+        self.push_expression_access(
+            expression,
+            StorageAccessRoot::BorrowedStorage {
+                capability,
+                storage,
+            },
+            [],
+            result,
+        )
     }
 
     pub(super) fn iteration_access(

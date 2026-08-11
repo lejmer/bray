@@ -257,6 +257,7 @@ dependencies = [
  "bray-ir",
  "bray-linker",
  "bray-lowering",
+ "bray-messages",
  "bray-package-interface",
  "bray-parser",
  "bray-profile",

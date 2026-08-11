@@ -977,16 +977,6 @@ impl Compilation {
             if let Some(shared) = shared {
                 let anchor = index.origin().source_anchor().syntax();
 
-                let contract_name = match role {
-                    bray_compiler_known::CompilerKnownOperationRole::MutableElementIndex => {
-                        "MutableElementIndex"
-                    }
-                    bray_compiler_known::CompilerKnownOperationRole::MutableSliceIndex => {
-                        "MutableSliceIndex"
-                    }
-                    _ => return Err(FactQueryError::InfrastructureFailure),
-                };
-
                 diagnostics.add(
                     Diagnostic::new(
                         DiagnosticId::new(anchor.full_range().start().bytes()),
@@ -994,7 +984,7 @@ impl Compilation {
                         SeverityKind::Error,
                     )
                     .with_primary_span(SourceSpan::new(anchor.source_id(), anchor.full_range()))
-                    .with_arg(DiagnosticArg::referenced_name(contract_name)),
+                    .with_arg(DiagnosticArg::referenced_name(role.as_str())),
                 );
 
                 let result_type = shared

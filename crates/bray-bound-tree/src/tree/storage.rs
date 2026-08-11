@@ -116,8 +116,9 @@ fn expression_parents(
                 continue;
             };
 
-            debug_assert!(entry.is_none(), "bound expressions have one direct parent");
-            *entry = Some(parent);
+            if entry.is_none() {
+                *entry = Some(parent);
+            }
         }
     }
 

@@ -98,6 +98,16 @@ mod tests {
     use super::{CompilerKnownOperationContractShape, CompilerKnownOperationRole};
 
     #[test]
+    fn operation_roles_expose_their_canonical_catalog_spelling() {
+        for role in CompilerKnownOperationRole::ALL {
+            assert_eq!(
+                CompilerKnownOperationRole::from_catalog_spelling(role.as_str()),
+                Some(*role)
+            );
+        }
+    }
+
+    #[test]
     fn operation_shapes_distinguish_associated_results_and_type_forms() {
         assert_eq!(
             CompilerKnownOperationRole::BinaryAdd.contract_shape(),

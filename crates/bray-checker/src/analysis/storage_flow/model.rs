@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundExpressionId, CheckedMemoryOperations,
     CheckedRefinementFacts, LivenessFacts, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId, StoragePlan,
+    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::TypeId;
 
@@ -66,12 +66,7 @@ impl StorageFlowInput {
 
             let direct = storage
                 .access(plan.access())
-                .and_then(|access| match access.root() {
-                    StorageAccessRoot::Borrow(capability) => Some(capability),
-                    StorageAccessRoot::Storage(_)
-                    | StorageAccessRoot::OwnedIndirection { .. }
-                    | StorageAccessRoot::Recovery(_) => None,
-                });
+                .and_then(|access| access.root().borrow_capability());
 
             let capability = planned_borrows
                 .get(&(plan.expression(), kind, plan.access()))

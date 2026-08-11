@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencyRequirement, BoundDependencySubject, BoundExpression,
+    AnyBoundNodeId, BorrowCapabilityId, BoundDependencyRequirement, BoundDependencySubject, BoundExpression,
     BoundExpressionId, BoundUnit, CheckedMemoryOperations, CheckedSemanticSelections,
     DependencyContractInstantiationError, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding, StoragePlan,
@@ -460,20 +460,37 @@ fn access_root_subjects(
             vec![BoundDependencySubject::Storage(storage)]
         }
         StorageAccessRoot::Borrow(capability) => {
-            let mut subjects = Vec::new();
-            let mut current = Some(capability);
+            borrow_capability_subjects(storage, capability)
+        }
+        StorageAccessRoot::BorrowedStorage {
+            capability,
+            storage: retained,
+        } => {
+            let mut subjects = vec![BoundDependencySubject::Storage(retained)];
 
-            while let Some(capability) = current {
-                subjects.push(BoundDependencySubject::BorrowCapability(capability));
-
-                current = storage
-                    .borrow_capability(capability)
-                    .and_then(|planned| planned.parent());
-            }
+            subjects.extend(borrow_capability_subjects(storage, capability));
 
             subjects
         }
     }
+}
+
+fn borrow_capability_subjects(
+    storage: &StoragePlan,
+    capability: BorrowCapabilityId,
+) -> Vec<BoundDependencySubject> {
+    let mut subjects = Vec::new();
+    let mut current = Some(capability);
+
+    while let Some(capability) = current {
+        subjects.push(BoundDependencySubject::BorrowCapability(capability));
+
+        current = storage
+            .borrow_capability(capability)
+            .and_then(|planned| planned.parent());
+    }
+
+    subjects
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

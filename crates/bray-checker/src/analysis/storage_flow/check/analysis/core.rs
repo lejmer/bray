@@ -4,7 +4,7 @@ use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinementFacts, CheckedSemanticSelections, LivenessFacts,
     MemoryOperationStatus, RefinementFact, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlowFacts,
+    StorageAccessPurpose, StorageBinding, StorageExitDecision, StorageFlowFacts,
     StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
     StorageRelationship, StorageSuspensionState,
 };
@@ -539,10 +539,7 @@ where
             .moved
             .iter()
             .filter_map(|access| match self.storage.access(*access)?.root() {
-                StorageAccessRoot::Borrow(borrow) => Some(borrow),
-                StorageAccessRoot::Storage(_)
-                | StorageAccessRoot::OwnedIndirection { .. }
-                | StorageAccessRoot::Recovery(_) => None,
+                root => root.borrow_capability(),
             })
             .collect::<BTreeSet<_>>();
 
@@ -593,7 +590,10 @@ where
 
         state.moved.retain(|access| {
             self.storage.access(*access).is_none_or(|access| {
-                !matches!(access.root(), StorageAccessRoot::Borrow(borrow) if ended.contains(&borrow))
+                access
+                    .root()
+                    .borrow_capability()
+                    .is_none_or(|borrow| !ended.contains(&borrow))
             })
         });
     }

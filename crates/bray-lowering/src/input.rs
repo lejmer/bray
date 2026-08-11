@@ -6,7 +6,7 @@ use bray_bound_tree::{
     CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
     CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts,
     CheckedSemanticSelections, LivenessFacts, RefinementFactKind, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageFlowFacts, StorageOperationDecision,
+    StorageAccessPurpose, StorageFlowFacts, StorageOperationDecision,
     StoragePlan,
 };
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
@@ -783,12 +783,7 @@ fn storage_borrow_matches(
 
     let inherited = storage
         .access(plan.access())
-        .and_then(|access| match access.root() {
-            StorageAccessRoot::Borrow(borrow) => Some(borrow),
-            StorageAccessRoot::Storage(_)
-            | StorageAccessRoot::OwnedIndirection { .. }
-            | StorageAccessRoot::Recovery(_) => None,
-        })
+        .and_then(|access| access.root().borrow_capability())
         .filter(|borrow| {
             storage
                 .borrow_capability(*borrow)

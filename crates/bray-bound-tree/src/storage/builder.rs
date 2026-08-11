@@ -270,6 +270,18 @@ impl StoragePlanBuilder {
                     return Err(StoragePlanBuildError::MissingBorrowCapability);
                 }
             }
+            crate::StorageAccessRoot::BorrowedStorage {
+                capability,
+                storage,
+            } => {
+                if self.borrow_capability(capability).is_none() {
+                    return Err(StoragePlanBuildError::MissingBorrowCapability);
+                }
+
+                if self.identity(storage).is_none() {
+                    return Err(StoragePlanBuildError::MissingIdentity);
+                }
+            }
         }
 
         Ok(())

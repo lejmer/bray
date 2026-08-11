@@ -186,7 +186,7 @@ fn dependency_subject_has_exclusive_access(
     let (access, authorizing_borrow) = match subject {
         BoundDependencySubject::StorageAccess(access) => {
             let authorizing_borrow = storage.access(access).and_then(|access| {
-                let bray_bound_tree::StorageAccessRoot::Borrow(capability) = access.root() else {
+                let Some(capability) = access.root().borrow_capability() else {
                     return None;
                 };
 

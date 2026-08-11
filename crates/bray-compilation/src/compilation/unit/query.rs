@@ -821,8 +821,9 @@ mod tests {
 
     use bray_binder::{SemanticUnitContextError, semantic_unit_context};
     use bray_bound_tree::{
-        AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundDependencySubject,
-        BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKind,
+        AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundDependencyRequirement,
+        BoundDependencySubject, BoundExpression, BoundExpressionId,
+        BoundReferenceTarget, BoundUnit, BoundUnitKind,
         BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, CheckedMemoryOperationKind,
         ConstructionTarget, ConversionTarget, DeclaredValueTypeConstraintKind,
         DeclaredValueTypeTemplates, DeclaredValueTypeTerm, IndexTarget, PatternOperation,
@@ -832,8 +833,12 @@ mod tests {
         walk_bound_unit_view,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
-    use bray_compiler_known::{ImplementationHook, RepresentationRole};
-    use bray_diagnostics::DiagnosticKind;
+    use bray_compiler_known::{
+        CompilerKnownOperationRole, ImplementationHook, RepresentationRole,
+    };
+    use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
+    use bray_messages::DiagnosticRenderer;
+    use bray_source::SourceSpan;
     use bray_symbols::{
         ConstantValueKind, NamedTypeSymbolId, PackageIdentity, SymbolKind, SymbolOrdinal, TypeData,
         TypeExpressionTemplate,
@@ -3299,7 +3304,10 @@ func select(pos values: Values) -> i32
             .iter()
             .filter(|access| access.projections().is_empty())
             .filter_map(|access| match access.root() {
-                bray_bound_tree::StorageAccessRoot::Storage(identity) => {
+                bray_bound_tree::StorageAccessRoot::BorrowedStorage {
+                    storage: identity,
+                    ..
+                } => {
                     storage.value().identity(identity)
                 }
                 _ => None,
@@ -3310,6 +3318,160 @@ func select(pos values: Values) -> i32
             .count();
 
         assert!(custom_roots >= 3, "{storage:?}");
+    }
+
+    #[test]
+    fn live_shared_custom_index_borrow_conflicts_with_mutable_indexing() {
+        let compilation = custom_index_storage_compilation(
+            r#"func exercise(pos input: Values)
+{
+    let mut values: Values = input;
+    let selected: &Item = &values[0];
+    values[0] = Item { value = 1 };
+    selected;
+}
+"#,
+        );
+
+        assert!(
+            compilation
+                .check_diagnostics()
+                .by_kind(DiagnosticKind::CheckingConflictingBorrow)
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn live_mutable_custom_index_borrow_conflicts_with_shared_indexing() {
+        let compilation = custom_index_storage_compilation(
+            r#"func exercise(pos input: Values)
+{
+    let mut values: Values = input;
+    let selected: &mut Item = &mut values[0];
+    let observed: i32 = values[0].value;
+    selected;
+}
+"#,
+        );
+
+        assert!(
+            compilation
+                .check_diagnostics()
+                .by_kind(DiagnosticKind::CheckingConflictingBorrow)
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn custom_index_result_contract_retains_the_receiver_borrow_lifetime() {
+        let compilation = custom_index_storage_compilation(
+            r#"func select(pos values: Values)
+{
+    let selected: &Item = &values[0];
+    selected;
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let storage = compilation
+            .storage_plan(key.clone())
+            .unwrap_or_else(|error| panic!("custom index storage must publish: {error:?}"));
+
+        let capability = storage
+            .value()
+            .accesses()
+            .iter()
+            .find_map(|access| match access.root() {
+                StorageAccessRoot::BorrowedStorage { capability, .. } => Some(capability),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("custom index borrow capability must be retained"));
+
+        let unit = compilation
+            .bound_unit(key.clone())
+            .unwrap_or_else(|error| panic!("custom index unit must publish: {error:?}"));
+
+        let expression = unit
+            .value()
+            .tree()
+            .expressions()
+            .find_map(|(id, expression)| match expression {
+                BoundExpression::Structured(structured)
+                    if structured.kind()
+                        == bray_bound_tree::BoundStructuredExpressionKind::ElementIndex =>
+                {
+                    Some(id)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("custom index expression must be bound"));
+
+        let contracts = compilation
+            .dependency_contracts(key)
+            .unwrap_or_else(|error| panic!("custom index contracts must publish: {error:?}"));
+
+        let contract = contracts
+            .value()
+            .expression(expression)
+            .and_then(|contract| contracts.value().contract(contract))
+            .unwrap_or_else(|| panic!("custom index result contract must be available"));
+
+        assert!(contract.requirements().iter().any(|requirement| matches!(
+            requirement,
+            BoundDependencyRequirement::Direct {
+                subject: BoundDependencySubject::BorrowCapability(actual),
+                ..
+            } if *actual == capability
+        )), "{contract:?}");
+    }
+
+    fn custom_index_storage_compilation(body: &str) -> Compilation {
+        compilation(&format!(
+            r#"module app;
+
+struct Item
+{{
+    mut value: i32;
+}}
+
+struct Values
+{{
+    mut first: Item;
+    mut second: Item;
+}}
+
+impl Values(ElementIndex<i32>)
+{{
+    type Output = Item;
+
+    func index(pos selector: &i32) -> &Item
+    {{
+        return &self.first;
+    }}
+}}
+
+impl Values(MutableElementIndex<i32>)
+{{
+    type Output = Item;
+
+    mut func index(pos selector: &i32) -> &mut Item
+    {{
+        return &mut self.second;
+    }}
+}}
+
+{body}"#
+        ))
     }
 
     #[test]
@@ -3335,8 +3497,7 @@ func select(pos value: i32) -> i32
 
     #[test]
     fn mutable_custom_indexing_requires_the_mutable_protocol() {
-        let compilation = compilation(
-            r#"module app;
+        let source = r#"module app;
 
 struct Value
 {
@@ -3358,8 +3519,9 @@ func mutate(pos input: Value)
     let mut value: Value = input;
     value[0] = 1;
 }
-"#,
-        );
+"#;
+
+        let compilation = compilation(source);
 
         let diagnostics = compilation.check_diagnostics();
 
@@ -3372,6 +3534,48 @@ func mutate(pos input: Value)
             kinds,
             [DiagnosticKind::CheckingMutableIndexContractRequired],
             "{diagnostics:#?}"
+        );
+
+        let [diagnostic] = diagnostics.diagnostics() else {
+            panic!("missing mutable protocol must publish one diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic.args(),
+            &[DiagnosticArg::referenced_name(
+                CompilerKnownOperationRole::MutableElementIndex.as_str()
+            )]
+        );
+
+        let key = source_function_body_key(&compilation, "mutate");
+
+        let unit = compilation
+            .bound_unit(key)
+            .unwrap_or_else(|error| panic!("mutate unit must publish: {error:?}"));
+
+        let anchor = unit
+            .value()
+            .tree()
+            .expressions()
+            .find_map(|(_, expression)| match expression {
+                BoundExpression::Structured(structured)
+                    if structured.kind()
+                        == bray_bound_tree::BoundStructuredExpressionKind::ElementIndex =>
+                {
+                    Some(structured.origin().source_anchor().syntax())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("mutable index expression must be bound"));
+
+        assert_eq!(
+            diagnostic.primary_span(),
+            Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))
+        );
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(diagnostic).message(),
+            "mutable indexing requires an implementation of 'MutableElementIndex'"
         );
     }
 

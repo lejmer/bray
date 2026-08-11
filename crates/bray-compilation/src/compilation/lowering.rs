@@ -268,8 +268,9 @@ mod tests {
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
-        MirCallTarget, MirOperand, MirOperationKind, MirPanicCause, MirTerminatorKind,
-        MirProjectionKind, MirStoreKind, MirTextOperationKind, MirUnit,
+        MirAggregateKind, MirCallTarget, MirImmediateValue, MirOperand, MirOperationKind,
+        MirPanicCause, MirProjectionKind, MirStoreKind, MirTerminatorKind, MirTextOperationKind,
+        MirUnit, MirValueOrigin,
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
@@ -1281,10 +1282,21 @@ func compound_assign(pos input: Values)
     values[0].value += 1;
 }
 
-func bounded(pos values: Values) -> i32
+func lower_only(pos values: Values) -> i32
+{
+    return values[1..].value;
+}
+
+func upper_only(pos values: Values) -> i32
+{
+    return values[..2].value;
+}
+
+func both_bounds(pos values: Values) -> i32
 {
     return values[1..2].value;
 }
+
 "#,
         );
 
@@ -1301,7 +1313,9 @@ func bounded(pos values: Values) -> i32
             "assign",
             "nested_assign",
             "compound_assign",
-            "bounded",
+            "lower_only",
+            "upper_only",
+            "both_bounds",
         ] {
             let result = compilation
                 .lowered_unit(source_function_body_key(&compilation, function))
@@ -1361,17 +1375,61 @@ func bounded(pos values: Values) -> i32
             )), "{function}: {assignment:#?}");
         }
 
-        let bounded = compilation
-            .lowered_unit(source_function_body_key(&compilation, "bounded"))
-            .unwrap_or_else(|error| panic!("bounded MIR must be available: {error:?}"));
+        let lower_only = compilation
+            .lowered_unit(source_function_body_key(&compilation, "lower_only"))
+            .unwrap_or_else(|error| panic!("lower-only MIR must be available: {error:?}"));
 
-        let bounded = lowered_mir(&bounded);
+        let upper_only = compilation
+            .lowered_unit(source_function_body_key(&compilation, "upper_only"))
+            .unwrap_or_else(|error| panic!("upper-only MIR must be available: {error:?}"));
 
-        assert!(bounded.operations().iter().any(|operation| matches!(
-            operation.kind(),
-            MirOperationKind::Call(call)
-                if !call.witnesses().is_empty() && call.arguments().len() == 3
-        )), "{bounded:#?}");
+        let both_bounds = compilation
+            .lowered_unit(source_function_body_key(&compilation, "both_bounds"))
+            .unwrap_or_else(|error| panic!("both-bound MIR must be available: {error:?}"));
+
+        let lower_only = lowered_mir(&lower_only);
+        let upper_only = lowered_mir(&upper_only);
+        let both_bounds = lowered_mir(&both_bounds);
+
+        let [_, lower_start, lower_end] = custom_index_call_arguments(lower_only) else {
+            panic!("lower-only call must retain receiver, start, and end arguments");
+        };
+
+        let [_, upper_start, upper_end] = custom_index_call_arguments(upper_only) else {
+            panic!("upper-only call must retain receiver, start, and end arguments");
+        };
+
+        let [_, both_start, both_end] = custom_index_call_arguments(both_bounds) else {
+            panic!("both-bound call must retain receiver, start, and end arguments");
+        };
+
+        let lower_start = explicit_call_operand(lower_start);
+        let lower_end = explicit_call_operand(lower_end);
+        let upper_start = explicit_call_operand(upper_start);
+        let upper_end = explicit_call_operand(upper_end);
+        let both_start = explicit_call_operand(both_start);
+        let both_end = explicit_call_operand(both_end);
+
+        let lower_payload = nullable_payload(lower_only, lower_start)
+            .unwrap_or_else(|| panic!("lower-only start must be present"));
+
+        let upper_payload = nullable_payload(upper_only, upper_end)
+            .unwrap_or_else(|| panic!("upper-only end must be present"));
+
+        assert_eq!(nullable_payload(lower_only, lower_end), None);
+        assert_eq!(nullable_payload(upper_only, upper_start), None);
+
+        assert_eq!(
+            nullable_payload(both_bounds, both_start),
+            Some(lower_payload)
+        );
+
+        assert_eq!(
+            nullable_payload(both_bounds, both_end),
+            Some(upper_payload)
+        );
+
+        assert_ne!(lower_payload, upper_payload);
     }
 
     #[test]
@@ -2107,6 +2165,62 @@ func bounded(pos values: Values) -> i32
             .as_ref()
             .and_then(LoweredUnit::mir)
             .unwrap_or_else(|| panic!("checked executable unit must produce MIR: {result:#?}"))
+    }
+
+    fn custom_index_call_arguments(mir: &MirUnit) -> &[bray_ir::MirCallArgument] {
+        mir.operations()
+            .iter()
+            .find_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call) if !call.witnesses().is_empty() => {
+                    Some(call.arguments())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("custom index protocol call must be present: {mir:#?}"))
+    }
+
+    fn explicit_call_operand(argument: &bray_ir::MirCallArgument) -> &MirOperand {
+        argument
+            .value()
+            .unwrap_or_else(|| panic!("custom index protocol arguments must be explicit"))
+    }
+
+    fn nullable_payload<'mir>(
+        mir: &'mir MirUnit,
+        operand: &'mir MirOperand,
+    ) -> Option<&'mir MirOperand> {
+        match operand {
+            MirOperand::Immediate {
+                value: MirImmediateValue::NullableAbsent,
+                ..
+            } => None,
+            MirOperand::Value(value) => {
+                let value = mir
+                    .value(*value)
+                    .unwrap_or_else(|| panic!("nullable value must exist: {value:?}"));
+
+                let MirValueOrigin::Operation(operation) = value.origin() else {
+                    panic!("present nullable must be produced by an operation");
+                };
+
+                let operation = mir
+                    .operation(operation)
+                    .unwrap_or_else(|| panic!("nullable operation must exist: {operation:?}"));
+
+                let MirOperationKind::Aggregate(aggregate) = operation.kind() else {
+                    panic!("present nullable must be an aggregate: {operation:#?}");
+                };
+
+                assert_eq!(aggregate.kind(), MirAggregateKind::NullablePresent);
+
+                let [payload] = aggregate.operands() else {
+                    panic!("present nullable must retain exactly one payload");
+                };
+
+                Some(payload)
+            }
+            _ => panic!("slice bound must be a present or absent nullable: {operand:#?}"),
+        }
     }
 
     fn declared_unit_key(compilation: &Compilation, kind: BoundUnitKind) -> BoundUnitKey {

@@ -602,8 +602,10 @@ fn resolve_accesses(
                 resolve_storage_access(unit, access, root, identities, alternatives, &resolved)
             }
             crate::StorageAccessRoot::Recovery(_) => None,
-            crate::StorageAccessRoot::Borrow(capability) => {
-                resolve_borrowed_access(unit, access, capability, capabilities, &resolved)
+            borrow
+            @ (crate::StorageAccessRoot::Borrow(_)
+            | crate::StorageAccessRoot::BorrowedStorage { .. }) => {
+                resolve_borrowed_access(unit, access, borrow, capabilities, &resolved)
             }
         };
 
@@ -616,10 +618,13 @@ fn resolve_accesses(
 fn resolve_borrowed_access(
     unit: BoundUnitId,
     access: &StorageAccess,
-    capability: BorrowCapabilityId,
+    root: crate::StorageAccessRoot,
     capabilities: &[PlannedBorrowCapability],
     resolved: &[Option<ResolvedStorageAccess>],
 ) -> Option<ResolvedStorageAccess> {
+    let capability = root.borrow_capability()?;
+    let retained = root.retained_borrow_storage();
+
     if capability.unit() != unit {
         return None;
     }
@@ -634,21 +639,34 @@ fn resolve_borrowed_access(
         .get(capability.access().storage_index()?)?
         .as_ref()?;
 
-    let logical_projections = inherited
-        .logical_projections
-        .iter()
-        .chain(access.projections())
-        .copied();
-
-    let paths = inherited.paths.iter().map(|path| ResolvedStoragePath {
-        root: path.root,
-        projections: shared_slice(path.projections.iter().chain(access.projections()).copied()),
-    });
+    let (logical_root, logical_projections, paths) = match retained {
+        None => (
+            inherited.logical_root,
+            shared_slice(
+                inherited
+                    .logical_projections
+                    .iter()
+                    .chain(access.projections())
+                    .copied(),
+            ),
+            shared_slice(inherited.paths.iter().map(|path| ResolvedStoragePath {
+                root: path.root,
+                projections: shared_slice(
+                    path.projections.iter().chain(access.projections()).copied(),
+                ),
+            })),
+        ),
+        Some(storage) => (
+            storage,
+            shared_slice(access.projections().iter().copied()),
+            inherited.paths.clone(),
+        ),
+    };
 
     Some(ResolvedStorageAccess {
-        logical_root: inherited.logical_root,
-        logical_projections: shared_slice(logical_projections),
-        paths: shared_slice(paths),
+        logical_root,
+        logical_projections,
+        paths,
     })
 }
 

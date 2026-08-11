@@ -609,9 +609,13 @@ where
         };
 
         let access = match custom_borrow_kind {
-            Some(kind) => self.custom_index_access(id, kind)?,
+            Some(kind) => self.custom_index_access(id, receiver_access, kind)?,
             None => self.project_access(id, receiver_access, Some(projection))?,
         };
+
+        if let Some(kind) = custom_borrow_kind {
+            self.record_purpose(id, Some(StorageAccessPurpose::Borrow(kind)), access)?;
+        }
 
         self.record_purpose(id, Some(purpose), access)?;
 
