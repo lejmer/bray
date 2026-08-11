@@ -444,13 +444,13 @@ impl InternState {
             .runtime_requirements
             .iter()
             .map(|input| {
-                // Runtime requirements contain shared immutable identity strings, so this clone is
-                // shallow.
+                // Runtime requirements and frame identities use shared immutable storage, so
+                // these clones are shallow.
                 let requirements = input.requirements.clone();
 
                 Ok(ImportedRuntimeRequirement {
                     owner: resolve_symbol(symbols, &input.owner)?,
-                    frame: input.frame,
+                    frames: input.frames.clone(),
                     requirements,
                 })
             })

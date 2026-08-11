@@ -16,6 +16,10 @@ impl<'bytes> WireReader<'bytes> {
         Self { bytes, position: 0 }
     }
 
+    pub(crate) fn read_u8(&mut self) -> Result<u8, WireDecodeError> {
+        Ok(u8::from_le_bytes(self.read_array()?))
+    }
+
     pub(crate) fn read_u16(&mut self) -> Result<u16, WireDecodeError> {
         Ok(u16::from_le_bytes(self.read_array()?))
     }
@@ -86,6 +90,10 @@ impl WireEncoder {
         Self { bytes: Vec::new() }
     }
 
+    pub(crate) fn write_u8(&mut self, value: u8) {
+        self.bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
     pub(crate) fn write_u16(&mut self, value: u16) {
         self.bytes.extend_from_slice(&value.to_le_bytes());
     }
@@ -126,20 +134,23 @@ mod tests {
     fn fixed_width_values_use_little_endian_encoding() {
         let mut encoder = WireEncoder::new();
 
-        encoder.write_u16(0x1122);
+        encoder.write_u8(0x11);
+        encoder.write_u16(0x2233);
         encoder.write_u32(0x3344_5566);
         encoder.write_u64(0x7788_99aa_bbcc_ddee);
 
         assert_eq!(
             encoder.bytes(),
             &[
-                0x22, 0x11, 0x66, 0x55, 0x44, 0x33, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88, 0x77,
+                0x11, 0x33, 0x22, 0x66, 0x55, 0x44, 0x33, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
+                0x77,
             ]
         );
 
         let mut reader = WireReader::new(encoder.bytes());
 
-        assert_eq!(reader.read_u16(), Ok(0x1122));
+        assert_eq!(reader.read_u8(), Ok(0x11));
+        assert_eq!(reader.read_u16(), Ok(0x2233));
         assert_eq!(reader.read_u32(), Ok(0x3344_5566));
         assert_eq!(reader.read_u64(), Ok(0x7788_99aa_bbcc_ddee));
     }

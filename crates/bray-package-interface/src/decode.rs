@@ -46,9 +46,16 @@ impl DecodeBudget {
         reader: &WireReader<'_>,
         count: usize,
     ) -> Result<Vec<T>, InterfaceValidationError> {
-        const MINIMUM_ITEM_WIRE_BYTES: usize = std::mem::size_of::<u32>();
+        self.allocate_items_with_minimum(reader, count, std::mem::size_of::<u32>())
+    }
 
-        if count.saturating_mul(MINIMUM_ITEM_WIRE_BYTES) > reader.remaining() {
+    pub(crate) fn allocate_items_with_minimum<T>(
+        &mut self,
+        reader: &WireReader<'_>,
+        count: usize,
+        minimum_item_wire_bytes: usize,
+    ) -> Result<Vec<T>, InterfaceValidationError> {
+        if count.saturating_mul(minimum_item_wire_bytes) > reader.remaining() {
             return Err(InterfaceValidationError::Truncated);
         }
 

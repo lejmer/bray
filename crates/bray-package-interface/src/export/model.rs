@@ -182,8 +182,10 @@ pub enum PackageInterfaceExportBuildError {
     MissingSemanticFacts(ExternalSymbolKey),
     /// Structural semantic or support-graph validation rejected the bundle.
     Validation(InterfaceValidationError),
-    /// Two executable templates claim the same callable owner.
+    /// Two executable templates claim the same callable owner and artifact-local identity.
     DuplicateExecutableTemplate(bray_symbols::InterfaceSymbolId),
+    /// Executable templates for one owner do not form one contiguous root-first family.
+    InvalidExecutableTemplateFamily(bray_symbols::InterfaceSymbolId),
     /// Two native boundaries claim the same function owner.
     DuplicateNativeBoundary(bray_symbols::InterfaceSymbolId),
 }
@@ -193,6 +195,7 @@ pub enum PackageInterfaceExportBuildError {
 pub struct PackageInterfaceExportBundle {
     surface: PackageInterfaceSurface,
     semantic_facts: InterfaceSemanticFacts,
+    implementation_configuration: crate::PackageImplementationConfiguration,
     executable_templates: Arc<[crate::InterfaceExecutableTemplate]>,
     native_boundaries: Arc<[crate::InterfaceNativeBoundary]>,
     language_revision: InterfaceLanguageRevision,
@@ -204,6 +207,7 @@ impl PackageInterfaceExportBundle {
         surface: PackageInterfaceSurface,
         semantic_facts: InterfaceSemanticFacts,
         language_revision: InterfaceLanguageRevision,
+        implementation_configuration: crate::PackageImplementationConfiguration,
     ) -> Result<Self, PackageInterfaceExportBuildError> {
         let semantic_facts = canonicalize_owner_addressed_facts(semantic_facts);
 
@@ -219,27 +223,32 @@ impl PackageInterfaceExportBundle {
         Ok(Self {
             surface,
             semantic_facts,
+            implementation_configuration,
             executable_templates: Arc::from([]),
             native_boundaries: Arc::from([]),
             language_revision,
         })
     }
 
-    /// Attaches executable templates in canonical owner order.
+    /// Attaches executable templates in canonical owner and family-identity order.
     pub fn with_executable_templates(
         mut self,
         templates: impl IntoIterator<Item = crate::InterfaceExecutableTemplate>,
     ) -> Result<Self, PackageInterfaceExportBuildError> {
         let mut templates = templates.into_iter().collect::<Vec<_>>();
 
-        templates.sort_by_key(crate::InterfaceExecutableTemplate::owner);
+        templates.sort_by_key(|template| (template.owner(), template.identity()));
 
         for pair in templates.windows(2) {
-            if pair[0].owner() == pair[1].owner() {
+            if (pair[0].owner(), pair[0].identity()) == (pair[1].owner(), pair[1].identity()) {
                 return Err(
                     PackageInterfaceExportBuildError::DuplicateExecutableTemplate(pair[0].owner()),
                 );
             }
+        }
+
+        if let Some(owner) = crate::implementation::invalid_executable_template_family(&templates) {
+            return Err(PackageInterfaceExportBuildError::InvalidExecutableTemplateFamily(owner));
         }
 
         self.executable_templates = templates.into();
@@ -257,7 +266,12 @@ impl PackageInterfaceExportBundle {
         &self.semantic_facts
     }
 
-    /// Returns executable templates in canonical owner order.
+    /// Returns the exact target, runtime, and ABI identity of implementation payloads.
+    pub const fn implementation_configuration(&self) -> &crate::PackageImplementationConfiguration {
+        &self.implementation_configuration
+    }
+
+    /// Returns executable templates in canonical owner and family-identity order.
     pub fn executable_templates(&self) -> &[crate::InterfaceExecutableTemplate] {
         &self.executable_templates
     }
@@ -477,6 +491,7 @@ mod tests {
                 complete.surface().clone(),
                 facts,
                 InterfaceLanguageRevision::new(0),
+                crate::test_support::implementation_configuration(),
             ),
             Err(PackageInterfaceExportBuildError::Validation(
                 InterfaceValidationError::Malformed
@@ -514,6 +529,7 @@ mod tests {
                 complete.surface().clone(),
                 facts,
                 InterfaceLanguageRevision::new(0),
+                crate::test_support::implementation_configuration(),
             ),
             Err(PackageInterfaceExportBuildError::Validation(
                 InterfaceValidationError::Malformed
@@ -539,6 +555,7 @@ mod tests {
                 complete.surface().clone(),
                 InterfaceSemanticFacts::new(),
                 InterfaceLanguageRevision::new(0),
+                crate::test_support::implementation_configuration(),
             ),
             Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
                 first_declaration
@@ -569,6 +586,7 @@ mod tests {
                 complete.surface().clone(),
                 facts,
                 InterfaceLanguageRevision::new(0),
+                crate::test_support::implementation_configuration(),
             ),
             Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
                 implementation
@@ -634,6 +652,7 @@ mod tests {
                     complete.surface().clone(),
                     incomplete,
                     InterfaceLanguageRevision::new(0),
+                    crate::test_support::implementation_configuration(),
                 ),
                 Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
                     owner
@@ -688,6 +707,7 @@ mod tests {
             complete.surface().clone(),
             first_facts,
             InterfaceLanguageRevision::new(0),
+            crate::test_support::implementation_configuration(),
         )
         .unwrap_or_else(|error| panic!("forward semantic facts must build: {error:?}"));
 
@@ -695,6 +715,7 @@ mod tests {
             complete.surface().clone(),
             second_facts,
             InterfaceLanguageRevision::new(0),
+            crate::test_support::implementation_configuration(),
         )
         .unwrap_or_else(|error| panic!("reversed semantic facts must build: {error:?}"));
 

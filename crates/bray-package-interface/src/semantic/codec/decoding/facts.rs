@@ -6,6 +6,18 @@ use crate::{
     InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
+pub(crate) const COMPLETE_FACT_SECTIONS: &[InterfaceSectionTag] = &[
+    InterfaceSectionTag::SymbolFactDirectory,
+    InterfaceSectionTag::SemanticTypes,
+    InterfaceSectionTag::Constants,
+    InterfaceSectionTag::Contracts,
+    InterfaceSectionTag::DeclarationTemplates,
+    InterfaceSectionTag::Implementations,
+    InterfaceSectionTag::TargetDependencies,
+    InterfaceSectionTag::SupportGraph,
+    InterfaceSectionTag::DeclarationFacts,
+];
+
 /// Decodes and validates every semantic fact section in one package interface.
 pub fn decode_semantic_facts(
     sections: &[ValidatedInterfaceSection<'_>],
@@ -87,7 +99,7 @@ pub(crate) fn decode_selected_semantic_fact_graph(
     selection::decode_selected_fact_graph(sections, surface, owner, kind, limits).map(Some)
 }
 
-fn selected_fact_sections(
+pub(crate) fn selected_fact_sections(
     kind: crate::InterfaceSemanticFactKind,
 ) -> Option<&'static [InterfaceSectionTag]> {
     const GENERIC_CONSTRAINT_SECTIONS: &[InterfaceSectionTag] = &[
@@ -439,12 +451,61 @@ mod tests {
         };
 
         for requirements in [
-            runtime_requirements(Some(runtime), []),
-            runtime_requirements(None, [RuntimeAbiRole::TaskStart]),
+            runtime_requirements(
+                Some(runtime),
+                [],
+                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(
+                    1, 0,
+                ))),
+            ),
+            runtime_requirements(
+                None,
+                [RuntimeAbiRole::TaskStart],
+                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(
+                    1, 0,
+                ))),
+            ),
         ] {
             let facts = bundle.semantic_facts().clone().with_runtime_requirements([
-                InterfaceRuntimeRequirement::new(owner.clone(), None, requirements),
+                InterfaceRuntimeRequirement::new(
+                    owner.clone(),
+                    [ProtectedAsyncFrameId::new([31; 32])],
+                    requirements,
+                ),
             ]);
+
+            assert_eq!(
+                encode_semantic_facts(&facts, surface, InterfaceValidationLimits::default()),
+                Err(InterfaceValidationError::Malformed)
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_requirements_reject_mismatched_frame_contracts() {
+        let bundle = package_interface_export_bundle();
+        let surface = bundle.surface();
+        let owner = local_by_kind(surface, SymbolKind::Function);
+        let abi = RuntimeAbiVersion::new(1, 0);
+
+        let cases = [
+            InterfaceRuntimeRequirement::new(
+                owner.clone(),
+                [],
+                runtime_requirements(None, [], Some(ProtectedFrameAbiVersions::uniform(abi))),
+            ),
+            InterfaceRuntimeRequirement::new(
+                owner,
+                [ProtectedAsyncFrameId::new([37; 32])],
+                runtime_requirements(None, [], None),
+            ),
+        ];
+
+        for requirement in cases {
+            let facts = bundle
+                .semantic_facts()
+                .clone()
+                .with_runtime_requirements([requirement]);
 
             assert_eq!(
                 encode_semantic_facts(&facts, surface, InterfaceValidationLimits::default()),
@@ -976,14 +1037,24 @@ mod tests {
     fn runtime_requirement(owner: InterfaceSymbolReference) -> InterfaceRuntimeRequirement {
         InterfaceRuntimeRequirement::new(
             owner,
-            Some(ProtectedAsyncFrameId::new([23; 32])),
-            runtime_requirements(None, []),
+            [
+                ProtectedAsyncFrameId::new([23; 32]),
+                ProtectedAsyncFrameId::new([29; 32]),
+            ],
+            runtime_requirements(
+                None,
+                [],
+                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(
+                    1, 0,
+                ))),
+            ),
         )
     }
 
     fn runtime_requirements<const R: usize>(
         runtime: Option<RuntimeIdentity>,
         roles: [RuntimeAbiRole; R],
+        frame_abi: Option<ProtectedFrameAbiVersions>,
     ) -> RuntimeRequirements {
         let Some(target) = TargetIdentity::try_new("x86_64-unknown-linux-gnu") else {
             panic!("test target identity must be valid");
@@ -998,7 +1069,7 @@ mod tests {
         RuntimeRequirements::new(
             runtime,
             abi,
-            Some(ProtectedFrameAbiVersions::uniform(abi)),
+            frame_abi,
             target,
             panic_abi,
             roles,

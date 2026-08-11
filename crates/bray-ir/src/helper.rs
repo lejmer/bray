@@ -1,21 +1,20 @@
 use bray_bound_tree::{
-    BoundUnitKey, ConstructionDefaultProvider, ConstructionTarget, ConversionTarget,
-    SelectedConversion,
+    ConstructionDefaultProvider, ConstructionTarget, ConversionTarget, SelectedConversion,
 };
 use bray_symbols::{
     CallableAbi, CallableInstanceData, CallableParameterDefaultProviderSymbolId, TypeId,
 };
 
 use crate::{
-    MirAsyncOperation, MirCall, MirCallArgument, MirCleanupPhase, MirFrameInitializer,
-    MirFrameReference, MirGeneratorOperation, MirOperationKind,
+    MirAnonymousCallableReference, MirAsyncOperation, MirCall, MirCallArgument, MirCleanupPhase,
+    MirFrameInitializer, MirFrameReference, MirGeneratorOperation, MirOperationKind,
 };
 
 /// Exact semantic role of one callable helper required to realize MIR.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirHelperReference {
     /// Independently lowered capture-free anonymous callable.
-    AnonymousCallable(BoundUnitKey),
+    AnonymousCallable(MirAnonymousCallableReference),
     /// Declared callable whose stable function address is materialized as a value.
     DeclaredCallable(crate::MirCallableReference),
     /// Declaration-owned default for an omitted call argument.

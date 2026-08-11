@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundNodeOrigin, BoundSourceAnchor};
-use bray_symbols::{AnySymbolId, ProductIdentity};
+use bray_symbols::ProductIdentity;
 
-use crate::MirHelperReference;
+use crate::{MirHelperReference, MirImportedExecutableKey};
 
 /// Source or compiler-generated product that owns one MIR unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -13,7 +13,7 @@ pub enum MirSourceOrigin {
     /// A compiler-generated type-specialized lifecycle definition.
     GeneratedLifecycle(MirHelperReference),
     /// A checked executable template imported from a compiled dependency.
-    ImportedExecutable(AnySymbolId),
+    ImportedExecutable(MirImportedExecutableKey),
 }
 
 /// Source-correlated provenance for a MIR element.
@@ -26,7 +26,7 @@ pub enum MirSourceAnchor {
     /// Provenance belonging to a compiler-generated type-specialized lifecycle definition.
     GeneratedLifecycle(MirHelperReference),
     /// Provenance retained by an imported checked executable template.
-    ImportedExecutable(AnySymbolId),
+    ImportedExecutable(MirImportedExecutableKey),
 }
 
 impl MirSourceAnchor {
@@ -46,8 +46,8 @@ impl MirSourceAnchor {
     }
 
     /// Creates provenance for a checked body imported from a compiled dependency.
-    pub const fn imported_executable(owner: AnySymbolId) -> Self {
-        Self::ImportedExecutable(owner)
+    pub const fn imported_executable(key: MirImportedExecutableKey) -> Self {
+        Self::ImportedExecutable(key)
     }
 
     pub(crate) fn belongs_to(&self, owner: &MirSourceOrigin) -> bool {

@@ -68,8 +68,7 @@ fn validate_role_owners(
     for binding in contract.role_bindings() {
         let role = binding.role();
 
-        if purpose == RuntimeArtifactPurpose::Product
-            && role == RuntimeAbiRole::TestEntrySelection
+        if purpose == RuntimeArtifactPurpose::Product && role == RuntimeAbiRole::TestEntrySelection
         {
             continue;
         }
@@ -78,10 +77,7 @@ fn validate_role_owners(
             component.roles().binary_search(&role).is_ok()
         }) {
             0 => {
-                return Err(RuntimeArtifactMetadataBuildError::MissingRoleOwner {
-                    purpose,
-                    role,
-                });
+                return Err(RuntimeArtifactMetadataBuildError::MissingRoleOwner { purpose, role });
             }
             1 => {}
             _ => {

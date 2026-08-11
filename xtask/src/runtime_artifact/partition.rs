@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use sha2::{Digest, Sha256};
 use bray_target::NativeTarget;
+use sha2::{Digest, Sha256};
 
 use super::command::{CommandError, RuntimeArchiveKind};
 
@@ -57,11 +57,7 @@ impl RuntimeArchivePartitioner {
         Ok(())
     }
 
-    pub(super) fn write(
-        self,
-        target: NativeTarget,
-        output: &Path,
-    ) -> Result<(), CommandError> {
+    pub(super) fn write(self, target: NativeTarget, output: &Path) -> Result<(), CommandError> {
         write_archive(
             &self.tool,
             &output.join(super::command::archive_file_name(
@@ -74,10 +70,7 @@ impl RuntimeArchivePartitioner {
         for (kind, members) in self.components {
             write_archive(
                 &self.tool,
-                &output.join(super::command::archive_file_name(
-                    target,
-                    kind,
-                )),
+                &output.join(super::command::archive_file_name(target, kind)),
                 members.values(),
             )?;
         }

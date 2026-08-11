@@ -167,8 +167,10 @@ impl Lowerer<'_> {
                     current,
                     Self::retained_source(&source),
                     MirOperationKind::AnonymousCallable(
-                        // MIR owns the same immutable nested-unit identity independently of HIR.
-                        expression.unit().clone(),
+                        bray_ir::MirAnonymousCallableReference::bound(
+                            // MIR owns the same immutable nested-unit identity independently of HIR.
+                            expression.unit().clone(),
+                        ),
                     ),
                 )?;
 

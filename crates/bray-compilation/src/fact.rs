@@ -31,8 +31,8 @@ pub(crate) use cancellation::SharedCancellation;
 pub(crate) use cell_map::FactCellMap;
 pub(crate) use key::{
     CodegenArtifactFactKey, CompilationFactKey, ConstantCallFactKey, ConstantInstanceFactKey,
-    IterationSourceFactKey, NativeProductFactKey, OperationSelectionFactKey,
-    RuntimeComponentFactIdentity, SymbolFactKey,
+    ImportedExecutableTemplateAddress, IterationSourceFactKey, NativeProductFactKey,
+    OperationSelectionFactKey, RuntimeComponentFactIdentity, SymbolFactKey,
 };
 pub(crate) use priority::QueryPriorityDemand;
 #[cfg(test)]

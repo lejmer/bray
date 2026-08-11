@@ -59,6 +59,7 @@ mod tests {
             surface,
             facts,
             InterfaceLanguageRevision::new(0),
+            crate::test_support::implementation_configuration(),
         )
         .unwrap_or_else(|error| panic!("decoded export bundle must validate: {error:?}"));
 

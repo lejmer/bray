@@ -24,9 +24,9 @@ use bray_diagnostics::DiagnosticBag;
 use bray_ir::{
     MirAsyncOperation, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirCleanupEdge,
     MirEdge, MirFrameInitializer, MirFrameReference, MirGeneratorOperation, MirHelperReference,
-    MirMemoryOperation, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
-    MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnit,
-    MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
+    MirMemoryOperation, MirOperand, MirOperation, MirOperationKind, MirPlace, MirProjection,
+    MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind,
+    MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
 };
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation, RuntimeAbiRole,
@@ -74,10 +74,13 @@ impl Compilation {
         }
 
         for operation in mir.operations() {
+            let result_type = operation_result_type(mir, operation);
+
             for reference in operation.kind().helper_references() {
                 if let Some(dependency) = self.concrete_codegen_helper_dependency(
                     owner,
                     operation.kind(),
+                    result_type,
                     &reference,
                     target,
                     cancellation,
@@ -301,6 +304,7 @@ impl Compilation {
                         self.codegen_helper(
                             instance,
                             data.kind(),
+                            operation_result_type(instance.mir(), data),
                             realization,
                             reference,
                             target,
@@ -351,6 +355,7 @@ impl Compilation {
         &self,
         owner: &CodegenInstance,
         operation: &MirOperationKind,
+        operation_result_type: Option<TypeId>,
         owner_realization: &ConcreteCodegenInstance,
         reference: MirHelperReference,
         target: &CodegenTarget,
@@ -372,6 +377,7 @@ impl Compilation {
         if let Some(dependency) = self.concrete_codegen_helper_dependency(
             owner_realization,
             operation,
+            operation_result_type,
             &reference,
             target,
             cancellation,
@@ -400,6 +406,7 @@ impl Compilation {
         &self,
         owner: &ConcreteCodegenInstance,
         operation: &MirOperationKind,
+        operation_result_type: Option<TypeId>,
         reference: &MirHelperReference,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
@@ -409,7 +416,10 @@ impl Compilation {
 
         let dependency = match &concrete_reference {
             MirHelperReference::AnonymousCallable(unit) => {
-                self.concrete_codegen_bound_helper(owner, unit.clone())?
+                let callable_type =
+                    operation_result_type.ok_or(FactQueryError::InfrastructureFailure)?;
+
+                self.concrete_codegen_anonymous_callable(owner, unit, callable_type)?
             }
             MirHelperReference::DeclaredCallable(callable) => self.concrete_codegen_callable_data(
                 owner,
@@ -539,8 +549,10 @@ impl Compilation {
             return Err(CodegenFactError::MissingHelperInstance(reference.clone()));
         };
 
-        let template =
-            self.imported_executable_template_with_cancellation(address, cancellation)?;
+        let template = self.imported_executable_template_with_cancellation(
+            crate::fact::ImportedExecutableTemplateAddress::root(address),
+            cancellation,
+        )?;
 
         if template.value().is_none() {
             return Err(CodegenFactError::Diagnostics(
@@ -2143,9 +2155,8 @@ impl Compilation {
             // Generated lifecycle definitions belong to the selected product package.
             MirUnitKey::GeneratedLifecycle(_) => return Ok(product_package.clone()),
             MirUnitKey::ExternalCallable(definition) => definition.symbol(),
-            MirUnitKey::ImportedExecutable(symbol) | MirUnitKey::ExternalRuntimeDefault(symbol) => {
-                *symbol
-            }
+            MirUnitKey::ImportedExecutable(key) => key.owner(),
+            MirUnitKey::ExternalRuntimeDefault(symbol) => *symbol,
         };
 
         let facts = self.binder_facts(cancellation)?;
@@ -2262,10 +2273,11 @@ impl Compilation {
             }
             MirUnitKey::ImportedExecutable(provider) => {
                 let facts = self.binder_facts(cancellation)?;
+                let provider = provider.owner();
 
                 Ok(facts
-                    .runtime_default_subject(*provider)
-                    .map(|subject| subject.map(|_| *provider))
+                    .runtime_default_subject(provider)
+                    .map(|subject| subject.map(|_| provider))
                     .map_err(super::super::binder::binder_fact_error)?)
             }
             MirUnitKey::ExternalRuntimeDefault(provider) => Ok(Some(*provider)),
@@ -3627,6 +3639,26 @@ impl Compilation {
             return self.generated_lifecycle_signature(reference);
         }
 
+        if let Some(callable_type) = instance.anonymous_callable_type() {
+            let callable_type = self.concrete_codegen_type(
+                callable_type,
+                instance.substitution(),
+                Some(instance),
+                cancellation,
+            )?;
+
+            let callable = self
+                .semantic_value_store()?
+                .type_data(callable_type)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let TypeData::Callable(callable) = callable.as_ref() else {
+                return Err(FactQueryError::InfrastructureFailure.into());
+            };
+
+            return callable_type_signature(self, callable);
+        }
+
         if let Some(provider) =
             self.codegen_runtime_default_provider(instance.key(), cancellation)?
         {
@@ -4011,7 +4043,7 @@ impl Compilation {
                 CallableDefinitionId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)
             }
             MirUnitKey::ImportedExecutable(definition) => {
-                CallableDefinitionId::try_new(*definition)
+                CallableDefinitionId::try_new(definition.owner())
                     .ok_or(FactQueryError::InfrastructureFailure)
             }
             MirUnitKey::ExternalCallable(definition) => Ok(*definition),
@@ -4356,10 +4388,23 @@ fn callable_type_signature(
     compilation: &Compilation,
     callable: &bray_symbols::CallableTypeData,
 ) -> Result<CodegenCallableSignature, CodegenFactError> {
-    let result = if is_unit(compilation, callable.result())? {
+    let result_type = if callable.execution() == CallableExecution::Asynchronous {
+        compilation
+            .available_compiler_known_symbols()
+            .unary_representation_type(
+                compilation.semantic_value_store()?,
+                RepresentationRole::Future,
+                callable.result(),
+            )
+            .ok_or(FactQueryError::InfrastructureFailure)?
+    } else {
+        callable.result()
+    };
+
+    let result = if is_unit(compilation, result_type)? {
         CodegenResultMapping::Void
     } else {
-        CodegenResultMapping::direct(callable.result(), None, [])
+        CodegenResultMapping::direct(result_type, None, [])
     };
 
     Ok(CodegenCallableSignature::new(
@@ -4371,6 +4416,13 @@ fn callable_type_signature(
         callable.abi(),
         false,
     ))
+}
+
+fn operation_result_type(mir: &MirUnit, operation: &MirOperation) -> Option<TypeId> {
+    operation
+        .result()
+        .and_then(|result| mir.value(result))
+        .map(bray_ir::MirValue::ty)
 }
 
 fn void_signature(abi: CallableAbi) -> CodegenCallableSignature {
@@ -5690,7 +5742,9 @@ mod tests {
         .expect("test helper dependency must validate");
 
         let reference = MirHelperReference::AnonymousCallable(match dependency.template() {
-            bray_ir::MirUnitKey::Bound(unit) => unit.clone(),
+            bray_ir::MirUnitKey::Bound(unit) => {
+                bray_ir::MirAnonymousCallableReference::bound(unit.clone())
+            }
             bray_ir::MirUnitKey::ExecutableHost(_)
             | bray_ir::MirUnitKey::GeneratedLifecycle(_)
             | bray_ir::MirUnitKey::ImportedExecutable(_)

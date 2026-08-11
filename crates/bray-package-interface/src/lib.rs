@@ -6,7 +6,9 @@ mod artifact;
 mod construction;
 mod decode;
 mod diagnostic;
+mod encoding;
 mod export;
+mod external_key;
 mod hash;
 mod header;
 mod implementation;
@@ -28,6 +30,7 @@ pub use construction::{
     construct_imported_symbol_skeletons,
 };
 pub use diagnostic::InterfaceValidationError;
+pub use encoding::InterfaceSectionEncoding;
 pub use export::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
     PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
@@ -39,17 +42,28 @@ pub use header::{
     InterfaceRequiredFlags,
 };
 pub use implementation::{
-    ExecutableTemplateDecodeError, ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
+    CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION, ExecutableTemplateDecodeError,
+    ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
+    ImplementationExternalSymbolIdentity, ImplementationMirSchemaRevision,
+    ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
+    ImplementationSpecializationWitness, ImplementationTemplateSchemaRevision,
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
-    PackageImplementationArtifact, PackageImplementationArtifactBuildError,
-    decode_executable_template, encode_executable_template,
+    InterfacePreSpecializedMir, PackageImplementationArtifact,
+    PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
+    PackageImplementationIdentity, PackageImplementationSpecializationKey,
+    PackageImplementationTargetFact, PackageImplementationTargetFactValue,
+    PackageImplementationTargetFacts, PreSpecializedMirDecodeError, decode_executable_template,
+    encode_executable_template, encode_pre_specialized_mir,
 };
 pub use inspection::{
     InterfaceInspectionRecord, InterfaceInspectionRecordKind, InterfaceInspectionSection,
     InterfaceSectionIndexEntry, PackageInterfaceInspection,
 };
 pub use limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
-pub use section::{InterfaceSectionTag, ValidatedInterfaceSection};
+pub use section::{
+    InterfaceSectionCompatibility, InterfaceSectionRevision, InterfaceSectionTag,
+    ValidatedInterfaceSection,
+};
 pub use semantic::{
     EncodedSemanticSection, ImportedAbiDependency, ImportedCallableContractFact,
     ImportedCallableParameterDefaultFact, ImportedCallableSignatureFact, ImportedConstraintFact,

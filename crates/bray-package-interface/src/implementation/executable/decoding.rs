@@ -6,15 +6,16 @@ use bray_bound_tree::{
     PatternOperation, PatternProjection, SelectedConversion, SelectedImplementationWitness,
 };
 use bray_ir::{
-    MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirBlockKind, MirCall,
-    MirCallArgument, MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase,
-    MirConstruction, MirConstructionInput, MirEdge, MirFrameDescriptor, MirFrameReference,
-    MirFrameStateFacts, MirGeneratorKind, MirGeneratorOperation, MirImmediateValue,
-    MirMemoryOperation, MirNumericConversionKind, MirOperand, MirOperationKind, MirPanicCause,
-    MirPatternPredicate, MirPlace, MirProjection, MirProjectionKind, MirRuntimeReference,
-    MirSourceAnchor, MirStorageId, MirStorageKind, MirStoreKind, MirSwitchCase, MirTargetFacts,
-    MirTerminatorKind, MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit,
-    MirUnitBuildError, MirUnitBuilder, MirUnitId, MirUnitKind, MirValueId,
+    MirAggregate, MirAggregateKind, MirAnonymousCallableReference, MirBinaryOperator, MirBlockId,
+    MirBlockKind, MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirCleanupEdge,
+    MirCleanupPhase, MirConstruction, MirConstructionInput, MirEdge, MirExecutableTemplateId,
+    MirFrameDescriptor, MirFrameReference, MirFrameStateFacts, MirGeneratorKind,
+    MirGeneratorOperation, MirImmediateValue, MirImportedExecutableKey, MirMemoryOperation,
+    MirNumericConversionKind, MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate,
+    MirPlace, MirProjection, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageId,
+    MirStorageKind, MirStoreKind, MirSwitchCase, MirTargetFacts, MirTerminatorKind,
+    MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuildError,
+    MirUnitBuilder, MirUnitId, MirUnitKind, MirValueId,
 };
 use bray_runtime_interface::{
     ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiOperation,
@@ -67,6 +68,9 @@ pub fn decode_executable_template(
         facts,
         symbols,
         unit,
+        owner,
+        identity: template.identity(),
+        family_size: template.family_size(),
     };
 
     if read_u32(&mut decoder.reader)? != FORMAT_VERSION {
@@ -77,8 +81,9 @@ pub fn decode_executable_template(
 
     let kind = decoder.unit_kind()?;
     let entry_slot = read_u32(&mut decoder.reader)?;
-    let source = MirSourceAnchor::imported_executable(owner);
-    let mut builder = MirUnitBuilder::for_imported_executable(unit, owner, kind, target);
+    let key = MirImportedExecutableKey::new(owner, template.identity());
+    let source = MirSourceAnchor::imported_executable(key);
+    let mut builder = MirUnitBuilder::for_imported_executable(unit, key, kind, target);
 
     let block_count = decoder.count()?;
     let mut block_records = decoder.items(block_count)?;
@@ -297,6 +302,9 @@ struct Decoder<'data, 'facts, R> {
     facts: &'facts ImportedSemanticFacts,
     symbols: &'facts R,
     unit: MirUnitId,
+    owner: AnySymbolId,
+    identity: MirExecutableTemplateId,
+    family_size: u32,
 }
 
 fn operation_owners(
@@ -532,6 +540,19 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             19 => Ok(MirOperationKind::DeclaredCallable(
                 MirCallableReference::new(self.callable_instance()?, self.callable_abi()?),
             )),
+            20 => {
+                let identity = MirExecutableTemplateId::new(read_u32(&mut self.reader)?);
+
+                if identity.raw() <= self.identity.raw() || identity.raw() >= self.family_size {
+                    return Err(ExecutableTemplateDecodeError::Malformed);
+                }
+
+                Ok(MirOperationKind::AnonymousCallable(
+                    MirAnonymousCallableReference::imported(MirImportedExecutableKey::new(
+                        self.owner, identity,
+                    )),
+                ))
+            }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

@@ -2,13 +2,13 @@ use std::str;
 use std::sync::Arc;
 
 use bray_symbols::{
-    ExternalDeclarationIdentity, ExternalSymbolKey, ExternalSymbolKeyData, ModulePathKey,
-    PackageIdentity, SymbolKey, SymbolKeyData, SymbolKind, SymbolName, SymbolOrdinal,
-    SynthesizedSymbolKey, SynthesizedSymbolRole,
+    ExternalSymbolKey, SymbolKey, SymbolKeyData, SymbolKind, SymbolOrdinal, SynthesizedSymbolKey,
+    SynthesizedSymbolRole,
 };
 
 use crate::decode::DecodeBudget;
 pub(super) use crate::decode::{map_wire_error, read_optional_u32, read_u32};
+pub(super) use crate::external_key::write_external_key;
 use crate::tag::WireTag;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{
@@ -177,148 +177,11 @@ pub(super) fn read_symbol_references(
     Ok(references)
 }
 
-pub(super) fn write_external_key(encoder: &mut WireEncoder, key: &ExternalSymbolKey) {
-    let mut components = Vec::new();
-    let mut current = Some(key);
-
-    while let Some(key) = current {
-        components.push(key);
-
-        current = match key.data() {
-            ExternalSymbolKeyData::Package(_) => None,
-            ExternalSymbolKeyData::Module { package, .. } => Some(package),
-            ExternalSymbolKeyData::Declaration { owner, .. }
-            | ExternalSymbolKeyData::Synthesized { owner, .. } => Some(owner),
-        };
-    }
-
-    components.reverse();
-    write_count(encoder, components.len());
-
-    for component in components {
-        encoder.write_u32(component.kind().to_wire());
-
-        match component.data() {
-            ExternalSymbolKeyData::Package(package) => {
-                encoder.write_u32(1);
-                write_string(encoder, package.as_str());
-            }
-            ExternalSymbolKeyData::Module { path, .. } => {
-                encoder.write_u32(2);
-                write_count(encoder, path.segments().len());
-
-                for segment in path.segments() {
-                    write_string(encoder, segment);
-                }
-            }
-            ExternalSymbolKeyData::Declaration { identity, .. } => {
-                encoder.write_u32(3);
-
-                match identity {
-                    ExternalDeclarationIdentity::Name(name) => {
-                        encoder.write_u32(1);
-                        write_string(encoder, name.as_str());
-                    }
-                    ExternalDeclarationIdentity::Ordinal(ordinal) => {
-                        encoder.write_u32(2);
-                        encoder.write_u32(ordinal.raw());
-                    }
-                }
-            }
-            ExternalSymbolKeyData::Synthesized { role, ordinal, .. } => {
-                encoder.write_u32(4);
-                encoder.write_u32(role.to_wire());
-
-                write_optional_u32(encoder, ordinal.map(SymbolOrdinal::raw));
-            }
-        }
-    }
-}
-
 pub(super) fn read_external_key(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {
-    let limits = context.limits();
-    let count = read_count(reader, limits, InterfaceLimit::ExternalReferenceCount)?;
-
-    context.charge_external_reference(count)?;
-
-    if count == 0 {
-        return Err(InterfaceValidationError::Malformed);
-    }
-
-    let mut key = None;
-
-    for _ in 0..count {
-        let kind =
-            SymbolKind::from_wire(read_u32(reader)?).ok_or(InterfaceValidationError::Malformed)?;
-
-        let shape = read_u32(reader)?;
-
-        key = Some(match shape {
-            1 if key.is_none() && kind == SymbolKind::Package => {
-                let package = PackageIdentity::try_new(read_string(reader, context)?)
-                    .ok_or(InterfaceValidationError::Malformed)?;
-
-                ExternalSymbolKey::package(package)
-            }
-            2 if kind == SymbolKind::Module => {
-                let owner = key.ok_or(InterfaceValidationError::Malformed)?;
-                let segment_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-
-                let mut segments = context.allocate_items(reader, segment_count)?;
-
-                for _ in 0..segment_count {
-                    segments.push(read_string(reader, context)?);
-                }
-
-                let path =
-                    ModulePathKey::try_new(segments).ok_or(InterfaceValidationError::Malformed)?;
-
-                ExternalSymbolKey::module(owner, path).ok_or(InterfaceValidationError::Malformed)?
-            }
-            3 => {
-                let owner = key.ok_or(InterfaceValidationError::Malformed)?;
-
-                match read_u32(reader)? {
-                    1 => {
-                        let name = SymbolName::try_new(read_string(reader, context)?)
-                            .ok_or(InterfaceValidationError::Malformed)?;
-
-                        ExternalSymbolKey::named(owner, kind, name)
-                    }
-                    2 => ExternalSymbolKey::ordinal(
-                        owner,
-                        kind,
-                        SymbolOrdinal::new(read_u32(reader)?),
-                    ),
-                    _ => return Err(InterfaceValidationError::Malformed),
-                }
-                .ok_or(InterfaceValidationError::Malformed)?
-            }
-            4 => {
-                let owner = key.ok_or(InterfaceValidationError::Malformed)?;
-
-                let role = SynthesizedSymbolRole::from_wire(read_u32(reader)?)
-                    .ok_or(InterfaceValidationError::Malformed)?;
-
-                let ordinal = read_optional_u32(reader)?.map(SymbolOrdinal::new);
-
-                let key = ExternalSymbolKey::synthesized(owner, role, ordinal)
-                    .ok_or(InterfaceValidationError::Malformed)?;
-
-                if key.kind() != kind {
-                    return Err(InterfaceValidationError::Malformed);
-                }
-
-                key
-            }
-            _ => return Err(InterfaceValidationError::Malformed),
-        });
-    }
-
-    key.ok_or(InterfaceValidationError::Malformed)
+    crate::external_key::read_external_key(reader, &mut context.budget)
 }
 
 pub(crate) struct SemanticDecodeContext {

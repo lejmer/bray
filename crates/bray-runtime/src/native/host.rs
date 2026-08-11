@@ -84,11 +84,7 @@ pub(super) fn record_outcome(outcome: NativeRunOutcome) {
     }
 }
 
-pub(super) fn record_panic(
-    cause: NativePanicCause,
-    source: NativeSourceAnchor,
-    message: String,
-) {
+pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, message: String) {
     if let Some(callbacks) = callbacks() {
         (callbacks.record_panic)(cause, source, message);
     }
