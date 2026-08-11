@@ -193,6 +193,7 @@ enum DiagnosticArgValueJson {
     ArtifactKind(&'static str),
     ArtifactOrdinal(u32),
     TargetRepresentation(&'static str),
+    TargetIdentity(String),
     CallableAbi(&'static str),
     AlignmentKind(&'static str),
     Character(char),
@@ -207,6 +208,7 @@ enum DiagnosticArgValueJson {
     InterfaceSection(&'static str),
     IoErrorKind(&'static str),
     OutputSink(DiagnosticOutputSinkJson),
+    RuntimeArtifactProblem(DiagnosticRuntimeArtifactProblemJson),
     Visibility(&'static str),
     ModuleTrust(&'static str),
     SourceName(String),
@@ -238,6 +240,9 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::TargetRepresentation(kind) => {
                 Self::TargetRepresentation((*kind).as_str())
             }
+            DiagnosticArgValue::TargetIdentity(identity) => {
+                Self::TargetIdentity(identity.to_owned())
+            }
             DiagnosticArgValue::CallableAbi(abi) => Self::CallableAbi((*abi).as_str()),
             DiagnosticArgValue::AlignmentKind(kind) => Self::AlignmentKind((*kind).as_str()),
             DiagnosticArgValue::Character(character) => Self::Character(*character),
@@ -259,6 +264,11 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::IoErrorKind(kind) => Self::IoErrorKind((*kind).as_str()),
             DiagnosticArgValue::OutputSink(sink) => {
                 Self::OutputSink(DiagnosticOutputSinkJson::from_sink(sink))
+            }
+            DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
+                Self::RuntimeArtifactProblem(DiagnosticRuntimeArtifactProblemJson::from_problem(
+                    problem,
+                ))
             }
             DiagnosticArgValue::Visibility(visibility) => Self::Visibility((*visibility).as_str()),
             DiagnosticArgValue::ModuleTrust(trust) => Self::ModuleTrust((*trust).as_str()),
@@ -283,6 +293,99 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(ty)),
             DiagnosticArgValue::SelectionKind(kind) => Self::SelectionKind((*kind).as_str()),
         }
+    }
+}
+
+#[derive(Serialize)]
+struct DiagnosticRuntimeArtifactProblemJson {
+    category: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    purpose: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capability: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    component: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependency: Option<String>,
+}
+
+impl DiagnosticRuntimeArtifactProblemJson {
+    fn from_problem(problem: &bray_diagnostics::DiagnosticRuntimeArtifactProblem) -> Self {
+        use bray_diagnostics::DiagnosticRuntimeArtifactProblem;
+
+        let mut output = Self {
+            category: problem.as_str(),
+            purpose: None,
+            role: None,
+            capability: None,
+            component: None,
+            dependency: None,
+        };
+
+        match problem {
+            DiagnosticRuntimeArtifactProblem::DuplicateContractRole(role)
+            | DiagnosticRuntimeArtifactProblem::CompilerOwnedRole(role)
+            | DiagnosticRuntimeArtifactProblem::UnknownComponentRole(role) => {
+                output.role = Some(role.to_owned());
+            }
+            DiagnosticRuntimeArtifactProblem::UnknownComponentCapability(capability) => {
+                output.capability = Some(capability.to_owned());
+            }
+            DiagnosticRuntimeArtifactProblem::UnreferencedSupportComponent(component)
+            | DiagnosticRuntimeArtifactProblem::DuplicateComponent(component)
+            | DiagnosticRuntimeArtifactProblem::ComponentDependencyCycle(component)
+            | DiagnosticRuntimeArtifactProblem::TestRoleInProductComponent(component) => {
+                output.component = Some(component.to_owned());
+            }
+            DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
+                component,
+                dependency,
+            } => {
+                output.component = Some(component.to_owned());
+                output.dependency = Some(dependency.to_owned());
+            }
+            DiagnosticRuntimeArtifactProblem::MissingRoleOwner { purpose, role }
+            | DiagnosticRuntimeArtifactProblem::DuplicateRoleOwner { purpose, role } => {
+                output.purpose = Some(purpose.as_str());
+                output.role = Some(role.to_owned());
+            }
+            DiagnosticRuntimeArtifactProblem::MissingCapabilityOwner {
+                purpose,
+                capability,
+            }
+            | DiagnosticRuntimeArtifactProblem::DuplicateCapabilityOwner {
+                purpose,
+                capability,
+            } => {
+                output.purpose = Some(purpose.as_str());
+                output.capability = Some(capability.to_owned());
+            }
+            DiagnosticRuntimeArtifactProblem::MetadataSizeLimitExceeded
+            | DiagnosticRuntimeArtifactProblem::MalformedMetadata
+            | DiagnosticRuntimeArtifactProblem::UnsupportedFormat
+            | DiagnosticRuntimeArtifactProblem::InvalidRuntimeIdentity
+            | DiagnosticRuntimeArtifactProblem::InvalidArtifactIdentity
+            | DiagnosticRuntimeArtifactProblem::InvalidTarget
+            | DiagnosticRuntimeArtifactProblem::InvalidPanicAbi
+            | DiagnosticRuntimeArtifactProblem::UnknownCapability
+            | DiagnosticRuntimeArtifactProblem::UnknownRole
+            | DiagnosticRuntimeArtifactProblem::InvalidRoleSymbol
+            | DiagnosticRuntimeArtifactProblem::UnknownRoleImplementation
+            | DiagnosticRuntimeArtifactProblem::InvalidNativeLinkName
+            | DiagnosticRuntimeArtifactProblem::UnknownNativeLinkKind
+            | DiagnosticRuntimeArtifactProblem::UnknownComponentPurpose
+            | DiagnosticRuntimeArtifactProblem::InvalidComponentIdentity
+            | DiagnosticRuntimeArtifactProblem::InvalidArchiveDigest
+            | DiagnosticRuntimeArtifactProblem::MissingCooperativeExecution
+            | DiagnosticRuntimeArtifactProblem::InvalidArchiveFileName
+            | DiagnosticRuntimeArtifactProblem::MissingComponent
+            | DiagnosticRuntimeArtifactProblem::UnexpectedComponent
+            | DiagnosticRuntimeArtifactProblem::ArchiveFileNameMismatch => {}
+        }
+
+        output
     }
 }
 
@@ -479,7 +582,8 @@ mod tests {
         DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticId, DiagnosticInterfaceLimit,
         DiagnosticInterfaceSection, DiagnosticKind, DiagnosticModuleTrust, DiagnosticNameKind,
         DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
-        DiagnosticRuntimeAbiVersion, DiagnosticSelectionKind, DiagnosticType,
+        DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind,
+        DiagnosticType,
         DiagnosticTypeArgument, DiagnosticVisibility, SeverityKind,
     };
     use bray_source::{SourceSpan, TextRange, TextSize};
@@ -747,6 +851,49 @@ mod tests {
         assert_eq!(args[1]["name"], "actual_runtime_abi");
         assert_eq!(args[1]["value"]["value"]["major"], 1);
         assert_eq!(args[1]["value"]["value"]["minor"], 4);
+    }
+
+    #[test]
+    fn json_output_serializes_runtime_artifact_problems_with_typed_details() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::RuntimeArtifactMetadataInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::runtime_artifact_problem(
+            DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
+                component: "runtime.scheduler".to_owned(),
+                dependency: "runtime.reactor".to_owned(),
+            },
+        ));
+
+        let mut output = Vec::new();
+
+        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+            .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+        let output: serde_json::Value = serde_json::from_slice(&output)
+            .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+        let argument = &output["diagnostics"][0]["args"][0];
+
+        assert_eq!(argument["name"], "runtime_artifact_problem");
+        assert_eq!(argument["value"]["kind"], "runtime_artifact_problem");
+
+        assert_eq!(
+            argument["value"]["value"]["category"],
+            "invalid_component_dependency"
+        );
+
+        assert_eq!(
+            argument["value"]["value"]["component"],
+            "runtime.scheduler"
+        );
+
+        assert_eq!(
+            argument["value"]["value"]["dependency"],
+            "runtime.reactor"
+        );
     }
 
     #[test]

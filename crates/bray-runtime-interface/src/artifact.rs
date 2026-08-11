@@ -1,5 +1,6 @@
 //! Target runtime artifact catalogs and exact product selections.
 
+mod archive;
 mod catalog;
 mod selection;
 

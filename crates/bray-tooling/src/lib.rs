@@ -33,7 +33,7 @@ pub use product::{
     project_output_directory, selected_target,
 };
 #[cfg(feature = "compiler")]
-pub use runtime::load_runtime_artifact;
+pub use runtime::{RuntimeArtifactLoadError, load_runtime_artifact};
 #[cfg(feature = "analysis")]
 pub use source::{
     SourceInputError, compilation_request_from_file_arguments, source_inputs_from_file_arguments,

@@ -991,6 +991,48 @@ mod tests {
         }
     }
 
+    struct DriverExecutor;
+
+    impl ToolExecutor for DriverExecutor {
+        fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ()> {
+            if request.tool() != Tool::Compiler {
+                return Err(());
+            }
+
+            let result = bray_driver::run_result(
+                std::iter::once(OsString::from("brayc"))
+                    .chain(request.arguments().iter().cloned()),
+            );
+
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+
+            bray_tooling::write_diagnostics(
+                result.diagnostics(),
+                None,
+                result.output_format(),
+                &mut stdout,
+                &mut stderr,
+            )
+            .map_err(|_| ())?;
+
+            Ok(ToolOutput::new(
+                result.exit_code() == ExitCode::SUCCESS,
+                String::from_utf8(stdout).map_err(|_| ())?,
+                String::from_utf8(stderr).map_err(|_| ())?,
+            ))
+        }
+
+        fn serve(
+            &self,
+            _: ToolRequest,
+            _: Box<dyn Read + Send>,
+            _: &mut dyn Write,
+        ) -> Result<ToolOutput, ()> {
+            Err(())
+        }
+    }
+
     fn argument_value<'arguments>(
         arguments: &'arguments [OsString],
         name: &str,
@@ -1298,6 +1340,89 @@ mod tests {
             "compiler request should contain runtime metadata {runtime:?}: {:#?}",
             request.arguments
         );
+    }
+
+    #[test]
+    fn installed_toolchain_without_runtime_reports_exact_path_for_native_commands() {
+        let workspace = ProjectWorkspace::basic();
+
+        workspace.write(
+            "app/bray-package.json",
+            r#"{
+                "format": 1,
+                "identity": "example.application",
+                "version": {"workspace": true},
+                "features": [],
+                "source_roots": [{"name": "main", "path": "src"}],
+                "products": [
+                    {
+                        "name": "application",
+                        "kind": "executable",
+                        "source_roots": ["main"],
+                        "targets": ["native"],
+                        "dependencies": [],
+                        "outputs": ["executable"]
+                    },
+                    {
+                        "name": "tests",
+                        "kind": "test",
+                        "source_roots": ["main"],
+                        "targets": ["native"],
+                        "dependencies": [],
+                        "outputs": ["executable"]
+                    }
+                ]
+            }"#,
+        );
+
+        let toolchain = unique_temporary_directory();
+        let standard_library = toolchain.join("lib/bray/standard-library");
+
+        std::fs::create_dir_all(&standard_library).unwrap_or_else(|error| {
+            panic!("synthetic standard library directory must be created: {error}")
+        });
+
+        let runtime = std::path::absolute(&toolchain)
+            .unwrap_or_else(|error| panic!("test toolchain path must resolve: {error}"))
+            .join("lib")
+            .join("bray")
+            .join("runtime")
+            .join("x86_64-unknown-linux-gnu")
+            .join("bray-runtime.brayrt");
+
+        for command in ["build", "run", "test"] {
+            let result = run_tack_result_with_input(
+                [
+                    OsString::from("bray"),
+                    OsString::from("--workspace"),
+                    workspace.path().as_os_str().to_os_string(),
+                    OsString::from("--toolchain-root"),
+                    toolchain.as_os_str().to_os_string(),
+                    OsString::from(command),
+                ],
+                &DriverExecutor,
+                Cursor::new(Vec::new()),
+            );
+
+            assert_eq!(result.exit_code(), ExitCode::FAILURE, "{command}");
+
+            assert!(
+                result.stderr().contains("E1116"),
+                "{command}: {}",
+                result.stderr()
+            );
+
+            assert!(
+                result.stderr().contains(&runtime.display().to_string()),
+                "{command}: {}",
+                result.stderr()
+            );
+
+            assert!(!result.stderr().contains("E1106"), "{command}");
+        }
+
+        std::fs::remove_dir_all(&toolchain)
+            .unwrap_or_else(|error| panic!("synthetic toolchain must be removed: {error}"));
     }
 
     #[test]

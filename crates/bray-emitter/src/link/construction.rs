@@ -1032,7 +1032,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"runtime archive";
+        let bytes = b"!<arch>\n";
 
         for archive in ["bray_runtime_product.a", "bray_runtime_test.a"] {
             std::fs::write(directory.path().join(archive), bytes)
