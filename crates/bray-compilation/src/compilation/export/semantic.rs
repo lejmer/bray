@@ -50,10 +50,9 @@ use bray_symbols::{
     GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
     ImplementationCoherenceFact, ImplementationInstanceId, ImplementationSymbolId,
     InterfaceSupportEntityId, InterfaceSymbolId, NamedTypeSymbolId, PredicateDefinitionFact,
-    PredicateDefinitionState,
-    RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
-    RuntimeDefaultTemplateReference, SemanticValueStore, StructFieldDefaultValue,
-    SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
+    PredicateDefinitionState, RuntimeDefaultGenericContext, RuntimeDefaultPresence,
+    RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, SemanticValueStore,
+    StructFieldDefaultValue, SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
     TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact, TypeData,
     TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
 };
@@ -261,8 +260,8 @@ fn export_executable_template_family(
 > {
     let family = executable_template_family(compilation, root)?;
 
-    let family_size = u32::try_from(family.len())
-        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+    let family_size =
+        u32::try_from(family.len()).map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
     let identities = family
         .iter()
@@ -348,17 +347,16 @@ fn export_executable_template_family(
         templates.push(template);
     }
 
-    let runtime_requirement = bray_runtime_interface::RuntimeRequirements::try_merge(
-        family_requirements,
-    )
-    .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
-    .map(|requirements| {
-        InterfaceRuntimeRequirement::new(
-            InterfaceSymbolReference::Local(owner),
-            frames,
-            requirements,
-        )
-    });
+    let runtime_requirement =
+        bray_runtime_interface::RuntimeRequirements::try_merge(family_requirements)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+            .map(|requirements| {
+                InterfaceRuntimeRequirement::new(
+                    InterfaceSymbolReference::Local(owner),
+                    frames,
+                    requirements,
+                )
+            });
 
     Ok((templates, runtime_requirement))
 }

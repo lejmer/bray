@@ -272,7 +272,7 @@ fn package_interface_export_bundle_for(
         InterfaceLanguageRevision::new(0),
         implementation_configuration(),
     )
-        .unwrap_or_else(|error| panic!("test export bundle must be valid: {error:?}"))
+    .unwrap_or_else(|error| panic!("test export bundle must be valid: {error:?}"))
 }
 
 /// Builds the representative implementation target configuration used by artifact tests.

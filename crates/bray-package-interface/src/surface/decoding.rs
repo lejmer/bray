@@ -82,8 +82,7 @@ fn required_section(
     tag: InterfaceSectionTag,
 ) -> Result<ValidatedInterfaceSection<'_>, InterfaceValidationError> {
     interface
-        .section(tag)
-        ?
+        .section(tag)?
         .ok_or(InterfaceValidationError::Malformed)
 }
 

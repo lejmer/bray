@@ -240,9 +240,7 @@ impl PackageInterfaceExportBundle {
         templates.sort_by_key(|template| (template.owner(), template.identity()));
 
         for pair in templates.windows(2) {
-            if (pair[0].owner(), pair[0].identity())
-                == (pair[1].owner(), pair[1].identity())
-            {
+            if (pair[0].owner(), pair[0].identity()) == (pair[1].owner(), pair[1].identity()) {
                 return Err(
                     PackageInterfaceExportBuildError::DuplicateExecutableTemplate(pair[0].owner()),
                 );
@@ -269,9 +267,7 @@ impl PackageInterfaceExportBundle {
     }
 
     /// Returns the exact target, runtime, and ABI identity of implementation payloads.
-    pub const fn implementation_configuration(
-        &self,
-    ) -> &crate::PackageImplementationConfiguration {
+    pub const fn implementation_configuration(&self) -> &crate::PackageImplementationConfiguration {
         &self.implementation_configuration
     }
 

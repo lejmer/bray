@@ -144,7 +144,8 @@ pub(crate) fn decode_zstd_frame(
     encoded: &[u8],
     decoded_length: u64,
 ) -> Result<Arc<[u8]>, InterfaceValidationError> {
-    let capacity = usize::try_from(decoded_length).map_err(|_| InterfaceValidationError::Malformed)?;
+    let capacity =
+        usize::try_from(decoded_length).map_err(|_| InterfaceValidationError::Malformed)?;
 
     let mut decompressor =
         zstd::bulk::Decompressor::new().map_err(|_| InterfaceValidationError::Malformed)?;

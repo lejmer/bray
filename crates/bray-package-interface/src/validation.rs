@@ -5,16 +5,13 @@ use std::sync::{Arc, OnceLock};
 use crate::diagnostic::InterfaceValidationError;
 use crate::encoding::{decode_zstd_frame, validate_zstd_frame};
 use crate::hash::{
-    compute_artifact_hash, compute_content_hash, compute_section_content_hash,
-    compute_section_hash,
+    compute_artifact_hash, compute_content_hash, compute_section_content_hash, compute_section_hash,
 };
 use crate::header::{BYTE_ORDER_MARKER, CURRENT_FORMAT_REVISION, InterfaceHeader, MAGIC};
 use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
 use crate::section::{DirectoryEntry, InterfaceSectionTag, ValidatedInterfaceSection};
 use crate::wire::WireDecodeError;
-use crate::{
-    InterfaceSectionCompatibility, InterfaceSectionEncoding, InterfaceSectionRevision,
-};
+use crate::{InterfaceSectionCompatibility, InterfaceSectionEncoding, InterfaceSectionRevision};
 
 pub(crate) fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
     values.windows(2).all(|pair| pair[0] < pair[1])
@@ -134,9 +131,7 @@ impl ValidatedPackageInterface {
     }
 
     /// Decodes every known section and returns views in canonical tag order.
-    pub fn sections(
-        &self,
-    ) -> Result<Vec<ValidatedInterfaceSection<'_>>, InterfaceValidationError> {
+    pub fn sections(&self) -> Result<Vec<ValidatedInterfaceSection<'_>>, InterfaceValidationError> {
         self.directory
             .iter()
             .enumerate()
@@ -857,7 +852,9 @@ mod tests {
         assert_eq!(
             interface
                 .sections()
-                .unwrap_or_else(|error| panic!("optional sections must remain skippable: {error:?}"))
+                .unwrap_or_else(|error| panic!(
+                    "optional sections must remain skippable: {error:?}"
+                ))
                 .len(),
             0
         );
@@ -1085,9 +1082,10 @@ mod tests {
 
         let provenance = interface
             .directory
-            .binary_search_by_key(&InterfaceSectionTag::SourceProvenance.wire_value(), |entry| {
-                entry.raw_tag()
-            })
+            .binary_search_by_key(
+                &InterfaceSectionTag::SourceProvenance.wire_value(),
+                |entry| entry.raw_tag(),
+            )
             .unwrap_or_else(|_| panic!("provenance directory entry must exist"));
 
         assert_eq!(

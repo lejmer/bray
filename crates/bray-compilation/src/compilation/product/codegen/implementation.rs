@@ -383,10 +383,7 @@ impl Compilation {
                 .metadata()
                 .map_or(0, |metadata| metadata.len());
 
-            profile.add_runtime_artifact(
-                component.metadata().identity().as_str(),
-                component_bytes,
-            );
+            profile.add_runtime_artifact(component.metadata().identity().as_str(), component_bytes);
         }
 
         profile.add_metric(
@@ -2807,7 +2804,7 @@ mod tests {
                         template.family_size(),
                         [0_u8],
                     )
-                        .unwrap_or_else(|| panic!("malformed test payload must remain nonempty"))
+                    .unwrap_or_else(|| panic!("malformed test payload must remain nonempty"))
                 } else {
                     template.clone()
                 }
@@ -2888,19 +2885,23 @@ mod tests {
                     )
                     .ok()?;
 
-                root.value().as_ref()?.operations().iter().find_map(|operation| {
-                    let MirOperationKind::AnonymousCallable(
-                        bray_ir::MirAnonymousCallableReference::Imported(key),
-                    ) = operation.kind()
-                    else {
-                        return None;
-                    };
+                root.value()
+                    .as_ref()?
+                    .operations()
+                    .iter()
+                    .find_map(|operation| {
+                        let MirOperationKind::AnonymousCallable(
+                            bray_ir::MirAnonymousCallableReference::Imported(key),
+                        ) = operation.kind()
+                        else {
+                            return None;
+                        };
 
-                    Some(crate::fact::ImportedExecutableTemplateAddress::new(
-                        symbol,
-                        key.template(),
-                    ))
-                })
+                        Some(crate::fact::ImportedExecutableTemplateAddress::new(
+                            symbol,
+                            key.template(),
+                        ))
+                    })
             })
             .unwrap_or_else(|| panic!("imported generic callable must reference a nested template"))
     }

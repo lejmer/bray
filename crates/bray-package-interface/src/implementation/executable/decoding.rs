@@ -549,8 +549,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
                 Ok(MirOperationKind::AnonymousCallable(
                     MirAnonymousCallableReference::imported(MirImportedExecutableKey::new(
-                        self.owner,
-                        identity,
+                        self.owner, identity,
                     )),
                 ))
             }

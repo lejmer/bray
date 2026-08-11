@@ -1,6 +1,6 @@
+use crate::InterfaceSectionEncoding;
 use crate::hash::{InterfaceSectionContentHash, InterfaceSectionHash};
 use crate::wire::{WireDecodeError, WireReader};
-use crate::InterfaceSectionEncoding;
 
 /// Exact revision of one package-interface section's decoded representation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

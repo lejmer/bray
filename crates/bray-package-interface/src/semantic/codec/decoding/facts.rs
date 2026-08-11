@@ -454,12 +454,16 @@ mod tests {
             runtime_requirements(
                 Some(runtime),
                 [],
-                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0))),
+                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(
+                    1, 0,
+                ))),
             ),
             runtime_requirements(
                 None,
                 [RuntimeAbiRole::TaskStart],
-                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0))),
+                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(
+                    1, 0,
+                ))),
             ),
         ] {
             let facts = bundle.semantic_facts().clone().with_runtime_requirements([
@@ -488,11 +492,7 @@ mod tests {
             InterfaceRuntimeRequirement::new(
                 owner.clone(),
                 [],
-                runtime_requirements(
-                    None,
-                    [],
-                    Some(ProtectedFrameAbiVersions::uniform(abi)),
-                ),
+                runtime_requirements(None, [], Some(ProtectedFrameAbiVersions::uniform(abi))),
             ),
             InterfaceRuntimeRequirement::new(
                 owner,
@@ -1044,7 +1044,9 @@ mod tests {
             runtime_requirements(
                 None,
                 [],
-                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0))),
+                Some(ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(
+                    1, 0,
+                ))),
             ),
         )
     }

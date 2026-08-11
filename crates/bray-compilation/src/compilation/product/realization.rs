@@ -416,8 +416,8 @@ impl Compilation {
 
         let dependency = match &concrete_reference {
             MirHelperReference::AnonymousCallable(unit) => {
-                let callable_type = operation_result_type
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let callable_type =
+                    operation_result_type.ok_or(FactQueryError::InfrastructureFailure)?;
 
                 self.concrete_codegen_anonymous_callable(owner, unit, callable_type)?
             }

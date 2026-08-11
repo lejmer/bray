@@ -179,12 +179,7 @@ impl Compilation {
                 instance.template().clone(),
             )),
             MirUnitKey::ImportedExecutable(key) => self
-                .imported_executable_mir(
-                    *key,
-                    mir_unit,
-                    instance.target().clone(),
-                    cancellation,
-                )?
+                .imported_executable_mir(*key, mir_unit, instance.target().clone(), cancellation)?
                 .ok_or_else(|| CodegenFactError::MirUnavailable(instance.template().clone())),
             MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
                 CodegenFactError::MirUnavailable(instance.template().clone()),

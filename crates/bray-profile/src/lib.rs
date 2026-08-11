@@ -20,8 +20,8 @@ pub use model::{
     CompilationProfileMetricDescriptor, CompilationProfileMode,
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
     CompilationProfileOutcome, CompilationProfileQueryDescriptor,
-    CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileSubject,
-    CompilationProfileRuntimeArtifact, CompilationProfileSubjectKind, CompilationProfileTimeBreakdown,
+    CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileRuntimeArtifact,
+    CompilationProfileSubject, CompilationProfileSubjectKind, CompilationProfileTimeBreakdown,
     CompilationProfileUnit,
 };
 pub use validation::CompilationProfileValidationError;

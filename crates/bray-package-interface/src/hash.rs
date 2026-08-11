@@ -2,10 +2,10 @@ use std::fmt;
 
 use blake3::Hasher;
 
+use crate::InterfaceSectionTag;
 use crate::header::InterfaceHeader;
 use crate::section::DirectoryEntry;
 use crate::wire::WireEncoder;
-use crate::InterfaceSectionTag;
 
 const CONTENT_HASH_DOMAIN: &[u8] = b"bray.package-interface.content.v1";
 const SECTION_CONTENT_HASH_DOMAIN: &[u8] = b"bray.package-interface.section-content.v1";
@@ -102,9 +102,7 @@ pub(crate) fn compute_section_content_hash(
 
 pub(crate) fn compute_content_hash(
     header: &InterfaceHeader,
-    sections: impl IntoIterator<
-        Item = (InterfaceSectionTag, u64, InterfaceSectionContentHash),
-    >,
+    sections: impl IntoIterator<Item = (InterfaceSectionTag, u64, InterfaceSectionContentHash)>,
 ) -> InterfaceContentHash {
     let mut prefix = WireEncoder::new();
 

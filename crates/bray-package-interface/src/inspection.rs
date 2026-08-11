@@ -223,8 +223,7 @@ impl ValidatedPackageInterface {
         selected: &[InterfaceSectionTag],
     ) -> Result<PackageInterfaceInspection, InterfaceValidationError> {
         let section_index = self
-            .sections()
-            ?
+            .sections()?
             .into_iter()
             .map(|section| InterfaceSectionIndexEntry {
                 section: section.tag(),
@@ -372,8 +371,7 @@ fn decode_strings_index<'strings>(
 ) -> Result<&'strings [Arc<str>], InterfaceValidationError> {
     if strings.is_none() {
         let section = interface
-            .section(InterfaceSectionTag::Strings)
-            ?
+            .section(InterfaceSectionTag::Strings)?
             .ok_or(InterfaceValidationError::Malformed)?;
 
         *strings = Some(crate::surface::decode_strings(section, budget)?);

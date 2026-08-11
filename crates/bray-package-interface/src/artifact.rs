@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::encoding::encode_section;
 use crate::hash::{
-    compute_artifact_hash, compute_content_hash, compute_section_content_hash,
-    compute_section_hash, InterfaceSectionContentHash,
+    InterfaceSectionContentHash, compute_artifact_hash, compute_content_hash,
+    compute_section_content_hash, compute_section_hash,
 };
 use crate::header::{BYTE_ORDER_MARKER, InterfaceHeader, MAGIC};
 use crate::section::DirectoryEntry;
