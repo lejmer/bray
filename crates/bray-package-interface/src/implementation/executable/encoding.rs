@@ -171,6 +171,20 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
     Ok(Arc::from(encoder.wire.into_bytes()))
 }
 
+/// Encodes one validated MIR unit under its complete specialization identity.
+pub fn encode_pre_specialized_mir<C: ExecutableTemplateEncodeContext>(
+    key: crate::PackageImplementationSpecializationKey,
+    unit: &MirUnit,
+    context: &mut C,
+) -> Result<crate::InterfacePreSpecializedMir, ExecutableTemplateEncodeError<C::Error>> {
+    let payload = encode_executable_template(unit, context)?;
+
+    Ok(
+        crate::InterfacePreSpecializedMir::new(key, crate::CURRENT_MIR_SCHEMA_REVISION, payload)
+            .unwrap_or_else(|| unreachable!("the executable MIR codec always emits a header")),
+    )
+}
+
 struct Encoder<'context, C> {
     wire: WireEncoder,
     context: &'context mut C,
@@ -313,8 +327,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                     return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
                 };
 
-                let identity =
-                    Self::semantic(self.context.nested_executable_id(unit))?;
+                let identity = Self::semantic(self.context.nested_executable_id(unit))?;
 
                 self.wire.write_u32(20);
                 self.wire.write_u32(identity.raw());

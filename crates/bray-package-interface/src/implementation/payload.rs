@@ -52,10 +52,8 @@ pub(super) fn decode_pre_specialized_mir(
 
 pub(super) fn specialization_discriminator(
     key: &PackageImplementationSpecializationKey,
-) -> u32 {
-    let identity = key.cache_identity();
-
-    u32::from_le_bytes([identity[0], identity[1], identity[2], identity[3]])
+) -> [u8; 32] {
+    key.cache_identity()
 }
 
 pub(super) fn encode_native_boundary(boundary: &InterfaceNativeBoundary) -> Vec<u8> {

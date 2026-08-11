@@ -37,7 +37,7 @@ pub(super) fn decode_directory_entry(
         return Err(InterfaceValidationError::Malformed);
     }
 
-    let discriminator = reader.read_u32().map_err(map_wire_error)?;
+    let discriminator = reader.read_array::<32>().map_err(map_wire_error)?;
     let family_size = reader.read_u32().map_err(map_wire_error)?;
 
     if reader.read_u32().map_err(map_wire_error)? != 0 {
@@ -137,12 +137,8 @@ pub(super) fn decode_entry_payload(
         }
     };
 
-    let content_hash = compute_payload_content_hash(
-        entry.owner,
-        entry.raw_kind,
-        entry.discriminator,
-        &decoded,
-    );
+    let content_hash =
+        compute_payload_content_hash(entry.owner, entry.raw_kind, entry.discriminator, &decoded);
 
     if content_hash != entry.content_hash {
         return Err(InterfaceValidationError::HashMismatch);
@@ -154,7 +150,7 @@ pub(super) fn decode_entry_payload(
 fn validate_payload_address(
     kind: Option<ImplementationPayloadKind>,
     owner: InterfaceSymbolId,
-    discriminator: u32,
+    discriminator: [u8; 32],
     family_size: u32,
     limits: InterfaceValidationLimits,
 ) -> Result<(), InterfaceValidationError> {
@@ -162,18 +158,28 @@ fn validate_payload_address(
         Some(ImplementationPayloadKind::ExecutableTemplate) => {
             limits.check(InterfaceLimit::RecordCount, u64::from(family_size))?;
 
-            if family_size == 0 || discriminator >= family_size {
+            let raw = u32::from_le_bytes([
+                discriminator[0],
+                discriminator[1],
+                discriminator[2],
+                discriminator[3],
+            ]);
+
+            if family_size == 0
+                || raw >= family_size
+                || discriminator[4..].iter().any(|byte| *byte != 0)
+            {
                 return Err(InterfaceValidationError::Malformed);
             }
         }
         Some(ImplementationPayloadKind::Identity) => {
-            if owner.raw() != 0 || discriminator != 0 || family_size != 0 {
+            if owner.raw() != 0 || discriminator != [0; 32] || family_size != 0 {
                 return Err(InterfaceValidationError::Malformed);
             }
         }
         Some(ImplementationPayloadKind::ConstantCallableBody)
         | Some(ImplementationPayloadKind::NativeBoundary) => {
-            if discriminator != 0 || family_size != 0 {
+            if discriminator != [0; 32] || family_size != 0 {
                 return Err(InterfaceValidationError::Malformed);
             }
         }

@@ -1,4 +1,5 @@
 use std::hash::Hasher;
+use std::num::{NonZeroU16, NonZeroU32};
 use std::str;
 use std::sync::Arc;
 
@@ -9,9 +10,12 @@ use bray_runtime_interface::{
     RuntimeIdentity, RuntimeRequirements,
 };
 use bray_symbols::{PackageIdentity, PackageVersion};
-use bray_target::TargetIdentity;
+use bray_target::{
+    Endianness, ObjectFormat, TargetArchitecture, TargetFactKind, TargetIdentity,
+    TargetMachineProperties,
+};
 
-use crate::decode::map_wire_error;
+use crate::decode::{DecodeBudget, map_wire_error};
 use crate::wire::{WireEncoder, WireReader};
 use crate::{
     InterfaceContentHash, InterfaceDependency, InterfaceLimit, InterfaceProductIdentity,
@@ -24,7 +28,10 @@ use super::{
     ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
     ImplementationSpecializationWitness, PackageImplementationConfiguration,
     PackageImplementationIdentity, PackageImplementationSpecializationKey,
+    PackageImplementationTargetFact, PackageImplementationTargetFactValue,
+    PackageImplementationTargetFacts,
 };
+use crate::external_key::{read_external_key, write_external_key};
 
 pub(super) fn encode_identity(identity: &PackageImplementationIdentity) -> Vec<u8> {
     let mut encoder = WireEncoder::new();
@@ -61,6 +68,7 @@ pub(super) fn decode_identity(
     limits: InterfaceValidationLimits,
 ) -> Result<PackageImplementationIdentity, InterfaceValidationError> {
     let mut reader = WireReader::new(bytes);
+    let mut budget = DecodeBudget::new(limits);
 
     let package = PackageIdentity::try_new(read_string(&mut reader, limits)?)
         .ok_or(InterfaceValidationError::Malformed)?;
@@ -74,14 +82,9 @@ pub(super) fn decode_identity(
     let kind = product_kind_from_wire(reader.read_u32().map_err(map_wire_error)?)?;
     let public_surface = read_string(&mut reader, limits)?;
 
-    let interface = PackageInterfaceIdentity::try_new(
-        package,
-        version,
-        product,
-        kind,
-        public_surface,
-    )
-    .ok_or(InterfaceValidationError::Malformed)?;
+    let interface =
+        PackageInterfaceIdentity::try_new(package, version, product, kind, public_surface)
+            .ok_or(InterfaceValidationError::Malformed)?;
 
     let interface_content_hash =
         InterfaceContentHash::from_bytes(reader.read_array::<32>().map_err(map_wire_error)?);
@@ -95,7 +98,7 @@ pub(super) fn decode_identity(
         return Err(InterfaceValidationError::Malformed);
     }
 
-    let configuration = read_configuration(&mut reader, limits)?;
+    let configuration = read_configuration(&mut reader, &mut budget)?;
     let expected_runtime_requirements_identity =
         reader.read_array::<32>().map_err(map_wire_error)?;
     let runtime_requirements_count = reader.read_u32().map_err(map_wire_error)?;
@@ -108,13 +111,16 @@ pub(super) fn decode_identity(
     let runtime_requirements_count = usize::try_from(runtime_requirements_count)
         .map_err(|_| InterfaceValidationError::Malformed)?;
 
-    let mut runtime_requirements = Vec::with_capacity(runtime_requirements_count);
+    let mut runtime_requirements =
+        budget.allocate_items_with_minimum(&reader, runtime_requirements_count, 26)?;
 
     for _ in 0..runtime_requirements_count {
-        runtime_requirements.push(read_runtime_requirements(&mut reader, limits)?);
+        runtime_requirements.push(read_runtime_requirements(&mut reader, &mut budget)?);
     }
 
-    if runtime_requirements.windows(2).any(|pair| pair[0] >= pair[1])
+    if runtime_requirements
+        .windows(2)
+        .any(|pair| pair[0] >= pair[1])
         || runtime_requirements_identity(runtime_requirements.iter())
             != expected_runtime_requirements_identity
     {
@@ -128,7 +134,7 @@ pub(super) fn decode_identity(
     let dependency_count =
         usize::try_from(dependency_count).map_err(|_| InterfaceValidationError::Malformed)?;
 
-    let mut dependencies = Vec::with_capacity(dependency_count);
+    let mut dependencies = budget.allocate_items_with_minimum(&reader, dependency_count, 40)?;
 
     for _ in 0..dependency_count {
         dependencies.push(read_dependency(&mut reader, limits)?);
@@ -154,12 +160,12 @@ pub(super) fn encode_specialization_key(
     key: &PackageImplementationSpecializationKey,
     encoder: &mut WireEncoder,
 ) {
-    encoder.write_bytes(key.declaration().as_bytes());
+    write_external_key(encoder, key.declaration().key());
     write_arguments(encoder, key.substitution());
     encoder.write_u32(checked_u32(key.witnesses().len()));
 
     for witness in key.witnesses() {
-        encoder.write_bytes(witness.definition().as_bytes());
+        write_external_key(encoder, witness.definition().key());
         write_arguments(encoder, witness.substitution());
     }
 
@@ -176,11 +182,11 @@ pub(super) fn decode_specialization_key(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
 ) -> Result<PackageImplementationSpecializationKey, InterfaceValidationError> {
-    let declaration = ImplementationExternalSymbolIdentity::from_bytes(
-        reader.read_array::<32>().map_err(map_wire_error)?,
-    );
+    let mut budget = DecodeBudget::new(limits);
+    let declaration =
+        ImplementationExternalSymbolIdentity::new(&read_external_key(reader, &mut budget)?);
 
-    let substitution = read_arguments(reader, limits)?;
+    let substitution = read_arguments(reader, &mut budget)?;
     let witness_count = reader.read_u32().map_err(map_wire_error)?;
 
     limits.check(InterfaceLimit::RecordCount, u64::from(witness_count))?;
@@ -188,16 +194,15 @@ pub(super) fn decode_specialization_key(
     let witness_count =
         usize::try_from(witness_count).map_err(|_| InterfaceValidationError::Malformed)?;
 
-    let mut witnesses = Vec::with_capacity(witness_count);
+    let mut witnesses = budget.allocate_items_with_minimum(reader, witness_count, 12)?;
 
     for _ in 0..witness_count {
-        let definition = ImplementationExternalSymbolIdentity::from_bytes(
-            reader.read_array::<32>().map_err(map_wire_error)?,
-        );
+        let definition =
+            ImplementationExternalSymbolIdentity::new(&read_external_key(reader, &mut budget)?);
 
         witnesses.push(ImplementationSpecializationWitness::new(
             definition,
-            read_arguments(reader, limits)?,
+            read_arguments(reader, &mut budget)?,
         ));
     }
 
@@ -205,9 +210,10 @@ pub(super) fn decode_specialization_key(
         return Err(InterfaceValidationError::Malformed);
     }
 
-    let configuration = read_configuration(reader, limits)?;
-    let template_schema_revision =
-        super::ImplementationTemplateSchemaRevision::new(reader.read_u16().map_err(map_wire_error)?);
+    let configuration = read_configuration(reader, &mut budget)?;
+    let template_schema_revision = super::ImplementationTemplateSchemaRevision::new(
+        reader.read_u16().map_err(map_wire_error)?,
+    );
 
     if template_schema_revision != CURRENT_TEMPLATE_SCHEMA_REVISION {
         return Err(InterfaceValidationError::Malformed);
@@ -220,7 +226,7 @@ pub(super) fn decode_specialization_key(
     let dependency_count =
         usize::try_from(dependency_count).map_err(|_| InterfaceValidationError::Malformed)?;
 
-    let mut dependencies = Vec::with_capacity(dependency_count);
+    let mut dependencies = budget.allocate_items_with_minimum(reader, dependency_count, 40)?;
 
     for _ in 0..dependency_count {
         dependencies.push(read_dependency(reader, limits)?);
@@ -240,12 +246,26 @@ pub(super) fn decode_specialization_key(
     ))
 }
 
+pub(super) fn specialization_key_identity(
+    key: &PackageImplementationSpecializationKey,
+) -> [u8; 32] {
+    let mut encoder = WireEncoder::new();
+
+    encode_specialization_key(key, &mut encoder);
+
+    let mut digest = StableDigestHasher::new();
+
+    digest.write(b"bray.package-implementation.specialization.v2");
+    digest.write(encoder.bytes());
+
+    digest.finalize()
+}
+
 fn write_configuration(
     encoder: &mut WireEncoder,
     configuration: &PackageImplementationConfiguration,
 ) {
-    write_string(encoder, configuration.target().as_str());
-    encoder.write_bytes(configuration.target_properties());
+    write_target_facts(encoder, configuration.target_facts());
 
     match configuration.runtime() {
         Some(runtime) => {
@@ -262,17 +282,14 @@ fn write_configuration(
 
 fn read_configuration(
     reader: &mut WireReader<'_>,
-    limits: InterfaceValidationLimits,
+    budget: &mut DecodeBudget,
 ) -> Result<PackageImplementationConfiguration, InterfaceValidationError> {
-    let target = TargetIdentity::try_new(read_string(reader, limits)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
-
-    let target_properties = reader.read_array::<32>().map_err(map_wire_error)?;
+    let target = read_target_facts(reader, budget)?;
 
     let runtime = match reader.read_u8().map_err(map_wire_error)? {
         0 => None,
         1 => Some(
-            RuntimeIdentity::try_new(read_string(reader, limits)?)
+            RuntimeIdentity::try_new(read_string(reader, budget.limits())?)
                 .ok_or(InterfaceValidationError::Malformed)?,
         ),
         _ => return Err(InterfaceValidationError::Malformed),
@@ -283,16 +300,180 @@ fn read_configuration(
         reader.read_u16().map_err(map_wire_error)?,
     );
 
-    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, limits)?)
+    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, budget.limits())?)
         .ok_or(InterfaceValidationError::Malformed)?;
 
     Ok(PackageImplementationConfiguration::new(
         target,
-        target_properties,
         runtime,
         runtime_abi,
         panic_abi,
     ))
+}
+
+fn write_target_facts(encoder: &mut WireEncoder, target: &PackageImplementationTargetFacts) {
+    write_string(encoder, target.identity().as_str());
+    write_machine(encoder, target.machine());
+    encoder.write_u16(u16::try_from(target.facts().len()).unwrap_or(u16::MAX));
+
+    for fact in target.facts() {
+        let ordinal = TargetFactKind::ALL
+            .iter()
+            .position(|kind| *kind == fact.kind())
+            .and_then(|ordinal| u16::try_from(ordinal).ok())
+            .unwrap_or(u16::MAX);
+
+        encoder.write_u16(ordinal);
+
+        match fact.value() {
+            PackageImplementationTargetFactValue::String(value) => {
+                encoder.write_u8(0);
+                write_string(encoder, value.as_str());
+            }
+            PackageImplementationTargetFactValue::Usize(value) => {
+                encoder.write_u8(1);
+                encoder.write_u64(*value);
+            }
+            PackageImplementationTargetFactValue::Boolean(value) => {
+                encoder.write_u8(2);
+                encoder.write_u8(u8::from(*value));
+            }
+        }
+    }
+}
+
+fn read_target_facts(
+    reader: &mut WireReader<'_>,
+    budget: &mut DecodeBudget,
+) -> Result<PackageImplementationTargetFacts, InterfaceValidationError> {
+    let identity = TargetIdentity::try_new(read_string(reader, budget.limits())?)
+        .ok_or(InterfaceValidationError::Malformed)?;
+
+    let machine = read_machine(reader)?;
+    let count = usize::from(reader.read_u16().map_err(map_wire_error)?);
+
+    if count != TargetFactKind::ALL.len() {
+        return Err(InterfaceValidationError::Malformed);
+    }
+
+    let mut facts = budget.allocate_items_with_minimum(reader, count, 3)?;
+
+    for expected in TargetFactKind::ALL {
+        let ordinal = usize::from(reader.read_u16().map_err(map_wire_error)?);
+        let kind = TargetFactKind::ALL
+            .get(ordinal)
+            .copied()
+            .ok_or(InterfaceValidationError::Malformed)?;
+
+        if kind != *expected {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        let value = match reader.read_u8().map_err(map_wire_error)? {
+            0 => PackageImplementationTargetFactValue::String(
+                bray_base::NonEmptySharedStr::try_new(read_string(reader, budget.limits())?)
+                    .ok_or(InterfaceValidationError::Malformed)?,
+            ),
+            1 => PackageImplementationTargetFactValue::Usize(
+                reader.read_u64().map_err(map_wire_error)?,
+            ),
+            2 => PackageImplementationTargetFactValue::Boolean(
+                match reader.read_u8().map_err(map_wire_error)? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(InterfaceValidationError::Malformed),
+                },
+            ),
+            _ => return Err(InterfaceValidationError::Malformed),
+        };
+
+        facts.push(PackageImplementationTargetFact::new(kind, value));
+    }
+
+    PackageImplementationTargetFacts::try_from_parts(identity, machine, facts)
+        .ok_or(InterfaceValidationError::Malformed)
+}
+
+fn write_machine(encoder: &mut WireEncoder, machine: &TargetMachineProperties) {
+    encoder.write_u8(match machine.architecture() {
+        TargetArchitecture::X86 => 0,
+        TargetArchitecture::X86_64 => 1,
+        TargetArchitecture::Arm => 2,
+        TargetArchitecture::Aarch64 => 3,
+        TargetArchitecture::Riscv32 => 4,
+        TargetArchitecture::Riscv64 => 5,
+        TargetArchitecture::PowerPc64 => 6,
+        TargetArchitecture::Wasm32 => 7,
+        TargetArchitecture::Wasm64 => 8,
+    });
+
+    encoder.write_u8(match machine.object_format() {
+        ObjectFormat::Coff => 0,
+        ObjectFormat::Elf => 1,
+        ObjectFormat::MachO => 2,
+        ObjectFormat::WebAssembly => 3,
+        ObjectFormat::Xcoff => 4,
+    });
+
+    encoder.write_u8(match machine.endianness() {
+        Endianness::Little => 0,
+        Endianness::Big => 1,
+    });
+
+    encoder.write_u16(machine.pointer_width_bits().get());
+    encoder.write_u32(machine.pointer_alignment_bytes().get());
+    encoder.write_u32(machine.stack_alignment_bytes().get());
+}
+
+fn read_machine(
+    reader: &mut WireReader<'_>,
+) -> Result<TargetMachineProperties, InterfaceValidationError> {
+    let architecture = match reader.read_u8().map_err(map_wire_error)? {
+        0 => TargetArchitecture::X86,
+        1 => TargetArchitecture::X86_64,
+        2 => TargetArchitecture::Arm,
+        3 => TargetArchitecture::Aarch64,
+        4 => TargetArchitecture::Riscv32,
+        5 => TargetArchitecture::Riscv64,
+        6 => TargetArchitecture::PowerPc64,
+        7 => TargetArchitecture::Wasm32,
+        8 => TargetArchitecture::Wasm64,
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
+    let object_format = match reader.read_u8().map_err(map_wire_error)? {
+        0 => ObjectFormat::Coff,
+        1 => ObjectFormat::Elf,
+        2 => ObjectFormat::MachO,
+        3 => ObjectFormat::WebAssembly,
+        4 => ObjectFormat::Xcoff,
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
+    let endianness = match reader.read_u8().map_err(map_wire_error)? {
+        0 => Endianness::Little,
+        1 => Endianness::Big,
+        _ => return Err(InterfaceValidationError::Malformed),
+    };
+
+    let pointer_width = NonZeroU16::new(reader.read_u16().map_err(map_wire_error)?)
+        .ok_or(InterfaceValidationError::Malformed)?;
+
+    let pointer_alignment = NonZeroU32::new(reader.read_u32().map_err(map_wire_error)?)
+        .ok_or(InterfaceValidationError::Malformed)?;
+
+    let stack_alignment = NonZeroU32::new(reader.read_u32().map_err(map_wire_error)?)
+        .ok_or(InterfaceValidationError::Malformed)?;
+
+    TargetMachineProperties::try_new(
+        architecture,
+        object_format,
+        endianness,
+        pointer_width,
+        pointer_alignment,
+        stack_alignment,
+    )
+    .ok_or(InterfaceValidationError::Malformed)
 }
 
 fn write_runtime_requirements(encoder: &mut WireEncoder, requirements: &RuntimeRequirements) {
@@ -357,12 +538,12 @@ pub(super) fn runtime_requirements_identity<'a>(
 
 fn read_runtime_requirements(
     reader: &mut WireReader<'_>,
-    limits: InterfaceValidationLimits,
+    budget: &mut DecodeBudget,
 ) -> Result<RuntimeRequirements, InterfaceValidationError> {
     let runtime = match reader.read_u8().map_err(map_wire_error)? {
         0 => None,
         1 => Some(
-            RuntimeIdentity::try_new(read_string(reader, limits)?)
+            RuntimeIdentity::try_new(read_string(reader, budget.limits())?)
                 .ok_or(InterfaceValidationError::Malformed)?,
         ),
         _ => return Err(InterfaceValidationError::Malformed),
@@ -382,17 +563,17 @@ fn read_runtime_requirements(
         _ => return Err(InterfaceValidationError::Malformed),
     };
 
-    let target = TargetIdentity::try_new(read_string(reader, limits)?)
+    let target = TargetIdentity::try_new(read_string(reader, budget.limits())?)
         .ok_or(InterfaceValidationError::Malformed)?;
 
-    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, limits)?)
+    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, budget.limits())?)
         .ok_or(InterfaceValidationError::Malformed)?;
 
-    let roles = read_ordinals(reader, limits, RuntimeAbiRole::ALL)?;
-    let capabilities = read_ordinals(reader, limits, RuntimeCapability::ALL)?;
+    let roles = read_ordinals(reader, budget, RuntimeAbiRole::ALL)?;
+    let capabilities = read_ordinals(reader, budget, RuntimeCapability::ALL)?;
     let lanes = read_ordinals(
         reader,
-        limits,
+        budget,
         [
             ExecutionLaneRequirement::Blocking,
             ExecutionLaneRequirement::Compute,
@@ -446,15 +627,17 @@ fn write_ordinals<T: Copy + Eq, const N: usize>(
 
 fn read_ordinals<T: Copy + Ord, const N: usize>(
     reader: &mut WireReader<'_>,
-    limits: InterfaceValidationLimits,
+    budget: &mut DecodeBudget,
     universe: [T; N],
 ) -> Result<Vec<T>, InterfaceValidationError> {
     let count = reader.read_u32().map_err(map_wire_error)?;
 
-    limits.check(InterfaceLimit::RecordCount, u64::from(count))?;
+    budget
+        .limits()
+        .check(InterfaceLimit::RecordCount, u64::from(count))?;
 
     let count = usize::try_from(count).map_err(|_| InterfaceValidationError::Malformed)?;
-    let mut values = Vec::with_capacity(count);
+    let mut values = budget.allocate_items_with_minimum(reader, count, 2)?;
 
     for _ in 0..count {
         let ordinal = usize::from(reader.read_u16().map_err(map_wire_error)?);
@@ -488,14 +671,16 @@ fn write_arguments(encoder: &mut WireEncoder, arguments: &[ImplementationSpecial
 
 fn read_arguments(
     reader: &mut WireReader<'_>,
-    limits: InterfaceValidationLimits,
+    budget: &mut DecodeBudget,
 ) -> Result<Vec<ImplementationSpecializationArgument>, InterfaceValidationError> {
     let count = reader.read_u32().map_err(map_wire_error)?;
 
-    limits.check(InterfaceLimit::RecordCount, u64::from(count))?;
+    budget
+        .limits()
+        .check(InterfaceLimit::RecordCount, u64::from(count))?;
 
     let count = usize::try_from(count).map_err(|_| InterfaceValidationError::Malformed)?;
-    let mut arguments = Vec::with_capacity(count);
+    let mut arguments = budget.allocate_items_with_minimum(reader, count, 33)?;
 
     for _ in 0..count {
         let kind = match reader.read_u8().map_err(map_wire_error)? {
@@ -566,7 +751,9 @@ const fn product_kind_to_wire(kind: InterfaceProductKind) -> u32 {
     }
 }
 
-const fn product_kind_from_wire(raw: u32) -> Result<InterfaceProductKind, InterfaceValidationError> {
+const fn product_kind_from_wire(
+    raw: u32,
+) -> Result<InterfaceProductKind, InterfaceValidationError> {
     match raw {
         0 => Ok(InterfaceProductKind::Library),
         1 => Ok(InterfaceProductKind::Executable),
@@ -577,4 +764,143 @@ const fn product_kind_from_wire(raw: u32) -> Result<InterfaceProductKind, Interf
 
 fn checked_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{
+        ExternalSymbolKey, ModulePathKey, PackageIdentity, SymbolKind, SymbolName, SymbolOrdinal,
+        SynthesizedSymbolRole,
+    };
+
+    use super::{
+        DecodeBudget, WireEncoder, WireReader, decode_specialization_key,
+        encode_specialization_key, read_arguments, read_configuration, read_ordinals,
+        write_configuration,
+    };
+    use crate::{
+        CURRENT_TEMPLATE_SCHEMA_REVISION, ImplementationExternalSymbolIdentity,
+        ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
+        ImplementationSpecializationWitness, InterfaceValidationError, InterfaceValidationLimits,
+        PackageImplementationSpecializationKey,
+    };
+
+    #[test]
+    fn specialization_keys_round_trip_complete_structured_symbol_keys() {
+        let declaration = nested_external_key();
+        let witness = ExternalSymbolKey::named(
+            declaration
+                .owner()
+                .cloned()
+                .unwrap_or_else(|| panic!("declaration must have an owner")),
+            SymbolKind::NamedTraitImplementation,
+            symbol_name("Printable"),
+        )
+        .unwrap_or_else(|| panic!("implementation key must be valid"));
+
+        let key = PackageImplementationSpecializationKey::new(
+            ImplementationExternalSymbolIdentity::new(&declaration),
+            [ImplementationSpecializationArgument::new(
+                ImplementationSpecializationArgumentKind::Type,
+                [7; 32],
+            )],
+            [ImplementationSpecializationWitness::new(
+                ImplementationExternalSymbolIdentity::new(&witness),
+                [],
+            )],
+            crate::test_support::implementation_configuration(),
+            CURRENT_TEMPLATE_SCHEMA_REVISION,
+            [],
+        );
+
+        let mut encoder = WireEncoder::new();
+
+        encode_specialization_key(&key, &mut encoder);
+
+        let mut reader = WireReader::new(encoder.bytes());
+        let decoded = decode_specialization_key(&mut reader, InterfaceValidationLimits::default())
+            .unwrap_or_else(|error| panic!("structured specialization key must decode: {error:?}"));
+
+        reader.finish().unwrap_or_else(|error| {
+            panic!("specialization key must consume its payload: {error:?}")
+        });
+
+        assert_eq!(decoded, key);
+        assert_eq!(decoded.cache_identity(), key.cache_identity());
+    }
+
+    #[test]
+    fn collection_counts_must_fit_the_remaining_payload_before_allocation() {
+        let bytes = u32::MAX.to_le_bytes();
+        let mut reader = WireReader::new(&bytes);
+        let mut budget = DecodeBudget::new(InterfaceValidationLimits::default());
+
+        assert_eq!(
+            read_arguments(&mut reader, &mut budget),
+            Err(InterfaceValidationError::ResourceLimitExceeded {
+                limit: crate::InterfaceLimit::RecordCount,
+                actual: u64::from(u32::MAX),
+                maximum: InterfaceValidationLimits::default()
+                    .maximum(crate::InterfaceLimit::RecordCount),
+            })
+        );
+
+        let bytes = 4_u32.to_le_bytes();
+        let mut reader = WireReader::new(&bytes);
+        let mut budget = DecodeBudget::new(InterfaceValidationLimits::default());
+
+        assert_eq!(
+            read_ordinals(&mut reader, &mut budget, [0_u8, 1]),
+            Err(InterfaceValidationError::Truncated)
+        );
+    }
+
+    #[test]
+    fn target_machine_properties_must_match_their_individual_target_facts() {
+        let configuration = crate::test_support::implementation_configuration();
+        let mut encoder = WireEncoder::new();
+
+        write_configuration(&mut encoder, &configuration);
+
+        let mut bytes = encoder.into_bytes();
+        let pointer_width_offset = 4 + configuration.target().as_str().len() + 3;
+
+        bytes[pointer_width_offset..pointer_width_offset + 2]
+            .copy_from_slice(&32_u16.to_le_bytes());
+
+        let mut reader = WireReader::new(&bytes);
+        let mut budget = DecodeBudget::new(InterfaceValidationLimits::default());
+
+        assert_eq!(
+            read_configuration(&mut reader, &mut budget),
+            Err(InterfaceValidationError::Malformed)
+        );
+    }
+
+    fn nested_external_key() -> ExternalSymbolKey {
+        let package = PackageIdentity::try_new("example.codec")
+            .unwrap_or_else(|| panic!("package identity must be valid"));
+
+        let module = ExternalSymbolKey::module(
+            ExternalSymbolKey::package(package),
+            ModulePathKey::try_new(["text", "format"])
+                .unwrap_or_else(|| panic!("module path must be valid")),
+        )
+        .unwrap_or_else(|| panic!("module key must be valid"));
+
+        let declaration =
+            ExternalSymbolKey::named(module, SymbolKind::Function, symbol_name("render"))
+                .unwrap_or_else(|| panic!("function key must be valid"));
+
+        ExternalSymbolKey::synthesized(
+            declaration,
+            SynthesizedSymbolRole::DeclaredGenericTypeParameter,
+            Some(SymbolOrdinal::new(0)),
+        )
+        .unwrap_or_else(|| panic!("synthesized key must be valid"))
+    }
+
+    fn symbol_name(value: &str) -> SymbolName {
+        SymbolName::try_new(value).unwrap_or_else(|| panic!("symbol name must be valid"))
+    }
 }

@@ -3,6 +3,7 @@ use bray_codegen::{CodegenOptions, DebugInformationMode, OptimizationLevel, Size
 impl super::Compilation {
     pub(super) fn package_implementation_configuration(
         &self,
+        selected_runtime: Option<bray_runtime_interface::RuntimeIdentity>,
     ) -> Result<
         bray_package_interface::PackageImplementationConfiguration,
         bray_codegen::CodegenTargetBuildError,
@@ -19,7 +20,7 @@ impl super::Compilation {
         Ok(
             bray_package_interface::PackageImplementationConfiguration::for_mir_target(
                 &mir_target,
-                None,
+                selected_runtime,
                 codegen_target.panic_abi().clone(),
             ),
         )

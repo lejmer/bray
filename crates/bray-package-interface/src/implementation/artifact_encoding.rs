@@ -9,11 +9,11 @@ use crate::{InterfaceLanguageRevision, InterfaceValidationError};
 use super::artifact::{
     ARTIFACT_HASH_OFFSET, BYTE_ORDER_MARKER, CONTENT_HASH_OFFSET, DIRECTORY_ENTRY_LENGTH,
     HEADER_LENGTH, ImplementationDirectoryEntry, ImplementationPayloadKind, MAGIC, REQUIRED_FLAGS,
+    executable_discriminator,
 };
 use super::codec::encode_identity;
 use super::hash::{
-    compute_artifact_hash, compute_content_hash, compute_payload_content_hash,
-    compute_payload_hash,
+    compute_artifact_hash, compute_content_hash, compute_payload_content_hash, compute_payload_hash,
 };
 use super::payload::{
     encode_native_boundary, encode_pre_specialized_mir, specialization_discriminator,
@@ -34,7 +34,7 @@ pub(super) fn encode_artifact(
     let mut payloads = vec![EncodedImplementationPayload::new(
         InterfaceSymbolId::new(0),
         ImplementationPayloadKind::Identity,
-        0,
+        [0; 32],
         0,
         encode_identity(identity),
     )];
@@ -43,7 +43,7 @@ pub(super) fn encode_artifact(
         EncodedImplementationPayload::new(
             body.owner(),
             ImplementationPayloadKind::ConstantCallableBody,
-            0,
+            [0; 32],
             0,
             encode_template_payload(body.template()),
         )
@@ -53,7 +53,7 @@ pub(super) fn encode_artifact(
         EncodedImplementationPayload::new(
             template.owner(),
             ImplementationPayloadKind::ExecutableTemplate,
-            template.identity().raw(),
+            executable_discriminator(template.identity().raw()),
             template.family_size(),
             template.payload().to_vec(),
         )
@@ -63,7 +63,7 @@ pub(super) fn encode_artifact(
         EncodedImplementationPayload::new(
             boundary.owner(),
             ImplementationPayloadKind::NativeBoundary,
-            0,
+            [0; 32],
             0,
             encode_native_boundary(boundary),
         )
@@ -91,12 +91,11 @@ pub(super) fn encode_artifact(
         total.checked_add(payload.encoded.len())
     });
 
-    let directory_length = payloads
-        .len()
-        .checked_mul(DIRECTORY_ENTRY_LENGTH)
-        .ok_or(PackageImplementationArtifactBuildError::InvalidArtifact(
+    let directory_length = payloads.len().checked_mul(DIRECTORY_ENTRY_LENGTH).ok_or(
+        PackageImplementationArtifactBuildError::InvalidArtifact(
             InterfaceValidationError::Malformed,
-        ))?;
+        ),
+    )?;
 
     let directory_offset = HEADER_LENGTH
         .checked_add(payload_length.ok_or(
@@ -182,7 +181,7 @@ fn encode_directory_entry(encoder: &mut WireEncoder, entry: &ImplementationDirec
     encoder.write_u8(0);
     encoder.write_u16(crate::InterfaceSectionRevision::CURRENT.raw());
     encoder.write_u16(0);
-    encoder.write_u32(entry.discriminator);
+    encoder.write_bytes(&entry.discriminator);
     encoder.write_u32(entry.family_size);
     encoder.write_u32(0);
     encoder.write_u64(u64::try_from(entry.payload.start).unwrap_or(u64::MAX));
@@ -196,7 +195,7 @@ fn encode_directory_entry(encoder: &mut WireEncoder, entry: &ImplementationDirec
 struct EncodedImplementationPayload {
     owner: InterfaceSymbolId,
     kind: ImplementationPayloadKind,
-    discriminator: u32,
+    discriminator: [u8; 32],
     family_size: u32,
     decoded: Vec<u8>,
 }
@@ -205,7 +204,7 @@ impl EncodedImplementationPayload {
     const fn new(
         owner: InterfaceSymbolId,
         kind: ImplementationPayloadKind,
-        discriminator: u32,
+        discriminator: [u8; 32],
         family_size: u32,
         decoded: Vec<u8>,
     ) -> Self {
@@ -218,7 +217,7 @@ impl EncodedImplementationPayload {
         }
     }
 
-    const fn directory_key(&self) -> (InterfaceSymbolId, u8, u32) {
+    const fn directory_key(&self) -> (InterfaceSymbolId, u8, [u8; 32]) {
         (self.owner, self.kind as u8, self.discriminator)
     }
 }
@@ -226,7 +225,7 @@ impl EncodedImplementationPayload {
 struct StoredImplementationPayload {
     owner: InterfaceSymbolId,
     kind: ImplementationPayloadKind,
-    discriminator: u32,
+    discriminator: [u8; 32],
     family_size: u32,
     encoding: crate::InterfaceSectionEncoding,
     decoded_length: u64,

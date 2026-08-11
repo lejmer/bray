@@ -3,38 +3,40 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use bray_bound_tree::CheckedTemplateKind;
-use bray_symbols::InterfaceSymbolId;
+use bray_ir::{MirExecutableTemplateId, MirTargetFacts, MirUnit, MirUnitId};
+use bray_symbols::{AnySymbolId, InterfaceSymbolId};
 
 use crate::decode::{DecodeBudget, map_wire_error};
 use crate::semantic::decode_template_payload;
 use crate::wire::WireReader;
 use crate::{
-    InterfaceArtifact, InterfaceCheckedTemplate, InterfaceContentHash, InterfaceLanguageRevision,
-    InterfaceLimit, InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,
-    InterfaceValidationPolicy, PackageInterfaceExportBundle, PackageInterfaceSurface,
-    ValidatedPackageInterface,
+    ImportedSemanticFacts, InterfaceArtifact, InterfaceCheckedTemplate, InterfaceContentHash,
+    InterfaceLanguageRevision, InterfaceLimit, InterfaceSemanticFacts, InterfaceSymbolResolver,
+    InterfaceValidationError, InterfaceValidationLimits, InterfaceValidationPolicy,
+    PackageInterfaceExportBundle, PackageInterfaceSurface, ValidatedPackageInterface,
 };
 
+use super::artifact_decoding::{decode_directory_entry, decode_entry_payload};
+use super::artifact_encoding::encode_artifact;
 use super::codec::decode_identity;
-use super::hash::{compute_artifact_hash, compute_content_hash};
 #[cfg(test)]
 use super::hash::compute_payload_hash;
+use super::hash::{compute_artifact_hash, compute_content_hash};
 use super::payload::{
     decode_native_boundary, decode_pre_specialized_mir, specialization_discriminator,
 };
-use super::artifact_encoding::encode_artifact;
-use super::artifact_decoding::{decode_directory_entry, decode_entry_payload};
 use super::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
     InterfacePreSpecializedMir, PackageImplementationArtifactBuildError,
     PackageImplementationConfiguration, PackageImplementationIdentity,
-    PackageImplementationSpecializationKey, invalid_executable_template_family,
+    PackageImplementationSpecializationKey, PreSpecializedMirDecodeError,
+    invalid_executable_template_family,
 };
 
 pub(super) const ARTIFACT_HASH_OFFSET: usize = 80;
 pub(super) const BYTE_ORDER_MARKER: u32 = 0x0102_0304;
 pub(super) const CONTENT_HASH_OFFSET: usize = 48;
-pub(super) const DIRECTORY_ENTRY_LENGTH: usize = 120;
+pub(super) const DIRECTORY_ENTRY_LENGTH: usize = 148;
 pub(super) const HEADER_LENGTH: usize = 112;
 pub(super) const MAGIC: [u8; 8] = *b"BRAYM\0\r\n";
 pub(super) const REQUIRED_FLAGS: u64 = 0;
@@ -69,7 +71,7 @@ pub(super) struct ImplementationDirectoryEntry {
     pub(super) kind: Option<ImplementationPayloadKind>,
     pub(super) compatibility: crate::InterfaceSectionCompatibility,
     pub(super) encoding: crate::InterfaceSectionEncoding,
-    pub(super) discriminator: u32,
+    pub(super) discriminator: [u8; 32],
     pub(super) family_size: u32,
     pub(super) decoded_length: u64,
     pub(super) record_count: u64,
@@ -169,9 +171,7 @@ impl PackageImplementationArtifact {
         templates.sort_by_key(|template| (template.owner(), template.identity()));
 
         for pair in templates.windows(2) {
-            if (pair[0].owner(), pair[0].identity())
-                == (pair[1].owner(), pair[1].identity())
-            {
+            if (pair[0].owner(), pair[0].identity()) == (pair[1].owner(), pair[1].identity()) {
                 return Err(
                     PackageImplementationArtifactBuildError::DuplicateExecutableTemplate(
                         pair[0].owner(),
@@ -216,8 +216,7 @@ impl PackageImplementationArtifact {
 
         if pre_specialized_mir.iter().any(|mir| {
             mir.key().configuration() != &configuration
-                || mir.key().template_schema_revision()
-                    != super::CURRENT_TEMPLATE_SCHEMA_REVISION
+                || mir.key().template_schema_revision() != super::CURRENT_TEMPLATE_SCHEMA_REVISION
                 || mir.key().dependencies() != surface.dependencies()
                 || mir.mir_schema_revision() != super::CURRENT_MIR_SCHEMA_REVISION
         }) {
@@ -426,9 +425,11 @@ impl PackageImplementationArtifact {
         owner: InterfaceSymbolId,
         surface: &PackageInterfaceSurface,
     ) -> Result<Option<InterfaceConstantCallableBody>, InterfaceValidationError> {
-        let Some((index, entry)) =
-            self.entry(owner, ImplementationPayloadKind::ConstantCallableBody, 0)
-        else {
+        let Some((index, entry)) = self.entry(
+            owner,
+            ImplementationPayloadKind::ConstantCallableBody,
+            [0; 32],
+        ) else {
             return Ok(None);
         };
 
@@ -451,19 +452,14 @@ impl PackageImplementationArtifact {
         let Some((index, entry)) = self.entry(
             owner,
             ImplementationPayloadKind::ExecutableTemplate,
-            identity.raw(),
+            executable_discriminator(identity.raw()),
         ) else {
             return Ok(None);
         };
 
         let payload = self.payload(index, entry)?;
 
-        InterfaceExecutableTemplate::new(
-            owner,
-            identity,
-            entry.family_size,
-            payload,
-        )
+        InterfaceExecutableTemplate::new(owner, identity, entry.family_size, payload)
             .map(Some)
             .ok_or(InterfaceValidationError::Malformed)
     }
@@ -473,7 +469,8 @@ impl PackageImplementationArtifact {
         &self,
         owner: InterfaceSymbolId,
     ) -> Result<Option<InterfaceNativeBoundary>, InterfaceValidationError> {
-        let Some((index, entry)) = self.entry(owner, ImplementationPayloadKind::NativeBoundary, 0)
+        let Some((index, entry)) =
+            self.entry(owner, ImplementationPayloadKind::NativeBoundary, [0; 32])
         else {
             return Ok(None);
         };
@@ -483,26 +480,52 @@ impl PackageImplementationArtifact {
         decode_native_boundary(owner, &payload, self.limits).map(Some)
     }
 
-    /// Returns optional MIR only when its complete specialization key matches exactly.
+    /// Lazily reconstructs optional MIR only when its complete specialization key matches exactly.
     pub fn pre_specialized_mir(
         &self,
         key: &PackageImplementationSpecializationKey,
-    ) -> Result<Option<InterfacePreSpecializedMir>, InterfaceValidationError> {
+        owner: AnySymbolId,
+        unit: MirUnitId,
+        target: MirTargetFacts,
+        facts: &ImportedSemanticFacts,
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Option<MirUnit>, PreSpecializedMirDecodeError> {
         let discriminator = specialization_discriminator(key);
 
-        for (index, entry) in self.directory.iter().enumerate().filter(|(_, entry)| {
-            entry.kind == Some(ImplementationPayloadKind::PreSpecializedMir)
-                && entry.discriminator == discriminator
-        }) {
-            let payload = self.payload(index, entry)?;
-            let mir = decode_pre_specialized_mir(&payload, self.limits)?;
+        let Some((index, entry)) = self.entry(
+            InterfaceSymbolId::new(0),
+            ImplementationPayloadKind::PreSpecializedMir,
+            discriminator,
+        ) else {
+            return Ok(None);
+        };
 
-            if mir.key() == key {
-                return Ok(Some(mir));
-            }
+        let payload = self.payload(index, entry)?;
+        let mir = decode_pre_specialized_mir(&payload, self.limits)?;
+
+        if mir.key() != key {
+            return Err(InterfaceValidationError::HashMismatch.into());
         }
 
-        Ok(None)
+        let template = InterfaceExecutableTemplate::new(
+            InterfaceSymbolId::new(0),
+            MirExecutableTemplateId::ROOT,
+            1,
+            mir.shared_payload(),
+        )
+        .ok_or(InterfaceValidationError::Malformed)?;
+
+        let unit = super::decode_executable_template(
+            &template,
+            owner,
+            unit,
+            target,
+            facts,
+            symbols,
+            self.limits,
+        )?;
+
+        Ok(Some(unit))
     }
 
     /// Rejects a bundle that does not match the selected interface and dependency graph exactly.
@@ -555,7 +578,7 @@ impl PackageImplementationArtifact {
         &self,
         owner: InterfaceSymbolId,
         kind: ImplementationPayloadKind,
-        discriminator: u32,
+        discriminator: [u8; 32],
     ) -> Option<(usize, &ImplementationDirectoryEntry)> {
         self.directory
             .binary_search_by_key(&(owner, kind as u8, discriminator), |entry| {
@@ -564,6 +587,18 @@ impl PackageImplementationArtifact {
             .ok()
             .and_then(|index| self.directory.get(index).map(|entry| (index, entry)))
     }
+}
+
+pub(super) const fn executable_discriminator(raw: u32) -> [u8; 32] {
+    let bytes = raw.to_le_bytes();
+    let mut discriminator = [0; 32];
+
+    discriminator[0] = bytes[0];
+    discriminator[1] = bytes[1];
+    discriminator[2] = bytes[2];
+    discriminator[3] = bytes[3];
+
+    discriminator
 }
 
 fn implementation_identity(
@@ -599,19 +634,31 @@ fn validate_executable_template_families(
 fn validate_encoded_executable_template_families(
     directory: &[ImplementationDirectoryEntry],
 ) -> Result<(), InterfaceValidationError> {
-    let mut previous_owner = None;
-    let mut family_size = 0_u32;
-
-    for entry in directory
+    let mut entries = directory
         .iter()
         .filter(|entry| entry.kind == Some(ImplementationPayloadKind::ExecutableTemplate))
-    {
-        if previous_owner != Some(entry.owner) {
-            previous_owner = Some(entry.owner);
-            family_size = entry.family_size;
+        .peekable();
+
+    while let Some(first) = entries.next() {
+        let owner = first.owner;
+        let family_size = first.family_size;
+
+        for expected in 0..family_size {
+            let entry = if expected == 0 {
+                first
+            } else {
+                entries.next().ok_or(InterfaceValidationError::Malformed)?
+            };
+
+            if entry.owner != owner
+                || entry.family_size != family_size
+                || entry.discriminator != executable_discriminator(expected)
+            {
+                return Err(InterfaceValidationError::Malformed);
+            }
         }
 
-        if entry.family_size != family_size {
+        if entries.peek().is_some_and(|entry| entry.owner == owner) {
             return Err(InterfaceValidationError::Malformed);
         }
     }
@@ -676,29 +723,30 @@ fn validate_body_owner(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     use bray_bound_tree::CheckedTemplateKind;
     use bray_runtime_interface::BinarySymbolName;
     use bray_symbols::{
-        ExternalSymbolKey, ForeignCallableDirection, InterfaceSymbolId, PackageIdentity,
-        SymbolKind,
+        ExternalSymbolKey, ForeignCallableDirection, ImportedInterfaceId, InterfaceSymbolId,
+        PackageIdentity, SemanticValueStore, SymbolId, SymbolKind,
     };
 
     use super::{
+        ARTIFACT_HASH_OFFSET, DIRECTORY_ENTRY_LENGTH, ImplementationPayloadKind,
         InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
         InterfacePreSpecializedMir, PackageImplementationArtifact,
         PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
-        PackageImplementationSpecializationKey, ARTIFACT_HASH_OFFSET, DIRECTORY_ENTRY_LENGTH,
-        encode_artifact,
+        PackageImplementationSpecializationKey, encode_artifact,
     };
     use crate::{
         CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION,
-        ImplementationExternalSymbolIdentity,
-        ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
-        InterfaceCheckedTemplate, InterfaceLanguageRevision, InterfaceValidationError,
-        InterfaceValidationLimits, InterfaceValidationPolicy, ValidatedPackageInterface,
-        encode_package_interface,
+        ImplementationExternalSymbolIdentity, ImplementationSpecializationArgument,
+        ImplementationSpecializationArgumentKind, InterfaceCheckedTemplate,
+        InterfaceLanguageRevision, InterfaceValidationError, InterfaceValidationLimits,
+        InterfaceValidationPolicy, LoadedInterfaceSurface, PreSpecializedMirDecodeError,
+        ValidatedPackageInterface, construct_imported_symbol_skeletons, encode_package_interface,
     };
 
     #[test]
@@ -752,14 +800,9 @@ mod tests {
             fixture.bundle.implementation_configuration().clone(),
         );
 
-        let encoded = super::encode_artifact(
-            &identity,
-            &[fixture.body.clone(), second],
-            &[],
-            &[],
-            &[],
-        )
-        .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
+        let encoded =
+            super::encode_artifact(&identity, &[fixture.body.clone(), second], &[], &[], &[])
+                .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
 
         let pristine = PackageImplementationArtifact::try_from_bytes(
             Arc::clone(&encoded),
@@ -796,15 +839,14 @@ mod tests {
             .position(|candidate| candidate.owner == second_owner)
             .unwrap_or_else(|| panic!("second body entry must remain addressable"));
 
-        let checksum_offset = directory_offset + entry_index * DIRECTORY_ENTRY_LENGTH + 56;
+        let checksum_offset = directory_offset + entry_index * DIRECTORY_ENTRY_LENGTH + 84;
 
         bytes[checksum_offset..checksum_offset + 32].copy_from_slice(&checksum);
 
         let artifact_hash = super::compute_artifact_hash(&bytes)
             .unwrap_or_else(|| panic!("mutated artifact must remain hashable"));
 
-        bytes[ARTIFACT_HASH_OFFSET..ARTIFACT_HASH_OFFSET + 32]
-            .copy_from_slice(&artifact_hash);
+        bytes[ARTIFACT_HASH_OFFSET..ARTIFACT_HASH_OFFSET + 32].copy_from_slice(&artifact_hash);
 
         let artifact = PackageImplementationArtifact::try_from_bytes(
             bytes,
@@ -860,7 +902,7 @@ mod tests {
             1,
             [1_u8, 2, 3],
         )
-            .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
+        .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
 
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
@@ -882,7 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn artifacts_report_missing_nested_templates_when_demanded() {
+    fn artifacts_reject_incomplete_executable_template_families() {
         let fixture = artifact_fixture();
         let owner = generic_callable_owner(&fixture.bundle);
 
@@ -901,30 +943,15 @@ mod tests {
             fixture.bundle.implementation_configuration().clone(),
         );
 
-        let bytes = encode_artifact(
-            &identity,
-            &[],
-            std::slice::from_ref(&root),
-            &[],
-            &[],
-        )
-        .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
+        let bytes = encode_artifact(&identity, &[], std::slice::from_ref(&root), &[], &[])
+            .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
 
-        let artifact = PackageImplementationArtifact::try_from_bytes(
+        let result = PackageImplementationArtifact::try_from_bytes(
             bytes,
             InterfaceValidationLimits::default(),
-        )
-        .unwrap_or_else(|error| panic!("directory validation must remain lazy: {error:?}"));
-
-        assert_eq!(
-            artifact.executable_template(owner, bray_ir::MirExecutableTemplateId::ROOT),
-            Ok(Some(root))
         );
 
-        assert_eq!(
-            artifact.executable_template(owner, bray_ir::MirExecutableTemplateId::new(1)),
-            Ok(None)
-        );
+        assert_eq!(result, Err(InterfaceValidationError::Malformed));
     }
 
     #[test]
@@ -936,9 +963,9 @@ mod tests {
             owner,
             bray_ir::MirExecutableTemplateId::ROOT,
             1,
-            vec![1_u8; 300],
+            vec![1_u8; 1_200],
         )
-            .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
+        .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
 
         let result = PackageImplementationArtifact::try_new(
             &fixture.interface,
@@ -949,7 +976,7 @@ mod tests {
             [template],
             [],
             [],
-            InterfaceValidationLimits::default().with_blob_length(250),
+            InterfaceValidationLimits::default().with_blob_length(1_000),
         );
 
         assert_eq!(
@@ -957,8 +984,8 @@ mod tests {
             Err(PackageImplementationArtifactBuildError::InvalidArtifact(
                 InterfaceValidationError::ResourceLimitExceeded {
                     limit: crate::InterfaceLimit::BlobLength,
-                    actual: 300,
-                    maximum: 250,
+                    actual: 1_200,
+                    maximum: 1_000,
                 }
             ))
         );
@@ -1020,7 +1047,10 @@ mod tests {
         expected_runtime_requirements.sort_unstable();
         expected_runtime_requirements.dedup();
 
-        assert_eq!(artifact.identity().interface(), fixture.bundle.surface().identity());
+        assert_eq!(
+            artifact.identity().interface(),
+            fixture.bundle.surface().identity()
+        );
         assert_eq!(
             artifact.identity().dependencies(),
             fixture.bundle.surface().dependencies()
@@ -1034,29 +1064,18 @@ mod tests {
             fixture.bundle.implementation_configuration()
         );
 
-        let mut target_properties = *fixture
-            .bundle
-            .implementation_configuration()
-            .target_properties();
-
-        target_properties[0] ^= 1;
+        let selected_runtime =
+            bray_runtime_interface::RuntimeIdentity::try_new("bray.runtime.test")
+                .unwrap_or_else(|| panic!("test runtime identity must be valid"));
 
         let mismatched = PackageImplementationConfiguration::new(
             fixture
                 .bundle
                 .implementation_configuration()
-                .target()
+                .target_facts()
                 .clone(),
-            target_properties,
-            fixture
-                .bundle
-                .implementation_configuration()
-                .runtime()
-                .cloned(),
-            fixture
-                .bundle
-                .implementation_configuration()
-                .runtime_abi(),
+            Some(selected_runtime),
+            fixture.bundle.implementation_configuration().runtime_abi(),
             fixture
                 .bundle
                 .implementation_configuration()
@@ -1068,6 +1087,60 @@ mod tests {
             artifact.validate_configuration(&mismatched),
             Err(InterfaceValidationError::HashMismatch)
         );
+
+        let selected_runtime_artifact = PackageImplementationArtifact::try_new(
+            &fixture.interface,
+            fixture.bundle.surface(),
+            fixture.bundle.semantic_facts(),
+            mismatched.clone(),
+            [],
+            [],
+            [],
+            [],
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("selected runtime identity must round trip: {error:?}"));
+
+        assert_eq!(
+            selected_runtime_artifact.identity().configuration(),
+            &mismatched
+        );
+
+        assert_eq!(
+            selected_runtime_artifact
+                .validate_configuration(fixture.bundle.implementation_configuration()),
+            Err(InterfaceValidationError::HashMismatch)
+        );
+
+        let alternate_target = bray_ir::MirTargetFacts::new(
+            bray_target::NativeTarget::X86_64WindowsMsvc.profile(),
+            fixture.bundle.implementation_configuration().runtime_abi(),
+        );
+
+        let alternate_target = PackageImplementationConfiguration::for_mir_target(
+            &alternate_target,
+            None,
+            fixture
+                .bundle
+                .implementation_configuration()
+                .panic_abi()
+                .clone(),
+        );
+
+        assert_ne!(
+            alternate_target.target_facts().machine(),
+            artifact.identity().configuration().target_facts().machine()
+        );
+
+        assert_ne!(
+            alternate_target.target_facts().facts(),
+            artifact.identity().configuration().target_facts().facts()
+        );
+
+        assert_eq!(
+            artifact.validate_configuration(&alternate_target),
+            Err(InterfaceValidationError::HashMismatch)
+        );
     }
 
     #[test]
@@ -1075,12 +1148,9 @@ mod tests {
         let fixture = artifact_fixture();
         let key = specialization_key(&fixture, [1; 32]);
 
-        let mir = InterfacePreSpecializedMir::new(
-            key.clone(),
-            CURRENT_MIR_SCHEMA_REVISION,
-            [3_u8, 5, 8],
-        )
-        .unwrap_or_else(|| panic!("nonempty pre-specialized MIR must be valid"));
+        let mir =
+            InterfacePreSpecializedMir::new(key.clone(), CURRENT_MIR_SCHEMA_REVISION, [3_u8, 5, 8])
+                .unwrap_or_else(|| panic!("nonempty pre-specialized MIR must be valid"));
 
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
@@ -1095,12 +1165,81 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("pre-specialized MIR artifact must validate: {error:?}"));
 
-        assert_eq!(artifact.pre_specialized_mir(&key), Ok(Some(mir)));
+        let entry = artifact
+            .directory
+            .iter()
+            .find(|entry| entry.kind == Some(ImplementationPayloadKind::PreSpecializedMir))
+            .unwrap_or_else(|| panic!("pre-specialized MIR must be addressable"));
+
+        assert_eq!(entry.discriminator, key.cache_identity());
 
         let different_substitution = specialization_key(&fixture, [2; 32]);
 
-        assert_ne!(key.cache_identity(), different_substitution.cache_identity());
-        assert_eq!(artifact.pre_specialized_mir(&different_substitution), Ok(None));
+        assert_ne!(
+            key.cache_identity(),
+            different_substitution.cache_identity()
+        );
+        assert_ne!(entry.discriminator, different_substitution.cache_identity());
+
+        let loaded = LoadedInterfaceSurface::new(
+            ImportedInterfaceId::new(0),
+            fixture.interface.header().content_hash(),
+            fixture.bundle.surface(),
+        );
+
+        let skeleton = construct_imported_symbol_skeletons(SymbolId::new(0), [loaded])
+            .unwrap_or_else(|error| panic!("test interface symbols must import: {error:?}"));
+
+        let compiler_known = BTreeMap::new();
+        let resolver = crate::ImportedInterfaceSymbolResolver::try_new(
+            loaded,
+            [loaded],
+            &skeleton,
+            &compiler_known,
+        )
+        .unwrap_or_else(|error| panic!("test resolver must construct: {error:?}"));
+
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic store must construct: {error:?}"));
+
+        let facts = fixture
+            .bundle
+            .semantic_facts()
+            .intern(&store, &resolver)
+            .unwrap_or_else(|error| panic!("test semantic facts must import: {error:?}"));
+
+        let owner_key = fixture
+            .bundle
+            .surface()
+            .symbols()
+            .symbol(generic_callable_owner(&fixture.bundle))
+            .map(bray_symbols::ImportedSymbolIdentity::key)
+            .unwrap_or_else(|| panic!("test callable identity must be present"));
+
+        let owner = skeleton
+            .symbol_by_external_key(owner_key)
+            .unwrap_or_else(|| panic!("test callable must import"));
+
+        let target = bray_ir::MirTargetFacts::new(
+            bray_target::NativeTarget::X86_64LinuxGnu.profile(),
+            fixture.bundle.implementation_configuration().runtime_abi(),
+        );
+
+        assert_eq!(
+            artifact.pre_specialized_mir(
+                &key,
+                owner,
+                bray_ir::MirUnitId::new(0),
+                target,
+                &facts,
+                &resolver,
+            ),
+            Err(PreSpecializedMirDecodeError::Executable(
+                crate::ExecutableTemplateDecodeError::Validation(
+                    InterfaceValidationError::Truncated,
+                ),
+            ))
+        );
     }
 
     #[test]

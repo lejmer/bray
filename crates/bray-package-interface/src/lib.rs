@@ -8,6 +8,7 @@ mod decode;
 mod diagnostic;
 mod encoding;
 mod export;
+mod external_key;
 mod hash;
 mod header;
 mod implementation;
@@ -41,16 +42,18 @@ pub use header::{
     InterfaceRequiredFlags,
 };
 pub use implementation::{
-    CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION,
+    CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION, ExecutableTemplateDecodeError,
+    ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
     ImplementationExternalSymbolIdentity, ImplementationMirSchemaRevision,
     ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
     ImplementationSpecializationWitness, ImplementationTemplateSchemaRevision,
-    ExecutableTemplateDecodeError, ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
     InterfacePreSpecializedMir, PackageImplementationArtifact,
     PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
     PackageImplementationIdentity, PackageImplementationSpecializationKey,
-    decode_executable_template, encode_executable_template,
+    PackageImplementationTargetFact, PackageImplementationTargetFactValue,
+    PackageImplementationTargetFacts, PreSpecializedMirDecodeError, decode_executable_template,
+    encode_executable_template, encode_pre_specialized_mir,
 };
 pub use inspection::{
     InterfaceInspectionRecord, InterfaceInspectionRecordKind, InterfaceInspectionSection,

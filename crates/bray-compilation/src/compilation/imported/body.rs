@@ -116,10 +116,12 @@ impl super::super::Compilation {
         };
 
         let configuration = self
-            .package_implementation_configuration()
+            .package_implementation_configuration(None)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        if implementation.validate_interface(interface, surface).is_err()
+        if implementation
+            .validate_interface(interface, surface)
+            .is_err()
             || implementation
                 .validate_configuration(&configuration)
                 .is_err()
@@ -164,7 +166,10 @@ impl super::super::Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let loaded = self
-            .loaded_dependency_interface_with_cancellation(symbol_address.interface(), cancellation)?
+            .loaded_dependency_interface_with_cancellation(
+                symbol_address.interface(),
+                cancellation,
+            )?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let Some(validated) = loaded.validated() else {
@@ -193,7 +198,7 @@ impl super::super::Compilation {
         };
 
         let configuration = self
-            .package_implementation_configuration()
+            .package_implementation_configuration(None)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         if artifact.validate_interface(validated, surface).is_err()
@@ -205,15 +210,16 @@ impl super::super::Compilation {
             ));
         }
 
-        let template = match artifact.executable_template(symbol_address.symbol(), address.template()) {
-            Ok(Some(template)) => template,
-            Ok(None) | Err(_) => {
-                return Ok(DiagnosticResult::new(
-                    None,
-                    executable_template_diagnostics(input),
-                ));
-            }
-        };
+        let template =
+            match artifact.executable_template(symbol_address.symbol(), address.template()) {
+                Ok(Some(template)) => template,
+                Ok(None) | Err(_) => {
+                    return Ok(DiagnosticResult::new(
+                        None,
+                        executable_template_diagnostics(input),
+                    ));
+                }
+            };
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
@@ -307,7 +313,8 @@ impl super::super::Compilation {
 
         let address = ImportedExecutableTemplateAddress::new(address, key.template());
 
-        let template = self.imported_executable_template_with_cancellation(address, cancellation)?;
+        let template =
+            self.imported_executable_template_with_cancellation(address, cancellation)?;
 
         let Some(template) = template.value() else {
             return Ok(None);
@@ -375,7 +382,7 @@ impl super::super::Compilation {
         };
 
         let configuration = self
-            .package_implementation_configuration()
+            .package_implementation_configuration(None)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
         if artifact.validate_interface(validated, surface).is_err()

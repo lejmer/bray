@@ -1,14 +1,11 @@
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use bray_base::{StableDigestHasher, shared_slice, sorted_unique_shared_slice};
+use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::ExternalSymbolKey;
 
-use crate::InterfaceDependency;
+use crate::{ExecutableTemplateDecodeError, InterfaceDependency, InterfaceValidationError};
 
-use super::{
-    ImplementationTemplateSchemaRevision, PackageImplementationConfiguration,
-};
+use super::{ImplementationTemplateSchemaRevision, PackageImplementationConfiguration};
 
 /// Exact MIR schema revision supported by optional pre-specialized payloads.
 pub const CURRENT_MIR_SCHEMA_REVISION: ImplementationMirSchemaRevision =
@@ -31,27 +28,18 @@ impl ImplementationMirSchemaRevision {
 }
 
 /// Stable structural identity of one external declaration key.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImplementationExternalSymbolIdentity([u8; 32]);
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImplementationExternalSymbolIdentity(ExternalSymbolKey);
 
 impl ImplementationExternalSymbolIdentity {
     /// Derives a stable identity from a complete external symbol key.
     pub fn new(key: &ExternalSymbolKey) -> Self {
-        let mut digest = StableDigestHasher::new();
-
-        digest.write(b"bray.package-implementation.external-symbol.v1");
-        key.hash(&mut digest);
-
-        Self(digest.finalize())
+        // External keys are immutable Arc-backed identities retained by the specialization key.
+        Self(key.clone())
     }
 
-    /// Creates an identity from canonical digest bytes.
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    /// Returns the canonical digest bytes.
-    pub const fn as_bytes(&self) -> &[u8; 32] {
+    /// Returns the complete structured external symbol key.
+    pub const fn key(&self) -> &ExternalSymbolKey {
         &self.0
     }
 }
@@ -74,10 +62,7 @@ pub struct ImplementationSpecializationArgument {
 
 impl ImplementationSpecializationArgument {
     /// Creates one concrete argument identity.
-    pub const fn new(
-        kind: ImplementationSpecializationArgumentKind,
-        identity: [u8; 32],
-    ) -> Self {
+    pub const fn new(kind: ImplementationSpecializationArgumentKind, identity: [u8; 32]) -> Self {
         Self { kind, identity }
     }
 
@@ -112,8 +97,8 @@ impl ImplementationSpecializationWitness {
     }
 
     /// Returns the witness implementation declaration.
-    pub const fn definition(&self) -> ImplementationExternalSymbolIdentity {
-        self.definition
+    pub const fn definition(&self) -> &ImplementationExternalSymbolIdentity {
+        &self.definition
     }
 
     /// Returns the witness's ordered concrete substitution.
@@ -154,8 +139,8 @@ impl PackageImplementationSpecializationKey {
     }
 
     /// Returns the declaring external symbol identity.
-    pub const fn declaration(&self) -> ImplementationExternalSymbolIdentity {
-        self.declaration
+    pub const fn declaration(&self) -> &ImplementationExternalSymbolIdentity {
+        &self.declaration
     }
 
     /// Returns the canonical concrete substitution in parameter order.
@@ -185,12 +170,7 @@ impl PackageImplementationSpecializationKey {
 
     /// Returns the content-addressed cache identity of this complete key.
     pub fn cache_identity(&self) -> [u8; 32] {
-        let mut digest = StableDigestHasher::new();
-
-        digest.write(b"bray.package-implementation.specialization.v1");
-        encode_key(&mut digest, self);
-
-        digest.finalize()
+        super::codec::specialization_key_identity(self)
     }
 }
 
@@ -203,8 +183,7 @@ pub struct InterfacePreSpecializedMir {
 }
 
 impl InterfacePreSpecializedMir {
-    /// Creates one nonempty pre-specialized MIR payload.
-    pub fn new(
+    pub(crate) fn new(
         key: PackageImplementationSpecializationKey,
         mir_schema_revision: ImplementationMirSchemaRevision,
         payload: impl Into<Arc<[u8]>>,
@@ -228,65 +207,32 @@ impl InterfacePreSpecializedMir {
         self.mir_schema_revision
     }
 
-    /// Returns the canonical target-specific MIR bytes.
-    pub fn payload(&self) -> &[u8] {
+    pub(crate) fn payload(&self) -> &[u8] {
         &self.payload
     }
-}
 
-fn encode_key(digest: &mut StableDigestHasher, key: &PackageImplementationSpecializationKey) {
-    digest.write(key.declaration.as_bytes());
-    encode_arguments(digest, key.substitution());
-    digest.write_usize(key.witnesses().len());
-
-    for witness in key.witnesses() {
-        digest.write(witness.definition().as_bytes());
-        encode_arguments(digest, witness.substitution());
-    }
-
-    let configuration = key.configuration();
-
-    encode_string(digest, configuration.target().as_str());
-    digest.write(configuration.target_properties());
-
-    match configuration.runtime() {
-        Some(runtime) => {
-            digest.write_u8(1);
-            encode_string(digest, runtime.as_str());
-        }
-        None => digest.write_u8(0),
-    }
-
-    digest.write_u16(configuration.runtime_abi().major());
-    digest.write_u16(configuration.runtime_abi().minor());
-    encode_string(digest, configuration.panic_abi().as_str());
-    digest.write_u16(key.template_schema_revision().raw());
-    digest.write_usize(key.dependencies().len());
-
-    for dependency in key.dependencies() {
-        encode_string(digest, dependency.package().as_str());
-        encode_string(digest, dependency.product().as_str());
-        digest.write(dependency.content_hash().as_bytes());
+    pub(crate) fn shared_payload(&self) -> Arc<[u8]> {
+        Arc::clone(&self.payload)
     }
 }
 
-fn encode_arguments(
-    digest: &mut StableDigestHasher,
-    arguments: &[ImplementationSpecializationArgument],
-) {
-    digest.write_usize(arguments.len());
+/// Failure while reconstructing a validated pre-specialized MIR unit.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PreSpecializedMirDecodeError {
+    /// The implementation artifact or specialization envelope is invalid.
+    Artifact(InterfaceValidationError),
+    /// The schema-owned executable MIR payload is invalid for the selected consumer context.
+    Executable(ExecutableTemplateDecodeError),
+}
 
-    for argument in arguments {
-        digest.write_u8(match argument.kind() {
-            ImplementationSpecializationArgumentKind::Type => 0,
-            ImplementationSpecializationArgumentKind::Constant => 1,
-        });
-
-        digest.write(&argument.identity());
+impl From<InterfaceValidationError> for PreSpecializedMirDecodeError {
+    fn from(error: InterfaceValidationError) -> Self {
+        Self::Artifact(error)
     }
 }
 
-fn encode_string(digest: &mut StableDigestHasher, value: &str) {
-    value.len().hash(digest);
-    digest.write(value.as_bytes());
+impl From<ExecutableTemplateDecodeError> for PreSpecializedMirDecodeError {
+    fn from(error: ExecutableTemplateDecodeError) -> Self {
+        Self::Executable(error)
+    }
 }
