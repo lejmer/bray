@@ -293,6 +293,7 @@ mod tests {
             surface,
             InterfaceSemanticFacts::new(),
             InterfaceLanguageRevision::new(0),
+            crate::test_support::implementation_configuration(),
         )
         .unwrap_or_else(|error| panic!("test export bundle must be valid: {error:?}"));
 

@@ -2818,8 +2818,10 @@ mod tests {
             &validated,
             bundle.surface(),
             bundle.semantic_facts(),
+            bundle.implementation_configuration().clone(),
             [],
             templates,
+            [],
             [],
             InterfaceValidationLimits::default(),
         )

@@ -1,5 +1,31 @@
 use bray_codegen::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
 
+impl super::Compilation {
+    pub(super) fn package_implementation_configuration(
+        &self,
+    ) -> Result<
+        bray_package_interface::PackageImplementationConfiguration,
+        bray_codegen::CodegenTargetBuildError,
+    > {
+        let selected_target = self.selected_target().target();
+        let codegen_target = selected_target.codegen_target()?;
+
+        // The target profile and panic ABI are immutable identity values owned by the bundle.
+        let mir_target = bray_ir::MirTargetFacts::new(
+            selected_target.profile().clone(),
+            selected_target.runtime_abi(),
+        );
+
+        Ok(
+            bray_package_interface::PackageImplementationConfiguration::for_mir_target(
+                &mir_target,
+                None,
+                codegen_target.panic_abi().clone(),
+            ),
+        )
+    }
+}
+
 /// Coherent generation and linking policy for one native product build.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BuildConfiguration {

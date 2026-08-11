@@ -41,9 +41,15 @@ pub use header::{
     InterfaceRequiredFlags,
 };
 pub use implementation::{
+    CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION,
+    ImplementationExternalSymbolIdentity, ImplementationMirSchemaRevision,
+    ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
+    ImplementationSpecializationWitness, ImplementationTemplateSchemaRevision,
     ExecutableTemplateDecodeError, ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
-    PackageImplementationArtifact, PackageImplementationArtifactBuildError,
+    InterfacePreSpecializedMir, PackageImplementationArtifact,
+    PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
+    PackageImplementationIdentity, PackageImplementationSpecializationKey,
     decode_executable_template, encode_executable_template,
 };
 pub use inspection::{

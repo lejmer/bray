@@ -195,6 +195,7 @@ pub enum PackageInterfaceExportBuildError {
 pub struct PackageInterfaceExportBundle {
     surface: PackageInterfaceSurface,
     semantic_facts: InterfaceSemanticFacts,
+    implementation_configuration: crate::PackageImplementationConfiguration,
     executable_templates: Arc<[crate::InterfaceExecutableTemplate]>,
     native_boundaries: Arc<[crate::InterfaceNativeBoundary]>,
     language_revision: InterfaceLanguageRevision,
@@ -206,6 +207,7 @@ impl PackageInterfaceExportBundle {
         surface: PackageInterfaceSurface,
         semantic_facts: InterfaceSemanticFacts,
         language_revision: InterfaceLanguageRevision,
+        implementation_configuration: crate::PackageImplementationConfiguration,
     ) -> Result<Self, PackageInterfaceExportBuildError> {
         let semantic_facts = canonicalize_owner_addressed_facts(semantic_facts);
 
@@ -221,6 +223,7 @@ impl PackageInterfaceExportBundle {
         Ok(Self {
             surface,
             semantic_facts,
+            implementation_configuration,
             executable_templates: Arc::from([]),
             native_boundaries: Arc::from([]),
             language_revision,
@@ -263,6 +266,13 @@ impl PackageInterfaceExportBundle {
     /// Returns the complete semantic and private support graph.
     pub const fn semantic_facts(&self) -> &InterfaceSemanticFacts {
         &self.semantic_facts
+    }
+
+    /// Returns the exact target, runtime, and ABI identity of implementation payloads.
+    pub const fn implementation_configuration(
+        &self,
+    ) -> &crate::PackageImplementationConfiguration {
+        &self.implementation_configuration
     }
 
     /// Returns executable templates in canonical owner and family-identity order.
@@ -485,6 +495,7 @@ mod tests {
                 complete.surface().clone(),
                 facts,
                 InterfaceLanguageRevision::new(0),
+                crate::test_support::implementation_configuration(),
             ),
             Err(PackageInterfaceExportBuildError::Validation(
                 InterfaceValidationError::Malformed
@@ -522,6 +533,7 @@ mod tests {
                 complete.surface().clone(),
                 facts,
                 InterfaceLanguageRevision::new(0),
+                crate::test_support::implementation_configuration(),
             ),
             Err(PackageInterfaceExportBuildError::Validation(
                 InterfaceValidationError::Malformed
@@ -547,6 +559,7 @@ mod tests {
                 complete.surface().clone(),
                 InterfaceSemanticFacts::new(),
                 InterfaceLanguageRevision::new(0),
+                crate::test_support::implementation_configuration(),
             ),
             Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
                 first_declaration
@@ -577,6 +590,7 @@ mod tests {
                 complete.surface().clone(),
                 facts,
                 InterfaceLanguageRevision::new(0),
+                crate::test_support::implementation_configuration(),
             ),
             Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
                 implementation
@@ -642,6 +656,7 @@ mod tests {
                     complete.surface().clone(),
                     incomplete,
                     InterfaceLanguageRevision::new(0),
+                    crate::test_support::implementation_configuration(),
                 ),
                 Err(PackageInterfaceExportBuildError::MissingSemanticFacts(
                     owner
@@ -696,6 +711,7 @@ mod tests {
             complete.surface().clone(),
             first_facts,
             InterfaceLanguageRevision::new(0),
+            crate::test_support::implementation_configuration(),
         )
         .unwrap_or_else(|error| panic!("forward semantic facts must build: {error:?}"));
 
@@ -703,6 +719,7 @@ mod tests {
             complete.surface().clone(),
             second_facts,
             InterfaceLanguageRevision::new(0),
+            crate::test_support::implementation_configuration(),
         )
         .unwrap_or_else(|error| panic!("reversed semantic facts must build: {error:?}"));
 

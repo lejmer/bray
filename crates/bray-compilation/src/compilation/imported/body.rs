@@ -103,7 +103,7 @@ impl super::super::Compilation {
             .loaded_dependency_interface_with_cancellation(address.interface(), cancellation)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let Some(interface) = loaded.validated() else {
+        let (Some(interface), Some(surface)) = (loaded.validated(), loaded.surface()) else {
             return Ok(None);
         };
 
@@ -115,8 +115,14 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        if implementation.interface_content_hash() != interface.header().content_hash()
-            || implementation.language_revision() != interface.header().language_revision()
+        let configuration = self
+            .package_implementation_configuration()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if implementation.validate_interface(interface, surface).is_err()
+            || implementation
+                .validate_configuration(&configuration)
+                .is_err()
         {
             return Err(FactQueryError::InfrastructureFailure);
         }
@@ -182,8 +188,16 @@ impl super::super::Compilation {
             ));
         };
 
-        if artifact.interface_content_hash() != validated.header().content_hash()
-            || artifact.language_revision() != validated.header().language_revision()
+        let Some(surface) = loaded.surface() else {
+            return Err(FactQueryError::InfrastructureFailure);
+        };
+
+        let configuration = self
+            .package_implementation_configuration()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if artifact.validate_interface(validated, surface).is_err()
+            || artifact.validate_configuration(&configuration).is_err()
         {
             return Ok(DiagnosticResult::new(
                 None,
@@ -360,8 +374,12 @@ impl super::super::Compilation {
             ));
         };
 
-        if artifact.interface_content_hash() != validated.header().content_hash()
-            || artifact.language_revision() != validated.header().language_revision()
+        let configuration = self
+            .package_implementation_configuration()
+            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+        if artifact.validate_interface(validated, surface).is_err()
+            || artifact.validate_configuration(&configuration).is_err()
         {
             return Ok(DiagnosticResult::new(
                 None,
@@ -552,7 +570,9 @@ mod tests {
             &interface,
             bundle.surface(),
             bundle.semantic_facts(),
+            bundle.implementation_configuration().clone(),
             [InterfaceConstantCallableBody::new(owner, template)],
+            [],
             [],
             [],
             InterfaceValidationLimits::default(),
