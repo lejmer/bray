@@ -145,13 +145,25 @@ pub enum LinkStagingError {
     /// A private staging path could not be represented by the typed link contract.
     InvalidStagingPath(ArtifactId),
     /// Private staging storage could not be created.
-    Create(io::ErrorKind),
+    Create {
+        artifact: ArtifactId,
+        kind: io::ErrorKind,
+    },
     /// Immutable contribution content could not be read.
-    Read(io::ErrorKind),
+    Read {
+        artifact: ArtifactId,
+        kind: io::ErrorKind,
+    },
     /// Private staging content could not be written.
-    Write(io::ErrorKind),
+    Write {
+        artifact: ArtifactId,
+        kind: io::ErrorKind,
+    },
     /// Private staging content could not be flushed.
-    Flush(io::ErrorKind),
+    Flush {
+        artifact: ArtifactId,
+        kind: io::ErrorKind,
+    },
     /// Completed staged bytes did not satisfy the immutable contribution contract.
     InvalidContent(ArtifactId),
 }
@@ -192,16 +204,26 @@ fn stage_input(
         return Err(LinkStagingError::Cancelled);
     }
 
+    let artifact = contribution.id().clone();
+
     let mut staging = Builder::new()
         .prefix(LINK_INPUT_PREFIX)
         .tempfile()
-        .map_err(|error| LinkStagingError::Create(error.kind()))?;
+        .map_err(|error| LinkStagingError::Create {
+            artifact: artifact.clone(),
+            kind: error.kind(),
+        })?;
 
     if cancellation.is_cancelled() {
         return Err(LinkStagingError::Cancelled);
     }
 
-    let mut reader = open_content(contribution.content()).map_err(LinkStagingError::Read)?;
+    let mut reader =
+        open_content(contribution.content()).map_err(|kind| LinkStagingError::Read {
+            artifact: artifact.clone(),
+            kind,
+        })?;
+
     let mut buffer = [0_u8; COPY_BUFFER_LEN];
 
     loop {
@@ -211,7 +233,10 @@ fn stage_input(
 
         let read = reader
             .read(&mut buffer)
-            .map_err(|error| LinkStagingError::Read(error.kind()))?;
+            .map_err(|error| LinkStagingError::Read {
+                artifact: artifact.clone(),
+                kind: error.kind(),
+            })?;
 
         if read == 0 {
             break;
@@ -223,16 +248,20 @@ fn stage_input(
 
         staging
             .write_all(&buffer[..read])
-            .map_err(|error| LinkStagingError::Write(error.kind()))?;
+            .map_err(|error| LinkStagingError::Write {
+                artifact: artifact.clone(),
+                kind: error.kind(),
+            })?;
     }
 
     if cancellation.is_cancelled() {
         return Err(LinkStagingError::Cancelled);
     }
 
-    staging
-        .flush()
-        .map_err(|error| LinkStagingError::Flush(error.kind()))?;
+    staging.flush().map_err(|error| LinkStagingError::Flush {
+        artifact,
+        kind: error.kind(),
+    })?;
 
     let path = staging.into_temp_path();
 
@@ -278,7 +307,10 @@ fn reserve_output(
             return Err(LinkStagingError::UnsupportedOutput(planned.id().clone()));
         }
     }
-    .map_err(|error| LinkStagingError::Create(error.kind()))?;
+    .map_err(|error| LinkStagingError::Create {
+        artifact: planned.id().clone(),
+        kind: error.kind(),
+    })?;
 
     let name = match planned.destination() {
         PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { artifact, .. }) => {

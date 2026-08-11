@@ -40,6 +40,14 @@ impl ImplementationFamilyKey {
             trait_definition,
         }
     }
+
+    pub(super) const fn subject(self) -> ImplementationFamilySubject {
+        self.subject
+    }
+
+    pub(super) const fn trait_definition(self) -> TraitSymbolId {
+        self.trait_definition
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

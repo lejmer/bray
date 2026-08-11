@@ -23,6 +23,20 @@ define_unit_scoped_id!(
     "Identifies one lifecycle obligation in a checked semantic unit."
 );
 
+#[cfg(feature = "test-support")]
+impl ScopedCapabilityId {
+    pub(crate) const fn from_test_slot(unit: BoundUnitId, slot: u32) -> Self {
+        Self { unit, slot }
+    }
+}
+
+#[cfg(feature = "test-support")]
+impl LifecycleObligationId {
+    pub(crate) const fn from_test_slot(unit: BoundUnitId, slot: u32) -> Self {
+        Self { unit, slot }
+    }
+}
+
 impl BoundDependencyContractId {
     pub(crate) const fn from_contract_slot(unit: BoundUnitId, slot: u32) -> Self {
         Self { unit, slot }

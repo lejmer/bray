@@ -51,9 +51,10 @@ duplicate, placeholder, stale production, and non-executable test anchors.
 
 ## Diagnostic coverage
 
-Every `DiagnosticKind` must have an executable test that directly references the kind at its production or conversion boundary.
-`cargo xtask readiness diagnostics` rejects any diagnostic kind without that evidence. Generic catalog tests do not satisfy the
-producer-coverage requirement.
+Every `DiagnosticKind` must have an executable test that passes the actual produced bag and the exact expected kind to
+`assert_goal_state_diagnostic_kind` at its production or conversion boundary. Every distinct kind from a producer path needs its own
+exact assertion. `cargo xtask readiness diagnostics` rejects kinds without that evidence. Generic bag-wide assertions, catalog tests,
+and fabricated `Diagnostic::new` values do not satisfy the producer-coverage requirement.
 
 `DiagnosticKind::ALL` is generated from the same declaration that defines the enum. Use it for whole-catalog invariants rather than
 maintaining a separate diagnostic list. The `bray-messages` renderer tests must render the complete inventory so every locale catalog

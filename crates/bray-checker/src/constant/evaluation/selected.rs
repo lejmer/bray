@@ -5,6 +5,7 @@ use bray_bound_tree::{
     SemanticSelection,
 };
 use bray_compiler_known::NumericRepresentationKind;
+use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
     AnySymbolId, ConstantField, ConstantProjection, ConstantProjectionKind, ConstantTermData,
     ConstantTermId, ConstantValueId, ConstantValueKind, SymbolOrdinal, TypeId,
@@ -12,6 +13,7 @@ use bray_symbols::{
 
 use crate::CheckerRequestContext;
 use crate::constant::conversion::convert_scalar;
+use crate::constant::diagnostic::diagnostic_operation;
 use crate::constant::operation::{fold_binary, fold_unary};
 use crate::representation::type_representation;
 
@@ -159,8 +161,10 @@ where
 
         let target_width = self.target_integer_width(representation);
 
-        let kind = fold_unary(operation, value.kind(), representation, target_width)
-            .map_err(|error| EvaluationFailure::operation(expression, error))?;
+        let kind =
+            fold_unary(operation, value.kind(), representation, target_width).map_err(|error| {
+                EvaluationFailure::operation(expression, diagnostic_operation(operation), error)
+            })?;
 
         self.intern_value_term(ty, kind)
     }
@@ -204,7 +208,9 @@ where
             right_value.kind(),
             self.input.limits().integer_bits(),
         )
-        .map_err(|error| EvaluationFailure::operation(expression, error))?;
+        .map_err(|error| {
+            EvaluationFailure::operation(expression, diagnostic_operation(operation), error)
+        })?;
 
         self.intern_value_term(ty, kind)
     }
@@ -333,7 +339,13 @@ where
                         .machine()
                         .pointer_width_bits()
                 })
-                .map_err(|error| EvaluationFailure::operation(expression, error))?
+                .map_err(|error| {
+                    EvaluationFailure::operation(
+                        expression,
+                        DiagnosticConstantOperation::Conversion,
+                        error,
+                    )
+                })?
             }
             ConversionTarget::Composite(children) => {
                 self.convert_composite(expression, conversion.target_type(), data.kind(), children)?

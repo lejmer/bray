@@ -12,7 +12,7 @@ pub enum LanguageServerMessage {
     RequestCancelled,
     /// The compilation changed before the request completed.
     ContentModified,
-    /// The semantic query could not produce a result.
+    /// The language-server request could not produce a result.
     QueryFailed,
     /// The workspace compilation could not be created.
     CompilationFailed,

@@ -1,6 +1,38 @@
 use std::sync::Arc;
 
+use bray_diagnostics::DiagnosticTargetPredicateValueKind;
 use bray_target::{TargetFactKind, TargetFactValue, TargetProfile};
+
+/// The literal category accepted by one target predicate property.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TargetPredicateValueKind {
+    /// A language-defined target string.
+    String,
+    /// A language-defined target unsigned integer.
+    UnsignedInteger,
+    /// A language-defined target Boolean.
+    Boolean,
+}
+
+impl TargetPredicateValueKind {
+    pub(crate) const fn of_target_value(value: TargetFactValue<'_>) -> Self {
+        match value {
+            TargetFactValue::String(_) => Self::String,
+            TargetFactValue::Usize(_) => Self::UnsignedInteger,
+            TargetFactValue::Boolean(_) => Self::Boolean,
+        }
+    }
+}
+
+impl From<TargetPredicateValueKind> for DiagnosticTargetPredicateValueKind {
+    fn from(value: TargetPredicateValueKind) -> Self {
+        match value {
+            TargetPredicateValueKind::String => Self::String,
+            TargetPredicateValueKind::UnsignedInteger => Self::UnsignedInteger,
+            TargetPredicateValueKind::Boolean => Self::Boolean,
+        }
+    }
+}
 
 /// One literal value in a target dependency predicate.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -14,6 +46,14 @@ pub enum TargetPredicateValue {
 }
 
 impl TargetPredicateValue {
+    pub(crate) const fn kind(&self) -> TargetPredicateValueKind {
+        match self {
+            Self::String(_) => TargetPredicateValueKind::String,
+            Self::Usize(_) => TargetPredicateValueKind::UnsignedInteger,
+            Self::Boolean(_) => TargetPredicateValueKind::Boolean,
+        }
+    }
+
     pub(crate) fn matches(&self, value: TargetFactValue<'_>) -> bool {
         match (self, value) {
             (Self::String(expected), TargetFactValue::String(actual)) => {
@@ -25,13 +65,8 @@ impl TargetPredicateValue {
         }
     }
 
-    pub(crate) const fn has_kind_of(&self, value: TargetFactValue<'_>) -> bool {
-        matches!(
-            (self, value),
-            (Self::String(_), TargetFactValue::String(_))
-                | (Self::Usize(_), TargetFactValue::Usize(_))
-                | (Self::Boolean(_), TargetFactValue::Boolean(_))
-        )
+    pub(crate) fn has_kind_of(&self, value: TargetFactValue<'_>) -> bool {
+        self.kind() == TargetPredicateValueKind::of_target_value(value)
     }
 }
 

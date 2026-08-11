@@ -3,6 +3,9 @@ use bray_source::SourceSnapshot;
 use bray_symbols::{DirectiveKind, DirectiveSurface, DirectiveTemplate, SymbolName};
 use bray_syntax::{ExpressionSyntax, SyntaxTree};
 
+use super::Compilation;
+use crate::fact::FactQueryError;
+
 pub(super) fn first_directive(
     directives: &DirectiveSurface,
     kind: DirectiveKind,
@@ -39,4 +42,16 @@ pub(super) fn bare_directive_argument_name(
     }
 
     identifier.text(source.text()).and_then(SymbolName::try_new)
+}
+
+pub(super) fn directive_source_text<'compilation>(
+    compilation: &'compilation Compilation,
+    directive: &DirectiveTemplate,
+) -> Result<&'compilation str, FactQueryError> {
+    let syntax = directive.syntax();
+
+    compilation
+        .source(syntax.source_id())
+        .and_then(|source| source.text_slice(syntax.full_range()))
+        .ok_or(FactQueryError::InfrastructureFailure)
 }

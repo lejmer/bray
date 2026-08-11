@@ -11,7 +11,7 @@ fn brayc_binary_routes_to_the_loose_file_driver() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(stdout.contains("Bray compiler"));
+    assert!(stdout.contains("Compile and inspect explicitly selected Bray source files"));
     assert!(stdout.contains("inspect"));
     assert!(!stdout.contains("vendor"));
 }

@@ -192,6 +192,20 @@ impl CheckerRequestContext for TestCheckerContext {
         Ok(CheckerSource::new(span, text))
     }
 
+    fn source_syntax(
+        &self,
+        anchor: bray_declarations::SyntaxAnchor,
+    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+        let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+        let source = self.source.as_ref().unwrap_or_else(|| source_snapshot());
+
+        let Some(text) = source.text_slice(span.range()) else {
+            return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+        };
+
+        Ok(CheckerSource::new(span, text))
+    }
+
     fn cancellation(&self) -> &dyn bray_base::Cancellation {
         self
     }

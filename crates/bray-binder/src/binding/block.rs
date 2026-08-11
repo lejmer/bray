@@ -486,6 +486,11 @@ mod tests {
             Err(error) => panic!("recovered block must freeze: {error:?}"),
         };
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            bray_diagnostics::DiagnosticKind::BindingNameAlreadyDefined,
+        );
+
         assert_eq!(
             result
                 .diagnostics()
@@ -497,6 +502,19 @@ mod tests {
                 bray_diagnostics::DiagnosticKind::BindingNameAlreadyDefined,
             ]
         );
+
+        for diagnostic in result.diagnostics() {
+            let [prior] = diagnostic.related_locations() else {
+                panic!("shadowing diagnostic must retain one prior definition: {diagnostic:?}");
+            };
+
+            assert_eq!(
+                prior.kind(),
+                bray_diagnostics::DiagnosticRelatedLocationKind::FirstDeclaration
+            );
+
+            assert!(Some(prior.span()) != diagnostic.primary_span());
+        }
 
         let Some(block) = result.unit().tree().block(block) else {
             panic!("bound block must be published");

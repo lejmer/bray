@@ -175,7 +175,12 @@ fn every_configuration_failure_preserves_its_structured_diagnostic_contract() {
         (
             malformed.path(),
             DiagnosticKind::FormatterConfigurationMalformed,
-            &["file_path"][..],
+            &[
+                "file_path",
+                "document_parse_kind",
+                "document_line",
+                "document_column",
+            ][..],
         ),
         (
             unknown.path(),

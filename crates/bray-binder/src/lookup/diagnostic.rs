@@ -1,5 +1,6 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticNameKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNameKind, SeverityKind,
 };
 use bray_source::{SourceSpan, TextRange};
 use bray_symbols::MemberLookupResult;
@@ -69,6 +70,10 @@ pub(crate) fn lookup_diagnostic<T, C>(
         SeverityKind::Error,
     )
     .with_primary_span(reference.span())
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::NameReference,
+        reference.span(),
+    ))
     .with_arg(DiagnosticArg::referenced_name(reference.text()));
 
     if kind == DiagnosticKind::BindingWrongNameKind {

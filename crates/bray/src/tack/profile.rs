@@ -1,9 +1,17 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticIoErrorKind,
+    DiagnosticProfileComparisonProblem, DiagnosticProfileContext, DiagnosticProfileDescriptorKind,
+    DiagnosticProfileValidationProblem, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation,
+};
 use bray_messages::CompilerProfileMessageRenderer;
-use bray_profile::{CompilationProfileComparison, CompilationProfileReport};
+use bray_profile::{
+    CompilationProfileComparison, CompilationProfileComparisonError, CompilationProfileReport,
+    CompilationProfileValidationError,
+};
 use bray_tooling::OutputFormat;
 
 use crate::tack::error::operation_diagnostics;
@@ -31,9 +39,24 @@ pub(super) fn run_profile_command(
 
             let comparison = match CompilationProfileComparison::new(&first, &second) {
                 Ok(comparison) => comparison,
-                Err(_) => {
+                Err(error) => {
                     return failure(
-                        operation_diagnostics("profile_report_comparison"),
+                        operation_diagnostics(DiagnosticProjectCommandFailure::ProfileComparison(
+                            match error {
+                                CompilationProfileComparisonError::Context { before, after } => {
+                                    DiagnosticProfileComparisonProblem::Context {
+                                        before: diagnostic_profile_context(before),
+                                        after: diagnostic_profile_context(after),
+                                    }
+                                }
+                                CompilationProfileComparisonError::Descriptor { kind, id } => {
+                                    DiagnosticProfileComparisonProblem::Descriptor {
+                                        kind: diagnostic_descriptor_kind(kind),
+                                        id,
+                                    }
+                                }
+                            },
+                        )),
                         output_format,
                     );
                 }
@@ -54,16 +77,96 @@ pub(super) fn run_profile_command(
 }
 
 fn load_profile(path: &Path) -> Result<CompilationProfileReport, DiagnosticBag> {
-    let bytes = std::fs::read(path).map_err(|_| operation_diagnostics("profile_report_read"))?;
+    let bytes = std::fs::read(path).map_err(|error| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+            operation: DiagnosticProjectOperation::ProfileReportRead,
+            path: path.to_owned(),
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        })
+    })?;
 
-    let report = serde_json::from_slice::<CompilationProfileReport>(&bytes)
-        .map_err(|_| operation_diagnostics("profile_report_decode"))?;
+    let report = serde_json::from_slice::<CompilationProfileReport>(&bytes).map_err(|error| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::Document {
+            operation: DiagnosticProjectOperation::ProfileReportDecode,
+            path: Some(path.to_owned()),
+            problem: if error.is_eof() {
+                DiagnosticDocumentParseKind::UnexpectedEnd
+            } else if error.is_syntax() {
+                DiagnosticDocumentParseKind::Syntax
+            } else if error.is_data() {
+                DiagnosticDocumentParseKind::Schema
+            } else {
+                DiagnosticDocumentParseKind::Input
+            },
+        })
+    })?;
 
-    report
-        .validate()
-        .map_err(|_| operation_diagnostics("profile_report_validation"))?;
+    report.validate().map_err(|error| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::ProfileValidation {
+            path: path.to_owned(),
+            problem: match error {
+                CompilationProfileValidationError::SchemaRevision { expected, actual } => {
+                    DiagnosticProfileValidationProblem::SchemaRevision { expected, actual }
+                }
+                CompilationProfileValidationError::DuplicateDescriptor { kind, id } => {
+                    DiagnosticProfileValidationProblem::DuplicateDescriptor {
+                        kind: diagnostic_descriptor_kind(kind),
+                        id,
+                    }
+                }
+                CompilationProfileValidationError::DuplicateObservation { kind, id } => {
+                    DiagnosticProfileValidationProblem::DuplicateObservation {
+                        kind: diagnostic_descriptor_kind(kind),
+                        id,
+                    }
+                }
+                CompilationProfileValidationError::UnknownDescriptor { kind, id } => {
+                    DiagnosticProfileValidationProblem::UnknownDescriptor {
+                        kind: diagnostic_descriptor_kind(kind),
+                        id,
+                    }
+                }
+                CompilationProfileValidationError::InvalidRuntimeArtifactIdentity { index } => {
+                    DiagnosticProfileValidationProblem::InvalidRuntimeArtifactIdentity { index }
+                }
+                CompilationProfileValidationError::NonCanonicalRuntimeArtifacts {
+                    first,
+                    second,
+                } => DiagnosticProfileValidationProblem::NonCanonicalRuntimeArtifacts {
+                    first,
+                    second,
+                },
+            },
+        })
+    })?;
 
     Ok(report)
+}
+
+fn diagnostic_profile_context(
+    context: bray_profile::CompilationProfileContext,
+) -> DiagnosticProfileContext {
+    DiagnosticProfileContext {
+        package: context.package,
+        product: context.product,
+        target: context.target,
+    }
+}
+
+const fn diagnostic_descriptor_kind(
+    kind: bray_profile::CompilationProfileDescriptorKind,
+) -> DiagnosticProfileDescriptorKind {
+    match kind {
+        bray_profile::CompilationProfileDescriptorKind::Operation => {
+            DiagnosticProfileDescriptorKind::Operation
+        }
+        bray_profile::CompilationProfileDescriptorKind::Query => {
+            DiagnosticProfileDescriptorKind::Query
+        }
+        bray_profile::CompilationProfileDescriptorKind::Metric => {
+            DiagnosticProfileDescriptorKind::Metric
+        }
+    }
 }
 
 #[cfg(test)]

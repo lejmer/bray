@@ -6,8 +6,7 @@ use bray_bound_tree::{
     CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
     CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts,
     CheckedSemanticSelections, LivenessFacts, RefinementFactKind, StorageAccessPlan,
-    StorageAccessPurpose, StorageFlowFacts, StorageOperationDecision,
-    StoragePlan,
+    StorageAccessPurpose, StorageFlowFacts, StorageOperationDecision, StoragePlan,
 };
 use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{

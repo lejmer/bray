@@ -1,4 +1,4 @@
-//! Human-readable and machine-readable compiler fact inspection.
+//! Human-readable and machine-readable compiler report inspection.
 
 mod api;
 mod bound;

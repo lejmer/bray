@@ -1,5 +1,7 @@
 use std::str::Utf8Error;
 
+use crate::TextSize;
+
 const UTF8_BOM_BYTES: &[u8] = b"\xEF\xBB\xBF";
 const UTF8_BOM_CHARACTER: char = '\u{feff}';
 
@@ -18,13 +20,13 @@ pub fn leading_utf8_bom_len(bytes: &[u8]) -> usize {
 /// measured after an accepted leading UTF-8 byte order mark has been removed.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SourceUtf8Error {
-    valid_up_to: usize,
+    valid_up_to: TextSize,
     invalid_sequence_len: Option<usize>,
 }
 
 impl SourceUtf8Error {
     /// Creates a UTF-8 validation error from byte-position details.
-    pub const fn new(valid_up_to: usize, invalid_sequence_len: Option<usize>) -> Self {
+    pub const fn new(valid_up_to: TextSize, invalid_sequence_len: Option<usize>) -> Self {
         Self {
             valid_up_to,
             invalid_sequence_len,
@@ -32,7 +34,7 @@ impl SourceUtf8Error {
     }
 
     /// Returns the byte offset before the invalid byte sequence.
-    pub const fn valid_up_to(self) -> usize {
+    pub const fn valid_up_to(self) -> TextSize {
         self.valid_up_to
     }
 
@@ -44,13 +46,7 @@ impl SourceUtf8Error {
     }
 }
 
-impl From<Utf8Error> for SourceUtf8Error {
-    fn from(error: Utf8Error) -> Self {
-        Self::new(error.valid_up_to(), error.error_len())
-    }
-}
-
-pub(crate) fn decode_source_bytes(mut bytes: Vec<u8>) -> Result<String, SourceUtf8Error> {
+pub(crate) fn decode_source_bytes(mut bytes: Vec<u8>) -> Result<String, Utf8Error> {
     let byte_order_mark_len = leading_utf8_bom_len(&bytes);
 
     if byte_order_mark_len > 0 {
@@ -59,7 +55,7 @@ pub(crate) fn decode_source_bytes(mut bytes: Vec<u8>) -> Result<String, SourceUt
 
     match String::from_utf8(bytes) {
         Ok(text) => Ok(text),
-        Err(error) => Err(SourceUtf8Error::from(error.utf8_error())),
+        Err(error) => Err(error.utf8_error()),
     }
 }
 
@@ -73,9 +69,7 @@ pub(crate) fn normalize_source_text(mut text: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SourceUtf8Error, decode_source_bytes, leading_utf8_bom_len, normalize_source_text,
-    };
+    use super::{decode_source_bytes, leading_utf8_bom_len, normalize_source_text};
 
     #[test]
     fn source_bytes_decode_as_utf8() {
@@ -107,7 +101,8 @@ mod tests {
             Err(error) => error,
         };
 
-        assert_eq!(error, SourceUtf8Error::new(1, Some(1)));
+        assert_eq!(error.valid_up_to(), 1);
+        assert_eq!(error.error_len(), Some(1));
     }
 
     #[test]

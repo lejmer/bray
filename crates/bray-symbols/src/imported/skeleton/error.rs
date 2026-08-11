@@ -10,10 +10,22 @@ pub enum ImportedSymbolSkeletonBuildError {
     DuplicateInterface(ImportedInterfaceId),
     /// Two inputs define the same package identity.
     DuplicatePackage(PackageIdentity),
-    /// Compilation-local symbol ID allocation overflowed.
-    SymbolIdOverflow,
+    /// Compilation-local symbol identity allocation exceeded its compact representation.
+    SymbolCapacityExceeded {
+        /// Total number of compilation-local symbol identities required.
+        actual: u64,
+        /// Greatest number of identities representable by the compact ID domain.
+        maximum: u64,
+    },
     /// Two interface symbols define the same stable external identity.
-    DuplicateExternalKey(ExternalSymbolKey),
+    DuplicateExternalKey {
+        /// Stable external identity defined more than once.
+        key: ExternalSymbolKey,
+        /// Interface containing the first definition.
+        first: ImportedInterfaceId,
+        /// Interface containing the repeated definition.
+        duplicate: ImportedInterfaceId,
+    },
     /// A relationship references an interface-local symbol that does not exist.
     RelationshipSymbolOutOfBounds {
         /// Interface containing the malformed relationship.
@@ -44,7 +56,7 @@ pub enum ImportedSymbolSkeletonBuildError {
         /// Remapped relationship owner.
         owner: AnySymbolId,
         /// Required next ordinal.
-        expected: u32,
+        expected: u64,
         /// Supplied ordinal.
         actual: u32,
     },

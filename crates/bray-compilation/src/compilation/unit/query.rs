@@ -822,27 +822,31 @@ mod tests {
     use bray_binder::{SemanticUnitContextError, semantic_unit_context};
     use bray_bound_tree::{
         AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundDependencyRequirement,
-        BoundDependencySubject, BoundExpression, BoundExpressionId,
-        BoundReferenceTarget, BoundUnit, BoundUnitKind,
-        BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes, CheckedMemoryOperationKind,
-        ConstructionTarget, ConversionTarget, DeclaredValueTypeConstraintKind,
-        DeclaredValueTypeTemplates, DeclaredValueTypeTerm, IndexTarget, PatternOperation,
-        PatternPredicate, PatternProjection, RefinementFactKind, SelectedArgument,
-        SelectedOperation, SemanticSelection, StorageAccessPurpose, StorageAccessRoot,
-        StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
-        walk_bound_unit_view,
+        BoundDependencySubject, BoundExpression, BoundExpressionId, BoundReferenceTarget,
+        BoundUnit, BoundUnitKind, BoundWalkControl, BoundWalkEvent, CheckedExpressionTypes,
+        CheckedMemoryOperationKind, ConstructionTarget, ConversionTarget,
+        DeclaredValueTypeConstraintKind, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+        IndexTarget, PatternOperation, PatternPredicate, PatternProjection, RefinementFactKind,
+        SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose,
+        StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
+        StorageProjection, walk_bound_unit_view,
     };
     use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
-    use bray_compiler_known::{
-        CompilerKnownOperationRole, ImplementationHook, RepresentationRole,
+    use bray_compiler_known::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticConstructionInputRejection,
+        DiagnosticKind, DiagnosticPatternMissingCase, DiagnosticRelatedLocationKind,
+        DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
+        DiagnosticSelectionRejectionReason, DiagnosticStorageProjection, DiagnosticStorageRoot,
+        DiagnosticType,
     };
-    use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
     use bray_messages::DiagnosticRenderer;
     use bray_source::SourceSpan;
     use bray_symbols::{
         ConstantValueKind, NamedTypeSymbolId, PackageIdentity, SymbolKind, SymbolOrdinal, TypeData,
         TypeExpressionTemplate,
     };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{Compilation, check_control_flow, semantic_unit_context_for};
     use crate::CompilationRequest;
@@ -1241,12 +1245,17 @@ mod tests {
             "{facts:?}"
         );
 
-        assert!(
-            facts
-                .diagnostics()
-                .by_kind(DiagnosticKind::CheckingConflictingBorrow)
-                .next()
-                .is_some()
+        let diagnostic = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingConflictingBorrow)
+            .next()
+            .unwrap_or_else(|| panic!("overlapping borrows must produce a diagnostic"));
+
+        bray_testing::assert_goal_state_diagnostic(diagnostic);
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingConflictingBorrow,
         );
 
         let repeated = match compilation.storage_flow_facts(key.clone()) {
@@ -1386,6 +1395,11 @@ mod tests {
 
         assert_eq!(facts.value().suspensions().len(), 1);
 
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
+        );
+
         assert!(
             facts
                 .diagnostics()
@@ -1469,6 +1483,38 @@ mod tests {
 
         assert!(suspension.deferred_calls().is_empty());
         assert!(!suspension.is_recovered(), "{suspension:?}");
+    }
+
+    #[test]
+    fn ordinary_valid_awaits_retain_their_inferred_dependency_contract() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "async func main(pending: Future<i32>) -> i32\n",
+            "{\n",
+            "    await pending\n",
+            "}\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let facts = compilation
+            .async_facts(key.clone())
+            .unwrap_or_else(|error| panic!("async facts must publish: {error:?}"));
+
+        let dependencies = compilation
+            .dependency_contracts(key)
+            .unwrap_or_else(|error| panic!("dependency contracts must publish: {error:?}"));
+
+        let [suspension] = facts.value().suspensions() else {
+            panic!("the direct await must publish one suspension point");
+        };
+
+        let contract = suspension
+            .dependency_contract()
+            .unwrap_or_else(|| panic!("a valid await must select its inferred contract"));
+
+        assert!(dependencies.value().contract(contract).is_some());
+        assert!(!suspension.is_recovered());
     }
 
     #[test]
@@ -1598,6 +1644,11 @@ mod tests {
                 .next()
                 .is_some()
         );
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingMissingMutationAuthority,
+        );
     }
 
     #[test]
@@ -1715,12 +1766,17 @@ mod tests {
             "{facts:?}"
         );
 
-        assert!(
-            facts
-                .diagnostics()
-                .by_kind(DiagnosticKind::CheckingUseOfMovedStorage)
-                .next()
-                .is_some()
+        let diagnostic = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingUseOfMovedStorage)
+            .next()
+            .unwrap_or_else(|| panic!("use after move must produce a diagnostic"));
+
+        bray_testing::assert_goal_state_diagnostic(diagnostic);
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingUseOfMovedStorage,
         );
 
         assert!(
@@ -1730,6 +1786,151 @@ mod tests {
                 .iter()
                 .any(|exit| !exit.moved().is_empty())
         );
+    }
+
+    #[test]
+    fn storage_flow_rejects_moving_a_value_through_a_shared_borrow() {
+        let compilation = custom_index_storage_compilation(
+            r#"func exercise(pos values: Values)
+{
+    let moved: Item = values[0];
+    moved;
+}
+"#,
+        );
+
+        let flow = compilation
+            .storage_flow_facts(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("borrowed move storage flow must publish: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingMissingStorageOwnership,
+        );
+
+        let diagnostic = flow
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingMissingStorageOwnership)
+            .next()
+            .unwrap_or_else(|| panic!("custom-index move must retain its diagnostic"));
+
+        let access = diagnostic
+            .args()
+            .iter()
+            .find_map(|arg| match (arg.name(), arg.value()) {
+                (DiagnosticArgName::StorageAccess, DiagnosticArgValue::StorageAccess(access)) => {
+                    Some(access)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("custom-index move must retain its exact access"));
+
+        assert_eq!(access.root(), DiagnosticStorageRoot::BorrowedStorage);
+    }
+
+    #[test]
+    fn storage_flow_reports_every_branch_move_origin() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Resource\n",
+            "{\n",
+            "    value: i32;\n",
+            "}\n",
+            "func main(pos condition: bool, pos resource: Resource)\n",
+            "{\n",
+            "    if condition\n",
+            "    {\n",
+            "        let first: Resource = resource;\n",
+            "        first;\n",
+            "    }\n",
+            "    else\n",
+            "    {\n",
+            "        let second: Resource = resource;\n",
+            "        second;\n",
+            "    }\n",
+            "    resource;\n",
+            "}\n",
+        ));
+
+        let diagnostic = compilation
+            .check_diagnostics()
+            .by_kind(DiagnosticKind::CheckingUseOfMovedStorage)
+            .next()
+            .unwrap_or_else(|| panic!("branch moves must produce a use-after-move diagnostic"));
+
+        assert_eq!(diagnostic.related_locations().len(), 2, "{diagnostic:#?}");
+        bray_testing::assert_goal_state_diagnostic(diagnostic);
+    }
+
+    #[test]
+    fn storage_flow_diagnostics_retain_nested_projection_paths() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Resource { value: i32; }\n",
+            "struct Container { inner: Resource; }\n",
+            "func main(pos container: Container)\n",
+            "{\n",
+            "    let moved: Resource = container.inner;\n",
+            "    container.inner;\n",
+            "    moved;\n",
+            "}\n",
+        ));
+
+        let flow = compilation
+            .storage_flow_facts(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("nested storage flow must publish: {error:?}"));
+
+        let diagnostic = flow
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingUseOfMovedStorage)
+            .next()
+            .unwrap_or_else(|| panic!("nested use after move must be diagnosed"));
+
+        let access = diagnostic
+            .args()
+            .iter()
+            .find_map(|arg| match (arg.name(), arg.value()) {
+                (DiagnosticArgName::StorageAccess, DiagnosticArgValue::StorageAccess(access)) => {
+                    Some(access)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("nested use must retain its exact storage access"));
+
+        assert!(access.projections().iter().any(|projection| {
+            matches!(projection, DiagnosticStorageProjection::ProductField(name) if name == "inner")
+        }));
+
+        assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingUseOfMovedStorage,
+        );
+    }
+
+    #[test]
+    fn storage_flow_reports_every_conflicting_borrow_origin() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let mut value: i32 = 1;\n",
+            "    let first: &i32 = &value;\n",
+            "    let second: &i32 = &value;\n",
+            "    let exclusive: & mut i32 = & mut value;\n",
+            "    first;\n",
+            "    second;\n",
+            "    exclusive;\n",
+            "}\n",
+        ));
+
+        let diagnostic = compilation
+            .check_diagnostics()
+            .by_kind(DiagnosticKind::CheckingConflictingBorrow)
+            .next()
+            .unwrap_or_else(|| panic!("overlapping borrows must produce a diagnostic"));
+
+        assert_eq!(diagnostic.related_locations().len(), 2, "{diagnostic:#?}");
+        bray_testing::assert_goal_state_diagnostic(diagnostic);
     }
 
     #[test]
@@ -2697,6 +2898,11 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
                     .is_some(),
                 "{name}: {invalid:#?}"
             );
+
+            assert_goal_state_diagnostic_kind(
+                invalid.diagnostics(),
+                DiagnosticKind::CheckingInvalidCallbackStateContext,
+            );
         }
     }
 
@@ -2793,6 +2999,11 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
             diagnostic.kind(),
             DiagnosticKind::CheckingTargetMemoryOperationUnavailable
         );
+
+        assert_goal_state_diagnostic_kind(
+            operations.diagnostics(),
+            DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
+        );
     }
 
     #[test]
@@ -2807,7 +3018,7 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
                     "    return core.memory.read<u8>(pointer);\n",
                     "}\n",
                 ),
-                DiagnosticKind::CheckingMissingTrustedMemoryFacts,
+                DiagnosticKind::CheckingMissingTrustedMemoryGuarantees,
             ),
             (
                 concat!(
@@ -2862,7 +3073,92 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
                 "{expected:?} must be reported: {:?}",
                 flow.diagnostics()
             );
+
+            match expected {
+                DiagnosticKind::CheckingMissingTrustedMemoryGuarantees => {
+                    assert_goal_state_diagnostic_kind(
+                        flow.diagnostics(),
+                        DiagnosticKind::CheckingMissingTrustedMemoryGuarantees,
+                    );
+                }
+                DiagnosticKind::CheckingUninitializedRawStorage => {
+                    assert_goal_state_diagnostic_kind(
+                        flow.diagnostics(),
+                        DiagnosticKind::CheckingUninitializedRawStorage,
+                    );
+                }
+                DiagnosticKind::CheckingMemoryOperationAfterDeallocation => {
+                    assert_goal_state_diagnostic_kind(
+                        flow.diagnostics(),
+                        DiagnosticKind::CheckingMemoryOperationAfterDeallocation,
+                    );
+                }
+                DiagnosticKind::CheckingDeallocationWithOutstandingObligations => {
+                    assert_goal_state_diagnostic_kind(
+                        flow.diagnostics(),
+                        DiagnosticKind::CheckingDeallocationWithOutstandingObligations,
+                    );
+                }
+                _ => unreachable!("memory-obligation table contains only exact memory kinds"),
+            }
         }
+    }
+
+    #[test]
+    fn invalidated_memory_reports_every_branch_deallocation_origin() {
+        let compilation = compilation_with_target_operations(
+            concat!(
+                "trusted module app;\n",
+                "trusted func main(pos condition: bool) uses(manual_alloc, raw_memory, unchecked_init)\n",
+                "{\n",
+                "    let allocated = trusted core.memory.allocate(bytes = 0, align = 1);\n",
+                "    let forwarded = allocated;\n",
+                "    let pointer = forwarded;\n",
+                "    if condition\n",
+                "    {\n",
+                "        trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);\n",
+                "    }\n",
+                "    else\n",
+                "    {\n",
+                "        trusted core.memory.deallocate(pointer = pointer, bytes = 0, align = 1);\n",
+                "    }\n",
+                "    trusted core.memory.write<u8>(pointer, 1);\n",
+                "}\n",
+            ),
+            true,
+            true,
+        );
+
+        let flow = compilation
+            .storage_flow_facts(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("branch memory flow must publish: {error:?}"));
+
+        let diagnostic = flow
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingMemoryOperationAfterDeallocation)
+            .next()
+            .unwrap_or_else(|| panic!("post-branch write must report invalidated storage"));
+
+        let origins = diagnostic
+            .related_locations()
+            .iter()
+            .filter(|related| related.kind() == DiagnosticRelatedLocationKind::DeallocationOrigin)
+            .collect::<Vec<_>>();
+
+        let allocations = diagnostic
+            .related_locations()
+            .iter()
+            .filter(|related| related.kind() == DiagnosticRelatedLocationKind::AllocationOrigin)
+            .collect::<Vec<_>>();
+
+        assert_eq!(origins.len(), 2, "{diagnostic:#?}");
+        assert_eq!(allocations.len(), 1, "{diagnostic:#?}");
+        assert_ne!(origins[0].span(), origins[1].span());
+
+        assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingMemoryOperationAfterDeallocation,
+        );
     }
 
     #[test]
@@ -2891,6 +3187,65 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
         assert!(operations.value().operations().is_empty());
         assert!(operations.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn fixed_array_generators_report_divergent_yield_cardinality() {
+        let compilation =
+            array_generator_compilation(concat!("        yield item;\n", "        yield item;\n",));
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
+        );
+    }
+
+    #[test]
+    fn fixed_array_generators_require_a_statically_known_source_count() {
+        let compilation = array_generator_compilation("        yield item;\n");
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingArrayGeneratorCardinalityNotProvable,
+        );
+    }
+
+    fn array_generator_compilation(body: &str) -> Compilation {
+        let mut source = String::from(concat!(
+            "module app;\n",
+            "struct Items\n",
+            "{\n",
+            "}\n",
+            "struct ItemsCursor\n",
+            "{\n",
+            "}\n",
+            "impl &Items(Iterable)\n",
+            "{\n",
+            "    type Element = bool;\n",
+            "    type Cursor = ItemsCursor;\n",
+            "    consume func iterate() -> ItemsCursor\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+            "impl ItemsCursor(Iterator)\n",
+            "{\n",
+            "    type Element = bool;\n",
+            "    mut func next() -> bool?\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let items: Items = Items {};\n",
+            "    let generated: [bool; 2] = [each item in items\n",
+            "    {\n",
+        ));
+
+        source.push_str(body);
+
+        source.push_str(concat!("    }];\n", "}\n",));
+
+        compilation(&source)
     }
 
     #[test]
@@ -2994,6 +3349,36 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
             "{:?}",
             selections.diagnostics()
         );
+
+        assert_goal_state_diagnostic_kind(
+            selections.diagnostics(),
+            DiagnosticKind::CheckingIncompatibleCandidate,
+        );
+
+        let diagnostic = selections
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingIncompatibleCandidate)
+            .next()
+            .unwrap_or_else(|| panic!("incompatible construction diagnostic must exist"));
+
+        let Some(DiagnosticArgValue::SelectionRejections(rejections)) = diagnostic
+            .args()
+            .iter()
+            .find(|argument| argument.name() == DiagnosticArgName::SelectionRejections)
+            .map(DiagnosticArg::value)
+        else {
+            panic!("incompatible construction must retain rejected candidates: {diagnostic:?}");
+        };
+
+        assert_eq!(rejections.rejections().len(), 1);
+        assert_eq!(rejections.omitted_count(), 0);
+
+        assert!(matches!(
+            rejections.rejections()[0].reason(),
+            DiagnosticSelectionRejectionReason::ConstructionInput(
+                DiagnosticConstructionInputRejection::UnknownName { provided, accepted }
+            ) if provided == "y" && accepted.as_ref() == [String::from("x")]
+        ));
     }
 
     #[test]
@@ -3305,15 +3690,15 @@ func select(pos values: Values) -> i32
             .filter(|access| access.projections().is_empty())
             .filter_map(|access| match access.root() {
                 bray_bound_tree::StorageAccessRoot::BorrowedStorage {
-                    storage: identity,
-                    ..
-                } => {
-                    storage.value().identity(identity)
-                }
+                    storage: identity, ..
+                } => storage.value().identity(identity),
                 _ => None,
             })
             .filter(|identity| {
-                matches!(identity, bray_bound_tree::StorageIdentity::CustomIndexBorrow(_))
+                matches!(
+                    identity,
+                    bray_bound_tree::StorageIdentity::CustomIndexBorrow(_)
+                )
             })
             .count();
 
@@ -3355,13 +3740,35 @@ func select(pos values: Values) -> i32
 "#,
         );
 
-        assert!(
-            compilation
-                .check_diagnostics()
-                .by_kind(DiagnosticKind::CheckingConflictingBorrow)
-                .next()
-                .is_some()
-        );
+        let diagnostics = compilation.check_diagnostics();
+
+        let access = diagnostics
+            .by_kind(DiagnosticKind::CheckingConflictingBorrow)
+            .filter_map(|diagnostic| {
+                diagnostic
+                    .args()
+                    .iter()
+                    .find_map(|arg| match (arg.name(), arg.value()) {
+                        (
+                            DiagnosticArgName::StorageAccess,
+                            DiagnosticArgValue::StorageAccess(access),
+                        ) => Some(access),
+                        _ => None,
+                    })
+            })
+            .find(|access| {
+                access.projections().iter().any(|projection| {
+                    matches!(
+                        projection,
+                        DiagnosticStorageProjection::ProductField(name) if name == "value"
+                    )
+                })
+            })
+            .unwrap_or_else(|| panic!("custom-index conflict must retain its exact field access"));
+
+        assert_eq!(access.root(), DiagnosticStorageRoot::BorrowedStorage);
+
+        assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingConflictingBorrow);
     }
 
     #[test]
@@ -3426,13 +3833,16 @@ func select(pos values: Values) -> i32
             .and_then(|contract| contracts.value().contract(contract))
             .unwrap_or_else(|| panic!("custom index result contract must be available"));
 
-        assert!(contract.requirements().iter().any(|requirement| matches!(
-            requirement,
-            BoundDependencyRequirement::Direct {
-                subject: BoundDependencySubject::BorrowCapability(actual),
-                ..
-            } if *actual == capability
-        )), "{contract:?}");
+        assert!(
+            contract.requirements().iter().any(|requirement| matches!(
+                requirement,
+                BoundDependencyRequirement::Direct {
+                    subject: BoundDependencySubject::BorrowCapability(actual),
+                    ..
+                } if *actual == capability
+            )),
+            "{contract:?}"
+        );
     }
 
     fn custom_index_storage_compilation(body: &str) -> Compilation {
@@ -3577,6 +3987,11 @@ func mutate(pos input: Value)
             DiagnosticRenderer::english().render(diagnostic).message(),
             "mutable indexing requires an implementation of 'MutableElementIndex'"
         );
+
+        assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingMutableIndexContractRequired,
+        );
     }
 
     #[test]
@@ -3697,6 +4112,89 @@ func convert(pos value: Value) -> i32
             *expression,
             RepresentationRole::ScalarI64,
         );
+    }
+
+    #[test]
+    fn equally_applicable_source_overloads_report_every_candidate() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func main()\n",
+            "{\n",
+            "    let result = choose(1);\n",
+            "}\n",
+            "func first(pos value: i32) -> i32\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "func second(pos value: i32) -> i32\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "overload choose = {first, second}\n",
+        ));
+
+        let selections = compilation
+            .semantic_selections(source_function_body_key(&compilation, "main"))
+            .unwrap_or_else(|error| panic!("ambiguous selection must recover: {error:?}"));
+
+        let diagnostics = selections.diagnostics();
+        let mut ambiguous = diagnostics.by_kind(DiagnosticKind::CheckingAmbiguousCandidate);
+
+        let Some(diagnostic) = ambiguous.next() else {
+            panic!("one ambiguous selection expected: {diagnostics:?}");
+        };
+
+        assert!(ambiguous.next().is_none(), "{diagnostics:?}");
+
+        let Some(DiagnosticArgValue::SelectionCandidates(candidates)) = diagnostic
+            .args()
+            .iter()
+            .find(|argument| argument.name() == DiagnosticArgName::SelectionCandidates)
+            .map(DiagnosticArg::value)
+        else {
+            panic!("ambiguous selection must retain its candidates: {diagnostic:?}");
+        };
+
+        assert_eq!(candidates.omitted_count(), 0);
+        assert_eq!(candidates.candidates().len(), 2);
+
+        let names = candidates
+            .candidates()
+            .iter()
+            .map(|candidate| match candidate.identity() {
+                DiagnosticSelectionCandidateIdentity::NamedDeclaration { name, .. } => {
+                    name.as_str()
+                }
+                other => panic!("source function candidate must retain its name: {other:?}"),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["first", "second"]);
+
+        for candidate in candidates.candidates() {
+            assert_eq!(
+                candidate.signature(),
+                &DiagnosticSelectionCandidateSignature::Callable {
+                    parameter_types: Box::new([DiagnosticType::I32]),
+                    result_type: DiagnosticType::I32,
+                }
+            );
+        }
+
+        assert_eq!(diagnostic.related_locations().len(), 2);
+
+        assert!(diagnostic.related_locations().iter().all(|location| {
+            location.kind() == DiagnosticRelatedLocationKind::SelectionCandidate
+        }));
+
+        assert!(
+            diagnostic
+                .related_locations()
+                .windows(2)
+                .all(|pair| pair[0].span() < pair[1].span())
+        );
+
+        assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingAmbiguousCandidate);
     }
 
     #[test]
@@ -4657,6 +5155,28 @@ func other()
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
             [DiagnosticKind::CheckingUnreachablePatternAlternative]
         );
+
+        let diagnostic = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingUnreachablePatternAlternative)
+            .next()
+            .unwrap_or_else(|| panic!("subsumed alternative must be diagnosed"));
+
+        assert_eq!(
+            diagnostic
+                .related_locations()
+                .iter()
+                .filter(|related| {
+                    related.kind() == DiagnosticRelatedLocationKind::CoveredByPattern
+                })
+                .count(),
+            1
+        );
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingUnreachablePatternAlternative,
+        );
     }
 
     #[test]
@@ -4701,6 +5221,11 @@ func other()
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
             [DiagnosticKind::CheckingUnreachableMatchArm]
+        );
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingUnreachableMatchArm,
         );
     }
 
@@ -4791,6 +5316,176 @@ func other()
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
             [DiagnosticKind::CheckingNonExhaustiveMatch]
         );
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingNonExhaustiveMatch,
+        );
+
+        let missing = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
+            .next()
+            .and_then(|diagnostic| {
+                diagnostic.args().iter().find_map(|arg| match arg.value() {
+                    DiagnosticArgValue::PatternCoverage(coverage) => Some(coverage.missing()),
+                    _ => None,
+                })
+            })
+            .unwrap_or_else(|| panic!("non-exhaustive match must retain missing cases"));
+
+        assert_eq!(missing, &[DiagnosticPatternMissingCase::Boolean(false)]);
+    }
+
+    #[test]
+    fn pattern_facts_report_nullable_union_and_open_domain_missing_cases() {
+        let nullable = pattern_compilation(concat!(
+            "    let value: i32? = none;\n",
+            "    match value\n",
+            "    {\n",
+            "        case ?present {}\n",
+            "    }\n",
+        ));
+
+        let nullable_facts = nullable
+            .pattern_facts(source_callable_body_key(&nullable))
+            .unwrap_or_else(|error| panic!("nullable coverage must publish: {error:?}"));
+
+        let nullable_missing = nullable_facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
+            .next()
+            .and_then(|diagnostic| {
+                diagnostic.args().iter().find_map(|arg| match arg.value() {
+                    DiagnosticArgValue::PatternCoverage(coverage) => Some(coverage.missing()),
+                    _ => None,
+                })
+            })
+            .unwrap_or_else(|| panic!("nullable match must retain its missing case"));
+
+        assert_eq!(
+            nullable_missing,
+            &[DiagnosticPatternMissingCase::NullableAbsent]
+        );
+
+        let union = compilation(concat!(
+            "module app;\n",
+            "union Choice { First; Second; }\n",
+            "func main(value: Choice)\n",
+            "{\n",
+            "    match value { case .First {} }\n",
+            "}\n",
+        ));
+
+        let union_facts = union
+            .pattern_facts(source_callable_body_key(&union))
+            .unwrap_or_else(|error| panic!("union coverage must publish: {error:?}"));
+
+        let union_missing = union_facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
+            .next()
+            .and_then(|diagnostic| {
+                diagnostic.args().iter().find_map(|arg| match arg.value() {
+                    DiagnosticArgValue::PatternCoverage(coverage) => Some(coverage.missing()),
+                    _ => None,
+                })
+            })
+            .unwrap_or_else(|| panic!("union match must retain its missing case"));
+
+        assert_eq!(
+            union_missing,
+            &[DiagnosticPatternMissingCase::UnionVariant(
+                "Second".to_owned()
+            )]
+        );
+
+        let open = pattern_compilation(concat!(
+            "    let value: i32 = 1;\n",
+            "    match value { case 1 {} }\n",
+        ));
+
+        let open_facts = open
+            .pattern_facts(source_callable_body_key(&open))
+            .unwrap_or_else(|error| panic!("open-domain coverage must publish: {error:?}"));
+
+        let open_missing = open_facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
+            .next()
+            .and_then(|diagnostic| {
+                diagnostic.args().iter().find_map(|arg| match arg.value() {
+                    DiagnosticArgValue::PatternCoverage(coverage) => Some(coverage.missing()),
+                    _ => None,
+                })
+            })
+            .unwrap_or_else(|| panic!("open match must retain catch-all context"));
+
+        assert_eq!(
+            open_missing,
+            &[DiagnosticPatternMissingCase::RemainingValues]
+        );
+    }
+
+    #[test]
+    fn pattern_facts_bound_missing_union_cases_and_retain_every_covering_origin() {
+        let bounded = compilation(concat!(
+            "module app;\n",
+            "union Choice { A; B; C; D; E; F; G; H; I; J; }\n",
+            "func main(value: Choice)\n",
+            "{\n",
+            "    match value { case .A {} }\n",
+            "}\n",
+        ));
+
+        let bounded_facts = bounded
+            .pattern_facts(source_callable_body_key(&bounded))
+            .unwrap_or_else(|error| panic!("bounded union coverage must publish: {error:?}"));
+
+        let coverage = bounded_facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingNonExhaustiveMatch)
+            .next()
+            .and_then(|diagnostic| {
+                diagnostic.args().iter().find_map(|arg| match arg.value() {
+                    DiagnosticArgValue::PatternCoverage(coverage) => Some(coverage),
+                    _ => None,
+                })
+            })
+            .unwrap_or_else(|| panic!("bounded union match must retain coverage context"));
+
+        assert_eq!(coverage.missing().len(), 8);
+        assert_eq!(coverage.omitted_count(), 1);
+
+        let covered = pattern_compilation(concat!(
+            "    let value: bool = true;\n",
+            "    match value\n",
+            "    {\n",
+            "        case true | false {}\n",
+            "        case true | false {}\n",
+            "    }\n",
+        ));
+
+        let covered_facts = covered
+            .pattern_facts(source_callable_body_key(&covered))
+            .unwrap_or_else(|error| panic!("covered alternatives must publish: {error:?}"));
+
+        let diagnostic = covered_facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingUnreachableMatchArm)
+            .next()
+            .unwrap_or_else(|| panic!("covered arm must be diagnosed"));
+
+        assert_eq!(
+            diagnostic
+                .related_locations()
+                .iter()
+                .filter(|related| {
+                    related.kind() == DiagnosticRelatedLocationKind::CoveredByPattern
+                })
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -4830,6 +5525,28 @@ func other()
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
             [DiagnosticKind::CheckingUnreachableMatchArm]
         );
+
+        let diagnostic = facts
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingUnreachableMatchArm)
+            .next()
+            .unwrap_or_else(|| panic!("duplicate match arm must be diagnosed"));
+
+        assert_eq!(
+            diagnostic
+                .related_locations()
+                .iter()
+                .filter(|related| {
+                    related.kind() == DiagnosticRelatedLocationKind::CoveredByPattern
+                })
+                .count(),
+            1
+        );
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingUnreachableMatchArm,
+        );
     }
 
     #[test]
@@ -4855,6 +5572,11 @@ func other()
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
             [DiagnosticKind::CheckingIncompatiblePattern]
         );
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingIncompatiblePattern,
+        );
     }
 
     #[test]
@@ -4870,6 +5592,11 @@ func other()
         assert_eq!(
             crate::test_support::diagnostic_kinds(facts.diagnostics()),
             [DiagnosticKind::CheckingRefutablePattern]
+        );
+
+        assert_goal_state_diagnostic_kind(
+            facts.diagnostics(),
+            DiagnosticKind::CheckingRefutablePattern,
         );
     }
 

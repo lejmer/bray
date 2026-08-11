@@ -179,7 +179,7 @@ impl Linker {
         let driver = match self.select(plan) {
             Ok(driver) => driver,
             Err(failure) => {
-                return failed_outcome(failure);
+                return failed_outcome(plan, failure);
             }
         };
 
@@ -214,9 +214,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    use bray_base::Cancellation;
-    use bray_diagnostics::DiagnosticBag;
-
     use super::{Linker, LinkerBuildError, LinkerDriver, LinkerDriverIdentity, LinkerDriverKind};
     use crate::test_support::{link_plan, link_plan_with_driver};
     use crate::{
@@ -226,6 +223,8 @@ mod tests {
         LinkStatus, LinkedArtifactKind, LinkedProductKind, LinkerDriverCapabilities,
         LinkerOperationalCapabilities, LinkerTargetCapabilities, SectionGarbageCollectionPolicy,
     };
+    use bray_base::Cancellation;
+    use bray_diagnostics::DiagnosticBag;
     use bray_target::{ObjectFormat, TargetArchitecture};
 
     #[test]
@@ -422,14 +421,16 @@ mod tests {
             &self.capabilities
         }
 
-        fn link(&self, _plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
+        fn link(&self, plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
             self.calls.fetch_add(1, Ordering::Release);
 
             if let Some(cancellation) = &self.cancel_during_link {
                 cancellation.store(true, Ordering::Release);
             }
 
-            LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new())
+            let failure = LinkFailure::Invocation;
+
+            LinkOutcome::failed(plan, failure, DiagnosticBag::new())
         }
     }
 

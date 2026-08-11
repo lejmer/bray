@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
+use bray_messages::command_help as help;
 use bray_runtime_interface::RuntimeCapability;
 use bray_target::TargetOutputKind;
 use clap::{Args, ValueEnum};
@@ -151,34 +152,46 @@ impl DriverProductConfiguration {
 
 #[derive(Args, Debug)]
 pub(crate) struct CliBuildCommand {
-    #[arg(long, value_enum, default_value = "llvm")]
+    #[arg(long, value_enum, default_value = "llvm", help = help::BACKEND)]
     backend: CliBackend,
-    #[arg(long)]
+    #[arg(long, help = help::RELEASE)]
     release: bool,
     #[arg(
         long = "runtime-artifact",
         value_name = "METADATA",
-        conflicts_with = "runtime_profile"
+        conflicts_with = "runtime_profile",
+        help = help::RUNTIME_ARTIFACT
     )]
     runtime_artifact: Option<PathBuf>,
     #[arg(
         long = "runtime-profile",
         value_name = "PROFILE",
         value_parser = clap::builder::NonEmptyStringValueParser::new(),
-        conflicts_with = "runtime_artifact"
+        conflicts_with = "runtime_artifact",
+        help = help::RUNTIME_PROFILE
     )]
     runtime_profile: Option<String>,
-    #[arg(long = "require-capability", value_enum, value_name = "CAPABILITY")]
+    #[arg(
+        long = "require-capability",
+        value_enum,
+        value_name = "CAPABILITY",
+        help = help::RUNTIME_CAPABILITY
+    )]
     required_capabilities: Vec<CliRuntimeCapability>,
-    #[arg(long, value_name = "DIRECTORY")]
+    #[arg(long, value_name = "DIRECTORY", help = help::BUILD_OUTPUT)]
     output: PathBuf,
-    #[arg(long = "test-catalog", value_name = "PATH")]
+    #[arg(long = "test-catalog", value_name = "PATH", help = help::TEST_CATALOG)]
     test_catalog: Option<PathBuf>,
-    #[arg(long = "artifact", value_enum, value_name = "ARTIFACT")]
+    #[arg(long = "artifact", value_enum, value_name = "ARTIFACT", help = help::ARTIFACT)]
     artifacts: Vec<CliArtifact>,
-    #[arg(long = "inspect", value_enum, value_name = "ARTIFACT")]
+    #[arg(
+        long = "inspect",
+        value_enum,
+        value_name = "ARTIFACT",
+        help = help::INSPECTION_ARTIFACT
+    )]
     inspections: Vec<CliInspectionArtifact>,
-    #[arg(value_name = "FILE", num_args = 0..)]
+    #[arg(value_name = "FILE", num_args = 0.., help = help::SOURCE_FILE)]
     files: Vec<PathBuf>,
 }
 
@@ -226,18 +239,31 @@ impl CliBuildCommand {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliArtifact {
+    #[value(help = help::ARTIFACT_ASSEMBLY)]
     Assembly,
+    #[value(help = help::ARTIFACT_BACKEND_IR)]
     BackendIr,
+    #[value(help = help::ARTIFACT_BACKEND_BITCODE)]
     BackendBitcode,
+    #[value(help = help::ARTIFACT_OBJECT)]
     RelocatableObject,
+    #[value(help = help::ARTIFACT_EXECUTABLE_MODULE)]
     ExecutableModule,
+    #[value(help = help::ARTIFACT_DEBUG_COMPANION)]
     DebugCompanion,
+    #[value(help = help::ARTIFACT_PACKAGE_INTERFACE)]
     PackageInterface,
+    #[value(help = help::ARTIFACT_PACKAGE_IMPLEMENTATION)]
     PackageImplementation,
+    #[value(help = help::ARTIFACT_DEPENDENCY_METADATA)]
     DependencyMetadata,
+    #[value(help = help::ARTIFACT_EXECUTABLE)]
     Executable,
+    #[value(help = help::ARTIFACT_STATIC_LIBRARY)]
     StaticLibrary,
+    #[value(help = help::ARTIFACT_SHARED_LIBRARY)]
     SharedLibrary,
+    #[value(help = help::ARTIFACT_LINKED_COMPANION)]
     LinkedCompanion,
 }
 
@@ -263,6 +289,7 @@ impl From<CliArtifact> for TargetOutputKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliBackend {
+    #[value(help = help::BACKEND_LLVM)]
     Llvm,
 }
 
@@ -276,15 +303,25 @@ impl From<CliBackend> for DriverBackend {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliRuntimeCapability {
+    #[value(help = help::CAPABILITY_MEMORY)]
     MemoryOperations,
+    #[value(help = help::CAPABILITY_STRING)]
     StringOperations,
+    #[value(help = help::CAPABILITY_CHARACTER)]
     CharacterOperations,
+    #[value(help = help::CAPABILITY_COOPERATIVE)]
     CooperativeExecution,
+    #[value(help = help::CAPABILITY_LOCAL_LANES)]
     LocalLanes,
+    #[value(help = help::CAPABILITY_MIGRATABLE_LANES)]
     MigratableLanes,
+    #[value(help = help::CAPABILITY_BLOCKING_LANES)]
     BlockingLanes,
+    #[value(help = help::CAPABILITY_COMPUTE_LANES)]
     ComputeLanes,
+    #[value(help = help::CAPABILITY_MAIN_THREAD)]
     MainThreadLane,
+    #[value(help = help::CAPABILITY_REACTOR)]
     Reactor,
 }
 
@@ -307,9 +344,13 @@ impl From<CliRuntimeCapability> for RuntimeCapability {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliInspectionArtifact {
+    #[value(help = help::ARTIFACT_ASSEMBLY)]
     Assembly,
+    #[value(help = help::ARTIFACT_BACKEND_IR)]
     BackendIr,
+    #[value(help = help::ARTIFACT_BACKEND_BITCODE)]
     BackendBitcode,
+    #[value(help = help::ARTIFACT_OBJECT)]
     RelocatableObject,
 }
 

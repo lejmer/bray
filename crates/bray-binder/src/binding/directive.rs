@@ -1,6 +1,7 @@
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
+    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticResult, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -151,4 +152,11 @@ pub fn malformed_directive_argument_diagnostic(span: SourceSpan) -> Diagnostic {
         SeverityKind::Error,
     )
     .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::DirectiveArgument,
+        span,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm,
+    ))
 }

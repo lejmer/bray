@@ -1,4 +1,7 @@
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation,
+};
 use bray_project::{PackageRole, ProjectGraph};
 use bray_tooling::OutputFormat;
 use serde::Serialize;
@@ -15,7 +18,13 @@ pub(crate) fn render_project_inspection(
         OutputFormat::Text => Ok(report.text()),
         OutputFormat::Json => serde_json::to_string_pretty(&report)
             .map(|json| format!("{json}\n"))
-            .map_err(|_| operation_diagnostics("project_inspection_json")),
+            .map_err(|_| {
+                operation_diagnostics(DiagnosticProjectCommandFailure::Document {
+                    operation: DiagnosticProjectOperation::ProjectInspectionJson,
+                    path: None,
+                    problem: DiagnosticDocumentParseKind::Serialization,
+                })
+            }),
     }
 }
 

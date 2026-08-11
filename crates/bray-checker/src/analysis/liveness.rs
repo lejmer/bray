@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundDependencyRequirement, BoundDependencySubject, BoundExpression,
-    BoundExpressionId, BoundUnit, CheckedMemoryOperations, CheckedSemanticSelections,
-    DependencyContractInstantiationError, LastUse, LiveAcrossScope, LiveAcrossSuspension,
-    LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding, StoragePlan,
+    AnyBoundNodeId, BorrowCapabilityId, BoundDependencyRequirement, BoundDependencySubject,
+    BoundExpression, BoundExpressionId, BoundUnit, CheckedMemoryOperations,
+    CheckedSemanticSelections, DependencyContractInstantiationError, LastUse, LiveAcrossScope,
+    LiveAcrossSuspension, LivenessFacts, SemanticSelection, StorageAccessRoot, StorageBinding,
+    StoragePlan,
 };
 use bray_symbols::{CallableSignatureFact, TypeData};
 
@@ -459,9 +460,7 @@ fn access_root_subjects(
         | StorageAccessRoot::OwnedIndirection { storage, .. } => {
             vec![BoundDependencySubject::Storage(storage)]
         }
-        StorageAccessRoot::Borrow(capability) => {
-            borrow_capability_subjects(storage, capability)
-        }
+        StorageAccessRoot::Borrow(capability) => borrow_capability_subjects(storage, capability),
         StorageAccessRoot::BorrowedStorage {
             capability,
             storage: retained,

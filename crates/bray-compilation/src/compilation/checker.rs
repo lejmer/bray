@@ -631,6 +631,13 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         checker_source(self.facts.compilation(), anchor)
     }
 
+    fn source_syntax(
+        &self,
+        anchor: bray_declarations::SyntaxAnchor,
+    ) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+        checker_syntax_source(self.facts.compilation(), anchor)
+    }
+
     fn cancellation(&self) -> &dyn bray_base::Cancellation {
         self.facts.cancellation()
     }
@@ -700,6 +707,25 @@ fn checker_source(
     let span = SourceSpan::new(source.source_id(), range);
 
     let Some(text) = source.text_slice(range) else {
+        return Err(CheckerInfrastructureError::InvalidSourceRange { span });
+    };
+
+    Ok(CheckerSource::new(span, text))
+}
+
+fn checker_syntax_source(
+    compilation: &Compilation,
+    anchor: bray_declarations::SyntaxAnchor,
+) -> Result<CheckerSource<'_>, CheckerInfrastructureError> {
+    let source_id = anchor.source_id();
+
+    let Some(source) = compilation.source(source_id) else {
+        return Err(CheckerInfrastructureError::MissingSource { source_id });
+    };
+
+    let span = SourceSpan::new(source_id, anchor.full_range());
+
+    let Some(text) = source.text_slice(span.range()) else {
         return Err(CheckerInfrastructureError::InvalidSourceRange { span });
     };
 

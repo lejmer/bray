@@ -1,12 +1,20 @@
 use bray_emitter::{
-    ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan,
-    LinkPlanConstructionError, OutputSinkResolver,
+    ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan, OutputSinkResolver,
 };
 use bray_linker::{LinkOutcome, LinkPlan, LinkStatus, Linker};
 
 use super::Compilation;
 use crate::QueryPriority;
 use crate::fact::{CancellationToken, FactQueryError};
+
+/// Failure while scheduling or validating linked-product publication.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LinkedProductEmissionError {
+    /// Lazy compiler work could not be completed.
+    Query(FactQueryError),
+    /// Emitter outcome diagnostics contradict the claimed terminal status.
+    Outcome(bray_emitter::EmissionOutcomeBuildError),
+}
 
 impl Compilation {
     /// Links and publishes one native product through its immutable emission plan.
@@ -16,7 +24,7 @@ impl Compilation {
         emission: &EmissionPlan,
         link: &LinkPlan,
         contributions: impl IntoIterator<Item = ArtifactContribution>,
-    ) -> Result<EmissionOutcome, FactQueryError> {
+    ) -> Result<EmissionOutcome, LinkedProductEmissionError> {
         self.emit_linked_product_with_cancellation(
             linker,
             emission,
@@ -36,8 +44,10 @@ impl Compilation {
         contributions: impl IntoIterator<Item = ArtifactContribution>,
         resolver: Option<&dyn OutputSinkResolver>,
         cancellation: &CancellationToken,
-    ) -> Result<EmissionOutcome, FactQueryError> {
-        let link_outcome = self.link_product_with_cancellation(linker, link, cancellation)?;
+    ) -> Result<EmissionOutcome, LinkedProductEmissionError> {
+        let link_outcome = self
+            .link_product_with_cancellation(linker, link, cancellation)
+            .map_err(LinkedProductEmissionError::Query)?;
 
         let publisher = match resolver {
             Some(resolver) => ArtifactPublisher::with_sink_resolver(cancellation, resolver),
@@ -48,10 +58,10 @@ impl Compilation {
             self.state.fact_runtime.profile(),
             crate::profile::ProfileOperation::ArtifactPublication,
             || publisher.publish_linked(emission, contributions, link, &link_outcome),
-            emission_profile_outcome,
+            crate::profile::result_outcome,
         );
 
-        Ok(outcome)
+        outcome.map_err(LinkedProductEmissionError::Outcome)
     }
 
     /// Links one validated native product plan into staging without publishing final outputs.
@@ -108,26 +118,17 @@ const fn link_profile_outcome(status: &LinkStatus) -> crate::CompilationProfileO
     }
 }
 
-const fn emission_profile_outcome(outcome: &EmissionOutcome) -> crate::CompilationProfileOutcome {
-    match outcome.status() {
-        bray_emitter::EmissionStatus::Complete => crate::CompilationProfileOutcome::Completed,
-        bray_emitter::EmissionStatus::Failed(_) => crate::CompilationProfileOutcome::Failed,
-        bray_emitter::EmissionStatus::Cancelled => crate::CompilationProfileOutcome::Cancelled,
-    }
-}
-
 pub(super) fn product_emission_error(
     kind: super::ProductEmissionErrorKind,
     prior: &bray_diagnostics::DiagnosticBag,
+    plan: &EmissionPlan,
 ) -> super::ProductEmissionError {
-    let diagnostics = match &kind {
-        super::ProductEmissionErrorKind::LinkPlan(LinkPlanConstructionError::Linker(failure)) => {
-            bray_linker::link_failure_diagnostics(failure)
-        }
-        _ => bray_diagnostics::DiagnosticBag::new(),
-    };
-
-    super::ProductEmissionError::new(kind, prior.merged(&diagnostics))
+    super::ProductEmissionError::new(
+        kind,
+        prior.clone(),
+        plan.request().product(),
+        plan.request().target(),
+    )
 }
 
 #[cfg(test)]
@@ -978,7 +979,7 @@ mod tests {
                 .push(plan.clone());
 
             if !self.completes {
-                return LinkOutcome::failed(LinkFailure::Invocation, DiagnosticBag::new());
+                return LinkOutcome::failed(plan, LinkFailure::Invocation, DiagnosticBag::new());
             }
 
             if let Some(bytes) = self.published_bytes {

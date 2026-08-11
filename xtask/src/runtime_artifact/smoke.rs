@@ -1,5 +1,5 @@
-use std::fs;
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -100,12 +100,7 @@ fn compile_smoke(
 
     let mut command = Command::new("rustc");
 
-    command.args([
-        "--edition",
-        "2024",
-        "--target",
-        target.as_str(),
-    ]);
+    command.args(["--edition", "2024", "--target", target.as_str()]);
 
     for archive in archives {
         let archive = archive.to_str().ok_or(CommandError::NonUtf8Path)?;
@@ -318,7 +313,8 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
 
 fn defined_symbols(archive: &Path) -> Result<BTreeSet<String>, CommandError> {
     let tool =
-        bray_tooling::llvm_tool_path("llvm-nm").ok_or(CommandError::NativeSymbolToolUnavailable)?;
+        bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::SymbolInspector)
+            .map_err(CommandError::NativeSymbolToolUnavailable)?;
 
     let output = Command::new(tool)
         .args(["--defined-only", "--extern-only"])

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    SeverityKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_syntax::SyntaxKind;
@@ -582,8 +582,8 @@ pub fn duplicate_lifecycle_slot_diagnostic(
         DiagnosticLabelKind::DuplicateDeclaration,
         duplicate_span,
     ))
-    .with_label(DiagnosticLabel::secondary(
-        DiagnosticLabelKind::FirstDeclaration,
+    .with_related_location(DiagnosticRelatedLocation::new(
+        DiagnosticRelatedLocationKind::FirstDeclaration,
         first_span,
     ))
 }
@@ -608,7 +608,11 @@ fn anchored_declaration_diagnostic<const ARG_COUNT: usize>(
         kind,
         SeverityKind::Error,
     )
-    .with_primary_span(span);
+    .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::InvalidDeclaration,
+        span,
+    ));
 
     for arg in args {
         diagnostic = diagnostic.with_arg(arg);

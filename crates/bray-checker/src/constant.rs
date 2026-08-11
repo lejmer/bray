@@ -1,6 +1,7 @@
 mod array;
 mod call;
 mod conversion;
+mod diagnostic;
 mod equality;
 mod evaluation;
 mod floating;

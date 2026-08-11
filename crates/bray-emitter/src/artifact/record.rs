@@ -72,6 +72,7 @@ impl EmittedArtifact {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmittedArtifactSet {
     product: ProductIdentity,
+    target: bray_target::TargetIdentity,
     artifacts: Arc<[EmittedArtifact]>,
 }
 
@@ -87,6 +88,7 @@ impl EmittedArtifactSet {
         Self {
             // Complete sets retain the Arc-backed product identity independently of the plan.
             product: plan.request().product().clone(),
+            target: plan.request().target().clone(),
             artifacts: artifacts.into(),
         }
     }
@@ -94,6 +96,11 @@ impl EmittedArtifactSet {
     /// Returns the product associated with this publication operation.
     pub const fn product(&self) -> &ProductIdentity {
         &self.product
+    }
+
+    /// Returns the target associated with this publication operation.
+    pub const fn target(&self) -> &bray_target::TargetIdentity {
+        &self.target
     }
 
     /// Returns emitted artifacts in canonical logical-identity order.

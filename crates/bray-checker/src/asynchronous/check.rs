@@ -1,20 +1,28 @@
+// rust-style: allow(module-too-large, reason = "asynchronous checking is one correlated validation pipeline over the same semantic inputs and source origins")
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
-    BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult,
-    BoundCallableTarget, BoundDependencyContractId, BoundExpression, BoundExpressionId,
+    AnyBoundNodeId, AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation,
+    AsyncTaskOperationKind, BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem,
+    BoundCallResult, BoundCallableTarget, BoundDependencyContractId, BoundDependencySubject,
+    BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor, BoundUnitRoot,
     CheckedAsyncFacts, CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinementFacts,
-    CheckedSemanticSelections, LivenessFacts, SemanticSelection, StorageFlowFacts, StoragePlan,
+    CheckedSemanticSelections, LivenessFacts, SemanticSelection, StorageFlowFacts, StorageIdentity,
+    StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, SeverityKind};
-use bray_symbols::{
-    AnyLocalSymbolId, CallableExecution, CallableSignatureFact, TypeData, TypeExpressionTemplate,
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    SeverityKind,
 };
+use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureFact, TypeData};
 
 use super::cleanup::scope_exit_plans;
-use super::dependency::{dependency_contract_is_satisfied, retained_suspension_subjects};
+use super::dependency::{
+    UnsatisfiedDependency, retained_suspension_subjects, unsatisfied_dependency_subjects,
+};
 
 use crate::analysis::{
     AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind,
@@ -119,7 +127,14 @@ where
                                     DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
                                     SeverityKind::Error,
                                 )
-                                .with_primary_span(span),
+                                .with_primary_span(span)
+                                .with_label(DiagnosticLabel::primary(
+                                    DiagnosticLabelKind::InvalidAsyncOperation,
+                                    span,
+                                ))
+                                .with_note(DiagnosticNote::new(
+                                    DiagnosticNoteKind::AsynchronousCallableRequired,
+                                )),
                             );
                         }
 
@@ -166,25 +181,29 @@ where
 
                 let suspension_state = flow.suspension(expression);
 
-                let dependency_satisfied = dependency_contract
-                    .and_then(|contract| dependencies.contract(contract))
-                    .is_none_or(|contract| {
-                        suspension_state.is_some_and(|state| {
-                            dependency_contract_is_satisfied(
-                                request.semantic_values(),
-                                storage,
-                                refinements,
-                                expression,
-                                state,
-                                contract,
-                            )
-                        })
-                    });
+                let dependency_failure = match &kind {
+                    AsyncSuspensionKind::Await { .. } => match await_dependency_failure(
+                        request,
+                        dependencies,
+                        storage,
+                        refinements,
+                        expression,
+                        dependency_contract,
+                        suspension_state,
+                        syntax_recovered,
+                    ) {
+                        Ok(failure) => failure,
+                        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                    },
+                    AsyncSuspensionKind::Yield => None,
+                };
 
-                if !dependency_satisfied
+                if let Some(failure) = dependency_failure.as_ref()
                     && let Err(error) = add_unavailable_await_dependency_diagnostic(
                         request,
+                        storage,
                         expression,
+                        failure,
                         &mut diagnostics,
                     )
                 {
@@ -343,42 +362,13 @@ fn containing_execution<C>(
 where
     C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
 {
-    if let crate::SemanticUnitContext::AnonymousCallable(context) = request.semantic_context() {
-        return Ok(Some(context.execution()));
-    }
-
-    let Some(callable) = request.containing_callable() else {
-        return Ok(None);
+    let execution = match request.unit().root() {
+        BoundUnitRoot::CallableBody { execution, .. }
+        | BoundUnitRoot::AnonymousCallable { execution, .. } => Some(execution),
+        BoundUnitRoot::Expression(_) | BoundUnitRoot::ExpressionSequence(_) => None,
     };
 
-    let signature = request
-        .symbol_fact(bray_symbols::SymbolFactRequest::<CallableSignatureFact>::new(callable))?;
-
-    let execution = match signature.value().callable_type() {
-        TypeExpressionTemplate::Callable(callable) => callable.execution(),
-        TypeExpressionTemplate::Resolved(ty) => {
-            let data = request.semantic_values().type_data(*ty).map_err(|_| {
-                CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                )
-            })?;
-
-            let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                ));
-            };
-
-            callable.execution()
-        }
-        _ => {
-            return Err(CheckerFactError::Infrastructure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ));
-        }
-    };
-
-    Ok(Some(execution))
+    Ok(execution)
 }
 
 fn local_initializers<C>(
@@ -482,6 +472,14 @@ where
     {
         let mut contribution =
             BodyBehaviorCall::new(call.target(), BodyBehaviorPhase::DeferredExecution);
+
+        if let Some(source) = request
+            .view()
+            .expression(expression)
+            .map(|expression| expression.origin().source_anchor())
+        {
+            contribution = contribution.with_source(source);
+        }
 
         if matches!(call.target(), BoundCallableTarget::Anonymous(_))
             && let Some(unit) = request.anonymous_callable_unit(expression)
@@ -646,15 +644,69 @@ where
             DiagnosticKind::CheckingTaskStartOutsideAsyncCallable,
             SeverityKind::Error,
         )
-        .with_primary_span(span),
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidAsyncOperation,
+            span,
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::AsynchronousCallableRequired,
+        )),
     );
 
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "await dependency validation consumes the exact independently checked inputs"
+)]
+fn await_dependency_failure<C>(
+    request: CheckerUnitView<'_, C>,
+    dependencies: &CheckedDependencyContracts,
+    storage: &StoragePlan,
+    refinements: &CheckedRefinementFacts,
+    expression: BoundExpressionId,
+    dependency_contract: Option<BoundDependencyContractId>,
+    suspension_state: Option<&bray_bound_tree::StorageSuspensionState>,
+    syntax_recovered: bool,
+) -> Result<Option<AwaitDependencyFailure>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if syntax_recovered {
+        return Ok(None);
+    }
+
+    let Some(dependency_contract) = dependency_contract else {
+        return Err(CheckerInfrastructureError::InvalidStorageFlowFacts);
+    };
+
+    let Some(contract) = dependencies.contract(dependency_contract) else {
+        return Err(CheckerInfrastructureError::InvalidStorageFlowFacts);
+    };
+
+    let Some(suspension_state) = suspension_state else {
+        return Ok(Some(AwaitDependencyFailure::MissingSuspensionState));
+    };
+
+    let unsatisfied = unsatisfied_dependency_subjects(
+        request.semantic_values(),
+        storage,
+        refinements,
+        expression,
+        suspension_state,
+        contract,
+    );
+
+    Ok((!unsatisfied.is_empty()).then_some(AwaitDependencyFailure::Unsatisfied(unsatisfied)))
+}
+
 fn add_unavailable_await_dependency_diagnostic<C>(
     request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
     expression: BoundExpressionId,
+    failure: &AwaitDependencyFailure,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<(), CheckerInfrastructureError>
 where
@@ -662,36 +714,208 @@ where
 {
     let span = expression_span(request, expression)?;
 
-    diagnostics.add(
-        Diagnostic::new(
-            diagnostic_id(diagnostics.len()),
-            DiagnosticKind::CheckingUnavailableAwaitDependency,
-            SeverityKind::Error,
-        )
-        .with_primary_span(span),
-    );
+    let mut diagnostic = Diagnostic::new(
+        diagnostic_id(diagnostics.len()),
+        DiagnosticKind::CheckingUnavailableAwaitDependency,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::UnavailableAwaitDependency,
+        span,
+    ));
+
+    let dependencies = match failure {
+        AwaitDependencyFailure::MissingSuspensionState => {
+            diagnostic = with_missing_await_dependency(
+                diagnostic,
+                bray_diagnostics::DiagnosticDependencySubjectKind::SuspensionState,
+                bray_diagnostics::DiagnosticDependencyRequirementKind::SuspensionStateAvailable,
+            );
+
+            &[][..]
+        }
+        AwaitDependencyFailure::Unsatisfied(dependencies) => dependencies.as_slice(),
+    };
+
+    for (index, dependency) in dependencies.iter().enumerate() {
+        let subject = DiagnosticArg::dependency_subject_kind(diagnostic_dependency_subject(
+            dependency.subject,
+        ));
+
+        let requirement = DiagnosticArg::dependency_requirement_kind(
+            diagnostic_dependency_requirement(dependency.requirement),
+        );
+
+        if index == 0 {
+            diagnostic = diagnostic
+                .with_arg(subject.clone())
+                .with_arg(requirement.clone());
+        }
+
+        diagnostic = diagnostic.with_note(
+            DiagnosticNote::new(DiagnosticNoteKind::AwaitDependencyUnavailable)
+                .with_arg(subject)
+                .with_arg(requirement),
+        );
+
+        if let Some(origin) = await_dependency_origin(request, storage, dependency.subject)? {
+            if origin == span {
+                continue;
+            }
+
+            diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+                DiagnosticRelatedLocationKind::RequirementOrigin,
+                origin,
+            ));
+        }
+    }
+
+    diagnostics.add(diagnostic);
 
     Ok(())
+}
+
+fn with_missing_await_dependency(
+    diagnostic: Diagnostic,
+    subject: bray_diagnostics::DiagnosticDependencySubjectKind,
+    requirement: bray_diagnostics::DiagnosticDependencyRequirementKind,
+) -> Diagnostic {
+    let subject = DiagnosticArg::dependency_subject_kind(subject);
+    let requirement = DiagnosticArg::dependency_requirement_kind(requirement);
+
+    diagnostic
+        .with_arg(subject.clone())
+        .with_arg(requirement.clone())
+        .with_note(
+            DiagnosticNote::new(DiagnosticNoteKind::AwaitDependencyUnavailable)
+                .with_arg(subject)
+                .with_arg(requirement),
+        )
+}
+
+fn await_dependency_origin<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    subject: BoundDependencySubject,
+) -> Result<Option<bray_source::SourceSpan>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let source = match subject {
+        BoundDependencySubject::Storage(identity) => storage
+            .identity(identity)
+            .and_then(|identity| storage_identity_source(request, identity)),
+        BoundDependencySubject::StorageAccess(access) => storage
+            .access(access)
+            .map(bray_bound_tree::StorageAccess::source),
+        BoundDependencySubject::BorrowCapability(capability) => storage
+            .borrow_capability(capability)
+            .map(bray_bound_tree::PlannedBorrowCapability::source),
+        BoundDependencySubject::ScopedCapability(_)
+        | BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::LifecycleObligation(_) => None,
+    };
+
+    source
+        .map(|source| request.source(source).map(|source| source.span()))
+        .transpose()
+}
+
+fn storage_identity_source<C>(
+    request: CheckerUnitView<'_, C>,
+    identity: StorageIdentity,
+) -> Option<BoundSourceAnchor>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if let Some(node) = identity.definition_node() {
+        return bound_node_origin(request, node).map(BoundNodeOrigin::source_anchor);
+    }
+
+    match identity {
+        StorageIdentity::CompilerCreated(origin) => Some(origin.source_anchor()),
+        StorageIdentity::Error(source) => Some(source),
+        StorageIdentity::LocalOwned(_)
+        | StorageIdentity::Parameter(_)
+        | StorageIdentity::Receiver(_)
+        | StorageIdentity::AnonymousParameter(_)
+        | StorageIdentity::PredicateParameter(_)
+        | StorageIdentity::PostconditionResult(_)
+        | StorageIdentity::Result(_)
+        | StorageIdentity::Temporary(_)
+        | StorageIdentity::CustomIndexBorrow(_)
+        | StorageIdentity::IterationCursor(_)
+        | StorageIdentity::IterationElement(_)
+        | StorageIdentity::Allocation(_)
+        | StorageIdentity::Alternative { .. } => None,
+    }
+}
+
+fn bound_node_origin<C>(
+    request: CheckerUnitView<'_, C>,
+    node: AnyBoundNodeId,
+) -> Option<BoundNodeOrigin>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match node {
+        AnyBoundNodeId::Expression(expression) => request
+            .view()
+            .expression(expression)
+            .map(BoundExpression::origin),
+        AnyBoundNodeId::Pattern(pattern) => request
+            .view()
+            .pattern(pattern)
+            .map(bray_bound_tree::BoundPattern::origin),
+        AnyBoundNodeId::Block(block) => request
+            .view()
+            .block(block)
+            .map(bray_bound_tree::BoundBlock::origin),
+        AnyBoundNodeId::CallableBody(body) => request
+            .view()
+            .callable_body(body)
+            .copied()
+            .map(bray_bound_tree::BoundCallableBody::origin),
+    }
+}
+
+enum AwaitDependencyFailure {
+    MissingSuspensionState,
+    Unsatisfied(Vec<UnsatisfiedDependency>),
 }
 
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundCallResult, BoundCallableTarget, BoundErrorExpression, BoundExpression,
-        BoundResolvedCall, BoundUnitId, SelectedCall, SemanticSelection,
+        BorrowCapabilityOrigin, BoundAwaitExpression, BoundCallResult, BoundCallableTarget,
+        BoundDependencyContract, BoundDependencyRequirement, BoundDependencyRequirementKind,
+        BoundDependencySubject, BoundErrorExpression, BoundExpression, BoundResolvedCall,
+        BoundUnit, BoundUnitId, CheckedDependencyContracts, CheckedRefinementFacts,
+        CheckedSemanticSelections, ExpressionTypeResult, ExpressionTypeStatus, LivenessFacts,
+        PlannedBorrowCapability, SelectedCall, SemanticSelection, StorageAccess, StorageAccessRoot,
+        StorageFlowFacts, StorageIdentity, StoragePlanBuilder, StorageSuspensionState,
     };
-    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
-    use bray_symbols::{CallableAbi, CallableExecution, TypeCallableMemberSymbolId};
+    use bray_diagnostics::{
+        DiagnosticArgValue, DiagnosticBag, DiagnosticDependencyRequirementKind,
+        DiagnosticDependencySubjectKind, DiagnosticKind,
+    };
+    use bray_symbols::{
+        BorrowKind, CallableAbi, CallableExecution, LifecycleObligationKind,
+        TypeCallableMemberSymbolId, testing::implementation_instance,
+    };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{
-        AnalysisTaskOperationKind, add_task_context_diagnostic,
-        add_unavailable_await_dependency_diagnostic, selected_task_operation,
+        AnalysisTaskOperationKind, add_task_context_diagnostic, check_async_facts,
+        selected_task_operation,
     };
-    use crate::CheckerUnitView;
     use crate::test_support::{
-        TestCheckerContext, callable_entry, callable_instance, compiler_known_symbol,
-        empty_callable_phase_behaviors, error_type, expression_unit, push_expression,
+        TestCheckerContext, callable_entry, callable_instance, checked_expression_types,
+        compiler_known_symbol, empty_callable_phase_behaviors, error_type, expression_unit,
+        integer_literal_expression, push_expression, semantic_values, test_source_origins,
     };
+    use crate::{CheckerOutcome, CheckerUnitView};
 
     #[test]
     fn selected_compiler_known_calls_publish_task_operation_kinds() {
@@ -766,15 +990,198 @@ mod tests {
                 .collect::<Vec<_>>(),
             [DiagnosticKind::CheckingTaskStartOutsideAsyncCallable]
         );
+
+        assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::CheckingTaskStartOutsideAsyncCallable,
+        );
     }
 
     #[test]
-    fn unavailable_await_dependencies_publish_exact_structured_diagnostics() {
+    fn non_recovered_await_without_an_inferred_dependency_contract_is_infrastructure_failure() {
+        assert_eq!(
+            await_outcome(false, true),
+            CheckerOutcome::InfrastructureFailure(
+                crate::CheckerInfrastructureError::InvalidStorageFlowFacts
+            )
+        );
+    }
+
+    #[test]
+    fn await_without_flow_state_reports_the_missing_semantic_input() {
+        let diagnostics = await_diagnostics(true, false);
+
+        assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::CheckingUnavailableAwaitDependency,
+        );
+
+        assert_dependency_problem(
+            &diagnostics,
+            DiagnosticDependencySubjectKind::SuspensionState,
+            DiagnosticDependencyRequirementKind::SuspensionStateAvailable,
+        );
+    }
+
+    #[test]
+    fn unavailable_await_dependencies_keep_every_paired_cause_and_available_origin() {
+        let diagnostics = await_diagnostics_with(
+            |unit, expressions, storage| {
+                let [access_origin, storage_origin, _] = test_source_origins();
+
+                let identity = storage
+                    .push_identity(StorageIdentity::Temporary(expressions[0]))
+                    .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
+
+                let access = storage
+                    .push_access(StorageAccess::new(
+                        StorageAccessRoot::Storage(identity),
+                        [],
+                        error_type(),
+                        access_origin.source_anchor(),
+                        false,
+                    ))
+                    .unwrap_or_else(|error| panic!("test storage access must build: {error:?}"));
+
+                let borrow = storage
+                    .push_borrow_capability(PlannedBorrowCapability::new(
+                        BorrowCapabilityOrigin::Expression(expressions[0]),
+                        BorrowKind::Shared,
+                        access,
+                        None,
+                        storage_origin.source_anchor(),
+                        false,
+                    ))
+                    .unwrap_or_else(|error| panic!("test borrow capability must build: {error:?}"));
+
+                let scoped = bray_bound_tree::testing::scoped_capability_id(unit.unit(), 0);
+                let obligation = bray_bound_tree::testing::lifecycle_obligation_id(unit.unit(), 0);
+                let witness = implementation_instance(semantic_values(), 73);
+
+                Some(BoundDependencyContract::new([
+                    BoundDependencyRequirement::direct(
+                        BoundDependencySubject::Storage(identity),
+                        BoundDependencyRequirementKind::StorageAlive,
+                    ),
+                    BoundDependencyRequirement::direct(
+                        BoundDependencySubject::StorageAccess(access),
+                        BoundDependencyRequirementKind::StorageInitialized,
+                    ),
+                    BoundDependencyRequirement::direct(
+                        BoundDependencySubject::BorrowCapability(borrow),
+                        BoundDependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Shared),
+                    ),
+                    BoundDependencyRequirement::direct(
+                        BoundDependencySubject::ScopedCapability(scoped),
+                        BoundDependencyRequirementKind::ScopedCapabilityLive,
+                    ),
+                    BoundDependencyRequirement::direct(
+                        BoundDependencySubject::ImplementationWitness(witness),
+                        BoundDependencyRequirementKind::StorageAlive,
+                    ),
+                    BoundDependencyRequirement::direct(
+                        BoundDependencySubject::LifecycleObligation(obligation),
+                        BoundDependencyRequirementKind::LifecycleObligationAttached(
+                            LifecycleObligationKind::Finalization,
+                        ),
+                    ),
+                ]))
+            },
+            true,
+        );
+
+        assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::CheckingUnavailableAwaitDependency,
+        );
+
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::CheckingUnavailableAwaitDependency
+            })
+            .unwrap_or_else(|| panic!("await dependency diagnostic must be produced"));
+
+        assert_eq!(diagnostic.notes().len(), 6);
+        assert_eq!(diagnostic.related_locations().len(), 1);
+
+        for note in diagnostic.notes() {
+            assert_eq!(note.args().len(), 2);
+
+            assert!(matches!(
+                note.args()[0].value(),
+                DiagnosticArgValue::DependencySubjectKind(_)
+            ));
+
+            assert!(matches!(
+                note.args()[1].value(),
+                DiagnosticArgValue::DependencyRequirementKind(_)
+            ));
+        }
+    }
+
+    fn await_diagnostics(
+        include_dependency_contract: bool,
+        include_suspension_state: bool,
+    ) -> DiagnosticBag {
+        let CheckerOutcome::Complete(result) =
+            await_outcome(include_dependency_contract, include_suspension_state)
+        else {
+            panic!("test async checking must complete");
+        };
+
+        result.into_parts().1
+    }
+
+    fn await_outcome(
+        include_dependency_contract: bool,
+        include_suspension_state: bool,
+    ) -> CheckerOutcome<bray_bound_tree::CheckedAsyncFacts> {
+        await_outcome_with(
+            |_, _, _| include_dependency_contract.then(|| BoundDependencyContract::new([])),
+            include_suspension_state,
+        )
+    }
+
+    fn await_diagnostics_with(
+        build_contract: impl FnOnce(
+            &BoundUnit,
+            &[bray_bound_tree::BoundExpressionId],
+            &mut StoragePlanBuilder,
+        ) -> Option<BoundDependencyContract>,
+        include_suspension_state: bool,
+    ) -> DiagnosticBag {
+        let CheckerOutcome::Complete(result) =
+            await_outcome_with(build_contract, include_suspension_state)
+        else {
+            panic!("test async checking must complete");
+        };
+
+        result.into_parts().1
+    }
+
+    fn await_outcome_with(
+        build_contract: impl FnOnce(
+            &BoundUnit,
+            &[bray_bound_tree::BoundExpressionId],
+            &mut StoragePlanBuilder,
+        ) -> Option<BoundDependencyContract>,
+        include_suspension_state: bool,
+    ) -> CheckerOutcome<bray_bound_tree::CheckedAsyncFacts> {
         let (unit, expressions) = expression_unit(BoundUnitId::new(72), |tree, origin| {
-            vec![push_expression(
+            let [_, operand_origin, _] = test_source_origins();
+
+            let operand = push_expression(
                 tree,
-                BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
-            )]
+                integer_literal_expression(operand_origin, Some(error_type())),
+            );
+
+            let await_expression = push_expression(
+                tree,
+                BoundExpression::Await(BoundAwaitExpression::pending(origin, operand, false)),
+            );
+
+            vec![operand, await_expression]
         });
 
         let context = TestCheckerContext::new(false);
@@ -783,17 +1190,134 @@ mod tests {
         let request = CheckerUnitView::new(&unit, &semantic_context, &context)
             .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
 
-        let mut diagnostics = DiagnosticBag::new();
+        let result = ExpressionTypeResult::new(error_type(), ExpressionTypeStatus::Valid);
+        let types = checked_expression_types(&unit, expressions.iter().copied(), result);
 
-        add_unavailable_await_dependency_diagnostic(request, expressions[0], &mut diagnostics)
-            .unwrap_or_else(|error| panic!("test expression span must resolve: {error:?}"));
+        let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
+            .unwrap_or_else(|error| panic!("empty test selections must validate: {error:?}"));
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.kind())
-                .collect::<Vec<_>>(),
-            [DiagnosticKind::CheckingUnavailableAwaitDependency]
-        );
+        let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let deferred = build_contract(&unit, &expressions, &mut storage)
+            .map(|contract| (expressions[0], contract));
+
+        let storage = storage.finish();
+
+        let dependencies =
+            CheckedDependencyContracts::try_new(&unit, &storage, [], deferred, [], [], false)
+                .unwrap_or_else(|error| {
+                    panic!("test dependency contracts must validate: {error:?}")
+                });
+
+        let liveness = LivenessFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty test liveness must validate: {error:?}"));
+
+        let refinements =
+            CheckedRefinementFacts::try_new(unit.unit(), unit.key().kind(), [], false)
+                .unwrap_or_else(|error| panic!("empty test refinements must validate: {error:?}"));
+
+        let suspension = include_suspension_state
+            .then(|| StorageSuspensionState::new(expressions[1], [], [], [], []));
+
+        let flow =
+            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], suspension, [], false)
+                .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
+
+        check_async_facts(
+            request,
+            &types,
+            &selections,
+            &liveness,
+            &dependencies,
+            &storage,
+            &refinements,
+            &flow,
+        )
+    }
+
+    fn assert_dependency_problem(
+        diagnostics: &DiagnosticBag,
+        expected_subject: DiagnosticDependencySubjectKind,
+        expected_requirement: DiagnosticDependencyRequirementKind,
+    ) {
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::CheckingUnavailableAwaitDependency
+            })
+            .unwrap_or_else(|| panic!("await dependency diagnostic must be produced"));
+
+        assert!(diagnostic.args().iter().any(|argument| {
+            argument.value() == &DiagnosticArgValue::DependencySubjectKind(expected_subject)
+        }));
+
+        assert!(diagnostic.args().iter().any(|argument| {
+            argument.value() == &DiagnosticArgValue::DependencyRequirementKind(expected_requirement)
+        }));
+    }
+}
+
+const fn diagnostic_dependency_subject(
+    subject: bray_bound_tree::BoundDependencySubject,
+) -> bray_diagnostics::DiagnosticDependencySubjectKind {
+    use bray_bound_tree::BoundDependencySubject;
+    use bray_diagnostics::DiagnosticDependencySubjectKind;
+
+    match subject {
+        BoundDependencySubject::Storage(_) => DiagnosticDependencySubjectKind::Storage,
+        BoundDependencySubject::StorageAccess(_) => DiagnosticDependencySubjectKind::StorageAccess,
+        BoundDependencySubject::BorrowCapability(_) => {
+            DiagnosticDependencySubjectKind::BorrowCapability
+        }
+        BoundDependencySubject::ScopedCapability(_) => {
+            DiagnosticDependencySubjectKind::ScopedCapability
+        }
+        BoundDependencySubject::ImplementationWitness(_) => {
+            DiagnosticDependencySubjectKind::SelectedImplementation
+        }
+        BoundDependencySubject::LifecycleObligation(_) => {
+            DiagnosticDependencySubjectKind::LifecycleObligation
+        }
+    }
+}
+
+const fn diagnostic_dependency_requirement(
+    requirement: bray_bound_tree::BoundDependencyRequirementKind,
+) -> bray_diagnostics::DiagnosticDependencyRequirementKind {
+    use bray_bound_tree::BoundDependencyRequirementKind;
+    use bray_diagnostics::DiagnosticDependencyRequirementKind;
+    use bray_symbols::{BorrowKind, LifecycleObligationKind};
+
+    match requirement {
+        BoundDependencyRequirementKind::StorageAlive => {
+            DiagnosticDependencyRequirementKind::StorageAlive
+        }
+        BoundDependencyRequirementKind::StorageInitialized => {
+            DiagnosticDependencyRequirementKind::StorageInitialized
+        }
+        BoundDependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Shared) => {
+            DiagnosticDependencyRequirementKind::SharedBorrowActive
+        }
+        BoundDependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Mutable) => {
+            DiagnosticDependencyRequirementKind::MutableBorrowActive
+        }
+        BoundDependencyRequirementKind::ExclusiveMutationAuthority => {
+            DiagnosticDependencyRequirementKind::ExclusiveMutationAuthority
+        }
+        BoundDependencyRequirementKind::ScopedCapabilityLive => {
+            DiagnosticDependencyRequirementKind::ScopedCapabilityLive
+        }
+        BoundDependencyRequirementKind::LifecycleObligationAttached(
+            LifecycleObligationKind::Destruction,
+        ) => DiagnosticDependencyRequirementKind::DestructionAttached,
+        BoundDependencyRequirementKind::LifecycleObligationAttached(
+            LifecycleObligationKind::Finalization,
+        ) => DiagnosticDependencyRequirementKind::FinalizationAttached,
+        BoundDependencyRequirementKind::LifecycleObligationAttached(
+            LifecycleObligationKind::Cancellation,
+        ) => DiagnosticDependencyRequirementKind::CancellationAttached,
+        BoundDependencyRequirementKind::LifecycleObligationAttached(
+            LifecycleObligationKind::Joining,
+        ) => DiagnosticDependencyRequirementKind::JoiningAttached,
     }
 }

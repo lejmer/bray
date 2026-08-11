@@ -38,13 +38,25 @@ impl TestExecutionMode {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TestExecutionPlanBuildError {
     /// The invocation count does not match the selected entry count.
-    InvocationCountMismatch,
+    InvocationCountMismatch {
+        /// Number of selected catalog entries.
+        entries: usize,
+        /// Number of supplied invocation policies.
+        invocations: usize,
+    },
     /// An invocation does not identify the entry at the same canonical position.
     InvocationIdentityMismatch(TestIdentity),
     /// More than one selected entry claims the same product-qualified identity.
     DuplicateIdentity(TestIdentity),
     /// One invocation cannot fit inside the command-wide capture reservation.
-    CaptureBudgetExceeded(TestIdentity),
+    CaptureBudgetExceeded {
+        /// Test whose capture reservation exceeds the budget.
+        test: TestIdentity,
+        /// Capture bytes required by this invocation.
+        required: u64,
+        /// Command-wide capture budget.
+        maximum: u64,
+    },
 }
 
 /// Immutable selected test work and command-wide admission limits.
@@ -86,7 +98,10 @@ impl TestExecutionPlan {
         invocations.sort_by(|left, right| left.identity().cmp(right.identity()));
 
         if entries.len() != invocations.len() {
-            return Err(TestExecutionPlanBuildError::InvocationCountMismatch);
+            return Err(TestExecutionPlanBuildError::InvocationCountMismatch {
+                entries: entries.len(),
+                invocations: invocations.len(),
+            });
         }
 
         for (entry, invocation) in entries.iter().zip(&invocations) {
@@ -96,10 +111,14 @@ impl TestExecutionPlan {
                 ));
             }
 
-            if capture_reservation(invocation.capture()) > capture_byte_budget {
-                return Err(TestExecutionPlanBuildError::CaptureBudgetExceeded(
-                    invocation.identity().clone(),
-                ));
+            let required = capture_reservation(invocation.capture());
+
+            if required > capture_byte_budget {
+                return Err(TestExecutionPlanBuildError::CaptureBudgetExceeded {
+                    test: invocation.identity().clone(),
+                    required,
+                    maximum: capture_byte_budget,
+                });
             }
         }
 

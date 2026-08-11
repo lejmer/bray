@@ -1,10 +1,10 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_binder::{BinderFactContext, SymbolFactProvider};
 use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallableTarget,
-    BoundUnitKey, CheckedBodyBehavior,
+    BoundSourceAnchor, BoundUnitKey, CheckedBodyBehavior, TrustedCapabilityUse,
 };
 use bray_checker::{
     BodyBehaviorCollector, CheckerInfrastructureError, CheckerUnitView,
@@ -32,7 +32,7 @@ use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, Publish
 struct BodyBehaviorBuilder {
     effects: BTreeSet<CallableEffectRequirement>,
     capabilities: BTreeSet<CallableCapabilityRequirement>,
-    trusted_capabilities: BTreeSet<TrustedCapabilitySymbolId>,
+    trusted_capabilities: BTreeMap<TrustedCapabilitySymbolId, BTreeSet<BoundSourceAnchor>>,
     execution_requirements: BTreeSet<CallableExecutionRequirement>,
     lifecycle_obligations: BTreeSet<LifecycleObligationKind>,
     current_run_cancellation: bool,
@@ -70,12 +70,11 @@ impl BodyBehaviorBuilder {
                 .map(|requirement| CallableCapabilityRequirement::new(requirement.declaration())),
         );
 
-        self.trusted_capabilities.extend(
-            behavior
-                .trusted_obligations()
-                .iter()
-                .map(|obligation| obligation.declaration()),
-        );
+        for obligation in behavior.trusted_obligations() {
+            self.trusted_capabilities
+                .entry(obligation.declaration())
+                .or_default();
+        }
 
         self.lifecycle_obligations
             .extend(behavior.lifecycle_obligations().iter().copied());
@@ -97,14 +96,29 @@ impl BodyBehaviorBuilder {
             CurrentRunCancellation::NotEntered
         };
 
+        let capability_uses = self
+            .trusted_capabilities
+            .iter()
+            .map(|(capability, sources)| {
+                TrustedCapabilityUse::new(*capability, sources.iter().copied())
+            })
+            .collect::<Vec<_>>();
+
+        let trusted_capabilities = self
+            .trusted_capabilities
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+
         CheckedBodyBehavior::new(unit, key.kind(), cancellation, self.is_recovered)
             .with_requirements(
                 self.effects,
                 self.capabilities,
-                self.trusted_capabilities,
+                trusted_capabilities,
                 self.execution_requirements,
                 self.lifecycle_obligations,
             )
+            .with_trusted_capability_uses(capability_uses)
     }
 }
 
@@ -198,11 +212,18 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<(BTreeSet<TrustedCapabilitySymbolId>, DiagnosticBag, bool), FactQueryError> {
+    ) -> Result<
+        (
+            BTreeMap<TrustedCapabilitySymbolId, BTreeSet<BoundSourceAnchor>>,
+            DiagnosticBag,
+            bool,
+        ),
+        FactQueryError,
+    > {
         let contributions =
             self.body_behavior_contributions_with_cancellation(key, cancellation)?;
 
-        let mut capabilities = BTreeSet::new();
+        let mut capabilities = BTreeMap::<_, BTreeSet<_>>::new();
         let mut diagnostics = contributions.result().diagnostics().clone();
         let mut is_recovered = contributions.result().value().is_recovered();
         let facts = self.binder_facts(cancellation)?;
@@ -247,11 +268,13 @@ impl Compilation {
                     diagnostics = diagnostics.merged(declared.diagnostics());
                     is_recovered |= declared.diagnostics().has_errors();
 
-                    capabilities.extend(
+                    record_trusted_capability_use(
+                        &mut capabilities,
+                        call.source(),
                         declared
                             .value()
                             .iter()
-                            .map(|requirement| requirement.capability()),
+                            .map(|capability| capability.requirement().capability()),
                     );
                 }
                 Some(
@@ -267,7 +290,9 @@ impl Compilation {
                     is_recovered |= contract.diagnostics().has_errors();
 
                     if let Some(behavior) = phase_behavior(contract.value(), call.phase()) {
-                        capabilities.extend(
+                        record_trusted_capability_use(
+                            &mut capabilities,
+                            call.source(),
                             behavior
                                 .trusted_capabilities()
                                 .iter()
@@ -538,6 +563,20 @@ impl Compilation {
                 Ok(true)
             }
             UnevaluatedDefaultTemplate::Resolved => Ok(false),
+        }
+    }
+}
+
+fn record_trusted_capability_use(
+    capabilities: &mut BTreeMap<TrustedCapabilitySymbolId, BTreeSet<BoundSourceAnchor>>,
+    source: Option<BoundSourceAnchor>,
+    used: impl IntoIterator<Item = TrustedCapabilitySymbolId>,
+) {
+    for capability in used {
+        let origins = capabilities.entry(capability).or_default();
+
+        if let Some(source) = source {
+            origins.insert(source);
         }
     }
 }

@@ -34,6 +34,7 @@ pub use asynchronous::{
 };
 pub use behavior::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,
+    TrustedCapabilityUse,
 };
 pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
 pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};

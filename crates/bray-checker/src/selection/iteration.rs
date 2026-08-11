@@ -1,6 +1,9 @@
 use bray_bound_tree::SelectedIterationSource;
 
-use super::{CandidateSelection, IterationSourceSelectionRequest, SelectionFailure};
+use super::{
+    CandidateSelection, IterationSourceSelectionRequest, SelectionCandidateSignature,
+    SelectionFailure, SelectionFailureCandidate,
+};
 
 pub(super) fn select(
     input: &IterationSourceSelectionRequest,
@@ -21,7 +24,18 @@ pub(super) fn select(
         candidates => CandidateSelection::Failed(SelectionFailure::Ambiguous(
             candidates
                 .iter()
-                .map(|candidate| candidate.key().clone())
+                .map(|candidate| {
+                    let selection = candidate.selection();
+
+                    SelectionFailureCandidate::new(
+                        candidate.key().clone(),
+                        SelectionCandidateSignature::Iteration {
+                            source_type: selection.source_type(),
+                            cursor_type: selection.cursor_type(),
+                            element_type: selection.element_type(),
+                        },
+                    )
+                })
                 .collect(),
         )),
     })
@@ -97,7 +111,7 @@ mod tests {
         };
 
         assert_eq!(keys.len(), 2);
-        assert!(keys[0] < keys[1]);
+        assert!(keys[0].key() < keys[1].key());
     }
 
     #[test]

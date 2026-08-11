@@ -8,6 +8,7 @@ mod specialization;
 mod specialization_identity;
 mod visibility;
 
+pub(in crate::compilation) use codegen::codegen_fact_failure_kind;
 pub(in crate::compilation) use codegen::demanded_runtime_capabilities;
 pub use codegen::{NativeProductFactError, NativeProductFacts};
 pub(in crate::compilation) use lifecycle::CodegenLifecycleNeeds;

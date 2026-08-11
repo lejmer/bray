@@ -20,8 +20,12 @@ pub(crate) fn emit_executable(
 ) -> Result<(), String> {
     let selected = SelectedTarget::for_native(target);
 
-    let linker = native_linker(target)
-        .ok_or_else(|| format!("native linker is unavailable for {}", target.as_str()))?;
+    let linker = native_linker(target).map_err(|error| {
+        format!(
+            "native linker is unavailable for {}: {error:?}",
+            target.as_str()
+        )
+    })?;
 
     let runtime = load_runtime_artifact(runtime)
         .ok_or_else(|| "native runtime artifact is invalid".to_owned())?;

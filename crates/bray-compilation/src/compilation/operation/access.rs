@@ -9,7 +9,8 @@ use bray_bound_tree::{
 };
 use bray_checker::{resolve_callable_signature_template, resolve_type_expression_template};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -938,17 +939,17 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let candidate = self.trait_operation_candidate_data(
-                facts,
-                owner,
-                role,
-                subject,
-                &trait_arguments,
-                &callable_parameters,
-                &operand_types,
-                TraitOperation::Index(borrow_kind),
-                cancellation,
-                diagnostics,
-            )?;
+            facts,
+            owner,
+            role,
+            subject,
+            &trait_arguments,
+            &callable_parameters,
+            &operand_types,
+            TraitOperation::Index(borrow_kind),
+            cancellation,
+            diagnostics,
+        )?;
 
         if candidate.is_none() && borrow_kind == BorrowKind::Mutable {
             let shared_role = match index.kind() {
@@ -977,13 +978,19 @@ impl Compilation {
             if let Some(shared) = shared {
                 let anchor = index.origin().source_anchor().syntax();
 
+                let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
                 diagnostics.add(
                     Diagnostic::new(
                         DiagnosticId::new(anchor.full_range().start().bytes()),
                         DiagnosticKind::CheckingMutableIndexContractRequired,
                         SeverityKind::Error,
                     )
-                    .with_primary_span(SourceSpan::new(anchor.source_id(), anchor.full_range()))
+                    .with_primary_span(span)
+                    .with_label(DiagnosticLabel::primary(
+                        DiagnosticLabelKind::SelectionFailure,
+                        span,
+                    ))
                     .with_arg(DiagnosticArg::referenced_name(role.as_str())),
                 );
 

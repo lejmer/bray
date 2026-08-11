@@ -373,7 +373,7 @@ fn build_tree(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "node inspection correlates one node with every explicitly requested unit fact"
+    reason = "node inspection correlates one node with every explicitly requested unit report"
 )]
 fn inspection_node(
     unit: &BoundUnit,

@@ -1,14 +1,15 @@
 use bray_bound_tree::{BoundExpressionId, BoundOperator, ExpressionTypeStatus};
 use bray_compiler_known::IntegerRepresentation;
-use bray_diagnostics::DiagnosticKind;
+use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
     ConstantBinaryOperation, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
     ConstantValueData, ConstantValueId, ConstantValueKind, TypeId,
 };
 
+use crate::constant::diagnostic::ConstantDiagnostic;
 use crate::constant::integer::fits_integer_representation;
 use crate::constant::literal::ConstantLiteralError;
-use crate::constant::operation::{ConstantOperationError, operation_diagnostic_kind};
+use crate::constant::operation::ConstantOperationError;
 use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
@@ -180,6 +181,7 @@ where
                 }) {
                     return Err(EvaluationFailure::operation(
                         expression,
+                        DiagnosticConstantOperation::Conversion,
                         ConstantOperationError::NotRepresentable,
                     ));
                 }
@@ -264,7 +266,7 @@ pub(in crate::constant) enum EvaluationFailure {
     Propagate(ConstantTermId),
     Source {
         expression: BoundExpressionId,
-        kind: DiagnosticKind,
+        diagnostic: ConstantDiagnostic,
     },
 }
 
@@ -276,7 +278,7 @@ impl EvaluationFailure {
     pub(super) const fn invalid_expression(expression: BoundExpressionId) -> Self {
         Self::Source {
             expression,
-            kind: DiagnosticKind::CheckingInvalidConstantExpression,
+            diagnostic: ConstantDiagnostic::InvalidExpression,
         }
     }
 
@@ -284,18 +286,21 @@ impl EvaluationFailure {
         expression: BoundExpressionId,
         error: ConstantLiteralError,
     ) -> Self {
-        let kind = crate::constant::literal_diagnostic_kind(error);
-
-        Self::Source { expression, kind }
+        Self::Source {
+            expression,
+            diagnostic: ConstantDiagnostic::Literal(error),
+        }
     }
 
     pub(super) const fn operation(
         expression: BoundExpressionId,
+        operation: DiagnosticConstantOperation,
         error: ConstantOperationError,
     ) -> Self {
-        let kind = operation_diagnostic_kind(error);
-
-        Self::Source { expression, kind }
+        Self::Source {
+            expression,
+            diagnostic: ConstantDiagnostic::operation(operation, error),
+        }
     }
 }
 

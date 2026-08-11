@@ -1,21 +1,27 @@
+// rust-style: allow(module-too-large, reason = "constant evaluation is one stateful interpreter whose methods share evaluation state and budgets")
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BoundBlockId, BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
 };
 use bray_compiler_known::{IntegerRepresentation, NumericRepresentationKind};
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+};
 use bray_symbols::{
     AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
     RealConstantBits, TargetSizedIntegerType, TypeId,
 };
 
+use crate::constant::diagnostic::ConstantDiagnostic;
 use crate::constant::input::ConstantEvaluationRoot;
 use crate::constant::integer::integer_to_usize;
 use crate::constant::limits::EvaluationBudget;
 use crate::constant::literal::{normalize_integer_literal, parse_literal};
 use crate::constant::operation::negate_real;
-use crate::diagnostic::{diagnostic_id, expression_span};
+use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_category, expression_span};
 use crate::representation::type_representation;
 
 use super::flow::EvaluationFlow;
@@ -76,7 +82,10 @@ where
                 CheckerInfrastructureError::InvalidConstantEvaluationInput,
             );
         }
-        Err(EvaluationFailure::Source { expression, kind }) => {
+        Err(EvaluationFailure::Source {
+            expression,
+            diagnostic,
+        }) => {
             let value = match evaluated.evaluator.recovery_value(evaluated.result_type) {
                 Ok(value) => value,
                 Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -85,15 +94,18 @@ where
             let evaluated_references = evaluated.evaluator.evaluated_references;
             let mut diagnostics = evaluated.evaluator.diagnostics;
 
-            let span = match expression_span(request, expression) {
-                Ok(span) => span,
+            let diagnostic = match source_failure_diagnostic(
+                request,
+                input,
+                expression,
+                diagnostic,
+                diagnostic_id(diagnostics.len()),
+            ) {
+                Ok(diagnostic) => diagnostic,
                 Err(error) => return CheckerOutcome::InfrastructureFailure(error),
             };
 
-            diagnostics.add(
-                Diagnostic::new(diagnostic_id(diagnostics.len()), kind, SeverityKind::Error)
-                    .with_primary_span(span),
-            );
+            diagnostics.add(diagnostic);
 
             let usage = evaluated.evaluator.budget.usage(input.limits());
 
@@ -227,20 +239,20 @@ where
                 term,
             })
         }
-        Err(EvaluationFailure::Source { expression, kind }) => {
-            let span = match expression_span(request, expression) {
-                Ok(span) => span,
-                Err(error) => return Err(EvaluationAbort::Infrastructure(error)),
-            };
+        Err(EvaluationFailure::Source {
+            expression,
+            diagnostic,
+        }) => {
+            let diagnostic = source_failure_diagnostic(
+                request,
+                input,
+                expression,
+                diagnostic,
+                diagnostic_id(evaluator.diagnostics.len()),
+            )
+            .map_err(EvaluationAbort::Infrastructure)?;
 
-            evaluator.diagnostics.add(
-                Diagnostic::new(
-                    diagnostic_id(evaluator.diagnostics.len()),
-                    kind,
-                    SeverityKind::Error,
-                )
-                .with_primary_span(span),
-            );
+            evaluator.diagnostics.add(diagnostic);
 
             match evaluator.recovery_term(result_type) {
                 Ok(term) => Ok(EvaluationState {
@@ -253,6 +265,84 @@ where
             }
         }
     }
+}
+
+fn source_failure_diagnostic<C>(
+    request: CheckerUnitView<'_, C>,
+    input: &ConstantEvaluationInput<'_>,
+    expression: BoundExpressionId,
+    problem: ConstantDiagnostic,
+    id: DiagnosticId,
+) -> Result<Diagnostic, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(bound) = request.view().expression(expression) else {
+        return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput);
+    };
+
+    let span = expression_span(request, expression)?;
+
+    let mut diagnostic = problem.apply(
+        Diagnostic::new(id, problem.kind(), SeverityKind::Error)
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::InvalidConstantExpression,
+                span,
+            )),
+    );
+
+    match problem {
+        ConstantDiagnostic::InvalidExpression
+        | ConstantDiagnostic::Literal(crate::ConstantLiteralError::Invalid) => {
+            diagnostic = diagnostic
+                .with_arg(DiagnosticArg::expression_category(expression_category(
+                    bound,
+                )))
+                .with_note(DiagnosticNote::new(
+                    DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
+                ));
+        }
+        ConstantDiagnostic::Literal(crate::ConstantLiteralError::NotRepresentable)
+        | ConstantDiagnostic::Operation {
+            error: crate::constant::operation::ConstantOperationError::NotRepresentable,
+            ..
+        } => {
+            let Some(result) = input.expression_types().expression(expression) else {
+                return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput);
+            };
+
+            diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(diagnostic_type(
+                request.context(),
+                result.ty(),
+            )?));
+        }
+        ConstantDiagnostic::Operation {
+            error: crate::constant::operation::ConstantOperationError::Invalid,
+            ..
+        } => {
+            diagnostic = diagnostic.with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
+            ));
+        }
+        ConstantDiagnostic::Literal(crate::ConstantLiteralError::SizeLimitExceeded { .. })
+        | ConstantDiagnostic::Operation {
+            error: crate::constant::operation::ConstantOperationError::ResourceLimitExceeded { .. },
+            ..
+        }
+        | ConstantDiagnostic::Limit { .. } => {
+            diagnostic = diagnostic.with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::ConstantEvaluationMustFitLimits,
+            ));
+        }
+        ConstantDiagnostic::Operation {
+            error: crate::constant::operation::ConstantOperationError::DivisionByZero,
+            ..
+        }
+        | ConstantDiagnostic::Cycle { .. } => {}
+    }
+
+    Ok(diagnostic)
 }
 
 fn block_diagnostic_anchor<C>(
@@ -542,13 +632,15 @@ where
 
                 Ok(term)
             }
-            Some(ConstantReferenceResolution::Cycle) => Err(EvaluationFailure::Source {
-                expression,
-                kind: DiagnosticKind::CheckingCyclicConstantDefinition,
-            }),
+            Some(ConstantReferenceResolution::Cycle { definition }) => {
+                Err(EvaluationFailure::Source {
+                    expression,
+                    diagnostic: ConstantDiagnostic::Cycle { definition },
+                })
+            }
             Some(ConstantReferenceResolution::Invalid) => Err(EvaluationFailure::Source {
                 expression,
-                kind: DiagnosticKind::CheckingInvalidConstantExpression,
+                diagnostic: ConstantDiagnostic::InvalidExpression,
             }),
             None => Err(EvaluationFailure::invalid_expression(expression)),
         }
@@ -772,10 +864,10 @@ mod tests {
         BoundLiteralExpression, BoundLiteralKind, BoundNameExpression, BoundNodeOrigin,
         BoundOperator, BoundReferenceTarget, BoundStructConstructionExpression,
         BoundStructFieldInitializer, BoundStructuredExpression, BoundStructuredExpressionKind,
-        BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitKey, BoundUnitRoot, ConstructionInputId,
-        ConstructionTarget, ConversionTarget, OperatorTarget, SelectedConstruction,
-        SelectedConstructionInput, SelectedConversion, SelectedOperation, SemanticSelection,
-        SemanticSelectionEntry,
+        BoundTreeBuilder, BoundUnaryExpression, BoundUnit, BoundUnitId, BoundUnitKey,
+        BoundUnitRoot, ConstructionInputId, ConstructionTarget, ConversionTarget, OperatorTarget,
+        SelectedConstruction, SelectedConstructionInput, SelectedConversion, SelectedOperation,
+        SemanticSelection, SemanticSelectionEntry,
     };
     use bray_compiler_known::RepresentationRole;
     use bray_declarations::{DeclarationId, SyntaxAnchor, discover_source_unit_declarations};
@@ -795,6 +887,7 @@ mod tests {
         Endianness, ObjectFormat, TargetArchitecture, TargetIdentity, TargetMachineProperties,
         TargetProfile,
     };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::representation::representation_type;
     use crate::test_support::{
@@ -854,6 +947,11 @@ mod tests {
         let expected = representation(&unit, &context, RepresentationRole::ScalarUsize);
 
         let (_, result) = evaluate(&unit, root, &context, expected, None);
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingConstantLiteralNotRepresentable,
+        );
 
         assert_eq!(
             result
@@ -1016,6 +1114,127 @@ mod tests {
                 bray_symbols::IntegerSign::NonNegative,
                 [0xff],
             ))
+        );
+    }
+
+    #[test]
+    fn operation_failures_publish_exact_constant_diagnostics() {
+        let division = evaluate_binary_failure(
+            BoundUnitId::new(114),
+            "module example;\nconst value: u16 = 1 / 0;\n",
+            BoundOperator::Divide,
+            ConstantEvaluationLimits::default(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            division.diagnostics(),
+            DiagnosticKind::CheckingConstantDivisionByZero,
+        );
+
+        let oversized = evaluate_binary_failure(
+            BoundUnitId::new(115),
+            "module example;\nconst value: u16 = 255 + 1;\n",
+            BoundOperator::Add,
+            ConstantEvaluationLimits::default().with_integer_bits(8),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            oversized.diagnostics(),
+            DiagnosticKind::CheckingConstantIntegerSizeLimitExceeded,
+        );
+
+        let invalid = evaluate_unary_failure(
+            BoundUnitId::new(116),
+            "module example;\nconst value: u16 = !1;\n",
+            BoundOperator::LogicalNot,
+            ConstantEvaluationLimits::default(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            invalid.diagnostics(),
+            DiagnosticKind::CheckingInvalidConstantOperation,
+        );
+    }
+
+    #[test]
+    fn scalar_conversion_failure_publishes_the_exact_target_type() {
+        let (seed, _, seed_context) = literal_unit(
+            BoundUnitId::new(117),
+            "module example;\nconst value: u16 = 0;\n",
+            BoundLiteralKind::Integer,
+        );
+
+        let source_type = representation(&seed, &seed_context, RepresentationRole::ScalarU16);
+        let target_type = representation(&seed, &seed_context, RepresentationRole::ScalarU8);
+        let mut operand = None;
+
+        let (unit, root, context) = expression_unit(
+            BoundUnitId::new(118),
+            "module example;\nconst value: u8 = 256;\n",
+            |tree, origins, origin| {
+                let literal = first_literal(origins);
+
+                let value = push_expression(
+                    tree,
+                    BoundExpression::Literal(BoundLiteralExpression::new(
+                        literal.origin,
+                        literal.spelling_range,
+                        BoundLiteralKind::Integer,
+                        Some(source_type),
+                        false,
+                    )),
+                );
+
+                operand = Some(value);
+
+                push_expression(
+                    tree,
+                    BoundExpression::Conversion(BoundConversionExpression::new(
+                        origin,
+                        value,
+                        origin.source_anchor().syntax(),
+                        Some(target_type),
+                        Some(target_type),
+                        false,
+                    )),
+                )
+            },
+        );
+
+        let operand = operand.unwrap_or_else(|| panic!("conversion unit must contain an operand"));
+
+        let types = checked_expression_types(&unit, [(operand, source_type), (root, target_type)]);
+
+        let selections = bray_bound_tree::CheckedSemanticSelections::try_new(
+            &unit,
+            &types,
+            [SemanticSelectionEntry::new(
+                root,
+                SemanticSelection::Operation(SelectedOperation::Conversion(
+                    SelectedConversion::new(
+                        source_type,
+                        target_type,
+                        ConversionTarget::BuiltInScalar,
+                    ),
+                )),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("conversion selection must be valid: {error:?}"));
+
+        let input = ConstantEvaluationInput::new(&types, &selections);
+        let entry = checker_entry(&unit);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        let result = DefaultConstantEvaluator
+            .evaluate_constant(request, &input)
+            .into_result()
+            .unwrap_or_else(|| panic!("conversion evaluation must complete"));
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingConstantValueNotRepresentable,
         );
     }
 
@@ -1421,6 +1640,11 @@ mod tests {
 
         let (_, result) = evaluate(&unit, root, &context, expected, Some(limits));
 
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingConstantAggregateLimitExceeded,
+        );
+
         let value = constant_value(*result.value());
 
         assert_eq!(
@@ -1460,6 +1684,22 @@ mod tests {
             let (_, result) = evaluate(&unit, root, &context, expected, Some(limits));
 
             let value = constant_value(*result.value());
+
+            match diagnostic_kind {
+                DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded => {
+                    assert_goal_state_diagnostic_kind(
+                        result.diagnostics(),
+                        DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
+                    );
+                }
+                DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded => {
+                    assert_goal_state_diagnostic_kind(
+                        result.diagnostics(),
+                        DiagnosticKind::CheckingConstantLiteralSizeLimitExceeded,
+                    );
+                }
+                _ => panic!("test case must name one constant-evaluation budget"),
+            }
 
             assert_eq!(result.diagnostics().by_kind(diagnostic_kind).count(), 1);
             assert_eq!(value.kind(), &ConstantValueKind::Error);
@@ -1514,10 +1754,15 @@ mod tests {
             root,
             &context,
             expected,
-            ConstantReferenceResolution::Cycle,
+            ConstantReferenceResolution::Cycle { definition: None },
         );
 
         let value = constant_value(*result.value());
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingCyclicConstantDefinition,
+        );
 
         assert_eq!(
             result
@@ -1568,7 +1813,10 @@ mod tests {
         let selections = empty_selections(&unit, &types);
 
         let input = ConstantEvaluationInput::new(&types, &selections).with_references([
-            (root, ConstantReferenceResolution::Cycle),
+            (
+                root,
+                ConstantReferenceResolution::Cycle { definition: None },
+            ),
             (root, ConstantReferenceResolution::Value(referenced_value)),
         ]);
 
@@ -1642,6 +1890,11 @@ mod tests {
         else {
             panic!("closed constant evaluation must complete with recovery");
         };
+
+        assert_goal_state_diagnostic_kind(
+            closed.diagnostics(),
+            DiagnosticKind::CheckingInvalidConstantExpression,
+        );
 
         assert_eq!(
             closed
@@ -2253,6 +2506,176 @@ mod tests {
         };
 
         (types, result)
+    }
+
+    fn evaluate_binary_failure(
+        unit_id: BoundUnitId,
+        source: &str,
+        operator: BoundOperator,
+        limits: ConstantEvaluationLimits,
+    ) -> bray_diagnostics::DiagnosticResult<bray_symbols::ConstantValueId> {
+        let (unit, root, context) = expression_unit(unit_id, source, |tree, origins, origin| {
+            let operands = origins
+                .iter()
+                .map(|literal| {
+                    push_expression(
+                        tree,
+                        BoundExpression::Literal(BoundLiteralExpression::new(
+                            literal.origin,
+                            literal.spelling_range,
+                            BoundLiteralKind::Integer,
+                            None,
+                            false,
+                        )),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            push_expression(
+                tree,
+                BoundExpression::Binary(BoundBinaryExpression::new(
+                    origin, operator, operands, None, false,
+                )),
+            )
+        });
+
+        let expected = representation(&unit, &context, RepresentationRole::ScalarU16);
+
+        let BoundExpression::Binary(binary) = unit
+            .view()
+            .expression(root)
+            .unwrap_or_else(|| panic!("binary root must exist"))
+        else {
+            panic!("test root must be binary");
+        };
+
+        let mut entries = binary
+            .operands()
+            .iter()
+            .copied()
+            .map(|expression| (expression, expected))
+            .collect::<Vec<_>>();
+
+        entries.push((root, expected));
+        let types = checked_expression_types(&unit, entries);
+
+        let selections = bray_bound_tree::CheckedSemanticSelections::try_new(
+            &unit,
+            &types,
+            [SemanticSelectionEntry::new(
+                root,
+                SemanticSelection::Operation(SelectedOperation::Operator {
+                    target: OperatorTarget::BuiltIn(operator),
+                    result_type: expected,
+                }),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("binary selection must be valid: {error:?}"));
+
+        let input = ConstantEvaluationInput::new(&types, &selections).with_limits(limits);
+        let entry = checker_entry(&unit);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        DefaultConstantEvaluator
+            .evaluate_constant(request, &input)
+            .into_result()
+            .unwrap_or_else(|| panic!("binary evaluation must complete"))
+    }
+
+    fn evaluate_unary_failure(
+        unit_id: BoundUnitId,
+        source: &str,
+        operator: BoundOperator,
+        limits: ConstantEvaluationLimits,
+    ) -> bray_diagnostics::DiagnosticResult<bray_symbols::ConstantValueId> {
+        let (unit, root, context) = expression_unit(unit_id, source, |tree, origins, origin| {
+            let literal = first_literal(origins);
+
+            let operand = push_expression(
+                tree,
+                BoundExpression::Literal(BoundLiteralExpression::new(
+                    literal.origin,
+                    literal.spelling_range,
+                    BoundLiteralKind::Integer,
+                    None,
+                    false,
+                )),
+            );
+
+            push_expression(
+                tree,
+                BoundExpression::Unary(BoundUnaryExpression::new(
+                    origin,
+                    operator,
+                    [operand],
+                    None,
+                    false,
+                )),
+            )
+        });
+
+        let expected = representation(&unit, &context, RepresentationRole::ScalarU16);
+
+        let BoundExpression::Unary(unary) = unit
+            .view()
+            .expression(root)
+            .unwrap_or_else(|| panic!("unary root must exist"))
+        else {
+            panic!("test root must be unary");
+        };
+
+        let operand = unary
+            .operands()
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("unary test must contain an operand"));
+
+        let types = checked_expression_types(&unit, [(operand, expected), (root, expected)]);
+
+        let selections = bray_bound_tree::CheckedSemanticSelections::try_new(
+            &unit,
+            &types,
+            [SemanticSelectionEntry::new(
+                root,
+                SemanticSelection::Operation(SelectedOperation::Operator {
+                    target: OperatorTarget::BuiltIn(operator),
+                    result_type: expected,
+                }),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("unary selection must be valid: {error:?}"));
+
+        let input = ConstantEvaluationInput::new(&types, &selections).with_limits(limits);
+        let entry = checker_entry(&unit);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+
+        DefaultConstantEvaluator
+            .evaluate_constant(request, &input)
+            .into_result()
+            .unwrap_or_else(|| panic!("unary evaluation must complete"))
+    }
+
+    fn checked_expression_types(
+        unit: &BoundUnit,
+        entries: impl IntoIterator<Item = (BoundExpressionId, TypeId)>,
+    ) -> bray_bound_tree::CheckedExpressionTypes {
+        bray_bound_tree::CheckedExpressionTypes::new(
+            unit.unit(),
+            unit.key().kind(),
+            entries.into_iter().map(|(expression, ty)| {
+                bray_bound_tree::ExpressionTypeEntry::new(
+                    expression,
+                    bray_bound_tree::ExpressionTypeResult::new(
+                        ty,
+                        bray_bound_tree::ExpressionTypeStatus::Valid,
+                    ),
+                )
+            }),
+        )
     }
 
     fn check_term(

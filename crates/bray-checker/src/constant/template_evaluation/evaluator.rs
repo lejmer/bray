@@ -2,7 +2,7 @@ use bray_bound_tree::{
     CheckedTemplate, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNodeId,
     CheckedTemplateOperation, CheckedTemplateShortCircuitKind,
 };
-use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
+use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ConcreteGenericSubstitutionId,
     ConstantBinaryOperation, ConstantInstanceKey, ConstantTermId, ConstantUnaryOperation,
@@ -14,6 +14,7 @@ use bray_symbols::{
 use super::super::ConstantReferenceResolution;
 use super::super::call::{ConstantCallRequest, ConstantCallResolution, ConstantTemplateResolver};
 use super::super::conversion::convert_scalar;
+use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic_operation};
 use super::super::limits::{ConstantEvaluationLimits, EvaluationBudget};
 use super::super::operation::{fold_binary, fold_unary};
 use super::support::{
@@ -295,7 +296,9 @@ where
             representation,
             target_integer_width(self.context, representation),
         )
-        .map_err(operation_failure)?;
+        .map_err(|error| {
+            operation_failure(diagnostic_operation(unary_operator(operation)), error)
+        })?;
 
         self.intern_value(ty, kind)
     }
@@ -327,7 +330,9 @@ where
             right_data.kind(),
             self.limits.integer_bits(),
         )
-        .map_err(operation_failure)?;
+        .map_err(|error| {
+            operation_failure(diagnostic_operation(binary_operator(operation)), error)
+        })?;
 
         self.intern_value(ty, kind)
     }
@@ -369,9 +374,11 @@ where
                 result.value()
             }
             ConstantReferenceResolution::Term(term) => self.evaluate_term(*term, ty)?,
-            ConstantReferenceResolution::Cycle => {
+            ConstantReferenceResolution::Cycle { definition } => {
                 return Err(TemplateEvaluationFailure::Diagnostic(
-                    DiagnosticKind::CheckingCyclicConstantDefinition,
+                    ConstantDiagnostic::Cycle {
+                        definition: *definition,
+                    },
                 ));
             }
             ConstantReferenceResolution::Invalid => {
@@ -445,7 +452,7 @@ where
 
         let Some(limits) = limits.nested_call() else {
             return Err(TemplateEvaluationFailure::Diagnostic(
-                DiagnosticKind::CheckingConstantEvaluationStepLimitExceeded,
+                ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0),
             ));
         };
 
@@ -476,7 +483,7 @@ where
                 Ok(result.value().value())
             }
             ConstantCallResolution::Cycle => Err(TemplateEvaluationFailure::Diagnostic(
-                DiagnosticKind::CheckingCyclicConstantDefinition,
+                ConstantDiagnostic::Cycle { definition: None },
             )),
             ConstantCallResolution::Ineligible(diagnostics) => {
                 if diagnostics.has_errors() {
@@ -486,9 +493,7 @@ where
                         .map_err(TemplateEvaluationFailure::Infrastructure);
                 }
 
-                Err(TemplateEvaluationFailure::Diagnostic(
-                    DiagnosticKind::CheckingInvalidConstantExpression,
-                ))
+                Err(TemplateEvaluationFailure::invalid_input())
             }
         }
     }
@@ -516,7 +521,12 @@ where
                 .machine()
                 .pointer_width_bits()
         })
-        .map_err(operation_failure)?;
+        .map_err(|error| {
+            operation_failure(
+                bray_diagnostics::DiagnosticConstantOperation::Conversion,
+                error,
+            )
+        })?;
 
         self.intern_value(target, kind)
     }

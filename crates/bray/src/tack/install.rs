@@ -3,11 +3,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticIoErrorKind, DiagnosticPathRequirement,
+    DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticProjectSelectionProblem,
+};
 use bray_platform::{NativeExitStatus, NativeProcessCommand};
 use bray_project::ProjectPath;
 
-use crate::tack::error::{operation_diagnostics, selection_diagnostics};
+use crate::tack::error::{operation_diagnostics, process_failure, selection_diagnostics};
 
 pub(crate) fn install_git_repository(
     workspace_root: &Path,
@@ -22,11 +25,17 @@ pub(crate) fn install_git_repository(
         OsStr::new("git"),
         &plan.arguments(),
         workspace_root,
-        "git_clone",
+        DiagnosticProjectOperation::GitClone,
     )?;
 
     if !status.success() {
-        return Err(operation_diagnostics("git_clone_status"));
+        return Err(operation_diagnostics(
+            DiagnosticProjectCommandFailure::ProcessExit {
+                operation: DiagnosticProjectOperation::GitCloneStatus,
+                program: PathBuf::from("git"),
+                code: status.code(),
+            },
+        ));
     }
 
     Ok(())
@@ -35,34 +44,71 @@ pub(crate) fn install_git_repository(
 fn prepare_install_destination(plan: &GitInstallPlan) -> Result<(), DiagnosticBag> {
     require_owned_directory(plan.vendor_directory())?;
 
-    require_missing_path(plan.destination(), plan.name())
+    require_missing_path(plan.destination())
 }
 
 fn require_owned_directory(path: &Path) -> Result<(), DiagnosticBag> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => Ok(()),
-        Ok(_) => Err(operation_diagnostics("vendor_directory")),
+        Ok(_) => Err(operation_diagnostics(
+            DiagnosticProjectCommandFailure::PathContract {
+                operation: DiagnosticProjectOperation::VendorDirectory,
+                path: path.to_owned(),
+                requirement: DiagnosticPathRequirement::OwnedDirectory,
+            },
+        )),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            std::fs::create_dir(path)
-                .map_err(|_| operation_diagnostics("create_vendor_directory"))?;
+            std::fs::create_dir(path).map_err(|error| {
+                operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                    operation: DiagnosticProjectOperation::CreateVendorDirectory,
+                    path: path.to_owned(),
+                    error: DiagnosticIoErrorKind::from(error.kind()),
+                })
+            })?;
 
-            let metadata = std::fs::symlink_metadata(path)
-                .map_err(|_| operation_diagnostics("vendor_directory"))?;
+            let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+                operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                    operation: DiagnosticProjectOperation::VendorDirectory,
+                    path: path.to_owned(),
+                    error: DiagnosticIoErrorKind::from(error.kind()),
+                })
+            })?;
 
             if metadata.is_dir() && !metadata.file_type().is_symlink() {
                 Ok(())
             } else {
-                Err(operation_diagnostics("vendor_directory"))
+                Err(operation_diagnostics(
+                    DiagnosticProjectCommandFailure::PathContract {
+                        operation: DiagnosticProjectOperation::VendorDirectory,
+                        path: path.to_owned(),
+                        requirement: DiagnosticPathRequirement::OwnedDirectory,
+                    },
+                ))
             }
         }
-        Err(_) => Err(operation_diagnostics("vendor_directory")),
+        Err(error) => Err(operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+            operation: DiagnosticProjectOperation::VendorDirectory,
+            path: path.to_owned(),
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        })),
     }
 }
 
-fn require_missing_path(path: &Path, name: &str) -> Result<(), DiagnosticBag> {
+fn require_missing_path(path: &Path) -> Result<(), DiagnosticBag> {
     match std::fs::symlink_metadata(path) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Ok(_) | Err(_) => Err(selection_diagnostics(name)),
+        Ok(_) => Err(operation_diagnostics(
+            DiagnosticProjectCommandFailure::PathContract {
+                operation: DiagnosticProjectOperation::VendorDirectory,
+                path: path.to_owned(),
+                requirement: DiagnosticPathRequirement::Missing,
+            },
+        )),
+        Err(error) => Err(operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+            operation: DiagnosticProjectOperation::VendorDirectory,
+            path: path.to_owned(),
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        })),
     }
 }
 
@@ -77,7 +123,7 @@ pub(crate) fn run_project_process(
         program.as_os_str(),
         &arguments,
         workspace_root,
-        "project_process",
+        DiagnosticProjectOperation::ProjectProcess,
     )?;
 
     if status.success() {
@@ -96,10 +142,11 @@ fn native_process_status(
     program: &OsStr,
     arguments: &[&OsStr],
     working_directory: &Path,
-    operation: &'static str,
+    operation: DiagnosticProjectOperation,
 ) -> Result<NativeExitStatus, DiagnosticBag> {
-    let mut command =
-        NativeProcessCommand::new(program).map_err(|_| operation_diagnostics(operation))?;
+    let mut command = NativeProcessCommand::new(program).map_err(|error| {
+        operation_diagnostics(process_failure(operation, PathBuf::from(program), error))
+    })?;
 
     for argument in arguments {
         command.arg(argument);
@@ -107,11 +154,13 @@ fn native_process_status(
 
     command.current_dir(working_directory);
 
-    let mut child = command
-        .spawn()
-        .map_err(|_| operation_diagnostics(operation))?;
+    let mut child = command.spawn().map_err(|error| {
+        operation_diagnostics(process_failure(operation, PathBuf::from(program), error))
+    })?;
 
-    child.wait().map_err(|_| operation_diagnostics(operation))
+    child.wait().map_err(|error| {
+        operation_diagnostics(process_failure(operation, PathBuf::from(program), error))
+    })
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -125,11 +174,16 @@ struct GitInstallPlan {
 impl GitInstallPlan {
     fn new(workspace_root: &Path, name: &str, repository: &str) -> Result<Self, DiagnosticBag> {
         if !workspace_root.is_absolute() || name.contains('/') || repository.is_empty() {
-            return Err(selection_diagnostics(name));
+            return Err(selection_diagnostics(
+                DiagnosticProjectSelectionProblem::InvalidInstallName(name.to_owned()),
+            ));
         }
 
-        let portable = ProjectPath::try_relative(format!("vendor/{name}"))
-            .ok_or_else(|| selection_diagnostics(name))?;
+        let portable = ProjectPath::try_relative(format!("vendor/{name}")).ok_or_else(|| {
+            selection_diagnostics(DiagnosticProjectSelectionProblem::InvalidInstallName(
+                name.to_owned(),
+            ))
+        })?;
 
         let destination = portable.beneath(workspace_root);
         let vendor_directory = workspace_root.join("vendor");
@@ -140,10 +194,6 @@ impl GitInstallPlan {
             vendor_directory,
             destination,
         })
-    }
-
-    fn name(&self) -> &str {
-        &self.name
     }
 
     fn vendor_directory(&self) -> &Path {

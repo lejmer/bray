@@ -727,9 +727,9 @@ mod tests {
 
     use super::{
         MAXIMUM_METADATA_BYTES, RuntimeArtifactComponentMetadata, RuntimeArtifactDigest,
-        RuntimeArtifactMetadata,
-        RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
-        RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose,
+        RuntimeArtifactMetadata, RuntimeArtifactMetadataBuildError,
+        RuntimeArtifactMetadataDecodeError, RuntimeArtifactMetadataEncodeError,
+        RuntimeArtifactPurpose,
     };
     use crate::{
         BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiRole,
@@ -759,13 +759,7 @@ mod tests {
 
     #[test]
     fn runtime_artifacts_require_the_published_archive_name() {
-        assert!(
-            RuntimeArtifact::try_new(
-                metadata(),
-                resolved_components(Path::new(""))
-            )
-            .is_ok()
-        );
+        assert!(RuntimeArtifact::try_new(metadata(), resolved_components(Path::new(""))).is_ok());
 
         let mut mismatched_name = resolved_components(Path::new(""));
         mismatched_name[0].1 = "other.lib".into();
@@ -774,7 +768,6 @@ mod tests {
             RuntimeArtifact::try_new(metadata(), mismatched_name),
             Err(RuntimeArtifactBuildError::ArchiveFileNameMismatch)
         );
-
     }
 
     #[test]
@@ -931,10 +924,12 @@ mod tests {
                 contract("bray.runtime.reference"),
                 components.into_iter().chain([duplicate]),
             ),
-            Err(RuntimeArtifactMetadataBuildError::DuplicateCapabilityOwner {
-                purpose: RuntimeArtifactPurpose::Product,
-                capability: RuntimeCapability::CooperativeExecution,
-            })
+            Err(
+                RuntimeArtifactMetadataBuildError::DuplicateCapabilityOwner {
+                    purpose: RuntimeArtifactPurpose::Product,
+                    capability: RuntimeCapability::CooperativeExecution,
+                }
+            )
         );
     }
 
@@ -968,9 +963,7 @@ mod tests {
                 "runtime.product.execution" => {
                     component.with_dependencies([product_support.clone()])
                 }
-                "runtime.test.execution" => {
-                    component.with_dependencies([test_support.clone()])
-                }
+                "runtime.test.execution" => component.with_dependencies([test_support.clone()]),
                 _ => component,
             })
             .collect::<Vec<_>>();
@@ -994,11 +987,11 @@ mod tests {
             ),
         ]);
 
-        let metadata = RuntimeArtifactMetadata::try_new(
-            contract("bray.runtime.reference"),
-            components,
-        )
-        .unwrap_or_else(|error| panic!("dependent runtime metadata must validate: {error:?}"));
+        let metadata =
+            RuntimeArtifactMetadata::try_new(contract("bray.runtime.reference"), components)
+                .unwrap_or_else(|error| {
+                    panic!("dependent runtime metadata must validate: {error:?}")
+                });
 
         let mut resolved = Vec::new();
 

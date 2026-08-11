@@ -510,6 +510,11 @@ mod tests {
             .declaration_directives(function.id().into())
             .unwrap_or_else(|error| panic!("function directives must bind: {error:?}"));
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            surface.diagnostics(),
+            DiagnosticKind::BindingMalformedDirectiveArgument,
+        );
+
         let diagnostic_kinds = surface
             .diagnostics()
             .iter()

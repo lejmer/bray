@@ -104,24 +104,24 @@ impl LinkerDriver for LldDriver {
         }
 
         if plan.driver() != self.capabilities.identity() {
-            return failed_outcome(LinkFailure::DriverIncompatible);
+            return failed_outcome(plan, LinkFailure::DriverIncompatible);
         }
 
         if let Err(requirement) = self.capabilities.validate(plan) {
-            return failed_outcome(LinkFailure::UnsupportedRequirement(requirement));
+            return failed_outcome(plan, LinkFailure::UnsupportedRequirement(requirement));
         }
 
         let Some(flavor) = LldFlavor::for_target(plan.target(), plan.product_kind()) else {
-            return failed_outcome(LinkFailure::DriverIncompatible);
+            return failed_outcome(plan, LinkFailure::DriverIncompatible);
         };
 
         if let Err(failure) = validate_file_inputs(plan) {
-            return failed_outcome(failure);
+            return failed_outcome(plan, failure);
         }
 
         let output = match self.run(plan, flavor, cancellation) {
             Ok(output) => output,
-            Err(error) => return outcome_from_run_error(error),
+            Err(error) => return outcome_from_run_error(plan, error),
         };
 
         if cancellation.is_cancelled() {
@@ -129,7 +129,7 @@ impl LinkerDriver for LldDriver {
         }
 
         if !output.success() {
-            return failed_outcome(LinkFailure::Invocation);
+            return failed_outcome(plan, LinkFailure::ToolExit(output));
         }
 
         complete_linked_outputs(plan)
@@ -179,11 +179,11 @@ fn external_arguments(plan: &LinkPlan, flavor: LldFlavor) -> Result<Vec<OsString
     Ok(arguments)
 }
 
-fn outcome_from_run_error(error: LldRunError) -> LinkOutcome {
+fn outcome_from_run_error(plan: &LinkPlan, error: LldRunError) -> LinkOutcome {
     match error {
-        LldRunError::ExternalTool(error) => LinkOutcome::from_external_tool_failure(error),
-        LldRunError::Invocation => failed_outcome(LinkFailure::Invocation),
-        LldRunError::Plan => failed_outcome(LinkFailure::DriverIncompatible),
+        LldRunError::ExternalTool(error) => LinkOutcome::from_external_tool_failure(plan, error),
+        LldRunError::Invocation => failed_outcome(plan, LinkFailure::Invocation),
+        LldRunError::Plan => failed_outcome(plan, LinkFailure::DriverIncompatible),
     }
 }
 

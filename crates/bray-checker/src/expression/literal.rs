@@ -4,14 +4,17 @@ use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundOperator, CheckedExpressionTypes,
     CheckedLiteralValueEntry, CheckedLiteralValues,
 };
-use bray_diagnostics::{Diagnostic, DiagnosticBag, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExpressionCategory, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+};
 use bray_symbols::{ConstantValueData, ConstantValueKind};
 
 use crate::constant::{
     ConstantEvaluationLimits, ConstantLiteralError, check_constant_literal,
     check_negated_integer_operand_literal, literal_diagnostic_kind,
 };
-use crate::diagnostic::{diagnostic_id, expression_span};
+use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span};
 use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
@@ -88,7 +91,13 @@ where
                         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
                     }
                 }
-                None => Err(ConstantLiteralError::SizeLimitExceeded),
+                None => Err(ConstantLiteralError::SizeLimitExceeded {
+                    actual: ConstantEvaluationLimits::default()
+                        .literal_bytes()
+                        .saturating_sub(remaining_bytes)
+                        .saturating_add(bytes),
+                    maximum: ConstantEvaluationLimits::default().literal_bytes(),
+                }),
             };
 
             match checked {
@@ -99,14 +108,44 @@ where
                         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
                     };
 
-                    diagnostic = Some(
-                        Diagnostic::new(
-                            diagnostic_id(diagnostics.len()),
-                            literal_diagnostic_kind(error),
-                            SeverityKind::Error,
-                        )
-                        .with_primary_span(span),
-                    );
+                    let mut produced = Diagnostic::new(
+                        diagnostic_id(diagnostics.len()),
+                        literal_diagnostic_kind(error),
+                        SeverityKind::Error,
+                    )
+                    .with_primary_span(span)
+                    .with_label(DiagnosticLabel::primary(
+                        DiagnosticLabelKind::InvalidConstantExpression,
+                        span,
+                    ));
+
+                    produced = match error {
+                        ConstantLiteralError::Invalid => produced
+                            .with_arg(DiagnosticArg::expression_category(
+                                DiagnosticExpressionCategory::Literal,
+                            ))
+                            .with_note(DiagnosticNote::new(
+                                DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
+                            )),
+                        ConstantLiteralError::NotRepresentable => {
+                            produced.with_arg(DiagnosticArg::actual_type(
+                                match diagnostic_type(request.context(), result.ty()) {
+                                    Ok(ty) => ty,
+                                    Err(error) => {
+                                        return CheckerOutcome::InfrastructureFailure(error);
+                                    }
+                                },
+                            ))
+                        }
+                        ConstantLiteralError::SizeLimitExceeded { actual, maximum } => produced
+                            .with_arg(DiagnosticArg::actual_count(actual))
+                            .with_arg(DiagnosticArg::maximum_count(maximum))
+                            .with_note(DiagnosticNote::new(
+                                DiagnosticNoteKind::ConstantEvaluationMustFitLimits,
+                            )),
+                    };
+
+                    diagnostic = Some(produced);
 
                     ConstantValueKind::Error
                 }

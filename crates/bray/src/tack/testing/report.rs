@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use bray_base::lowercase_hex;
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation,
+};
 use bray_messages::{
     ProgressField, TestReportActivity, TestReportLineKind, TestReportMessageRenderer,
     TestReportOutcome, TestReportSummaryStatus,
@@ -58,7 +61,13 @@ pub(super) fn render_report(
         OutputFormat::Text => Ok(render_text_report(report, show_output, interactive)),
         OutputFormat::Json => serde_json::to_string_pretty(&JsonTestCommandReport::from(report))
             .map(|report| format!("{report}\n"))
-            .map_err(|_| operation_diagnostics("test_report_json")),
+            .map_err(|_| {
+                operation_diagnostics(DiagnosticProjectCommandFailure::Document {
+                    operation: DiagnosticProjectOperation::TestReportJson,
+                    path: None,
+                    problem: DiagnosticDocumentParseKind::Serialization,
+                })
+            }),
     }
 }
 

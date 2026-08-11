@@ -6,7 +6,8 @@ use bray_bound_tree::{
 };
 use bray_checker::{ConstructionInputSurface, OperationCandidate, OperationCandidateState};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -311,6 +312,10 @@ pub(super) fn unqualified_variant_diagnostic(
         SeverityKind::Error,
     )
     .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::SelectionFailure,
+        span,
+    ))
     .with_arg(DiagnosticArg::referenced_name(variant.name().as_str()))
 }
 
@@ -318,6 +323,7 @@ pub(super) fn unqualified_variant_diagnostic(
 mod tests {
     use bray_bound_tree::{ConstructionTarget, SelectedOperation, SemanticSelection};
     use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::test_support::{
         compilation, diagnostic_kinds, source_callable_body_key, source_function_body_key,
@@ -508,6 +514,11 @@ mod tests {
         assert_eq!(
             diagnostic.args(),
             &[DiagnosticArg::referenced_name("Missing")]
+        );
+
+        assert_goal_state_diagnostic_kind(
+            selections.diagnostics(),
+            DiagnosticKind::CheckingUnknownUnionVariant,
         );
     }
 

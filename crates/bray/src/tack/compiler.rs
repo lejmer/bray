@@ -1,7 +1,12 @@
+// rust-style: allow(module-too-large, reason = "project compilation is one stateful dependency traversal and tool-invocation orchestrator with shared artifact publication state")
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    DiagnosticBag, DiagnosticIoErrorKind, DiagnosticProjectCommandFailure,
+    DiagnosticProjectOperation, DiagnosticProjectSelectionProblem,
+};
 use bray_project::{ProjectGraph, ProjectPackage, ProjectProduct};
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity, TargetOutputKind, TargetOutputName};
@@ -106,8 +111,13 @@ impl<'project> ProjectCompiler<'project> {
         let output_directory =
             self.output_directory(product.identity(), planned.target_name(), configuration);
 
-        std::fs::create_dir_all(&output_directory)
-            .map_err(|_| operation_diagnostics("product_output_directory"))?;
+        std::fs::create_dir_all(&output_directory).map_err(|error| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                operation: DiagnosticProjectOperation::ProductOutputDirectory,
+                path: output_directory.clone(),
+                error: DiagnosticIoErrorKind::from(error.kind()),
+            })
+        })?;
 
         let test_catalog = (product.kind() == ProductKind::Test)
             .then(|| self.test_catalog_path(&output_directory, &product));
@@ -240,11 +250,12 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product_by_identity(identity)?.clone();
 
         if !product.targets().contains(target) {
-            return Err(selection_diagnostics(format!(
-                "{}/{}",
-                identity.name(),
-                target.as_str()
-            )));
+            return Err(selection_diagnostics(
+                DiagnosticProjectSelectionProblem::ProductTargetUnavailable {
+                    product: identity.name().to_owned(),
+                    target: target.as_str().to_owned(),
+                },
+            ));
         }
 
         if !self.check_dependencies(&product, target, outputs, progress)? {
@@ -254,11 +265,21 @@ impl<'project> ProjectCompiler<'project> {
         let interface = self.cache_interface_path(identity, target);
 
         let Some(parent) = interface.parent() else {
-            return Err(operation_diagnostics("interface_cache_path"));
+            return Err(operation_diagnostics(
+                DiagnosticProjectCommandFailure::MissingParent {
+                    operation: DiagnosticProjectOperation::InterfaceCachePath,
+                    path: interface,
+                },
+            ));
         };
 
-        std::fs::create_dir_all(parent)
-            .map_err(|_| operation_diagnostics("interface_cache_directory"))?;
+        std::fs::create_dir_all(parent).map_err(|error| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                operation: DiagnosticProjectOperation::InterfaceCacheDirectory,
+                path: parent.to_owned(),
+                error: DiagnosticIoErrorKind::from(error.kind()),
+            })
+        })?;
 
         let output = self.run_compiler(
             &product,
@@ -365,10 +386,11 @@ impl<'project> ProjectCompiler<'project> {
                 .map(|source| source.beneath(self.workspace_root).into_os_string()),
         );
 
-        let output = self
-            .executor
-            .capture(request)
-            .map_err(|_| operation_diagnostics("compiler_process"));
+        let output = self.executor.capture(request).map_err(|_| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
+                DiagnosticProjectOperation::CompilerProcess,
+            ))
+        });
 
         if let Some(progress) = progress {
             progress.finish_package_work(
@@ -394,8 +416,13 @@ impl<'project> ProjectCompiler<'project> {
             self.workspace_root.join(output_directory)
         };
 
-        std::fs::create_dir_all(&output_directory)
-            .map_err(|_| operation_diagnostics("compiler_profile_output_directory"))?;
+        std::fs::create_dir_all(&output_directory).map_err(|error| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                operation: DiagnosticProjectOperation::CompilerProfileOutputDirectory,
+                path: output_directory.clone(),
+                error: DiagnosticIoErrorKind::from(error.kind()),
+            })
+        })?;
 
         Ok(output_directory.join(format!(
             "{}-{}-{}-{}.json",
@@ -426,7 +453,11 @@ impl<'project> ProjectCompiler<'project> {
                 .products()
                 .iter()
                 .find(|product| product.identity() == &identity)
-                .ok_or_else(|| selection_diagnostics(identity.name()))?;
+                .ok_or_else(|| {
+                    selection_diagnostics(DiagnosticProjectSelectionProblem::NoMatchingProduct(
+                        identity.name().to_owned(),
+                    ))
+                })?;
 
             pending.extend(self.direct_dependencies(product, target)?);
         }
@@ -458,9 +489,11 @@ impl<'project> ProjectCompiler<'project> {
                     continue;
                 }
 
-                units = units
-                    .checked_add(1)
-                    .ok_or_else(|| operation_diagnostics("workflow_unit_count"))?;
+                units = units.checked_add(1).ok_or_else(|| {
+                    operation_diagnostics(DiagnosticProjectCommandFailure::CapacityExceeded(
+                        DiagnosticProjectOperation::WorkflowUnitCount,
+                    ))
+                })?;
 
                 if is_root {
                     action = BuildProgressAction::ProduceArtifacts;
@@ -492,10 +525,11 @@ impl<'project> ProjectCompiler<'project> {
             .map(|identity| {
                 let key = (identity.clone(), target.clone());
 
-                let path = self
-                    .interfaces
-                    .get(&key)
-                    .ok_or_else(|| operation_diagnostics("dependency_interface"))?;
+                let path = self.interfaces.get(&key).ok_or_else(|| {
+                    operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
+                        DiagnosticProjectOperation::DependencyInterface,
+                    ))
+                })?;
 
                 Ok(DependencyArtifact {
                     identity,
@@ -535,7 +569,11 @@ impl<'project> ProjectCompiler<'project> {
             .products()
             .iter()
             .find(|product| product.identity().name() == planned.product_name())
-            .ok_or_else(|| selection_diagnostics(planned.product_name()))
+            .ok_or_else(|| {
+                selection_diagnostics(DiagnosticProjectSelectionProblem::NoMatchingProduct(
+                    planned.product_name().to_owned(),
+                ))
+            })
     }
 
     fn project_product_by_identity(
@@ -548,16 +586,22 @@ impl<'project> ProjectCompiler<'project> {
             .products()
             .iter()
             .find(|product| product.identity() == identity)
-            .ok_or_else(|| selection_diagnostics(identity.name()))
+            .ok_or_else(|| {
+                selection_diagnostics(DiagnosticProjectSelectionProblem::NoMatchingProduct(
+                    identity.name().to_owned(),
+                ))
+            })
     }
 
     fn project_package(
         &self,
         identity: &PackageIdentity,
     ) -> Result<&ProjectPackage, DiagnosticBag> {
-        self.graph
-            .package(identity)
-            .ok_or_else(|| selection_diagnostics(identity.as_str()))
+        self.graph.package(identity).ok_or_else(|| {
+            selection_diagnostics(DiagnosticProjectSelectionProblem::UnknownPackage(
+                identity.as_str().to_owned(),
+            ))
+        })
     }
 
     fn output_directory(
@@ -596,13 +640,20 @@ impl<'project> ProjectCompiler<'project> {
             return Ok(None);
         }
 
-        let native = NativeTarget::for_identity(target)
-            .ok_or_else(|| selection_diagnostics(target.as_str()))?;
+        let native = NativeTarget::for_identity(target).ok_or_else(|| {
+            selection_diagnostics(DiagnosticProjectSelectionProblem::UnknownTarget(
+                target.as_str().to_owned(),
+            ))
+        })?;
 
         let name =
             TargetOutputName::for_native(native.object_format(), TargetOutputKind::Executable)
                 .file_name(product.identity().name())
-                .ok_or_else(|| operation_diagnostics("executable_output_name"))?;
+                .ok_or_else(|| {
+                    operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
+                        DiagnosticProjectOperation::ExecutableOutputName,
+                    ))
+                })?;
 
         Ok(Some(output_directory.join(name)))
     }
@@ -623,7 +674,11 @@ impl<'project> ProjectCompiler<'project> {
             0,
         )
         .map(Some)
-        .map_err(|_| operation_diagnostics("published_executable"))
+        .map_err(|_| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
+                DiagnosticProjectOperation::PublishedExecutable,
+            ))
+        })
     }
 
     fn test_catalog_path(&self, output_directory: &Path, product: &ProjectProduct) -> PathBuf {
@@ -641,7 +696,11 @@ fn source_package(product: &ProjectProduct) -> Result<PackageIdentity, Diagnosti
         product.identity().package().as_str(),
         product.identity().name()
     ))
-    .ok_or_else(|| operation_diagnostics("test_source_package_identity"))
+    .ok_or_else(|| {
+        operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
+            DiagnosticProjectOperation::TestSourcePackageIdentity,
+        ))
+    })
 }
 
 fn consumes_standard_library(product: &ProjectProduct) -> bool {

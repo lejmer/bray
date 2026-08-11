@@ -1,4 +1,4 @@
-mod diagnostic;
+pub(in crate::compilation) mod diagnostic;
 mod directive;
 mod layout;
 mod platform;

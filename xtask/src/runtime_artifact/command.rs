@@ -1,14 +1,16 @@
+// rust-style: allow(module-too-large, reason = "runtime artifact command parsing, construction, and metadata publication form one reproducible packaging contract")
+
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use super::smoke::smoke_test;
 use crate::bundle::{
     DirectoryPublication, DirectoryPublicationError, NativeBuildOptions, NativeBuildOptionsBuilder,
     NativeBuildOptionsError,
 };
 use crate::workspace;
-use super::smoke::smoke_test;
 use bray_base::sha256_file;
 use bray_runtime_interface::{
     BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiRole,
@@ -147,20 +149,26 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
 
     for kind in RuntimeArchiveKind::OWNING {
         let (crate_name, features, member_prefix) = match kind {
-            RuntimeArchiveKind::Memory => {
-                ("bray-runtime-builtins", &["memory"][..], "bray_runtime_builtins-")
-            }
-            RuntimeArchiveKind::String => {
-                ("bray-runtime-builtins", &["string"][..], "bray_runtime_builtins-")
-            }
+            RuntimeArchiveKind::Memory => (
+                "bray-runtime-builtins",
+                &["memory"][..],
+                "bray_runtime_builtins-",
+            ),
+            RuntimeArchiveKind::String => (
+                "bray-runtime-builtins",
+                &["string"][..],
+                "bray_runtime_builtins-",
+            ),
             RuntimeArchiveKind::Character => (
                 "bray-runtime-builtins",
                 &["character"][..],
                 "bray_runtime_builtins-",
             ),
-            RuntimeArchiveKind::Host => {
-                ("bray-runtime-adapter", &["host"][..], "bray_runtime_adapter-")
-            }
+            RuntimeArchiveKind::Host => (
+                "bray-runtime-adapter",
+                &["host"][..],
+                "bray_runtime_adapter-",
+            ),
             RuntimeArchiveKind::Scheduler => (
                 "bray-runtime-adapter",
                 &["scheduler"][..],
@@ -171,9 +179,11 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
                 &["cancellation"][..],
                 "bray_runtime_adapter-",
             ),
-            RuntimeArchiveKind::Event => {
-                ("bray-runtime-adapter", &["event"][..], "bray_runtime_adapter-")
-            }
+            RuntimeArchiveKind::Event => (
+                "bray-runtime-adapter",
+                &["event"][..],
+                "bray_runtime_adapter-",
+            ),
             RuntimeArchiveKind::TestHost => (
                 "bray-runtime-adapter",
                 &["test-host"][..],
@@ -183,11 +193,7 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         };
 
         let built = crate::native_archive::build_rust_static_library(
-            &root,
-            target,
-            crate_name,
-            profile,
-            features,
+            &root, target, crate_name, profile, features,
         )
         .map_err(CommandError::NativeArchive)?;
 
@@ -203,9 +209,8 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
 
     partitioner.write(target, output)?;
 
-    native_links.sort_by(|left, right| {
-        (left.kind(), left.name()).cmp(&(right.kind(), right.name()))
-    });
+    native_links
+        .sort_by(|left, right| (left.kind(), left.name()).cmp(&(right.kind(), right.name())));
 
     native_links.dedup();
 
@@ -362,11 +367,7 @@ fn metadata(
                 "scheduler",
                 &SCHEDULER_CAPABILITIES[..],
             ),
-            (
-                RuntimeArchiveKind::Cancellation,
-                "cancellation",
-                &[][..],
-            ),
+            (RuntimeArchiveKind::Cancellation, "cancellation", &[][..]),
             (
                 RuntimeArchiveKind::Event,
                 "event",
@@ -540,8 +541,9 @@ fn digest_file(path: &Path) -> Result<RuntimeArtifactDigest, CommandError> {
 }
 
 pub(super) fn archive_file_name(target: NativeTarget, kind: RuntimeArchiveKind) -> String {
-    let name = TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
-        .file_name(kind.archive_stem());
+    let name =
+        TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+            .file_name(kind.archive_stem());
 
     let Some(name) = name else {
         panic!("fixed runtime archive stems must form valid native output names")
@@ -678,12 +680,12 @@ pub(super) enum CommandError {
     TemporaryDirectory(std::io::Error),
     NonUtf8Path,
     Rustc(std::io::Error),
-    NativeSymbolToolUnavailable,
+    NativeSymbolToolUnavailable(bray_tooling::LlvmToolPathError),
     NativeSymbolInspection(std::io::Error),
     NativeSymbolInspectionFailed,
     RuntimeComponentBoundary(RuntimeArchiveKind),
     RuntimePartitionTool(std::io::Error),
-    RuntimePartitionToolUnavailable,
+    RuntimePartitionToolUnavailable(bray_tooling::LlvmToolPathError),
     RuntimePartitionFailed,
     RuntimePartitionMissingOwner(RuntimeArchiveKind),
     SynchronousLinkMapBoundary(String),
@@ -708,7 +710,6 @@ impl CommandError {
             error,
         }
     }
-
 }
 
 impl fmt::Display for CommandError {
@@ -746,8 +747,11 @@ impl fmt::Display for CommandError {
             }
             Self::NonUtf8Path => formatter.write_str("runtime archive path is not valid UTF-8"),
             Self::Rustc(error) => write!(formatter, "could not run rustc: {error}"),
-            Self::NativeSymbolToolUnavailable => {
-                formatter.write_str("llvm-nm is unavailable for runtime artifact inspection")
+            Self::NativeSymbolToolUnavailable(error) => {
+                write!(
+                    formatter,
+                    "llvm-nm is unavailable for runtime artifact inspection: {error}"
+                )
             }
             Self::NativeSymbolInspection(error) => {
                 write!(
@@ -759,22 +763,37 @@ impl fmt::Display for CommandError {
                 formatter.write_str("runtime archive symbol inspection failed")
             }
             Self::RuntimeComponentBoundary(kind) => {
-                write!(formatter, "runtime {kind:?} archive has an invalid exported surface")
+                write!(
+                    formatter,
+                    "runtime {kind:?} archive has an invalid exported surface"
+                )
             }
             Self::RuntimePartitionTool(error) => {
-                write!(formatter, "could not run runtime archive partition tool: {error}")
+                write!(
+                    formatter,
+                    "could not run runtime archive partition tool: {error}"
+                )
             }
-            Self::RuntimePartitionToolUnavailable => {
-                formatter.write_str("llvm-ar is unavailable for runtime archive partitioning")
+            Self::RuntimePartitionToolUnavailable(error) => {
+                write!(
+                    formatter,
+                    "llvm-ar is unavailable for runtime archive partitioning: {error}"
+                )
             }
             Self::RuntimePartitionFailed => {
                 formatter.write_str("runtime archive partitioning failed")
             }
             Self::RuntimePartitionMissingOwner(kind) => {
-                write!(formatter, "runtime {kind:?} partition owns no archive members")
+                write!(
+                    formatter,
+                    "runtime {kind:?} partition owns no archive members"
+                )
             }
             Self::SynchronousLinkMapBoundary(detail) => {
-                write!(formatter, "synchronous runtime link map is invalid: {detail}")
+                write!(
+                    formatter,
+                    "synchronous runtime link map is invalid: {detail}"
+                )
             }
             Self::HostTarget => formatter.write_str("could not determine rustc host target"),
             Self::SmokeLinkFailed => formatter.write_str("runtime artifact smoke link failed"),
@@ -843,10 +862,7 @@ mod tests {
         );
 
         assert_eq!(
-            archive_file_name(
-                NativeTarget::X86_64LinuxGnu,
-                RuntimeArchiveKind::Host
-            ),
+            archive_file_name(NativeTarget::X86_64LinuxGnu, RuntimeArchiveKind::Host),
             "libbray_runtime_host.a"
         );
 
@@ -856,18 +872,12 @@ mod tests {
         );
 
         assert_eq!(
-            archive_file_name(
-                NativeTarget::X86_64MacOs,
-                RuntimeArchiveKind::Scheduler
-            ),
+            archive_file_name(NativeTarget::X86_64MacOs, RuntimeArchiveKind::Scheduler),
             "libbray_runtime_scheduler.a"
         );
 
         assert_eq!(
-            archive_file_name(
-                NativeTarget::Aarch64MacOs,
-                RuntimeArchiveKind::TestHost
-            ),
+            archive_file_name(NativeTarget::Aarch64MacOs, RuntimeArchiveKind::TestHost),
             "libbray_runtime_test_host.a"
         );
     }

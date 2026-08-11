@@ -1,6 +1,7 @@
 use bray_diagnostics::{
     DiagnosticCode, DiagnosticId, DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle,
-    DiagnosticNoteKind, SeverityKind,
+    DiagnosticNoteKind, DiagnosticRelatedLocationKind, DiagnosticSourceEdit,
+    DiagnosticSuggestionApplicability, DiagnosticSuggestionKind, SeverityKind,
 };
 use bray_source::SourceSpan;
 
@@ -14,6 +15,8 @@ pub struct RenderedDiagnostic {
     message: String,
     labels: Vec<RenderedDiagnosticLabel>,
     notes: Vec<RenderedDiagnosticNote>,
+    related_locations: Vec<RenderedDiagnosticRelatedLocation>,
+    suggestions: Vec<RenderedDiagnosticSuggestion>,
 }
 
 impl RenderedDiagnostic {
@@ -25,6 +28,8 @@ impl RenderedDiagnostic {
         message: String,
         labels: Vec<RenderedDiagnosticLabel>,
         notes: Vec<RenderedDiagnosticNote>,
+        related_locations: Vec<RenderedDiagnosticRelatedLocation>,
+        suggestions: Vec<RenderedDiagnosticSuggestion>,
     ) -> Self {
         Self {
             id,
@@ -34,6 +39,8 @@ impl RenderedDiagnostic {
             message,
             labels,
             notes,
+            related_locations,
+            suggestions,
         }
     }
 
@@ -75,6 +82,123 @@ impl RenderedDiagnostic {
     /// Returns the rendered notes.
     pub fn notes(&self) -> &[RenderedDiagnosticNote] {
         &self.notes
+    }
+
+    /// Returns rendered supporting source locations.
+    pub fn related_locations(&self) -> &[RenderedDiagnosticRelatedLocation] {
+        &self.related_locations
+    }
+
+    /// Returns rendered actionable corrections.
+    pub fn suggestions(&self) -> &[RenderedDiagnosticSuggestion] {
+        &self.suggestions
+    }
+
+    /// Returns whether every user-facing component was rendered completely.
+    pub fn is_complete(&self) -> bool {
+        message_is_complete(&self.message)
+            && self
+                .labels
+                .iter()
+                .all(|label| message_is_complete(label.message()))
+            && self
+                .notes
+                .iter()
+                .all(|note| message_is_complete(note.message()))
+            && self
+                .related_locations
+                .iter()
+                .all(|location| message_is_complete(location.message()))
+            && self
+                .suggestions
+                .iter()
+                .all(|suggestion| message_is_complete(suggestion.message()))
+    }
+}
+
+fn message_is_complete(message: &str) -> bool {
+    !message.is_empty() && !message.contains("[missing ")
+}
+
+/// User-facing rendering of one supporting source location.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RenderedDiagnosticRelatedLocation {
+    kind: DiagnosticRelatedLocationKind,
+    span: SourceSpan,
+    message: String,
+}
+
+impl RenderedDiagnosticRelatedLocation {
+    pub(crate) fn new(
+        kind: DiagnosticRelatedLocationKind,
+        span: SourceSpan,
+        message: String,
+    ) -> Self {
+        Self {
+            kind,
+            span,
+            message,
+        }
+    }
+
+    /// Returns the stable relationship category.
+    pub const fn kind(&self) -> DiagnosticRelatedLocationKind {
+        self.kind
+    }
+
+    /// Returns the supporting source span.
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
+
+    /// Returns the rendered relationship message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+/// User-facing rendering of one actionable correction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RenderedDiagnosticSuggestion {
+    kind: DiagnosticSuggestionKind,
+    applicability: DiagnosticSuggestionApplicability,
+    edits: Vec<DiagnosticSourceEdit>,
+    message: String,
+}
+
+impl RenderedDiagnosticSuggestion {
+    pub(crate) fn new(
+        kind: DiagnosticSuggestionKind,
+        applicability: DiagnosticSuggestionApplicability,
+        edits: Vec<DiagnosticSourceEdit>,
+        message: String,
+    ) -> Self {
+        Self {
+            kind,
+            applicability,
+            edits,
+            message,
+        }
+    }
+
+    /// Returns the stable suggestion category.
+    pub const fn kind(&self) -> DiagnosticSuggestionKind {
+        self.kind
+    }
+
+    /// Returns how safely tooling can apply this suggestion.
+    pub const fn applicability(&self) -> DiagnosticSuggestionApplicability {
+        self.applicability
+    }
+
+    /// Returns the ordered source edits.
+    pub fn edits(&self) -> &[DiagnosticSourceEdit] {
+        &self.edits
+    }
+
+    /// Returns the rendered correction message.
+    pub fn message(&self) -> &str {
+        &self.message
     }
 }
 

@@ -20,8 +20,11 @@ pub(in crate::standard_library) enum BuildError {
     NativeArchive(String),
     TemporaryDirectory(std::io::Error),
     UnsupportedTarget(TargetIdentity),
-    CompilerUnavailable,
-    LinkerUnavailable(TargetIdentity),
+    CompilerUnavailable(bray_tooling::LlvmCompilationLoadError),
+    LinkerUnavailable {
+        target: TargetIdentity,
+        detail: String,
+    },
     CompilationFailed {
         target: TargetIdentity,
         detail: String,
@@ -119,11 +122,15 @@ impl fmt::Display for BuildError {
                     target.as_str()
                 )
             }
-            Self::CompilerUnavailable => {
-                formatter.write_str("LLVM compiler backend is unavailable")
+            Self::CompilerUnavailable(error) => {
+                write!(formatter, "LLVM compiler backend is unavailable: {error}")
             }
-            Self::LinkerUnavailable(target) => {
-                write!(formatter, "archiver is unavailable for {}", target.as_str())
+            Self::LinkerUnavailable { target, detail } => {
+                write!(
+                    formatter,
+                    "archiver is unavailable for {}: {detail}",
+                    target.as_str()
+                )
             }
             Self::CompilationFailed { target, detail } => {
                 write!(

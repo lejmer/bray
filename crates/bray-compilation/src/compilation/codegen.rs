@@ -700,14 +700,18 @@ mod tests {
             Ok(())
         }
 
-        fn generate(&self, _request: CodegenRequest<'_>) -> CodegenOutcome {
+        fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome {
             self.invocations.fetch_add(1, Ordering::SeqCst);
 
             if let Some(gate) = &self.gate {
                 gate.enter_and_wait();
             }
 
-            CodegenOutcome::failed(CodegenFailure::BackendLibrary, DiagnosticBag::new())
+            CodegenOutcome::failed(
+                request,
+                CodegenFailure::BackendLibrary,
+                DiagnosticBag::new(),
+            )
         }
     }
 

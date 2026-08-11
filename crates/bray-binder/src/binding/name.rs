@@ -1,11 +1,14 @@
-use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
+};
 use bray_source::SourceSpan;
 use bray_symbols::{MemberLookupResult, SymbolName};
 use bray_syntax::SyntaxToken;
 
 use crate::BinderFactContext;
 use crate::binder::Binder;
-use crate::lookup::{PathBindingContext, lookup_unqualified_name};
+use crate::lookup::{PathBindingContext, ResolvedName, lookup_unqualified_name};
 
 pub(super) fn symbol_name(
     source: &bray_source::SourceSnapshot,
@@ -48,21 +51,22 @@ pub(super) fn name_text_is_available<C>(
 where
     C: BinderFactContext + ?Sized,
 {
-    if matches!(
-        lookup_unqualified_name(
-            binder.unit(),
-            binder.facts().symbols(),
-            context.scope(),
-            context.module(),
-            text,
-            context.access(),
-        ),
-        MemberLookupResult::NotFound
-    ) {
+    let lookup = lookup_unqualified_name(
+        binder.unit(),
+        binder.facts().symbols(),
+        context.scope(),
+        context.module(),
+        text,
+        context.access(),
+    );
+
+    if matches!(lookup, MemberLookupResult::NotFound) {
         return true;
     }
 
-    report_name_already_defined(binder, text, span);
+    let prior_spans = occupied_name_spans(binder, &lookup);
+
+    report_name_already_defined(binder, text, span, prior_spans);
 
     false
 }
@@ -71,16 +75,77 @@ pub(super) fn report_name_already_defined<C>(
     binder: &mut Binder<'_, C>,
     text: &str,
     span: SourceSpan,
+    prior_spans: impl IntoIterator<Item = SourceSpan>,
 ) where
     C: BinderFactContext + ?Sized,
 {
-    let diagnostic = Diagnostic::new(
+    let mut diagnostic = Diagnostic::new(
         DiagnosticId::new(span.range().start().bytes()),
         DiagnosticKind::BindingNameAlreadyDefined,
         SeverityKind::Error,
     )
     .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::NameDefinition,
+        span,
+    ))
     .with_arg(DiagnosticArg::referenced_name(text));
 
+    let mut prior_spans = prior_spans
+        .into_iter()
+        .filter(|prior| *prior != span)
+        .collect::<Vec<_>>();
+
+    prior_spans.sort_unstable();
+    prior_spans.dedup();
+
+    for prior in prior_spans {
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            DiagnosticRelatedLocationKind::FirstDeclaration,
+            prior,
+        ));
+    }
+
     binder.add_diagnostic(diagnostic);
+}
+
+fn occupied_name_spans<C>(
+    binder: &Binder<'_, C>,
+    result: &MemberLookupResult<ResolvedName>,
+) -> Vec<SourceSpan>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let candidates: &[ResolvedName] = match result {
+        MemberLookupResult::Found(candidate) => std::slice::from_ref(candidate),
+        MemberLookupResult::NotFound => &[],
+        MemberLookupResult::WrongKind(candidates)
+        | MemberLookupResult::Ambiguous(candidates)
+        | MemberLookupResult::Inaccessible(candidates)
+        | MemberLookupResult::Malformed(candidates) => candidates,
+    };
+
+    let mut spans = candidates
+        .iter()
+        .filter_map(|candidate| resolved_name_span(binder, *candidate))
+        .collect::<Vec<_>>();
+
+    spans.sort_unstable();
+    spans.dedup();
+
+    spans
+}
+
+fn resolved_name_span<C>(binder: &Binder<'_, C>, name: ResolvedName) -> Option<SourceSpan>
+where
+    C: BinderFactContext + ?Sized,
+{
+    let anchor = match name {
+        ResolvedName::Local(symbol) => binder.unit().local_symbol_syntax_anchor(symbol).ok()?,
+        ResolvedName::Surface(symbol) => {
+            binder.facts().symbols().declaration_syntax_anchor(symbol)?
+        }
+    };
+
+    Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))
 }

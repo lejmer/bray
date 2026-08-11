@@ -1452,6 +1452,11 @@ func invalid()
             TypeData::Callable(callable) if callable.abi() == CallableAbi::Bray
         ));
 
+        bray_testing::assert_goal_state_diagnostic_kind(
+            signature.diagnostics(),
+            DiagnosticKind::BindingInvalidCallableAbi,
+        );
+
         assert_eq!(
             signature
                 .diagnostics()

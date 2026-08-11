@@ -80,8 +80,9 @@ pub(crate) fn build_rust_static_library(
 fn rust_static_library_file_name(target: NativeTarget, package: &str) -> String {
     let crate_name = package.replace('-', "_");
 
-    let name = TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
-        .file_name(&crate_name);
+    let name =
+        TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+            .file_name(&crate_name);
 
     let Some(name) = name else {
         panic!("Cargo package identities must form valid native output names")

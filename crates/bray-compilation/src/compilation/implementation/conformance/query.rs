@@ -1,9 +1,19 @@
+// rust-style: allow(module-too-large, reason = "trait implementation conformance is one lazy query pipeline with exhaustive source-correlated failure conversion")
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_binder::SymbolFactProvider;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticResult, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticCallableBehaviorComponent,
+    DiagnosticCallableBehaviorPhase, DiagnosticCallableConstness,
+    DiagnosticCallableContractClauseCategory, DiagnosticCallableContractMismatch,
+    DiagnosticCallableContractSurface, DiagnosticCallableParameterMode, DiagnosticCallablePosition,
+    DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
+    DiagnosticGenericParameterCategory, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticReceiverMode, DiagnosticRelatedLocation,
+    DiagnosticRelatedLocationKind, DiagnosticResult, DiagnosticTraitFulfillmentMismatch,
+    SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -12,11 +22,15 @@ use bray_symbols::{
     TraitConstantMemberDefinitionFact, TraitImplementationConformance,
     TraitImplementationConformanceFact, TraitMemberFulfillmentId, TraitMemberRequirementId,
     TraitPredicateMemberDefinitionFact, TraitRequirementConformance, TraitRequirementResolution,
-    TraitTypeFulfillmentValueFact, TypeExpressionTemplate,
+    TraitTypeFulfillmentValueFact, TypeExpressionTemplate, diagnostic_callable_abi,
+    diagnostic_callable_execution,
 };
 
 use super::compatibility::{
-    CompatibilityContext, fulfillment_is_compatible, subject_lifecycle_is_compatible,
+    CallableBehaviorComponent, CallableBehaviorPhase, CallableContractClauseCategory,
+    CallableContractMismatch, CallableContractSurface, CompatibilityContext, ConstraintCategory,
+    GenericConstraintMismatch, GenericParameterCategory, GenericSurfaceMismatch,
+    TraitFulfillmentMismatch, fulfillment_is_compatible, subject_lifecycle_is_compatible,
 };
 use crate::compilation::{Compilation, binder::CompilationBinderFacts};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
@@ -60,6 +74,7 @@ impl Compilation {
         Ok(Arc::clone(result))
     }
 
+    // rust-style: allow(function-too-large, reason = "conformance evaluates and publishes every trait requirement in one deterministic transaction")
     fn compute_trait_implementation_conformance(
         &self,
         implementation: ImplementationSymbolId,
@@ -184,32 +199,40 @@ impl Compilation {
                 TraitMemberRequirementId::Finalizer(_) | TraitMemberRequirementId::Destructor(_)
             ) {
                 match subject_lifecycle.get(&slot).copied() {
-                    Some((symbol, fulfillment))
-                        if subject_lifecycle_is_compatible(
-                            &compatibility,
-                            requirement,
-                            fulfillment,
-                            &mut diagnostics,
-                        )? =>
-                    {
-                        TraitRequirementResolution::SubjectLifecycle(symbol)
-                    }
-                    Some((symbol, _)) => {
-                        diagnostics.add(conformance_diagnostic(
-                            symbols,
-                            DiagnosticKind::CheckingIncompatibleTraitFulfillment,
-                            implementation.into_any(),
-                            &slot,
-                        )?);
+                    Some((symbol, fulfillment)) => match subject_lifecycle_is_compatible(
+                        &compatibility,
+                        requirement,
+                        fulfillment,
+                        &mut diagnostics,
+                    )? {
+                        None => TraitRequirementResolution::SubjectLifecycle(symbol),
+                        Some(mismatch) => {
+                            diagnostics.add(conformance_diagnostic(
+                                symbols,
+                                DiagnosticKind::CheckingIncompatibleTraitFulfillment,
+                                implementation.into_any(),
+                                &slot,
+                                Some(self.diagnostic_trait_mismatch(mismatch, cancellation)?),
+                                [(
+                                    DiagnosticRelatedLocationKind::RequirementOrigin,
+                                    requirement.symbol(),
+                                )],
+                            )?);
 
-                        TraitRequirementResolution::Incompatible(symbol)
-                    }
+                            TraitRequirementResolution::Incompatible(symbol)
+                        }
+                    },
                     None => {
                         diagnostics.add(conformance_diagnostic(
                             symbols,
                             DiagnosticKind::CheckingMissingTraitFulfillment,
                             implementation.into_any(),
                             &slot,
+                            None,
+                            [(
+                                DiagnosticRelatedLocationKind::RequirementOrigin,
+                                requirement.symbol(),
+                            )],
                         )?);
 
                         TraitRequirementResolution::Missing
@@ -218,22 +241,28 @@ impl Compilation {
             } else {
                 match fulfillment {
                     Some(fulfillment) => {
-                        if fulfillment_is_compatible(
+                        match fulfillment_is_compatible(
                             &compatibility,
                             requirement,
                             fulfillment,
                             &mut diagnostics,
                         )? {
-                            TraitRequirementResolution::Explicit(fulfillment)
-                        } else {
-                            diagnostics.add(conformance_diagnostic(
-                                symbols,
-                                DiagnosticKind::CheckingIncompatibleTraitFulfillment,
-                                fulfillment.symbol(),
-                                &slot,
-                            )?);
+                            None => TraitRequirementResolution::Explicit(fulfillment),
+                            Some(mismatch) => {
+                                diagnostics.add(conformance_diagnostic(
+                                    symbols,
+                                    DiagnosticKind::CheckingIncompatibleTraitFulfillment,
+                                    fulfillment.symbol(),
+                                    &slot,
+                                    Some(self.diagnostic_trait_mismatch(mismatch, cancellation)?),
+                                    [(
+                                        DiagnosticRelatedLocationKind::RequirementOrigin,
+                                        requirement.symbol(),
+                                    )],
+                                )?);
 
-                            TraitRequirementResolution::Incompatible(fulfillment.symbol())
+                                TraitRequirementResolution::Incompatible(fulfillment.symbol())
+                            }
                         }
                     }
                     None if requirement_has_default(&facts, requirement, &mut diagnostics)? => {
@@ -245,6 +274,11 @@ impl Compilation {
                             DiagnosticKind::CheckingMissingTraitFulfillment,
                             implementation.into_any(),
                             &slot,
+                            None,
+                            [(
+                                DiagnosticRelatedLocationKind::RequirementOrigin,
+                                requirement.symbol(),
+                            )],
                         )?);
 
                         TraitRequirementResolution::Missing
@@ -255,12 +289,19 @@ impl Compilation {
             checked.push(TraitRequirementConformance::new(requirement, resolution));
 
             if let Some(matches) = matching_fulfillments {
-                for duplicate in matches.iter().skip(1).copied() {
+                for (index, duplicate) in matches.iter().copied().enumerate().skip(1) {
                     diagnostics.add(conformance_diagnostic(
                         symbols,
                         DiagnosticKind::CheckingDuplicateTraitFulfillment,
                         duplicate.symbol(),
                         &slot,
+                        None,
+                        matches[..index].iter().copied().map(|previous| {
+                            (
+                                DiagnosticRelatedLocationKind::FirstDeclaration,
+                                previous.symbol(),
+                            )
+                        }),
                     )?);
 
                     duplicate_fulfillments.push(duplicate);
@@ -296,6 +337,8 @@ impl Compilation {
                 DiagnosticKind::CheckingExtraTraitFulfillment,
                 fulfillment.symbol(),
                 &slot,
+                None,
+                [],
             )?);
         }
 
@@ -308,6 +351,419 @@ impl Compilation {
         );
 
         Ok(DiagnosticResult::new(conformance, diagnostics))
+    }
+
+    fn diagnostic_trait_mismatch(
+        &self,
+        mismatch: TraitFulfillmentMismatch,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticTraitFulfillmentMismatch, FactQueryError> {
+        let type_value = |template: &TypeExpressionTemplate| {
+            crate::compilation::foreign::diagnostic::template_diagnostic_type(
+                self,
+                template,
+                cancellation,
+            )
+        };
+
+        let mismatch = match mismatch {
+            TraitFulfillmentMismatch::MemberCategory => {
+                DiagnosticTraitFulfillmentMismatch::MemberCategory
+            }
+            TraitFulfillmentMismatch::Generic(mismatch) => match mismatch {
+                GenericSurfaceMismatch::FulfillmentIsNotGeneric => {
+                    DiagnosticTraitFulfillmentMismatch::FulfillmentIsNotGeneric
+                }
+                GenericSurfaceMismatch::ParameterCount { required, provided } => {
+                    DiagnosticTraitFulfillmentMismatch::GenericParameterCount {
+                        required: diagnostic_count(required)?,
+                        provided: diagnostic_count(provided)?,
+                    }
+                }
+                GenericSurfaceMismatch::ParameterCategory {
+                    ordinal,
+                    required,
+                    provided,
+                } => DiagnosticTraitFulfillmentMismatch::GenericParameterCategory {
+                    ordinal: diagnostic_count(ordinal)?,
+                    required: diagnostic_generic_category(required),
+                    provided: diagnostic_generic_category(provided),
+                },
+                GenericSurfaceMismatch::ConstantParameterType {
+                    ordinal,
+                    required,
+                    provided,
+                } => DiagnosticTraitFulfillmentMismatch::GenericConstantParameterType {
+                    ordinal: diagnostic_count(ordinal)?,
+                    required: type_value(&required)?,
+                    provided: type_value(&provided)?,
+                },
+                GenericSurfaceMismatch::Constraints(mismatch) => {
+                    DiagnosticTraitFulfillmentMismatch::GenericConstraints(
+                        diagnostic_generic_constraint_mismatch(mismatch)?,
+                    )
+                }
+            },
+            TraitFulfillmentMismatch::Receiver { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::Receiver {
+                    required: required.map(diagnostic_receiver_mode),
+                    provided: provided.map(diagnostic_receiver_mode),
+                }
+            }
+            TraitFulfillmentMismatch::CallableConstness { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::CallableConstness {
+                    required: diagnostic_callable_constness(required),
+                    provided: diagnostic_callable_constness(provided),
+                }
+            }
+            TraitFulfillmentMismatch::CallableExecution { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::CallableExecution {
+                    required: diagnostic_callable_execution(required),
+                    provided: diagnostic_callable_execution(provided),
+                }
+            }
+            TraitFulfillmentMismatch::CallableTrust { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::CallableTrust {
+                    required: diagnostic_callable_trust(required),
+                    provided: diagnostic_callable_trust(provided),
+                }
+            }
+            TraitFulfillmentMismatch::CallableAbi { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::CallableAbi {
+                    required: diagnostic_callable_abi(required),
+                    provided: diagnostic_callable_abi(provided),
+                }
+            }
+            TraitFulfillmentMismatch::CallableParameterCount { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::CallableParameterCount {
+                    required: diagnostic_count(required)?,
+                    provided: diagnostic_count(provided)?,
+                }
+            }
+            TraitFulfillmentMismatch::CallableParameterName {
+                ordinal,
+                required,
+                provided,
+            } => DiagnosticTraitFulfillmentMismatch::CallableParameterName {
+                ordinal: diagnostic_count(ordinal)?,
+                required,
+                provided,
+            },
+            TraitFulfillmentMismatch::CallableParameterPosition {
+                ordinal,
+                required,
+                provided,
+            } => DiagnosticTraitFulfillmentMismatch::CallableParameterPosition {
+                ordinal: diagnostic_count(ordinal)?,
+                required: diagnostic_callable_position(required),
+                provided: diagnostic_callable_position(provided),
+            },
+            TraitFulfillmentMismatch::CallableParameterMode {
+                ordinal,
+                required,
+                provided,
+            } => DiagnosticTraitFulfillmentMismatch::CallableParameterMode {
+                ordinal: diagnostic_count(ordinal)?,
+                required: diagnostic_callable_parameter_mode(required),
+                provided: diagnostic_callable_parameter_mode(provided),
+            },
+            TraitFulfillmentMismatch::CallableParameterType {
+                ordinal,
+                required,
+                provided,
+            } => DiagnosticTraitFulfillmentMismatch::CallableParameterType {
+                ordinal: diagnostic_count(ordinal)?,
+                required: type_value(&required)?,
+                provided: type_value(&provided)?,
+            },
+            TraitFulfillmentMismatch::CallableResultType { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::CallableResultType {
+                    required: type_value(&required)?,
+                    provided: type_value(&provided)?,
+                }
+            }
+            TraitFulfillmentMismatch::CallableParameterDefault {
+                ordinal,
+                required,
+                provided,
+            } => DiagnosticTraitFulfillmentMismatch::CallableParameterDefault {
+                ordinal: diagnostic_count(ordinal)?,
+                required,
+                provided,
+            },
+            TraitFulfillmentMismatch::CallableContract(mismatch) => {
+                DiagnosticTraitFulfillmentMismatch::CallableContract(
+                    diagnostic_callable_contract_mismatch(mismatch)?,
+                )
+            }
+            TraitFulfillmentMismatch::ConstantType { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::ConstantType {
+                    required: type_value(&required)?,
+                    provided: type_value(&provided)?,
+                }
+            }
+            TraitFulfillmentMismatch::TypeValueUnavailable => {
+                DiagnosticTraitFulfillmentMismatch::TypeValueUnavailable
+            }
+            TraitFulfillmentMismatch::PredicateTrust { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::PredicateTrust { required, provided }
+            }
+            TraitFulfillmentMismatch::PredicateParameterCount { required, provided } => {
+                DiagnosticTraitFulfillmentMismatch::PredicateParameterCount {
+                    required: diagnostic_count(required)?,
+                    provided: diagnostic_count(provided)?,
+                }
+            }
+            TraitFulfillmentMismatch::PredicateParameterName {
+                ordinal,
+                required,
+                provided,
+            } => DiagnosticTraitFulfillmentMismatch::PredicateParameterName {
+                ordinal: diagnostic_count(ordinal)?,
+                required,
+                provided,
+            },
+            TraitFulfillmentMismatch::PredicateParameterType {
+                ordinal,
+                required,
+                provided,
+            } => DiagnosticTraitFulfillmentMismatch::PredicateParameterType {
+                ordinal: diagnostic_count(ordinal)?,
+                required: type_value(&required)?,
+                provided: type_value(&provided)?,
+            },
+        };
+
+        Ok(mismatch)
+    }
+}
+
+fn diagnostic_count(value: usize) -> Result<u64, FactQueryError> {
+    u64::try_from(value).map_err(|_| FactQueryError::InfrastructureFailure)
+}
+
+fn diagnostic_generic_constraint_mismatch(
+    mismatch: GenericConstraintMismatch,
+) -> Result<DiagnosticGenericConstraintMismatch, FactQueryError> {
+    let mismatch = match mismatch {
+        GenericConstraintMismatch::Count { required, provided } => {
+            DiagnosticGenericConstraintMismatch::Count {
+                required: diagnostic_count(required)?,
+                provided: diagnostic_count(provided)?,
+            }
+        }
+        GenericConstraintMismatch::Ordinal { index } => {
+            DiagnosticGenericConstraintMismatch::Ordinal(diagnostic_count(index)?)
+        }
+        GenericConstraintMismatch::Category {
+            index,
+            required,
+            provided,
+        } => DiagnosticGenericConstraintMismatch::Category {
+            index: diagnostic_count(index)?,
+            required: diagnostic_constraint_category(required),
+            provided: diagnostic_constraint_category(provided),
+        },
+        GenericConstraintMismatch::PredicateDependencies { index } => {
+            DiagnosticGenericConstraintMismatch::PredicateDependencies(diagnostic_count(index)?)
+        }
+        GenericConstraintMismatch::TraitSatisfaction { index } => {
+            DiagnosticGenericConstraintMismatch::TraitSatisfaction(diagnostic_count(index)?)
+        }
+        GenericConstraintMismatch::TypeEquality { index } => {
+            DiagnosticGenericConstraintMismatch::TypeEquality(diagnostic_count(index)?)
+        }
+    };
+
+    Ok(mismatch)
+}
+
+fn diagnostic_callable_contract_mismatch(
+    mismatch: CallableContractMismatch,
+) -> Result<DiagnosticCallableContractMismatch, FactQueryError> {
+    let mismatch = match mismatch {
+        CallableContractMismatch::ClauseCount {
+            surface,
+            required,
+            provided,
+        } => DiagnosticCallableContractMismatch::ClauseCount {
+            surface: diagnostic_callable_contract_surface(surface),
+            required: diagnostic_count(required)?,
+            provided: diagnostic_count(provided)?,
+        },
+        CallableContractMismatch::ClauseOrdinal { surface, index } => {
+            DiagnosticCallableContractMismatch::ClauseOrdinal {
+                surface: diagnostic_callable_contract_surface(surface),
+                index: diagnostic_count(index)?,
+            }
+        }
+        CallableContractMismatch::ClauseKind { surface, index } => {
+            DiagnosticCallableContractMismatch::ClauseKind {
+                surface: diagnostic_callable_contract_surface(surface),
+                index: diagnostic_count(index)?,
+            }
+        }
+        CallableContractMismatch::ClauseCategory {
+            surface,
+            index,
+            required,
+            provided,
+        } => DiagnosticCallableContractMismatch::ClauseCategory {
+            surface: diagnostic_callable_contract_surface(surface),
+            index: diagnostic_count(index)?,
+            required: diagnostic_callable_clause_category(required),
+            provided: diagnostic_callable_clause_category(provided),
+        },
+        CallableContractMismatch::PredicateDependencies { surface, index } => {
+            DiagnosticCallableContractMismatch::PredicateDependencies {
+                surface: diagnostic_callable_contract_surface(surface),
+                index: diagnostic_count(index)?,
+            }
+        }
+        CallableContractMismatch::TraitSatisfaction { surface, index } => {
+            DiagnosticCallableContractMismatch::TraitSatisfaction {
+                surface: diagnostic_callable_contract_surface(surface),
+                index: diagnostic_count(index)?,
+            }
+        }
+        CallableContractMismatch::Behavior { phase, component } => {
+            DiagnosticCallableContractMismatch::Behavior {
+                phase: diagnostic_callable_behavior_phase(phase),
+                component: diagnostic_callable_behavior_component(component),
+            }
+        }
+        CallableContractMismatch::DeferredExecutionPresence => {
+            DiagnosticCallableContractMismatch::DeferredExecutionPresence
+        }
+    };
+
+    Ok(mismatch)
+}
+
+const fn diagnostic_constraint_category(value: ConstraintCategory) -> DiagnosticConstraintCategory {
+    match value {
+        ConstraintCategory::Predicate => DiagnosticConstraintCategory::Predicate,
+        ConstraintCategory::TraitSatisfaction => DiagnosticConstraintCategory::TraitSatisfaction,
+        ConstraintCategory::TypeEquality => DiagnosticConstraintCategory::TypeEquality,
+    }
+}
+
+const fn diagnostic_callable_clause_category(
+    value: CallableContractClauseCategory,
+) -> DiagnosticCallableContractClauseCategory {
+    match value {
+        CallableContractClauseCategory::Predicate => {
+            DiagnosticCallableContractClauseCategory::Predicate
+        }
+        CallableContractClauseCategory::TraitSatisfaction => {
+            DiagnosticCallableContractClauseCategory::TraitSatisfaction
+        }
+    }
+}
+
+const fn diagnostic_callable_behavior_phase(
+    value: CallableBehaviorPhase,
+) -> DiagnosticCallableBehaviorPhase {
+    match value {
+        CallableBehaviorPhase::Invocation => DiagnosticCallableBehaviorPhase::Invocation,
+        CallableBehaviorPhase::DeferredExecution => {
+            DiagnosticCallableBehaviorPhase::DeferredExecution
+        }
+    }
+}
+
+const fn diagnostic_callable_behavior_component(
+    value: CallableBehaviorComponent,
+) -> DiagnosticCallableBehaviorComponent {
+    match value {
+        CallableBehaviorComponent::Effects => DiagnosticCallableBehaviorComponent::Effects,
+        CallableBehaviorComponent::Capabilities => {
+            DiagnosticCallableBehaviorComponent::Capabilities
+        }
+        CallableBehaviorComponent::TrustedCapabilities => {
+            DiagnosticCallableBehaviorComponent::TrustedCapabilities
+        }
+        CallableBehaviorComponent::ExecutionRequirements => {
+            DiagnosticCallableBehaviorComponent::ExecutionRequirements
+        }
+        CallableBehaviorComponent::LifecycleObligations => {
+            DiagnosticCallableBehaviorComponent::LifecycleObligations
+        }
+        CallableBehaviorComponent::Dependencies => {
+            DiagnosticCallableBehaviorComponent::Dependencies
+        }
+    }
+}
+
+const fn diagnostic_generic_category(
+    category: GenericParameterCategory,
+) -> DiagnosticGenericParameterCategory {
+    match category {
+        GenericParameterCategory::Type => DiagnosticGenericParameterCategory::Type,
+        GenericParameterCategory::Constant => DiagnosticGenericParameterCategory::Constant,
+    }
+}
+
+const fn diagnostic_receiver_mode(mode: bray_symbols::ReceiverMode) -> DiagnosticReceiverMode {
+    match mode {
+        bray_symbols::ReceiverMode::Shared => DiagnosticReceiverMode::Shared,
+        bray_symbols::ReceiverMode::Mutable => DiagnosticReceiverMode::Mutable,
+        bray_symbols::ReceiverMode::Consuming => DiagnosticReceiverMode::Consuming,
+        bray_symbols::ReceiverMode::ConsumingMutable => DiagnosticReceiverMode::ConsumingMutable,
+    }
+}
+
+const fn diagnostic_callable_constness(
+    value: bray_symbols::CallableConstness,
+) -> DiagnosticCallableConstness {
+    match value {
+        bray_symbols::CallableConstness::Runtime => DiagnosticCallableConstness::Runtime,
+        bray_symbols::CallableConstness::Constant => DiagnosticCallableConstness::Constant,
+    }
+}
+
+const fn diagnostic_callable_trust(value: bray_symbols::CallableTrust) -> DiagnosticCallableTrust {
+    match value {
+        bray_symbols::CallableTrust::Safe => DiagnosticCallableTrust::Safe,
+        bray_symbols::CallableTrust::Trusted => DiagnosticCallableTrust::Trusted,
+    }
+}
+
+const fn diagnostic_callable_position(
+    value: bray_symbols::CallablePosition,
+) -> DiagnosticCallablePosition {
+    match value {
+        bray_symbols::CallablePosition::NamedOnly => DiagnosticCallablePosition::NamedOnly,
+        bray_symbols::CallablePosition::PositionalOrNamed => {
+            DiagnosticCallablePosition::PositionalOrNamed
+        }
+    }
+}
+
+const fn diagnostic_callable_parameter_mode(
+    value: bray_symbols::CallableParameterMode,
+) -> DiagnosticCallableParameterMode {
+    match value {
+        bray_symbols::CallableParameterMode::Immutable => {
+            DiagnosticCallableParameterMode::Immutable
+        }
+        bray_symbols::CallableParameterMode::Mutable => DiagnosticCallableParameterMode::Mutable,
+    }
+}
+
+const fn diagnostic_callable_contract_surface(
+    value: CallableContractSurface,
+) -> DiagnosticCallableContractSurface {
+    match value {
+        CallableContractSurface::InvocationPreconditions => {
+            DiagnosticCallableContractSurface::InvocationPreconditions
+        }
+        CallableContractSurface::StaticConstraints => {
+            DiagnosticCallableContractSurface::StaticConstraints
+        }
+        CallableContractSurface::CompletionPostconditions => {
+            DiagnosticCallableContractSurface::CompletionPostconditions
+        }
     }
 }
 
@@ -715,6 +1171,8 @@ fn conformance_diagnostic(
     kind: DiagnosticKind,
     span_symbol: bray_symbols::AnySymbolId,
     slot: &MemberSlot,
+    mismatch: Option<DiagnosticTraitFulfillmentMismatch>,
+    related: impl IntoIterator<Item = (DiagnosticRelatedLocationKind, bray_symbols::AnySymbolId)>,
 ) -> Result<Diagnostic, FactQueryError> {
     let anchor = symbols
         .declaration_syntax_anchor(span_symbol)
@@ -739,19 +1197,42 @@ fn conformance_diagnostic(
         }
     };
 
-    Ok(
-        Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
-            .with_primary_span(SourceSpan::new(anchor.source_id(), anchor.full_range()))
-            .with_arg(member),
-    )
+    let primary_span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+    let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+        .with_primary_span(primary_span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::TraitFulfillment,
+            primary_span,
+        ))
+        .with_arg(member)
+        .with_optional_arg(mismatch.map(DiagnosticArg::trait_fulfillment_mismatch));
+
+    for (kind, symbol) in related {
+        let Some(anchor) = symbols.declaration_syntax_anchor(symbol) else {
+            continue;
+        };
+
+        diagnostic = diagnostic.with_related_location(DiagnosticRelatedLocation::new(
+            kind,
+            SourceSpan::new(anchor.source_id(), anchor.full_range()),
+        ));
+    }
+
+    Ok(diagnostic)
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{
+        DiagnosticArgValue, DiagnosticGenericParameterCategory, DiagnosticKind,
+        DiagnosticRelatedLocationKind, DiagnosticTraitFulfillmentMismatch,
+    };
+    use bray_messages::DiagnosticRenderer;
     use bray_symbols::{ImplementationSymbolId, SymbolOrigin, TraitRequirementResolution};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::fact::CompilationFactKey;
     use crate::test_support::compilation;
@@ -893,6 +1374,72 @@ mod tests {
     }
 
     #[test]
+    fn missing_trait_fulfillment_points_to_the_required_member() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Holder {}\n",
+            "trait Provides\n",
+            "{\n",
+            "    const enabled: bool;\n",
+            "}\n",
+            "impl Holder(Provides) {}\n",
+        ));
+
+        let result = compilation
+            .trait_implementation_conformance(source_implementation(&compilation))
+            .unwrap_or_else(|error| panic!("conformance must publish: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingMissingTraitFulfillment,
+        );
+
+        let diagnostics = result.diagnostics().iter().collect::<Vec<_>>();
+
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("test source must produce one missing-fulfillment diagnostic");
+        };
+
+        assert_eq!(diagnostic.related_locations().len(), 1);
+
+        assert_eq!(
+            diagnostic.related_locations()[0].kind(),
+            DiagnosticRelatedLocationKind::RequirementOrigin
+        );
+    }
+
+    #[test]
+    fn extra_trait_fulfillment_identifies_the_unrequired_member() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Holder {}\n",
+            "trait Provides {}\n",
+            "impl Holder(Provides)\n",
+            "{\n",
+            "    const extra: bool = true;\n",
+            "}\n",
+        ));
+
+        let result = compilation
+            .trait_implementation_conformance(source_implementation(&compilation))
+            .unwrap_or_else(|error| panic!("conformance must publish: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingExtraTraitFulfillment,
+        );
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::CheckingExtraTraitFulfillment]
+        );
+    }
+
+    #[test]
     fn omitted_callable_and_constant_defaults_remain_trait_owned() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -1007,6 +1554,37 @@ mod tests {
                 .map(|diagnostic| diagnostic.kind())
                 .collect::<Vec<_>>(),
             [DiagnosticKind::CheckingIncompatibleTraitFulfillment]
+        );
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingIncompatibleTraitFulfillment,
+        );
+
+        let diagnostics = result.diagnostics().iter().collect::<Vec<_>>();
+
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("test source must produce one conformance diagnostic");
+        };
+
+        assert!(diagnostic.args().iter().any(|argument| matches!(
+            argument.value(),
+            DiagnosticArgValue::TraitFulfillmentMismatch(
+                DiagnosticTraitFulfillmentMismatch::GenericParameterCategory {
+                    ordinal: 0,
+                    required: DiagnosticGenericParameterCategory::Type,
+                    provided: DiagnosticGenericParameterCategory::Constant,
+                }
+            )
+        )));
+
+        assert!(diagnostic.related_locations().iter().any(|location| {
+            location.kind() == DiagnosticRelatedLocationKind::RequirementOrigin
+        }));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(diagnostic).message(),
+            "trait fulfillment of 'get' is incompatible: generic parameter 1 is a constant parameter, but the trait requires a type parameter"
         );
     }
 
@@ -1140,6 +1718,24 @@ mod tests {
         assert!(result.value().extra_fulfillments().is_empty());
         assert_eq!(result.value().duplicate_fulfillments().len(), 1);
         assert!(!result.value().is_valid());
+
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingDuplicateTraitFulfillment,
+        );
+
+        let diagnostics = result.diagnostics().iter().collect::<Vec<_>>();
+
+        let [diagnostic] = diagnostics.as_slice() else {
+            panic!("test source must produce one duplicate diagnostic");
+        };
+
+        assert_eq!(diagnostic.related_locations().len(), 1);
+
+        assert_eq!(
+            diagnostic.related_locations()[0].kind(),
+            DiagnosticRelatedLocationKind::FirstDeclaration
+        );
     }
 
     #[test]

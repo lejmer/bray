@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, is_canonical_relative_path};
+use bray_diagnostics::DiagnosticOutputSink;
 
 use crate::ArtifactId;
 
@@ -105,6 +106,19 @@ pub trait OutputSinkResolver: Send + Sync {
 }
 
 impl OutputSink {
+    /// Returns the locale-neutral diagnostic representation of this destination.
+    pub fn diagnostic_sink(&self) -> DiagnosticOutputSink {
+        match self {
+            Self::ManagedFilesystem { root, .. } | Self::Filesystem(root) => {
+                DiagnosticOutputSink::Filesystem(root.clone())
+            }
+            Self::Memory { collector, .. } => {
+                DiagnosticOutputSink::Memory(collector.as_str().to_owned())
+            }
+            Self::Stream(stream) => DiagnosticOutputSink::Stream(stream.as_str().to_owned()),
+        }
+    }
+
     pub(crate) fn collision_key(&self) -> OutputSinkCollisionKey {
         match self {
             Self::ManagedFilesystem { root, artifact } => {

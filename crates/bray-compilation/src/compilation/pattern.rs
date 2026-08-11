@@ -115,7 +115,7 @@ impl Compilation {
                 self.constant_value_term(result.value())?
             }
             ConstantReferenceResolution::Term(term) => term,
-            ConstantReferenceResolution::Cycle | ConstantReferenceResolution::Invalid => {
+            ConstantReferenceResolution::Cycle { .. } | ConstantReferenceResolution::Invalid => {
                 return Ok(None);
             }
         };

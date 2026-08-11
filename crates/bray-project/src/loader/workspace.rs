@@ -1,14 +1,15 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use bray_diagnostics::DiagnosticProjectManifestField as Field;
 use bray_standard_library::{PackageSourceAuthority, is_public_standard_library_package};
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity};
 
 use crate::manifest::{TargetManifest, WorkspacePackageManifest, decode_workspace_manifest};
 use crate::{
-    ProjectGraph, ProjectLoadError, ProjectManifestProblem, ProjectPackage, ProjectPath,
-    ProjectProduct, ProjectTarget, ProjectTargetBuildPlan, WORKSPACE_MANIFEST_FILE_NAME,
+    ProjectGraph, ProjectLoadError, ProjectPackage, ProjectPath, ProjectProduct, ProjectTarget,
+    ProjectTargetBuildPlan, WORKSPACE_MANIFEST_FILE_NAME,
 };
 
 use super::package::{PendingPackage, load_package};
@@ -43,10 +44,22 @@ fn load_project_graph_with_authority(
 
     let formatter_configuration = manifest
         .formatter_configuration
-        .map(|path| project_path(path, false, &workspace_manifest_path))
+        .map(|path| {
+            project_path(
+                path,
+                false,
+                &workspace_manifest_path,
+                Field::WorkspaceOutputRoot,
+            )
+        })
         .transpose()?;
 
-    let output_root = project_path(manifest.output_root, false, &workspace_manifest_path)?;
+    let output_root = project_path(
+        manifest.output_root,
+        false,
+        &workspace_manifest_path,
+        Field::WorkspaceOutputRoot,
+    )?;
 
     let workspace_package_version = manifest
         .package
@@ -80,32 +93,31 @@ fn load_targets(
     workspace_manifest_path: &Path,
 ) -> Result<Arc<[ProjectTarget]>, ProjectLoadError> {
     if manifests.is_empty() {
-        return Err(invalid_workspace(
-            workspace_manifest_path,
-            ProjectManifestProblem::MissingSelection,
-            "targets",
+        return Err(ProjectLoadError::missing_selection(
+            workspace_manifest_path.to_path_buf(),
+            Field::WorkspaceTargets,
         ));
     }
 
     let mut targets = manifests
         .into_iter()
         .map(|target| {
-            let name = local_name(target.name, workspace_manifest_path)?;
+            let name = local_name(target.name, workspace_manifest_path, Field::TargetName)?;
 
             let Some(identity) =
                 TargetIdentity::try_new(Arc::<str>::from(target.identity.as_str()))
             else {
-                return Err(invalid_workspace(
-                    workspace_manifest_path,
-                    ProjectManifestProblem::InvalidName,
+                return Err(ProjectLoadError::invalid_name(
+                    workspace_manifest_path.to_path_buf(),
+                    Field::TargetIdentity,
                     &target.identity,
                 ));
             };
 
             let Some(target) = NativeTarget::for_identity(&identity) else {
-                return Err(invalid_workspace(
-                    workspace_manifest_path,
-                    ProjectManifestProblem::UnknownTarget,
+                return Err(ProjectLoadError::unknown_target(
+                    workspace_manifest_path.to_path_buf(),
+                    Field::TargetIdentity,
                     &target.identity,
                 ));
             };
@@ -120,9 +132,9 @@ fn load_targets(
         .windows(2)
         .find(|pair| pair[0].name() == pair[1].name())
     {
-        return Err(invalid_workspace(
-            workspace_manifest_path,
-            ProjectManifestProblem::DuplicateSelection,
+        return Err(ProjectLoadError::duplicate_selection(
+            workspace_manifest_path.to_path_buf(),
+            Field::TargetName,
             pair[0].name(),
         ));
     }
@@ -132,9 +144,9 @@ fn load_targets(
             .iter()
             .any(|candidate| candidate.identity() == target.identity())
         {
-            return Err(invalid_workspace(
-                workspace_manifest_path,
-                ProjectManifestProblem::DuplicateSelection,
+            return Err(ProjectLoadError::duplicate_selection(
+                workspace_manifest_path.to_path_buf(),
+                Field::TargetIdentity,
                 target.identity().as_str(),
             ));
         }
@@ -153,10 +165,9 @@ fn load_packages(
     source_authority: PackageSourceAuthority,
 ) -> Result<(Arc<[ProjectPackage]>, Arc<[ProjectTargetBuildPlan]>), ProjectLoadError> {
     if selections.is_empty() {
-        return Err(invalid_workspace(
-            workspace_manifest_path,
-            ProjectManifestProblem::MissingSelection,
-            "packages",
+        return Err(ProjectLoadError::missing_selection(
+            workspace_manifest_path.to_path_buf(),
+            Field::WorkspacePackages,
         ));
     }
 
@@ -164,10 +175,9 @@ fn load_packages(
         .iter()
         .any(|selection| matches!(selection.role, crate::manifest::PackageRoleManifest::Root))
     {
-        return Err(invalid_workspace(
-            workspace_manifest_path,
-            ProjectManifestProblem::MissingRootPackage,
-            "packages",
+        return Err(ProjectLoadError::missing_root_package(
+            workspace_manifest_path.to_path_buf(),
+            Field::WorkspaceRootPackage,
         ));
     }
 
@@ -177,9 +187,9 @@ fn load_packages(
         .windows(2)
         .find(|pair| pair[0].path == pair[1].path)
     {
-        return Err(invalid_workspace(
-            workspace_manifest_path,
-            ProjectManifestProblem::DuplicateSelection,
+        return Err(ProjectLoadError::duplicate_selection(
+            workspace_manifest_path.to_path_buf(),
+            Field::WorkspacePackagePath,
             &pair[0].path,
         ));
     }
@@ -205,9 +215,9 @@ fn load_packages(
         .windows(2)
         .find(|pair| pair[0].identity == pair[1].identity)
     {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::duplicate_selection(
             pair[1].manifest_path.to_path_buf(),
-            ProjectManifestProblem::DuplicateSelection,
+            Field::PackageIdentity,
             pair[0].identity.as_str().to_owned(),
         ));
     }
@@ -218,9 +228,9 @@ fn load_packages(
                 && package.role == crate::PackageRole::Root
         })
     {
-        return Err(ProjectLoadError::invalid(
+        return Err(ProjectLoadError::standard_library_root_package_required(
             workspace_manifest_path.to_path_buf(),
-            ProjectManifestProblem::StandardLibraryRootPackageRequired,
+            Field::WorkspaceRootPackage,
             "std",
         ));
     }
@@ -239,9 +249,9 @@ fn workspace_package_version(
     manifest_path: &Path,
 ) -> Result<PackageVersion, ProjectLoadError> {
     PackageVersion::try_new(&value).ok_or_else(|| {
-        ProjectLoadError::invalid(
+        ProjectLoadError::invalid_package_version(
             manifest_path.to_path_buf(),
-            ProjectManifestProblem::InvalidPackageVersion,
+            Field::WorkspacePackageVersion,
             value,
         )
     })
@@ -263,10 +273,10 @@ fn validate_source_ownership(packages: &[PendingPackage]) -> Result<(), ProjectL
             .iter()
             .find(|(candidate, _)| paths_overlap(path, candidate))
         {
-            return Err(ProjectLoadError::invalid(
+            return Err(ProjectLoadError::invalid_source_root(
                 (*manifest_path).to_path_buf(),
-                ProjectManifestProblem::InvalidSourceRoot,
-                path.as_str().to_owned(),
+                Field::SourceRootPath,
+                path.as_str().into(),
             ));
         }
     }
@@ -282,10 +292,10 @@ fn validate_dependencies(packages: &[PendingPackage]) -> Result<(), ProjectLoadE
                     .iter()
                     .find(|candidate| candidate.identity == *dependency.product().package())
                 else {
-                    return Err(ProjectLoadError::invalid(
+                    return Err(ProjectLoadError::unknown_dependency_package(
                         package.manifest_path.to_path_buf(),
-                        ProjectManifestProblem::UnknownDependencyPackage,
-                        dependency.product().package().as_str(),
+                        Field::DependencyPackage,
+                        dependency.product().package().clone(),
                     ));
                 };
 
@@ -294,18 +304,18 @@ fn validate_dependencies(packages: &[PendingPackage]) -> Result<(), ProjectLoadE
                     .iter()
                     .find(|candidate| candidate.identity() == dependency.product())
                 else {
-                    return Err(ProjectLoadError::invalid(
+                    return Err(ProjectLoadError::unknown_dependency_product(
                         package.manifest_path.to_path_buf(),
-                        ProjectManifestProblem::UnknownDependencyProduct,
-                        product_name(dependency.product()),
+                        Field::DependencyProduct,
+                        dependency.product().clone(),
                     ));
                 };
 
                 if target_product.kind() != ProductKind::Library {
-                    return Err(ProjectLoadError::invalid(
+                    return Err(ProjectLoadError::dependency_product_not_library(
                         package.manifest_path.to_path_buf(),
-                        ProjectManifestProblem::DependencyProductNotLibrary,
-                        product_name(dependency.product()),
+                        Field::DependencyProduct,
+                        dependency.product().clone(),
                     ));
                 }
 
@@ -314,10 +324,11 @@ fn validate_dependencies(packages: &[PendingPackage]) -> Result<(), ProjectLoadE
                     .iter()
                     .find(|target| !target_product.targets().contains(target))
                 {
-                    return Err(ProjectLoadError::invalid(
+                    return Err(ProjectLoadError::dependency_target_unavailable(
                         package.manifest_path.to_path_buf(),
-                        ProjectManifestProblem::DependencyTargetUnavailable,
-                        format!("{}/{}", product_name(dependency.product()), target.as_str()),
+                        Field::DependencyProduct,
+                        dependency.product().clone(),
+                        (*target).clone(),
                     ));
                 }
             }
@@ -336,10 +347,11 @@ fn validate_dependencies(packages: &[PendingPackage]) -> Result<(), ProjectLoadE
                     .iter()
                     .find(|target| !library.targets().contains(target))
                 {
-                    return Err(ProjectLoadError::invalid(
+                    return Err(ProjectLoadError::dependency_target_unavailable(
                         package.manifest_path.to_path_buf(),
-                        ProjectManifestProblem::DependencyTargetUnavailable,
-                        format!("{}/{}", product_name(tested_library), target.as_str()),
+                        Field::ProductTestedLibrary,
+                        tested_library.clone(),
+                        (*target).clone(),
                     ));
                 }
             }
@@ -427,10 +439,10 @@ fn dependency_first_package_order(
                 return Ok(order);
             };
 
-            return Err(ProjectLoadError::invalid(
+            return Err(ProjectLoadError::dependency_cycle_package(
                 package.manifest_path.to_path_buf(),
-                ProjectManifestProblem::DependencyCycle,
-                package.identity.as_str(),
+                Field::ProductDependencies,
+                package.identity.clone(),
             ));
         };
 
@@ -486,10 +498,10 @@ fn dependency_first_product_order(
                 return Ok(order);
             };
 
-            return Err(ProjectLoadError::invalid(
+            return Err(ProjectLoadError::dependency_cycle_product(
                 package.manifest_path.to_path_buf(),
-                ProjectManifestProblem::DependencyCycle,
-                product_name(product.identity()),
+                Field::ProductDependencies,
+                product.identity().clone(),
             ));
         };
 
@@ -510,16 +522,4 @@ fn active_product_dependencies<'product>(
         .filter(move |dependency| dependency.is_active_for(target))
         .map(|dependency| dependency.product())
         .chain(product.tested_library())
-}
-
-fn product_name(product: &ProductIdentity) -> String {
-    format!("{}/{}", product.package().as_str(), product.name())
-}
-
-fn invalid_workspace(
-    path: &Path,
-    problem: ProjectManifestProblem,
-    value: &str,
-) -> ProjectLoadError {
-    ProjectLoadError::invalid(path.to_path_buf(), problem, value.to_owned())
 }

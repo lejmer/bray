@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BoundCallableTarget, BoundExpression, BoundReferenceTarget, BoundUnitKind,
@@ -12,9 +12,9 @@ use bray_symbols::{AnySymbolId, SemanticValueStore, SymbolGraph};
 
 use super::super::Compilation;
 use super::visibility::{
-    add_internal_dependency_diagnostic, callable_instance_exposes_internal,
-    implementation_instance_exposes_internal, resolved_type_exposes_internal,
-    source_symbol_is_not_publicly_reachable, substitution_exposes_internal,
+    add_internal_dependency_diagnostic, callable_instance_internal_dependency,
+    implementation_instance_internal_dependency, resolved_type_internal_dependency,
+    source_symbol_is_not_publicly_reachable, substitution_internal_dependency,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -27,7 +27,7 @@ pub(super) fn validate_public_expression_dependencies(
     public_symbols: &BTreeSet<AnySymbolId>,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<bool, FactQueryError> {
-    let mut recovered_owners = BTreeSet::new();
+    let mut recovered_owners = BTreeMap::new();
 
     for key in compilation.declared_unit_keys()? {
         cancellation.check()?;
@@ -54,57 +54,62 @@ pub(super) fn validate_public_expression_dependencies(
 
         diagnostics.add_range(selections.result().diagnostics().iter().cloned());
 
-        if bound_expression_dependencies_expose_internal(
+        if let Some(internal) = bound_expression_internal_dependency(
             bound.result().value(),
             selections.result().value(),
             semantic_values,
             symbols,
             declarations,
         )? {
-            recovered_owners.insert(owner);
+            recovered_owners.entry(owner).or_insert(internal);
         }
     }
 
-    for owner in recovered_owners.iter().copied() {
-        add_internal_dependency_diagnostic(owner, symbols, diagnostics);
+    for (owner, internal) in recovered_owners.iter() {
+        add_internal_dependency_diagnostic(*owner, *internal, symbols, diagnostics)?;
     }
 
     Ok(!recovered_owners.is_empty())
 }
 
-fn bound_expression_dependencies_expose_internal(
+fn bound_expression_internal_dependency(
     unit: &bray_bound_tree::BoundUnit,
     selections: &bray_bound_tree::CheckedSemanticSelections,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> Result<bool, FactQueryError> {
+) -> Result<Option<AnySymbolId>, FactQueryError> {
     for (_, expression) in unit.tree().expressions() {
         if let BoundExpression::Name(name) = expression
             && let BoundReferenceTarget::Surface(symbol) = name.target()
             && source_symbol_is_not_publicly_reachable(symbol, declarations, symbols)
         {
-            return Ok(true);
+            return Ok(Some(symbol));
         }
     }
 
     for entry in selections.entries() {
-        if selection_exposes_internal(entry.selection(), semantic_values, symbols, declarations)? {
-            return Ok(true);
+        if let Some(internal) = selection_internal_dependency(
+            entry.selection(),
+            semantic_values,
+            symbols,
+            declarations,
+        )? {
+            return Ok(Some(internal));
         }
     }
 
-    Ok(false)
+    Ok(None)
 }
 
-fn selection_exposes_internal(
+fn selection_internal_dependency(
     selection: &SemanticSelection,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> Result<bool, FactQueryError> {
+) -> Result<Option<AnySymbolId>, FactQueryError> {
     let mut dependencies = Vec::new();
-    let mut semantic_values_expose_internal = false;
+    let mut semantic_internal = None;
 
     match selection {
         SemanticSelection::Reference(BoundReferenceTarget::Surface(symbol)) => {
@@ -115,67 +120,75 @@ fn selection_exposes_internal(
             if let BoundCallableTarget::Declaration(target) = call.target() {
                 dependencies.push(target.definition().symbol());
 
-                semantic_values_expose_internal |= callable_instance_exposes_internal(
+                if let Some(internal) = callable_instance_internal_dependency(
                     target,
                     semantic_values,
                     symbols,
                     declarations,
-                );
+                ) {
+                    return Ok(Some(internal));
+                }
             } else if let BoundCallableTarget::Indirect(ty) = call.target() {
-                semantic_values_expose_internal |=
-                    resolved_type_exposes_internal(ty, semantic_values, symbols, declarations);
+                semantic_internal =
+                    resolved_type_internal_dependency(ty, semantic_values, symbols, declarations);
             }
 
             if let Some(receiver) = call.receiver() {
-                semantic_values_expose_internal |= resolved_type_exposes_internal(
-                    receiver.source_type(),
-                    semantic_values,
-                    symbols,
-                    declarations,
-                );
-
-                semantic_values_expose_internal |= resolved_type_exposes_internal(
-                    receiver.target_type(),
-                    semantic_values,
-                    symbols,
-                    declarations,
-                );
+                semantic_internal = semantic_internal
+                    .or_else(|| {
+                        resolved_type_internal_dependency(
+                            receiver.source_type(),
+                            semantic_values,
+                            symbols,
+                            declarations,
+                        )
+                    })
+                    .or_else(|| {
+                        resolved_type_internal_dependency(
+                            receiver.target_type(),
+                            semantic_values,
+                            symbols,
+                            declarations,
+                        )
+                    });
             }
 
             for argument in call.arguments() {
                 if let bray_bound_tree::SelectedArgument::Explicit { conversion, .. } = argument {
-                    semantic_values_expose_internal |= push_conversion_dependencies(
+                    semantic_internal = semantic_internal.or(push_conversion_dependencies(
                         semantic_values,
                         symbols,
                         declarations,
                         conversion,
                         &mut dependencies,
-                    )?;
+                    )?);
                 }
             }
 
             for witness in call.witnesses() {
-                semantic_values_expose_internal |= push_witness_dependencies(
+                semantic_internal = semantic_internal.or(push_witness_dependencies(
                     semantic_values,
                     symbols,
                     declarations,
                     *witness,
                     &mut dependencies,
-                )?;
+                )?);
             }
         }
         SemanticSelection::Predicate(predicate) => {
             dependencies.push(predicate.predicate().into_any());
 
-            semantic_values_expose_internal |= substitution_exposes_internal(
+            if let Some(internal) = substitution_internal_dependency(
                 predicate.substitution(),
                 semantic_values,
                 symbols,
                 declarations,
-            );
+            ) {
+                return Ok(Some(internal));
+            }
         }
         SemanticSelection::Operation(operation) => {
-            semantic_values_expose_internal |= push_operation_dependencies(
+            semantic_internal = push_operation_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
@@ -184,7 +197,7 @@ fn selection_exposes_internal(
             )?;
         }
         SemanticSelection::Iteration(iteration) => {
-            semantic_values_expose_internal |= push_iteration_dependencies(
+            semantic_internal = push_iteration_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
@@ -194,7 +207,7 @@ fn selection_exposes_internal(
         }
         SemanticSelection::Propagation(propagation) => {
             if let Some(conversion) = propagation.error_conversion() {
-                semantic_values_expose_internal |= push_conversion_dependencies(
+                semantic_internal = push_conversion_dependencies(
                     semantic_values,
                     symbols,
                     declarations,
@@ -205,10 +218,11 @@ fn selection_exposes_internal(
         }
     }
 
-    Ok(semantic_values_expose_internal
-        || dependencies
-            .into_iter()
-            .any(|symbol| source_symbol_is_not_publicly_reachable(symbol, declarations, symbols)))
+    let internal = dependencies
+        .into_iter()
+        .find(|symbol| source_symbol_is_not_publicly_reachable(*symbol, declarations, symbols));
+
+    Ok(semantic_internal.or(internal))
 }
 
 fn push_iteration_dependencies(
@@ -217,16 +231,17 @@ fn push_iteration_dependencies(
     declarations: &DeclarationTable,
     iteration: &SelectedIterationSource,
     dependencies: &mut Vec<AnySymbolId>,
-) -> Result<bool, FactQueryError> {
-    let mut exposes_internal = false;
+) -> Result<Option<AnySymbolId>, FactQueryError> {
+    let mut internal = None;
 
     for ty in [
         iteration.source_type(),
         iteration.cursor_type(),
         iteration.element_type(),
     ] {
-        exposes_internal |=
-            resolved_type_exposes_internal(ty, semantic_values, symbols, declarations);
+        internal = internal.or_else(|| {
+            resolved_type_internal_dependency(ty, semantic_values, symbols, declarations)
+        });
     }
 
     for target in [
@@ -237,8 +252,9 @@ fn push_iteration_dependencies(
     ] {
         dependencies.push(target.definition().symbol());
 
-        exposes_internal |=
-            callable_instance_exposes_internal(target, semantic_values, symbols, declarations);
+        internal = internal.or_else(|| {
+            callable_instance_internal_dependency(target, semantic_values, symbols, declarations)
+        });
     }
 
     for witness in [
@@ -251,16 +267,16 @@ fn push_iteration_dependencies(
             iteration.iterator_witness(),
         ),
     ] {
-        exposes_internal |= push_witness_dependencies(
+        internal = internal.or(push_witness_dependencies(
             semantic_values,
             symbols,
             declarations,
             witness,
             dependencies,
-        )?;
+        )?);
     }
 
-    Ok(exposes_internal)
+    Ok(internal)
 }
 
 fn push_operation_dependencies(
@@ -269,8 +285,8 @@ fn push_operation_dependencies(
     declarations: &DeclarationTable,
     operation: &SelectedOperation,
     dependencies: &mut Vec<AnySymbolId>,
-) -> Result<bool, FactQueryError> {
-    let mut exposes_internal = false;
+) -> Result<Option<AnySymbolId>, FactQueryError> {
+    let mut internal = None;
 
     if let Some(target) = operation.operator_target() {
         if let OperatorTarget::Trait {
@@ -281,7 +297,7 @@ fn push_operation_dependencies(
             ..
         } = target
         {
-            exposes_internal |= push_trait_operation_dependencies(
+            internal = push_trait_operation_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
@@ -293,14 +309,14 @@ fn push_operation_dependencies(
             )?;
         }
 
-        return Ok(exposes_internal);
+        return Ok(internal);
     }
 
     match operation {
         SelectedOperation::Member(target) => {
             dependencies.push(target.member());
 
-            exposes_internal |= resolved_type_exposes_internal(
+            internal = resolved_type_internal_dependency(
                 target.result_type(),
                 semantic_values,
                 symbols,
@@ -308,13 +324,13 @@ fn push_operation_dependencies(
             );
 
             for witness in target.witnesses() {
-                exposes_internal |= push_witness_dependencies(
+                internal = internal.or(push_witness_dependencies(
                     semantic_values,
                     symbols,
                     declarations,
                     *witness,
                     dependencies,
-                )?;
+                )?);
             }
         }
         SelectedOperation::Index {
@@ -328,7 +344,7 @@ fn push_operation_dependencies(
                 },
             ..
         } => {
-            exposes_internal |= push_trait_operation_dependencies(
+            internal = push_trait_operation_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
@@ -343,7 +359,7 @@ fn push_operation_dependencies(
         | SelectedOperation::CompoundAssignment(_)
         | SelectedOperation::Index { .. } => {}
         SelectedOperation::Construction(construction) => {
-            exposes_internal |= push_construction_dependencies(
+            internal = push_construction_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
@@ -352,7 +368,7 @@ fn push_operation_dependencies(
             );
         }
         SelectedOperation::Conversion(conversion) => {
-            exposes_internal |= push_conversion_dependencies(
+            internal = push_conversion_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
@@ -361,7 +377,7 @@ fn push_operation_dependencies(
             )?;
         }
         SelectedOperation::Implementation(witness) => {
-            exposes_internal |= push_witness_dependencies(
+            internal = push_witness_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
@@ -371,7 +387,7 @@ fn push_operation_dependencies(
         }
     }
 
-    Ok(exposes_internal)
+    Ok(internal)
 }
 
 #[expect(
@@ -387,25 +403,29 @@ fn push_trait_operation_dependencies(
     requirement: bray_symbols::ImplementationRequirementKey,
     witness: bray_symbols::ImplementationInstanceId,
     dependencies: &mut Vec<AnySymbolId>,
-) -> Result<bool, FactQueryError> {
+) -> Result<Option<AnySymbolId>, FactQueryError> {
     dependencies.push(member.definition().symbol());
     dependencies.push(fulfillment.definition().symbol());
 
-    let mut exposes_internal =
-        callable_instance_exposes_internal(member, semantic_values, symbols, declarations);
+    let internal =
+        callable_instance_internal_dependency(member, semantic_values, symbols, declarations)
+            .or_else(|| {
+                callable_instance_internal_dependency(
+                    fulfillment,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                )
+            })
+            .or(push_witness_dependencies(
+                semantic_values,
+                symbols,
+                declarations,
+                SelectedImplementationWitness::new(requirement, witness),
+                dependencies,
+            )?);
 
-    exposes_internal |=
-        callable_instance_exposes_internal(fulfillment, semantic_values, symbols, declarations);
-
-    exposes_internal |= push_witness_dependencies(
-        semantic_values,
-        symbols,
-        declarations,
-        SelectedImplementationWitness::new(requirement, witness),
-        dependencies,
-    )?;
-
-    Ok(exposes_internal)
+    Ok(internal)
 }
 
 fn push_construction_dependencies(
@@ -414,8 +434,8 @@ fn push_construction_dependencies(
     declarations: &DeclarationTable,
     construction: &bray_bound_tree::SelectedConstruction,
     dependencies: &mut Vec<AnySymbolId>,
-) -> bool {
-    let mut exposes_internal = resolved_type_exposes_internal(
+) -> Option<AnySymbolId> {
+    let mut internal = resolved_type_internal_dependency(
         construction.result_type(),
         semantic_values,
         symbols,
@@ -428,12 +448,14 @@ fn push_construction_dependencies(
         ConstructionTarget::TypeForm { callable, .. } => {
             dependencies.push(callable.definition().symbol());
 
-            exposes_internal |= callable_instance_exposes_internal(
-                callable,
-                semantic_values,
-                symbols,
-                declarations,
-            );
+            internal = internal.or_else(|| {
+                callable_instance_internal_dependency(
+                    callable,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                )
+            });
         }
     }
 
@@ -451,7 +473,7 @@ fn push_construction_dependencies(
         }
     }
 
-    exposes_internal
+    internal
 }
 
 fn push_construction_input(input: ConstructionInputId, dependencies: &mut Vec<AnySymbolId>) {
@@ -477,24 +499,28 @@ fn push_conversion_dependencies(
     declarations: &DeclarationTable,
     root: &bray_bound_tree::SelectedConversion,
     dependencies: &mut Vec<AnySymbolId>,
-) -> Result<bool, FactQueryError> {
+) -> Result<Option<AnySymbolId>, FactQueryError> {
     let mut pending = vec![root];
-    let mut exposes_internal = false;
+    let mut internal = None;
 
     while let Some(conversion) = pending.pop() {
-        exposes_internal |= resolved_type_exposes_internal(
-            conversion.source_type(),
-            semantic_values,
-            symbols,
-            declarations,
-        );
+        internal = internal.or_else(|| {
+            resolved_type_internal_dependency(
+                conversion.source_type(),
+                semantic_values,
+                symbols,
+                declarations,
+            )
+        });
 
-        exposes_internal |= resolved_type_exposes_internal(
-            conversion.target_type(),
-            semantic_values,
-            symbols,
-            declarations,
-        );
+        internal = internal.or_else(|| {
+            resolved_type_internal_dependency(
+                conversion.target_type(),
+                semantic_values,
+                symbols,
+                declarations,
+            )
+        });
 
         match conversion.target() {
             ConversionTarget::Trait {
@@ -506,44 +532,50 @@ fn push_conversion_dependencies(
                 dependencies.push(member.definition().symbol());
                 dependencies.push(fulfillment.definition().symbol());
 
-                exposes_internal |= callable_instance_exposes_internal(
-                    *member,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                );
+                internal = internal.or_else(|| {
+                    callable_instance_internal_dependency(
+                        *member,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                });
 
-                exposes_internal |= callable_instance_exposes_internal(
-                    *fulfillment,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                );
+                internal = internal.or_else(|| {
+                    callable_instance_internal_dependency(
+                        *fulfillment,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                });
 
-                exposes_internal |= push_witness_dependencies(
+                internal = internal.or(push_witness_dependencies(
                     semantic_values,
                     symbols,
                     declarations,
                     SelectedImplementationWitness::new(*requirement, *witness),
                     dependencies,
-                )?;
+                )?);
             }
             ConversionTarget::TraitConstraint { member, .. } => {
                 dependencies.push(member.definition().symbol());
 
-                exposes_internal |= callable_instance_exposes_internal(
-                    *member,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                );
+                internal = internal.or_else(|| {
+                    callable_instance_internal_dependency(
+                        *member,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                });
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity | ConversionTarget::BuiltInScalar => {}
         }
     }
 
-    Ok(exposes_internal)
+    Ok(internal)
 }
 
 fn push_witness_dependencies(
@@ -552,30 +584,34 @@ fn push_witness_dependencies(
     declarations: &DeclarationTable,
     witness: SelectedImplementationWitness,
     dependencies: &mut Vec<AnySymbolId>,
-) -> Result<bool, FactQueryError> {
+) -> Result<Option<AnySymbolId>, FactQueryError> {
     let application = semantic_values
         .trait_application_data(witness.requirement().trait_application())
         .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
     dependencies.push(application.definition().into());
 
-    let application_exposes_internal = source_symbol_is_not_publicly_reachable(
+    let application_internal = source_symbol_is_not_publicly_reachable(
         application.definition().into(),
         declarations,
         symbols,
-    ) || substitution_exposes_internal(
-        application.substitution(),
-        semantic_values,
-        symbols,
-        declarations,
-    );
+    )
+    .then_some(application.definition().into())
+    .or_else(|| {
+        substitution_internal_dependency(
+            application.substitution(),
+            semantic_values,
+            symbols,
+            declarations,
+        )
+    });
 
-    let implementation_exposes_internal = implementation_instance_exposes_internal(
+    let implementation_internal = implementation_instance_internal_dependency(
         witness.witness(),
         semantic_values,
         symbols,
         declarations,
     );
 
-    Ok(application_exposes_internal || implementation_exposes_internal)
+    Ok(application_internal.or(implementation_internal))
 }
