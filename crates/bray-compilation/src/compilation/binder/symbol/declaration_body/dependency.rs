@@ -238,6 +238,7 @@ fn portable_storage_identity(
         | StorageIdentity::Alternative { .. }
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::Temporary(_)
+        | StorageIdentity::CustomIndexBorrow(_)
         | StorageIdentity::IterationCursor(_)
         | StorageIdentity::IterationElement(_)
         | StorageIdentity::Allocation(_)

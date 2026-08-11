@@ -3247,9 +3247,9 @@ impl Values(SliceIndex<i32>)
 {
     type Output = i32;
 
-    func slice(pos start: i32?, pos end: i32?) -> i32
+    func slice(pos start: i32?, pos end: i32?) -> &i32
     {
-        return 0;
+        return &self.value;
     }
 }
 
@@ -3293,35 +3293,23 @@ func select(pos values: Values) -> i32
             .storage_plan(key)
             .unwrap_or_else(|error| panic!("custom slice storage must publish: {error:?}"));
 
-        let ranges = storage
+        let custom_roots = storage
             .value()
             .accesses()
             .iter()
-            .filter_map(|access| match access.projections().last() {
-                Some(StorageProjection::SliceRange { start, end }) => Some((start, end)),
+            .filter(|access| access.projections().is_empty())
+            .filter_map(|access| match access.root() {
+                bray_bound_tree::StorageAccessRoot::Storage(identity) => {
+                    storage.value().identity(identity)
+                }
                 _ => None,
             })
-            .collect::<Vec<_>>();
+            .filter(|identity| {
+                matches!(identity, bray_bound_tree::StorageIdentity::CustomIndexBorrow(_))
+            })
+            .count();
 
-        assert_eq!(ranges.len(), 3);
-
-        assert!(
-            ranges
-                .iter()
-                .any(|(start, end)| start.is_some() && end.is_none())
-        );
-
-        assert!(
-            ranges
-                .iter()
-                .any(|(start, end)| start.is_none() && end.is_some())
-        );
-
-        assert!(
-            ranges
-                .iter()
-                .any(|(start, end)| start.is_some() && end.is_some())
-        );
+        assert!(custom_roots >= 3, "{storage:?}");
     }
 
     #[test]
@@ -3343,6 +3331,48 @@ func select(pos value: i32) -> i32
             .unwrap_or_else(|error| panic!("invalid indexing must remain checkable: {error:?}"));
 
         assert!(semantics.diagnostics().has_errors());
+    }
+
+    #[test]
+    fn mutable_custom_indexing_requires_the_mutable_protocol() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Value
+{
+    mut element: i32;
+}
+
+impl Value(ElementIndex<i32>)
+{
+    type Output = i32;
+
+    func index(pos selector: &i32) -> &i32
+    {
+        return &self.element;
+    }
+}
+
+func mutate(pos input: Value)
+{
+    let mut value: Value = input;
+    value[0] = 1;
+}
+"#,
+        );
+
+        let diagnostics = compilation.check_diagnostics();
+
+        let kinds = diagnostics
+            .iter()
+            .map(bray_diagnostics::Diagnostic::kind)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            kinds,
+            [DiagnosticKind::CheckingMutableIndexContractRequired],
+            "{diagnostics:#?}"
+        );
     }
 
     #[test]

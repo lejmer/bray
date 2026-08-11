@@ -269,11 +269,11 @@ mod tests {
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
         MirCallTarget, MirOperand, MirOperationKind, MirPanicCause, MirTerminatorKind,
-        MirTextOperationKind, MirUnit,
+        MirProjectionKind, MirStoreKind, MirTextOperationKind, MirUnit,
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
-    use bray_symbols::{PackageIdentity, ProductKind, TypeData};
+    use bray_symbols::{BorrowKind, PackageIdentity, ProductKind, TypeData};
 
     use super::Compilation;
     use crate::test_support::{
@@ -1199,6 +1199,179 @@ mod tests {
 
             !call.witnesses().is_empty()
         }));
+    }
+
+    #[test]
+    fn custom_indexing_lowers_shared_and_mutable_access_as_places() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Item
+{
+    mut value: i32;
+}
+
+struct Values
+{
+    mut first: Item;
+    mut second: Item;
+}
+
+impl Values(ElementIndex<i32>)
+{
+    type Output = Item;
+
+    func index(pos selector: &i32) -> &Item
+    {
+        return &self.first;
+    }
+}
+
+impl Values(MutableElementIndex<i32>)
+{
+    type Output = Item;
+
+    mut func index(pos selector: &i32) -> &mut Item
+    {
+        return &mut self.second;
+    }
+}
+
+impl Values(SliceIndex<i32>)
+{
+    type Output = Item;
+
+    func slice(pos start: i32?, pos end: i32?) -> &Item
+    {
+        return &self.first;
+    }
+}
+
+func observe(pos values: Values) -> i32
+{
+    return values[0].value;
+}
+
+func borrow_shared(pos values: Values)
+{
+    let selected: &Item = &values[0];
+}
+
+func borrow_mutable(pos input: Values)
+{
+    let mut values: Values = input;
+    let selected: &mut Item = &mut values[0];
+}
+
+func assign(pos input: Values)
+{
+    let mut values: Values = input;
+    values[0] = Item { value = 3 };
+}
+
+func nested_assign(pos input: Values)
+{
+    let mut values: Values = input;
+    values[0].value = 4;
+}
+
+func compound_assign(pos input: Values)
+{
+    let mut values: Values = input;
+    values[0].value += 1;
+}
+
+func bounded(pos values: Values) -> i32
+{
+    return values[1..2].value;
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        for function in [
+            "observe",
+            "borrow_shared",
+            "borrow_mutable",
+            "assign",
+            "nested_assign",
+            "compound_assign",
+            "bounded",
+        ] {
+            let result = compilation
+                .lowered_unit(source_function_body_key(&compilation, function))
+                .unwrap_or_else(|error| panic!("{function} MIR must be available: {error:?}"));
+
+            let mir = lowered_mir(&result);
+
+            let protocol_calls = mir
+                .operations()
+                .iter()
+                .filter(|operation| {
+                    matches!(operation.kind(), MirOperationKind::Call(call) if !call.witnesses().is_empty())
+                })
+                .count();
+
+            assert_eq!(protocol_calls, 1, "{function}: {mir:#?}");
+        }
+
+        for (function, kind) in [
+            ("borrow_shared", BorrowKind::Shared),
+            ("borrow_mutable", BorrowKind::Mutable),
+        ] {
+            let result = compilation
+                .lowered_unit(source_function_body_key(&compilation, function))
+                .unwrap_or_else(|error| panic!("{function} MIR must be available: {error:?}"));
+
+            let mir = lowered_mir(&result);
+
+            assert!(mir.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Borrow { kind: actual, place }
+                    if *actual == kind
+                        && matches!(
+                            place.projections().first().map(bray_ir::MirProjection::kind),
+                            Some(MirProjectionKind::Dereference)
+                        )
+            )), "{function}: {mir:#?}");
+        }
+
+        for function in ["assign", "nested_assign", "compound_assign"] {
+            let assignment = compilation
+                .lowered_unit(source_function_body_key(&compilation, function))
+                .unwrap_or_else(|error| panic!("{function} MIR must be available: {error:?}"));
+
+            let assignment = lowered_mir(&assignment);
+
+            assert!(assignment.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Store {
+                    kind: MirStoreKind::Assign,
+                    destination,
+                    ..
+                } if matches!(
+                    destination.projections().first().map(bray_ir::MirProjection::kind),
+                    Some(MirProjectionKind::Dereference)
+                )
+            )), "{function}: {assignment:#?}");
+        }
+
+        let bounded = compilation
+            .lowered_unit(source_function_body_key(&compilation, "bounded"))
+            .unwrap_or_else(|error| panic!("bounded MIR must be available: {error:?}"));
+
+        let bounded = lowered_mir(&bounded);
+
+        assert!(bounded.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Call(call)
+                if !call.witnesses().is_empty() && call.arguments().len() == 3
+        )), "{bounded:#?}");
     }
 
     #[test]

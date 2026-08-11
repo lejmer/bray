@@ -257,6 +257,8 @@ define_diagnostic_kinds! {
     CheckingConstantValueNotRepresentable,
     /// No available candidate can perform the requested semantic operation.
     CheckingNoApplicableCandidate,
+    /// Mutable indexing was requested but only the shared indexing contract is implemented.
+    CheckingMutableIndexContractRequired,
     /// A contextually selected union does not declare the requested variant.
     CheckingUnknownUnionVariant,
     /// More than one candidate can perform the requested semantic operation.
@@ -593,6 +595,7 @@ impl DiagnosticKind {
             Self::CheckingConstantDivisionByZero => 7018,
             Self::CheckingConstantValueNotRepresentable => 7019,
             Self::CheckingNoApplicableCandidate => 7009,
+            Self::CheckingMutableIndexContractRequired => 7094,
             Self::CheckingUnknownUnionVariant => 7088,
             Self::CheckingAmbiguousCandidate => 7010,
             Self::CheckingInaccessibleCandidate => 7011,
@@ -858,6 +861,9 @@ impl DiagnosticKind {
                 "checking_constant_value_not_representable"
             }
             Self::CheckingNoApplicableCandidate => "checking_no_applicable_candidate",
+            Self::CheckingMutableIndexContractRequired => {
+                "checking_mutable_index_contract_required"
+            }
             Self::CheckingUnknownUnionVariant => "checking_unknown_union_variant",
             Self::CheckingAmbiguousCandidate => "checking_ambiguous_candidate",
             Self::CheckingInaccessibleCandidate => "checking_inaccessible_candidate",

@@ -423,6 +423,34 @@ where
         self.direct_access(expression, storage)
     }
 
+    pub(super) fn custom_index_access(
+        &mut self,
+        expression: BoundExpressionId,
+        kind: bray_symbols::BorrowKind,
+    ) -> Result<StorageAccessId, PlanError> {
+        let result = self.expression_type(expression)?;
+
+        let borrow_type = self
+            .request
+            .semantic_values()
+            .intern_type(bray_symbols::TypeData::Borrow {
+                kind,
+                target: result.ty(),
+            })
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        let storage = self
+            .builder_mut()?
+            .push_identity(StorageIdentity::CustomIndexBorrow(expression))
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        self.builder_mut()?
+            .set_identity_type(storage, borrow_type)
+            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        self.push_expression_access(expression, StorageAccessRoot::Storage(storage), [], result)
+    }
+
     pub(super) fn iteration_access(
         &mut self,
         expression: BoundExpressionId,

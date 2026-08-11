@@ -57,6 +57,14 @@ impl<'unit> BoundUnitView<'unit> {
         }
     }
 
+    /// Returns the direct expression parent of one committed expression, when present.
+    pub fn expression_parent(self, id: BoundExpressionId) -> Option<BoundExpressionId> {
+        match self.storage {
+            BoundUnitStorageView::Building(builder) => builder.expression_parent(id),
+            BoundUnitStorageView::Published(tree) => tree.expression_parent(id),
+        }
+    }
+
     /// Returns one committed pattern through checked typed access.
     pub fn pattern(self, id: BoundPatternId) -> Option<&'unit BoundPattern> {
         match self.storage {

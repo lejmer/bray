@@ -451,10 +451,22 @@ mod tests {
                 Some("ElementIndexCall"),
             ),
             (
+                CompilerKnownOperationRole::MutableElementIndex,
+                "MutableElementIndex",
+                Some("MutableElementIndexOutput"),
+                Some("MutableElementIndexCall"),
+            ),
+            (
                 CompilerKnownOperationRole::SliceIndex,
                 "SliceIndex",
                 Some("SliceIndexOutput"),
                 Some("SliceIndexCall"),
+            ),
+            (
+                CompilerKnownOperationRole::MutableSliceIndex,
+                "MutableSliceIndex",
+                Some("MutableSliceIndexOutput"),
+                Some("MutableSliceIndexCall"),
             ),
             (
                 CompilerKnownOperationRole::BoxConstruction,

@@ -336,6 +336,11 @@ const CHECKING_NO_APPLICABLE_CANDIDATE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" candidate"),
 ];
 
+const CHECKING_MUTABLE_INDEX_CONTRACT_REQUIRED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("mutable indexing requires an implementation of "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
 const CHECKING_UNKNOWN_UNION_VARIANT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("expected union type has no variant named "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -1661,6 +1666,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingNoApplicableCandidate => {
             MessageTemplate::new(CHECKING_NO_APPLICABLE_CANDIDATE)
+        }
+        DiagnosticKind::CheckingMutableIndexContractRequired => {
+            MessageTemplate::new(CHECKING_MUTABLE_INDEX_CONTRACT_REQUIRED)
         }
         DiagnosticKind::CheckingUnknownUnionVariant => {
             MessageTemplate::new(CHECKING_UNKNOWN_UNION_VARIANT)

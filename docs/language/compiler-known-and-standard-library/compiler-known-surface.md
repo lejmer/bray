@@ -16,7 +16,8 @@ The compiler-known surface consists of:
 - the compiler-known type-form support trait `Storage<T>`,
 - the compiler-known iteration traits `Iterable` and `Iterator`,
 - the compiler-known conversion traits `ConvertTo<Target>` and `CheckedConvertTo<Target>`,
-- compiler-known indexing traits `ElementIndex<Selector>` and `SliceIndex<Bound>`,
+- compiler-known indexing traits `ElementIndex<Selector>`, `MutableElementIndex<Selector>`, `SliceIndex<Bound>`, and
+  `MutableSliceIndex<Bound>`,
 - the compiler-known `Copyable` contract used by static constraints,
 - the compiler-known operator traits defined by the type rules, including `Add<Rhs>`, `Equatable<Rhs>`, and `Comparable<Rhs>`,
 - the compiler-known `Ordering` result used by relational comparison,

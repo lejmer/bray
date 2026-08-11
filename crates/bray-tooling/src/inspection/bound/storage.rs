@@ -184,6 +184,7 @@ impl InspectionStorageProvenance {
                 node: node.ordinal(),
             }),
             StorageIdentity::Temporary(expression)
+            | StorageIdentity::CustomIndexBorrow(expression)
             | StorageIdentity::IterationCursor(expression)
             | StorageIdentity::IterationElement(expression)
             | StorageIdentity::Allocation(expression) => Ok(Self::Expression {

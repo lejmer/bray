@@ -199,6 +199,22 @@ impl BoundTreeBuilder {
         entry(self.unit, id.unit(), id.to_index(), &self.expressions)
     }
 
+    pub(crate) fn expression_parent(&self, child: BoundExpressionId) -> Option<BoundExpressionId> {
+        let (slot, _) = self
+            .expressions
+            .iter()
+            .enumerate()
+            .find(|(_, expression)| {
+                expression
+                    .child_expressions()
+                    .any(|candidate| candidate == child)
+            })?;
+
+        u32::try_from(slot)
+            .ok()
+            .map(|slot| BoundExpressionId::from_slot(self.unit, slot))
+    }
+
     pub(crate) fn pattern(&self, id: BoundPatternId) -> Option<&BoundPattern> {
         entry(self.unit, id.unit(), id.to_index(), &self.patterns)
     }

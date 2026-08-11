@@ -8,9 +8,12 @@ use bray_bound_tree::{
     IndexTarget, MemberTarget, SelectedImplementationWitness, SelectedOperation,
 };
 use bray_checker::{resolve_callable_signature_template, resolve_type_expression_template};
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData,
+    AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
     CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateFact,
     CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
     CallableSignatureFact, CheckedConstraintKind, ExactSymbolId, ImplementationSelection,
@@ -886,9 +889,18 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure);
         };
 
+        let borrow_kind = custom_index_borrow_kind(unit, key.expression())?;
+
         let (role, trait_arguments, callable_parameters, operand_types) = match index.kind() {
             BoundStructuredExpressionKind::ElementIndex => (
-                bray_compiler_known::CompilerKnownOperationRole::ElementIndex,
+                match borrow_kind {
+                    BorrowKind::Shared => {
+                        bray_compiler_known::CompilerKnownOperationRole::ElementIndex
+                    }
+                    BorrowKind::Mutable => {
+                        bray_compiler_known::CompilerKnownOperationRole::MutableElementIndex
+                    }
+                },
                 selectors.to_vec(),
                 selectors.to_vec(),
                 selectors.to_vec(),
@@ -904,7 +916,14 @@ impl Compilation {
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
                 (
-                    bray_compiler_known::CompilerKnownOperationRole::SliceIndex,
+                    match borrow_kind {
+                        BorrowKind::Shared => {
+                            bray_compiler_known::CompilerKnownOperationRole::SliceIndex
+                        }
+                        BorrowKind::Mutable => {
+                            bray_compiler_known::CompilerKnownOperationRole::MutableSliceIndex
+                        }
+                    },
                     vec![bound],
                     vec![nullable_bound, nullable_bound],
                     vec![bound; selectors.len()],
@@ -913,23 +932,86 @@ impl Compilation {
             _ => return Err(FactQueryError::InfrastructureFailure),
         };
 
-        let candidate = self
-            .trait_operation_candidate_data(
+        let owner = facts
+            .symbols()
+            .symbol_for_key(unit.key().declared_owner())
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let candidate = self.trait_operation_candidate_data(
                 facts,
-                facts
-                    .symbols()
-                    .symbol_for_key(unit.key().declared_owner())
-                    .ok_or(FactQueryError::InfrastructureFailure)?,
+                owner,
                 role,
                 subject,
                 &trait_arguments,
                 &callable_parameters,
                 &operand_types,
-                TraitOperation::Index,
+                TraitOperation::Index(borrow_kind),
                 cancellation,
                 diagnostics,
-            )?
-            .map(TraitOperationCandidate::into_candidate);
+            )?;
+
+        if candidate.is_none() && borrow_kind == BorrowKind::Mutable {
+            let shared_role = match index.kind() {
+                BoundStructuredExpressionKind::ElementIndex => {
+                    bray_compiler_known::CompilerKnownOperationRole::ElementIndex
+                }
+                BoundStructuredExpressionKind::SliceIndex => {
+                    bray_compiler_known::CompilerKnownOperationRole::SliceIndex
+                }
+                _ => return Err(FactQueryError::InfrastructureFailure),
+            };
+
+            let shared = self.trait_operation_candidate_data(
+                facts,
+                owner,
+                shared_role,
+                subject,
+                &trait_arguments,
+                &callable_parameters,
+                &operand_types,
+                TraitOperation::Index(BorrowKind::Shared),
+                cancellation,
+                diagnostics,
+            )?;
+
+            if let Some(shared) = shared {
+                let anchor = index.origin().source_anchor().syntax();
+
+                let contract_name = match role {
+                    bray_compiler_known::CompilerKnownOperationRole::MutableElementIndex => {
+                        "MutableElementIndex"
+                    }
+                    bray_compiler_known::CompilerKnownOperationRole::MutableSliceIndex => {
+                        "MutableSliceIndex"
+                    }
+                    _ => return Err(FactQueryError::InfrastructureFailure),
+                };
+
+                diagnostics.add(
+                    Diagnostic::new(
+                        DiagnosticId::new(anchor.full_range().start().bytes()),
+                        DiagnosticKind::CheckingMutableIndexContractRequired,
+                        SeverityKind::Error,
+                    )
+                    .with_primary_span(SourceSpan::new(anchor.source_id(), anchor.full_range()))
+                    .with_arg(DiagnosticArg::referenced_name(contract_name)),
+                );
+
+                let result_type = shared
+                    .operation
+                    .result_type()
+                    .ok_or(FactQueryError::InfrastructureFailure)?;
+
+                return Ok(Some(OperationResolution::new(
+                    key.expression(),
+                    result_type,
+                    [],
+                    None,
+                )));
+            }
+        }
+
+        let candidate = candidate.map(TraitOperationCandidate::into_candidate);
 
         self.select_operation(
             key,
@@ -942,4 +1024,53 @@ impl Compilation {
             diagnostics,
         )
     }
+}
+
+fn custom_index_borrow_kind(
+    unit: &bray_bound_tree::BoundUnit,
+    expression: BoundExpressionId,
+) -> Result<BorrowKind, FactQueryError> {
+    let view = unit.view();
+    let mut child = expression;
+
+    while let Some(parent) = view.expression_parent(child) {
+        let parent_expression = view
+            .expression(parent)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        match parent_expression {
+            BoundExpression::Assignment(assignment)
+                if assignment.operands().first() == Some(&child) =>
+            {
+                return Ok(BorrowKind::Mutable);
+            }
+            BoundExpression::Structured(structured)
+                if structured.operands().first() == Some(&child)
+                    && structured.kind() == BoundStructuredExpressionKind::Borrow =>
+            {
+                return structured
+                    .borrow_kind()
+                    .ok_or(FactQueryError::InfrastructureFailure);
+            }
+            BoundExpression::Structured(structured)
+                if structured.operands().first() == Some(&child)
+                    && matches!(
+                        structured.kind(),
+                        BoundStructuredExpressionKind::ElementIndex
+                            | BoundStructuredExpressionKind::SliceIndex
+                            | BoundStructuredExpressionKind::NullablePropagation
+                    ) =>
+            {
+                child = parent;
+            }
+            BoundExpression::MemberAccess(_)
+                if parent_expression.child_expressions().next() == Some(child) =>
+            {
+                child = parent;
+            }
+            _ => return Ok(BorrowKind::Shared),
+        }
+    }
+
+    Ok(BorrowKind::Shared)
 }

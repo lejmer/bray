@@ -67,6 +67,8 @@ pub enum StorageIdentity {
     Result(AnyBoundNodeId),
     /// Source-correlated temporary storage.
     Temporary(BoundExpressionId),
+    /// The borrow returned by a custom indexing operation.
+    CustomIndexBorrow(BoundExpressionId),
     /// Cursor owned by an iteration expression.
     IterationCursor(BoundExpressionId),
     /// Current element produced by an iteration expression.
@@ -98,6 +100,7 @@ impl StorageIdentity {
             Self::PostconditionResult(_) => "postcondition_result",
             Self::Result(_) => "result",
             Self::Temporary(_) => "temporary",
+            Self::CustomIndexBorrow(_) => "custom_index_borrow",
             Self::IterationCursor(_) => "iteration_cursor",
             Self::IterationElement(_) => "iteration_element",
             Self::Allocation(_) => "allocation",
@@ -124,6 +127,7 @@ impl StorageIdentity {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => Some(node),
             Self::Temporary(expression)
+            | Self::CustomIndexBorrow(expression)
             | Self::IterationCursor(expression)
             | Self::IterationElement(expression)
             | Self::Allocation(expression) => Some(AnyBoundNodeId::Expression(expression)),
@@ -142,6 +146,7 @@ impl StorageIdentity {
         match self {
             Self::LocalOwned(node) | Self::Result(node) => node.unit() == unit,
             Self::Temporary(expression)
+            | Self::CustomIndexBorrow(expression)
             | Self::IterationCursor(expression)
             | Self::IterationElement(expression)
             | Self::Allocation(expression) => expression.unit() == unit,

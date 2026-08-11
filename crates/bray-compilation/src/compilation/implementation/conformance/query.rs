@@ -1060,7 +1060,7 @@ mod tests {
             "\n",
             "impl Holder<T>(ElementIndex<usize>)\n",
             "{\n",
-            "    type Output = &T;\n",
+            "    type Output = T;\n",
             "\n",
             "    func index(pos selector: &usize) -> &T\n",
             "    {\n",

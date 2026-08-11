@@ -38,8 +38,12 @@ define_catalog_enum! {
         PlainConversion => "PlainConversion",
         /// Element projection through `ElementIndex.index`.
         ElementIndex => "ElementIndex",
+        /// Mutable element projection through `MutableElementIndex.index`.
+        MutableElementIndex => "MutableElementIndex",
         /// Contiguous projection through `SliceIndex.slice`.
         SliceIndex => "SliceIndex",
+        /// Mutable contiguous projection through `MutableSliceIndex.slice`.
+        MutableSliceIndex => "MutableSliceIndex",
         /// Owned-indirection construction supported by `Storage`.
         BoxConstruction => "BoxConstruction",
     }
@@ -65,7 +69,9 @@ impl CompilerKnownOperationRole {
                 | Self::BinaryShiftLeft
                 | Self::BinaryShiftRight
                 | Self::ElementIndex
+                | Self::MutableElementIndex
                 | Self::SliceIndex
+                | Self::MutableSliceIndex
         ) {
             CompilerKnownOperationContractShape::AssociatedResultCallable
         } else if matches!(self, Self::Comparison) {

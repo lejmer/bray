@@ -10,6 +10,7 @@ use crate::{
 pub struct BoundTree {
     unit: BoundUnitId,
     expressions: Arc<[BoundExpression]>,
+    expression_parents: Arc<[Option<BoundExpressionId>]>,
     patterns: Arc<[BoundPattern]>,
     blocks: Arc<[BoundBlock]>,
     callable_bodies: Arc<[BoundCallableBody]>,
@@ -23,9 +24,12 @@ impl BoundTree {
         blocks: Vec<BoundBlock>,
         callable_bodies: Vec<BoundCallableBody>,
     ) -> Self {
+        let expression_parents = expression_parents(unit, &expressions);
+
         Self {
             unit,
             expressions: expressions.into(),
+            expression_parents: expression_parents.into(),
             patterns: patterns.into(),
             blocks: blocks.into(),
             callable_bodies: callable_bodies.into(),
@@ -47,6 +51,13 @@ impl BoundTree {
         &self,
     ) -> impl ExactSizeIterator<Item = (BoundExpressionId, &BoundExpression)> {
         unit_entries(self.unit, &self.expressions, BoundExpressionId::from_slot)
+    }
+
+    /// Returns the direct expression parent of one expression, when it has one.
+    pub fn expression_parent(&self, id: BoundExpressionId) -> Option<BoundExpressionId> {
+        self.entry(id.unit(), id.to_index(), &self.expression_parents)
+            .copied()
+            .flatten()
     }
 
     /// Returns the pattern identified within this tree, when present.
@@ -91,6 +102,26 @@ impl BoundTree {
 
         index.and_then(|index| entries.get(index))
     }
+}
+
+fn expression_parents(
+    unit: BoundUnitId,
+    expressions: &[BoundExpression],
+) -> Vec<Option<BoundExpressionId>> {
+    let mut parents = vec![None; expressions.len()];
+
+    for (parent, expression) in unit_entries(unit, expressions, BoundExpressionId::from_slot) {
+        for child in expression.child_expressions() {
+            let Some(entry) = child.to_index().and_then(|index| parents.get_mut(index)) else {
+                continue;
+            };
+
+            debug_assert!(entry.is_none(), "bound expressions have one direct parent");
+            *entry = Some(parent);
+        }
+    }
+
+    parents
 }
 
 fn unit_entries<T, I>(

@@ -25,27 +25,68 @@ impl Lowerer<'_> {
             IndexTarget::ArrayElement
             | IndexTarget::SliceElement
             | IndexTarget::ArraySlice
-            | IndexTarget::Slice => self.lower_storage_operand(id, current),
+            | IndexTarget::Slice
+            | IndexTarget::Custom { .. }
+            | IndexTarget::TraitConstraint { .. } => self.lower_storage_operand(id, current),
+        }
+    }
+
+    pub(in crate::lowering) fn lower_custom_index_borrow(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let target = match self.selected_operation(id)? {
+            SelectedOperation::Index { target, .. } => *target,
+            _ => return Err(LoweringError::MissingSemanticSelection(id)),
+        };
+
+        match target {
             IndexTarget::Custom {
+                borrow_kind,
                 fulfillment,
                 requirement,
                 witness,
                 ..
-            } => {
-                self.lower_custom_index(id, current, fulfillment, requirement, None, Some(witness))
-            }
+            } => self.lower_custom_index(
+                id,
+                current,
+                borrow_kind,
+                fulfillment,
+                requirement,
+                None,
+                Some(witness),
+            ),
             IndexTarget::TraitConstraint {
+                borrow_kind,
                 member,
                 requirement,
                 dispatch,
-            } => self.lower_custom_index(id, current, member, requirement, Some(dispatch), None),
+            } => self.lower_custom_index(
+                id,
+                current,
+                borrow_kind,
+                member,
+                requirement,
+                Some(dispatch),
+                None,
+            ),
+            IndexTarget::ArrayElement
+            | IndexTarget::SliceElement
+            | IndexTarget::ArraySlice
+            | IndexTarget::Slice => Err(LoweringError::MissingSemanticSelection(id)),
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "custom indexing retains its selected callable, dispatch, witness, and access capability"
+    )]
     fn lower_custom_index(
         &mut self,
         id: BoundExpressionId,
         current: MirBlockId,
+        borrow_kind: bray_symbols::BorrowKind,
         callable: bray_symbols::CallableInstanceData,
         requirement: ImplementationRequirementKey,
         dispatch: Option<bray_symbols::TraitConstraintDispatch>,
@@ -74,7 +115,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingBoundNode(id.into()));
         };
 
-        let lowered = self.lower_implicit_shared_borrow(id, receiver, block)?;
+        let lowered = self.lower_implicit_borrow(id, receiver, block, borrow_kind)?;
 
         let Some(continuation) = lowered.block else {
             return Ok(lowered);
@@ -163,9 +204,18 @@ impl Lowerer<'_> {
             bray_bound_tree::SelectedImplementationWitness::new(requirement, witness)
         });
 
+        let result_type = self
+            .input
+            .semantic_values()
+            .intern_type(TypeData::Borrow {
+                kind: borrow_kind,
+                target: self.expression_type(id)?,
+            })
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
         let mut call = MirCall::protocol(
             MirCallTarget::Direct(MirCallableReference::new(callable, CallableAbi::Bray)),
-            bray_bound_tree::BoundCallResult::Immediate(self.expression_type(id)?),
+            bray_bound_tree::BoundCallResult::Immediate(result_type),
             arguments,
             witnesses,
         );
@@ -174,11 +224,12 @@ impl Lowerer<'_> {
             call = call.with_trait_dispatch(dispatch);
         }
 
-        let value = self.push_value_operation(
+        let value = self.push_typed_value_operation(
             id,
             block,
             Self::retained_source(&source),
             MirOperationKind::Call(call),
+            result_type,
         )?;
 
         Ok(LoweredExpression::continuing(block, Some(value), source))

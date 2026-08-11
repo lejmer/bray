@@ -222,7 +222,9 @@ const fn representation_supports_operation(
         CompilerKnownOperationRole::BinaryMatrixMultiply
         | CompilerKnownOperationRole::PlainConversion
         | CompilerKnownOperationRole::ElementIndex
+        | CompilerKnownOperationRole::MutableElementIndex
         | CompilerKnownOperationRole::SliceIndex
+        | CompilerKnownOperationRole::MutableSliceIndex
         | CompilerKnownOperationRole::BoxConstruction => false,
     }
 }

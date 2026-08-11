@@ -23,7 +23,7 @@ pub(in crate::compilation) struct OperationResolution {
 #[derive(Clone, Copy)]
 pub(super) enum TraitOperation {
     Operator(BoundOperator),
-    Index,
+    Index(bray_symbols::BorrowKind),
     Conversion(TypeId),
 }
 

@@ -324,6 +324,7 @@ fn push_operation_dependencies(
                     fulfillment,
                     requirement,
                     witness,
+                    ..
                 },
             ..
         } => {
