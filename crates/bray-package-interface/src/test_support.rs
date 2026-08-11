@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId};
+use bray_runtime_interface::{PanicAbiIdentity, RuntimeAbiVersion};
 use bray_symbols::{
     ExternalSymbolKey, InterfaceSupportEntityId, InterfaceSymbolId, ModulePathKey, PackageIdentity,
     PackageVersion, SymbolKind, SymbolName, SymbolOrdinal, SynthesizedSymbolRole,
@@ -265,8 +266,24 @@ fn package_interface_export_bundle_for(
         inherent_callable,
     );
 
-    PackageInterfaceExportBundle::try_new(surface, facts, InterfaceLanguageRevision::new(0))
-        .unwrap_or_else(|error| panic!("test export bundle must be valid: {error:?}"))
+    PackageInterfaceExportBundle::try_new(
+        surface,
+        facts,
+        InterfaceLanguageRevision::new(0),
+        implementation_configuration(),
+    )
+    .unwrap_or_else(|error| panic!("test export bundle must be valid: {error:?}"))
+}
+
+/// Builds the representative implementation target configuration used by artifact tests.
+pub fn implementation_configuration() -> crate::PackageImplementationConfiguration {
+    let target = bray_target::NativeTarget::X86_64LinuxGnu.profile();
+    let target = bray_ir::MirTargetFacts::new(target, RuntimeAbiVersion::new(1, 0));
+
+    let panic_abi = PanicAbiIdentity::try_new("bray.panic.unwind")
+        .unwrap_or_else(|| panic!("test panic ABI identity must be valid"));
+
+    crate::PackageImplementationConfiguration::for_mir_target(&target, None, panic_abi)
 }
 
 fn identity_surface(

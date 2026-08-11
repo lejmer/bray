@@ -125,6 +125,7 @@ pub(crate) const fn format_english_native_product_failure(
             "the selected runtime has no owner for a required capability"
         }
         Kind::RuntimeSelectionUnreadableArchive => "a selected runtime archive cannot be read",
+        Kind::RuntimeSelectionInvalidArchive => "a selected runtime archive is invalid",
         Kind::RuntimeSelectionArchiveDigestMismatch => {
             "a selected runtime archive does not match its declared digest"
         }
@@ -157,5 +158,98 @@ pub(crate) const fn format_english_native_product_failure(
         Kind::CodegenMissingHelperInstance => "a required generated helper is missing",
         Kind::CodegenLayoutOverflow => "a required type layout exceeds the selected target",
         Kind::CodegenInvalidSymbolName => "a generated binary symbol name is not representable",
+    }
+}
+
+pub(crate) fn format_english_runtime_artifact_problem(
+    problem: &bray_diagnostics::DiagnosticRuntimeArtifactProblem,
+) -> String {
+    use bray_diagnostics::DiagnosticRuntimeArtifactProblem as Problem;
+
+    match problem {
+        Problem::MetadataSizeLimitExceeded => "metadata exceeds the size limit".to_owned(),
+        Problem::MalformedMetadata => "malformed metadata".to_owned(),
+        Problem::UnsupportedFormat => "unsupported metadata format".to_owned(),
+        Problem::InvalidRuntimeIdentity => "invalid runtime identity".to_owned(),
+        Problem::InvalidArtifactIdentity => "invalid artifact identity".to_owned(),
+        Problem::InvalidTarget => "invalid target identity".to_owned(),
+        Problem::InvalidPanicAbi => "invalid panic ABI identity".to_owned(),
+        Problem::UnknownCapability => "unknown runtime capability".to_owned(),
+        Problem::UnknownRole => "unknown runtime role".to_owned(),
+        Problem::InvalidRoleSymbol => "invalid runtime role symbol".to_owned(),
+        Problem::UnknownRoleImplementation => "unknown runtime role implementation".to_owned(),
+        Problem::InvalidNativeLinkName => "invalid native link name".to_owned(),
+        Problem::UnknownNativeLinkKind => "unknown native link kind".to_owned(),
+        Problem::UnknownComponentPurpose => "unknown runtime component purpose".to_owned(),
+        Problem::InvalidComponentIdentity => "invalid runtime component identity".to_owned(),
+        Problem::InvalidArchiveDigest => "invalid archive digest".to_owned(),
+        Problem::DuplicateContractRole(role) => format!("duplicate runtime contract role `{role}`"),
+        Problem::CompilerOwnedRole(role) => {
+            format!("compiler-owned role `{role}` is published by the runtime")
+        }
+        Problem::MissingCooperativeExecution => {
+            "runtime contract omits cooperative execution".to_owned()
+        }
+        Problem::InvalidArchiveFileName => {
+            "invalid runtime component archive file name".to_owned()
+        }
+        Problem::UnreferencedSupportComponent(component) => {
+            format!("support component `{component}` is unreferenced")
+        }
+        Problem::DuplicateComponent(component) => {
+            format!("duplicate runtime component `{component}`")
+        }
+        Problem::InvalidComponentDependency {
+            component,
+            dependency,
+        } => format!("component `{component}` has invalid dependency `{dependency}`"),
+        Problem::ComponentDependencyCycle(component) => {
+            format!("component dependency cycle includes `{component}`")
+        }
+        Problem::UnknownComponentRole(role) => {
+            format!("component claims unknown runtime role `{role}`")
+        }
+        Problem::UnknownComponentCapability(capability) => {
+            format!("component claims unknown runtime capability `{capability}`")
+        }
+        Problem::TestRoleInProductComponent(component) => {
+            format!("product component `{component}` claims the test-entry role")
+        }
+        Problem::MissingRoleOwner { purpose, role } => format!(
+            "{} runtime surface has no owner for role `{role}`",
+            format_english_runtime_artifact_purpose(*purpose),
+        ),
+        Problem::DuplicateRoleOwner { purpose, role } => format!(
+            "{} runtime surface has multiple owners for role `{role}`",
+            format_english_runtime_artifact_purpose(*purpose),
+        ),
+        Problem::MissingCapabilityOwner {
+            purpose,
+            capability,
+        } => format!(
+            "{} runtime surface has no owner for capability `{capability}`",
+            format_english_runtime_artifact_purpose(*purpose),
+        ),
+        Problem::DuplicateCapabilityOwner {
+            purpose,
+            capability,
+        } => format!(
+            "{} runtime surface has multiple owners for capability `{capability}`",
+            format_english_runtime_artifact_purpose(*purpose),
+        ),
+        Problem::MissingComponent => "missing runtime component".to_owned(),
+        Problem::UnexpectedComponent => "unexpected runtime component".to_owned(),
+        Problem::ArchiveFileNameMismatch => {
+            "archive file name does not match metadata".to_owned()
+        }
+    }
+}
+
+const fn format_english_runtime_artifact_purpose(
+    purpose: bray_diagnostics::DiagnosticRuntimeArtifactPurpose,
+) -> &'static str {
+    match purpose {
+        bray_diagnostics::DiagnosticRuntimeArtifactPurpose::Product => "product",
+        bray_diagnostics::DiagnosticRuntimeArtifactPurpose::TestRunner => "test-runner",
     }
 }

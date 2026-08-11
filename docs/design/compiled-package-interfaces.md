@@ -672,12 +672,14 @@ The artifact is sectioned to support bounded validation and lazy decoding. The r
 Source provenance and other tooling metadata use optional non-semantic sections.
 
 Each directory entry has an explicit tag, section revision, compatibility class, encoding, byte range, decoded length, record count
-where applicable, and section checksum or digest contribution. Sections must not overlap or extend beyond the declared file length.
+where applicable, stored-byte checksum, and decoded-content digest. Sections must not overlap or extend beyond the declared file
+length.
 
 Each section independently selects the canonical raw encoding or a registered deterministic compressed encoding. Compression does
 not change the decoded semantic bytes or semantic content hash. A reader validates compressed and decoded length bounds before
-allocation, authenticates the stored section bytes, and decompresses only the requested section. The encoder selects raw or
-compressed storage using one revisioned deterministic size policy recorded in artifact compatibility identity.
+allocation, authenticates the stored section bytes, and decompresses only the requested section. When a section is requested, the
+reader verifies its decoded bytes against the directory's decoded-content digest before publishing them. The encoder selects raw
+or compressed storage using one revisioned deterministic size policy recorded in artifact compatibility identity.
 
 The encoding registry contains `raw` and `zstd_frame`. A `zstd_frame` section declares its decoded content size, uses no external
 dictionary, carries a frame checksum, and stays within the format revision's maximum window size. The encoder-policy revision fixes
@@ -700,9 +702,12 @@ cannot use either compatibility class. There is no optional semantic field whose
 
 ### Hashes
 
-`InterfaceContentHash` is a domain-separated BLAKE3 digest of the format revision followed by canonical semantic and support section
-tags, decoded lengths, and decoded payload bytes in tag order. It excludes storage encodings, header offsets, section-directory
-offsets, optional provenance, and other explicitly non-semantic tooling sections.
+Each semantic or support section has a domain-separated BLAKE3 decoded-content digest over its tag, decoded length, and decoded
+payload bytes. `InterfaceContentHash` is a domain-separated BLAKE3 digest of the format revision followed by the canonical semantic
+and support section tags, decoded lengths, and decoded-content digests in tag order. A reader validates that aggregate commitment
+before exposing the interface, then validates each requested section's decoded bytes against its committed digest. The content hash
+excludes section revisions, storage encodings, header offsets, section-directory offsets, optional provenance, and other explicitly
+non-semantic tooling sections.
 
 The content hash covers package identity and version, product identity, language semantic revision, every symbol, relationship, semantic fact, support
 entity, dependency reference, and target dependency that can affect a consumer. Dependency tables record expected content hashes

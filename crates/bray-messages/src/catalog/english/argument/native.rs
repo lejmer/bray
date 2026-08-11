@@ -8,7 +8,8 @@ mod toolchain;
 
 pub(super) use artifact::{
     format_artifact_failure, format_english_emission_evaluation_failure,
-    format_english_native_product_failure, format_unit_failure,
+    format_english_native_product_failure, format_english_runtime_artifact_problem,
+    format_unit_failure,
 };
 pub(super) use dependency::{
     format_english_dependency_requirement, format_english_dependency_subject,

@@ -1,30 +1,24 @@
-use std::env;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::ProductEmissionInputs;
-use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
-};
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId};
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
     RequestedArtifact, RequestedArtifactDestination,
 };
-use bray_runtime_interface::RuntimeArtifact;
 use bray_symbols::{ProductIdentity, ProductKind};
 use bray_target::{TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{
-    OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, load_runtime_artifact,
-    native_linker,
+    OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, native_linker,
 };
 
 use super::diagnostic::artifact_write_failure;
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
-use crate::command::{
-    DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
-};
+use super::runtime::{resolve_runtime, runtime_selection_diagnostics};
+use crate::command::{DriverBackend, DriverOptions, DriverProductConfiguration};
 
 pub(crate) fn run_build_command(
     options: &DriverOptions,
@@ -39,6 +33,15 @@ pub(crate) fn run_build_command(
     let product_kind = compilation_configuration.product_kind();
     let artifacts = required_artifacts(product_kind, native_target, &configuration);
     let export_interface = artifacts.contains(&TargetOutputKind::PackageInterface);
+    let linked = artifacts.iter().any(|artifact| is_linked(*artifact));
+
+    let requires_codegen = artifacts
+        .iter()
+        .copied()
+        .map(ArtifactKind::from)
+        .any(|artifact| artifact.backend_kind().is_some());
+
+    let requires_generation = linked || requires_codegen;
 
     let request = match compilation_request(options, files, export_interface) {
         Ok(request) => request,
@@ -47,6 +50,17 @@ pub(crate) fn run_build_command(
 
             return DriverRunResult::new(exit_code, diagnostics, output_format);
         }
+    };
+
+    let runtime = if requires_generation {
+        match resolve_runtime(configuration.runtime(), &selected_target) {
+            Ok(runtime) => runtime,
+            Err(diagnostics) => {
+                return DriverRunResult::new(ExitCode::FAILURE, diagnostics, output_format);
+            }
+        }
+    } else {
+        None
     };
 
     let compilation = match configuration.backend() {
@@ -65,16 +79,6 @@ pub(crate) fn run_build_command(
             );
         }
     };
-
-    let linked = artifacts.iter().any(|artifact| is_linked(*artifact));
-
-    let requires_codegen = artifacts
-        .iter()
-        .copied()
-        .map(ArtifactKind::from)
-        .any(|artifact| artifact.backend_kind().is_some());
-
-    let requires_generation = linked || requires_codegen;
 
     let linker = if linked {
         match native_linker(native_target) {
@@ -99,18 +103,6 @@ pub(crate) fn run_build_command(
     };
 
     let native = if requires_generation {
-        let runtime = match resolve_runtime(configuration.runtime(), &selected_target) {
-            Ok(runtime) => runtime,
-            Err(()) => {
-                return unsupported_product_result(
-                    compilation,
-                    output_format,
-                    selected_target.profile().identity().as_str(),
-                    "runtime artifact selection",
-                );
-            }
-        };
-
         match compilation.native_product_facts(
             product.clone(),
             configuration.build(),
@@ -323,63 +315,6 @@ fn emission_request(
     .unwrap_or_else(|error| panic!("validated build emission request must be valid: {error:?}"))
 }
 
-fn resolve_runtime(
-    selection: Option<&DriverRuntimeSelection>,
-    target: &bray_compilation::SelectedTarget,
-) -> Result<Option<RuntimeArtifact>, ()> {
-    let Some(selection) = selection else {
-        return Ok(None);
-    };
-
-    let metadata = match selection {
-        DriverRuntimeSelection::Artifact(path) => path.clone(),
-        DriverRuntimeSelection::Profile(profile) => {
-            runtime_profile_metadata(target, profile.as_str()).ok_or(())?
-        }
-    };
-
-    load_runtime_artifact(&metadata).map(Some).ok_or(())
-}
-
-fn runtime_profile_metadata(
-    target: &bray_compilation::SelectedTarget,
-    profile: &str,
-) -> Option<PathBuf> {
-    let executable = env::current_exe().ok()?;
-
-    executable
-        .ancestors()
-        .map(|ancestor| {
-            ancestor
-                .join("runtimes")
-                .join(target.profile().identity().as_str())
-                .join(profile)
-                .join("bray-runtime.brayrt")
-        })
-        .find(|path| path.is_file())
-}
-
-fn unsupported_product_result(
-    compilation: bray_compilation::Compilation,
-    output_format: OutputFormat,
-    target: &str,
-    requirement: &str,
-) -> DriverRunResult {
-    let unsupported = Diagnostic::new(
-        DiagnosticId::new(0),
-        DiagnosticKind::RequestUnsupportedProductEmission,
-        SeverityKind::Error,
-    )
-    .with_arg(DiagnosticArg::target_triple(target))
-    .with_arg(DiagnosticArg::referenced_name(requirement));
-
-    let diagnostics = compilation
-        .check_diagnostics()
-        .merged(&DiagnosticBag::single(unsupported));
-
-    driver_result_from_compilation(compilation, diagnostics, output_format, ExitCode::FAILURE)
-}
-
 fn native_product_failure_result(
     compilation: bray_compilation::Compilation,
     output_format: OutputFormat,
@@ -391,6 +326,15 @@ fn native_product_failure_result(
         bray_compilation::NativeProductFactError::StandardLibrary(error) => compilation
             .check_diagnostics()
             .merged(&compilation.standard_library_load_diagnostics(error)),
+        bray_compilation::NativeProductFactError::InvalidRuntimeSelection(selection_error) => {
+            let runtime = runtime_selection_diagnostics(selection_error).unwrap_or_else(|| {
+                error.diagnostic(product, target).unwrap_or_else(|| {
+                    panic!("runtime selection failure must publish an exact diagnostic")
+                })
+            });
+
+            compilation.check_diagnostics().merged(&runtime)
+        }
         error if let Some(diagnostics) = error.diagnostics() => {
             compilation.check_diagnostics().merged(diagnostics)
         }

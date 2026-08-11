@@ -178,14 +178,15 @@ impl DiagnosticKind {
         use DiagnosticArgName::{
             ActualArtifactDigest, ActualByteCount, ActualCount, ActualPackageIdentity,
             ActualProductIdentity, ActualProductKind, ActualRevision, ActualRuntimeAbi,
-            ActualSyntaxKind, ActualTargetPredicateValueKind, ActualTargetTriple, ActualType,
+            ActualSyntaxKind, ActualTargetIdentity, ActualTargetPredicateValueKind,
+            ActualTargetTriple, ActualType,
             AlignmentKind, ArrayGeneratorCardinalityProblem, ArtifactKind, ArtifactOrdinal,
             ArtifactPath, ByteCount, CallableAbi, CallableOverloadProblem, CallbackStateProblem,
             CodegenBackendIdentity, ConstantOperation, CopyContractProblem, DeclarationName,
             DependencyRequirementKind, DependencySubjectKind, DocumentColumn, DocumentLine,
             DocumentParseKind, EmissionArtifactOperation, EmissionFailure, ExpectedArtifactDigest,
             ExpectedByteCount, ExpectedNameKind, ExpectedPackageIdentity, ExpectedProductIdentity,
-            ExpectedRevision, ExpectedRuntimeAbi, ExpectedSyntaxKind,
+            ExpectedRevision, ExpectedRuntimeAbi, ExpectedSyntaxKind, ExpectedTargetIdentity,
             ExpectedTargetPredicateValueKind, ExpectedTargetTriple, ExpectedType,
             ExpressionCategory, ExternalToolExit, ExternalToolFailureKind, ExternalToolOperation,
             FilePath, ImplementationOverloadProblem, InputIndex, InterfaceLimit,
@@ -196,8 +197,8 @@ impl DiagnosticKind {
             PatternCoverage, PatternUnreachability, PlatformServiceSignatureProblem,
             ProjectCommandFailure, ProjectDependencyCycleMember, ProjectManifestField, ProjectPath,
             ProjectSelectionProblem, PropagationProblem, ReferencedName, RefinementCapacity,
-            RequiredAlignment, SelectionCandidates, SelectionKind, SelectionRejections,
-            SourceCount, SourceInput, StandardLibraryManifestProblem, StorageAccess,
+            RequiredAlignment, RuntimeArtifactProblem, SelectionCandidates, SelectionKind,
+            SelectionRejections, SourceCount, SourceInput, StandardLibraryManifestProblem, StorageAccess,
             StoredTypeProblem, TargetRepresentation, TargetTriple, TextOffset, TokenText,
             TraitFulfillmentMismatch, TraitMemberName, UnionTagProblem, UnsupportedEmissionReason,
             WorkerCount,
@@ -209,6 +210,7 @@ impl DiagnosticKind {
             CharacterNotAccepted, EscapeMustBeKnown, IdentifierSpellingMustBeValid,
             IdentifiersMustBeAscii, LineBreaksMustBeLfOrCrlf, OnlyImaginaryNumericSuffix,
             PackageIdentityMustBeValid, PackageVersionMustBeValid, ReportCompilerDefect,
+            RuntimeArtifactMustBeUsable,
             SourceFileMustBeReadable, SourceIdsAreCompact, SourceInputNeedsStableIdentity,
             SourceInputRequired, SourceMustBeUtf8, SourceMustMatchFormatterOutput,
             SourceTextOffsetsAreCompact, StringLiteralNeedsTerminator, UnicodeEscapeMustBeScalar,
@@ -254,6 +256,54 @@ impl DiagnosticKind {
             Self::RequestUnsupportedProductEmission => Self::quality_invocation(
                 &[TargetTriple, UnsupportedEmissionReason],
                 primary_components!(&[TargetTriple, UnsupportedEmissionReason]),
+            ),
+            Self::RuntimeArtifactMetadataReadFailed
+            | Self::RuntimeArtifactArchiveReadFailed => Self::quality_artifact(
+                &[ArtifactPath, IoErrorKind],
+                note_components!(
+                    &[ArtifactPath, IoErrorKind],
+                    RuntimeArtifactMustBeUsable
+                ),
+            ),
+            Self::RuntimeArtifactMetadataInvalid => Self::quality_artifact(
+                &[ArtifactPath, RuntimeArtifactProblem],
+                note_components!(
+                    &[ArtifactPath, RuntimeArtifactProblem],
+                    RuntimeArtifactMustBeUsable
+                ),
+            ),
+            Self::RuntimeArtifactTargetMismatch => Self::quality_artifact(
+                &[
+                    ArtifactPath,
+                    ExpectedTargetIdentity,
+                    ActualTargetIdentity,
+                ],
+                note_components!(
+                    &[
+                        ArtifactPath,
+                        ExpectedTargetIdentity,
+                        ActualTargetIdentity,
+                    ],
+                    RuntimeArtifactMustBeUsable
+                ),
+            ),
+            Self::RuntimeArtifactAbiMismatch => Self::quality_artifact(
+                &[ArtifactPath, ExpectedRuntimeAbi, ActualRuntimeAbi],
+                note_components!(
+                    &[ArtifactPath, ExpectedRuntimeAbi, ActualRuntimeAbi],
+                    RuntimeArtifactMustBeUsable
+                ),
+            ),
+            Self::RuntimeArtifactArchiveInvalid => Self::quality_artifact(
+                &[ArtifactPath],
+                note_components!(&[ArtifactPath], RuntimeArtifactMustBeUsable),
+            ),
+            Self::RuntimeArtifactArchiveDigestMismatch => Self::quality_artifact(
+                &[ArtifactPath, ExpectedArtifactDigest, ActualArtifactDigest],
+                note_components!(
+                    &[ArtifactPath, ExpectedArtifactDigest, ActualArtifactDigest],
+                    RuntimeArtifactMustBeUsable
+                ),
             ),
             Self::StandardLibraryArtifactReadFailed => Self::quality_artifact(
                 &[FilePath, IoErrorKind],

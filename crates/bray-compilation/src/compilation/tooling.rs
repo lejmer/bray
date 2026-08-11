@@ -338,16 +338,10 @@ impl Compilation {
                 )
             });
 
-            let mut pending = keys.into_iter().rev().collect::<Vec<_>>();
             let mut units = Vec::new();
 
-            while let Some(key) = pending.pop() {
-                cancellation.check()?;
-
-                let bound = self.bound_unit_with_cancellation(key, cancellation)?;
-
-                pending.extend(bound.result().value().nested_units().iter().rev().cloned());
-                units.push(Arc::clone(bound.result()));
+            for key in keys {
+                units.extend(self.bound_unit_family_with_cancellation(key, cancellation)?);
             }
 
             Ok(units)

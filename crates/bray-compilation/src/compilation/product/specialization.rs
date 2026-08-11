@@ -35,6 +35,7 @@ use crate::fact::{CancellationToken, FactQueryError};
 pub(super) struct ConcreteCodegenInstance {
     key: CodegenInstanceKey,
     callable: Option<CallableInstanceData>,
+    anonymous_callable_type: Option<bray_symbols::TypeId>,
     lifecycle: Option<MirHelperReference>,
     substitution: Option<GenericSubstitutionId>,
     witnesses: Arc<[ImplementationInstanceId]>,
@@ -90,6 +91,7 @@ impl ConcreteCodegenInstance {
         Some(Self {
             key,
             callable: Some(callable),
+            anonymous_callable_type: None,
             lifecycle: None,
             substitution: Some(callable.substitution()),
             witnesses: witnesses
@@ -104,21 +106,52 @@ impl ConcreteCodegenInstance {
         Self {
             key,
             callable: None,
+            anonymous_callable_type: None,
             lifecycle: None,
             substitution: None,
             witnesses: Arc::from([]),
         }
     }
 
-    pub(super) fn bound_helper(owner: &Self, template: bray_bound_tree::BoundUnitKey) -> Self {
+    pub(super) fn anonymous_callable(
+        owner: &Self,
+        reference: &bray_ir::MirAnonymousCallableReference,
+        callable_type: bray_symbols::TypeId,
+    ) -> Self {
+        let template = match reference {
+            // The nested instance owns the source key beyond the parent MIR operation borrow.
+            bray_ir::MirAnonymousCallableReference::Bound(key) => MirUnitKey::Bound(key.clone()),
+            bray_ir::MirAnonymousCallableReference::Imported(key) => {
+                MirUnitKey::ImportedExecutable(*key)
+            }
+        };
+
+        // The nested instance shares its parent's immutable specialization context.
         Self {
             key: CodegenInstanceKey::new(
-                MirUnitKey::Bound(template),
+                template,
                 owner.key.specialization().clone(),
                 owner.key.witnesses().iter().cloned(),
                 owner.key.target().clone(),
             ),
             callable: None,
+            anonymous_callable_type: Some(callable_type),
+            lifecycle: None,
+            substitution: owner.substitution,
+            witnesses: Arc::clone(&owner.witnesses),
+        }
+    }
+
+    pub(super) fn bound_helper(owner: &Self, unit: bray_bound_tree::BoundUnitKey) -> Self {
+        Self {
+            key: CodegenInstanceKey::new(
+                MirUnitKey::Bound(unit),
+                owner.key.specialization().clone(),
+                owner.key.witnesses().iter().cloned(),
+                owner.key.target().clone(),
+            ),
+            callable: None,
+            anonymous_callable_type: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
@@ -131,12 +164,16 @@ impl ConcreteCodegenInstance {
     ) -> Self {
         Self {
             key: CodegenInstanceKey::new(
-                MirUnitKey::ImportedExecutable(provider),
+                MirUnitKey::ImportedExecutable(bray_ir::MirImportedExecutableKey::new(
+                    provider,
+                    bray_ir::MirExecutableTemplateId::ROOT,
+                )),
                 owner.key.specialization().clone(),
                 owner.key.witnesses().iter().cloned(),
                 owner.key.target().clone(),
             ),
             callable: None,
+            anonymous_callable_type: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
@@ -158,6 +195,7 @@ impl ConcreteCodegenInstance {
         Some(Self {
             key,
             callable: None,
+            anonymous_callable_type: None,
             lifecycle: Some(reference),
             substitution: None,
             witnesses: Arc::from([]),
@@ -170,6 +208,10 @@ impl ConcreteCodegenInstance {
 
     pub(super) fn callable_instance(&self) -> Option<CallableInstanceData> {
         self.callable
+    }
+
+    pub(super) const fn anonymous_callable_type(&self) -> Option<bray_symbols::TypeId> {
+        self.anonymous_callable_type
     }
 
     pub(super) fn substitution(&self) -> Option<GenericSubstitutionId> {
@@ -186,12 +228,25 @@ impl ConcreteCodegenInstance {
 }
 
 impl Compilation {
+    pub(super) fn concrete_codegen_anonymous_callable(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        reference: &bray_ir::MirAnonymousCallableReference,
+        callable_type: bray_symbols::TypeId,
+    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+        Ok(ConcreteCodegenInstance::anonymous_callable(
+            owner,
+            reference,
+            callable_type,
+        ))
+    }
+
     pub(super) fn concrete_codegen_bound_helper(
         &self,
         owner: &ConcreteCodegenInstance,
-        template: bray_bound_tree::BoundUnitKey,
+        unit: bray_bound_tree::BoundUnitKey,
     ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
-        Ok(ConcreteCodegenInstance::bound_helper(owner, template))
+        Ok(ConcreteCodegenInstance::bound_helper(owner, unit))
     }
 
     pub(super) fn concrete_codegen_lifecycle(
@@ -283,12 +338,17 @@ impl Compilation {
             return Ok(MirUnitKey::ExternalCallable(definition));
         }
 
-        let template =
-            self.imported_executable_template_with_cancellation(address, cancellation)?;
+        let template = self.imported_executable_template_with_cancellation(
+            crate::fact::ImportedExecutableTemplateAddress::root(address),
+            cancellation,
+        )?;
 
         if template.value().is_some() {
             return Ok(MirUnitKey::ImportedExecutable(
-                definition.callable_symbol().into_any(),
+                bray_ir::MirImportedExecutableKey::new(
+                    definition.callable_symbol().into_any(),
+                    bray_ir::MirExecutableTemplateId::ROOT,
+                ),
             ));
         }
 

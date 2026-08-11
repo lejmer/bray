@@ -13,7 +13,7 @@ use super::{
     DiagnosticLinkRequirement, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
     DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNativeProductFailureKind,
     DiagnosticOutputSink, DiagnosticProductKind, DiagnosticRuntimeAbiVersion,
-    DiagnosticSelectionKind, DiagnosticStandardLibraryManifestProblem,
+    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionKind, DiagnosticStandardLibraryManifestProblem,
     DiagnosticTargetRepresentation, DiagnosticType, DiagnosticVisibility,
 };
 use crate::{DiagnosticInterfaceLimit, DiagnosticInterfaceSection};
@@ -49,6 +49,8 @@ pub enum DiagnosticArgName {
     ActualTargetPredicateValueKind,
     /// Runtime ABI supplied by an artifact or dependency.
     ActualRuntimeAbi,
+    /// Target identity supplied by a runtime artifact.
+    ActualTargetIdentity,
     /// Semantic type found by checking.
     ActualType,
     /// Byte that participates in the diagnostic.
@@ -209,6 +211,10 @@ pub enum DiagnosticArgName {
     ExpectedTargetPredicateValueKind,
     /// Runtime ABI required by the compilation request.
     ExpectedRuntimeAbi,
+    /// Target identity required by a runtime artifact contract.
+    ExpectedTargetIdentity,
+    /// Typed runtime-artifact metadata or catalog failure.
+    RuntimeArtifactProblem,
     /// Semantic type required by checking.
     ExpectedType,
     /// Name of a virtual, generated, or test-fixture source.
@@ -292,6 +298,7 @@ impl DiagnosticArgName {
             Self::ActualRevision => "actual_revision",
             Self::ActualTargetPredicateValueKind => "actual_target_predicate_value_kind",
             Self::ActualRuntimeAbi => "actual_runtime_abi",
+            Self::ActualTargetIdentity => "actual_target_identity",
             Self::ActualType => "actual_type",
             Self::Byte => "byte",
             Self::ByteCount => "byte_count",
@@ -372,6 +379,8 @@ impl DiagnosticArgName {
             Self::ExpectedRevision => "expected_revision",
             Self::ExpectedTargetPredicateValueKind => "expected_target_predicate_value_kind",
             Self::ExpectedRuntimeAbi => "expected_runtime_abi",
+            Self::ExpectedTargetIdentity => "expected_target_identity",
+            Self::RuntimeArtifactProblem => "runtime_artifact_problem",
             Self::ExpectedType => "expected_type",
             Self::SourceName => "source_name",
             Self::SourceCount => "source_count",
@@ -466,6 +475,8 @@ pub enum DiagnosticArgValue {
     UnsupportedEmissionReason(crate::DiagnosticUnsupportedEmissionReason),
     /// Exact target triple.
     TargetTriple(String),
+    /// Canonical compilation target identity.
+    TargetIdentity(String),
     /// Exact structured reason native product planning could not complete.
     NativeProductFailureKind(DiagnosticNativeProductFailureKind),
     /// Exact terminal phase of an unsuccessful emission operation.
@@ -546,6 +557,8 @@ pub enum DiagnosticArgValue {
     Revision(u64),
     /// Runtime ABI version.
     RuntimeAbi(DiagnosticRuntimeAbiVersion),
+    /// Typed runtime-artifact metadata or catalog failure.
+    RuntimeArtifactProblem(DiagnosticRuntimeArtifactProblem),
     /// Locale-neutral semantic type shape.
     Type(DiagnosticType),
     /// Semantic operation category being selected.

@@ -17,7 +17,7 @@ mod target;
 
 pub use artifact::{
     DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
-    DiagnosticOutputSink,
+    DiagnosticOutputSink, DiagnosticRuntimeArtifactProblem, DiagnosticRuntimeArtifactPurpose,
 };
 pub use dependency::{DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind};
 pub use document::DiagnosticDocumentParseKind;

@@ -279,6 +279,7 @@ mod tests {
         DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
         DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
         DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
+        DiagnosticRuntimeArtifactProblem,
         DiagnosticSelectionCandidate, DiagnosticSelectionCandidateIdentity,
         DiagnosticSelectionCandidateSignature, DiagnosticSelectionCandidates,
         DiagnosticSelectionKind, DiagnosticSelectionRejectionReason, DiagnosticSelectionRejections,
@@ -1047,6 +1048,43 @@ mod tests {
 
         assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
         assert_eq!(note.message(), "source inputs must be valid UTF-8");
+    }
+
+    #[test]
+    fn renderer_localizes_typed_runtime_metadata_failures_and_recovery() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::RuntimeArtifactMetadataInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::artifact_path("runtime/bray-runtime.brayrt"))
+        .with_arg(DiagnosticArg::runtime_artifact_problem(
+            DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
+                component: "runtime.scheduler".to_owned(),
+                dependency: "runtime.reactor".to_owned(),
+            },
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::RuntimeArtifactMustBeUsable,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "runtime artifact metadata is invalid: runtime/bray-runtime.brayrt: component `runtime.scheduler` has invalid dependency `runtime.reactor`"
+        );
+
+        let [note] = rendered.notes() else {
+            panic!("expected one rendered note: {rendered:?}");
+        };
+
+        assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
+
+        assert_eq!(
+            note.message(),
+            "select a readable runtime artifact built for the selected target and runtime ABI"
+        );
     }
 
     #[test]

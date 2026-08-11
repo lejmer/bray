@@ -49,10 +49,10 @@ use bray_symbols::{
     GenericArgument, GenericConstraintsFact, GenericDeclarationTemplateFact, GenericOwnerId,
     GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
     ImplementationCoherenceFact, ImplementationInstanceId, ImplementationSymbolId,
-    InterfaceSupportEntityId, NamedTypeSymbolId, PredicateDefinitionFact, PredicateDefinitionState,
-    RuntimeDefaultGenericContext, RuntimeDefaultPresence, RuntimeDefaultProviderInput,
-    RuntimeDefaultTemplateReference, SemanticValueStore, StructFieldDefaultValue,
-    SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
+    InterfaceSupportEntityId, InterfaceSymbolId, NamedTypeSymbolId, PredicateDefinitionFact,
+    PredicateDefinitionState, RuntimeDefaultGenericContext, RuntimeDefaultPresence,
+    RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference, SemanticValueStore,
+    StructFieldDefaultValue, SymbolFactRequest, SymbolKeyData, SymbolKind, TraitApplicationId,
     TraitPredicateFulfillmentDefinitionFact, TraitPredicateMemberDefinitionFact, TypeData,
     TypeExpressionTemplate, TypeId, UnionPayloadDefaultValue,
 };
@@ -221,16 +221,75 @@ fn executable_templates(
 > {
     let mut templates = Vec::new();
     let mut runtime_requirements = Vec::new();
+
+    for symbol in selected.iter().copied() {
+        let Some(root) = executable_template_unit(compilation, graph, symbol)? else {
+            continue;
+        };
+
+        let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
+            return Err(PackageInterfaceExportError::InvalidCompilation);
+        };
+
+        let (family_templates, family_requirement) =
+            export_executable_template_family(compilation, owner, root, export)?;
+
+        templates.extend(family_templates);
+
+        if let Some(requirement) = family_requirement {
+            runtime_requirements.push(requirement);
+        }
+    }
+
+    runtime_requirements.sort_unstable();
+
+    Ok((templates, runtime_requirements))
+}
+
+fn export_executable_template_family(
+    compilation: &Compilation,
+    owner: InterfaceSymbolId,
+    root: BoundUnitKey,
+    export: &mut SemanticExporter<'_>,
+) -> Result<
+    (
+        Vec<InterfaceExecutableTemplate>,
+        Option<InterfaceRuntimeRequirement>,
+    ),
+    PackageInterfaceExportError,
+> {
+    let family = executable_template_family(compilation, root)?;
+
+    let family_size =
+        u32::try_from(family.len()).map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+    let identities = family
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            u32::try_from(index)
+                .map(bray_ir::MirExecutableTemplateId::new)
+                // The address map owns stable source keys independently of the traversal list.
+                .map(|identity| (key.clone(), identity))
+                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+
     let selected_target = compilation.selected_target().target();
 
     let codegen_target = selected_target
         .codegen_target()
         .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
-    for symbol in selected.iter().copied() {
-        let Some(key) = executable_template_unit(compilation, graph, symbol)? else {
-            continue;
-        };
+    let mut templates = Vec::with_capacity(family.len());
+    let mut family_requirements = Vec::new();
+    let mut frames = BTreeSet::new();
+
+    for key in family {
+        let identity = identities
+            .get(&key)
+            .copied()
+            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
 
         let lowered = compilation
             .lowered_unit(key)
@@ -245,10 +304,6 @@ fn executable_templates(
             .as_ref()
             .and_then(bray_lowering::LoweredUnit::mir)
             .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
-
-        let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
-            return Err(PackageInterfaceExportError::InvalidCompilation);
-        };
 
         let capabilities = crate::compilation::product::demanded_runtime_capabilities(mir);
 
@@ -269,33 +324,60 @@ fn executable_templates(
                 [],
             );
 
-            runtime_requirements.push(InterfaceRuntimeRequirement::new(
-                InterfaceSymbolReference::Local(owner),
-                frame.map(bray_ir::MirFrameDescriptor::frame),
-                requirements,
-            ));
+            family_requirements.push(requirements);
+
+            if let Some(frame) = frame {
+                frames.insert(frame.frame());
+            }
         }
 
-        let payload =
-            bray_package_interface::encode_executable_template(mir, export).map_err(|error| {
-                match error {
-                    bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
-                    bray_package_interface::ExecutableTemplateEncodeError::NestedUnit
-                    | bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
-                        PackageInterfaceExportError::InvalidCompilation
-                    }
+        let mut context = ExecutableTemplateExporter::new(export, &identities);
+
+        let payload = bray_package_interface::encode_executable_template(mir, &mut context)
+            .map_err(|error| match error {
+                bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
+                bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
+                    PackageInterfaceExportError::InvalidCompilation
                 }
             })?;
 
-        let template = InterfaceExecutableTemplate::new(owner, payload)
+        let template = InterfaceExecutableTemplate::new(owner, identity, family_size, payload)
             .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
 
         templates.push(template);
     }
 
-    runtime_requirements.sort_unstable();
+    let runtime_requirement =
+        bray_runtime_interface::RuntimeRequirements::try_merge(family_requirements)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+            .map(|requirements| {
+                InterfaceRuntimeRequirement::new(
+                    InterfaceSymbolReference::Local(owner),
+                    frames,
+                    requirements,
+                )
+            });
 
-    Ok((templates, runtime_requirements))
+    Ok((templates, runtime_requirement))
+}
+
+fn executable_template_family(
+    compilation: &Compilation,
+    root: BoundUnitKey,
+) -> Result<Vec<BoundUnitKey>, PackageInterfaceExportError> {
+    compilation
+        .bound_unit_family_with_cancellation(root, &compilation.state.cancellation)
+        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+        .into_iter()
+        .map(|bound| {
+            if bound.diagnostics().has_errors() {
+                return Err(PackageInterfaceExportError::InvalidCompilation);
+            }
+
+            // Export traversal retains each stable key beyond the immutable bound-fact borrow.
+            Ok(bound.value().key().clone())
+        })
+        .collect()
 }
 
 fn executable_template_unit(
@@ -2346,60 +2428,86 @@ impl<'a> SemanticExporter<'a> {
     }
 }
 
-impl bray_package_interface::ExecutableTemplateEncodeContext for SemanticExporter<'_> {
+struct ExecutableTemplateExporter<'export, 'compilation> {
+    semantic: &'export mut SemanticExporter<'compilation>,
+    nested: &'export BTreeMap<BoundUnitKey, bray_ir::MirExecutableTemplateId>,
+}
+
+impl<'export, 'compilation> ExecutableTemplateExporter<'export, 'compilation> {
+    const fn new(
+        semantic: &'export mut SemanticExporter<'compilation>,
+        nested: &'export BTreeMap<BoundUnitKey, bray_ir::MirExecutableTemplateId>,
+    ) -> Self {
+        Self { semantic, nested }
+    }
+}
+
+impl bray_package_interface::ExecutableTemplateEncodeContext
+    for ExecutableTemplateExporter<'_, '_>
+{
     type Error = PackageInterfaceExportError;
 
     fn type_id(&mut self, id: TypeId) -> Result<InterfaceTypeId, Self::Error> {
-        SemanticExporter::type_id(self, id)
+        self.semantic.type_id(id)
     }
 
     fn constant_value_id(
         &mut self,
         id: ConstantValueId,
     ) -> Result<InterfaceConstantValueId, Self::Error> {
-        SemanticExporter::constant_value_id(self, id)
+        self.semantic.constant_value_id(id)
     }
 
     fn constant_term_id(
         &mut self,
         id: ConstantTermId,
     ) -> Result<InterfaceConstantTermId, Self::Error> {
-        SemanticExporter::constant_term_id(self, id)
+        self.semantic.constant_term_id(id)
     }
 
     fn substitution_id(
         &mut self,
         id: GenericSubstitutionId,
     ) -> Result<InterfaceGenericSubstitutionId, Self::Error> {
-        SemanticExporter::substitution_id(self, id)
+        self.semantic.substitution_id(id)
     }
 
     fn trait_application_id(
         &mut self,
         id: TraitApplicationId,
     ) -> Result<InterfaceTraitApplicationId, Self::Error> {
-        SemanticExporter::trait_application_id(self, id)
+        self.semantic.trait_application_id(id)
     }
 
     fn implementation_instance_id(
         &mut self,
         id: ImplementationInstanceId,
     ) -> Result<InterfaceImplementationInstanceId, Self::Error> {
-        SemanticExporter::implementation_instance_id(self, id)
+        self.semantic.implementation_instance_id(id)
     }
 
     fn dependency_contract_id(
         &mut self,
         id: bray_symbols::DependencyContractTemplateId,
     ) -> Result<InterfaceDependencyContractId, Self::Error> {
-        SemanticExporter::dependency_contract_id(self, id)
+        self.semantic.dependency_contract_id(id)
     }
 
     fn symbol_reference(
         &mut self,
         id: AnySymbolId,
     ) -> Result<InterfaceSymbolReference, Self::Error> {
-        SemanticExporter::symbol_reference(self, id)
+        self.semantic.symbol_reference(id)
+    }
+
+    fn nested_executable_id(
+        &mut self,
+        key: &BoundUnitKey,
+    ) -> Result<bray_ir::MirExecutableTemplateId, Self::Error> {
+        self.nested
+            .get(key)
+            .copied()
+            .ok_or(PackageInterfaceExportError::InvalidCompilation)
     }
 }
 

@@ -179,10 +179,14 @@ pub enum DiagnosticPackageInterfaceFailure {
     },
     MissingSemanticContent(String),
     DuplicateExecutableTemplate(u32),
+    InvalidExecutableTemplateFamily(u32),
     DuplicateNativeBoundary(u32),
     ImplementationDuplicateCallableBody(u32),
     ImplementationDuplicateExecutableTemplate(u32),
+    ImplementationInvalidExecutableTemplateFamily(u32),
     ImplementationDuplicateNativeBoundary(u32),
+    ImplementationDuplicateSpecialization,
+    ImplementationSpecializationIdentityMismatch,
     ImplementationInvalidExecutableOwner(u32),
     ImplementationInvalidNativeBoundaryOwner(u32),
     ImplementationInvalidCallableOwner(u32),
@@ -436,6 +440,7 @@ impl DiagnosticPackageInterfaceFailure {
             Self::DuplicateExportName { .. } => "duplicate_export_name",
             Self::MissingSemanticContent(_) => "missing_semantic_content",
             Self::DuplicateExecutableTemplate(_) => "duplicate_executable_template",
+            Self::InvalidExecutableTemplateFamily(_) => "invalid_executable_template_family",
             Self::DuplicateNativeBoundary(_) => "duplicate_native_boundary",
             Self::ImplementationDuplicateCallableBody(_) => {
                 "implementation_duplicate_callable_body"
@@ -443,8 +448,17 @@ impl DiagnosticPackageInterfaceFailure {
             Self::ImplementationDuplicateExecutableTemplate(_) => {
                 "implementation_duplicate_executable_template"
             }
+            Self::ImplementationInvalidExecutableTemplateFamily(_) => {
+                "implementation_invalid_executable_template_family"
+            }
             Self::ImplementationDuplicateNativeBoundary(_) => {
                 "implementation_duplicate_native_boundary"
+            }
+            Self::ImplementationDuplicateSpecialization => {
+                "implementation_duplicate_specialization"
+            }
+            Self::ImplementationSpecializationIdentityMismatch => {
+                "implementation_specialization_identity_mismatch"
             }
             Self::ImplementationInvalidExecutableOwner(_) => {
                 "implementation_invalid_executable_owner"

@@ -296,9 +296,14 @@ impl InterfaceSemanticFacts {
         for runtime in &*self.runtime_requirements {
             validate_symbol(runtime.owner(), symbol_count, dependency_count)?;
 
+            limits.check(
+                InterfaceLimit::RecordCount,
+                saturating_u64(runtime.frames().len()),
+            )?;
+
             if runtime.requirements().runtime().is_some()
                 || !runtime.requirements().roles().is_empty()
-                || runtime.frame().is_some() && runtime.requirements().frame_abi().is_none()
+                || runtime.frames().is_empty() != runtime.requirements().frame_abi().is_none()
             {
                 return Err(InterfaceValidationError::Malformed);
             }

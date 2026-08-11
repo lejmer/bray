@@ -260,6 +260,59 @@ const COMPILER_PROFILE_WRITE_FAILED: &[MessageTemplatePart] = &[MessageTemplateP
     DiagnosticArgName::ProjectCommandFailure,
 )];
 
+const RUNTIME_ARTIFACT_METADATA_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read runtime artifact metadata "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const RUNTIME_ARTIFACT_METADATA_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime artifact metadata is invalid: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::RuntimeArtifactProblem),
+];
+
+const RUNTIME_ARTIFACT_TARGET_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime artifact metadata "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(" targets "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualTargetIdentity),
+    MessageTemplatePart::Text(" but the compilation selected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedTargetIdentity),
+];
+
+const RUNTIME_ARTIFACT_ABI_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime artifact metadata "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(" provides runtime ABI "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualRuntimeAbi),
+    MessageTemplatePart::Text(" but the compilation requires "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRuntimeAbi),
+];
+
+const RUNTIME_ARTIFACT_ARCHIVE_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read runtime archive "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(": "),
+    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+];
+
+const RUNTIME_ARTIFACT_ARCHIVE_INVALID: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime archive is invalid: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+];
+
+const RUNTIME_ARTIFACT_ARCHIVE_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("runtime archive "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
+    MessageTemplatePart::Text(" has digest "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
+    MessageTemplatePart::Text(" but expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
+];
+
 const PROJECT_MANIFEST_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read Bray project manifest "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
@@ -1657,6 +1710,9 @@ const NOTE_LINK_PLAN_CONTEXT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" with driver "),
     MessageTemplatePart::Arg(DiagnosticArgName::LinkerDriverIdentity),
 ];
+const NOTE_RUNTIME_ARTIFACT_MUST_BE_USABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "select a readable runtime artifact built for the selected target and runtime ABI",
+)];
 const NOTE_AWAIT_DEPENDENCY_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
     MessageTemplatePart::Text(" must "),
@@ -1811,7 +1867,8 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::TestDirectiveRequirements
         | DiagnosticNoteKind::UniqueTestIdentityRequired
         | DiagnosticNoteKind::PublicDependencyRequired
-        | DiagnosticNoteKind::ExternalToolExitRequiresCorrection => {
+        | DiagnosticNoteKind::ExternalToolExitRequiresCorrection
+        | DiagnosticNoteKind::RuntimeArtifactMustBeUsable => {
             RenderedDiagnosticNoteKind::Help
         }
     }
@@ -1878,6 +1935,27 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CompilerProfileWriteFailed => {
             MessageTemplate::new(COMPILER_PROFILE_WRITE_FAILED)
+        }
+        DiagnosticKind::RuntimeArtifactMetadataReadFailed => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_METADATA_READ_FAILED)
+        }
+        DiagnosticKind::RuntimeArtifactMetadataInvalid => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_METADATA_INVALID)
+        }
+        DiagnosticKind::RuntimeArtifactTargetMismatch => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_TARGET_MISMATCH)
+        }
+        DiagnosticKind::RuntimeArtifactAbiMismatch => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_ABI_MISMATCH)
+        }
+        DiagnosticKind::RuntimeArtifactArchiveReadFailed => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_READ_FAILED)
+        }
+        DiagnosticKind::RuntimeArtifactArchiveInvalid => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_INVALID)
+        }
+        DiagnosticKind::RuntimeArtifactArchiveDigestMismatch => {
+            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_DIGEST_MISMATCH)
         }
         DiagnosticKind::ProjectManifestReadFailed => {
             MessageTemplate::new(PROJECT_MANIFEST_READ_FAILED)
@@ -2647,6 +2725,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::LinkPlanContext => MessageTemplate::new(NOTE_LINK_PLAN_CONTEXT),
         DiagnosticNoteKind::ExternalToolExitRequiresCorrection => {
             MessageTemplate::new(NOTE_EXTERNAL_TOOL_EXIT_REQUIRES_CORRECTION)
+        }
+        DiagnosticNoteKind::RuntimeArtifactMustBeUsable => {
+            MessageTemplate::new(NOTE_RUNTIME_ARTIFACT_MUST_BE_USABLE)
         }
         DiagnosticNoteKind::AwaitDependencyUnavailable => {
             MessageTemplate::new(NOTE_AWAIT_DEPENDENCY_UNAVAILABLE)

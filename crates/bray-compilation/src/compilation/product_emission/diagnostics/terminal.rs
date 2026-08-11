@@ -299,6 +299,9 @@ fn package_interface_bundle_failure_diagnostic(
         PackageInterfaceExportBuildError::DuplicateExecutableTemplate(owner) => {
             DiagnosticPackageInterfaceFailure::DuplicateExecutableTemplate(owner.raw())
         }
+        PackageInterfaceExportBuildError::InvalidExecutableTemplateFamily(owner) => {
+            DiagnosticPackageInterfaceFailure::InvalidExecutableTemplateFamily(owner.raw())
+        }
         PackageInterfaceExportBuildError::DuplicateNativeBoundary(owner) => {
             DiagnosticPackageInterfaceFailure::DuplicateNativeBoundary(owner.raw())
         }
@@ -321,8 +324,19 @@ fn package_implementation_failure_diagnostic(
                 owner.raw(),
             )
         }
+        PackageImplementationArtifactBuildError::InvalidExecutableTemplateFamily(owner) => {
+            DiagnosticPackageInterfaceFailure::ImplementationInvalidExecutableTemplateFamily(
+                owner.raw(),
+            )
+        }
         PackageImplementationArtifactBuildError::DuplicateNativeBoundary(owner) => {
             DiagnosticPackageInterfaceFailure::ImplementationDuplicateNativeBoundary(owner.raw())
+        }
+        PackageImplementationArtifactBuildError::DuplicateSpecialization => {
+            DiagnosticPackageInterfaceFailure::ImplementationDuplicateSpecialization
+        }
+        PackageImplementationArtifactBuildError::SpecializationIdentityMismatch => {
+            DiagnosticPackageInterfaceFailure::ImplementationSpecializationIdentityMismatch
         }
         PackageImplementationArtifactBuildError::InvalidExecutableOwner(owner) => {
             DiagnosticPackageInterfaceFailure::ImplementationInvalidExecutableOwner(owner.raw())

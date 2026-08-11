@@ -139,9 +139,11 @@ pub(super) fn package_interface_failure_context(
         | Failure::ExportTargetOutOfBounds(record)
         | Failure::InvalidDirectExportTarget(record)
         | Failure::DuplicateExecutableTemplate(record)
+        | Failure::InvalidExecutableTemplateFamily(record)
         | Failure::DuplicateNativeBoundary(record)
         | Failure::ImplementationDuplicateCallableBody(record)
         | Failure::ImplementationDuplicateExecutableTemplate(record)
+        | Failure::ImplementationInvalidExecutableTemplateFamily(record)
         | Failure::ImplementationDuplicateNativeBoundary(record)
         | Failure::ImplementationInvalidExecutableOwner(record)
         | Failure::ImplementationInvalidNativeBoundaryOwner(record)
@@ -203,7 +205,9 @@ pub(super) fn package_interface_failure_context(
         | Failure::DependencyCountOverflow
         | Failure::IdentityEmpty
         | Failure::IdentitySymbolCountOverflow
-        | Failure::ImplementationContentTooLarge => Vec::new(),
+        | Failure::ImplementationContentTooLarge
+        | Failure::ImplementationDuplicateSpecialization
+        | Failure::ImplementationSpecializationIdentityMismatch => Vec::new(),
     }
 }
 

@@ -822,7 +822,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"runtime archive";
+        let bytes = b"!<arch>\n";
         let components = resolved_components(directory.path());
 
         for (_, archive) in &components {
@@ -874,7 +874,7 @@ mod tests {
 
         std::fs::write(
             directory.path().join("bray_runtime_product.lib"),
-            b"tampered archive",
+            archive_with_member(b"tampered archive"),
         )
         .unwrap_or_else(|error| panic!("test runtime archive must be replaced: {error}"));
 
@@ -884,13 +884,146 @@ mod tests {
                 panic!("unselected archives must not be authenticated: {error:?}")
             });
 
+        let archive = directory.path().join("bray_runtime_product.lib");
+
+        let actual = RuntimeArtifactDigest::new(
+            bray_base::sha256_file(&archive)
+                .unwrap_or_else(|error| panic!("tampered runtime archive must hash: {error}")),
+        );
+
         assert_eq!(
             artifact.select(RuntimeArtifactPurpose::Product, &startup),
-            Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch(
-                RuntimeArtifactId::try_new("runtime.product.execution")
-                    .unwrap_or_else(|| panic!("component identity must be valid"))
-            ))
+            Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch {
+                component: RuntimeArtifactId::try_new("runtime.product.execution")
+                    .unwrap_or_else(|| panic!("component identity must be valid")),
+                path: archive,
+                expected: digest,
+                actual,
+            })
         );
+    }
+
+    #[test]
+    fn runtime_selection_preserves_missing_and_invalid_archive_details() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+
+        let bytes = b"!<arch>\n";
+
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(bytes.as_slice())
+                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
+        );
+
+        let components = resolved_components(directory.path());
+
+        for (_, archive) in &components {
+            std::fs::write(archive, bytes)
+                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
+        }
+
+        let artifact = RuntimeArtifact::try_new(
+            metadata_with_digest("bray.runtime.reference", digest),
+            components,
+        )
+        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+
+        let requirements = requirements([], [RuntimeCapability::MainThreadLane]);
+        let archive = directory.path().join("bray_runtime_product_main.lib");
+
+        std::fs::remove_file(&archive)
+            .unwrap_or_else(|error| panic!("test runtime archive must be removed: {error}"));
+
+        assert_eq!(
+            artifact.select(RuntimeArtifactPurpose::Product, &requirements),
+            Err(RuntimeArtifactSelectionError::UnreadableArchive {
+                component: RuntimeArtifactId::try_new("runtime.product.main_thread")
+                    .unwrap_or_else(|| panic!("component identity must be valid")),
+                path: archive.clone(),
+                kind: std::io::ErrorKind::NotFound,
+            })
+        );
+
+        std::fs::write(&archive, b"!<arch>\ntruncated member header")
+            .unwrap_or_else(|error| panic!("invalid test archive must be written: {error}"));
+
+        assert_eq!(
+            artifact.select(RuntimeArtifactPurpose::Product, &requirements),
+            Err(RuntimeArtifactSelectionError::InvalidArchive {
+                component: RuntimeArtifactId::try_new("runtime.product.main_thread")
+                    .unwrap_or_else(|| panic!("component identity must be valid")),
+                path: archive,
+            })
+        );
+    }
+
+    #[test]
+    fn runtime_selection_rejects_malformed_member_framing() {
+        let mut malformed_size = archive_with_member(&[]);
+        malformed_size[8 + 48] = b'x';
+
+        let mut truncated_member = archive_with_member(b"body");
+        truncated_member.pop();
+
+        let mut invalid_padding = archive_with_member(b"x");
+
+        *invalid_padding
+            .last_mut()
+            .unwrap_or_else(|| panic!("odd archive member must have padding")) = 0;
+
+        let mut incomplete_trailing_header = b"!<arch>\n".to_vec();
+        incomplete_trailing_header.push(b'x');
+
+        for bytes in [
+            malformed_size,
+            truncated_member,
+            invalid_padding,
+            incomplete_trailing_header,
+        ] {
+            assert_invalid_archive(&bytes);
+        }
+    }
+
+    #[test]
+    fn runtime_selection_accepts_aix_big_archive_framing() {
+        assert_valid_archive(&big_archive_with_member(b"body"));
+    }
+
+    #[test]
+    fn runtime_selection_accepts_supported_unix_archive_framing() {
+        assert_valid_archive(&archive_with_member(b"body"));
+        assert_valid_archive(&coff_archive_with_string_table());
+        assert_valid_archive(&darwin_archive_with_member(b"body"));
+    }
+
+    #[test]
+    fn runtime_selection_rejects_malformed_aix_big_archive_framing() {
+        let mut malformed_fixed_offset = big_archive_with_member(b"body");
+        malformed_fixed_offset[8] = b'x';
+
+        let mut malformed_member_size = big_archive_with_member(b"body");
+        malformed_member_size[128] = b'x';
+
+        let mut invalid_name_terminator = big_archive_with_member(b"body");
+        invalid_name_terminator[128 + 112 + 6] = 0;
+
+        let mut truncated_member = big_archive_with_member(b"body");
+        truncated_member.pop();
+
+        let mut broken_previous_link = big_archive_with_member(b"body");
+        let member_table = 128 + 112 + 6 + 2 + 4;
+        broken_previous_link[member_table + 40] = b'0';
+
+        for bytes in [
+            b"<bigaf>\n".to_vec(),
+            malformed_fixed_offset,
+            malformed_member_size,
+            invalid_name_terminator,
+            truncated_member,
+            broken_previous_link,
+        ] {
+            assert_invalid_archive(&bytes);
+        }
     }
 
     #[test]
@@ -938,7 +1071,7 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"runtime archive";
+        let bytes = b"!<arch>\n";
         let digest_path = directory.path().join("digest.lib");
 
         std::fs::write(&digest_path, bytes)
@@ -1125,6 +1258,202 @@ mod tests {
             )
         })
         .collect()
+    }
+
+    fn archive_with_member(contents: &[u8]) -> Vec<u8> {
+        unix_archive_member("member/", contents)
+    }
+
+    fn coff_archive_with_string_table() -> Vec<u8> {
+        unix_archive_member("//", b"long_name\0")
+    }
+
+    fn darwin_archive_with_member(contents: &[u8]) -> Vec<u8> {
+        let name = b"member";
+        let name_padding = 6;
+        let member_padding = (8 - contents.len() % 8) % 8;
+        let encoded_name_length = name.len() + name_padding;
+        let mut member = Vec::new();
+
+        member.extend_from_slice(name);
+        member.resize(encoded_name_length, 0);
+        member.extend_from_slice(contents);
+        member.resize(member.len() + member_padding, 0);
+
+        unix_archive_member(&format!("#1/{encoded_name_length}"), &member)
+    }
+
+    fn unix_archive_member(name: &str, contents: &[u8]) -> Vec<u8> {
+        let header = format!(
+            "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+            name,
+            0,
+            0,
+            0,
+            "100644",
+            contents.len()
+        );
+
+        assert_eq!(header.len(), 60);
+
+        let mut archive = b"!<arch>\n".to_vec();
+
+        archive.extend_from_slice(header.as_bytes());
+        archive.extend_from_slice(contents);
+
+        if contents.len() % 2 == 1 {
+            archive.push(b'\n');
+        }
+
+        archive
+    }
+
+    fn big_archive_with_member(contents: &[u8]) -> Vec<u8> {
+        const FIXED_HEADER_LENGTH: usize = 128;
+
+        let name = b"member";
+        let member_length = 112 + name.len() + 2 + contents.len() + contents.len() % 2;
+        let member_table_offset = FIXED_HEADER_LENGTH + member_length;
+
+        let member_table_contents = [
+            fixed_width_decimal(1, 20),
+            fixed_width_decimal(FIXED_HEADER_LENGTH, 20),
+            b"member\0".to_vec(),
+        ]
+        .concat();
+
+        let mut archive = b"<bigaf>\n".to_vec();
+
+        for offset in [
+            member_table_offset,
+            0,
+            0,
+            FIXED_HEADER_LENGTH,
+            FIXED_HEADER_LENGTH,
+            0,
+        ] {
+            archive.extend_from_slice(&fixed_width_decimal(offset, 20));
+        }
+
+        archive.extend_from_slice(&big_archive_member(
+            name,
+            contents,
+            member_table_offset,
+            0,
+        ));
+
+        archive.extend_from_slice(&big_archive_member(
+            b"",
+            &member_table_contents,
+            0,
+            FIXED_HEADER_LENGTH,
+        ));
+
+        archive
+    }
+
+    fn big_archive_member(
+        name: &[u8],
+        contents: &[u8],
+        next: usize,
+        previous: usize,
+    ) -> Vec<u8> {
+        let mut member = Vec::new();
+
+        for (value, width) in [
+            (contents.len(), 20),
+            (next, 20),
+            (previous, 20),
+            (0, 12),
+            (0, 12),
+            (0, 12),
+        ] {
+            member.extend_from_slice(&fixed_width_decimal(value, width));
+        }
+
+        member.extend_from_slice(format!("{:<12}", "100644").as_bytes());
+        member.extend_from_slice(&fixed_width_decimal(name.len(), 4));
+        member.extend_from_slice(name);
+
+        if name.len() % 2 == 1 {
+            member.push(0);
+        }
+
+        member.extend_from_slice(b"`\n");
+        member.extend_from_slice(contents);
+
+        if contents.len() % 2 == 1 {
+            member.push(0);
+        }
+
+        member
+    }
+
+    fn fixed_width_decimal(value: usize, width: usize) -> Vec<u8> {
+        format!("{value:<width$}").into_bytes()
+    }
+
+    fn assert_valid_archive(bytes: &[u8]) {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(bytes)
+                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
+        );
+
+        let components = resolved_components(directory.path());
+
+        for (_, archive) in &components {
+            std::fs::write(archive, bytes)
+                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
+        }
+
+        let artifact = RuntimeArtifact::try_new(
+            metadata_with_digest("bray.runtime.reference", digest),
+            components,
+        )
+        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+
+        assert!(
+            artifact
+                .select(
+                    RuntimeArtifactPurpose::Product,
+                    &requirements([], [RuntimeCapability::MainThreadLane]),
+                )
+                .is_ok()
+        );
+    }
+
+    fn assert_invalid_archive(bytes: &[u8]) {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(bytes)
+                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
+        );
+
+        let components = resolved_components(directory.path());
+
+        for (_, archive) in &components {
+            std::fs::write(archive, bytes)
+                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
+        }
+
+        let artifact = RuntimeArtifact::try_new(
+            metadata_with_digest("bray.runtime.reference", digest),
+            components,
+        )
+        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+
+        assert!(matches!(
+            artifact.select(
+                RuntimeArtifactPurpose::Product,
+                &requirements([], [RuntimeCapability::MainThreadLane]),
+            ),
+            Err(RuntimeArtifactSelectionError::InvalidArchive { .. })
+        ));
     }
 
     fn contract(identity: &str) -> RuntimeContract {

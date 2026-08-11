@@ -322,6 +322,9 @@ fn format_english_package_interface_failure(
         Failure::DuplicateExecutableTemplate(owner) => {
             format!("two executable templates claim callable record {owner}")
         }
+        Failure::InvalidExecutableTemplateFamily(owner) => format!(
+            "the executable templates for callable record {owner} do not form one contiguous root-first family"
+        ),
         Failure::DuplicateNativeBoundary(owner) => {
             format!("two native boundaries claim function record {owner}")
         }
@@ -331,8 +334,17 @@ fn format_english_package_interface_failure(
         Failure::ImplementationDuplicateExecutableTemplate(owner) => {
             format!("two implementation templates claim declaration record {owner}")
         }
+        Failure::ImplementationInvalidExecutableTemplateFamily(owner) => format!(
+            "the implementation templates for declaration record {owner} do not form one contiguous root-first family"
+        ),
         Failure::ImplementationDuplicateNativeBoundary(owner) => {
             format!("two implementation native boundaries claim declaration record {owner}")
+        }
+        Failure::ImplementationDuplicateSpecialization => {
+            "two implementation payloads claim the same specialization".to_owned()
+        }
+        Failure::ImplementationSpecializationIdentityMismatch => {
+            "an implementation specialization does not belong to this package configuration and dependency set".to_owned()
         }
         Failure::ImplementationInvalidExecutableOwner(owner) => format!(
             "executable template owner record {owner} is missing or cannot own executable code"

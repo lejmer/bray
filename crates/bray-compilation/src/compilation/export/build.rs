@@ -121,11 +121,20 @@ impl Compilation {
                 &identity.keys,
             )?;
 
-        PackageInterfaceExportBundle::try_new(surface, semantic_facts, request.language_revision())
-            .and_then(|bundle| bundle.with_executable_templates(executable_templates))
-            .and_then(|bundle| bundle.with_native_boundaries(native_boundaries))
-            .map(Arc::new)
-            .map_err(PackageInterfaceExportError::Bundle)
+        let implementation_configuration = self
+            .package_implementation_configuration(None)
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+        PackageInterfaceExportBundle::try_new(
+            surface,
+            semantic_facts,
+            request.language_revision(),
+            implementation_configuration,
+        )
+        .and_then(|bundle| bundle.with_executable_templates(executable_templates))
+        .and_then(|bundle| bundle.with_native_boundaries(native_boundaries))
+        .map(Arc::new)
+        .map_err(PackageInterfaceExportError::Bundle)
     }
 }
 

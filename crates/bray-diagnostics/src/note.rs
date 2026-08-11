@@ -115,6 +115,8 @@ pub enum DiagnosticNoteKind {
     LinkPlanContext,
     /// Recovery guidance after an external native-link tool reports an unsuccessful exit.
     ExternalToolExitRequiresCorrection,
+    /// Recovery guidance for an unusable selected runtime artifact.
+    RuntimeArtifactMustBeUsable,
     /// One exact unavailable state required across an await.
     AwaitDependencyUnavailable,
     /// Recovery guidance for operations that require an asynchronous callable body.
@@ -188,6 +190,7 @@ impl DiagnosticNoteKind {
             Self::InterfaceDependencyContext => "interface_dependency_context",
             Self::LinkPlanContext => "link_plan_context",
             Self::ExternalToolExitRequiresCorrection => "external_tool_exit_requires_correction",
+            Self::RuntimeArtifactMustBeUsable => "runtime_artifact_must_be_usable",
             Self::AwaitDependencyUnavailable => "await_dependency_unavailable",
             Self::AsynchronousCallableRequired => "asynchronous_callable_required",
             Self::ExecutableEntrypointRequired => "executable_entrypoint_required",

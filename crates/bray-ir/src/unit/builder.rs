@@ -40,14 +40,14 @@ impl MirUnitBuilder {
     /// Starts MIR reconstruction for one checked executable template from a dependency.
     pub fn for_imported_executable(
         unit: MirUnitId,
-        owner: bray_symbols::AnySymbolId,
+        key: crate::MirImportedExecutableKey,
         kind: MirUnitKind,
         target: MirTargetFacts,
     ) -> Self {
         Self {
-            key: MirUnitKey::ImportedExecutable(owner),
+            key: MirUnitKey::ImportedExecutable(key),
             unit,
-            source: MirSourceOrigin::ImportedExecutable(owner),
+            source: MirSourceOrigin::ImportedExecutable(key),
             target,
             kind,
             frame_descriptor: None,

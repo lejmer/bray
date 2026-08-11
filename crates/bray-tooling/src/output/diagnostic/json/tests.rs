@@ -18,6 +18,7 @@ use bray_diagnostics::{
     DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
     DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
+    DiagnosticRuntimeArtifactProblem,
     DiagnosticSelectionCandidate, DiagnosticSelectionCandidateIdentity,
     DiagnosticSelectionCandidateSignature, DiagnosticSelectionCandidates, DiagnosticSelectionKind,
     DiagnosticSelectionRejectionReason, DiagnosticSelectionRejections, DiagnosticSourceEdit,
@@ -56,6 +57,7 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/project/execution.rs",
     "output/diagnostic/json/project/inspection.rs",
     "output/diagnostic/json/report.rs",
+    "output/diagnostic/json/runtime.rs",
     "output/diagnostic/json/tests.rs",
     "output/diagnostic/json/value.rs",
 ];
@@ -113,6 +115,50 @@ fn collect_rust_sources(directory: &Path, source_root: &Path, sources: &mut Vec<
             sources.push(relative.to_string_lossy().replace('\\', "/"));
         }
     }
+}
+
+#[test]
+fn json_output_serializes_runtime_artifact_problems_with_typed_details() {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::RuntimeArtifactMetadataInvalid,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::artifact_path("runtime/bray-runtime.brayrt"))
+    .with_arg(DiagnosticArg::runtime_artifact_problem(
+        DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
+            component: "runtime.scheduler".to_owned(),
+            dependency: "runtime.reactor".to_owned(),
+        },
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+    let argument = &output["diagnostics"][0]["args"][1];
+
+    assert_eq!(argument["name"], "runtime_artifact_problem");
+    assert_eq!(argument["value"]["kind"], "runtime_artifact_problem");
+
+    assert_eq!(
+        argument["value"]["value"]["category"],
+        "invalid_component_dependency"
+    );
+
+    assert_eq!(
+        argument["value"]["value"]["component"],
+        "runtime.scheduler"
+    );
+
+    assert_eq!(
+        argument["value"]["value"]["dependency"],
+        "runtime.reactor"
+    );
 }
 
 #[test]

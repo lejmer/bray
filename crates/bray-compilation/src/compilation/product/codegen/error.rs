@@ -172,10 +172,13 @@ fn native_product_failure_kind(
             RuntimeArtifactSelectionError::MissingCapabilityOwner(_) => {
                 Kind::RuntimeSelectionMissingCapabilityOwner
             }
-            RuntimeArtifactSelectionError::UnreadableArchive(_) => {
+            RuntimeArtifactSelectionError::UnreadableArchive { .. } => {
                 Kind::RuntimeSelectionUnreadableArchive
             }
-            RuntimeArtifactSelectionError::ArchiveDigestMismatch(_) => {
+            RuntimeArtifactSelectionError::InvalidArchive { .. } => {
+                Kind::RuntimeSelectionInvalidArchive
+            }
+            RuntimeArtifactSelectionError::ArchiveDigestMismatch { .. } => {
                 Kind::RuntimeSelectionArchiveDigestMismatch
             }
         },

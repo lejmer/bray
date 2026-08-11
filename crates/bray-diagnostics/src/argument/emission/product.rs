@@ -114,6 +114,7 @@ pub enum DiagnosticNativeProductFailureKind {
     RuntimeSelectionMissingRoleOwner,
     RuntimeSelectionMissingCapabilityOwner,
     RuntimeSelectionUnreadableArchive,
+    RuntimeSelectionInvalidArchive,
     RuntimeSelectionArchiveDigestMismatch,
     EmissionBackendDuplicateUnit,
     LinkTargetEmptyTriple,
@@ -189,6 +190,7 @@ impl DiagnosticNativeProductFailureKind {
                 "runtime_selection_missing_capability_owner"
             }
             Self::RuntimeSelectionUnreadableArchive => "runtime_selection_unreadable_archive",
+            Self::RuntimeSelectionInvalidArchive => "runtime_selection_invalid_archive",
             Self::RuntimeSelectionArchiveDigestMismatch => {
                 "runtime_selection_archive_digest_mismatch"
             }

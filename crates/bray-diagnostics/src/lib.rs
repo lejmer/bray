@@ -36,8 +36,9 @@ pub use argument::{
     DiagnosticLinkRequirement, DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind,
     DiagnosticLinkedProductKind, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
     DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
-    DiagnosticRuntimeAbiVersion, DiagnosticSelectionKind, DiagnosticStandardLibraryManifestProblem,
-    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
+    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticRuntimeArtifactPurpose,
+    DiagnosticSelectionKind, DiagnosticStandardLibraryManifestProblem, DiagnosticTargetRepresentation,
+    DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use checking::{

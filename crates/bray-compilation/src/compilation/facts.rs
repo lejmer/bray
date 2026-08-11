@@ -121,7 +121,7 @@ pub(super) struct CompilationState {
         Arc<DiagnosticResult<Option<Arc<bray_bound_tree::CheckedTemplate>>>>,
     >,
     pub(super) imported_executable_templates: FactCellMap<
-        ImportedSymbolFactAddress,
+        crate::fact::ImportedExecutableTemplateAddress,
         Arc<DiagnosticResult<Option<Arc<bray_ir::MirUnit>>>>,
     >,
     pub(super) imported_diagnostics: FactCell<DiagnosticBag>,

@@ -19,8 +19,8 @@ use super::native::{
     format_english_document_parse_kind, format_english_external_tool_exit,
     format_english_external_tool_failure, format_english_external_tool_operation,
     format_english_link_requirement, format_english_linker_driver_identity,
-    format_english_native_product_failure, format_english_standard_library_manifest_problem,
-    format_english_unsupported_emission_reason,
+    format_english_native_product_failure, format_english_runtime_artifact_problem,
+    format_english_standard_library_manifest_problem, format_english_unsupported_emission_reason,
 };
 use super::project::{
     format_english_project_command_failure, format_english_project_dependency_cycle_member,
@@ -95,6 +95,7 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::ProductIdentity(identity) => format_english_quoted_text(identity),
         DiagnosticArgValue::SymbolKind(kind) => format_english_quoted_text(&kind.replace('_', " ")),
         DiagnosticArgValue::TargetTriple(target) => format_english_quoted_text(target),
+        DiagnosticArgValue::TargetIdentity(target) => format_english_quoted_text(target),
         DiagnosticArgValue::NativeProductFailureKind(kind) => {
             format_english_native_product_failure(*kind).to_owned()
         }
@@ -199,6 +200,9 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::Revision(revision) => revision.to_string(),
         DiagnosticArgValue::RuntimeAbi(version) => {
             format!("{}.{}", version.major(), version.minor())
+        }
+        DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
+            format_english_runtime_artifact_problem(problem)
         }
         DiagnosticArgValue::Type(ty) => format_english_type(ty),
         DiagnosticArgValue::SelectionKind(kind) => format_english_selection_kind(*kind).to_owned(),

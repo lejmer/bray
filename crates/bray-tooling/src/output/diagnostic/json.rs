@@ -5,6 +5,7 @@ mod foreign;
 mod interface;
 mod project;
 mod report;
+mod runtime;
 #[cfg(test)]
 mod tests;
 mod value;
@@ -34,6 +35,7 @@ pub(in crate::output::diagnostic::json) use project::{
     DiagnosticProjectSelectionJson, DiagnosticSourceInputJson,
     DiagnosticUnsupportedEmissionReasonJson,
 };
+pub(in crate::output::diagnostic::json) use runtime::DiagnosticRuntimeArtifactProblemJson;
 pub(super) use report::write_json_diagnostic_groups;
 pub(crate) use report::write_json_diagnostics;
 #[cfg(feature = "analysis")]

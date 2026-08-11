@@ -464,7 +464,7 @@ pub struct InterfaceAbiDependency {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceRuntimeRequirement {
     pub(crate) owner: InterfaceSymbolReference,
-    pub(crate) frame: Option<ProtectedAsyncFrameId>,
+    pub(crate) frames: Arc<[ProtectedAsyncFrameId]>,
     pub(crate) requirements: RuntimeRequirements,
 }
 
@@ -472,14 +472,14 @@ impl InterfaceRuntimeRequirement {
     /// Creates one owner-correlated portable runtime requirement.
     ///
     /// Interface validation rejects exact runtime identities and private ABI roles.
-    pub const fn new(
+    pub fn new(
         owner: InterfaceSymbolReference,
-        frame: Option<ProtectedAsyncFrameId>,
+        frames: impl IntoIterator<Item = ProtectedAsyncFrameId>,
         requirements: RuntimeRequirements,
     ) -> Self {
         Self {
             owner,
-            frame,
+            frames: sorted_unique_shared_slice(frames),
             requirements,
         }
     }
@@ -489,9 +489,9 @@ impl InterfaceRuntimeRequirement {
         &self.owner
     }
 
-    /// Returns the hidden protected-frame identity when this requirement exports one.
-    pub const fn frame(&self) -> Option<ProtectedAsyncFrameId> {
-        self.frame
+    /// Returns the hidden protected-frame identities in canonical order.
+    pub fn frames(&self) -> &[ProtectedAsyncFrameId] {
+        &self.frames
     }
 
     /// Returns target-specific portable runtime compatibility requirements.

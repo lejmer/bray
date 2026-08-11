@@ -8,7 +8,8 @@ use super::{
     DiagnosticLinkRequirementJson, DiagnosticLinkerDriverIdentityJson, DiagnosticOutputSinkJson,
     DiagnosticPatternCoverageJson, DiagnosticProblemJson, DiagnosticProjectCommandFailureJson,
     DiagnosticProjectDependencyCycleMemberJson, DiagnosticProjectSelectionJson,
-    DiagnosticRuntimeAbiVersionJson, DiagnosticSelectionCandidatesJson,
+    DiagnosticRuntimeAbiVersionJson, DiagnosticRuntimeArtifactProblemJson,
+    DiagnosticSelectionCandidatesJson,
     DiagnosticSelectionRejectionsJson, DiagnosticSourceInputJson, DiagnosticStorageAccessJson,
     DiagnosticTraitFulfillmentMismatchJson, DiagnosticTypeJson,
     DiagnosticUnsupportedEmissionReasonJson, SourceSpanJson, array_generator_problem_json,
@@ -40,6 +41,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     PackageIdentity(String),
     ProductIdentity(String),
     TargetTriple(String),
+    TargetIdentity(String),
     NativeProductFailureKind(&'static str),
     EmissionFailure(DiagnosticEmissionFailureJson),
     EmissionArtifactOperation(&'static str),
@@ -90,6 +92,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     WorkerCount(u64),
     Revision(u64),
     RuntimeAbi(DiagnosticRuntimeAbiVersionJson),
+    RuntimeArtifactProblem(DiagnosticRuntimeArtifactProblemJson),
     Type(DiagnosticTypeJson),
     SelectionKind(&'static str),
     SelectionCandidates(DiagnosticSelectionCandidatesJson),
@@ -152,6 +155,7 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::SymbolKind(kind) => Self::SymbolKind(kind.to_owned()),
             DiagnosticArgValue::TargetTriple(target) => Self::TargetTriple(target.to_owned()),
+            DiagnosticArgValue::TargetIdentity(target) => Self::TargetIdentity(target.to_owned()),
             DiagnosticArgValue::NativeProductFailureKind(kind) => {
                 Self::NativeProductFailureKind((*kind).as_str())
             }
@@ -265,6 +269,11 @@ impl DiagnosticArgValueJson {
                     major: version.major(),
                     minor: version.minor(),
                 })
+            }
+            DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
+                Self::RuntimeArtifactProblem(DiagnosticRuntimeArtifactProblemJson::from_problem(
+                    problem,
+                ))
             }
             DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(ty)),
             DiagnosticArgValue::SelectionKind(kind) => Self::SelectionKind((*kind).as_str()),

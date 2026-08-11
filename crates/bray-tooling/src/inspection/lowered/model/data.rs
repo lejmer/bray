@@ -216,6 +216,7 @@ pub(crate) enum InspectionMirUnitKey {
     },
     ImportedExecutable {
         owner: InspectionSymbolIdentity,
+        template: u32,
     },
     ExternalCallable {
         callable: InspectionSymbolIdentity,
@@ -241,6 +242,7 @@ pub(crate) enum InspectionMirSource {
     },
     ImportedExecutable {
         owner: InspectionSymbolIdentity,
+        template: u32,
     },
 }
 
@@ -588,7 +590,15 @@ fn operation_parts(
 ) -> Result<&'static str, MirInspectionModelError> {
     let kind = match operation {
         MirOperationKind::AnonymousCallable(key) => {
-            parts.attribute("unit_kind", key.kind().as_str());
+            match key {
+                bray_ir::MirAnonymousCallableReference::Bound(key) => {
+                    parts.attribute("unit_kind", key.kind().as_str());
+                }
+                bray_ir::MirAnonymousCallableReference::Imported(key) => {
+                    parts.symbol("owner", key.owner(), context.symbols);
+                    parts.attribute("template", key.template().raw());
+                }
+            }
 
             "anonymous_callable"
         }
@@ -1816,8 +1826,9 @@ fn inspection_unit_key(
             role: generated_lifecycle_role(key.role()),
             type_identity: digest_text(key.type_identity()),
         }),
-        MirUnitKey::ImportedExecutable(owner) => Ok(InspectionMirUnitKey::ImportedExecutable {
-            owner: InspectionSymbolIdentity::from_symbol(symbols, *owner),
+        MirUnitKey::ImportedExecutable(key) => Ok(InspectionMirUnitKey::ImportedExecutable {
+            owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
+            template: key.template().raw(),
         }),
         MirUnitKey::ExternalCallable(definition) => Ok(InspectionMirUnitKey::ExternalCallable {
             callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
@@ -1850,8 +1861,9 @@ fn inspection_source_origin(
                     .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
             })
         }
-        MirSourceOrigin::ImportedExecutable(owner) => Ok(InspectionMirSource::ImportedExecutable {
-            owner: InspectionSymbolIdentity::from_symbol(symbols, *owner),
+        MirSourceOrigin::ImportedExecutable(key) => Ok(InspectionMirSource::ImportedExecutable {
+            owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
+            template: key.template().raw(),
         }),
     }
 }
@@ -1881,8 +1893,9 @@ fn inspection_source_anchor(
                     .ok_or(MirInspectionModelError::InvalidGeneratedLifecycle)?,
             })
         }
-        MirSourceAnchor::ImportedExecutable(owner) => Ok(InspectionMirSource::ImportedExecutable {
-            owner: InspectionSymbolIdentity::from_symbol(symbols, *owner),
+        MirSourceAnchor::ImportedExecutable(key) => Ok(InspectionMirSource::ImportedExecutable {
+            owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
+            template: key.template().raw(),
         }),
     }
 }

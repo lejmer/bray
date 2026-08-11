@@ -61,6 +61,29 @@ impl Compilation {
         Ok(Arc::clone(published.result()))
     }
 
+    /// Returns one root and its transitively nested bound units in deterministic preorder.
+    pub(in crate::compilation) fn bound_unit_family_with_cancellation(
+        &self,
+        root: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<Arc<DiagnosticResult<BoundUnit>>>, FactQueryError> {
+        let mut family = Vec::new();
+        let mut pending = vec![root];
+
+        while let Some(key) = pending.pop() {
+            cancellation.check()?;
+
+            let bound = self.bound_unit_with_cancellation(key, cancellation)?;
+
+            pending.extend(bound.result().value().nested_units().iter().rev().cloned());
+
+            // The family shares each immutable published fact independently of its cache cell.
+            family.push(Arc::clone(bound.result()));
+        }
+
+        Ok(family)
+    }
+
     /// Returns one bound semantic unit for a cancellable prioritized request.
     pub fn bound_unit_with_priority(
         &self,
