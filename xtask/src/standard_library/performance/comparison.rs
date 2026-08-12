@@ -125,7 +125,7 @@ fn compare_compiler_metrics(
     let baseline = compiler_metrics(baseline);
     let candidate = compiler_metrics(candidate);
 
-    compare_metric_maps(&baseline, &candidate)
+    compare_metric_maps_with(&baseline, &candidate, observed_metric)
 }
 
 fn compiler_metrics(workload: &super::model::WorkloadReport) -> BTreeMap<String, u64> {

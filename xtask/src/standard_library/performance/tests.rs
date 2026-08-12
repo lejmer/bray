@@ -214,6 +214,12 @@ fn comparison_attributes_compiler_artifact_retention_and_observation_changes() {
     );
 
     assert_eq!(workload.compiler_metrics["source_units"].delta, 2);
+
+    assert_eq!(
+        workload.compiler_metrics["source_units"].assessment,
+        super::model::ChangeAssessment::Indeterminate
+    );
+
     assert_eq!(artifact.bytes.delta, 20);
     assert_eq!(artifact.sections[".text"].delta, 10);
     assert_eq!(artifact.added_static_inputs, [retained("new.lib", "member.o")]);
