@@ -1,10 +1,7 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::CheckedMemoryOperationKind;
-use bray_codegen::{
-    CodegenDefinitionVisibility, CodegenLinkage, CodegenPartitionCompatibility,
-    CodegenPartitionPolicy, CodegenTarget, CodegenUnit, demanded_runtime_references,
-};
+use bray_codegen::{CodegenLinkage, CodegenTarget, demanded_runtime_references_for_mir};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirOperationKind, MirTextOperationKind};
 use bray_runtime_interface::{
@@ -77,7 +74,7 @@ impl Compilation {
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
 
         let mut runtime_roles = match reachability {
-            Some(reachability) => demanded_product_runtime_roles(product, reachability)?,
+            Some(reachability) => demanded_product_runtime_roles(reachability),
             None => BTreeSet::new(),
         };
 
@@ -288,35 +285,14 @@ impl Compilation {
 }
 
 fn demanded_product_runtime_roles(
-    product: &ProductIdentity,
     reachability: &bray_codegen::CodegenReachability,
-) -> Result<BTreeSet<RuntimeAbiRole>, NativeProductFactError> {
-    let mut roles = BTreeSet::new();
-
-    for instance in reachability.instances() {
-        let compatibility = CodegenPartitionCompatibility::new(
-            // The temporary unit owns its package identity beyond the product borrow.
-            product.package().clone(),
-            CodegenLinkage::Internal,
-            CodegenDefinitionVisibility::Product,
-        );
-
-        let unit = CodegenUnit::try_new(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
-            compatibility,
-            // Runtime-reference analysis owns the MIR payload in its temporary unit.
-            [instance.mir().clone()],
-        )
-        .map_err(NativeProductFactError::InvalidCodegenUnit)?;
-
-        roles.extend(
-            demanded_runtime_references(&unit)
-                .into_iter()
-                .map(|reference| reference.role()),
-        );
-    }
-
-    Ok(roles)
+) -> BTreeSet<RuntimeAbiRole> {
+    reachability
+        .instances()
+        .iter()
+        .flat_map(|instance| demanded_runtime_references_for_mir(instance.mir()))
+        .map(|reference| reference.role())
+        .collect()
 }
 
 fn demanded_product_runtime_capabilities(
@@ -366,9 +342,8 @@ const fn runtime_operation_capability(operation: &MirOperationKind) -> Option<Ru
             | MirTextOperationKind::CharacterIsWhitespace => {
                 Some(RuntimeCapability::CharacterOperations)
             }
-            MirTextOperationKind::IsEmpty
-            | MirTextOperationKind::Utf8
-            | MirTextOperationKind::Release => None,
+            MirTextOperationKind::Release => Some(RuntimeCapability::MemoryOperations),
+            MirTextOperationKind::IsEmpty | MirTextOperationKind::Utf8 => None,
         },
         _ => None,
     }
@@ -405,6 +380,13 @@ mod tests {
             None,
         ));
 
+        let release = MirOperationKind::Text(MirTextOperation::new(
+            MirTextOperationKind::Release,
+            [],
+            [],
+            None,
+        ));
+
         assert_eq!(
             runtime_operation_capability(&memory),
             Some(RuntimeCapability::MemoryOperations)
@@ -419,15 +401,16 @@ mod tests {
             runtime_operation_capability(&character),
             Some(RuntimeCapability::CharacterOperations)
         );
+
+        assert_eq!(
+            runtime_operation_capability(&release),
+            Some(RuntimeCapability::MemoryOperations)
+        );
     }
 
     #[test]
     fn inline_text_operations_do_not_select_native_builtins() {
-        for kind in [
-            MirTextOperationKind::IsEmpty,
-            MirTextOperationKind::Utf8,
-            MirTextOperationKind::Release,
-        ] {
+        for kind in [MirTextOperationKind::IsEmpty, MirTextOperationKind::Utf8] {
             let operation = MirOperationKind::Text(MirTextOperation::new(kind, [], [], None));
 
             assert_eq!(runtime_operation_capability(&operation), None);

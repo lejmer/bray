@@ -9,6 +9,8 @@ pub enum DiagnosticInterfaceLimit {
     FileSize,
     /// Number of section-directory entries.
     SectionCount,
+    /// Number of package implementation artifact directory entries.
+    ImplementationEntryCount,
     /// Number of records in one section.
     RecordCount,
     /// Byte length of one decoded string.
@@ -33,6 +35,7 @@ impl DiagnosticInterfaceLimit {
             Self::CompilationSymbolCount => "compilation_symbol_count",
             Self::FileSize => "file_size",
             Self::SectionCount => "section_count",
+            Self::ImplementationEntryCount => "implementation_entry_count",
             Self::RecordCount => "record_count",
             Self::StringLength => "string_length",
             Self::BlobLength => "blob_length",

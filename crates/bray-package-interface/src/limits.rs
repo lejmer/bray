@@ -1,10 +1,12 @@
-/// Configurable resource category bounded by package-interface validation.
+/// Configurable resource category bounded by package artifact validation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceLimit {
     /// Complete artifact byte length.
     FileSize,
     /// Number of entries in the section directory.
     SectionCount,
+    /// Number of entries in one package implementation artifact directory.
+    ImplementationEntryCount,
     /// Number of records declared by one section.
     RecordCount,
     /// Byte length of one decoded string.
@@ -21,11 +23,12 @@ pub enum InterfaceLimit {
     ExternalReferenceCount,
 }
 
-/// Resource ceilings applied to untrusted package-interface input.
+/// Resource ceilings applied to untrusted package artifacts.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct InterfaceValidationLimits {
     file_size: u64,
     section_count: u64,
+    implementation_entry_count: u64,
     records_per_section: u64,
     string_length: u64,
     blob_length: u64,
@@ -36,10 +39,11 @@ pub struct InterfaceValidationLimits {
 }
 
 impl InterfaceValidationLimits {
-    /// Default ceilings for compiler package-interface loading.
+    /// Default ceilings for compiler package artifact loading.
     pub const DEFAULT: Self = Self {
         file_size: 256 * 1024 * 1024,
         section_count: 64,
+        implementation_entry_count: 1_000_000,
         records_per_section: 10_000_000,
         string_length: 16 * 1024 * 1024,
         blob_length: 16 * 1024 * 1024,
@@ -59,6 +63,13 @@ impl InterfaceValidationLimits {
     /// Returns a copy with the maximum section count replaced.
     pub const fn with_section_count(mut self, maximum: u64) -> Self {
         self.section_count = maximum;
+
+        self
+    }
+
+    /// Returns a copy with the maximum implementation artifact entry count replaced.
+    pub const fn with_implementation_entry_count(mut self, maximum: u64) -> Self {
+        self.implementation_entry_count = maximum;
 
         self
     }
@@ -117,6 +128,7 @@ impl InterfaceValidationLimits {
         match limit {
             InterfaceLimit::FileSize => self.file_size,
             InterfaceLimit::SectionCount => self.section_count,
+            InterfaceLimit::ImplementationEntryCount => self.implementation_entry_count,
             InterfaceLimit::RecordCount => self.records_per_section,
             InterfaceLimit::StringLength => self.string_length,
             InterfaceLimit::BlobLength => self.blob_length,
@@ -197,23 +209,25 @@ mod tests {
         let limits = InterfaceValidationLimits::default()
             .with_file_size(1)
             .with_section_count(2)
-            .with_records_per_section(3)
-            .with_string_length(4)
-            .with_blob_length(5)
-            .with_decoded_allocation(6)
-            .with_semantic_type_depth(7)
-            .with_template_graph_size(8)
-            .with_external_reference_count(9);
+            .with_implementation_entry_count(3)
+            .with_records_per_section(4)
+            .with_string_length(5)
+            .with_blob_length(6)
+            .with_decoded_allocation(7)
+            .with_semantic_type_depth(8)
+            .with_template_graph_size(9)
+            .with_external_reference_count(10);
 
         assert_eq!(limits.maximum(InterfaceLimit::FileSize), 1);
         assert_eq!(limits.maximum(InterfaceLimit::SectionCount), 2);
-        assert_eq!(limits.maximum(InterfaceLimit::RecordCount), 3);
-        assert_eq!(limits.maximum(InterfaceLimit::StringLength), 4);
-        assert_eq!(limits.maximum(InterfaceLimit::BlobLength), 5);
-        assert_eq!(limits.maximum(InterfaceLimit::DecodedAllocation), 6);
-        assert_eq!(limits.maximum(InterfaceLimit::SemanticTypeDepth), 7);
-        assert_eq!(limits.maximum(InterfaceLimit::TemplateGraphSize), 8);
-        assert_eq!(limits.maximum(InterfaceLimit::ExternalReferenceCount), 9);
+        assert_eq!(limits.maximum(InterfaceLimit::ImplementationEntryCount), 3);
+        assert_eq!(limits.maximum(InterfaceLimit::RecordCount), 4);
+        assert_eq!(limits.maximum(InterfaceLimit::StringLength), 5);
+        assert_eq!(limits.maximum(InterfaceLimit::BlobLength), 6);
+        assert_eq!(limits.maximum(InterfaceLimit::DecodedAllocation), 7);
+        assert_eq!(limits.maximum(InterfaceLimit::SemanticTypeDepth), 8);
+        assert_eq!(limits.maximum(InterfaceLimit::TemplateGraphSize), 9);
+        assert_eq!(limits.maximum(InterfaceLimit::ExternalReferenceCount), 10);
     }
 
     #[test]
@@ -221,6 +235,7 @@ mod tests {
         let limits = InterfaceValidationLimits::default()
             .with_file_size(1)
             .with_section_count(1)
+            .with_implementation_entry_count(1)
             .with_records_per_section(1)
             .with_string_length(1)
             .with_blob_length(1)
@@ -232,6 +247,7 @@ mod tests {
         let categories = [
             InterfaceLimit::FileSize,
             InterfaceLimit::SectionCount,
+            InterfaceLimit::ImplementationEntryCount,
             InterfaceLimit::RecordCount,
             InterfaceLimit::StringLength,
             InterfaceLimit::BlobLength,

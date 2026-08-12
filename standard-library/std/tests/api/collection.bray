@@ -180,8 +180,8 @@ trusted func borrowed_list_iteration_preserves_access() -> Result<unit, std.memo
     try trusted std.collection.push<i32>(&mut values, 5);
 
     let index: usize = 1;
-    let selected: &i32 = values[index];
-    let suffix: &[i32] = values[index..];
+    let selected: &i32 = &values[index];
+    let suffix: &[i32] = &values[index..];
 
     assert(selected == 5);
     assert(suffix[0] == 5);

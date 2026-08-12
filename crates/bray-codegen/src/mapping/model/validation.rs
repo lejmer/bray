@@ -41,16 +41,22 @@ pub fn demanded_debug_sources(unit: &CodegenUnit) -> BTreeSet<MirSourceAnchor> {
 /// Returns private runtime symbols directly demanded by one code generation unit.
 pub fn demanded_runtime_references(unit: &CodegenUnit) -> BTreeSet<MirRuntimeReference> {
     unit.mir_units()
-        .flat_map(|mir| {
-            mir.operations()
+        .flat_map(demanded_runtime_references_for_mir)
+        .collect()
+}
+
+/// Returns private runtime symbols directly demanded by one MIR definition.
+pub fn demanded_runtime_references_for_mir(
+    mir: &bray_ir::MirUnit,
+) -> BTreeSet<MirRuntimeReference> {
+    mir.operations()
+        .iter()
+        .flat_map(|operation| operation_runtime_references(operation.kind()))
+        .chain(
+            mir.blocks()
                 .iter()
-                .flat_map(|operation| operation_runtime_references(operation.kind()))
-                .chain(
-                    mir.blocks()
-                        .iter()
-                        .flat_map(|block| terminator_runtime_references(block.terminator().kind())),
-                )
-        })
+                .flat_map(|block| terminator_runtime_references(block.terminator().kind())),
+        )
         .flatten()
         .collect()
 }
