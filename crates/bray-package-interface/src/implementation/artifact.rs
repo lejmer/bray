@@ -302,7 +302,7 @@ impl PackageImplementationArtifact {
         let count = directory_length / DIRECTORY_ENTRY_LENGTH;
 
         limits.check(
-            InterfaceLimit::SectionCount,
+            InterfaceLimit::ImplementationEntryCount,
             u64::try_from(count).unwrap_or(u64::MAX),
         )?;
 
@@ -988,6 +988,57 @@ mod tests {
                     limit: crate::InterfaceLimit::BlobLength,
                     actual: 1_200,
                     maximum: 1_000,
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn artifacts_bound_directory_entries_independently_of_interface_sections() {
+        let fixture = artifact_fixture();
+        let owner = generic_callable_owner(&fixture.bundle);
+
+        let template = InterfaceExecutableTemplate::new(
+            owner,
+            bray_ir::MirExecutableTemplateId::ROOT,
+            1,
+            [1_u8],
+        )
+        .unwrap_or_else(|| panic!("non-empty executable payload must be valid"));
+
+        let accepted = PackageImplementationArtifact::try_new(
+            &fixture.interface,
+            fixture.bundle.surface(),
+            fixture.bundle.semantic_facts(),
+            fixture.bundle.implementation_configuration().clone(),
+            [],
+            [template.clone()],
+            [],
+            [],
+            InterfaceValidationLimits::default().with_section_count(0),
+        );
+
+        assert!(accepted.is_ok());
+
+        let rejected = PackageImplementationArtifact::try_new(
+            &fixture.interface,
+            fixture.bundle.surface(),
+            fixture.bundle.semantic_facts(),
+            fixture.bundle.implementation_configuration().clone(),
+            [],
+            [template],
+            [],
+            [],
+            InterfaceValidationLimits::default().with_implementation_entry_count(1),
+        );
+
+        assert_eq!(
+            rejected,
+            Err(PackageImplementationArtifactBuildError::InvalidArtifact(
+                InterfaceValidationError::ResourceLimitExceeded {
+                    limit: crate::InterfaceLimit::ImplementationEntryCount,
+                    actual: 2,
+                    maximum: 1,
                 }
             ))
         );

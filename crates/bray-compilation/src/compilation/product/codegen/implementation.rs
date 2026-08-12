@@ -2297,6 +2297,13 @@ mod tests {
 
         let version = RuntimeAbiVersion::new(1, 0);
 
+        let capabilities = [
+            RuntimeCapability::MemoryOperations,
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::LocalLanes,
+            RuntimeCapability::MainThreadLane,
+        ];
+
         let contract = RuntimeContract::try_new(
             identity,
             artifact,
@@ -2304,11 +2311,7 @@ mod tests {
             ProtectedFrameAbiVersions::uniform(version),
             target.identity().clone(),
             target.panic_abi().clone(),
-            [
-                RuntimeCapability::CooperativeExecution,
-                RuntimeCapability::LocalLanes,
-                RuntimeCapability::MainThreadLane,
-            ],
+            capabilities,
             bindings,
         )
         .unwrap_or_else(|error| panic!("test runtime contract must validate: {error:?}"));
@@ -2317,12 +2320,6 @@ mod tests {
             bray_base::sha256_file(archive)
                 .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
         );
-
-        let capabilities = [
-            RuntimeCapability::CooperativeExecution,
-            RuntimeCapability::LocalLanes,
-            RuntimeCapability::MainThreadLane,
-        ];
 
         let product_component = RuntimeArtifactId::try_new("runtime.product")
             .unwrap_or_else(|| panic!("test component identity must be valid"));

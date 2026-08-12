@@ -570,6 +570,44 @@ mod tests {
     }
 
     #[test]
+    fn movable_native_root_runs_on_the_host_cooperative_lane() {
+        let start = execute_test_root(
+            protected_frame_with_state(
+                8,
+                movable_frame_state,
+                resume_frame,
+                ignore_completion_move,
+                ignore_action,
+            ),
+            NativeRuntimeConfiguration::new(2, 1),
+        );
+
+        let Some(root) = start.root() else {
+            panic!("movable root frame must transfer");
+        };
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive_v1(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_root_terminal_observation_v1(root).state(),
+            NativeRunState::COMPLETED
+        );
+
+        assert_eq!(
+            bray_runtime_root_completion_resolution_v1(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown_v1(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
     fn root_terminal_observation_waits_for_real_suspend_and_resume() {
         SUSPENDED_RESUMES.store(0, Ordering::Relaxed);
 
@@ -1027,6 +1065,22 @@ mod tests {
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
     ) -> NativeProtectedFrame {
+        protected_frame_with_state(
+            alignment,
+            frame_state,
+            resume,
+            move_completion,
+            destroy,
+        )
+    }
+
+    fn protected_frame_with_state(
+        alignment: usize,
+        state: extern "C" fn(usize, u32) -> NativeFrameState,
+        resume: extern "C-unwind" fn(usize) -> NativeFrameProgress,
+        move_completion: extern "C-unwind" fn(usize, usize),
+        destroy: extern "C-unwind" fn(usize),
+    ) -> NativeProtectedFrame {
         NativeProtectedFrame::new(
             0,
             [7; 32],
@@ -1035,7 +1089,7 @@ mod tests {
             alignment,
             8,
             8,
-            frame_state,
+            state,
             resume,
             cancel_frame,
             ignore_action,
@@ -1049,6 +1103,13 @@ mod tests {
         NativeFrameState::new(
             NativeFrameAffinity::MAIN_THREAD,
             NativeLaneRequirements::MAIN_THREAD,
+        )
+    }
+
+    extern "C" fn movable_frame_state(_: usize, _: u32) -> NativeFrameState {
+        NativeFrameState::new(
+            NativeFrameAffinity::MOVABLE,
+            NativeLaneRequirements::NONE,
         )
     }
 

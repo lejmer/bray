@@ -323,7 +323,7 @@ internal func slice_end(pos end: usize?, pos length: usize) -> usize
 
 impl ListElementIndex = List<T>(ElementIndex<usize>)
 {
-    type Output = &T;
+    type Output = T;
 
     func index(pos selector: &usize) -> &T
     {
@@ -335,7 +335,7 @@ impl ListElementIndex = List<T>(ElementIndex<usize>)
 
 impl ListSliceIndex = List<T>(SliceIndex<usize>)
 {
-    type Output = &[T];
+    type Output = [T];
 
     func slice(pos start: usize?, pos end: usize?) -> &[T]
     {

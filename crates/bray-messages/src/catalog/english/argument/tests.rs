@@ -1,7 +1,7 @@
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticCallableOverloadArm,
     DiagnosticCallableOverloadProblem, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
+    DiagnosticInterfaceLimit, DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
     DiagnosticInterfaceSynthesizedIdentity, DiagnosticIoErrorKind, DiagnosticType,
 };
 use bray_source::{
@@ -46,6 +46,12 @@ fn argument_formatter_formats_representative_english_values() {
         DiagnosticArg::new(
             DiagnosticArgName::WorkerCount,
             DiagnosticArgValue::WorkerCount(4),
+        ),
+        DiagnosticArg::new(
+            DiagnosticArgName::InterfaceLimit,
+            DiagnosticArgValue::InterfaceLimit(
+                DiagnosticInterfaceLimit::ImplementationEntryCount,
+            ),
         ),
     ];
 
@@ -94,6 +100,11 @@ fn argument_formatter_formats_representative_english_values() {
     assert_eq!(
         formatter.format_named_arg(&args, DiagnosticArgName::WorkerCount),
         "4"
+    );
+
+    assert_eq!(
+        formatter.format_named_arg(&args, DiagnosticArgName::InterfaceLimit),
+        "implementation artifact entry count"
     );
 }
 

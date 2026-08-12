@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use bray_base::is_lowercase_hex;
-use bray_symbols::TestExecutionConstraint;
-use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
+use bray_symbols::{PackageIdentity, ProductIdentity, TestExecutionConstraint};
+use bray_target::NativeTarget;
 use bray_test_protocol::decode_test_catalog;
 use serde::Deserialize;
 
@@ -532,18 +532,20 @@ fn product_artifact(
         .join(PACKAGE_IDENTITY)
         .join(product);
 
-    let name = match artifact {
-        Artifact::Catalog => format!("{product}.braytests"),
+    match artifact {
+        Artifact::Catalog => Ok(directory.join(format!("{product}.braytests"))),
         Artifact::Executable => {
-            TargetOutputName::for_native(target.object_format(), TargetOutputKind::Executable)
-                .file_name(product)
-                .ok_or_else(|| {
-                    BuildError::conformance("native artifacts", "invalid executable output name")
-                })?
-        }
-    };
+            let package = PackageIdentity::try_new(PACKAGE_IDENTITY).ok_or_else(|| {
+                BuildError::conformance("native artifacts", "invalid package identity")
+            })?;
 
-    Ok(directory.join(name))
+            let product = ProductIdentity::try_new(package, product).ok_or_else(|| {
+                BuildError::conformance("native artifacts", "invalid product identity")
+            })?;
+
+            super::artifact::resolve_executable(&directory, &product, "native artifacts")
+        }
+    }
 }
 
 fn read_artifact(path: &Path) -> Result<Vec<u8>, BuildError> {

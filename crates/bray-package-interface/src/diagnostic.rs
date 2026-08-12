@@ -123,6 +123,9 @@ const fn diagnostic_limit(limit: InterfaceLimit) -> DiagnosticInterfaceLimit {
     match limit {
         InterfaceLimit::FileSize => DiagnosticInterfaceLimit::FileSize,
         InterfaceLimit::SectionCount => DiagnosticInterfaceLimit::SectionCount,
+        InterfaceLimit::ImplementationEntryCount => {
+            DiagnosticInterfaceLimit::ImplementationEntryCount
+        }
         InterfaceLimit::RecordCount => DiagnosticInterfaceLimit::RecordCount,
         InterfaceLimit::StringLength => DiagnosticInterfaceLimit::StringLength,
         InterfaceLimit::BlobLength => DiagnosticInterfaceLimit::BlobLength,
@@ -158,7 +161,10 @@ const fn diagnostic_section(section: InterfaceSectionTag) -> DiagnosticInterface
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticId, DiagnosticKind, SeverityKind};
+    use bray_diagnostics::{
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticId,
+        DiagnosticInterfaceLimit, DiagnosticKind, SeverityKind,
+    };
 
     use super::InterfaceValidationError;
     use crate::{
@@ -233,5 +239,32 @@ mod tests {
             assert_eq!(diagnostic.severity(), SeverityKind::Error);
             assert_eq!(diagnostic.args().len(), expected_arg_count);
         }
+    }
+
+    #[test]
+    fn implementation_entry_limits_preserve_their_exact_resource_category() {
+        let diagnostic = InterfaceValidationError::ResourceLimitExceeded {
+            limit: InterfaceLimit::ImplementationEntryCount,
+            actual: 2,
+            maximum: 1,
+        }
+        .into_diagnostic(DiagnosticId::new(0));
+
+        assert_eq!(
+            diagnostic.args(),
+            [
+                DiagnosticArg::new(
+                    DiagnosticArgName::InterfaceLimit,
+                    DiagnosticArgValue::InterfaceLimit(
+                        DiagnosticInterfaceLimit::ImplementationEntryCount,
+                    ),
+                ),
+                DiagnosticArg::new(
+                    DiagnosticArgName::ActualCount,
+                    DiagnosticArgValue::Count(2),
+                ),
+                DiagnosticArg::maximum_count(1),
+            ]
+        );
     }
 }

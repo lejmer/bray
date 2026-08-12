@@ -8,6 +8,9 @@ pub(crate) const fn format_english_interface_limit(
         DiagnosticInterfaceLimit::CompilationSymbolCount => "compilation symbol count",
         DiagnosticInterfaceLimit::FileSize => "file size",
         DiagnosticInterfaceLimit::SectionCount => "section count",
+        DiagnosticInterfaceLimit::ImplementationEntryCount => {
+            "implementation artifact entry count"
+        }
         DiagnosticInterfaceLimit::RecordCount => "record count",
         DiagnosticInterfaceLimit::StringLength => "string length",
         DiagnosticInterfaceLimit::BlobLength => "blob length",

@@ -42,13 +42,7 @@ pub(super) fn audit(
 
     let fixture = build_native_fixture(root, &output, target)?;
 
-    emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
-
-    let executable = output.join(output_name(
-        target,
-        TargetOutputKind::Executable,
-        FIXTURE_PRODUCT,
-    )?);
+    let executable = emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
 
     let mut command = Command::new(&executable);
 
@@ -243,7 +237,7 @@ fn emit_fixture(
     runtime: &Path,
     target: NativeTarget,
     fixture: &NativeFixture,
-) -> Result<(), BuildError> {
+) -> Result<PathBuf, BuildError> {
     let source_path = root.join("xtask/fixtures/foreign-interoperability.bray");
     let target_handle_audit = target_handle_audit(target);
 
@@ -315,13 +309,15 @@ fn emit_fixture(
 
     crate::native_product::emit_executable(
         compilation,
-        product,
+        product.clone(),
         target,
         runtime,
         output,
         [search_path],
     )
-    .map_err(|error| BuildError::conformance("foreign interoperability", error))
+    .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
+
+    super::artifact::resolve_executable(output, &product, "foreign interoperability")
 }
 
 fn compilation_error(operation: &str, error: impl std::fmt::Debug) -> BuildError {

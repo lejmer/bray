@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use ra_ap_syntax::ast::HasAttrs;
 use ra_ap_syntax::{AstNode, TextRange, TextSize, ast};
 
-const EXCLUDED_DIRECTORIES: [&str; 2] = [".git", "target"];
+const EXCLUDED_DIRECTORIES: [&str; 4] = [".cargo-targets", ".git", ".worktrees", "target"];
 
 pub(super) fn rust_source_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut paths = Vec::new();
@@ -211,9 +211,22 @@ pub(super) fn range_is_test_only(range: TextRange, test_ranges: &[TextRange]) ->
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use ra_ap_syntax::{AstNode, Edition, SourceFile};
 
-    use super::{line_offsets_in_range, production_line_offsets, test_only_ranges};
+    use super::{
+        is_excluded_directory, line_offsets_in_range, production_line_offsets, test_only_ranges,
+    };
+
+    #[test]
+    fn source_discovery_excludes_repository_metadata_and_build_workspaces() {
+        for directory in [".cargo-targets", ".git", ".worktrees", "target"] {
+            assert!(is_excluded_directory(Path::new(directory)));
+        }
+
+        assert!(!is_excluded_directory(Path::new("crates")));
+    }
 
     #[test]
     fn production_lines_exclude_cfg_test_items_and_test_functions() {

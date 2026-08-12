@@ -996,7 +996,9 @@ fn json_output_serializes_package_interface_diagnostic_args() {
     )
     .with_arg(DiagnosticArg::new(
         DiagnosticArgName::InterfaceLimit,
-        DiagnosticArgValue::InterfaceLimit(DiagnosticInterfaceLimit::RecordCount),
+        DiagnosticArgValue::InterfaceLimit(
+            DiagnosticInterfaceLimit::ImplementationEntryCount,
+        ),
     ))
     .with_arg(DiagnosticArg::new(
         DiagnosticArgName::InterfaceSection,
@@ -1036,7 +1038,7 @@ fn json_output_serializes_package_interface_diagnostic_args() {
     let args = &output["diagnostics"][0]["args"];
 
     assert_eq!(args[0]["value"]["kind"], "interface_limit");
-    assert_eq!(args[0]["value"]["value"], "record_count");
+    assert_eq!(args[0]["value"]["value"], "implementation_entry_count");
     assert_eq!(args[1]["value"]["kind"], "interface_section");
     assert_eq!(args[1]["value"]["value"], "contracts");
     assert_eq!(args[2]["value"]["kind"], "count");
