@@ -219,31 +219,21 @@ fn configure_link_map(
     format: ObjectFormat,
     map: &Path,
 ) -> Result<(), BuildError> {
-    match format {
+    let family = match format {
         ObjectFormat::Coff => {
-            command
-                .arg("-Xlinker")
-                .arg("/OPT:REF")
-                .arg("-Xlinker")
-                .arg(format!("/MAP:{}", map.display()));
+            command.arg("-Xlinker").arg("/OPT:REF");
+
+            bray_linker::SystemLinkerFamily::MicrosoftCompiler
         }
         ObjectFormat::Elf => {
-            command
-                .arg("-Xlinker")
-                .arg("--gc-sections")
-                .arg("-Xlinker")
-                .arg("-Map")
-                .arg("-Xlinker")
-                .arg(map);
+            command.arg("-Xlinker").arg("--gc-sections");
+
+            bray_linker::SystemLinkerFamily::GnuCompiler
         }
         ObjectFormat::MachO => {
-            command
-                .arg("-Xlinker")
-                .arg("-dead_strip")
-                .arg("-Xlinker")
-                .arg("-map")
-                .arg("-Xlinker")
-                .arg(map);
+            command.arg("-Xlinker").arg("-dead_strip");
+
+            bray_linker::SystemLinkerFamily::AppleCompiler
         }
         ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
             return Err(BuildError::conformance(
@@ -251,7 +241,12 @@ fn configure_link_map(
                 format!("unsupported native object format: {}", format.as_str()),
             ));
         }
-    }
+    };
+
+    let output = bray_linker::SystemLinkerMapOutput::try_new(map)
+        .ok_or_else(|| BuildError::conformance("native provider retention", "invalid map path"))?;
+
+    command.args(output.arguments(family));
 
     Ok(())
 }

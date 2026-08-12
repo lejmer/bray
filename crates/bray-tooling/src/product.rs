@@ -211,9 +211,12 @@ pub fn project_interface_path(
     )
 }
 
-/// Creates the linker composition available for one native toolchain target.
+/// Creates the linker composition for one native target and optional linker-map destination.
 #[cfg(feature = "compiler")]
-pub fn native_linker(target: NativeTarget) -> Result<Linker, NativeLinkerBuildError> {
+pub fn native_linker(
+    target: NativeTarget,
+    map_output: Option<bray_linker::SystemLinkerMapOutput>,
+) -> Result<Linker, NativeLinkerBuildError> {
     let archive =
         llvm_tool_path(DiagnosticLlvmToolRole::Archiver).map_err(NativeLinkerBuildError::Tool)?;
 
@@ -253,9 +256,13 @@ pub fn native_linker(target: NativeTarget) -> Result<Linker, NativeLinkerBuildEr
         )
         .ok_or(NativeLinkerBuildError::TargetIdentity)?;
 
-        let configuration =
+        let mut configuration =
             SystemLinkerConfiguration::try_new(family, linker_target, program, environment, None)
                 .map_err(NativeLinkerBuildError::SystemConfiguration)?;
+
+        if let Some(output) = map_output {
+            configuration = configuration.with_map_output(output);
+        }
 
         let system = SystemLinkerDriver::try_new(
             system_identity,

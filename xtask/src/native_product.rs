@@ -11,16 +11,17 @@ use bray_target::{NativeTarget, TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{load_runtime_artifact, native_linker};
 
 pub(crate) fn emit_executable(
-    compilation: Compilation,
+    compilation: &Compilation,
     product: ProductIdentity,
     target: NativeTarget,
     runtime: &Path,
     output: &Path,
     additional_search_paths: impl IntoIterator<Item = LinkSearchPath>,
+    map_output: Option<bray_linker::SystemLinkerMapOutput>,
 ) -> Result<(), String> {
     let selected = SelectedTarget::for_native(target);
 
-    let linker = native_linker(target).map_err(|error| {
+    let linker = native_linker(target, map_output).map_err(|error| {
         format!(
             "native linker is unavailable for {}: {error:?}",
             target.as_str()

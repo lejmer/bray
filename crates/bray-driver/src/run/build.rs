@@ -81,7 +81,7 @@ pub(crate) fn run_build_command(
     };
 
     let linker = if linked {
-        match native_linker(native_target) {
+        match native_linker(native_target, None) {
             Ok(linker) => Some(linker),
             Err(error) => {
                 let diagnostics = compilation

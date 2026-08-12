@@ -1773,6 +1773,7 @@ dependencies = [
  "bray-linker",
  "bray-llvm-toolchain",
  "bray-package-interface",
+ "bray-profile",
  "bray-project",
  "bray-runtime-abi",
  "bray-runtime-interface",

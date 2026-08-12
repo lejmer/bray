@@ -63,7 +63,7 @@ fn gnu_compiler_arguments(
     Ok(arguments)
 }
 
-fn wsl_path(argument: &str) -> String {
+pub(crate) fn wsl_path(argument: &str) -> String {
     let bytes = argument.as_bytes();
 
     if bytes.len() < 3

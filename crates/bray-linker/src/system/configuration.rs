@@ -12,6 +12,7 @@ pub struct SystemLinkerConfiguration {
     family: SystemLinkerFamily,
     target: LinkerTargetIdentity,
     invocation_template: ExternalToolInvocation,
+    map_output: Option<SystemLinkerMapOutput>,
 }
 
 impl SystemLinkerConfiguration {
@@ -37,7 +38,15 @@ impl SystemLinkerConfiguration {
             family,
             target,
             invocation_template,
+            map_output: None,
         })
+    }
+
+    /// Returns this configuration with one explicit linker-map destination.
+    pub fn with_map_output(mut self, output: SystemLinkerMapOutput) -> Self {
+        self.map_output = Some(output);
+
+        self
     }
 
     /// Returns the configured platform linker family.
@@ -64,6 +73,59 @@ impl SystemLinkerConfiguration {
     pub fn current_directory(&self) -> Option<&Path> {
         self.invocation_template.current_directory()
     }
+
+    /// Returns the optional linker-map destination selected by the host workflow.
+    pub const fn map_output(&self) -> Option<&SystemLinkerMapOutput> {
+        self.map_output.as_ref()
+    }
+}
+
+/// Validated destination for one explicitly requested linker map.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SystemLinkerMapOutput(PathBuf);
+
+impl SystemLinkerMapOutput {
+    /// Creates a linker-map destination when the exact path is nonempty.
+    pub fn try_new(path: impl Into<PathBuf>) -> Option<Self> {
+        let path = path.into();
+
+        (!path.as_os_str().is_empty()).then_some(Self(path))
+    }
+
+    /// Returns the exact destination selected by the host workflow.
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+
+    /// Returns the complete map arguments for the selected system-linker family.
+    pub fn arguments(&self, family: SystemLinkerFamily) -> Vec<OsString> {
+        match family {
+            SystemLinkerFamily::Gnu => vec!["-Map".into(), self.0.as_os_str().to_owned()],
+            SystemLinkerFamily::Microsoft => {
+                vec![format!("/map:{}", self.0.display()).into()]
+            }
+            SystemLinkerFamily::Apple => vec!["-map".into(), self.0.as_os_str().to_owned()],
+            SystemLinkerFamily::GnuCompiler | SystemLinkerFamily::WslGnuCompiler => {
+                let output = if family == SystemLinkerFamily::WslGnuCompiler {
+                    crate::command::wsl_path(&self.0.to_string_lossy()).into()
+                } else {
+                    self.0.as_os_str().to_owned()
+                };
+
+                vec!["-Xlinker".into(), "-Map".into(), "-Xlinker".into(), output]
+            }
+            SystemLinkerFamily::MicrosoftCompiler => vec![
+                "-Xlinker".into(),
+                format!("/map:{}", self.0.display()).into(),
+            ],
+            SystemLinkerFamily::AppleCompiler => vec![
+                "-Xlinker".into(),
+                "-map".into(),
+                "-Xlinker".into(),
+                self.0.as_os_str().to_owned(),
+            ],
+        }
+    }
 }
 
 /// A contract violation that prevents configured system-linker construction.
@@ -77,7 +139,9 @@ pub enum SystemLinkerConfigurationBuildError {
 
 #[cfg(test)]
 mod tests {
-    use super::{SystemLinkerConfiguration, SystemLinkerConfigurationBuildError};
+    use super::{
+        SystemLinkerConfiguration, SystemLinkerConfigurationBuildError, SystemLinkerMapOutput,
+    };
     use crate::{LinkerTargetIdentity, SystemLinkerFamily};
     use bray_target::{ObjectFormat, TargetArchitecture, TargetIdentity};
 
@@ -86,6 +150,29 @@ mod tests {
         assert_eq!(
             SystemLinkerConfiguration::try_new(SystemLinkerFamily::Gnu, target(), "ld", [], None,),
             Err(SystemLinkerConfigurationBuildError::ProgramPathNotExplicit)
+        );
+    }
+
+    #[test]
+    fn linker_map_outputs_require_an_explicit_nonempty_destination() {
+        assert_eq!(SystemLinkerMapOutput::try_new(""), None);
+
+        let output = SystemLinkerMapOutput::try_new("reports/application.map")
+            .unwrap_or_else(|| panic!("nonempty map path must be valid"));
+
+        let configuration = SystemLinkerConfiguration::try_new(
+            SystemLinkerFamily::Gnu,
+            target(),
+            "tools/ld",
+            [],
+            None,
+        )
+        .unwrap_or_else(|error| panic!("test configuration must be valid: {error:?}"))
+        .with_map_output(output);
+
+        assert_eq!(
+            configuration.map_output().map(SystemLinkerMapOutput::path),
+            Some(std::path::Path::new("reports/application.map"))
         );
     }
 
