@@ -20,11 +20,21 @@ inline BOOL CALLBACK bray_initialize_standard_stream_lock(PINIT_ONCE, PVOID para
     return InitializeCriticalSectionEx(&lock->section, 0, 0);
 }
 
+inline bool bray_ensure_standard_stream_lock_initialized(BrayStandardStreamLock* lock)
+{
+    return InitOnceExecuteOnce(
+        &lock->once,
+        bray_initialize_standard_stream_lock,
+        lock,
+        nullptr
+    ) != FALSE;
+}
+
 inline BrayPlatformStatus bray_lock_standard_stream(BrayStandardStreamLock* lock)
 {
     const auto thread = GetCurrentThreadId();
 
-    if (!InitOnceExecuteOnce(&lock->once, bray_initialize_standard_stream_lock, lock, nullptr))
+    if (!bray_ensure_standard_stream_lock_initialized(lock))
     {
         return {BRAY_PLATFORM_OTHER, 0, static_cast<std::int64_t>(GetLastError())};
     }
@@ -45,6 +55,11 @@ inline BrayPlatformStatus bray_lock_standard_stream(BrayStandardStreamLock* lock
 inline BrayPlatformStatus bray_unlock_standard_stream(BrayStandardStreamLock* lock)
 {
     const auto thread = GetCurrentThreadId();
+
+    if (!bray_ensure_standard_stream_lock_initialized(lock))
+    {
+        return {BRAY_PLATFORM_OTHER, 0, static_cast<std::int64_t>(GetLastError())};
+    }
 
     if (!TryEnterCriticalSection(&lock->section))
     {

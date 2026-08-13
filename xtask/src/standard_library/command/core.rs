@@ -317,7 +317,6 @@ fn build_bundle(
             implementation_bytes,
             archive_bytes,
             platform_archives,
-            platform_native_links,
         } = built;
 
         let abi = selected.runtime_abi();
@@ -372,6 +371,7 @@ fn build_bundle(
                 &platform.bytes,
             )
             .map(|artifact| artifact.with_platform_services(platform.roles.iter().copied()))
+            .map(|artifact| artifact.with_native_links(platform.native_links))
             .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
             artifacts.push(platform_archive);
@@ -391,8 +391,7 @@ fn build_bundle(
         artifacts.push(provenance);
 
         let target = StandardLibraryTargetArtifacts::try_new(target.clone(), abi, artifacts)
-        .map(|target| target.with_native_links(platform_native_links))
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+            .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         built_targets.push(target);
     }
@@ -408,18 +407,17 @@ struct BuiltTarget {
     implementation_bytes: Vec<u8>,
     archive_bytes: Vec<u8>,
     platform_archives: Vec<BuiltPlatformArchive>,
-    platform_native_links: Vec<bray_symbols::NativeLinkRequirement>,
 }
 
 struct BuiltPlatformArchive {
     name: &'static str,
     roles: &'static [PlatformServiceRole],
     bytes: Vec<u8>,
+    native_links: Vec<bray_symbols::NativeLinkRequirement>,
 }
 
 struct BuiltPlatformArtifacts {
     archives: Vec<BuiltPlatformArchive>,
-    native_links: Vec<bray_symbols::NativeLinkRequirement>,
 }
 
 fn build_platform_archives(
@@ -427,7 +425,6 @@ fn build_platform_archives(
     native: NativeTarget,
 ) -> Result<BuiltPlatformArtifacts, BuildError> {
     let mut archives = Vec::new();
-    let mut native_links = Vec::new();
 
     for partition in super::platform::PARTITIONS {
         let build = if partition.uses_rust_standard_library {
@@ -442,24 +439,15 @@ fn build_platform_archives(
         let bytes = fs::read(built.archive())
             .map_err(|error| BuildError::read(built.archive(), error))?;
 
-        native_links.extend(built.native_links().iter().cloned());
-
         archives.push(BuiltPlatformArchive {
             name: partition.name,
             roles: partition.roles,
             bytes,
+            native_links: built.native_links().to_vec(),
         });
     }
 
-    native_links
-        .sort_by(|left, right| (left.kind(), left.name()).cmp(&(right.kind(), right.name())));
-
-    native_links.dedup();
-
-    Ok(BuiltPlatformArtifacts {
-        archives,
-        native_links,
-    })
+    Ok(BuiltPlatformArtifacts { archives })
 }
 
 fn standard_library_archive_name(target: NativeTarget) -> Result<String, BuildError> {
@@ -502,7 +490,6 @@ fn build_target(
     let platform = if product.platform_services().is_empty() {
         BuiltPlatformArtifacts {
             archives: Vec::new(),
-            native_links: Vec::new(),
         }
     } else {
         build_platform_archives(&root, native)?
@@ -609,7 +596,6 @@ fn build_target(
         implementation_bytes,
         archive_bytes,
         platform_archives: platform.archives,
-        platform_native_links: platform.native_links,
     })
 }
 

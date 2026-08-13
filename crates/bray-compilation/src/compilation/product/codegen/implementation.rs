@@ -311,6 +311,7 @@ impl Compilation {
                     semantic.value().kind(),
                     host.as_ref(),
                     runtime,
+                    &mappings,
                     &target,
                     configuration,
                 )
@@ -770,6 +771,28 @@ mod tests {
     }
 
     #[test]
+    fn reachable_native_symbols_select_only_their_platform_roles() {
+        let available_services = [
+            bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+            bray_runtime_interface::PlatformServiceRole::FileRead,
+        ];
+
+        let selected = super::super::link::platform_services_for_imported_symbols(
+            &available_services,
+            [bray_runtime_interface::native_platform_service_role_symbol(
+                bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+            )],
+        );
+
+        assert_eq!(
+            selected,
+            BTreeSet::from([
+                bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+            ])
+        );
+    }
+
+    #[test]
     fn executable_link_inputs_include_standard_library_archives_and_native_dependencies() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
@@ -779,6 +802,8 @@ mod tests {
         let runtime_abi = selected.runtime_abi();
         let archive_bytes = b"standard library archive";
         let platform_archive_bytes = b"standard stream provider archive";
+        let filesystem_archive_bytes = b"filesystem provider archive";
+        let process_archive_bytes = b"process provider archive";
 
         let archive_path = format!(
             "targets/{}/{}.{}/libstd.a",
@@ -835,7 +860,62 @@ mod tests {
                 bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
             ])
         })
+        .map(|artifact| {
+            artifact.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("c")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
         .unwrap_or_else(|error| panic!("platform archive metadata must be valid: {error:?}"));
+
+        let filesystem_archive = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            format!(
+                "targets/{}/{}.{}/libbray_platform_filesystem.a",
+                target.as_str(),
+                runtime_abi.major(),
+                runtime_abi.minor()
+            ),
+            filesystem_archive_bytes,
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([
+                bray_runtime_interface::PlatformServiceRole::FileRead,
+            ])
+        })
+        .map(|artifact| {
+            artifact.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("filesystem")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
+        .unwrap_or_else(|error| panic!("filesystem metadata must be valid: {error:?}"));
+
+        let process_archive = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            format!(
+                "targets/{}/{}.{}/libbray_platform_process.a",
+                target.as_str(),
+                runtime_abi.major(),
+                runtime_abi.minor()
+            ),
+            process_archive_bytes,
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([
+                bray_runtime_interface::PlatformServiceRole::ChildSpawn,
+            ])
+        })
+        .map(|artifact| {
+            artifact.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("process")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
+        .unwrap_or_else(|error| panic!("process metadata must be valid: {error:?}"));
 
         let target_artifacts = StandardLibraryTargetArtifacts::try_new(
             target,
@@ -845,15 +925,10 @@ mod tests {
                 implementation.clone(),
                 archive.clone(),
                 platform_archive.clone(),
+                filesystem_archive.clone(),
+                process_archive.clone(),
             ],
         )
-        .map(|target| {
-            target.with_native_links([NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("c")
-                    .unwrap_or_else(|| panic!("native library name must be valid")),
-                NativeLinkKind::System,
-            )])
-        })
         .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
         let manifest = StandardLibraryBundleManifest::try_new([target_artifacts])
@@ -872,10 +947,16 @@ mod tests {
             .unwrap_or_else(|error| panic!("archive must be written: {error}"));
 
         let platform_archive_file = platform_archive.beneath(directory.path());
+        let filesystem_archive_file = filesystem_archive.beneath(directory.path());
+        let process_archive_file = process_archive.beneath(directory.path());
 
         fs::write(&platform_archive_file, platform_archive_bytes)
             .unwrap_or_else(|error| panic!("platform archive must be written: {error}"));
 
+        fs::write(&filesystem_archive_file, filesystem_archive_bytes)
+            .unwrap_or_else(|error| panic!("filesystem archive must be written: {error}"));
+
+        // The unrelated process provider stays absent so selected plans cannot resolve it eagerly.
         fs::write(interface.beneath(directory.path()), b"interface")
             .unwrap_or_else(|error| panic!("interface must be written: {error}"));
 
@@ -905,7 +986,13 @@ mod tests {
             .unwrap_or_else(|error| panic!("compilation must load: {error:?}"));
 
         let inputs = compilation
-            .standard_library_link_inputs(ProductKind::Executable)
+            .standard_library_link_inputs(
+                ProductKind::Executable,
+                &BTreeSet::from([bray_runtime_interface::native_platform_service_role_symbol(
+                    bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                )]),
+                &BTreeSet::new(),
+            )
             .unwrap_or_else(|error| panic!("standard library inputs must resolve: {error:?}"));
 
         assert_eq!(inputs.len(), 3);
@@ -953,12 +1040,87 @@ mod tests {
                     && input.source()
                         == &LinkInputSource::try_native_library("c")
                             .unwrap_or_else(|| panic!("native library name must be valid"))
+                    && platform_provenance(input.provenance())
             })
+        }));
+
+        for forbidden in [&filesystem_archive_file, &process_archive_file] {
+            assert!(!inputs.iter().any(|input| {
+                input
+                    .as_ref()
+                    .is_ok_and(|input| input.source() == &LinkInputSource::file(forbidden))
+            }));
+        }
+
+        let filesystem_inputs = compilation
+            .standard_library_link_inputs(
+                ProductKind::Executable,
+                &BTreeSet::from([bray_runtime_interface::native_platform_service_role_symbol(
+                    bray_runtime_interface::PlatformServiceRole::FileRead,
+                )]),
+                &BTreeSet::new(),
+            )
+            .unwrap_or_else(|error| panic!("filesystem inputs must resolve: {error:?}"));
+
+        assert!(filesystem_inputs.iter().any(|input| {
+            input.as_ref().is_ok_and(|input| {
+                input.source() == &LinkInputSource::file(&filesystem_archive_file)
+                    && platform_provenance(input.provenance())
+            })
+        }));
+
+        assert!(!filesystem_inputs.iter().any(|input| {
+            input.as_ref().is_ok_and(|input| {
+                input.source() == &LinkInputSource::file(&platform_archive_file)
+                    || input.source() == &LinkInputSource::file(&process_archive_file)
+            })
+        }));
+
+        assert!(filesystem_inputs.iter().any(|input| {
+            input.as_ref().is_ok_and(|input| {
+                input.source()
+                    == &LinkInputSource::try_native_library("filesystem")
+                        .unwrap_or_else(|| panic!("native library name must be valid"))
+                    && platform_provenance(input.provenance())
+            })
+        }));
+
+        assert!(!filesystem_inputs.iter().any(|input| {
+            input.as_ref().is_ok_and(|input| {
+                ["c", "process"].iter().any(|name| {
+                    input.source()
+                        == &LinkInputSource::try_native_library(*name)
+                            .unwrap_or_else(|| panic!("native library name must be valid"))
+                })
+            })
+        }));
+
+        let overridden_inputs = compilation
+            .standard_library_link_inputs(
+                ProductKind::Test,
+                &BTreeSet::from([bray_runtime_interface::native_platform_service_role_symbol(
+                    bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                )]),
+                &BTreeSet::from([
+                    bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+                ]),
+            )
+            .unwrap_or_else(|error| panic!("overridden inputs must resolve: {error:?}"));
+
+        assert_eq!(overridden_inputs.len(), 1);
+
+        assert!(overridden_inputs[0].as_ref().is_ok_and(|input| {
+            input.source() == &LinkInputSource::file(&archive_file)
+                && package_provenance(input.provenance())
         }));
 
         assert!(
             compilation
-                .standard_library_link_inputs(ProductKind::Library)
+                .standard_library_link_inputs(
+                    ProductKind::Library,
+                    &BTreeSet::new(),
+                    &BTreeSet::new(),
+                )
                 .unwrap_or_else(|error| panic!("library inputs must resolve: {error:?}"))
                 .is_empty()
         );

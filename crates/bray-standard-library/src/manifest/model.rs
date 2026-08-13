@@ -3,7 +3,7 @@ use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::{StableDigestHasher, is_canonical_relative_path, shared_slice};
+use bray_base::{StableDigestHasher, is_canonical_relative_path, sorted_unique_shared_slice};
 use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
 use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
@@ -141,6 +141,7 @@ pub struct StandardLibraryArtifact {
     byte_len: u64,
     digest: StandardLibraryArtifactDigest,
     platform_services: Arc<[PlatformServiceRole]>,
+    native_links: Arc<[NativeLinkRequirement]>,
 }
 
 impl StandardLibraryArtifact {
@@ -163,6 +164,7 @@ impl StandardLibraryArtifact {
             byte_len,
             digest,
             platform_services: Arc::from([]),
+            native_links: Arc::from([]),
         })
     }
 
@@ -177,6 +179,16 @@ impl StandardLibraryArtifact {
             .into_iter()
             .collect::<Vec<_>>()
             .into();
+
+        self
+    }
+
+    /// Returns this platform archive with its exact native library and framework requirements.
+    pub fn with_native_links(
+        mut self,
+        native_links: impl IntoIterator<Item = NativeLinkRequirement>,
+    ) -> Self {
+        self.native_links = sorted_unique_shared_slice(native_links);
 
         self
     }
@@ -223,6 +235,11 @@ impl StandardLibraryArtifact {
         &self.platform_services
     }
 
+    /// Returns native libraries and frameworks required by this platform archive.
+    pub fn native_links(&self) -> &[NativeLinkRequirement] {
+        &self.native_links
+    }
+
     /// Resolves the portable path beneath a configured bundle root.
     pub fn beneath(&self, root: &Path) -> PathBuf {
         self.path
@@ -237,7 +254,6 @@ pub struct StandardLibraryTargetArtifacts {
     target: TargetIdentity,
     runtime_abi: RuntimeAbiVersion,
     artifacts: Arc<[StandardLibraryArtifact]>,
-    native_links: Arc<[NativeLinkRequirement]>,
 }
 
 impl StandardLibraryTargetArtifacts {
@@ -264,6 +280,13 @@ impl StandardLibraryTargetArtifacts {
                 != !artifact.platform_services().is_empty()
         }) {
             return Err(StandardLibraryManifestError::InvalidPlatformServices);
+        }
+
+        if artifacts.iter().any(|artifact| {
+            artifact.kind() != StandardLibraryArtifactKind::PlatformServiceLibrary
+                && !artifact.native_links().is_empty()
+        }) {
+            return Err(StandardLibraryManifestError::InvalidNativeLink);
         }
 
         let mut platform_services = BTreeSet::new();
@@ -314,18 +337,7 @@ impl StandardLibraryTargetArtifacts {
             target,
             runtime_abi,
             artifacts: artifacts.into(),
-            native_links: Arc::from([]),
         })
-    }
-
-    /// Returns this target inventory with its required native libraries and frameworks.
-    pub fn with_native_links(
-        mut self,
-        native_links: impl IntoIterator<Item = NativeLinkRequirement>,
-    ) -> Self {
-        self.native_links = shared_slice(native_links);
-
-        self
     }
 
     /// Returns the exact target identity.
@@ -359,10 +371,6 @@ impl StandardLibraryTargetArtifacts {
         )
     }
 
-    /// Returns native libraries and frameworks required by this target inventory.
-    pub fn native_links(&self) -> &[NativeLinkRequirement] {
-        &self.native_links
-    }
 }
 
 /// Complete immutable standard library bundle manifest.

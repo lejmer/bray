@@ -19,9 +19,9 @@ default = [
 clock = []
 contract = []
 entropy = ["dep:getrandom"]
-event = ["clock", "dep:mio"]
+event = ["clock", "dep:mio", "mio/os-poll"]
 memory = ["dep:memmap2"]
-network = ["dep:mio"]
+network = ["event", "mio/net"]
 process = []
 test-output = []
 thread = []
@@ -29,7 +29,7 @@ thread = []
 [dependencies]
 getrandom = { version = "0.4.3", optional = true }
 memmap2 = { version = "0.9.11", optional = true }
-mio = { version = "1.2.2", features = ["net", "os-poll"], optional = true }
+mio = { version = "1.2.2", default-features = false, optional = true }
 
 [lints]
 workspace = true

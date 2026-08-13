@@ -135,7 +135,7 @@ fn platform_archive(
             )
         })?;
 
-    let path = artifacts
+    let artifact = artifacts
         .artifacts()
         .iter()
         .find(|artifact| {
@@ -145,7 +145,6 @@ fn platform_archive(
                     .binary_search(&role)
                     .is_ok()
         })
-        .map(|artifact| artifact.beneath(&root))
         .ok_or_else(|| {
             BuildError::conformance(
                 "native provider retention",
@@ -157,8 +156,8 @@ fn platform_archive(
         })?;
 
     Ok(ProviderArchive {
-        path,
-        native_links: artifacts.native_links().to_vec(),
+        path: artifact.beneath(&root),
+        native_links: artifact.native_links().to_vec(),
     })
 }
 

@@ -12,7 +12,7 @@ use super::model::{
     StandardLibraryTargetArtifacts,
 };
 
-pub(super) const MANIFEST_FORMAT_REVISION: u32 = 3;
+pub(super) const MANIFEST_FORMAT_REVISION: u32 = 4;
 const DIGEST_ALGORITHM: &str = "blake3";
 
 #[derive(Serialize)]
@@ -43,6 +43,7 @@ struct ArtifactWire<'manifest> {
     byte_len: u64,
     digest: DigestWire,
     platform_services: Vec<&'manifest str>,
+    native_links: Vec<NativeLinkWire<'manifest>>,
 }
 
 #[derive(Serialize)]
@@ -50,7 +51,6 @@ struct TargetWire<'manifest> {
     target: &'manifest str,
     runtime_abi: RuntimeAbiWire,
     artifacts: Vec<ArtifactWire<'manifest>>,
-    native_links: Vec<NativeLinkWire<'manifest>>,
 }
 
 #[derive(Serialize)]
@@ -79,6 +79,7 @@ pub(super) struct OwnedArtifactWire {
     pub byte_len: u64,
     pub digest: OwnedDigestWire,
     pub platform_services: Vec<String>,
+    pub native_links: Vec<OwnedNativeLinkWire>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -87,7 +88,6 @@ pub(super) struct OwnedTargetWire {
     pub target: String,
     pub runtime_abi: RuntimeAbiWire,
     pub artifacts: Vec<OwnedArtifactWire>,
-    pub native_links: Vec<OwnedNativeLinkWire>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -181,6 +181,7 @@ fn artifact_wire(artifact: &StandardLibraryArtifact) -> ArtifactWire<'_> {
             .iter()
             .map(|role| role.as_str())
             .collect(),
+        native_links: artifact.native_links().iter().map(native_link_wire).collect(),
     }
 }
 
@@ -194,7 +195,6 @@ fn target_wire(target: &StandardLibraryTargetArtifacts) -> TargetWire<'_> {
             minor: runtime_abi.minor(),
         },
         artifacts: target.artifacts().iter().map(artifact_wire).collect(),
-        native_links: target.native_links().iter().map(native_link_wire).collect(),
     }
 }
 

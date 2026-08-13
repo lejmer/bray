@@ -420,6 +420,7 @@ fn metadata(
                         .chain([RuntimeCapability::Reactor]),
                 )?
                 .with_platform_services([
+                    PlatformServiceRole::StandardInputRead,
                     PlatformServiceRole::StandardOutputWrite,
                     PlatformServiceRole::StandardOutputFlush,
                     PlatformServiceRole::StandardOutputLock,
@@ -955,6 +956,7 @@ mod tests {
             assert_eq!(
                 test_host.platform_services(),
                 &[
+                    PlatformServiceRole::StandardInputRead,
                     PlatformServiceRole::StandardOutputWrite,
                     PlatformServiceRole::StandardOutputFlush,
                     PlatformServiceRole::StandardOutputLock,

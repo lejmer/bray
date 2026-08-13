@@ -49,18 +49,11 @@ pub fn decode_standard_library_manifest(
                 .map(decode_artifact)
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let native_links = target
-                .native_links
-                .into_iter()
-                .map(decode_native_link)
-                .collect::<Result<Vec<_>, _>>()?;
-
             StandardLibraryTargetArtifacts::try_new(
                 identity,
                 runtime_abi(target.runtime_abi),
                 artifacts,
             )
-            .map(|target| target.with_native_links(native_links))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -109,8 +102,15 @@ fn decode_artifact(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let native_links = wire
+        .native_links
+        .into_iter()
+        .map(decode_native_link)
+        .collect::<Result<Vec<_>, _>>()?;
+
     StandardLibraryArtifact::try_new(kind, wire.path, wire.byte_len, digest)
         .map(|artifact| artifact.with_platform_services(platform_services))
+        .map(|artifact| artifact.with_native_links(native_links))
 }
 
 fn decode_native_link(
@@ -233,6 +233,33 @@ mod tests {
         .expect_err("platform archives must declare capabilities");
 
         assert_eq!(error, StandardLibraryManifestError::InvalidPlatformServices);
+
+        let ordinary_native_link = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::StaticLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libinvalid-native-link.a",
+            b"invalid native link owner",
+        )
+        .map(|artifact| {
+            artifact.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("c")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
+        .unwrap_or_else(|error| panic!("artifact metadata must be valid: {error:?}"));
+
+        assert_eq!(
+            StandardLibraryTargetArtifacts::try_new(
+                target.target().clone(),
+                target.runtime_abi(),
+                target
+                    .artifacts()
+                    .iter()
+                    .cloned()
+                    .chain([ordinary_native_link]),
+            ),
+            Err(StandardLibraryManifestError::InvalidNativeLink)
+        );
     }
 
     fn manifest() -> StandardLibraryBundleManifest {
@@ -257,21 +284,31 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("archive must be valid: {error:?}"));
 
+        let provider = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libplatform-core.a",
+            b"provider",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([PlatformServiceRole::ClockMonotonicNow])
+        })
+        .map(|artifact| {
+            artifact.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("c")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
+        .unwrap_or_else(|error| panic!("provider must be valid: {error:?}"));
+
         let target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
             .unwrap_or_else(|| panic!("target identity must be valid"));
 
         let target = StandardLibraryTargetArtifacts::try_new(
             target,
             RuntimeAbiVersion::new(1, 0),
-            [interface, implementation, archive],
+            [interface, implementation, archive, provider],
         )
-        .map(|target| {
-            target.with_native_links([NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("c")
-                    .unwrap_or_else(|| panic!("native library name must be valid")),
-                NativeLinkKind::System,
-            )])
-        })
         .unwrap_or_else(|error| panic!("target artifacts must be valid: {error:?}"));
 
         StandardLibraryBundleManifest::try_new([target])

@@ -5,7 +5,9 @@ use std::thread::ThreadId;
 use bray_platform::{
     RunOutputStream, flush_current_run_output, write_current_run_output,
 };
-use bray_platform_abi_support::{publish_transfer_count, source_slice, validate_transfer};
+use bray_platform_abi_support::{
+    platform_io_error, publish_transfer_count, source_slice, validate_transfer,
+};
 use bray_runtime_abi::NativePlatformStatus;
 
 macro_rules! captured_standard_stream {
@@ -38,10 +40,42 @@ fn flush_standard_stream(stream: RunOutputStream) -> NativePlatformStatus {
         RunOutputStream::StandardError => io::stderr().lock().flush(),
     };
 
-    match result {
+    match inherited_io_result(result) {
         Ok(()) => NativePlatformStatus::SUCCESS,
-        Err(_) => NativePlatformStatus::OTHER,
+        Err(status) => status,
     }
+}
+
+fn inherited_io_result<T>(result: io::Result<T>) -> Result<T, NativePlatformStatus> {
+    result.map_err(|error| platform_io_error(&error))
+}
+
+native_adapter! {
+    pub extern "C" fn bray_platform_standard_input_read(
+        destination: *mut u8,
+        length: u64,
+        transferred: *mut u64,
+    ) -> NativePlatformStatus {
+        reject_standard_input(destination, length, transferred)
+    }
+}
+
+#[expect(
+    unsafe_code,
+    reason = "the validated test-host input boundary initializes caller-owned count storage"
+)]
+fn reject_standard_input(
+    destination: *mut u8,
+    length: u64,
+    transferred: *mut u64,
+) -> NativePlatformStatus {
+    let Some(_) = validate_transfer(destination, length, transferred) else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
+
+    unsafe { publish_transfer_count(transferred, 0) };
+
+    NativePlatformStatus::UNSUPPORTED
 }
 
 captured_standard_stream!(
@@ -166,8 +200,9 @@ fn write_standard_stream(
             RunOutputStream::StandardError => io::stderr().lock().write(source),
         };
 
-        let Ok(written) = result else {
-            return NativePlatformStatus::OTHER;
+        let written = match inherited_io_result(result) {
+            Ok(written) => written,
+            Err(status) => return status,
         };
 
         return unsafe { publish_transfer_count(transferred, written) };
@@ -178,13 +213,47 @@ fn write_standard_stream(
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+
     use bray_platform::{RunOutputContext, RunOutputStream, with_run_output_context};
     use bray_runtime_abi::NativePlatformStatus;
 
     use super::{
+        bray_platform_standard_input_read,
         bray_platform_standard_output_lock, bray_platform_standard_output_unlock,
         bray_platform_standard_output_write,
     };
+
+    #[test]
+    fn test_host_standard_input_is_reserved_for_the_control_protocol() {
+        let mut destination = [0_u8; 1];
+        let mut transferred = 9;
+
+        assert_eq!(
+            bray_platform_standard_input_read(
+                destination.as_mut_ptr(),
+                1,
+                &raw mut transferred,
+            ),
+            NativePlatformStatus::UNSUPPORTED
+        );
+
+        assert_eq!(transferred, 0);
+    }
+
+    #[test]
+    fn inherited_stream_errors_preserve_portable_and_native_details() {
+        let broken = super::inherited_io_result::<()>(Err(io::Error::from(
+            io::ErrorKind::BrokenPipe,
+        )))
+        .expect_err("broken stream must fail");
+
+        let native = super::inherited_io_result::<()>(Err(io::Error::from_raw_os_error(12_345)))
+            .expect_err("native error must fail");
+
+        assert_eq!(broken, NativePlatformStatus::BROKEN_STREAM);
+        assert_eq!(native.native_code(), 12_345);
+    }
 
     #[test]
     fn selected_capture_adapter_routes_output_through_bounded_run_context() {

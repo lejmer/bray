@@ -179,7 +179,8 @@ cargo xtask standard-library test
 ```
 
 The target bundle publishes separate core, standard-stream, filesystem, and process platform archives. Each archive records its
-exact native platform capabilities in the manifest; the build fails if that inventory is incomplete or overlaps another archive.
+exact native platform capabilities and direct native dependencies in the manifest; the build fails if that inventory is incomplete
+or overlaps another archive.
 Standard input, standard output, and standard error remain separate object leaves inside the standard-stream archive.
 
 Build, execute, validate, and measure the standard-library performance corpus with:

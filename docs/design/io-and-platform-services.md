@@ -645,10 +645,11 @@ Each standard-library target artifact set records:
 - and content digests for every supplied artifact.
 
 The reference native provider is packaged independently of the protected-frame concurrency runtime. Standard-library target
-inventories carry its capability-partitioned archives and direct system-library requirements. A runtime component may declare the
-exact platform roles it overrides, such as a test host's bounded standard-output and standard-error capture leaves; the ordinary
-provider archives remain available for every other role. This separation ensures that a synchronous product can use native platform
-services without acquiring task scheduling, protected-frame storage, or other concurrency-runtime code.
+inventories carry capability-partitioned archives, and each archive carries only its own direct system-library requirements. A
+runtime component may declare the exact platform roles it overrides, such as a test host's reserved standard input and bounded
+standard-output and standard-error capture leaves; the ordinary provider archives remain available for every other reachable role.
+This separation ensures that a synchronous product can use native platform services without acquiring task scheduling,
+protected-frame storage, or other concurrency-runtime code.
 
 Platform-provider archives have distinct typed link provenance and follow the selected runtime components in archive resolution
 order. Runtime-owned exact operations therefore override their ordinary provider leaves deterministically, while unresolved
