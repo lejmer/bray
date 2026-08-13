@@ -76,7 +76,7 @@ impl BuildConfiguration {
                 SizePreference::None,
                 DebugInformationMode::None,
                 bray_codegen::ReproducibilityLevel::ByteForByte,
-                RuntimeObservationMode::Memory,
+                RuntimeObservationMode::Performance,
             ),
         }
     }
@@ -110,7 +110,7 @@ mod tests {
 
         assert_eq!(
             observed.runtime_observations(),
-            bray_codegen::RuntimeObservationMode::Memory
+            bray_codegen::RuntimeObservationMode::Performance
         );
     }
 

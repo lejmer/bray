@@ -270,7 +270,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         name: &str,
     ) -> Result<(), CodegenFailure> {
         if self.request.options().runtime_observations()
-            != bray_codegen::RuntimeObservationMode::Memory
+            != bray_codegen::RuntimeObservationMode::Performance
         {
             return Ok(());
         }

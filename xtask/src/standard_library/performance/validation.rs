@@ -87,13 +87,10 @@ fn validate_workload(
     let expected_samples = usize::try_from(report.identity.sample_iterations)
         .map_err(|_| "sample count cannot be represented by this host".to_owned())?;
 
-    if workload.execution.samples_nanoseconds.len() != expected_samples
-        || super::statistics::summarize(
-            workload.execution.samples_nanoseconds.clone(),
-            workload.scale,
-        )
-        .as_ref()
-            != Some(&workload.execution)
+    if workload.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
+        || workload.bray_execution.scope != super::model::BRAY_EXECUTION_SCOPE
+        || !execution_is_valid(&workload.process_execution, expected_samples, workload.scale)
+        || !execution_is_valid(&workload.bray_execution, expected_samples, workload.scale)
     {
         return Err(format!("workload {} has invalid execution statistics", workload.id));
     }
@@ -132,6 +129,27 @@ fn validate_workload(
         ));
     }
 
+    if canonical.storage.is_some()
+        && [
+            &workload.observations.allocation_count,
+            &workload.observations.allocated_bytes,
+            &workload.observations.copied_bytes,
+        ]
+        .into_iter()
+        .any(|observation| {
+            !matches!(
+                observation,
+                Observation::Measured { scope, .. }
+                    if scope == super::model::STORAGE_OBSERVATION_SCOPE
+            )
+        })
+    {
+        return Err(format!(
+            "workload {} has invalid storage observation scope",
+            workload.id
+        ));
+    }
+
     if workload.observations.platform_operations.len() > MAX_PLATFORM_OPERATION_COUNT {
         return Err(format!("workload {} has too many platform observations", workload.id));
     }
@@ -161,6 +179,22 @@ fn validate_workload(
     }
 
     Ok(())
+}
+
+fn execution_is_valid(
+    execution: &super::model::ExecutionStatistics,
+    expected_samples: usize,
+    scale: u64,
+) -> bool {
+    !execution.scope.is_empty()
+        && execution.samples_nanoseconds.len() == expected_samples
+        && super::statistics::summarize(
+            execution.samples_nanoseconds.clone(),
+            scale,
+            &execution.scope,
+        )
+        .as_ref()
+            == Some(execution)
 }
 
 fn validate_artifact(artifact: &ArtifactReport) -> Result<(), String> {

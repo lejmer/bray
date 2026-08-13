@@ -34,6 +34,10 @@ pub(super) fn compare(
                 != candidate_workload.expected_output_sha256
             || baseline_workload.compilation.schema_revision
                 != candidate_workload.compilation.schema_revision
+            || baseline_workload.process_execution.scope
+                != candidate_workload.process_execution.scope
+            || baseline_workload.bray_execution.scope
+                != candidate_workload.bray_execution.scope
         {
             return Err(format!(
                 "workload {} does not have equivalent inputs and output",
@@ -41,20 +45,32 @@ pub(super) fn compare(
             ));
         }
 
-        let execution = noisy_metric(
-            baseline_workload.execution.median_nanoseconds,
-            candidate_workload.execution.median_nanoseconds,
+        let process_execution = noisy_metric(
+            baseline_workload.process_execution.median_nanoseconds,
+            candidate_workload.process_execution.median_nanoseconds,
             baseline_workload
-                .execution
+                .process_execution
                 .median_absolute_deviation_nanoseconds,
             candidate_workload
-                .execution
+                .process_execution
+                .median_absolute_deviation_nanoseconds,
+        );
+
+        let bray_execution = noisy_metric(
+            baseline_workload.bray_execution.median_nanoseconds,
+            candidate_workload.bray_execution.median_nanoseconds,
+            baseline_workload
+                .bray_execution
+                .median_absolute_deviation_nanoseconds,
+            candidate_workload
+                .bray_execution
                 .median_absolute_deviation_nanoseconds,
         );
 
         workloads.push(WorkloadComparison {
             id: candidate_workload.id.clone(),
-            execution,
+            process_execution,
+            bray_execution,
             compiler_operations: compare_compiler_operations(baseline_workload, candidate_workload),
             compiler_metrics: compare_compiler_metrics(baseline_workload, candidate_workload),
             artifacts: compare_artifacts(baseline_workload, candidate_workload)?,

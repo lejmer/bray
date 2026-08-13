@@ -23,7 +23,11 @@ use super::statistics::summarize;
 
 #[test]
 fn execution_statistics_use_median_and_median_absolute_deviation() {
-    let statistics = summarize(vec![100, 101, 102, 500, 99], 1_000)
+    let statistics = summarize(
+        vec![100, 101, 102, 500, 99],
+        1_000,
+        super::model::BRAY_EXECUTION_SCOPE,
+    )
         .unwrap_or_else(|| panic!("nonempty samples must produce statistics"));
 
     assert_eq!(statistics.samples_nanoseconds, [99, 100, 101, 102, 500]);
@@ -147,7 +151,7 @@ fn comparison_rejects_non_equivalent_corpora_and_suppresses_noisy_claims() {
         .unwrap_or_else(|error| panic!("equivalent reports must compare: {error}"));
 
     assert_eq!(
-        comparison.workloads[0].execution.assessment,
+        comparison.workloads[0].bray_execution.assessment,
         super::model::ChangeAssessment::Indeterminate
     );
 
@@ -167,7 +171,7 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
     let mut invalid_statistics = report("corpus", 102, 4);
 
     invalid_statistics.workloads[0]
-        .execution
+        .bray_execution
         .samples_nanoseconds
         .pop();
 
@@ -252,12 +256,20 @@ fn retained(artifact: &str, member: &str) -> super::model::RetainedInput {
     }
 }
 
-fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
-    let execution = summarize(
+pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
+    let process_execution = summarize(
         vec![median.saturating_sub(mad), median, median.saturating_add(mad)],
         1,
+        super::model::PROCESS_EXECUTION_SCOPE,
     )
     .unwrap_or_else(|| panic!("fixture samples must produce statistics"));
+
+    let bray_execution = summarize(
+        vec![median.saturating_sub(mad), median, median.saturating_add(mad)],
+        1,
+        super::model::BRAY_EXECUTION_SCOPE,
+    )
+    .unwrap_or_else(|| panic!("fixture Bray samples must produce statistics"));
 
     PerformanceReport {
         schema_revision: SCHEMA_REVISION,
@@ -280,7 +292,8 @@ fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             units: "executions".to_owned(),
             expected_output_sha256: bray_base::lowercase_hex(&Sha256::digest([])),
             compilation: profile(median),
-            execution,
+            process_execution,
+            bray_execution,
             artifacts: vec![ArtifactReport {
                 kind: ArtifactKind::Executable,
                 path: "application".to_owned(),

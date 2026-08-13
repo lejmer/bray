@@ -191,8 +191,8 @@ cargo xtask standard-library performance --output <directory>
 
 The command is intentionally outside ordinary unit tests. It builds one host runtime and standard-library toolchain, compiles each
 workload with compiler summary profiling, performs warmups followed by seven measured executions, validates stable output, and
-writes bounded `candidate.txt` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract.
-agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
+writes bounded self-contained `candidate.html` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract.
+Agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
 The corpus covers a minimal executable plus scale-sensitive byte growth, borrowed and explicitly owned text pipelines, formatting,
@@ -207,15 +207,17 @@ Use repeated `--workload <identity>` options for focused development runs. The s
 digest, so a focused report can only compare with the same focused selection.
 
 Reports keep executable and relocatable-object sizes, per-section sizes, static linker-map provenance, dynamic library
-dependencies, the complete compiler profile, and robust median/MAD execution statistics. Allocation, copying, and platform-call
+dependencies, the complete compiler profile, and robust median and MAD execution statistics. The HTML report presents duration in
+milliseconds and artifact size in KiB, with exact nanoseconds available as hover text. It reports process wall time separately from
+the measured Bray root execution interval, and bases throughput on the Bray interval. Allocation, copying, and platform-call
 observations are tagged as measured or unavailable. Never replace a missing observation hook with an inferred count. Section,
 dynamic-library, and retained-input collections have fixed entry limits and disclose omitted counts rather than allowing reports
 to grow without bound.
 
-The incremental byte workloads run a separate untimed, opt-in observed artifact and report successful generated allocation and
-bulk-transfer events. Their fixed 64-byte and 4096-byte contracts prove logarithmic allocation growth and linear allocation and
-copy work. Production workload artifacts retain no observation callbacks, so timing and artifact measurements remain those of the
-ordinary release build.
+Every workload also runs a separate opt-in observed release artifact. It reports the root execution interval and successful generated
+allocation and bulk-transfer events. The incremental byte workloads use fixed 64-byte and 4096-byte storage contracts to prove
+logarithmic allocation growth and linear allocation and copy work. Production workload artifacts retain no observation callbacks,
+so process timing and artifact measurements remain those of the ordinary release build.
 
 Compare an equivalent baseline and candidate with:
 
@@ -226,7 +228,7 @@ cargo xtask standard-library performance --output <directory> --baseline <candid
 Comparison first requires the same schema, corpus digest, target, host, compiler version, LLVM version, warmup count, sample count,
 scale, units, and validated output. Runtime changes inside three combined median absolute deviations are reported as indeterminate,
 not as regressions. Artifact and section sizes are deterministic and are attributed directly. The comparison writes both
-`comparison.txt` and `comparison.json`. The structured comparison attributes compiler operation and metric changes, artifact and
+`comparison.html` and `comparison.json`. The structured comparison attributes compiler operation and metric changes, artifact and
 section sizes, linker-map size, added and removed static inputs and dynamic libraries, allocation/copy observations, and selected
 platform-operation observations by workload. Retaining the machine reports is the supported way to establish a baseline.
 

@@ -187,7 +187,7 @@ fn build_contents(
                 ),
                 MemoryObservation::Enabled => (
                     "bray-runtime-builtins",
-                    &["memory", "memory-observation"][..],
+                    &["memory", "performance-observation"][..],
                     "bray_runtime_builtins-",
                 ),
             },
@@ -360,6 +360,13 @@ fn metadata(
     let mut metadata_components = Vec::new();
 
     for purpose in RuntimeArtifactPurpose::ALL {
+        let common_kind = match purpose {
+            RuntimeArtifactPurpose::Product => RuntimeArchiveKind::Common,
+            RuntimeArtifactPurpose::TestRunner => RuntimeArchiveKind::TestCommon,
+        };
+
+        let common_identity = component_identity(target, purpose, "common")?;
+
         for (kind, name, capability) in [
             (
                 RuntimeArchiveKind::Memory,
@@ -377,22 +384,18 @@ fn metadata(
                 RuntimeCapability::CharacterOperations,
             ),
         ] {
-            metadata_components.push(component_metadata(
-                target,
-                purpose,
-                component(components, kind)?,
-                name,
-                [],
-                [capability],
-            )?);
+            metadata_components.push(
+                component_metadata(
+                    target,
+                    purpose,
+                    component(components, kind)?,
+                    name,
+                    [],
+                    [capability],
+                )?
+                .with_dependencies([common_identity.clone()]),
+            );
         }
-
-        let common_kind = match purpose {
-            RuntimeArtifactPurpose::Product => RuntimeArchiveKind::Common,
-            RuntimeArtifactPurpose::TestRunner => RuntimeArchiveKind::TestCommon,
-        };
-
-        let common_identity = component_identity(target, purpose, "common")?;
 
         let common = component_metadata(
             target,
@@ -975,6 +978,14 @@ mod tests {
                 .iter()
                 .find(|component| component.identity().as_str().ends_with("product.common"))
                 .unwrap_or_else(|| panic!("runtime metadata must contain product support"));
+
+            let memory = first
+                .components()
+                .iter()
+                .find(|component| component.identity().as_str().ends_with("product.memory"))
+                .unwrap_or_else(|| panic!("runtime metadata must contain memory support"));
+
+            assert_eq!(memory.dependencies(), [common.identity().clone()]);
 
             let has_synchronization = common
                 .native_links()

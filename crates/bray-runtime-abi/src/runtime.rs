@@ -69,14 +69,21 @@ pub const MEMORY_ALLOCATION_OBSERVATION_SYMBOL: &str =
 /// Stable symbol observing one completed generated memory transfer.
 pub const MEMORY_COPY_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_copy_observation_v1";
 
-/// Per-process file selected for opt-in generated memory observations.
-pub const MEMORY_OBSERVATION_PATH_ENVIRONMENT: &str = "BRAY_MEMORY_OBSERVATION_PATH";
+/// Stable symbol starting the measured Bray-controlled execution interval.
+pub const PERFORMANCE_INTERVAL_BEGIN_SYMBOL: &str =
+    "bray_runtime_performance_interval_begin_v1";
 
-/// Versioned fixed-record observation stream header.
-pub const MEMORY_OBSERVATION_HEADER: [u8; 8] = *b"BRAYMO01";
+/// Stable symbol ending and recording the Bray-controlled execution interval.
+pub const PERFORMANCE_INTERVAL_END_SYMBOL: &str = "bray_runtime_performance_interval_end_v1";
 
-/// Maximum number of generated memory events retained by one observed run.
-pub const MAX_MEMORY_OBSERVATION_RECORDS: u64 = 1_000_000;
+/// Per-process file selected for opt-in performance observations.
+pub const PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT: &str = "BRAY_PERFORMANCE_OBSERVATION_PATH";
+
+/// Versioned fixed-record performance observation stream header.
+pub const PERFORMANCE_OBSERVATION_HEADER: [u8; 8] = *b"BRAYPO01";
+
+/// Maximum number of performance events retained by one observed run.
+pub const MAX_PERFORMANCE_OBSERVATION_RECORDS: u64 = 1_000_000;
 
 /// Stable symbol measuring the immutable process-context block.
 pub const PLATFORM_CONTEXT_MEASURE_SYMBOL: &str = "bray_platform_context_measure";

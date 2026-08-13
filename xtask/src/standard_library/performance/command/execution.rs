@@ -20,8 +20,7 @@ use sha2::{Digest as _, Sha256};
 use super::super::comparison::compare;
 use super::super::corpus::{WORKLOADS, Workload};
 use super::super::model::{
-    ArtifactKind, Observation, PerformanceReport, SCHEMA_REVISION, WorkloadObservations,
-    WorkloadReport,
+    ArtifactKind, Observation, PerformanceReport, SCHEMA_REVISION, WorkloadReport,
 };
 use super::super::{report, retention, statistics};
 use super::identity::{expected_output_digest, report_identity};
@@ -38,7 +37,7 @@ pub(in crate::standard_library) fn run(
     let options = Options::parse(arguments).map_err(|detail| {
         super::super::super::command::BuildError::conformance(
             "performance",
-            format!("{detail}; {USAGE}"),
+            format!("{detail}. {USAGE}"),
         )
     })?;
 
@@ -77,14 +76,10 @@ fn execute(mut options: Options) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let observation_runtime = if selected.iter().any(|workload| workload.storage.is_some()) {
-        Some(crate::runtime_artifact::build_for_performance_observation(
-            options.target,
-            &options.output.join("observation-runtime"),
-        )?)
-    } else {
-        None
-    };
+    let observation_runtime = crate::runtime_artifact::build_for_performance_observation(
+        options.target,
+        &options.output.join("observation-runtime"),
+    )?;
 
     let identity = report_identity(&root, &options, &selected)?;
     let mut workloads = Vec::with_capacity(selected.len());
@@ -95,7 +90,7 @@ fn execute(mut options: Options) -> Result<(), String> {
             workload,
             &toolchain,
             &runtime,
-            observation_runtime.as_deref(),
+            &observation_runtime,
         )?);
     }
 
@@ -108,7 +103,7 @@ fn execute(mut options: Options) -> Result<(), String> {
     let candidate_path = options.output.join("candidate.json");
 
     crate::json::write_pretty(&candidate_path, &candidate)?;
-    report::write_summary(&options.output.join("candidate.txt"), &candidate)?;
+    report::write_candidate(&options.output.join("candidate.html"), &candidate)?;
 
     if let Some(path) = options.baseline {
         let bytes = read_baseline(&path)?;
@@ -119,7 +114,7 @@ fn execute(mut options: Options) -> Result<(), String> {
         let comparison = compare(&baseline, &candidate)?;
 
         crate::json::write_pretty(&options.output.join("comparison.json"), &comparison)?;
-        report::write_comparison_summary(&options.output.join("comparison.txt"), &comparison)?;
+        report::write_comparison(&options.output.join("comparison.html"), &comparison)?;
     }
 
     println!("{}", candidate_path.display());
@@ -157,7 +152,7 @@ fn run_workload(
     workload: &Workload,
     toolchain: &Path,
     runtime: &Path,
-    observation_runtime: Option<&Path>,
+    observation_runtime: &Path,
 ) -> Result<WorkloadReport, String> {
     let output = options.output.join("workloads").join(workload.id);
 
@@ -277,7 +272,7 @@ fn run_workload(
 
     let output_digest = expected_output_digest(workload.expected_output)?;
 
-    let execution = execute_samples(
+    let process_execution = execute_samples(
         &executable,
         &output,
         options.warmup,
@@ -286,61 +281,59 @@ fn run_workload(
         &output_digest,
     )?;
 
-    let observations = if let Some(expected) = workload.storage {
-        let runtime = observation_runtime.ok_or_else(|| {
-            format!("workload {} requires a memory-observation runtime", workload.id)
-        })?;
+    let observation_output = output.join("observation");
+    let observation_map = observation_output.join("application.map");
 
-        let observation_output = output.join("observation");
-        let observation_map = observation_output.join("application.map");
+    fs::create_dir_all(&observation_output).map_err(|error| {
+        format!("could not create {}: {error}", observation_output.display())
+    })?;
 
-        fs::create_dir_all(&observation_output).map_err(|error| {
-            format!("could not create {}: {error}", observation_output.display())
-        })?;
-
-        let map_output = bray_linker::SystemLinkerMapOutput::try_new(observation_map.clone())
-            .ok_or_else(|| {
-                format!(
-                    "invalid observed workload linker-map path: {}",
-                    observation_map.display()
-                )
-            })?;
-
-        crate::native_product::emit_executable_with_configuration(
-            &compilation,
-            product.clone(),
-            options.target,
-            runtime,
-            &observation_output,
-            [],
-            Some(map_output),
-            bray_compilation::BuildConfiguration::ObservedRelease,
-        )?;
-
-        let observed = resolve_published_artifact(
-            &observation_output,
-            &product,
-            EmittedArtifactKind::Executable,
-            0,
-        )
-        .map_err(|error| {
+    let map_output = bray_linker::SystemLinkerMapOutput::try_new(observation_map.clone())
+        .ok_or_else(|| {
             format!(
-                "could not resolve observed workload {} executable: {error:?}",
-                workload.id
+                "invalid observed workload linker-map path: {}",
+                observation_map.display()
             )
         })?;
 
-        super::super::observation::measure(
-            &observed,
-            &observation_map,
-            &observation_output,
-            &observation_output,
-            &output_digest,
-            expected,
-        )?
-    } else {
-        unavailable_observations(workload)
-    };
+    crate::native_product::emit_executable_with_configuration(
+        &compilation,
+        product.clone(),
+        options.target,
+        observation_runtime,
+        &observation_output,
+        [],
+        Some(map_output),
+        bray_compilation::BuildConfiguration::ObservedRelease,
+    )?;
+
+    let observed = resolve_published_artifact(
+        &observation_output,
+        &product,
+        EmittedArtifactKind::Executable,
+        0,
+    )
+    .map_err(|error| {
+        format!(
+            "could not resolve observed workload {} executable: {error:?}",
+            workload.id
+        )
+    })?;
+
+    let observed = super::super::observation::measure_samples(
+        &observed,
+        &observation_map,
+        &observation_output,
+        &observation_output,
+        options.warmup,
+        options.samples,
+        workload.scale,
+        &output_digest,
+        workload.storage,
+    )?;
+
+    let mut observations = observed.observations;
+    observations.platform_operations = unavailable_platform_observations(workload);
 
     let mut artifacts = vec![retention::inspect(
         ArtifactKind::Executable,
@@ -363,7 +356,8 @@ fn run_workload(
         units: workload.units.to_owned(),
         expected_output_sha256: output_digest,
         compilation: profile,
-        execution,
+        process_execution,
+        bray_execution: observed.execution,
         artifacts,
         observations,
     })
@@ -414,26 +408,19 @@ fn execute_samples(
         }
     }
 
-    statistics::summarize(times, scale)
+    statistics::summarize(times, scale, super::super::model::PROCESS_EXECUTION_SCOPE)
         .ok_or_else(|| "at least one execution sample is required".to_owned())
 }
 
-fn unavailable_observations(workload: &Workload) -> WorkloadObservations {
+fn unavailable_platform_observations(workload: &Workload) -> BTreeMap<String, Observation> {
     let reason = "the selected production runtime does not expose benchmark observation hooks";
     let unavailable = || Observation::Unavailable { reason: reason.to_owned() };
 
-    let platform_operations = workload
+    workload
         .platform_operations
         .iter()
         .map(|name| ((*name).to_owned(), unavailable()))
-        .collect::<BTreeMap<_, _>>();
-
-    WorkloadObservations {
-        allocation_count: unavailable(),
-        allocated_bytes: unavailable(),
-        copied_bytes: unavailable(),
-        platform_operations,
-    }
+        .collect()
 }
 
 fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), String> {

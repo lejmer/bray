@@ -27,6 +27,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 execution,
                 runtime,
             } => {
+                self.observe_performance_interval(
+                    bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
+                    "performance.interval.begin",
+                )?;
+
                 if self.host_role_implementation(*runtime)?
                     == RuntimeRoleImplementation::CompilerLowering
                     && *execution == RootExecution::Synchronous
@@ -204,6 +209,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *entry_failure,
                 )?;
 
+                self.observe_performance_interval(
+                    bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
+                    "performance.interval.end",
+                )?;
+
                 self.host_status = Some(match self.host_status.take() {
                     Some(current) => llvm(self.builder.build_or(current, status, "host.status"))?,
                     None => status,
@@ -237,6 +247,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_compiler_shutdown(status)
             }
         }
+    }
+
+    fn observe_performance_interval(
+        &self,
+        symbol: &str,
+        name: &str,
+    ) -> Result<(), CodegenFailure> {
+        if self.request.options().runtime_observations()
+            != bray_codegen::RuntimeObservationMode::Performance
+        {
+            return Ok(());
+        }
+
+        let function = self.module.get_function(symbol).unwrap_or_else(|| {
+            self.module
+                .add_function(symbol, self.types.context().void_type().fn_type(&[], false), None)
+        });
+
+        llvm(self.builder.build_call(function, &[], name))?;
+
+        Ok(())
     }
 
     fn begin_test_entry_selection(

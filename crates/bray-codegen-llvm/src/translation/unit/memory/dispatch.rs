@@ -377,7 +377,7 @@ mod tests {
         };
 
         let fixture = memory_operation_fixture(&backend)
-            .with_runtime_observations(bray_codegen::RuntimeObservationMode::Memory);
+            .with_runtime_observations(bray_codegen::RuntimeObservationMode::Performance);
 
         let context = Context::create();
 
