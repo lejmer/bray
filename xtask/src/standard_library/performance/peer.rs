@@ -1,5 +1,5 @@
 mod build;
 mod source;
 
-pub(super) use build::{BuiltPeer, build};
-pub(super) use source::{comparison_contract, corpus_contract, support_reason};
+pub(super) use build::{BuiltPeer, build, runtime_linkage};
+pub(super) use source::{comparison_contract, corpus_contract};

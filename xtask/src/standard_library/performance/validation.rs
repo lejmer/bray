@@ -1,13 +1,14 @@
 use std::collections::BTreeSet;
 
 use bray_base::is_lowercase_hex;
+use bray_target::{NativeTarget, ObjectFormat};
 
 use super::command::expected_output_digest;
 use super::corpus::WORKLOADS;
 use super::model::{
     ArtifactReport, BoundedList, MAX_DYNAMIC_LIBRARY_COUNT, MAX_PLATFORM_OPERATION_COUNT,
     MAX_RETAINED_INPUT_COUNT, MAX_SAMPLE_COUNT, MAX_SECTION_COUNT, Observation, PeerLanguage,
-    PeerOutcome, PerformanceReport, RetainedInput, SCHEMA_REVISION,
+    PerformanceReport, RetainedInput, RuntimeLinkage, SCHEMA_REVISION,
 };
 
 pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
@@ -19,7 +20,7 @@ pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
         return Err("report workload count is outside the canonical corpus bound".to_owned());
     }
 
-    validate_identity(report)?;
+    let target = validate_identity(report)?;
 
     let mut identities = BTreeSet::new();
 
@@ -28,15 +29,21 @@ pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
             return Err(format!("report repeats workload {}", workload.id));
         }
 
-        validate_workload(report, workload)?;
+        validate_workload(report, workload, target)?;
     }
 
     Ok(())
 }
 
-fn validate_identity(report: &PerformanceReport) -> Result<(), String> {
+fn validate_identity(report: &PerformanceReport) -> Result<NativeTarget, String> {
     let identity = &report.identity;
     let sha_is_valid = |value: &str| value.len() == 64 && is_lowercase_hex(value);
+
+    let target = bray_target::TargetIdentity::try_new(identity.target.as_str())
+        .and_then(|identity| bray_target::NativeTarget::for_identity(&identity))
+        .ok_or_else(|| "report target is not a supported native target".to_owned())?;
+
+    let expected_runtime_linkage = super::peer::runtime_linkage(target)?;
 
     if identity.corpus_revision == 0
         || !sha_is_valid(&identity.corpus_sha256)
@@ -46,6 +53,7 @@ fn validate_identity(report: &PerformanceReport) -> Result<(), String> {
         || identity.compiler_version.is_empty()
         || identity.source_revision.is_empty()
         || identity.llvm_version.is_empty()
+        || identity.runtime_linkage != expected_runtime_linkage
         || identity.warmup_iterations == 0
         || identity.sample_iterations == 0
         || identity.sample_iterations > MAX_SAMPLE_COUNT
@@ -53,12 +61,13 @@ fn validate_identity(report: &PerformanceReport) -> Result<(), String> {
         return Err("report identity is incomplete or outside its bounds".to_owned());
     }
 
-    Ok(())
+    Ok(target)
 }
 
 fn validate_workload(
     report: &PerformanceReport,
     workload: &super::model::WorkloadReport,
+    target: NativeTarget,
 ) -> Result<(), String> {
     let canonical = WORKLOADS
         .iter()
@@ -66,13 +75,15 @@ fn validate_workload(
         .ok_or_else(|| format!("report contains unknown workload {}", workload.id))?;
 
     let expected_output = expected_output_digest(canonical.expected_output)?;
-    let expected_peer_contract = super::peer::comparison_contract(&workload.id);
+
+    let expected_peer_contract = super::peer::comparison_contract(&workload.id)
+        .ok_or_else(|| format!("workload {} has no peer contract", workload.id))?;
 
     if workload.category != canonical.category
         || workload.scale != canonical.scale
         || workload.units != canonical.units
         || workload.expected_output_sha256 != expected_output
-        || workload.peer_contract.as_deref() != expected_peer_contract
+        || workload.peer_contract != expected_peer_contract
     {
         return Err(format!("workload {} does not match the canonical corpus", workload.id));
     }
@@ -109,6 +120,7 @@ fn validate_workload(
         }
 
         validate_artifact(artifact)?;
+        validate_runtime_dependencies(artifact, target.object_format())?;
     }
 
     validate_observation(&workload.observations.allocation_count)?;
@@ -180,7 +192,13 @@ fn validate_workload(
         validate_observation(observation)?;
     }
 
-    validate_peers(workload, expected_samples, &report.identity.target)?;
+    validate_peers(
+        workload,
+        expected_samples,
+        &report.identity.target,
+        report.identity.runtime_linkage,
+        target.object_format(),
+    )?;
 
     Ok(())
 }
@@ -189,6 +207,8 @@ fn validate_peers(
     workload: &super::model::WorkloadReport,
     expected_samples: usize,
     expected_target: &str,
+    expected_runtime_linkage: RuntimeLinkage,
+    object_format: ObjectFormat,
 ) -> Result<(), String> {
     let languages = workload.peers.keys().copied().collect::<BTreeSet<_>>();
 
@@ -199,53 +219,104 @@ fn validate_peers(
         ));
     }
 
-    let expected_support_reason = super::peer::support_reason(&workload.id);
-
-    for (language, outcome) in &workload.peers {
-        match (expected_support_reason, outcome) {
-            (Some(expected), PeerOutcome::Unsupported { reason }) if reason == expected => {}
-            (None, PeerOutcome::Measured { report }) => {
-                if report.toolchain.is_empty()
-                    || report.build_configuration.target != expected_target
-                    || report.build_configuration.target.is_empty()
-                    || report.build_configuration.production_arguments.is_empty()
-                    || report.build_configuration.timed_arguments.is_empty()
-                    || report.build_configuration.linker.is_empty()
-                    || report.build_configuration.runtime_linkage.is_empty()
-                    || report.build_configuration.post_link_actions.is_empty()
-                    || report.source_sha256.len() != 64
-                    || !is_lowercase_hex(&report.source_sha256)
-                    || report.production_compile_link_nanoseconds == 0
-                    || report.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
-                    || report.controlled_execution.scope != super::model::BRAY_EXECUTION_SCOPE
-                    || !execution_is_valid(
-                        &report.process_execution,
-                        expected_samples,
-                        workload.scale,
-                    )
-                    || !execution_is_valid(
-                        &report.controlled_execution,
-                        expected_samples,
-                        workload.scale,
-                    )
-                    || report.artifacts.len() != 1
-                {
-                    return Err(format!(
-                        "workload {} {language:?} peer report is invalid",
-                        workload.id
-                    ));
-                }
-
-                validate_artifact(&report.artifacts[0])?;
-                validate_unavailable_peer_observations(&report.observations)?;
-            }
-            _ => {
-                return Err(format!(
-                    "workload {} {language:?} peer support does not match its corpus contract",
-                    workload.id
-                ));
-            }
+    for (language, report) in &workload.peers {
+        if report.toolchain.is_empty()
+            || report.build_configuration.target != expected_target
+            || report.build_configuration.target.is_empty()
+            || report.build_configuration.production_arguments.is_empty()
+            || report.build_configuration.timed_arguments.is_empty()
+            || report.build_configuration.linker.is_empty()
+            || report.build_configuration.runtime_linkage != expected_runtime_linkage
+            || !build_arguments_match_runtime_linkage(
+                *language,
+                &report.build_configuration,
+                object_format,
+            )
+            || report.build_configuration.post_link_actions.is_empty()
+            || report.source_sha256.len() != 64
+            || !is_lowercase_hex(&report.source_sha256)
+            || report.production_compile_link_nanoseconds == 0
+            || report.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
+            || report.controlled_execution.scope != super::model::BRAY_EXECUTION_SCOPE
+            || !execution_is_valid(&report.process_execution, expected_samples, workload.scale)
+            || !execution_is_valid(&report.controlled_execution, expected_samples, workload.scale)
+            || report.artifacts.len() != 1
+        {
+            return Err(format!(
+                "workload {} {language:?} peer report is invalid",
+                workload.id
+            ));
         }
+
+        validate_artifact(&report.artifacts[0])?;
+        validate_runtime_dependencies(&report.artifacts[0], object_format)?;
+        validate_unavailable_peer_observations(&report.observations)?;
+    }
+
+    Ok(())
+}
+
+fn build_arguments_match_runtime_linkage(
+    language: PeerLanguage,
+    configuration: &super::model::PeerBuildConfiguration,
+    object_format: ObjectFormat,
+) -> bool {
+    let has = |arguments: &[String], expected: &str| {
+        arguments.iter().any(|argument| argument == expected)
+    };
+
+    match (language, object_format) {
+        (PeerLanguage::Rust, ObjectFormat::Coff) => {
+            has(&configuration.production_arguments, "-C target-feature=+crt-static")
+                && has(&configuration.timed_arguments, "-C target-feature=+crt-static")
+        }
+        (PeerLanguage::Cpp, ObjectFormat::Coff) => {
+            has(&configuration.production_arguments, "-fms-runtime-lib=static")
+                && has(&configuration.timed_arguments, "-fms-runtime-lib=static")
+        }
+        (PeerLanguage::Cpp, ObjectFormat::Elf) => {
+            ["-static-libstdc++", "-static-libgcc"].into_iter().all(|expected| {
+                has(&configuration.production_arguments, expected)
+                    && has(&configuration.timed_arguments, expected)
+            })
+        }
+        (PeerLanguage::Rust, ObjectFormat::Elf) => true,
+        (_, ObjectFormat::MachO | ObjectFormat::WebAssembly | ObjectFormat::Xcoff) => false,
+    }
+}
+
+fn validate_runtime_dependencies(
+    artifact: &ArtifactReport,
+    object_format: ObjectFormat,
+) -> Result<(), String> {
+    let has_dynamic_runtime = artifact
+        .dependencies
+        .dynamic_libraries
+        .entries
+        .iter()
+        .any(|library| {
+            let library = library.to_ascii_lowercase();
+
+            match object_format {
+                ObjectFormat::Coff => {
+                    library.starts_with("api-ms-win-crt-")
+                        || library.starts_with("msvcp")
+                        || library.starts_with("msvcr")
+                        || library.starts_with("vcruntime")
+                        || library == "ucrtbase.dll"
+                }
+                ObjectFormat::Elf => {
+                    library.starts_with("libstdc++.") || library.starts_with("libgcc_s.")
+                }
+                ObjectFormat::MachO | ObjectFormat::WebAssembly | ObjectFormat::Xcoff => true,
+            }
+        });
+
+    if has_dynamic_runtime {
+        return Err(format!(
+            "{:?} artifact loads a dynamic application runtime",
+            artifact.kind
+        ));
     }
 
     Ok(())

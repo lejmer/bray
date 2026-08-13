@@ -14,7 +14,7 @@ use super::command::{parse_options_for_test, validate_output_parts};
 use super::corpus::ExpectedSideEffects;
 use super::model::{
     ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBuildConfiguration,
-    PeerLanguage, PeerOutcome, PeerReport, PerformanceReport, ReportIdentity, SCHEMA_REVISION,
+    PeerLanguage, PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION,
     WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
@@ -257,15 +257,31 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
 
     let mut different_peer_configuration = report("corpus", 102, 4);
 
-    if let PeerOutcome::Measured { report } = different_peer_configuration.workloads[0]
+    different_peer_configuration.workloads[0]
         .peers
         .get_mut(&PeerLanguage::Rust)
         .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
-    {
-        report.build_configuration.production_arguments.push("different flag".to_owned());
-    }
+        .build_configuration
+        .production_arguments
+        .push("different flag".to_owned());
 
     assert!(compare(&baseline, &different_peer_configuration).is_err());
+
+    let mut dynamic_dependency = report("corpus", 102, 4);
+
+    let dynamic_libraries = &mut dynamic_dependency.workloads[0]
+        .peers
+        .get_mut(&PeerLanguage::Rust)
+        .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
+        .artifacts[0]
+        .dependencies
+        .dynamic_libraries
+        .entries;
+
+    dynamic_libraries.clear();
+    dynamic_libraries.push("VCRUNTIME140.dll".to_owned());
+
+    assert!(compare(&baseline, &dynamic_dependency).is_err());
 }
 
 #[test]
@@ -356,15 +372,23 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
     )
     .unwrap_or_else(|| panic!("fixture Bray samples must produce statistics"));
 
-    let peer = || PeerOutcome::Measured {
-        report: PeerReport {
+    let peer = || PeerReport {
             toolchain: "peer compiler".to_owned(),
             build_configuration: PeerBuildConfiguration {
-                target: "test-target".to_owned(),
-                production_arguments: vec!["release".to_owned()],
-                timed_arguments: vec!["release".to_owned(), "timed".to_owned()],
+                target: "x86_64-pc-windows-msvc".to_owned(),
+                production_arguments: vec![
+                    "release".to_owned(),
+                    "-C target-feature=+crt-static".to_owned(),
+                    "-fms-runtime-lib=static".to_owned(),
+                ],
+                timed_arguments: vec![
+                    "release".to_owned(),
+                    "timed".to_owned(),
+                    "-C target-feature=+crt-static".to_owned(),
+                    "-fms-runtime-lib=static".to_owned(),
+                ],
                 linker: "test-linker".to_owned(),
-                runtime_linkage: "test-runtime".to_owned(),
+                runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
                 post_link_actions: vec!["test-strip".to_owned()],
             },
             source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
@@ -391,7 +415,6 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 copied_bytes: unavailable(),
                 platform_operations: BTreeMap::new(),
             },
-        },
     };
 
     let peers = [(PeerLanguage::Rust, peer()), (PeerLanguage::Cpp, peer())]
@@ -403,18 +426,19 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
         identity: ReportIdentity {
             corpus_revision: 1,
             corpus_sha256: bray_base::lowercase_hex(&Sha256::digest(corpus.as_bytes())),
-            target: "test-target".to_owned(),
+            target: "x86_64-pc-windows-msvc".to_owned(),
             host: "test-host".to_owned(),
             build_configuration: "release".to_owned(),
             compiler_version: "compiler".to_owned(),
             source_revision: "revision".to_owned(),
             llvm_version: "llvm".to_owned(),
+            runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
             warmup_iterations: 2,
             sample_iterations: 3,
         },
         workloads: vec![WorkloadReport {
             id: "small_output".to_owned(),
-            peer_contract: Some("start and complete an empty program once".to_owned()),
+            peer_contract: "start and complete an empty program once".to_owned(),
             category: WorkloadCategory::Small,
             scale: 1,
             units: "executions".to_owned(),
@@ -467,7 +491,7 @@ fn profile(elapsed_nanoseconds: u64) -> CompilationProfileReport {
         context: CompilationProfileContext {
             package: "test".to_owned(),
             product: "application".to_owned(),
-            target: "test-target".to_owned(),
+            target: "x86_64-pc-windows-msvc".to_owned(),
         },
         trace_event_limit: None,
         elapsed_nanoseconds,

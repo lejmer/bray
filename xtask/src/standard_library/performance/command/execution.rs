@@ -18,8 +18,8 @@ use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 use super::super::comparison::compare;
 use super::super::corpus::{ExpectedSideEffects, WORKLOADS, Workload};
 use super::super::model::{
-    ArtifactKind, Observation, PeerLanguage, PeerOutcome, PeerReport, PerformanceReport,
-    SCHEMA_REVISION, WorkloadReport,
+    ArtifactKind, Observation, PeerLanguage, PeerReport, PerformanceReport, SCHEMA_REVISION,
+    WorkloadReport,
 };
 use super::super::{report, retention, statistics};
 use super::identity::{expected_output_digest, report_identity};
@@ -326,14 +326,12 @@ fn run_workload(
         timing_map: Some(&timing_map),
     }];
 
-    if let Ok(peers) = &peer_build {
-        implementations.extend(peers.iter().map(|peer| ImplementationTarget {
-            key: ImplementationKey::Peer(peer.language),
-            executable: &peer.executable,
-            timed_executable: &peer.timed_executable,
-            timing_map: None,
-        }));
-    }
+    implementations.extend(peer_build.iter().map(|peer| ImplementationTarget {
+        key: ImplementationKey::Peer(peer.language),
+        executable: &peer.executable,
+        timed_executable: &peer.timed_executable,
+        timing_map: None,
+    }));
 
     progress::workload_phase("Running warmups and measured samples");
 
@@ -399,7 +397,9 @@ fn run_workload(
 
     let report = WorkloadReport {
         id: workload.id.to_owned(),
-        peer_contract: super::super::peer::comparison_contract(workload.id).map(str::to_owned),
+        peer_contract: super::super::peer::comparison_contract(workload.id)
+            .ok_or_else(|| format!("workload {} has no peer contract", workload.id))?
+            .to_owned(),
         category: workload.category,
         scale: workload.scale,
         units: workload.units.to_owned(),
@@ -418,26 +418,9 @@ fn run_workload(
 }
 
 fn peer_reports(
-    built: Result<Vec<super::super::peer::BuiltPeer>, String>,
+    built: Vec<super::super::peer::BuiltPeer>,
     mut execution: BTreeMap<ImplementationKey, ImplementationExecution>,
-) -> Result<BTreeMap<PeerLanguage, PeerOutcome>, String> {
-    let built = match built {
-        Ok(built) => built,
-        Err(reason) => {
-            return Ok([PeerLanguage::Rust, PeerLanguage::Cpp]
-                .into_iter()
-                .map(|language| {
-                    (
-                        language,
-                        PeerOutcome::Unsupported {
-                            reason: reason.clone(),
-                        },
-                    )
-                })
-                .collect());
-        }
-    };
-
+) -> Result<BTreeMap<PeerLanguage, PeerReport>, String> {
     let mut peers = BTreeMap::new();
 
     for built in built {
@@ -453,18 +436,15 @@ fn peer_reports(
 
         peers.insert(
             built.language,
-            PeerOutcome::Measured {
-                report: PeerReport {
-                    toolchain: built.toolchain,
-                    build_configuration: built.build_configuration,
-                    source_sha256: built.source_sha256,
-                    production_compile_link_nanoseconds: built
-                        .production_compile_link_nanoseconds,
-                    process_execution: measured.process,
-                    controlled_execution: measured.controlled,
-                    artifacts,
-                    observations: unavailable_peer_observations(),
-                },
+            PeerReport {
+                toolchain: built.toolchain,
+                build_configuration: built.build_configuration,
+                source_sha256: built.source_sha256,
+                production_compile_link_nanoseconds: built.production_compile_link_nanoseconds,
+                process_execution: measured.process,
+                controlled_execution: measured.controlled,
+                artifacts,
+                observations: unavailable_peer_observations(),
             },
         );
     }

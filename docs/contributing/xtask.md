@@ -197,17 +197,18 @@ output line.
 Agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
-Matched workloads also build maintained Rust and C++ peers directly through `rustc` and `clang++`. The report records each exact
+Every workload also builds maintained Rust and C++ peers directly through `rustc` and `clang++`. The report records each exact
 toolchain, optimization configuration, source digest, compile and link duration, process duration, language-controlled duration,
 artifact size, sections, and dependencies. Process and language-controlled rounds rotate their starting language independently so
 Bray, Rust, and C++ do not receive a fixed warm-cache or scheduling advantage. Every execution must produce the same validated
-output digest. The HTML report states the shared semantic contract for each matched row.
+output digest and side-effect contract. The HTML report states the shared semantic contract for each row. Missing peer sources,
+failed peer builds, mismatched output, or incomplete peer reports fail the run instead of producing an incomplete comparison.
 
-Peer comparisons currently cover the empty program, two growable byte-sequence scales, filesystem metadata, process context, and
-monotonic clock workloads. Text hashing and escaping, Bray formatting options, stream locking, structured asynchronous output, and
-partial file-write behavior do not have faithful standard-library peers. Those rows remain in the report with an explicit reason
-instead of presenting a misleading benchmark. Rust and C++ memory-work observations remain unavailable until equally attributed
-measurement support exists for all three languages.
+All three production executables use static application and language runtimes. On Windows this means the static MSVC runtime for
+Bray, Rust, and C++. Target operating-system libraries may remain dynamic. The report records the policy and exact compiler flags,
+then validates the produced dependency lists to reject application-runtime DLLs. Linux peers embed their language runtimes while
+using target system libraries. Mach-O comparison is rejected until the C++ peer can provide the same runtime model. Rust and C++
+memory-work observations remain unavailable until equally attributed measurement support exists for all three languages.
 
 The corpus covers a minimal executable plus scale-sensitive byte growth, borrowed and explicitly owned text pipelines, formatting,
 stream output, asynchronous execution, filesystem metadata, file output, process context, and clock access. The text pipeline covers

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use super::model::{
     ArtifactKind, ChangeAssessment, ComparisonReport, MetricComparison, Observation,
-    ObservationComparison, PeerComparison, PeerOutcome, PerformanceReport,
+    ObservationComparison, PerformanceReport, RuntimeLinkage,
 };
 
 use super::format::{grouped, kibibytes, milliseconds, nanoseconds_title, signed_kibibytes, signed_milliseconds};
@@ -21,7 +21,9 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
     html.push_str(
         "<section><h2>How to read this report</h2>\
         <p>The primary duration is the language-controlled workload execution. Process duration also includes \
-        executable startup and teardown. Throughput uses the controlled duration.</p></section>",
+        executable startup and teardown. Throughput uses the controlled duration.</p>\
+        <p>Bray, Rust, and C++ embed their application and language runtimes in each executable. \
+        Target operating-system libraries may remain dynamic.</p></section>",
     );
 
     html.push_str(
@@ -44,27 +46,16 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
         );
 
         for (language, peer) in &workload.peers {
-            match peer {
-                PeerOutcome::Measured { report } => candidate_row(
-                    &mut html,
-                    workload,
-                    peer_language(*language),
-                    &report.controlled_execution,
-                    &report.process_execution,
-                    report.production_compile_link_nanoseconds,
-                    &report.artifacts,
-                    &report.observations,
-                ),
-                PeerOutcome::Unsupported { reason } => {
-                    let _ = write!(
-                        html,
-                        "<tr><th>{}</th><td>{}</td><td colspan=\"9\">Unsupported because {}</td></tr>",
-                        escape(&workload.id),
-                        peer_language(*language),
-                        escape(reason),
-                    );
-                }
-            }
+            candidate_row(
+                &mut html,
+                workload,
+                peer_language(*language),
+                &peer.controlled_execution,
+                &peer.process_execution,
+                peer.production_compile_link_nanoseconds,
+                &peer.artifacts,
+                &peer.observations,
+            );
         }
     }
 
@@ -169,30 +160,14 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
         );
 
         for (language, peer) in &workload.peers {
-            match peer {
-                PeerComparison::Measured {
-                    process_execution,
-                    controlled_execution,
-                    artifacts,
-                    ..
-                } => comparison_row(
-                    &mut html,
-                    &workload.id,
-                    peer_language(*language),
-                    *controlled_execution,
-                    *process_execution,
-                    artifacts,
-                ),
-                PeerComparison::Unsupported { reason } => {
-                    let _ = write!(
-                        html,
-                        "<tr><th>{}</th><td>{}</td><td colspan=\"4\">Unsupported because {}</td></tr>",
-                        escape(&workload.id),
-                        peer_language(*language),
-                        escape(reason),
-                    );
-                }
-            }
+            comparison_row(
+                &mut html,
+                &workload.id,
+                peer_language(*language),
+                peer.controlled_execution,
+                peer.process_execution,
+                &peer.artifacts,
+            );
         }
     }
 
@@ -280,29 +255,14 @@ fn comparison_details(html: &mut BoundedHtml, workload: &super::model::WorkloadC
     for (language, peer) in &workload.peers {
         let language = peer_language(*language);
 
-        match peer {
-            PeerComparison::Measured {
-                compile_link,
-                artifacts,
-                ..
-            } => {
-                let _ = write!(
-                    html,
-                    "<details><summary>{language} peer changes</summary><dl><dt>Compile and link</dt><dd>{}</dd></dl>",
-                    comparison_metric(*compile_link, MetricUnit::Duration),
-                );
+        let _ = write!(
+            html,
+            "<details><summary>{language} peer changes</summary><dl><dt>Compile and link</dt><dd>{}</dd></dl>",
+            comparison_metric(peer.compile_link, MetricUnit::Duration),
+        );
 
-                artifact_comparison_details(html, artifacts);
-                html.push_str("</details>");
-            }
-            PeerComparison::Unsupported { reason } => {
-                let _ = write!(
-                    html,
-                    "<p><strong>{language}</strong> is unsupported because {}.</p>",
-                    escape(reason),
-                );
-            }
-        }
+        artifact_comparison_details(html, &peer.artifacts);
+        html.push_str("</details>");
     }
 
     html.push_str("<h3>Observed work</h3><dl>");
@@ -446,13 +406,11 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
         escape(&workload.expected_output_sha256),
     );
 
-    if let Some(contract) = &workload.peer_contract {
-        let _ = write!(
-            html,
-            "<p><strong>Shared comparison contract:</strong> {}</p>",
-            escape(contract),
-        );
-    }
+    let _ = write!(
+        html,
+        "<p><strong>Shared comparison contract:</strong> {}</p>",
+        escape(&workload.peer_contract),
+    );
 
     html.push_str("<h3>Observed work</h3><dl>");
     observation_detail(html, "Allocations", &workload.observations.allocation_count);
@@ -470,39 +428,28 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
     for (language, peer) in &workload.peers {
         let language = peer_language(*language);
 
-        match peer {
-            PeerOutcome::Measured { report } => {
-                let _ = write!(
-                    html,
-                    "<details><summary>{language} peer details</summary><dl>\
-                    <dt>Toolchain</dt><dd>{}</dd>\
-                    <dt>Source SHA-256</dt><dd><code>{}</code></dd><dt>Compile and link</dt>\
-                    <dd {}>{}</dd><dt>Controlled scope</dt><dd>{}</dd></dl>",
-                    escape(&report.toolchain),
-                    escape(&report.source_sha256),
-                    nanoseconds_title(report.production_compile_link_nanoseconds),
-                    milliseconds(report.production_compile_link_nanoseconds),
-                    escape(&report.controlled_execution.scope),
-                );
+        let _ = write!(
+            html,
+            "<details><summary>{language} peer details</summary><dl>\
+            <dt>Toolchain</dt><dd>{}</dd>\
+            <dt>Source SHA-256</dt><dd><code>{}</code></dd><dt>Compile and link</dt>\
+            <dd {}>{}</dd><dt>Controlled scope</dt><dd>{}</dd></dl>",
+            escape(&peer.toolchain),
+            escape(&peer.source_sha256),
+            nanoseconds_title(peer.production_compile_link_nanoseconds),
+            milliseconds(peer.production_compile_link_nanoseconds),
+            escape(&peer.controlled_execution.scope),
+        );
 
-                peer_configuration(html, &report.build_configuration);
+        peer_configuration(html, &peer.build_configuration);
 
-                html.push_str("<h4>Observed work</h4><dl>");
-                observation_detail(html, "Allocations", &report.observations.allocation_count);
-                observation_detail(html, "Allocated bytes", &report.observations.allocated_bytes);
-                observation_detail(html, "Copied bytes", &report.observations.copied_bytes);
-                html.push_str("</dl>");
-                artifact_details(html, &report.artifacts);
-                html.push_str("</details>");
-            }
-            PeerOutcome::Unsupported { reason } => {
-                let _ = write!(
-                    html,
-                    "<p><strong>{language}</strong> is unsupported because {}.</p>",
-                    escape(reason),
-                );
-            }
-        }
+        html.push_str("<h4>Observed work</h4><dl>");
+        observation_detail(html, "Allocations", &peer.observations.allocation_count);
+        observation_detail(html, "Allocated bytes", &peer.observations.allocated_bytes);
+        observation_detail(html, "Copied bytes", &peer.observations.copied_bytes);
+        html.push_str("</dl>");
+        artifact_details(html, &peer.artifacts);
+        html.push_str("</details>");
     }
 
     html.push_str("</section>");
@@ -518,7 +465,7 @@ fn peer_configuration(
         <dt>Linker</dt><dd><code>{}</code></dd><dt>Runtime linkage</dt><dd>{}</dd></dl>",
         escape(&configuration.target),
         escape(&configuration.linker),
-        escape(&configuration.runtime_linkage),
+        runtime_linkage(configuration.runtime_linkage),
     );
 
     html.push_str("<h5>Production compiler arguments</h5><ul>");
@@ -651,17 +598,27 @@ fn identity(html: &mut BoundedHtml, label: &str, identity: &super::model::Report
         html,
         "<section><h2>{label}</h2><dl class=\"identity\"><dt>Target</dt><dd>{}</dd>\
         <dt>Host</dt><dd>{}</dd><dt>Compiler</dt><dd>{}</dd><dt>Source revision</dt>\
-        <dd><code>{}</code></dd><dt>LLVM</dt><dd>{}</dd><dt>Corpus SHA-256</dt>\
+        <dd><code>{}</code></dd><dt>LLVM</dt><dd>{}</dd><dt>Runtime linkage</dt><dd>{}</dd>\
+        <dt>Corpus SHA-256</dt>\
         <dd><code>{}</code></dd><dt>Samples</dt><dd>{} warmup and {} measured</dd></dl></section>",
         escape(&identity.target),
         escape(&identity.host),
         escape(&identity.compiler_version),
         escape(&identity.source_revision),
         escape(&identity.llvm_version),
+        runtime_linkage(identity.runtime_linkage),
         escape(&identity.corpus_sha256),
         identity.warmup_iterations,
         identity.sample_iterations,
     );
+}
+
+const fn runtime_linkage(linkage: RuntimeLinkage) -> &'static str {
+    match linkage {
+        RuntimeLinkage::StaticApplicationRuntime => {
+            "application and language runtimes linked into each executable"
+        }
+    }
 }
 
 fn observation_count(observation: &Observation) -> String {

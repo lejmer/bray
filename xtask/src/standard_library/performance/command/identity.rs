@@ -44,6 +44,7 @@ pub(super) fn report_identity(
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         source_revision,
         llvm_version: llvm_version.lines().next().unwrap_or(&llvm_version).to_owned(),
+        runtime_linkage: super::super::peer::runtime_linkage(options.target)?,
         warmup_iterations: options.warmup,
         sample_iterations: options.samples,
     })

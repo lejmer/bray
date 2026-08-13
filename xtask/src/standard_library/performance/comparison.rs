@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::model::{
     ArtifactComparison, ArtifactKind, ChangeAssessment, ComparisonReport, MetricComparison,
     Observation, ObservationComparison, ObservationComparisonReport, PerformanceReport,
-    PeerComparison, PeerOutcome, SCHEMA_REVISION, WorkloadComparison,
+    PeerComparison, SCHEMA_REVISION, WorkloadComparison,
 };
 
 pub(super) fn compare(
@@ -103,6 +103,7 @@ fn validate_identity(
         || left.build_configuration != right.build_configuration
         || left.compiler_version != right.compiler_version
         || left.llvm_version != right.llvm_version
+        || left.runtime_linkage != right.runtime_linkage
         || left.warmup_iterations != right.warmup_iterations
         || left.sample_iterations != right.sample_iterations
     {
@@ -134,72 +135,40 @@ fn compare_peers(
                 .get(language)
                 .ok_or_else(|| "candidate peer disappeared during comparison".to_owned())?;
 
-            let comparison = match (baseline, candidate) {
-                (
-                    PeerOutcome::Unsupported {
-                        reason: baseline_reason,
-                    },
-                    PeerOutcome::Unsupported {
-                        reason: candidate_reason,
-                    },
-                ) if baseline_reason == candidate_reason => PeerComparison::Unsupported {
-                    reason: baseline_reason.clone(),
-                },
-                (
-                    PeerOutcome::Measured { report: baseline },
-                    PeerOutcome::Measured { report: candidate },
-                ) => {
-                    if baseline.toolchain != candidate.toolchain
-                        || baseline.build_configuration != candidate.build_configuration
-                        || baseline.source_sha256 != candidate.source_sha256
-                        || baseline.process_execution.scope != candidate.process_execution.scope
-                        || baseline.controlled_execution.scope
-                            != candidate.controlled_execution.scope
-                    {
-                        return Err(format!(
-                            "workload {} {language:?} peer configurations differ",
-                            workload_id
-                        ));
-                    }
+            if baseline.toolchain != candidate.toolchain
+                || baseline.build_configuration != candidate.build_configuration
+                || baseline.source_sha256 != candidate.source_sha256
+                || baseline.process_execution.scope != candidate.process_execution.scope
+                || baseline.controlled_execution.scope != candidate.controlled_execution.scope
+            {
+                return Err(format!(
+                    "workload {} {language:?} peer configurations differ",
+                    workload_id
+                ));
+            }
 
-                    PeerComparison::Measured {
-                        compile_link: observed_metric(
-                            baseline.production_compile_link_nanoseconds,
-                            candidate.production_compile_link_nanoseconds,
-                        ),
-                        process_execution: noisy_metric(
-                            baseline.process_execution.median_nanoseconds,
-                            candidate.process_execution.median_nanoseconds,
-                            baseline
-                                .process_execution
-                                .median_absolute_deviation_nanoseconds,
-                            candidate
-                                .process_execution
-                                .median_absolute_deviation_nanoseconds,
-                        ),
-                        controlled_execution: noisy_metric(
-                            baseline.controlled_execution.median_nanoseconds,
-                            candidate.controlled_execution.median_nanoseconds,
-                            baseline
-                                .controlled_execution
-                                .median_absolute_deviation_nanoseconds,
-                            candidate
-                                .controlled_execution
-                                .median_absolute_deviation_nanoseconds,
-                        ),
-                        artifacts: compare_artifact_sets(
-                            &baseline.artifacts,
-                            &candidate.artifacts,
-                            &format!("{:?} peer", language),
-                        )?,
-                    }
-                }
-                _ => {
-                    return Err(format!(
-                        "workload {} {language:?} peer support differs",
-                        workload_id
-                    ));
-                }
+            let comparison = PeerComparison {
+                compile_link: observed_metric(
+                    baseline.production_compile_link_nanoseconds,
+                    candidate.production_compile_link_nanoseconds,
+                ),
+                process_execution: noisy_metric(
+                    baseline.process_execution.median_nanoseconds,
+                    candidate.process_execution.median_nanoseconds,
+                    baseline.process_execution.median_absolute_deviation_nanoseconds,
+                    candidate.process_execution.median_absolute_deviation_nanoseconds,
+                ),
+                controlled_execution: noisy_metric(
+                    baseline.controlled_execution.median_nanoseconds,
+                    candidate.controlled_execution.median_nanoseconds,
+                    baseline.controlled_execution.median_absolute_deviation_nanoseconds,
+                    candidate.controlled_execution.median_absolute_deviation_nanoseconds,
+                ),
+                artifacts: compare_artifact_sets(
+                    &baseline.artifacts,
+                    &candidate.artifacts,
+                    &format!("{:?} peer", language),
+                )?,
             };
 
             Ok((*language, comparison))

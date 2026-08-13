@@ -5,13 +5,34 @@
 #include <chrono>
 #endif
 
-#if defined(BRAY_PEER_TIMING)
+#if defined(BRAY_PEER_TIMING) || BRAY_WORKLOAD == 10
 #include <cstdlib>
+#endif
+
+#if defined(BRAY_PEER_TIMING)
 #include <fstream>
 #endif
 
-#if BRAY_WORKLOAD == 2 || BRAY_WORKLOAD == 3
+#if BRAY_WORKLOAD == 2 || BRAY_WORKLOAD == 3 || BRAY_WORKLOAD == 7 || BRAY_WORKLOAD == 8
 #include <vector>
+#endif
+
+#if BRAY_WORKLOAD == 7
+#include <charconv>
+#include <string>
+#include <string_view>
+#endif
+
+#if BRAY_WORKLOAD == 8
+#include <charconv>
+#endif
+
+#if BRAY_WORKLOAD == 9 || BRAY_WORKLOAD == 10
+#include <iostream>
+#endif
+
+#if BRAY_WORKLOAD == 10
+#include <coroutine>
 #endif
 
 #if BRAY_WORKLOAD == 4
@@ -20,6 +41,16 @@
 #include <windows.h>
 #else
 #include <sys/stat.h>
+#endif
+#endif
+
+#if BRAY_WORKLOAD == 11
+#include <array>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 #endif
 
@@ -34,18 +65,38 @@ namespace {
 constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
+#if BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8
 template <typename Value>
 void retain_work(Value const& value)
 {
     __asm__ volatile("" : : "g"(&value) : "memory");
 }
+#endif
+
+#if BRAY_WORKLOAD == 7
+char const* opaque_pointer(char const* value)
+{
+    __asm__ volatile("" : "+r"(value) : : "memory");
+
+    return value;
+}
+#endif
+
+#if BRAY_WORKLOAD == 8
+std::uint32_t opaque_integer(std::uint32_t value)
+{
+    __asm__ volatile("" : "+r"(value) : : "memory");
+
+    return value;
+}
+#endif
 
 #if BRAY_WORKLOAD == 1
 bool workload()
 {
     return true;
 }
-#elif BRAY_WORKLOAD == 2
+#elif BRAY_WORKLOAD == 2 || BRAY_WORKLOAD == 3
 bool incremental_bytes(std::size_t count)
 {
     std::vector<std::uint8_t> bytes;
@@ -59,24 +110,290 @@ bool incremental_bytes(std::size_t count)
 
 bool workload()
 {
+#if BRAY_WORKLOAD == 2
     return incremental_bytes(64);
+#else
+    return incremental_bytes(4096);
+#endif
 }
-#elif BRAY_WORKLOAD == 3
-bool incremental_bytes(std::size_t count)
+#elif BRAY_WORKLOAD == 7
+struct Wide
 {
-    std::vector<std::uint8_t> bytes;
+    std::uint64_t high;
+    std::uint64_t low;
+};
 
-    for (std::size_t index = 0; index < count; ++index)
-        bytes.push_back(65);
+constexpr Wide modulus{0x7fff'ffff'ffff'ffff, 0xffff'ffff'ffff'ffff};
+constexpr Wide initial{0, 14'695'981'039'346'656'037};
+constexpr std::uint64_t multiplier = 1'099'511'628'211;
 
-    retain_work(bytes);
-    return bytes.size() == count;
+bool less(Wide left, Wide right)
+{
+    return left.high < right.high || (left.high == right.high && left.low < right.low);
+}
+
+bool equal(Wide left, Wide right)
+{
+    return left.high == right.high && left.low == right.low;
+}
+
+Wide subtract(Wide left, Wide right)
+{
+    return Wide{
+        left.high - right.high - static_cast<std::uint64_t>(left.low < right.low),
+        left.low - right.low,
+    };
+}
+
+Wide add(Wide left, Wide right)
+{
+    const std::uint64_t low = left.low + right.low;
+
+    return Wide{
+        left.high + right.high + static_cast<std::uint64_t>(low < left.low),
+        low,
+    };
+}
+
+Wide add_modulo(Wide left, Wide right)
+{
+    const Wide remaining = subtract(modulus, right);
+
+    if (!less(left, remaining))
+        return subtract(left, remaining);
+
+    return add(left, right);
+}
+
+Wide multiply_modulo(Wide left, std::uint64_t right)
+{
+    Wide factor = left;
+    Wide product{0, 0};
+
+    while (right > 0)
+    {
+        if (right % 2 == 1)
+            product = add_modulo(product, factor);
+
+        factor = add_modulo(factor, factor);
+        right /= 2;
+    }
+
+    return product;
+}
+
+Wide stable_hash(std::string_view value)
+{
+    Wide state = multiply_modulo(add_modulo(initial, Wide{0, value.size()}), multiplier);
+
+    for (unsigned char byte : value)
+        state = multiply_modulo(add_modulo(state, Wide{0, byte}), multiplier);
+
+    return state;
+}
+
+char escape_code(unsigned char value)
+{
+    switch (value)
+    {
+    case '"': return '"';
+    case '\\': return '\\';
+    case '\n': return 'n';
+    case '\r': return 'r';
+    case '\t': return 't';
+    default: return 0;
+    }
+}
+
+std::size_t escaped_length(std::string_view value)
+{
+    std::size_t length = 2;
+
+    for (unsigned char byte : value)
+        length += escape_code(byte) == 0 ? 1 : 2;
+
+    return length;
 }
 
 bool workload()
 {
-    return incremental_bytes(4096);
+    constexpr char literal_source[] = "borrowed text";
+    constexpr char long_source[] =
+        "Bray immutable text pipeline repeated across a deliberately long UTF-8 literal for stable throughput coverage.";
+
+    const std::string_view literal{opaque_pointer(literal_source), sizeof(literal_source) - 1};
+    const std::string_view duplicate{opaque_pointer(literal_source), sizeof(literal_source) - 1};
+    const std::string_view long_text{opaque_pointer(long_source), sizeof(long_source) - 1};
+
+    const auto middle = long_text.substr(1, long_text.size() - 2);
+    const std::string owned{opaque_pointer("owned text")};
+    std::uint64_t parsed = 0;
+    const char* number = opaque_pointer("42");
+    const auto parse = std::from_chars(number, number + 2, parsed);
+    std::vector<std::uint8_t> sink;
+
+    for (std::size_t index = 0; index < 256; ++index)
+        sink.insert(sink.end(), literal.begin(), literal.end());
+
+    const std::size_t quoted_length = escaped_length(long_text);
+
+    sink.push_back('"');
+
+    for (unsigned char byte : long_text)
+    {
+        const char escaped = escape_code(byte);
+
+        if (escaped != 0)
+        {
+            sink.push_back('\\');
+            sink.push_back(static_cast<std::uint8_t>(escaped));
+        }
+        else
+            sink.push_back(byte);
+    }
+
+    sink.push_back('"');
+    retain_work(sink);
+
+    return middle.size() == long_text.size() - 2
+        && literal == duplicate
+        && owned == "owned text"
+        && equal(stable_hash(literal), stable_hash(duplicate))
+        && !equal(stable_hash(literal), stable_hash(long_text))
+        && parse.ec == std::errc{}
+        && parse.ptr == number + 2
+        && parsed == 42
+        && sink.size() == literal.size() * 256 + quoted_length;
 }
+#elif BRAY_WORKLOAD == 8
+bool workload()
+{
+    std::vector<char> bytes;
+    char formatted[10];
+
+    for (std::uint32_t value = 0; value < 1024; ++value)
+    {
+        const auto result =
+            std::to_chars(formatted, formatted + sizeof(formatted), opaque_integer(value));
+
+        if (result.ec != std::errc{})
+            return false;
+
+        bytes.insert(bytes.end(), formatted, result.ptr);
+    }
+
+    retain_work(bytes);
+    return bytes.size() == 2986;
+}
+#elif BRAY_WORKLOAD == 9 || BRAY_WORKLOAD == 10
+bool write_standard_output()
+{
+    std::cout.write("x", 1);
+    std::cout.flush();
+
+    return static_cast<bool>(std::cout);
+}
+
+#if BRAY_WORKLOAD == 9
+bool workload()
+{
+    for (std::size_t index = 0; index < 1024; ++index)
+        if (!write_standard_output())
+            return false;
+
+    return true;
+}
+#else
+class OutputTask
+{
+public:
+    struct promise_type
+    {
+        bool result = false;
+
+        OutputTask get_return_object()
+        {
+            return OutputTask{std::coroutine_handle<promise_type>::from_promise(*this)};
+        }
+
+        std::suspend_always initial_suspend() const noexcept
+        {
+            return {};
+        }
+
+        std::suspend_always final_suspend() const noexcept
+        {
+            return {};
+        }
+
+        void return_value(bool value) noexcept
+        {
+            result = value;
+        }
+
+        void unhandled_exception() const noexcept
+        {
+            std::abort();
+        }
+    };
+
+    explicit OutputTask(std::coroutine_handle<promise_type> handle) : handle_(handle) {}
+
+    OutputTask(OutputTask const&) = delete;
+    OutputTask& operator=(OutputTask const&) = delete;
+
+    ~OutputTask()
+    {
+        handle_.destroy();
+    }
+
+    bool run()
+    {
+        handle_.resume();
+        return handle_.done() && handle_.promise().result;
+    }
+
+private:
+    std::coroutine_handle<promise_type> handle_;
+};
+
+struct OutputOperation
+{
+    bool result = false;
+
+    bool await_ready() const noexcept
+    {
+        return false;
+    }
+
+    bool await_suspend(std::coroutine_handle<>) noexcept
+    {
+        result = write_standard_output();
+        return false;
+    }
+
+    bool await_resume() const noexcept
+    {
+        return result;
+    }
+};
+
+OutputTask write_output_async()
+{
+    for (std::size_t index = 0; index < 128; ++index)
+        if (!(co_await OutputOperation{}))
+            co_return false;
+
+    co_return true;
+}
+
+bool workload()
+{
+    auto task = write_output_async();
+
+    return task.run();
+}
+#endif
 #elif BRAY_WORKLOAD == 4
 bool workload()
 {
@@ -106,6 +423,86 @@ bool workload()
     }
 
     return true;
+}
+#elif BRAY_WORKLOAD == 11
+bool workload()
+{
+    constexpr char path[] = "bray-performance-file-output";
+    std::array<std::uint8_t, 4096> bytes;
+    std::size_t written = 0;
+    bool valid = true;
+
+    bytes.fill(120);
+
+#if defined(_WIN32)
+    DeleteFileA(path);
+
+    const HANDLE file = CreateFileA(
+        path,
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+
+    while (written < bytes.size())
+    {
+        DWORD count = 0;
+        const DWORD remaining = static_cast<DWORD>(bytes.size() - written);
+
+        if (WriteFile(file, bytes.data() + written, remaining, &count, nullptr) == 0 || count == 0)
+        {
+            valid = false;
+            break;
+        }
+
+        written += count;
+    }
+
+    if (valid && FlushFileBuffers(file) == 0)
+        valid = false;
+
+    if (CloseHandle(file) == 0)
+        valid = false;
+
+    if (DeleteFileA(path) == 0)
+        valid = false;
+#else
+    ::unlink(path);
+
+    const int file = ::open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+
+    if (file < 0)
+        return false;
+
+    while (written < bytes.size())
+    {
+        const auto count = ::write(file, bytes.data() + written, bytes.size() - written);
+
+        if (count <= 0)
+        {
+            valid = false;
+            break;
+        }
+
+        written += static_cast<std::size_t>(count);
+    }
+
+    if (valid && ::fsync(file) != 0)
+        valid = false;
+
+    if (::close(file) != 0)
+        valid = false;
+
+    if (::unlink(path) != 0)
+        valid = false;
+#endif
+
+    return valid && written == bytes.size();
 }
 #elif BRAY_WORKLOAD == 5
 bool workload()

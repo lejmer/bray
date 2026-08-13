@@ -6,7 +6,7 @@ use bray_base::lowercase_hex;
 use bray_target::{NativeTarget, ObjectFormat};
 use sha2::{Digest as _, Sha256};
 
-use super::super::model::{PeerBuildConfiguration, PeerLanguage};
+use super::super::model::{PeerBuildConfiguration, PeerLanguage, RuntimeLinkage};
 use super::source::{PeerSource, sources};
 
 pub(in crate::standard_library::performance) struct BuiltPeer {
@@ -25,11 +25,8 @@ pub(in crate::standard_library::performance) fn build(
     output: &Path,
     target: NativeTarget,
     workload: &str,
-) -> Result<Result<Vec<BuiltPeer>, String>, String> {
-    let sources = match sources(workload) {
-        Ok(sources) => sources,
-        Err(reason) => return Ok(Err(reason.to_owned())),
-    };
+) -> Result<Vec<BuiltPeer>, String> {
+    let sources = sources(workload)?;
 
     let mut peers = Vec::with_capacity(sources.len());
 
@@ -40,7 +37,7 @@ pub(in crate::standard_library::performance) fn build(
         });
     }
 
-    Ok(Ok(peers))
+    Ok(peers)
 }
 
 fn build_rust(
@@ -98,7 +95,7 @@ fn build_rust(
             production_arguments,
             timed_arguments,
             linker: linker.display().to_string(),
-            runtime_linkage: runtime_linkage(target).to_owned(),
+            runtime_linkage: runtime_linkage(target)?,
             post_link_actions: vec!["rustc strips symbols during linking".to_owned()],
         },
         source_sha256: source_digest(source.selector, source.contents),
@@ -132,7 +129,7 @@ fn run_rustc(
         .arg(format!("peer_workload=\"{workload}\""));
 
     if target.object_format() == ObjectFormat::Coff {
-        command.args(["-C", "target-feature=-crt-static"]);
+        command.args(["-C", "target-feature=+crt-static"]);
     }
 
     if timed {
@@ -176,7 +173,7 @@ fn rust_arguments(
     ];
 
     if target.object_format() == ObjectFormat::Coff {
-        arguments.push("-C target-feature=-crt-static".to_owned());
+        arguments.push("-C target-feature=+crt-static".to_owned());
     }
 
     if timed {
@@ -247,7 +244,7 @@ fn build_cpp(
             production_arguments,
             timed_arguments,
             linker: "lld selected through the clang++ driver".to_owned(),
-            runtime_linkage: runtime_linkage(target).to_owned(),
+            runtime_linkage: runtime_linkage(target)?,
             post_link_actions: vec!["llvm-strip --strip-all".to_owned()],
         },
         source_sha256: source_digest(source.selector, source.contents),
@@ -280,11 +277,13 @@ fn run_cpp(
         .arg(format!("-DBRAY_WORKLOAD={selector}"));
 
     if target.object_format() == ObjectFormat::Coff {
-        command.arg("-fms-runtime-lib=dll");
+        command.arg("-fms-runtime-lib=static");
 
         if target.as_str().starts_with("x86_64-") {
             command.arg("-D_AMD64_");
         }
+    } else if target.object_format() == ObjectFormat::Elf {
+        command.args(["-static-libstdc++", "-static-libgcc"]);
     }
 
     if timed {
@@ -311,11 +310,13 @@ fn cpp_arguments(target: NativeTarget, selector: &str, timed: bool) -> Vec<Strin
     ];
 
     if target.object_format() == ObjectFormat::Coff {
-        arguments.push("-fms-runtime-lib=dll".to_owned());
+        arguments.push("-fms-runtime-lib=static".to_owned());
 
         if target.as_str().starts_with("x86_64-") {
             arguments.push("-D_AMD64_".to_owned());
         }
+    } else if target.object_format() == ObjectFormat::Elf {
+        arguments.extend(["-static-libstdc++".to_owned(), "-static-libgcc".to_owned()]);
     }
 
     if timed {
@@ -334,11 +335,38 @@ fn strip_cpp_artifact(root: &Path, executable: &Path) -> Result<(), String> {
     crate::command::require_success(command, "stripping C++ performance peer").map(|_| ())
 }
 
-fn runtime_linkage(target: NativeTarget) -> &'static str {
-    if target.object_format() == ObjectFormat::Coff {
-        "dynamic Microsoft C and C++ runtime"
-    } else {
-        "target-default dynamic system and language runtime"
+pub(in crate::standard_library::performance) fn runtime_linkage(
+    target: NativeTarget,
+) -> Result<RuntimeLinkage, String> {
+    match target.object_format() {
+        ObjectFormat::Coff | ObjectFormat::Elf => Ok(RuntimeLinkage::StaticApplicationRuntime),
+        ObjectFormat::MachO => Err(
+            "performance comparison requires static application runtimes, which the C++ peer does not yet provide on Mach-O"
+                .to_owned(),
+        ),
+        ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
+            Err("performance peers do not support the selected object format".to_owned())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_target::NativeTarget;
+
+    use super::{cpp_arguments, rust_arguments, rust_linker};
+
+    #[test]
+    fn windows_peers_both_embed_the_static_msvc_runtime() {
+        let target = NativeTarget::X86_64WindowsMsvc;
+        let linker = rust_linker(std::path::Path::new("workspace"), target);
+        let rust = rust_arguments(target, "small_output", &linker, false);
+        let cpp = cpp_arguments(target, "1", false);
+
+        assert!(rust.iter().any(|argument| argument == "-C target-feature=+crt-static"));
+        assert!(cpp.iter().any(|argument| argument == "-fms-runtime-lib=static"));
+        assert!(!rust.iter().any(|argument| argument.contains("-crt-static")));
+        assert!(!cpp.iter().any(|argument| argument.contains("runtime-lib=dll")));
     }
 }
 

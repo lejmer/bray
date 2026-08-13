@@ -9,7 +9,7 @@ pub(super) struct PeerSource {
     pub contents: &'static str,
 }
 
-pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], &'static str> {
+pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
     let (rust_selector, cpp_selector) = match workload {
         "small_output" => ("small_output", "1"),
         "incremental_bytes_small" => ("incremental_bytes_small", "2"),
@@ -17,22 +17,12 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], &'static str> {
         "filesystem_metadata" => ("filesystem_metadata", "4"),
         "process_context" => ("process_context", "5"),
         "monotonic_clock" => ("monotonic_clock", "6"),
-        "borrowed_text" => {
-            return Err("the Bray text pipeline has no matching standard Rust or C++ hash and escaping contract");
-        }
-        "format_numbers" => {
-            return Err("the Bray formatting options have no matching standard Rust or C++ formatting contract");
-        }
-        "stream_output" => {
-            return Err("standard stream buffering and locking semantics differ across the language runtimes");
-        }
-        "async_output" => {
-            return Err("Rust and C++ standard libraries do not provide the same structured asynchronous output contract");
-        }
-        "file_output" => {
-            return Err("portable Rust and C++ file APIs do not share Bray partial-write and flush semantics");
-        }
-        _ => return Err("the workload has no matched Rust and C++ peer contract"),
+        "borrowed_text" => ("borrowed_text", "7"),
+        "format_numbers" => ("format_numbers", "8"),
+        "stream_output" => ("stream_output", "9"),
+        "async_output" => ("async_output", "10"),
+        "file_output" => ("file_output", "11"),
+        _ => return Err(format!("workload {workload} has no Rust and C++ peer sources")),
     };
 
     Ok([
@@ -50,33 +40,24 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], &'static str> {
 }
 
 pub(in crate::standard_library::performance) fn corpus_contract(workload: &str) -> String {
-    let comparison_contract = comparison_contract(workload).unwrap_or("unsupported");
+    let comparison_contract = comparison_contract(workload).unwrap_or("missing");
     let mut contract = format!("contract\0{comparison_contract}\0");
 
-    match sources(workload) {
-        Ok(sources) => {
-            for source in sources {
-                contract.push_str(match source.language {
-                    PeerLanguage::Rust => "rust\0",
-                    PeerLanguage::Cpp => "cpp\0",
-                });
+    if let Ok(sources) = sources(workload) {
+        for source in sources {
+            contract.push_str(match source.language {
+                PeerLanguage::Rust => "rust\0",
+                PeerLanguage::Cpp => "cpp\0",
+            });
 
-                contract.push_str(source.selector);
-                contract.push('\0');
-                contract.push_str(source.contents);
-                contract.push('\0');
-            }
-
-            contract
-        }
-        Err(reason) => {
-            contract.push_str("unsupported\0");
-            contract.push_str(reason);
+            contract.push_str(source.selector);
             contract.push('\0');
-
-            contract
+            contract.push_str(source.contents);
+            contract.push('\0');
         }
     }
+
+    contract
 }
 
 pub(in crate::standard_library::performance) fn comparison_contract(
@@ -95,27 +76,34 @@ pub(in crate::standard_library::performance) fn comparison_contract(
         ),
         "process_context" => Some("read the current process identity 1024 times"),
         "monotonic_clock" => Some("read a monotonic clock successfully 1024 times"),
+        "borrowed_text" => Some(
+            "slice UTF-8 text, construct owned UTF-8 text, compare and hash text, parse decimal 42, append borrowed text 256 times, and append quoted text",
+        ),
+        "format_numbers" => Some(
+            "append the decimal representation of every integer from 0 through 1023 to one growable byte sequence and validate its final length",
+        ),
+        "stream_output" => Some(
+            "complete 1024 standard-output calls that each write one byte and flush before returning",
+        ),
+        "async_output" => Some(
+            "complete and await 128 sequential asynchronous standard-output calls that each write one byte and flush before returning",
+        ),
+        "file_output" => Some(
+            "create a new file, write all 4096 bytes while accepting partial writes, flush, close, and remove the file",
+        ),
         _ => None,
     }
 }
 
-pub(in crate::standard_library::performance) fn support_reason(workload: &str) -> Option<&'static str> {
-    sources(workload).err()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{comparison_contract, support_reason};
+    use super::{comparison_contract, sources};
 
     #[test]
-    fn every_workload_has_exactly_one_peer_support_outcome() {
+    fn every_workload_has_a_contract_and_both_peer_sources() {
         for workload in super::super::super::corpus::WORKLOADS {
-            assert_ne!(
-                comparison_contract(workload.id).is_some(),
-                support_reason(workload.id).is_some(),
-                "{} must be either matched or unsupported",
-                workload.id,
-            );
+            assert!(comparison_contract(workload.id).is_some(), "{}", workload.id);
+            assert!(sources(workload.id).is_ok(), "{}", workload.id);
         }
     }
 }

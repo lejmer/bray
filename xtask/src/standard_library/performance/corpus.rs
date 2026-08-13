@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 5;
+pub(super) const CORPUS_REVISION: u32 = 6;
 
 pub(super) struct Workload {
     pub id: &'static str,
@@ -263,7 +263,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         value = value + 1;
     }
 
-    assert(std.bytes.slice_length(bytes(&sink)) > 0);
+    assert(std.bytes.slice_length(bytes(&sink)) == 2986);
     return Ok(unit);
 }
 "#,
