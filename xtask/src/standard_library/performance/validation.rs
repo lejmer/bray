@@ -5,9 +5,9 @@ use bray_base::is_lowercase_hex;
 use super::command::expected_output_digest;
 use super::corpus::WORKLOADS;
 use super::model::{
-    ArtifactReport, BoundedList, Observation, PerformanceReport, RetainedInput, SCHEMA_REVISION,
-    MAX_DYNAMIC_LIBRARY_COUNT, MAX_PLATFORM_OPERATION_COUNT, MAX_RETAINED_INPUT_COUNT,
-    MAX_SAMPLE_COUNT, MAX_SECTION_COUNT,
+    ArtifactReport, BoundedList, MAX_DYNAMIC_LIBRARY_COUNT, MAX_PLATFORM_OPERATION_COUNT,
+    MAX_RETAINED_INPUT_COUNT, MAX_SAMPLE_COUNT, MAX_SECTION_COUNT, Observation, PeerLanguage,
+    PeerOutcome, PerformanceReport, RetainedInput, SCHEMA_REVISION,
 };
 
 pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
@@ -66,11 +66,13 @@ fn validate_workload(
         .ok_or_else(|| format!("report contains unknown workload {}", workload.id))?;
 
     let expected_output = expected_output_digest(canonical.expected_output)?;
+    let expected_peer_contract = super::peer::comparison_contract(&workload.id);
 
     if workload.category != canonical.category
         || workload.scale != canonical.scale
         || workload.units != canonical.units
         || workload.expected_output_sha256 != expected_output
+        || workload.peer_contract.as_deref() != expected_peer_contract
     {
         return Err(format!("workload {} does not match the canonical corpus", workload.id));
     }
@@ -176,6 +178,85 @@ fn validate_workload(
 
     for observation in workload.observations.platform_operations.values() {
         validate_observation(observation)?;
+    }
+
+    validate_peers(workload, expected_samples)?;
+
+    Ok(())
+}
+
+fn validate_peers(
+    workload: &super::model::WorkloadReport,
+    expected_samples: usize,
+) -> Result<(), String> {
+    let languages = workload.peers.keys().copied().collect::<BTreeSet<_>>();
+
+    if languages != [PeerLanguage::Rust, PeerLanguage::Cpp].into_iter().collect() {
+        return Err(format!(
+            "workload {} does not contain both peer languages",
+            workload.id
+        ));
+    }
+
+    let expected_support_reason = super::peer::support_reason(&workload.id);
+
+    for (language, outcome) in &workload.peers {
+        match (expected_support_reason, outcome) {
+            (Some(expected), PeerOutcome::Unsupported { reason }) if reason == expected => {}
+            (None, PeerOutcome::Measured { report }) => {
+                if report.toolchain.is_empty()
+                    || report.build_configuration.is_empty()
+                    || report.source_sha256.len() != 64
+                    || !is_lowercase_hex(&report.source_sha256)
+                    || report.compile_link_nanoseconds == 0
+                    || report.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
+                    || report.controlled_execution.scope != super::model::BRAY_EXECUTION_SCOPE
+                    || !execution_is_valid(
+                        &report.process_execution,
+                        expected_samples,
+                        workload.scale,
+                    )
+                    || !execution_is_valid(
+                        &report.controlled_execution,
+                        expected_samples,
+                        workload.scale,
+                    )
+                    || report.artifacts.len() != 1
+                {
+                    return Err(format!(
+                        "workload {} {language:?} peer report is invalid",
+                        workload.id
+                    ));
+                }
+
+                validate_artifact(&report.artifacts[0])?;
+                validate_unavailable_peer_observations(&report.observations)?;
+            }
+            _ => {
+                return Err(format!(
+                    "workload {} {language:?} peer support does not match its corpus contract",
+                    workload.id
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_unavailable_peer_observations(
+    observations: &super::model::WorkloadObservations,
+) -> Result<(), String> {
+    if !observations.platform_operations.is_empty()
+        || [
+            &observations.allocation_count,
+            &observations.allocated_bytes,
+            &observations.copied_bytes,
+        ]
+        .into_iter()
+        .any(|observation| !matches!(observation, Observation::Unavailable { reason } if !reason.is_empty()))
+    {
+        return Err("peer observations must explain unavailable runtime measurements".to_owned());
     }
 
     Ok(())

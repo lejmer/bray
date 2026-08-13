@@ -91,6 +91,8 @@ fn corpus_digest(workloads: &[&Workload]) -> String {
         digest.update([0]);
         digest.update(workload.source.as_bytes());
         digest.update([0]);
+        digest.update(super::super::peer::corpus_contract(workload.id).as_bytes());
+        digest.update([0]);
 
         for source in workload.standard_library_sources {
             digest.update(source.as_bytes());

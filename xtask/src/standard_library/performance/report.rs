@@ -1,49 +1,13 @@
 use std::fmt::Write as _;
-use std::fs;
 use std::path::Path;
 
 use super::model::{
     ArtifactKind, ChangeAssessment, ComparisonReport, MetricComparison, Observation,
-    ObservationComparison, PerformanceReport,
+    ObservationComparison, PeerComparison, PeerOutcome, PerformanceReport,
 };
 
-const MAX_HTML_BYTES: usize = 8 * 1024 * 1024;
-
-struct BoundedHtml {
-    contents: String,
-    overflowed: bool,
-}
-
-impl BoundedHtml {
-    fn new() -> Self {
-        Self {
-            contents: String::new(),
-            overflowed: false,
-        }
-    }
-
-    fn push_str(&mut self, value: &str) {
-        if self.contents.len().saturating_add(value.len()) > MAX_HTML_BYTES {
-            self.overflowed = true;
-
-            return;
-        }
-
-        self.contents.push_str(value);
-    }
-}
-
-impl std::fmt::Write for BoundedHtml {
-    fn write_str(&mut self, value: &str) -> std::fmt::Result {
-        self.push_str(value);
-
-        if self.overflowed {
-            Err(std::fmt::Error)
-        } else {
-            Ok(())
-        }
-    }
-}
+use super::format::{grouped, kibibytes, milliseconds, nanoseconds_title, signed_kibibytes, signed_milliseconds};
+use super::html::{BoundedHtml, document_start, escape, finish, write};
 
 pub(super) fn write_candidate(path: &Path, report: &PerformanceReport) -> Result<(), String> {
     write(path, render_candidate(report)?)
@@ -56,51 +20,52 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
 
     html.push_str(
         "<section><h2>How to read this report</h2>\
-        <p>The primary duration is the measured Bray root execution. Process duration also includes \
-        executable startup and teardown. Throughput uses the Bray duration.</p></section>",
+        <p>The primary duration is the language-controlled workload execution. Process duration also includes \
+        executable startup and teardown. Throughput uses the controlled duration.</p></section>",
     );
 
     html.push_str(
         "<section><h2>Workloads</h2><div class=\"table-scroll\"><table><thead><tr>\
-        <th>Workload</th><th>Bray median</th><th>Bray MAD</th><th>Process median</th>\
+        <th>Workload</th><th>Language</th><th>Controlled median</th><th>Controlled MAD</th><th>Process median</th>\
         <th>Throughput</th><th>Executable</th><th>Compile time</th>\
         <th>Allocations</th><th>Allocated</th><th>Copied</th></tr></thead><tbody>",
     );
 
     for workload in &report.workloads {
-        let executable = workload
-            .artifacts
-            .iter()
-            .find(|artifact| artifact.kind == ArtifactKind::Executable);
-
-        let _ = write!(
-            html,
-            "<tr><th>{}</th><td {}>{}</td><td {}>{}</td><td {}>{}</td>\
-            <td>{} {}/s</td><td>{}</td><td {}>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-            escape(&workload.id),
-            nanoseconds_title(workload.bray_execution.median_nanoseconds),
-            milliseconds(workload.bray_execution.median_nanoseconds),
-            nanoseconds_title(
-                workload
-                    .bray_execution
-                    .median_absolute_deviation_nanoseconds
-            ),
-            milliseconds(
-                workload
-                    .bray_execution
-                    .median_absolute_deviation_nanoseconds
-            ),
-            nanoseconds_title(workload.process_execution.median_nanoseconds),
-            milliseconds(workload.process_execution.median_nanoseconds),
-            grouped(workload.bray_execution.median_units_per_second),
-            escape(&workload.units),
-            executable.map_or_else(|| "Unavailable".to_owned(), |artifact| kibibytes(artifact.bytes)),
-            nanoseconds_title(workload.compilation.elapsed_nanoseconds),
-            milliseconds(workload.compilation.elapsed_nanoseconds),
-            observation_count(&workload.observations.allocation_count),
-            observation_bytes(&workload.observations.allocated_bytes),
-            observation_bytes(&workload.observations.copied_bytes),
+        candidate_row(
+            &mut html,
+            workload,
+            "Bray",
+            &workload.bray_execution,
+            &workload.process_execution,
+            workload.compilation.elapsed_nanoseconds,
+            &workload.artifacts,
+            &workload.observations,
         );
+
+        for (language, peer) in &workload.peers {
+            match peer {
+                PeerOutcome::Measured { report } => candidate_row(
+                    &mut html,
+                    workload,
+                    peer_language(*language),
+                    &report.controlled_execution,
+                    &report.process_execution,
+                    report.compile_link_nanoseconds,
+                    &report.artifacts,
+                    &report.observations,
+                ),
+                PeerOutcome::Unsupported { reason } => {
+                    let _ = write!(
+                        html,
+                        "<tr><th>{}</th><td>{}</td><td colspan=\"9\">Unsupported because {}</td></tr>",
+                        escape(&workload.id),
+                        peer_language(*language),
+                        escape(reason),
+                    );
+                }
+            }
+        }
     }
 
     html.push_str("</tbody></table></div></section>");
@@ -110,6 +75,47 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
     }
 
     finish(html)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one report row keeps the shared cross-language measurement contract visible"
+)]
+fn candidate_row(
+    html: &mut BoundedHtml,
+    workload: &super::model::WorkloadReport,
+    language: &str,
+    controlled: &super::model::ExecutionStatistics,
+    process: &super::model::ExecutionStatistics,
+    compile_link_nanoseconds: u64,
+    artifacts: &[super::model::ArtifactReport],
+    observations: &super::model::WorkloadObservations,
+) {
+    let executable = artifacts
+        .iter()
+        .find(|artifact| artifact.kind == ArtifactKind::Executable);
+
+    let _ = write!(
+        html,
+        "<tr><th>{}</th><td>{}</td><td {}>{}</td><td {}>{}</td><td {}>{}</td>\
+        <td>{} {}/s</td><td>{}</td><td {}>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+        escape(&workload.id),
+        language,
+        nanoseconds_title(controlled.median_nanoseconds),
+        milliseconds(controlled.median_nanoseconds),
+        nanoseconds_title(controlled.median_absolute_deviation_nanoseconds),
+        milliseconds(controlled.median_absolute_deviation_nanoseconds),
+        nanoseconds_title(process.median_nanoseconds),
+        milliseconds(process.median_nanoseconds),
+        grouped(controlled.median_units_per_second),
+        escape(&workload.units),
+        executable.map_or_else(|| "Unavailable".to_owned(), |artifact| kibibytes(artifact.bytes)),
+        nanoseconds_title(compile_link_nanoseconds),
+        milliseconds(compile_link_nanoseconds),
+        observation_count(&observations.allocation_count),
+        observation_bytes(&observations.allocated_bytes),
+        observation_bytes(&observations.copied_bytes),
+    );
 }
 
 pub(super) fn write_comparison(
@@ -128,7 +134,7 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
     html.push_str(
         "<section><h2>Changes</h2><p>Negative duration and size changes are improvements. \
         Timing changes within the noise boundary are marked indeterminate.</p><div class=\"table-scroll\">\
-        <table><thead><tr><th>Workload</th><th>Bray duration</th><th>Process duration</th>\
+        <table><thead><tr><th>Workload</th><th>Language</th><th>Controlled duration</th><th>Process duration</th>\
         <th>Executable size</th><th>Retained inputs</th></tr></thead><tbody>",
     );
 
@@ -151,7 +157,7 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
 
         let _ = write!(
             html,
-            "<tr><th>{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            "<tr><th>{}</th><td>Bray</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
             escape(&workload.id),
             comparison_metric(workload.bray_execution, MetricUnit::Duration),
             comparison_metric(workload.process_execution, MetricUnit::Duration),
@@ -161,6 +167,33 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
             ),
             retained,
         );
+
+        for (language, peer) in &workload.peers {
+            match peer {
+                PeerComparison::Measured {
+                    process_execution,
+                    controlled_execution,
+                    artifacts,
+                    ..
+                } => comparison_row(
+                    &mut html,
+                    &workload.id,
+                    peer_language(*language),
+                    *controlled_execution,
+                    *process_execution,
+                    artifacts,
+                ),
+                PeerComparison::Unsupported { reason } => {
+                    let _ = write!(
+                        html,
+                        "<tr><th>{}</th><td>{}</td><td colspan=\"4\">Unsupported because {}</td></tr>",
+                        escape(&workload.id),
+                        peer_language(*language),
+                        escape(reason),
+                    );
+                }
+            }
+        }
     }
 
     html.push_str("</tbody></table></div></section>");
@@ -170,6 +203,44 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
     }
 
     finish(html)
+}
+
+fn comparison_row(
+    html: &mut BoundedHtml,
+    workload: &str,
+    language: &str,
+    controlled: MetricComparison,
+    process: MetricComparison,
+    artifacts: &[super::model::ArtifactComparison],
+) {
+    let executable = artifacts
+        .iter()
+        .find(|artifact| artifact.kind == ArtifactKind::Executable);
+
+    let retained = executable.map_or_else(
+        || "Unavailable".to_owned(),
+        |artifact| {
+            format!(
+                "+{} and -{}",
+                artifact.added_static_inputs.len(),
+                artifact.removed_static_inputs.len()
+            )
+        },
+    );
+
+    let _ = write!(
+        html,
+        "<tr><th>{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+        escape(workload),
+        language,
+        comparison_metric(controlled, MetricUnit::Duration),
+        comparison_metric(process, MetricUnit::Duration),
+        executable.map_or_else(
+            || "Unavailable".to_owned(),
+            |artifact| comparison_metric(artifact.bytes, MetricUnit::Bytes)
+        ),
+        retained,
+    );
 }
 
 fn comparison_details(html: &mut BoundedHtml, workload: &super::model::WorkloadComparison) {
@@ -206,6 +277,34 @@ fn comparison_details(html: &mut BoundedHtml, workload: &super::model::WorkloadC
         html.push_str("</dl>");
     }
 
+    for (language, peer) in &workload.peers {
+        let language = peer_language(*language);
+
+        match peer {
+            PeerComparison::Measured {
+                compile_link,
+                artifacts,
+                ..
+            } => {
+                let _ = write!(
+                    html,
+                    "<details><summary>{language} peer changes</summary><dl><dt>Compile and link</dt><dd>{}</dd></dl>",
+                    comparison_metric(*compile_link, MetricUnit::Duration),
+                );
+
+                artifact_comparison_details(html, artifacts);
+                html.push_str("</details>");
+            }
+            PeerComparison::Unsupported { reason } => {
+                let _ = write!(
+                    html,
+                    "<p><strong>{language}</strong> is unsupported because {}.</p>",
+                    escape(reason),
+                );
+            }
+        }
+    }
+
     html.push_str("<h3>Observed work</h3><dl>");
 
     observation_comparison_detail(
@@ -235,7 +334,16 @@ fn comparison_details(html: &mut BoundedHtml, workload: &super::model::WorkloadC
 
     html.push_str("</dl>");
 
-    for artifact in &workload.artifacts {
+    artifact_comparison_details(html, &workload.artifacts);
+
+    html.push_str("</section>");
+}
+
+fn artifact_comparison_details(
+    html: &mut BoundedHtml,
+    artifacts: &[super::model::ArtifactComparison],
+) {
+    for artifact in artifacts {
         let _ = write!(
             html,
             "<details><summary>{:?} changes</summary><h4>Sections</h4><dl>",
@@ -261,8 +369,6 @@ fn comparison_details(html: &mut BoundedHtml, workload: &super::model::WorkloadC
         escaped_list(html, &artifact.removed_dynamic_libraries);
         html.push_str("</ul></details>");
     }
-
-    html.push_str("</section>");
 }
 
 fn observation_comparison_detail(
@@ -340,6 +446,14 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
         escape(&workload.expected_output_sha256),
     );
 
+    if let Some(contract) = &workload.peer_contract {
+        let _ = write!(
+            html,
+            "<p><strong>Shared comparison contract:</strong> {}</p>",
+            escape(contract),
+        );
+    }
+
     html.push_str("<h3>Observed work</h3><dl>");
     observation_detail(html, "Allocations", &workload.observations.allocation_count);
     observation_detail(html, "Allocated bytes", &workload.observations.allocated_bytes);
@@ -351,8 +465,50 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
 
     html.push_str("</dl>");
     compiler_details(html, &workload.compilation);
+    artifact_details(html, &workload.artifacts);
 
-    for artifact in &workload.artifacts {
+    for (language, peer) in &workload.peers {
+        let language = peer_language(*language);
+
+        match peer {
+            PeerOutcome::Measured { report } => {
+                let _ = write!(
+                    html,
+                    "<details><summary>{language} peer details</summary><dl>\
+                    <dt>Toolchain</dt><dd>{}</dd><dt>Build configuration</dt><dd>{}</dd>\
+                    <dt>Source SHA-256</dt><dd><code>{}</code></dd><dt>Compile and link</dt>\
+                    <dd {}>{}</dd><dt>Controlled scope</dt><dd>{}</dd></dl>",
+                    escape(&report.toolchain),
+                    escape(&report.build_configuration),
+                    escape(&report.source_sha256),
+                    nanoseconds_title(report.compile_link_nanoseconds),
+                    milliseconds(report.compile_link_nanoseconds),
+                    escape(&report.controlled_execution.scope),
+                );
+
+                html.push_str("<h4>Observed work</h4><dl>");
+                observation_detail(html, "Allocations", &report.observations.allocation_count);
+                observation_detail(html, "Allocated bytes", &report.observations.allocated_bytes);
+                observation_detail(html, "Copied bytes", &report.observations.copied_bytes);
+                html.push_str("</dl>");
+                artifact_details(html, &report.artifacts);
+                html.push_str("</details>");
+            }
+            PeerOutcome::Unsupported { reason } => {
+                let _ = write!(
+                    html,
+                    "<p><strong>{language}</strong> is unsupported because {}.</p>",
+                    escape(reason),
+                );
+            }
+        }
+    }
+
+    html.push_str("</section>");
+}
+
+fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactReport]) {
+    for artifact in artifacts {
         let _ = write!(
             html,
             "<details><summary>{:?} artifact, {}</summary><dl><dt>Path</dt><dd><code>{}</code></dd>\
@@ -399,8 +555,6 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
 
         html.push_str("</ul></details>");
     }
-
-    html.push_str("</section>");
 }
 
 fn compiler_details(
@@ -487,39 +641,6 @@ fn identity(html: &mut BoundedHtml, label: &str, identity: &super::model::Report
     );
 }
 
-fn document_start(title: &str) -> BoundedHtml {
-    let mut html = BoundedHtml::new();
-
-    let _ = write!(
-        html,
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-        <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
-        <title>{}</title><style>{}</style></head><body><main><h1>{}</h1>",
-        escape(title),
-        CSS,
-        escape(title),
-    );
-
-    html
-}
-
-fn finish(mut html: BoundedHtml) -> Result<String, String> {
-    html.push_str("</main></body></html>");
-
-    if html.overflowed {
-        return Err(format!(
-            "HTML performance report exceeds its {} byte bound",
-            MAX_HTML_BYTES
-        ));
-    }
-
-    Ok(html.contents)
-}
-
-fn write(path: &Path, html: String) -> Result<(), String> {
-    fs::write(path, html).map_err(|error| format!("could not write {}: {error}", path.display()))
-}
-
 fn observation_count(observation: &Observation) -> String {
     match observation {
         Observation::Measured { value, .. } => grouped(*value),
@@ -562,72 +683,11 @@ fn comparison_metric(metric: MetricComparison, unit: MetricUnit) -> String {
     )
 }
 
-fn milliseconds(nanoseconds: u64) -> String {
-    let milliseconds = nanoseconds as f64 / 1_000_000.0;
-
-    if milliseconds < 0.001 {
-        format!("{milliseconds:.6} ms")
-    } else {
-        format!("{milliseconds:.3} ms")
+const fn peer_language(language: super::model::PeerLanguage) -> &'static str {
+    match language {
+        super::model::PeerLanguage::Rust => "Rust",
+        super::model::PeerLanguage::Cpp => "C++",
     }
-}
-
-fn signed_milliseconds(nanoseconds: i128) -> String {
-    let milliseconds = nanoseconds as f64 / 1_000_000.0;
-
-    if milliseconds.abs() < 0.001 {
-        format!("{milliseconds:+.6} ms")
-    } else {
-        format!("{milliseconds:+.3} ms")
-    }
-}
-
-fn kibibytes(bytes: u64) -> String {
-    let unit = if bytes == 1 { "byte" } else { "bytes" };
-
-    format!("{:.2} KiB ({} {unit})", bytes as f64 / 1024.0, grouped(bytes))
-}
-
-fn signed_kibibytes(bytes: i128) -> String {
-    let unit = if bytes.unsigned_abs() == 1 { "byte" } else { "bytes" };
-
-    format!("{:+.2} KiB ({bytes:+} {unit})", bytes as f64 / 1024.0)
-}
-
-fn nanoseconds_title(nanoseconds: u64) -> String {
-    format!("title=\"{} ns\"", grouped(nanoseconds))
-}
-
-fn grouped(value: u64) -> String {
-    let digits = value.to_string();
-    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
-
-    for (index, character) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            grouped.push(',');
-        }
-
-        grouped.push(character);
-    }
-
-    grouped
-}
-
-fn escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-
-    for character in value.chars() {
-        match character {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
-            _ => escaped.push(character),
-        }
-    }
-
-    escaped
 }
 
 const fn assessment(value: ChangeAssessment) -> &'static str {
@@ -646,31 +706,11 @@ const fn assessment_class(value: ChangeAssessment) -> &'static str {
     }
 }
 
-const CSS: &str = r#"
-:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.45; }
-body { margin: 0; background: Canvas; color: CanvasText; }
-main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-section { margin: 2rem 0; }
-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
-th, td { border-bottom: 1px solid color-mix(in srgb, CanvasText 20%, transparent); padding: .6rem; text-align: right; white-space: nowrap; }
-th:first-child, td:first-child { text-align: left; }
-.table-scroll { overflow-x: auto; }
-dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; }
-dt { font-weight: 650; }
-dd { margin: 0; overflow-wrap: anywhere; }
-code { font-family: ui-monospace, monospace; }
-.improved { color: #16803c; }
-.regressed { color: #c43b32; }
-.indeterminate { color: #767676; }
-@media (prefers-color-scheme: dark) { .improved { color: #65d58a; } .regressed { color: #ff8178; } .indeterminate { color: #aaa; } }
-"#;
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        BoundedHtml, MAX_HTML_BYTES, escape, finish, grouped, kibibytes, render_candidate,
-        render_comparison, signed_kibibytes,
-    };
+    use super::{render_candidate, render_comparison};
+    use super::super::format::{grouped, kibibytes, signed_kibibytes};
+    use super::super::html::{BoundedHtml, MAX_HTML_BYTES, escape, finish};
 
     #[test]
     fn html_escaping_covers_text_and_attribute_delimiters() {
@@ -721,6 +761,9 @@ mod tests {
         assert!(first.contains("&lt;artifact&gt;"));
         assert!(first.contains("2.500 ms"));
         assert!(first.contains("0.10 KiB (100 bytes)"));
+        assert!(first.contains("Shared comparison contract"));
+        assert!(first.contains("Rust peer details"));
+        assert!(first.contains("C++ peer details"));
         assert!(first.contains(&report.identity.corpus_sha256));
         assert!(!first.contains("<artifact>"));
     }

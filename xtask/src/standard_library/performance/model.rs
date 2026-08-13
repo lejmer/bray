@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCHEMA_REVISION: u32 = 2;
+pub(super) const SCHEMA_REVISION: u32 = 3;
 pub(super) const MAX_SAMPLE_COUNT: u32 = 10_000;
 pub(super) const MAX_SECTION_COUNT: usize = 512;
 pub(super) const MAX_RETAINED_INPUT_COUNT: usize = 4_096;
@@ -11,7 +11,7 @@ pub(super) const MAX_PLATFORM_OPERATION_COUNT: usize = 32;
 pub(super) const PROCESS_EXECUTION_SCOPE: &str =
     "wall-clock process execution including startup and teardown";
 pub(super) const BRAY_EXECUTION_SCOPE: &str =
-    "generated root execution from entry dispatch through result resolution";
+    "language-controlled workload execution excluding harness process startup and teardown";
 pub(super) const STORAGE_OBSERVATION_SCOPE: &str =
     "generated memory work in one dedicated observed execution";
 
@@ -39,6 +39,7 @@ pub(super) struct ReportIdentity {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub(super) struct WorkloadReport {
     pub id: String,
+    pub peer_contract: Option<String>,
     pub category: WorkloadCategory,
     pub scale: u64,
     pub units: String,
@@ -46,6 +47,33 @@ pub(super) struct WorkloadReport {
     pub compilation: bray_compilation::CompilationProfileReport,
     pub process_execution: ExecutionStatistics,
     pub bray_execution: ExecutionStatistics,
+    pub artifacts: Vec<ArtifactReport>,
+    pub observations: WorkloadObservations,
+    pub peers: BTreeMap<PeerLanguage, PeerOutcome>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum PeerLanguage {
+    Rust,
+    Cpp,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(super) enum PeerOutcome {
+    Measured { report: PeerReport },
+    Unsupported { reason: String },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct PeerReport {
+    pub toolchain: String,
+    pub build_configuration: String,
+    pub source_sha256: String,
+    pub compile_link_nanoseconds: u64,
+    pub process_execution: ExecutionStatistics,
+    pub controlled_execution: ExecutionStatistics,
     pub artifacts: Vec<ArtifactReport>,
     pub observations: WorkloadObservations,
 }
@@ -153,6 +181,21 @@ pub(super) struct WorkloadComparison {
     pub compiler_metrics: BTreeMap<String, MetricComparison>,
     pub artifacts: Vec<ArtifactComparison>,
     pub observations: ObservationComparisonReport,
+    pub peers: BTreeMap<PeerLanguage, PeerComparison>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(super) enum PeerComparison {
+    Measured {
+        compile_link: MetricComparison,
+        process_execution: MetricComparison,
+        controlled_execution: MetricComparison,
+        artifacts: Vec<ArtifactComparison>,
+    },
+    Unsupported {
+        reason: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
