@@ -31,8 +31,9 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
             | CheckedMemoryOperationKind::RawBufferRelease { .. }
             | CheckedMemoryOperationKind::RawBufferReplace { .. }
+            | CheckedMemoryOperationKind::RawBufferRelocate { .. }
             | CheckedMemoryOperationKind::ByteBufferFill
-            | CheckedMemoryOperationKind::ByteBufferCopy
+            | CheckedMemoryOperationKind::ByteSliceCopy
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::CallbackState { .. }
     )
@@ -356,7 +357,7 @@ where
                 return apply_deallocation(state, pointer, operation.expression());
             }
             CheckedMemoryOperationKind::ByteBufferFill
-            | CheckedMemoryOperationKind::ByteBufferCopy
+            | CheckedMemoryOperationKind::ByteSliceCopy
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::SliceLength
             | CheckedMemoryOperationKind::RawBufferCapacity
@@ -368,7 +369,8 @@ where
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
             | CheckedMemoryOperationKind::RawBufferRelease { .. }
             | CheckedMemoryOperationKind::CallbackState { .. } => {}
-            CheckedMemoryOperationKind::RawBufferReplace { .. } => {}
+            CheckedMemoryOperationKind::RawBufferReplace { .. }
+            | CheckedMemoryOperationKind::RawBufferRelocate { .. } => {}
         }
 
         MemoryOperationStatus::Valid

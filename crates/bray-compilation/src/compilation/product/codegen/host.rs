@@ -322,7 +322,8 @@ const fn runtime_operation_capability(operation: &MirOperationKind) -> Option<Ru
             | CheckedMemoryOperationKind::Allocate
             | CheckedMemoryOperationKind::Deallocate
             | CheckedMemoryOperationKind::RawBufferRelease { .. }
-            | CheckedMemoryOperationKind::RawBufferReplace { .. } => {
+            | CheckedMemoryOperationKind::RawBufferReplace { .. }
+            | CheckedMemoryOperationKind::RawBufferRelocate { .. } => {
                 Some(RuntimeCapability::MemoryOperations)
             }
             _ => None,

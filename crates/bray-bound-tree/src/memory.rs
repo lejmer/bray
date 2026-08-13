@@ -149,10 +149,15 @@ pub enum CheckedMemoryOperationKind {
         /// Buffered element type governing cleanup and allocation layout.
         element: TypeId,
     },
+    /// Relocate initialized elements between distinct raw-buffer owners.
+    RawBufferRelocate {
+        /// Buffered element type governing representation and alignment.
+        element: TypeId,
+    },
     /// Initialize a byte-buffer range to one repeated byte.
     ByteBufferFill,
-    /// Copy one byte-buffer range into writable storage.
-    ByteBufferCopy,
+    /// Copy an initialized byte slice into distinct writable storage.
+    ByteSliceCopy,
     /// Read one initialized byte from byte-buffer storage.
     ByteBufferRead,
     /// Read the element count carried by a slice.
@@ -186,13 +191,14 @@ impl CheckedMemoryOperationKind {
             Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
+            | Self::RawBufferReplace { .. }
+            | Self::RawBufferRelocate { .. }
+            | Self::ByteSliceCopy
             | Self::RawBufferSetInitializedCount
             | Self::ByteBufferRead => 2,
             Self::Copy { .. }
             | Self::RawDeallocate
-            | Self::RawBufferReplace { .. }
-            | Self::ByteBufferFill
-            | Self::ByteBufferCopy => 3,
+            | Self::ByteBufferFill => 3,
             Self::LayoutQuery {
                 kind: MemoryLayoutQueryKind::Layout,
                 ..
@@ -212,8 +218,9 @@ impl CheckedMemoryOperationKind {
                 | Self::RawBufferSetInitializedCount
                 | Self::RawBufferRelease { .. }
                 | Self::RawBufferReplace { .. }
+                | Self::RawBufferRelocate { .. }
                 | Self::ByteBufferFill
-                | Self::ByteBufferCopy
+                | Self::ByteSliceCopy
         )
     }
 }

@@ -355,8 +355,9 @@ const fn diagnostic_memory_operation(
         Hook::RawBufferSetInitializedCount => Operation::RawBufferSetInitializedCount,
         Hook::RawBufferRelease => Operation::RawBufferRelease,
         Hook::RawBufferReplace => Operation::RawBufferReplace,
+        Hook::RawBufferRelocate => Operation::RawBufferRelocate,
         Hook::ByteBufferFill => Operation::ByteBufferFill,
-        Hook::ByteBufferCopy => Operation::ByteBufferCopy,
+        Hook::ByteSliceCopy => Operation::ByteSliceCopy,
         Hook::ByteBufferRead => Operation::ByteBufferRead,
         Hook::SliceLength => Operation::SliceLength,
         _ => return None,
@@ -441,8 +442,9 @@ pub(crate) const fn diagnostic_checked_memory_operation(
         }
         CheckedMemoryOperationKind::RawBufferRelease { .. } => Operation::RawBufferRelease,
         CheckedMemoryOperationKind::RawBufferReplace { .. } => Operation::RawBufferReplace,
+        CheckedMemoryOperationKind::RawBufferRelocate { .. } => Operation::RawBufferRelocate,
         CheckedMemoryOperationKind::ByteBufferFill => Operation::ByteBufferFill,
-        CheckedMemoryOperationKind::ByteBufferCopy => Operation::ByteBufferCopy,
+        CheckedMemoryOperationKind::ByteSliceCopy => Operation::ByteSliceCopy,
         CheckedMemoryOperationKind::ByteBufferRead => Operation::ByteBufferRead,
         CheckedMemoryOperationKind::SliceLength => Operation::SliceLength,
         CheckedMemoryOperationKind::CallbackState { .. } => Operation::CallbackState,
@@ -673,15 +675,18 @@ where
         ImplementationHook::RawBufferReplace => {
             CheckedMemoryOperationKind::RawBufferReplace { element: one()? }
         }
+        ImplementationHook::RawBufferRelocate => {
+            CheckedMemoryOperationKind::RawBufferRelocate { element: one()? }
+        }
         ImplementationHook::ByteBufferFill => {
             ensure_no_type_arguments(types)?;
 
             CheckedMemoryOperationKind::ByteBufferFill
         }
-        ImplementationHook::ByteBufferCopy => {
+        ImplementationHook::ByteSliceCopy => {
             ensure_no_type_arguments(types)?;
 
-            CheckedMemoryOperationKind::ByteBufferCopy
+            CheckedMemoryOperationKind::ByteSliceCopy
         }
         ImplementationHook::ByteBufferRead => {
             ensure_no_type_arguments(types)?;

@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 1;
+pub(super) const CORPUS_REVISION: u32 = 2;
 
 pub(super) struct Workload {
     pub id: &'static str,
@@ -18,7 +18,7 @@ pub(super) enum ExpectedOutput {
     Repeated { byte: u8, count: u64 },
 }
 
-pub(super) const WORKLOADS: [Workload; 8] = [
+pub(super) const WORKLOADS: [Workload; 9] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -29,6 +29,38 @@ pub(super) const WORKLOADS: [Workload; 8] = [
 func main() {}
 "#,
         standard_library_sources: &[],
+        expected_output: ExpectedOutput::Empty,
+    },
+    Workload {
+        id: "incremental_bytes_small",
+        category: WorkloadCategory::CoreData,
+        scale: 64,
+        units: "bytes",
+        source: r#"module std.bytes;
+
+using std.bytes;
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut buffer: Buffer = try Buffer(capacity = 0);
+    let mut index: usize = 0;
+
+    while index < 64
+    {
+        try push(&mut buffer, value = 65);
+        index = index + 1;
+    }
+
+    assert(length(&buffer) == 64);
+    assert(capacity(&buffer) == 64);
+    return Ok(unit);
+}
+"#,
+        standard_library_sources: &[
+            "standard-library/std/src/std.bray",
+            "standard-library/std/src/memory.bray",
+            "standard-library/std/src/bytes/buffer.bray",
+        ],
         expected_output: ExpectedOutput::Empty,
     },
     Workload {
@@ -52,6 +84,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     }
 
     assert(length(&buffer) == 4096);
+    assert(capacity(&buffer) == 4096);
     return Ok(unit);
 }
 "#,

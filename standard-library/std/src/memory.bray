@@ -75,16 +75,58 @@ extern const func stride_of<T>() -> usize;
 
 extern const func layout_of<T>(count: usize) -> Result<MemoryLayout, MemoryLayoutError>;
 
-internal func checked_add_size(pos current: usize, pos additional: usize) -> Result<usize, MemoryLayoutError>
+@copy
+internal union CapacityGrowth
+{
+    Amortized;
+    Exact;
+}
+
+internal func checked_capacity(
+    pos current_length: usize,
+    pos current_capacity: usize,
+    additional: usize,
+    growth: CapacityGrowth,
+) -> Result<usize, MemoryLayoutError>
 {
     let maximum: usize = ~0;
 
-    if additional > maximum - current
+    if additional <= current_capacity - current_length
+    {
+        return Ok(current_capacity);
+    }
+
+    if additional > maximum - current_length
     {
         return Error(MemoryLayoutError.SizeOverflow);
     }
 
-    return Ok(current + additional);
+    let required: usize = current_length + additional;
+
+    match growth
+    {
+        case CapacityGrowth.Exact { return Ok(required); }
+        case CapacityGrowth.Amortized {}
+    }
+
+    let mut candidate: usize = current_capacity;
+
+    if candidate < 4
+    {
+        candidate = 4;
+    }
+
+    while candidate < required
+    {
+        if candidate > maximum - candidate
+        {
+            return Ok(required);
+        }
+
+        candidate += candidate;
+    }
+
+    return Ok(candidate);
 }
 
 struct RawAllocation
@@ -191,29 +233,64 @@ extern trusted internal func raw_buffer_release<T>(pos buffer: &mut RawBuffer<T>
 extern trusted internal func raw_buffer_replace<T>(
     pos destination: &mut RawBuffer<T>,
     pos source: &mut RawBuffer<T>,
-    initialized: usize,
 ) -> unit
     uses(manual_alloc);
+
+extern trusted internal func raw_buffer_relocate<T>(
+    pos source: &mut RawBuffer<T>,
+    pos destination: &mut RawBuffer<T>,
+) -> unit
+    requires(
+        destination.initialized == 0,
+        source.initialized <= destination.capacity,
+        trusted core.memory.non_overlapping<T>(
+            left = source.pointer,
+            left_count = source.initialized,
+            right = destination.pointer,
+            right_count = source.initialized,
+        ),
+    )
+    uses(raw_memory, unchecked_init);
+
+trusted internal func reserve_raw_buffer<T>(
+    pos buffer: &mut RawBuffer<T>,
+    additional: usize,
+    growth: CapacityGrowth,
+) -> Result<unit, MemoryLayoutError>
+{
+    let current_length: usize = buffer.initialized;
+
+    let replacement_capacity: usize = try checked_capacity(
+        current_length = current_length,
+        current_capacity = buffer.capacity,
+        additional = additional,
+        growth = growth,
+    );
+
+    if replacement_capacity == buffer.capacity
+    {
+        return Ok(unit);
+    }
+
+    let mut replacement: RawBuffer<T> = try trusted RawBuffer<T>(capacity = replacement_capacity);
+
+    trusted raw_buffer_relocate<T>(source = &mut buffer, destination = &mut replacement);
+
+    trusted raw_buffer_replace<T>(destination = &mut buffer, source = &mut replacement);
+
+    return Ok(unit);
+}
 
 extern trusted internal func byte_buffer_fill(pos destination: RawPointer<u8>, value: u8, count: usize) -> unit
     uses(raw_memory, unchecked_init);
 
-extern trusted internal func byte_buffer_copy(
-    pos source: RawPointer<u8>,
-    pos destination: RawPointer<u8>,
-    count: usize,
-) -> unit
+extern trusted internal func byte_slice_copy(pos source: &[u8], pos destination: RawPointer<u8>) -> unit
     uses(raw_memory, unchecked_init);
 
 extern trusted internal func byte_buffer_read(pos pointer: RawPointer<u8>, index: usize) -> u8
     uses(raw_memory);
 
 extern internal func slice_length<T>(pos values: &[T]) -> usize;
-
-internal func byte_address_of(pos value: &u8) -> RawPointer<u8>
-{
-    return address_of<u8>(value);
-}
 
 internal func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8>
 {

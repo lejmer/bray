@@ -28,12 +28,9 @@ struct Buffer
         }
 
         let mut buffer: Buffer = try Buffer(capacity = byte_count);
-        let first: &u8 = &bytes[0];
-
-        let source: RawPointer<u8> = internal std.memory.byte_address_of(first);
         let destination: RawPointer<u8> = buffer.storage.pointer;
 
-        trusted internal std.memory.byte_buffer_copy(source = source, destination = destination, count = byte_count);
+        trusted internal std.memory.byte_slice_copy(source = bytes, destination = destination);
 
         trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = byte_count);
 
@@ -95,31 +92,20 @@ func equals(pos left: &[u8], pos right: &[u8]) -> bool
 
 trusted func reserve(pos buffer: &mut Buffer, additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let current_length: usize = buffer.storage.initialized;
-    let current_capacity: usize = buffer.storage.capacity;
-
-    if additional <= current_capacity - current_length
-    {
-        return Ok(unit);
-    }
-
-    let required: usize = try internal std.memory.checked_add_size(current_length, additional);
-
-    let mut replacement: std.memory.RawBuffer<u8> = try trusted std.memory.RawBuffer<u8>(capacity = required);
-
-    let source: RawPointer<u8> = buffer.storage.pointer;
-    let destination: RawPointer<u8> = replacement.pointer;
-
-    trusted internal std.memory.byte_buffer_copy(source = source, destination = destination, count = current_length);
-
-    trusted internal std.memory.raw_buffer_replace<u8>(
-        destination = &mut buffer.storage,
-        source = &mut replacement,
-        initialized = current_length,
-
+    return trusted internal std.memory.reserve_raw_buffer<u8>(
+        buffer = &mut buffer.storage,
+        additional = additional,
+        growth = internal std.memory.CapacityGrowth.Amortized,
     );
+}
 
-    return Ok(unit);
+trusted func reserve_exact(pos buffer: &mut Buffer, additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    return trusted internal std.memory.reserve_raw_buffer<u8>(
+        buffer = &mut buffer.storage,
+        additional = additional,
+        growth = internal std.memory.CapacityGrowth.Exact,
+    );
 }
 
 trusted func resize(
@@ -195,12 +181,9 @@ trusted func append(pos buffer: &mut Buffer, bytes: &[u8]) -> Result<unit, std.m
     try reserve(additional = byte_count, buffer = &mut buffer);
 
     let current_length: usize = buffer.storage.initialized;
-    let first: &u8 = &bytes[0];
-
-    let source: RawPointer<u8> = internal std.memory.byte_address_of(first);
     let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer.storage);
 
-    trusted internal std.memory.byte_buffer_copy(source = source, destination = destination, count = byte_count);
+    trusted internal std.memory.byte_slice_copy(source = bytes, destination = destination);
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + byte_count);
 
     return Ok(unit);

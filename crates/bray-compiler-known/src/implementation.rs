@@ -62,10 +62,12 @@ define_catalog_enum! {
         RawBufferRelease => "RawBufferRelease",
         /// Replaces one raw-buffer owner and clears the transferred source.
         RawBufferReplace => "RawBufferReplace",
+        /// Relocates initialized values between distinct raw-buffer owners.
+        RawBufferRelocate => "RawBufferRelocate",
         /// Initializes a byte-buffer range to one repeated byte.
         ByteBufferFill => "ByteBufferFill",
-        /// Copies a byte-buffer range without exposing raw initialization state.
-        ByteBufferCopy => "ByteBufferCopy",
+        /// Copies an initialized byte slice into distinct writable storage.
+        ByteSliceCopy => "ByteSliceCopy",
         /// Reads one initialized byte from byte-buffer storage.
         ByteBufferRead => "ByteBufferRead",
         /// Reads the element count carried by a byte slice.
@@ -156,8 +158,9 @@ impl ImplementationHook {
         Self::RawBufferSetInitializedCount,
         Self::RawBufferRelease,
         Self::RawBufferReplace,
+        Self::RawBufferRelocate,
         Self::ByteBufferFill,
-        Self::ByteBufferCopy,
+        Self::ByteSliceCopy,
         Self::ByteBufferRead,
         Self::SliceLength,
         Self::CallbackState,

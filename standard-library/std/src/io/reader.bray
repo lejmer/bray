@@ -23,13 +23,14 @@ internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source
 
     let available: usize = reader.length - reader.start;
     let copied: usize = smaller(destination_length, available);
-    let mut index: usize = 0;
 
-    while index < copied
+    if copied > 0
     {
-        destination[index] = std.bytes.as_slice(&reader.storage)[reader.start + index];
+        let buffered: &[u8] = std.bytes.as_slice(&reader.storage);
+        let source: &[u8] = &buffered[reader.start.. reader.start + copied];
+        let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
 
-        index += 1;
+        trusted internal std.memory.byte_slice_copy(source = source, destination = destination_pointer);
     }
 
     reader.start += copied;
@@ -139,37 +140,7 @@ internal async func read_buffered_async<Source>(
         yield await reader.source.read_async(std.bytes.as_slice_mut(&mut reader.storage));
     };
 
-    let capacity: usize = reader.capacity;
-
-    match consume result
-    {
-        case Ok(transferred)
-        {
-            if transferred > capacity
-            {
-                return Error(invalid_transfer_error());
-            }
-
-            reader.start = 0;
-            reader.length = transferred;
-
-            return Ok(copy_buffered_bytes(reader, destination));
-        }
-        case Error(error)
-        {
-            if error.transferred > capacity
-            {
-                return Error(invalid_transfer_error());
-            }
-
-            reader.start = 0;
-            reader.length = error.transferred;
-
-            let copied: usize = copy_buffered_bytes(reader, destination);
-
-            return Error(transferred_error(error, transferred = copied));
-        }
-    }
+    return buffered_read_result(reader, destination, result = result);
 }
 
 impl BufferedReader<Source>
