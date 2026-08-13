@@ -147,7 +147,7 @@ internal async func flush_after_write_async<Sink>(pos sink: &mut Sink, written: 
     return checked_flush_result(result = result, written = written);
 }
 
-func print(pos text: string) -> Result<unit, IoError>
+func print(pos text: &string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let mut output: StandardOutput = standard_output();
@@ -155,8 +155,7 @@ func print(pos text: string) -> Result<unit, IoError>
 
     let lock: StandardStreamLock = try trusted acquire_standard_stream(handle = handle);
 
-    let text_ref: &string = &text;
-    let bytes: &[u8] = std.string.utf8(text_ref);
+    let bytes: &[u8] = std.string.utf8(text);
 
     let write_result: Result<usize, IoError> = write_standard_output_all(&mut output, bytes);
 
@@ -172,7 +171,7 @@ func print(pos text: string) -> Result<unit, IoError>
     }
 }
 
-func print_line(pos text: string) -> Result<unit, IoError>
+func print_line(pos text: &string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     let mut output: StandardOutput = standard_output();
@@ -180,8 +179,7 @@ func print_line(pos text: string) -> Result<unit, IoError>
 
     let lock: StandardStreamLock = try trusted acquire_standard_stream(handle = handle);
 
-    let text_ref: &string = &text;
-    let bytes: &[u8] = std.string.utf8(text_ref);
+    let bytes: &[u8] = std.string.utf8(text);
 
     let write_result: Result<usize, IoError> = write_standard_output_all(&mut output, bytes);
 
@@ -189,8 +187,7 @@ func print_line(pos text: string) -> Result<unit, IoError>
     {
         case Ok(written)
         {
-            let newline_text: string = "\n";
-            let newline: &[u8] = std.string.utf8(&newline_text);
+            let newline: &[u8] = std.string.utf8(&"\n");
 
             let newline_written: Result<usize, IoError> = write_standard_output_all(&mut output, newline);
 
@@ -209,13 +206,13 @@ func print_line(pos text: string) -> Result<unit, IoError>
     }
 }
 
-async func print_async(pos text: string) -> Result<unit, IoError>
+async func print_async(pos text: &string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     return print(text);
 }
 
-async func print_line_async(pos text: string) -> Result<unit, IoError>
+async func print_line_async(pos text: &string) -> Result<unit, IoError>
     requires(blocking_execution())
 {
     return print_line(text);

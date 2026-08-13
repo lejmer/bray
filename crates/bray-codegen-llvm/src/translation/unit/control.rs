@@ -706,9 +706,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let Some(source) = self.builder.get_insert_block() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
+        let mut incoming = Vec::with_capacity(target.parameters().len());
 
         for (parameter, argument) in target.parameters().iter().zip(edge.arguments()) {
             let phi = self
@@ -719,6 +717,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let value = self.operand(argument)?;
 
+            incoming.push((phi, value));
+        }
+
+        let Some(source) = self.builder.get_insert_block() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        for (phi, value) in incoming {
             phi.add_incoming(&[(&value, source)]);
         }
 

@@ -28,7 +28,7 @@ pub(crate) fn build_rust_static_library(
     profile: &str,
     features: &[&str],
 ) -> Result<RustStaticLibrary, BuildError> {
-    let target_directory = root.join("target");
+    let target_directory = crate::workspace::cargo_target(root);
     let mut command = Command::new("cargo");
 
     command.current_dir(root).args([

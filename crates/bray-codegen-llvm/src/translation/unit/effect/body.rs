@@ -279,40 +279,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let message_type = self.operand_type(message)?;
         let message = self.operand(message)?;
 
-        let fields = self
-            .type_mapping(message_type)
-            .and_then(|mapping| match mapping.kind() {
-                CodegenTypeKind::Aggregate(fields)
-                    if fields.len() == 3
-                        && mapping.behavior()
-                            == Some(bray_codegen::CodegenTypeBehavior::String) =>
-                {
-                    Some(fields.clone())
-                }
-                _ => None,
-            })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let pointer = 0;
-        let length = 2;
-
-        let pointer_element = u32::try_from(self.aggregate_value_element(&fields, pointer)?)
-            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
-
-        let pointer = extract_value(&self.builder, message, pointer_element)?;
-
-        let length_element = u32::try_from(self.aggregate_value_element(&fields, length)?)
-            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
-
-        let length = extract_value(&self.builder, message, length_element)?;
+        let (pointer, length, _) = self.string_view_parts(message, message_type)?;
 
         let mut view = crate::native::string_view_type(self.types.context(), self.request.target())
             .const_zero()
             .into();
 
-        view = insert_value(&self.builder, view, pointer, 0)?;
+        view = insert_value(&self.builder, view, pointer.into(), 0)?;
 
-        insert_value(&self.builder, view, length, 1)
+        insert_value(&self.builder, view, length.into(), 1)
     }
 
     pub(super) fn translate_anonymous_callable(

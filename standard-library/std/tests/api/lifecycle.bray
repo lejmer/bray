@@ -49,8 +49,8 @@ func imported_buffered_streams_are_destroyed() -> Result<unit, std.io.IoError>
 @test
 func repeated_standard_output_locks_are_released() -> Result<unit, std.io.IoError>
 {
-    try std.io.print("first-lock|");
-    try std.io.print("second-lock");
+    try std.io.print(&"first-lock|");
+    try std.io.print(&"second-lock");
 
     return Ok(unit);
 }
