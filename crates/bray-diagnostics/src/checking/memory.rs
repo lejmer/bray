@@ -30,8 +30,9 @@ pub enum DiagnosticMemoryOperation {
     RawBufferSetInitializedCount,
     RawBufferRelease,
     RawBufferReplace,
+    RawBufferRelocate,
     ByteBufferFill,
-    ByteBufferCopy,
+    ByteSliceCopy,
     ByteBufferRead,
     SliceLength,
 }
@@ -69,8 +70,9 @@ impl DiagnosticMemoryOperation {
             Self::RawBufferSetInitializedCount => "raw_buffer_set_initialized_count",
             Self::RawBufferRelease => "raw_buffer_release",
             Self::RawBufferReplace => "raw_buffer_replace",
+            Self::RawBufferRelocate => "raw_buffer_relocate",
             Self::ByteBufferFill => "byte_buffer_fill",
-            Self::ByteBufferCopy => "byte_buffer_copy",
+            Self::ByteSliceCopy => "byte_slice_copy",
             Self::ByteBufferRead => "byte_buffer_read",
             Self::SliceLength => "slice_length",
         }

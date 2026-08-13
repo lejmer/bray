@@ -445,6 +445,11 @@ mod tests {
                 true,
             ),
             (
+                CheckedMemoryOperationKind::RawBufferRelocate { element: ty },
+                2,
+                false,
+            ),
+            (
                 CheckedMemoryOperationKind::RawBufferSetInitializedCount,
                 2,
                 false,
@@ -454,8 +459,13 @@ mod tests {
                 1,
                 false,
             ),
+            (
+                CheckedMemoryOperationKind::RawBufferReplace { element: ty },
+                2,
+                false,
+            ),
             (CheckedMemoryOperationKind::ByteBufferFill, 3, false),
-            (CheckedMemoryOperationKind::ByteBufferCopy, 3, false),
+            (CheckedMemoryOperationKind::ByteSliceCopy, 2, false),
             (CheckedMemoryOperationKind::ByteBufferRead, 2, true),
             (CheckedMemoryOperationKind::SliceLength, 1, true),
         ];

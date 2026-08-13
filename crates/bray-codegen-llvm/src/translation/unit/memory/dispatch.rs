@@ -172,13 +172,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
+            CheckedMemoryOperationKind::RawBufferRelocate { element } => {
+                self.translate_raw_buffer_relocate(memory, element)?;
+
+                Ok(None)
+            }
             CheckedMemoryOperationKind::ByteBufferFill => {
                 self.translate_byte_buffer_fill(memory)?;
 
                 Ok(None)
             }
-            CheckedMemoryOperationKind::ByteBufferCopy => {
-                self.translate_byte_buffer_copy(memory)?;
+            CheckedMemoryOperationKind::ByteSliceCopy => {
+                self.translate_byte_slice_copy(memory)?;
 
                 Ok(None)
             }
@@ -214,6 +219,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
             | CheckedMemoryOperationKind::RawBufferRelease { .. }
             | CheckedMemoryOperationKind::RawBufferReplace { .. } => operations.allocation(),
+            CheckedMemoryOperationKind::RawBufferRelocate { .. } => {
+                operations.allocation() && operations.raw_memory()
+            }
             _ => operations.raw_memory(),
         };
 
@@ -263,6 +271,7 @@ mod tests {
     #[derive(Clone, Copy)]
     struct MemoryTypes {
         value: TypeId,
+        aligned_value: TypeId,
         borrow: TypeId,
         pointer: TypeId,
         usize: TypeId,
@@ -323,6 +332,33 @@ mod tests {
             assert!(destination < source, "{intrinsic} operands are reversed");
         }
 
+        let relocation = ir
+            .lines()
+            .find(|line| {
+                line.contains("@llvm.memcpy")
+                    && line.contains("%memory.buffer.relocate.bytes")
+            })
+            .unwrap_or_else(|| panic!("missing raw-buffer relocation memcpy"));
+
+        assert!(
+            relocation.matches("align 64").count() >= 2,
+            "raw-buffer relocation did not preserve over-aligned source and destination storage: {relocation}"
+        );
+
+        assert!(
+            relocation.contains("%memory.buffer.relocate.bytes"),
+            "raw-buffer relocation must use the initialized element byte count in a non-overlapping memcpy: {relocation}"
+        );
+
+        assert!(
+            ir.lines().any(|line| {
+                line.contains("memory.buffer.relocate.bytes")
+                    && line.contains("mul i64")
+                    && line.ends_with(", 64")
+            }),
+            "raw-buffer relocation did not multiply the initialized count by the over-aligned element size"
+        );
+
         let deallocations = ir
             .lines()
             .filter(|line| {
@@ -332,6 +368,50 @@ mod tests {
             .count();
 
         assert_eq!(deallocations, 4);
+    }
+
+    #[test]
+    fn observed_memory_operations_record_only_after_the_effect() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = memory_operation_fixture(&backend)
+            .with_runtime_observations(bray_codegen::RuntimeObservationMode::Memory);
+
+        let context = Context::create();
+
+        let (_machine, module) = backend
+            .prepare_module(fixture.request(), &context)
+            .unwrap_or_else(|error| panic!("observed memory LLVM must generate: {error:?}"))
+            .unwrap_or_else(|| panic!("observed memory LLVM must not be cancelled"));
+
+        let ir = module.print_to_string().to_string();
+        let allocation = position(&ir, bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL);
+
+        let allocation_observation = position(
+            &ir,
+            bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
+        );
+
+        let relocation = ir
+            .find("memory.buffer.relocate.bytes")
+            .unwrap_or_else(|| panic!("observed memory LLVM must relocate storage"));
+
+        let copy_observation = ir[relocation..]
+            .find(bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL)
+            .map(|position| relocation + position)
+            .unwrap_or_else(|| panic!("observed memory LLVM must record relocation"));
+
+        assert!(allocation < allocation_observation);
+        assert!(relocation < copy_observation);
+    }
+
+    fn position(ir: &str, symbol: &str) -> usize {
+        ir.match_indices(symbol)
+            .find(|(position, _)| ir[..*position].rsplit_once('\n').is_some_and(|(_, line)| line.contains("call")))
+            .map(|(position, _)| position)
+            .unwrap_or_else(|| panic!("observed memory LLVM is missing {symbol}"))
     }
 
     #[test]
@@ -807,20 +887,6 @@ mod tests {
             builder,
             block,
             source,
-            CheckedMemoryOperationKind::ByteBufferCopy,
-            [
-                MirOperand::Value(address),
-                MirOperand::Value(null),
-                MirOperand::Value(size),
-            ],
-            [types.pointer, types.pointer, types.usize],
-            None,
-        );
-
-        push_memory(
-            builder,
-            block,
-            source,
             CheckedMemoryOperationKind::CallbackState { state: types.value },
             [MirOperand::Value(null)],
             [types.pointer],
@@ -839,6 +905,43 @@ mod tests {
             None,
         );
 
+        let byte_slice = push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferInitializedSlice,
+            [MirOperand::Value(buffer)],
+            [types.raw_buffer_borrow],
+            Some(types.slice),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("raw buffer slice must produce a value"));
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::ByteSliceCopy,
+            [MirOperand::Value(byte_slice), MirOperand::Value(null)],
+            [types.slice, types.pointer],
+            None,
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::RawBufferRelocate {
+                element: types.aligned_value,
+            },
+            [
+                MirOperand::Value(buffer),
+                MirOperand::Value(source_buffer),
+            ],
+            [types.raw_buffer_borrow, types.raw_buffer_borrow],
+            None,
+        );
+
         let replace = push_memory(
             builder,
             block,
@@ -849,12 +952,10 @@ mod tests {
             [
                 MirOperand::Value(buffer),
                 MirOperand::Value(source_buffer),
-                MirOperand::Value(size),
             ],
             [
                 types.raw_buffer_borrow,
                 types.raw_buffer_borrow,
-                types.usize,
             ],
             None,
         );
@@ -887,6 +988,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("semantic value store must be valid: {error:?}"));
 
         let value = intern_type(&store, TypeData::Error);
+        let aligned_value = intern_type(&store, TypeData::tuple([value, value]));
         let borrow = intern_type(&store, TypeData::tuple([value]));
         let pointer = intern_type(&store, TypeData::tuple([borrow]));
         let usize = intern_type(&store, TypeData::tuple([pointer]));
@@ -903,6 +1005,7 @@ mod tests {
 
         MemoryTypes {
             value,
+            aligned_value,
             borrow,
             pointer,
             usize,
@@ -950,8 +1053,9 @@ mod tests {
         cleanup_operations: Vec<MirOperationId>,
     ) -> CodegenMappings {
         let align1 = NonZeroU64::MIN;
-        let align4 = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
         let align8 = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
+        let align4 = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
+        let align64 = NonZeroU64::new(64).unwrap_or(NonZeroU64::MIN);
         let width8 = NonZeroU16::new(8).unwrap_or(NonZeroU16::MIN);
         let width32 = NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN);
         let width64 = NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN);
@@ -970,6 +1074,11 @@ mod tests {
                 types.value,
                 layout(4, align4),
                 CodegenTypeKind::SignedInteger(width32),
+            ),
+            CodegenTypeMapping::new(
+                types.aligned_value,
+                layout(64, align64),
+                CodegenTypeKind::aggregate([CodegenFieldLayout::new(None, types.value, 0)]),
             ),
             CodegenTypeMapping::new(
                 types.borrow,

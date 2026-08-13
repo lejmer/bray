@@ -51,10 +51,11 @@ pub(super) fn validate_memory_operation(
         | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
         | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
         | CheckedMemoryOperationKind::RawBufferSetInitializedCount
-        | CheckedMemoryOperationKind::RawBufferRelease { .. }
-        | CheckedMemoryOperationKind::RawBufferReplace { .. } => true,
+        | CheckedMemoryOperationKind::RawBufferRelease { .. } => true,
+        CheckedMemoryOperationKind::RawBufferReplace { .. }
+        | CheckedMemoryOperationKind::RawBufferRelocate { .. } => types[0] == types[1],
         CheckedMemoryOperationKind::ByteBufferFill
-        | CheckedMemoryOperationKind::ByteBufferCopy
+        | CheckedMemoryOperationKind::ByteSliceCopy
         | CheckedMemoryOperationKind::ByteBufferRead
         | CheckedMemoryOperationKind::SliceLength
         | CheckedMemoryOperationKind::CallbackState { .. } => true,

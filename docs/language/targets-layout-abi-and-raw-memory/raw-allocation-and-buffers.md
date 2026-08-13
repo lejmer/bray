@@ -139,6 +139,14 @@ Destroying a `RawBuffer<T>` destroys or finalizes initialized elements in increa
 
 Moving a `RawBuffer<T>` transfers the allocation ownership condition and the initialized-prefix contract.
 
+The standard library uses one internal `RawBuffer<T>` reservation policy for growable contiguous storage.
+
+When growth is required, exact reservation selects `initialized + additional` after checked addition. Amortized reservation starts at four elements and doubles until it reaches the required length. If the next doubling would overflow, it selects the already-validated required length. A request that fits the existing spare capacity does not allocate.
+
+Reservation allocates one replacement owner and relocates the initialized prefix with a compiler-recognized operation. Relocation requires distinct mutable buffer owners and enough destination capacity. It transfers the initialized values as one representation range, sets the destination initialized length, and clears the source initialized length as one semantic ownership operation. It does not invoke element copy behavior, constructors, finalizers, or destructors. This contract permits native bulk transfer while ensuring the old allocation cannot destroy relocated non-copy values.
+
+Zero-sized values follow the same element-count and initialized-prefix rules even though their transferred byte count is zero. The selected target layout supplies the alignment for non-zero bulk transfers.
+
 Observing `buffer.pointer`, `buffer.capacity`, or `buffer.initialized` does not transfer ownership of the allocation or initialized elements.
 
 Constructing a `RawBuffer<T>` value from arbitrary field values is rejected unless the surrounding trusted context establishes the required allocation ownership, valid-write, and initialized-prefix conditions for those fields.

@@ -2,6 +2,7 @@ mod command;
 mod comparison;
 mod corpus;
 mod model;
+mod observation;
 mod report;
 mod retention;
 mod statistics;

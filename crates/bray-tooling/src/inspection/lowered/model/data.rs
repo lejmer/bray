@@ -889,8 +889,11 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::RawBufferReplace { element } => {
             ("raw_buffer_replace", vec![("element", element)])
         }
+        CheckedMemoryOperationKind::RawBufferRelocate { element } => {
+            ("raw_buffer_relocate", vec![("element", element)])
+        }
         CheckedMemoryOperationKind::ByteBufferFill => ("byte_buffer_fill", Vec::new()),
-        CheckedMemoryOperationKind::ByteBufferCopy => ("byte_buffer_copy", Vec::new()),
+        CheckedMemoryOperationKind::ByteSliceCopy => ("byte_slice_copy", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferRead => ("byte_buffer_read", Vec::new()),
         CheckedMemoryOperationKind::SliceLength => ("slice_length", Vec::new()),
         CheckedMemoryOperationKind::CallbackState { state } => {

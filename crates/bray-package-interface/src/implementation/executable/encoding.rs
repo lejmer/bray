@@ -1489,13 +1489,17 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(element)?;
             }
             Kind::ByteBufferFill => self.wire.write_u32(22),
-            Kind::ByteBufferCopy => self.wire.write_u32(23),
+            Kind::RawBufferRelocate { element } => {
+                self.wire.write_u32(23);
+                self.ty(element)?;
+            }
             Kind::ByteBufferRead => self.wire.write_u32(24),
             Kind::SliceLength => self.wire.write_u32(25),
             Kind::CallbackState { state } => {
                 self.wire.write_u32(26);
                 self.ty(state)?;
             }
+            Kind::ByteSliceCopy => self.wire.write_u32(27),
         }
 
         Ok(())

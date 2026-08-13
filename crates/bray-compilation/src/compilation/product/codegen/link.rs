@@ -47,7 +47,9 @@ impl Compilation {
                 DebugLinkPolicy::Companion
             }
             crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
-            crate::BuildConfiguration::Release => DebugLinkPolicy::None,
+            crate::BuildConfiguration::Release | crate::BuildConfiguration::ObservedRelease => {
+                DebugLinkPolicy::None
+            }
         };
 
         let preserve_unused = configuration.preserves_unused_link_content();
@@ -58,7 +60,8 @@ impl Compilation {
                 SectionGarbageCollectionPolicy::Preserve,
                 match configuration {
                     crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
-                    crate::BuildConfiguration::Release => DebugLinkPolicy::None,
+                    crate::BuildConfiguration::Release
+                    | crate::BuildConfiguration::ObservedRelease => DebugLinkPolicy::None,
                 },
                 None,
             ),

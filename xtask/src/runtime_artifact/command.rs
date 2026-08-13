@@ -84,7 +84,7 @@ fn build_command(arguments: impl Iterator<Item = String>) -> Result<Package, Com
 
     let output = options.native.target_output(target);
 
-    build(target, &output, &options.profile)
+    build(target, &output, &options.profile, MemoryObservation::Disabled)
 }
 
 fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(), CommandError> {
@@ -101,7 +101,12 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
 
     let output = directory.path().join(target.as_str());
 
-    let package = build(target, &output, "release")?;
+    let package = build(
+        target,
+        &output,
+        "release",
+        MemoryObservation::Disabled,
+    )?;
 
     smoke_test(&package, target, directory.path())?;
 
@@ -113,16 +118,35 @@ pub(crate) fn smoke_test_host() -> Result<(), String> {
 }
 
 pub(crate) fn build_for_readiness(target: NativeTarget, output: &Path) -> Result<PathBuf, String> {
-    build(target, output, "release")
+    build(target, output, "release", MemoryObservation::Disabled)
         .map(|package| package.metadata)
         .map_err(|error| error.to_string())
 }
 
-fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, CommandError> {
+pub(crate) fn build_for_performance_observation(
+    target: NativeTarget,
+    output: &Path,
+) -> Result<PathBuf, String> {
+    build(target, output, "release", MemoryObservation::Enabled)
+        .map(|package| package.metadata)
+        .map_err(|error| error.to_string())
+}
+
+fn build(
+    target: NativeTarget,
+    output: &Path,
+    profile: &str,
+    memory_observation: MemoryObservation,
+) -> Result<Package, CommandError> {
     let publication = DirectoryPublication::begin(output, "bray-runtime-artifact-")
         .map_err(CommandError::Publication)?;
 
-    build_contents(target, publication.contents(), profile)?;
+    build_contents(
+        target,
+        publication.contents(),
+        profile,
+        memory_observation,
+    )?;
 
     let output = publication.publish().map_err(CommandError::Publication)?;
 
@@ -138,7 +162,12 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
     })
 }
 
-fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<(), CommandError> {
+fn build_contents(
+    target: NativeTarget,
+    output: &Path,
+    profile: &str,
+    memory_observation: MemoryObservation,
+) -> Result<(), CommandError> {
     let root = workspace::root().map_err(CommandError::Workspace)?;
 
     audit_dependency_boundaries(&root)?;
@@ -149,11 +178,18 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
 
     for kind in RuntimeArchiveKind::OWNING {
         let (crate_name, features, member_prefix) = match kind {
-            RuntimeArchiveKind::Memory => (
-                "bray-runtime-builtins",
-                &["memory"][..],
-                "bray_runtime_builtins-",
-            ),
+            RuntimeArchiveKind::Memory => match memory_observation {
+                MemoryObservation::Disabled => (
+                    "bray-runtime-builtins",
+                    &["memory"][..],
+                    "bray_runtime_builtins-",
+                ),
+                MemoryObservation::Enabled => (
+                    "bray-runtime-builtins",
+                    &["memory", "memory-observation"][..],
+                    "bray_runtime_builtins-",
+                ),
+            },
             RuntimeArchiveKind::String => (
                 "bray-runtime-builtins",
                 &["string"][..],
@@ -616,6 +652,12 @@ pub(super) enum RuntimeArchiveKind {
     Cancellation,
     Event,
     TestHost,
+}
+
+#[derive(Clone, Copy)]
+enum MemoryObservation {
+    Disabled,
+    Enabled,
 }
 
 impl RuntimeArchiveKind {

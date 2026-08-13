@@ -22,6 +22,9 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
     let initial: [u8; 2] = [65, 66];
     let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.from_slice(&initial[..]);
 
+    assert(std.bytes.length(&buffer) == 2);
+    assert(std.bytes.capacity(&buffer) == 2);
+
     try trusted std.bytes.push(&mut buffer, value = 67);
     try trusted std.bytes.append_repeated(&mut buffer, value = 68, count = 2);
 
@@ -88,4 +91,74 @@ func byte_slice_comparison_boundaries()
     assert(std.bytes.equals(&first[..], &same[..]));
     assert(!std.bytes.equals(&first[..], &different_value[..]));
     assert(!std.bytes.equals(&first[..], &different_length[..]));
+}
+
+@test
+trusted func byte_buffer_growth_and_exact_reservation() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 0);
+
+    try trusted std.bytes.push(&mut buffer, value = 1);
+
+    assert(std.bytes.capacity(&buffer) == 4);
+
+    try trusted std.bytes.push(&mut buffer, value = 2);
+    try trusted std.bytes.push(&mut buffer, value = 3);
+    try trusted std.bytes.push(&mut buffer, value = 4);
+
+    assert(std.bytes.capacity(&buffer) == 4);
+
+    try trusted std.bytes.push(&mut buffer, value = 5);
+
+    assert(std.bytes.capacity(&buffer) == 8);
+
+    try trusted std.bytes.reserve_exact(&mut buffer, additional = 5);
+
+    assert(std.bytes.capacity(&buffer) == 10);
+
+    try trusted std.bytes.reserve_exact(&mut buffer, additional = 1);
+
+    assert(std.bytes.capacity(&buffer) == 10);
+
+    return Ok(unit);
+}
+
+@test
+trusted func byte_buffer_growth_reports_length_overflow() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 1);
+
+    try trusted std.bytes.push(&mut buffer, value = 1);
+
+    let result: Result<unit, std.memory.MemoryLayoutError> = trusted std.bytes.reserve(&mut buffer, additional = ~0);
+
+    match result
+    {
+        case Ok(_) { assert(false); }
+        case Error(std.memory.MemoryLayoutError.SizeOverflow) { assert(true); }
+        case Error(_) { assert(false); }
+    }
+
+    return Ok(unit);
+}
+
+@test
+trusted func full_byte_buffer_append_relocates_before_initializing_spare_storage(
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 24);
+
+    try trusted std.bytes.resize(&mut buffer, new_length = 24, fill = 7);
+    try trusted std.bytes.push(&mut buffer, value = 9);
+
+    assert(std.bytes.length(&buffer) == 25);
+    assert(std.bytes.capacity(&buffer) == 48);
+
+    let values: &[u8] = std.bytes.as_slice(&buffer);
+
+    assert(values[0] == 7);
+    assert(values[23] == 7);
+    assert(values[24] == 9);
+
+    return Ok(unit);
 }
