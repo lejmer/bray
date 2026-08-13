@@ -57,8 +57,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
 }
 
 fn audit_memory_rejection(root: &Path, target: NativeTarget) -> Result<(), String> {
-    let compiler = root
-        .join("target")
+    let compiler = crate::native_toolchain::cargo_target_directory(root)
         .join("debug")
         .join(crate::native_toolchain::executable_name("brayc"));
 
@@ -379,8 +378,7 @@ fn build_fixtures(
     package: Option<&str>,
     fixtures: &[&str],
 ) -> Result<(), String> {
-    let compiler = root
-        .join("target")
+    let compiler = crate::native_toolchain::cargo_target_directory(root)
         .join("debug")
         .join(crate::native_toolchain::executable_name("brayc"));
 

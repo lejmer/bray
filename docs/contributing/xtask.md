@@ -138,8 +138,9 @@ The command creates a target-specific directory beneath the output root and tran
 target. The catalog separates memory, string, character, host, scheduler, cancellation, event, and test-host adapters. Shared
 language and runtime support occupies one common archive referenced by the semantic adapters. Artifact construction extracts and
 deduplicates archive members before producing deterministic component archives, so support code is not copied into every adapter.
-The metadata assigns every runtime role and capability to exactly one component for each product category and records exact
-component dependencies. The target defaults to the compiler host and the Cargo profile defaults to `release`. For example, produce
+The metadata assigns every runtime role and capability to exactly one component for each product category, records exact component
+dependencies, and names any platform-service roles explicitly overridden by a selected component. The target defaults to the
+compiler host and the Cargo profile defaults to `release`. For example, produce
 the installed host runtime layout expected beside release binaries with:
 
 ```text
@@ -177,6 +178,10 @@ Run native standard-library integration tests with:
 cargo xtask standard-library test
 ```
 
+The target bundle publishes separate core, standard-stream, filesystem, and process platform archives. Each archive records its
+exact native platform capabilities in the manifest; the build fails if that inventory is incomplete or overlaps another archive.
+Standard input, standard output, and standard error remain separate object leaves inside the standard-stream archive.
+
 Build, execute, validate, and measure the standard-library performance corpus with:
 
 ```text
@@ -190,9 +195,10 @@ agreement between repeated samples alone is not considered validation. Use `--wa
 explicit equivalent run configuration.
 
 The corpus covers a minimal executable plus scale-sensitive byte growth, formatting, stream output, asynchronous execution,
-filesystem metadata, process context, and clock access. Add a workload only when it has a stable identity, deterministic output,
-an explicit scale and unit, and exercises a distinct implemented cost boundary. Prefer increasing the scale of a focused workload
-over combining unrelated operations in one source file.
+filesystem metadata, file output, process context, and clock access. Representative stream-only and file-only workloads also
+enforce required and forbidden linker-map provenance so resource capability boundaries remain independently retainable. Add a
+workload only when it has a stable identity, deterministic output, an explicit scale and unit, and exercises a distinct implemented
+cost boundary. Prefer increasing the scale of a focused workload over combining unrelated operations in one source file.
 
 Use repeated `--workload <identity>` options for focused development runs. The selected workload set participates in the corpus
 digest, so a focused report can only compare with the same focused selection.

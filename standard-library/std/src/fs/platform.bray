@@ -29,7 +29,29 @@ internal struct PlatformFileMetadata
 }
 
 @abi(c)
-extern trusted internal func platform_stream_seek(
+extern trusted internal func platform_file_read(
+    pos handle: u64,
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_file_write(
+    pos handle: u64,
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_file_flush(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_file_seek(
     pos handle: u64,
     pos offset_bits: u64,
     pos origin: u32,
@@ -38,7 +60,7 @@ extern trusted internal func platform_stream_seek(
     uses(foreign_call);
 
 @abi(c)
-extern trusted internal func platform_stream_close(pos handle: u64) -> std.platform.PlatformStatus
+extern trusted internal func platform_file_close(pos handle: u64) -> std.platform.PlatformStatus
     uses(foreign_call);
 
 @abi(c)

@@ -68,6 +68,9 @@ impl DiagnosticRuntimeArtifactProblemJson {
                 output.purpose = Some(purpose.as_str());
                 output.capability = Some(capability.to_owned());
             }
+            Problem::DuplicatePlatformServiceOwner { purpose } => {
+                output.purpose = Some(purpose.as_str());
+            }
             Problem::MetadataSizeLimitExceeded
             | Problem::MalformedMetadata
             | Problem::UnsupportedFormat
@@ -77,6 +80,7 @@ impl DiagnosticRuntimeArtifactProblemJson {
             | Problem::InvalidPanicAbi
             | Problem::UnknownCapability
             | Problem::UnknownRole
+            | Problem::UnknownPlatformService
             | Problem::InvalidRoleSymbol
             | Problem::UnknownRoleImplementation
             | Problem::InvalidNativeLinkName

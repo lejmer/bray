@@ -317,7 +317,7 @@ internal struct PlatformStatus
 extern trusted internal async func flush(pos handle: i32, pos extra: bool) -> i32
     uses(foreign_call);
 "#,
-            PlatformServiceRole::StreamFlush,
+            PlatformServiceRole::StandardOutputFlush,
             "app.flush",
         );
 
@@ -351,7 +351,7 @@ extern trusted internal async func flush(pos handle: i32, pos extra: bool) -> i3
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(problems.len(), 5, "{problems:?}");
+        assert_eq!(problems.len(), 4, "{problems:?}");
 
         assert!(problems.iter().any(|problem| matches!(
             problem,
@@ -372,17 +372,8 @@ extern trusted internal async func flush(pos handle: i32, pos extra: bool) -> i3
         assert!(problems.iter().any(|problem| matches!(
             problem,
             DiagnosticPlatformServiceSignatureProblem::ParameterCount {
-                expected: 1,
+                expected: 0,
                 actual: 2,
-                ..
-            }
-        )));
-
-        assert!(problems.iter().any(|problem| matches!(
-            problem,
-            DiagnosticPlatformServiceSignatureProblem::ParameterType {
-                ordinal: 0,
-                expected: DiagnosticPlatformAbiType::U64,
                 ..
             }
         )));
@@ -412,10 +403,10 @@ internal struct PlatformStatus
 }
 
 @abi(c)
-extern trusted internal func flush(pos handle: u64) -> PlatformStatus
+extern trusted internal func flush() -> PlatformStatus
     uses(foreign_call);
 "#,
-            PlatformServiceRole::StreamFlush,
+            PlatformServiceRole::StandardOutputFlush,
             "app.flush",
         );
 
@@ -438,7 +429,7 @@ extern trusted internal func flush(pos handle: u64) -> PlatformStatus
         assert_eq!(
             contract.symbol(),
             bray_runtime_interface::native_platform_service_role_symbol(
-                PlatformServiceRole::StreamFlush,
+                PlatformServiceRole::StandardOutputFlush,
             ),
         );
     }
@@ -459,11 +450,11 @@ internal struct PlatformStatus
 }
 
 @abi(c)
-extern trusted internal func flush(pos handle: u64) -> PlatformStatus
+extern trusted internal func flush() -> PlatformStatus
     uses(foreign_call);
 "#,
             ],
-            PlatformServiceRole::StreamFlush,
+            PlatformServiceRole::StandardOutputFlush,
             "app.flush",
         );
 

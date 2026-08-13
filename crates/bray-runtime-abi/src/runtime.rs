@@ -72,26 +72,47 @@ pub const PLATFORM_CONTEXT_COPY_SYMBOL: &str = "bray_platform_context_copy";
 pub const PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL: &str =
     "bray_platform_context_environment_key_equals";
 
-/// Stable symbol reading from a borrowed platform stream handle.
-pub const PLATFORM_STREAM_READ_SYMBOL: &str = "bray_platform_stream_read";
+/// Stable symbol reading from standard input.
+pub const PLATFORM_STANDARD_INPUT_READ_SYMBOL: &str = "bray_platform_standard_input_read";
 
-/// Stable symbol writing to a borrowed platform stream handle.
-pub const PLATFORM_STREAM_WRITE_SYMBOL: &str = "bray_platform_stream_write";
+/// Stable symbol writing to standard output.
+pub const PLATFORM_STANDARD_OUTPUT_WRITE_SYMBOL: &str = "bray_platform_standard_output_write";
 
-/// Stable symbol flushing a borrowed platform stream handle.
-pub const PLATFORM_STREAM_FLUSH_SYMBOL: &str = "bray_platform_stream_flush";
+/// Stable symbol flushing standard output.
+pub const PLATFORM_STANDARD_OUTPUT_FLUSH_SYMBOL: &str = "bray_platform_standard_output_flush";
 
-/// Stable symbol seeking a borrowed platform stream handle.
-pub const PLATFORM_STREAM_SEEK_SYMBOL: &str = "bray_platform_stream_seek";
+/// Stable symbol acquiring standard-output serialization.
+pub const PLATFORM_STANDARD_OUTPUT_LOCK_SYMBOL: &str = "bray_platform_standard_output_lock";
 
-/// Stable symbol closing an owned platform stream handle.
-pub const PLATFORM_STREAM_CLOSE_SYMBOL: &str = "bray_platform_stream_close";
+/// Stable symbol releasing standard-output serialization.
+pub const PLATFORM_STANDARD_OUTPUT_UNLOCK_SYMBOL: &str = "bray_platform_standard_output_unlock";
 
-/// Stable symbol acquiring product-wide stream serialization.
-pub const PLATFORM_STREAM_LOCK_SYMBOL: &str = "bray_platform_stream_lock";
+/// Stable symbol writing to standard error.
+pub const PLATFORM_STANDARD_ERROR_WRITE_SYMBOL: &str = "bray_platform_standard_error_write";
 
-/// Stable symbol releasing product-wide stream serialization.
-pub const PLATFORM_STREAM_UNLOCK_SYMBOL: &str = "bray_platform_stream_unlock";
+/// Stable symbol flushing standard error.
+pub const PLATFORM_STANDARD_ERROR_FLUSH_SYMBOL: &str = "bray_platform_standard_error_flush";
+
+/// Stable symbol acquiring standard-error serialization.
+pub const PLATFORM_STANDARD_ERROR_LOCK_SYMBOL: &str = "bray_platform_standard_error_lock";
+
+/// Stable symbol releasing standard-error serialization.
+pub const PLATFORM_STANDARD_ERROR_UNLOCK_SYMBOL: &str = "bray_platform_standard_error_unlock";
+
+/// Stable symbol reading from a file owner.
+pub const PLATFORM_FILE_READ_SYMBOL: &str = "bray_platform_file_read";
+
+/// Stable symbol writing to a file owner.
+pub const PLATFORM_FILE_WRITE_SYMBOL: &str = "bray_platform_file_write";
+
+/// Stable symbol flushing a file owner.
+pub const PLATFORM_FILE_FLUSH_SYMBOL: &str = "bray_platform_file_flush";
+
+/// Stable symbol seeking a file owner.
+pub const PLATFORM_FILE_SEEK_SYMBOL: &str = "bray_platform_file_seek";
+
+/// Stable symbol closing a file owner.
+pub const PLATFORM_FILE_CLOSE_SYMBOL: &str = "bray_platform_file_close";
 
 /// Stable symbol opening a platform file stream.
 pub const PLATFORM_FILE_OPEN_SYMBOL: &str = "bray_platform_file_open";
@@ -120,20 +141,20 @@ pub const PLATFORM_PATH_REMOVE_FILE_SYMBOL: &str = "bray_platform_path_remove_fi
 /// Stable symbol removing a platform directory.
 pub const PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL: &str = "bray_platform_path_remove_directory";
 
-/// Stable symbol observing the process-local monotonic clock.
-pub const PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL: &str = "bray_platform_clock_monotonic_now";
-
-/// Stable symbol observing the host wall clock.
-pub const PLATFORM_CLOCK_WALL_NOW_SYMBOL: &str = "bray_platform_clock_wall_now";
-
-/// Stable symbol blocking the current native thread for a duration.
-pub const PLATFORM_CLOCK_SLEEP_SYMBOL: &str = "bray_platform_clock_sleep";
-
-/// Stable symbol filling bytes from the host entropy source.
-pub const PLATFORM_ENTROPY_FILL_SYMBOL: &str = "bray_platform_entropy_fill";
-
 /// Stable symbol renaming a platform filesystem entry.
 pub const PLATFORM_PATH_RENAME_SYMBOL: &str = "bray_platform_path_rename";
+
+/// Stable symbol reading from a child-process pipe owner.
+pub const PLATFORM_PROCESS_PIPE_READ_SYMBOL: &str = "bray_platform_process_pipe_read";
+
+/// Stable symbol writing to a child-process pipe owner.
+pub const PLATFORM_PROCESS_PIPE_WRITE_SYMBOL: &str = "bray_platform_process_pipe_write";
+
+/// Stable symbol flushing a child-process pipe owner.
+pub const PLATFORM_PROCESS_PIPE_FLUSH_SYMBOL: &str = "bray_platform_process_pipe_flush";
+
+/// Stable symbol closing a child-process pipe owner.
+pub const PLATFORM_PROCESS_PIPE_CLOSE_SYMBOL: &str = "bray_platform_process_pipe_close";
 
 /// Stable symbol creating one native child process.
 pub const PLATFORM_CHILD_SPAWN_SYMBOL: &str = "bray_platform_child_spawn";
@@ -149,6 +170,18 @@ pub const PLATFORM_CHILD_REAP_SYMBOL: &str = "bray_platform_child_reap";
 
 /// Stable symbol forcefully resolving and consuming one native child-process owner.
 pub const PLATFORM_CHILD_DISPOSE_SYMBOL: &str = "bray_platform_child_dispose";
+
+/// Stable symbol observing the process-local monotonic clock.
+pub const PLATFORM_CLOCK_MONOTONIC_NOW_SYMBOL: &str = "bray_platform_clock_monotonic_now";
+
+/// Stable symbol observing the host wall clock.
+pub const PLATFORM_CLOCK_WALL_NOW_SYMBOL: &str = "bray_platform_clock_wall_now";
+
+/// Stable symbol blocking the current native thread for a duration.
+pub const PLATFORM_CLOCK_SLEEP_SYMBOL: &str = "bray_platform_clock_sleep";
+
+/// Stable symbol filling bytes from the host entropy source.
+pub const PLATFORM_ENTROPY_FILL_SYMBOL: &str = "bray_platform_entropy_fill";
 
 /// Stable symbol validating one civil date.
 pub const PLATFORM_TIME_DATE_VALIDATE_SYMBOL: &str = "bray_platform_time_date_validate";

@@ -32,6 +32,12 @@ pub(crate) const fn format_english_standard_library_manifest_problem(
         DiagnosticStandardLibraryManifestProblem::InvalidNativeLink => {
             "invalid native link requirement"
         }
+        DiagnosticStandardLibraryManifestProblem::InvalidPlatformServices => {
+            "native support library does not identify its operations"
+        }
+        DiagnosticStandardLibraryManifestProblem::DuplicatePlatformService => {
+            "native operation appears in multiple support libraries"
+        }
         DiagnosticStandardLibraryManifestProblem::BundleDigestMismatch => "bundle digest mismatch",
         DiagnosticStandardLibraryManifestProblem::LengthExceeded => {
             "value exceeds the manifest size limit"

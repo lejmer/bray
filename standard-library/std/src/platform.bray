@@ -2,7 +2,11 @@ trusted internal module std.platform;
 
 using std.memory;
 
-const CONTEXT_HEADER_BYTES: usize = 96;
+const CONTEXT_HEADER_BYTES: usize = 72;
+
+const CONTEXT_ABI_MAJOR: u8 = 2;
+
+const CONTEXT_ABI_MINOR: u8 = 0;
 
 const ARGUMENT_ENTRY_BYTES: usize = 16;
 
@@ -216,13 +220,15 @@ internal func valid_process_context(pos buffer: &std.memory.RawBuffer<u8>) -> bo
 {
     let length: usize = std.memory.initialized_count<u8>(buffer);
 
-    if length < CONTEXT_HEADER_BYTES || context_u64(buffer, offset = 88) != length as u64
+    if length < CONTEXT_HEADER_BYTES || context_u64(buffer, offset = 64) != length as u64
     {
         return false;
     }
 
-    if context_u8(buffer, offset = 0) != 1 || context_u8(buffer, offset = 1) != 0 || context_u8(buffer, offset = 2) !=
-        0 || context_u8(buffer, offset = 3) != 0
+    if context_u8(buffer, offset = 0) != CONTEXT_ABI_MAJOR || context_u8(buffer, offset = 1) != 0 || context_u8(
+        buffer,
+        offset = 2
+    ) != CONTEXT_ABI_MINOR || context_u8(buffer, offset = 3) != 0
     {
         return false;
     }
@@ -238,18 +244,18 @@ internal func valid_process_context(pos buffer: &std.memory.RawBuffer<u8>) -> bo
         return false;
     }
 
-    if !context_value_fits_usize(buffer, offset = 56) || !context_value_fits_usize(buffer, offset = 64) ||
-        !context_value_fits_usize(buffer, offset = 72) || !context_value_fits_usize(buffer, offset = 80)
+    if !context_value_fits_usize(buffer, offset = 32) || !context_value_fits_usize(buffer, offset = 40) ||
+        !context_value_fits_usize(buffer, offset = 48) || !context_value_fits_usize(buffer, offset = 56)
     {
         return false;
     }
 
     return valid_context_tables(
         buffer,
-        argument_count = context_u64(buffer, offset = 56) as usize,
-        argument_table = context_u64(buffer, offset = 64) as usize,
-        environment_count = context_u64(buffer, offset = 72) as usize,
-        environment_table = context_u64(buffer, offset = 80) as usize,
+        argument_count = context_u64(buffer, offset = 32) as usize,
+        argument_table = context_u64(buffer, offset = 40) as usize,
+        environment_count = context_u64(buffer, offset = 48) as usize,
+        environment_table = context_u64(buffer, offset = 56) as usize,
     );
 }
 
@@ -313,7 +319,7 @@ internal func valid_context_payloads(
 {
     if !valid_payload_descriptor(
         buffer,
-        descriptor_offset = 40,
+        descriptor_offset = 16,
         argument_table = argument_table,
         argument_bytes = argument_bytes,
         environment_table = environment_table,

@@ -161,6 +161,23 @@ fn parse_retained_inputs(map: &str) -> Vec<RetainedInput> {
     inputs.into_iter().collect()
 }
 
+pub(super) fn contains_retained_provenance(map: &str, expected: &str) -> bool {
+    let expected = expected.to_ascii_lowercase();
+
+    map.split_whitespace().any(|token| {
+        let token = token.trim_matches(|character: char| matches!(character, ',' | ';' | '"'));
+
+        if let Some((artifact, member)) = archive_member(token)
+            .or_else(|| microsoft_archive_member(token))
+        {
+            return artifact.to_ascii_lowercase().contains(&expected)
+                || member.to_ascii_lowercase().contains(&expected);
+        }
+
+        !is_native_input(token) && token.to_ascii_lowercase().contains(&expected)
+    })
+}
+
 fn microsoft_archive_member(token: &str) -> Option<(&str, &str)> {
     let (artifact, member) = token.rsplit_once(':')?;
 

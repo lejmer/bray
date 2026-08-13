@@ -1,8 +1,11 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
+#[cfg(feature = "network")]
 use mio::event::Source;
-use mio::{Events, Interest, Poll, Token, Waker};
+#[cfg(feature = "network")]
+use mio::Interest;
+use mio::{Events, Poll, Token, Waker};
 
 use crate::{MonotonicDeadline, PlatformError, PlatformErrorKind, PlatformOperation};
 
@@ -172,6 +175,7 @@ pub enum NativePollInterest {
 }
 
 impl NativePollInterest {
+    #[cfg(feature = "network")]
     const fn into_mio(self) -> Interest {
         match self {
             Self::Readable => Interest::READABLE,
@@ -302,6 +306,7 @@ impl NativeEventPoller {
         Ok(self.ready.pop_front())
     }
 
+    #[cfg(feature = "network")]
     pub(crate) fn register_source(
         &self,
         source: &mut impl Source,
@@ -316,6 +321,7 @@ impl NativeEventPoller {
             .map_err(|error| PlatformError::from_io(PlatformOperation::EventRegistration, &error))
     }
 
+    #[cfg(feature = "network")]
     pub(crate) fn reregister_source(
         &self,
         source: &mut impl Source,
@@ -330,6 +336,7 @@ impl NativeEventPoller {
             .map_err(|error| PlatformError::from_io(PlatformOperation::EventRegistration, &error))
     }
 
+    #[cfg(feature = "network")]
     pub(crate) fn deregister_source(&self, source: &mut impl Source) -> Result<(), PlatformError> {
         self.poll
             .registry()
@@ -369,6 +376,7 @@ impl NativeEventPoller {
     }
 }
 
+#[cfg(feature = "network")]
 fn source_token(event: NativePollEvent) -> Result<Token, PlatformError> {
     let token = Token(event.raw());
 

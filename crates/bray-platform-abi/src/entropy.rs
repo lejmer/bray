@@ -1,8 +1,8 @@
 use bray_platform::SystemEntropy;
-use bray_platform_abi_support::native_platform_export;
+use bray_platform_abi_support::{
+    destination_slice, native_platform_export, publish_transfer_count, validate_transfer,
+};
 use bray_runtime_abi::NativePlatformStatus;
-
-use super::region::{MemoryRegion, disjoint};
 
 native_platform_export! {
     pub extern "C" fn bray_platform_entropy_fill(
@@ -10,41 +10,23 @@ native_platform_export! {
         length: u64,
         transferred: *mut u64,
     ) -> NativePlatformStatus {
-        let Ok(length) = usize::try_from(length) else {
+        let Some(length) = validate_transfer(destination, length, transferred) else {
             return NativePlatformStatus::INVALID_INPUT;
         };
 
-        let Some(destination_region) = MemoryRegion::read(destination, length) else {
-            return NativePlatformStatus::INVALID_INPUT;
-        };
+        let initialized = unsafe { publish_transfer_count(transferred, 0) };
 
-        let Some(transferred_region) = MemoryRegion::write(transferred) else {
-            return NativePlatformStatus::INVALID_INPUT;
-        };
-
-        if !disjoint(&[destination_region, transferred_region]) {
-            return NativePlatformStatus::INVALID_INPUT;
+        if initialized != NativePlatformStatus::SUCCESS {
+            return initialized;
         }
 
-        unsafe { transferred.write(0) };
-
-        let destination = if length == 0 {
-            &mut []
-        } else {
-            unsafe { std::slice::from_raw_parts_mut(destination, length) }
-        };
+        let destination = unsafe { destination_slice(destination, length) };
 
         if fill_system_entropy(destination).is_err() {
             return NativePlatformStatus::OTHER;
         }
 
-        let Ok(transferred_count) = u64::try_from(length) else {
-            return NativePlatformStatus::EXHAUSTED;
-        };
-
-        unsafe { transferred.write(transferred_count) };
-
-        NativePlatformStatus::SUCCESS
+        unsafe { publish_transfer_count(transferred, length) }
     }
 }
 

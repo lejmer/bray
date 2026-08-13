@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use bray_compilation::SelectedTarget;
+use bray_runtime_interface::PlatformServiceRole;
 use bray_standard_library::StandardLibraryArtifactKind;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::{NativeTarget, ObjectFormat};
@@ -13,6 +14,9 @@ const CIVIL_MEMBER: &str = "-civil.o";
 const TEXT_MEMBER: &str = "-text.o";
 const TIMEZONE_MEMBER: &str = "-timezone.o";
 const DATABASE_MEMBER: &str = "-tz.o";
+const STANDARD_INPUT_MEMBER: &str = "-input.o";
+const STANDARD_OUTPUT_MEMBER: &str = "-output.o";
+const STANDARD_ERROR_MEMBER: &str = "-error.o";
 
 pub(super) fn audit(
     root: &Path,
@@ -20,8 +24,18 @@ pub(super) fn audit(
     toolchain: &Path,
     target: NativeTarget,
 ) -> Result<(), BuildError> {
-    let provider = platform_archive(toolchain, target)?;
-    let include = root.join("crates/bray-platform-abi/native/temporal/include");
+    let standard_stream = platform_archive(
+        toolchain,
+        target,
+        PlatformServiceRole::StandardOutputWrite,
+    )?;
+
+    let temporal = platform_archive(toolchain, target, PlatformServiceRole::TimeDateValidate)?;
+    let temporal_include = root.join("crates/bray-platform-abi/native/temporal/include");
+
+    let standard_stream_include =
+        root.join("crates/bray-platform-abi/native/standard_stream/include");
+
     let output = output.join("provider-retention");
 
     fs::create_dir(&output).map_err(|error| BuildError::write(&output, error))?;
@@ -29,19 +43,24 @@ pub(super) fn audit(
     let print_map = link_fixture(
         root,
         &output,
-        &include,
-        &provider,
+        &standard_stream_include,
+        &standard_stream,
         target,
         "provider-retention-print",
     )?;
 
-    require_members(&print_map, &[], &provider_members(), "print-only")?;
+    require_members(
+        &print_map,
+        &[STANDARD_OUTPUT_MEMBER],
+        &[STANDARD_INPUT_MEMBER, STANDARD_ERROR_MEMBER],
+        "print-only",
+    )?;
 
     let civil_map = link_fixture(
         root,
         &output,
-        &include,
-        &provider,
+        &temporal_include,
+        &temporal,
         target,
         "provider-retention-civil",
     )?;
@@ -56,8 +75,8 @@ pub(super) fn audit(
     let text_map = link_fixture(
         root,
         &output,
-        &include,
-        &provider,
+        &temporal_include,
+        &temporal,
         target,
         "provider-retention-text",
     )?;
@@ -72,8 +91,8 @@ pub(super) fn audit(
     let timezone_map = link_fixture(
         root,
         &output,
-        &include,
-        &provider,
+        &temporal_include,
+        &temporal,
         target,
         "provider-retention-timezone",
     )?;
@@ -91,7 +110,11 @@ struct ProviderArchive {
     native_links: Vec<NativeLinkRequirement>,
 }
 
-fn platform_archive(toolchain: &Path, target: NativeTarget) -> Result<ProviderArchive, BuildError> {
+fn platform_archive(
+    toolchain: &Path,
+    target: NativeTarget,
+    role: PlatformServiceRole,
+) -> Result<ProviderArchive, BuildError> {
     let root = toolchain.join("lib/bray/standard-library");
     let manifest = super::command::read_manifest(&root)?;
     let abi = SelectedTarget::for_native(target).runtime_abi();
@@ -115,7 +138,13 @@ fn platform_archive(toolchain: &Path, target: NativeTarget) -> Result<ProviderAr
     let path = artifacts
         .artifacts()
         .iter()
-        .find(|artifact| artifact.kind() == StandardLibraryArtifactKind::PlatformServiceLibrary)
+        .find(|artifact| {
+            artifact.kind() == StandardLibraryArtifactKind::PlatformServiceLibrary
+                && artifact
+                    .platform_services()
+                    .binary_search(&role)
+                    .is_ok()
+        })
         .map(|artifact| artifact.beneath(&root))
         .ok_or_else(|| {
             BuildError::conformance(
@@ -272,10 +301,6 @@ fn require_members(
     }
 
     Ok(())
-}
-
-const fn provider_members() -> [&'static str; 4] {
-    [CIVIL_MEMBER, TEXT_MEMBER, TIMEZONE_MEMBER, DATABASE_MEMBER]
 }
 
 fn retention_error(fixture: &str, behavior: &str, member: &str) -> BuildError {

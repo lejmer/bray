@@ -212,7 +212,7 @@ where
                 root.id(),
                 ready.state(),
                 root.cancellation_context().clone(),
-                root.output_context().cloned(),
+                root.output_context().clone(),
                 ready.lane(),
                 wake.clone(),
             );
@@ -486,7 +486,7 @@ mod tests {
                     child.id(),
                     ready.state(),
                     child.cancellation_context().clone(),
-                    child.output_context().cloned(),
+                    child.output_context().clone(),
                     ready.lane(),
                     child_wake.clone(),
                 );

@@ -1,4 +1,5 @@
 use bray_base::NonEmptySharedStr;
+use bray_runtime_interface::PlatformServiceRole;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::TargetIdentity;
 
@@ -99,7 +100,17 @@ fn decode_artifact(
 
     let digest = StandardLibraryArtifactDigest::new(decode_digest(wire.digest)?);
 
+    let platform_services = wire
+        .platform_services
+        .iter()
+        .map(|role| {
+            PlatformServiceRole::from_name(role)
+                .ok_or(StandardLibraryManifestError::InvalidPlatformServices)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     StandardLibraryArtifact::try_new(kind, wire.path, wire.byte_len, digest)
+        .map(|artifact| artifact.with_platform_services(platform_services))
 }
 
 fn decode_native_link(
@@ -117,7 +128,7 @@ fn decode_native_link(
 #[cfg(test)]
 mod tests {
     use bray_base::NonEmptySharedStr;
-    use bray_runtime_interface::RuntimeAbiVersion;
+    use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
     use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
     use bray_target::TargetIdentity;
 
@@ -166,6 +177,62 @@ mod tests {
             decode_standard_library_manifest(&tampered),
             Err(StandardLibraryManifestError::BundleDigestMismatch)
         );
+    }
+
+    #[test]
+    fn platform_archives_require_disjoint_capability_inventories() {
+        let provider = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libplatform.a",
+            b"provider",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite])
+        })
+        .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}"));
+
+        let target = manifest().targets()[0].clone();
+
+        let duplicate_provider = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libplatform-duplicate.a",
+            b"duplicate provider",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite])
+        })
+        .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}"));
+
+        let artifacts = target
+            .artifacts()
+            .iter()
+            .cloned()
+            .chain([provider, duplicate_provider]);
+
+        assert_eq!(
+            StandardLibraryTargetArtifacts::try_new(
+                target.target().clone(),
+                target.runtime_abi(),
+                artifacts,
+            ),
+            Err(StandardLibraryManifestError::DuplicatePlatformService)
+        );
+
+        let error = StandardLibraryTargetArtifacts::try_new(
+            target.target().clone(),
+            target.runtime_abi(),
+            target.artifacts().iter().cloned().chain([
+                StandardLibraryArtifact::try_for_bytes(
+                    StandardLibraryArtifactKind::PlatformServiceLibrary,
+                    "targets/x86_64-unknown-linux-gnu/1.0/libplatform-empty.a",
+                    b"provider",
+                )
+                .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}")),
+            ]),
+        )
+        .expect_err("platform archives must declare capabilities");
+
+        assert_eq!(error, StandardLibraryManifestError::InvalidPlatformServices);
     }
 
     fn manifest() -> StandardLibraryBundleManifest {

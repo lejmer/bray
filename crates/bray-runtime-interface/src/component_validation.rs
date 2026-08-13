@@ -55,6 +55,32 @@ pub(crate) fn validate(
     for purpose in RuntimeArtifactPurpose::ALL {
         validate_role_owners(contract, components, purpose)?;
         validate_capability_owners(contract, components, purpose)?;
+        validate_platform_service_owners(components, purpose)?;
+    }
+
+    Ok(())
+}
+
+fn validate_platform_service_owners(
+    components: &[RuntimeArtifactComponentMetadata],
+    purpose: RuntimeArtifactPurpose,
+) -> Result<(), RuntimeArtifactMetadataBuildError> {
+    let mut owners = BTreeSet::new();
+
+    for component in components
+        .iter()
+        .filter(|component| component.purpose() == purpose)
+    {
+        for role in component.platform_services() {
+            if !owners.insert(*role) {
+                return Err(
+                    RuntimeArtifactMetadataBuildError::DuplicatePlatformServiceOwner {
+                        purpose,
+                        role: *role,
+                    },
+                );
+            }
+        }
     }
 
     Ok(())

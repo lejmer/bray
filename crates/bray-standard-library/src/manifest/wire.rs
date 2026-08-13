@@ -12,7 +12,7 @@ use super::model::{
     StandardLibraryTargetArtifacts,
 };
 
-pub(super) const MANIFEST_FORMAT_REVISION: u32 = 2;
+pub(super) const MANIFEST_FORMAT_REVISION: u32 = 3;
 const DIGEST_ALGORITHM: &str = "blake3";
 
 #[derive(Serialize)]
@@ -42,6 +42,7 @@ struct ArtifactWire<'manifest> {
     path: &'manifest str,
     byte_len: u64,
     digest: DigestWire,
+    platform_services: Vec<&'manifest str>,
 }
 
 #[derive(Serialize)]
@@ -77,6 +78,7 @@ pub(super) struct OwnedArtifactWire {
     pub path: String,
     pub byte_len: u64,
     pub digest: OwnedDigestWire,
+    pub platform_services: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -174,6 +176,11 @@ fn artifact_wire(artifact: &StandardLibraryArtifact) -> ArtifactWire<'_> {
         path: artifact.path(),
         byte_len: artifact.byte_len(),
         digest: digest_wire(artifact.digest().bytes()),
+        platform_services: artifact
+            .platform_services()
+            .iter()
+            .map(|role| role.as_str())
+            .collect(),
     }
 }
 

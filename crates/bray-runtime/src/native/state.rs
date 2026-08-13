@@ -6,7 +6,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use bray_platform::RuntimeThreadScope;
-use bray_platform_abi::initialize_process_context;
 use bray_runtime_abi::{
     NativeExecutionLane, NativeExecutionLaneResult, NativeInactiveFrame, NativeProtectedFrame,
     NativeRootHandle, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
@@ -67,10 +66,6 @@ pub(super) fn initialize(configuration: NativeRuntimeConfiguration) -> NativeRun
     let Some(timer_capacity) = NonZeroUsize::new(configuration.timer_capacity()) else {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
-
-    if initialize_process_context().is_err() {
-        return NativeRuntimeStatus::RUNTIME_FAILURE;
-    }
 
     NATIVE_RUNTIME.with(|runtime| {
         if runtime.borrow().is_some() {
@@ -261,7 +256,7 @@ impl NativeRuntime {
             task.id(),
             ready.state(),
             task.cancellation_context().clone(),
-            task.output_context().cloned(),
+            task.output_context().clone(),
             ready.lane(),
             wake.clone(),
         );

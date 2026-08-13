@@ -13,10 +13,26 @@ cancellation = []
 event = []
 host = []
 scheduler = []
-test-host = ["dep:bray-platform", "dep:bray-source", "dep:bray-test-protocol"]
+test-host = [
+    "cancellation",
+    "dep:bray-platform",
+    "bray-platform/test-output",
+    "dep:bray-platform-abi-support",
+    "dep:bray-source",
+    "dep:bray-test-protocol",
+    "event",
+    "host",
+    "bray-runtime/test-output",
+    "scheduler",
+]
 
 [dependencies]
-bray-platform = { path = "../bray-platform", optional = true }
+bray-platform = {
+    path = "../bray-platform",
+    optional = true,
+    default-features = false,
+}
+bray-platform-abi-support = { path = "../bray-platform-abi-support", optional = true }
 bray-runtime = { path = "../bray-runtime" }
 bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-source = { path = "../bray-source", optional = true }

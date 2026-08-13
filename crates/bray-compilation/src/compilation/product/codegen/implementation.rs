@@ -778,7 +778,7 @@ mod tests {
         let target = selected.profile().identity().clone();
         let runtime_abi = selected.runtime_abi();
         let archive_bytes = b"standard library archive";
-        let platform_archive_bytes = b"platform ABI archive";
+        let platform_archive_bytes = b"standard stream provider archive";
 
         let archive_path = format!(
             "targets/{}/{}.{}/libstd.a",
@@ -819,7 +819,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("archive metadata must be valid: {error:?}"));
 
         let platform_archive_path = format!(
-            "targets/{}/{}.{}/libbray_platform_abi.a",
+            "targets/{}/{}.{}/libbray_platform_standard_streams.a",
             target.as_str(),
             runtime_abi.major(),
             runtime_abi.minor()
@@ -830,6 +830,11 @@ mod tests {
             platform_archive_path,
             platform_archive_bytes,
         )
+        .map(|artifact| {
+            artifact.with_platform_services([
+                bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+            ])
+        })
         .unwrap_or_else(|error| panic!("platform archive metadata must be valid: {error:?}"));
 
         let target_artifacts = StandardLibraryTargetArtifacts::try_new(
@@ -900,22 +905,44 @@ mod tests {
             .unwrap_or_else(|error| panic!("compilation must load: {error:?}"));
 
         let inputs = compilation
-            .standard_library_link_inputs(ProductKind::Executable, true)
+            .standard_library_link_inputs(ProductKind::Executable)
             .unwrap_or_else(|error| panic!("standard library inputs must resolve: {error:?}"));
 
         assert_eq!(inputs.len(), 3);
 
-        for path in [&archive_file, &platform_archive_file] {
+        let package_provenance = |provenance: &LinkInputProvenance| {
+            matches!(
+                provenance,
+                LinkInputProvenance::Package(package)
+                    if package.as_str()
+                        == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+            )
+        };
+
+        let platform_provenance = |provenance: &LinkInputProvenance| {
+            matches!(
+                provenance,
+                LinkInputProvenance::PlatformProvider(package)
+                    if package.as_str()
+                        == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+            )
+        };
+
+        for (path, provenance) in [
+            (
+                &archive_file,
+                package_provenance as fn(&LinkInputProvenance) -> bool,
+            ),
+            (
+                &platform_archive_file,
+                platform_provenance as fn(&LinkInputProvenance) -> bool,
+            ),
+        ] {
             assert!(inputs.iter().any(|input| {
                 input.as_ref().is_ok_and(|input| {
                     input.kind() == LinkInputKind::Archive
                         && input.source() == &LinkInputSource::file(path)
-                        && matches!(
-                            input.provenance(),
-                            LinkInputProvenance::Package(package)
-                                if package.as_str()
-                                    == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
-                        )
+                        && provenance(input.provenance())
                 })
             }));
         }
@@ -929,21 +956,9 @@ mod tests {
             })
         }));
 
-        let embedded_inputs = compilation
-            .standard_library_link_inputs(ProductKind::Executable, false)
-            .unwrap_or_else(|error| panic!("embedded platform inputs must resolve: {error:?}"));
-
-        assert_eq!(embedded_inputs.len(), 1);
-
-        assert!(embedded_inputs.iter().all(|input| {
-            input
-                .as_ref()
-                .is_ok_and(|input| input.source() != &LinkInputSource::file(&platform_archive_file))
-        }));
-
         assert!(
             compilation
-                .standard_library_link_inputs(ProductKind::Library, true)
+                .standard_library_link_inputs(ProductKind::Library)
                 .unwrap_or_else(|error| panic!("library inputs must resolve: {error:?}"))
                 .is_empty()
         );

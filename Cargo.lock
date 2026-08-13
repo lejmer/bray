@@ -503,6 +503,9 @@ dependencies = [
 [[package]]
 name = "bray-platform-abi-support"
 version = "0.0.0"
+dependencies = [
+ "bray-runtime-abi",
+]
 
 [[package]]
 name = "bray-platform-abi-temporal"
@@ -539,7 +542,6 @@ name = "bray-runtime"
 version = "0.0.0"
 dependencies = [
  "bray-platform",
- "bray-platform-abi",
  "bray-runtime-abi",
  "bray-runtime-model",
  "bray-testing",
@@ -554,6 +556,7 @@ name = "bray-runtime-adapter"
 version = "0.0.0"
 dependencies = [
  "bray-platform",
+ "bray-platform-abi-support",
  "bray-runtime",
  "bray-runtime-abi",
  "bray-source",

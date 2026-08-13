@@ -102,14 +102,16 @@ Compiler libraries and installed Bray tools.
 
 - `bray-platform`
     - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other mechanisms used by compiler-host
-      tooling and trusted runtime or standard-library layers.
+      tooling and trusted runtime or standard-library layers. Resource features let provider and runtime archives compile only the
+      mechanisms they own; ordinary compiler-host consumers retain the complete default mechanism set.
 
 - `bray-platform-abi`
-    - Native adapters and the final static archive that implement the platform-service ABI over `bray-platform` without requiring
-      the concurrency runtime.
+    - Feature-partitioned native adapters that publish independent core, standard-stream, filesystem, and process archives for the
+      platform-service ABI over `bray-platform` without requiring the concurrency runtime.
 
 - `bray-platform-abi-support`
-    - Dependency-free native export declarations and raw-memory validation shared by platform ABI components.
+    - Dependency-light native export declarations, raw-memory validation, portable I/O error mapping, and immutable process
+      observations shared by platform ABI components.
 
 - `bray-platform-abi-temporal`
     - Temporal platform ABI exports kept link-isolated from unrelated platform mechanisms and backed by the pinned native provider.

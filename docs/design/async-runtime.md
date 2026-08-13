@@ -410,13 +410,16 @@ The role set and each role's semantic effect are closed compiler contracts. A ru
 roles but cannot publish replacement semantics for them. Compiler-lowering roles remain compiler-owned and cannot be claimed by a
 runtime artifact.
 
-Each native runtime is packaged as a target-specific component catalog plus bounded compiler-readable metadata. Semantic adapter
-components separately own host, scheduler, cancellation, event, test-host, memory, string, and character roles or capabilities.
-Support components own no semantic surface and are reachable only as explicit dependencies of those adapters. The metadata records
+Each native runtime is packaged as a target-specific component catalog plus bounded compiler-readable metadata. Ordinary-product
+adapter components separately own host, scheduler, cancellation, and event roles or capabilities. A test product instead selects
+one coherent test-host adapter that owns the complete test execution surface, while memory, string, and character operations remain
+independently retainable components. Support components own no semantic surface and are reachable only as explicit dependencies of
+those adapters. The metadata records
 the runtime and artifact identities, target and panic ABI, runtime and protected-frame ABI versions, capabilities, exact
-role-to-symbol bindings, component purposes, archive file names, archive digests, component dependencies, and exact role and
-capability ownership. Catalog validation requires one owner for every advertised role and capability in each product category and a
-complete acyclic dependency graph. Product formation derives requirements from reachable MIR, selects only their owning components
+role-to-symbol bindings, component purposes, archive file names, archive digests, component dependencies, exact role and capability
+ownership, and exact platform-service overrides. Catalog validation requires one owner for every advertised role and capability in
+each product category, at most one override for each platform service, and a complete acyclic dependency graph. Product formation
+derives requirements from reachable MIR, selects only their owning components
 and transitive dependencies, then authenticates those archives before link-plan construction. Unselected archives are not read or
 hashed. The linker receives the selected archives as opaque typed runtime inputs and does not run the runtime's build system or
 depend on its implementation language.

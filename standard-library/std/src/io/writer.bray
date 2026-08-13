@@ -20,12 +20,12 @@ trait AsyncWriter
 
 struct StandardOutput
 {
-    internal handle: u64;
+    internal marker: bool;
 }
 
 struct StandardError
 {
-    internal handle: u64;
+    internal marker: bool;
 }
 
 internal func normalize_write_flush_error(pos error: IoError) -> IoError

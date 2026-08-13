@@ -53,9 +53,54 @@ pub(super) fn test() -> Result<(), BuildError> {
     let workspace = directory.join("workspace");
 
     copy_standard_library_workspace(&root, &workspace)?;
+    audit_test_host_startup(&root, &workspace, &toolchain, target)?;
     audit_api(&root, &workspace, &toolchain, target)?;
 
     audit_outcomes(&root, &workspace, &toolchain, target)
+}
+
+fn audit_test_host_startup(
+    root: &Path,
+    workspace: &Path,
+    toolchain: &Path,
+    target: NativeTarget,
+) -> Result<(), BuildError> {
+    for (identity, expected_output) in [
+        ("byte_buffer_mutation", &[][..]),
+        (
+            "repeated_standard_output_locks_are_released",
+            b"first-lock|second-lock".as_slice(),
+        ),
+    ] {
+        let output = run_tests(
+            root,
+            workspace,
+            toolchain,
+            target,
+            API_PRODUCT,
+            &["--sequential", "--timeout-ms", "1000", identity],
+        )?;
+
+        require_success("focused test-host startup", &output)?;
+
+        let report = parse_report("focused test-host startup", &output)?;
+
+        require_selection(&report, API_TEST_COUNT, 1, API_TEST_COUNT - 1)?;
+
+        let tests = tests(&report);
+
+        let [test] = tests.as_slice() else {
+            return Err(BuildError::conformance(
+                "focused test-host startup",
+                format!("{identity} did not produce one result"),
+            ));
+        };
+
+        require_stream(&test.identity, "stdout", &test.stdout, expected_output)?;
+        require_stream(&test.identity, "stderr", &test.stderr, &[])?;
+    }
+
+    Ok(())
 }
 
 fn audit_api(
@@ -456,8 +501,7 @@ fn run_tests(
     product: &str,
     test_arguments: &[&str],
 ) -> Result<Output, BuildError> {
-    let executable = root
-        .join("target")
+    let executable = crate::native_toolchain::cargo_target_directory(root)
         .join("debug")
         .join(crate::native_toolchain::executable_name("bray"));
 

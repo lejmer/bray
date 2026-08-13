@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::{StableDigestHasher, is_canonical_relative_path, shared_slice};
-use bray_runtime_interface::RuntimeAbiVersion;
+use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
 use bray_symbols::NativeLinkRequirement;
 use bray_target::TargetIdentity;
 
@@ -140,6 +140,7 @@ pub struct StandardLibraryArtifact {
     path: Arc<str>,
     byte_len: u64,
     digest: StandardLibraryArtifactDigest,
+    platform_services: Arc<[PlatformServiceRole]>,
 }
 
 impl StandardLibraryArtifact {
@@ -161,7 +162,23 @@ impl StandardLibraryArtifact {
             path,
             byte_len,
             digest,
+            platform_services: Arc::from([]),
         })
+    }
+
+    /// Returns this platform archive with its exact provided service roles.
+    pub fn with_platform_services(
+        mut self,
+        platform_services: impl IntoIterator<Item = PlatformServiceRole>,
+    ) -> Self {
+        self.platform_services = platform_services
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .into();
+
+        self
     }
 
     /// Creates an artifact record and digest from complete bytes.
@@ -201,6 +218,11 @@ impl StandardLibraryArtifact {
         self.digest
     }
 
+    /// Returns the exact platform services implemented by this archive.
+    pub fn platform_services(&self) -> &[PlatformServiceRole] {
+        &self.platform_services
+    }
+
     /// Resolves the portable path beneath a configured bundle root.
     pub fn beneath(&self, root: &Path) -> PathBuf {
         self.path
@@ -235,6 +257,23 @@ impl StandardLibraryTargetArtifacts {
 
         if artifacts.windows(2).any(|pair| pair[0] == pair[1]) {
             return Err(StandardLibraryManifestError::DuplicateArtifact);
+        }
+
+        if artifacts.iter().any(|artifact| {
+            (artifact.kind() == StandardLibraryArtifactKind::PlatformServiceLibrary)
+                != !artifact.platform_services().is_empty()
+        }) {
+            return Err(StandardLibraryManifestError::InvalidPlatformServices);
+        }
+
+        let mut platform_services = BTreeSet::new();
+
+        if artifacts
+            .iter()
+            .flat_map(StandardLibraryArtifact::platform_services)
+            .any(|role| !platform_services.insert(*role))
+        {
+            return Err(StandardLibraryManifestError::DuplicatePlatformService);
         }
 
         let prefix = format!(
@@ -437,6 +476,10 @@ pub enum StandardLibraryManifestError {
     InvalidIdentity,
     /// A target-native link requirement is malformed.
     InvalidNativeLink,
+    /// Platform-service roles are missing from a provider archive or attached to another artifact.
+    InvalidPlatformServices,
+    /// A platform-service role is implemented by more than one provider archive.
+    DuplicatePlatformService,
     /// The published bundle digest does not match the canonical payload.
     BundleDigestMismatch,
     /// A platform length cannot fit the manifest contract.

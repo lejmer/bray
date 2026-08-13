@@ -28,7 +28,29 @@ pub(crate) fn build_rust_static_library(
     profile: &str,
     features: &[&str],
 ) -> Result<RustStaticLibrary, BuildError> {
-    let target_directory = root.join("target");
+    build_rust_static_library_with_options(root, target, package, profile, features, false)
+}
+
+pub(crate) fn build_no_std_rust_static_library(
+    root: &Path,
+    target: NativeTarget,
+    package: &str,
+    profile: &str,
+    features: &[&str],
+) -> Result<RustStaticLibrary, BuildError> {
+    build_rust_static_library_with_options(root, target, package, profile, features, true)
+}
+
+fn build_rust_static_library_with_options(
+    root: &Path,
+    target: NativeTarget,
+    package: &str,
+    profile: &str,
+    features: &[&str],
+    abort_on_panic: bool,
+) -> Result<RustStaticLibrary, BuildError> {
+    let target_directory = crate::native_toolchain::cargo_target_directory(root);
+
     let mut command = Command::new("cargo");
 
     command.current_dir(root).args([
@@ -51,7 +73,13 @@ pub(crate) fn build_rust_static_library(
         command.arg("--features").arg(features.join(","));
     }
 
-    command.args(["--", "--print", "native-static-libs"]);
+    command.arg("--");
+
+    if abort_on_panic {
+        command.args(["-C", "panic=abort"]);
+    }
+
+    command.args(["--print", "native-static-libs"]);
     configure_cross_c_toolchain(&mut command, root, target);
 
     let output = command.output().map_err(BuildError::Cargo)?;

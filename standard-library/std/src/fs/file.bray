@@ -22,7 +22,7 @@ struct File
     {
         if self.is_open
         {
-            let _: std.platform.PlatformStatus = trusted platform_stream_close(handle = self.handle);
+            let _: std.platform.PlatformStatus = trusted platform_file_close(handle = self.handle);
         }
     }
 
@@ -159,7 +159,7 @@ trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoE
     }
 
     let result: Result<unit, std.io.IoError> = checked_platform_status(
-        trusted platform_stream_close(handle = file.handle)
+        trusted platform_file_close(handle = file.handle)
     );
 
     match consume result
@@ -216,7 +216,7 @@ trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8])
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
 
-    let status: std.platform.PlatformStatus = trusted std.io.platform_stream_read(
+    let status: std.platform.PlatformStatus = trusted platform_file_read(
         handle = file.handle,
         destination = destination_pointer,
         length = maximum as u64,
@@ -240,7 +240,7 @@ trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Resu
     let mut transferred: u64 = 0;
     let transferred_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut transferred);
 
-    let status: std.platform.PlatformStatus = trusted std.io.platform_stream_write(
+    let status: std.platform.PlatformStatus = trusted platform_file_write(
         handle = file.handle,
         source = source_pointer,
         length = maximum as u64,
@@ -259,7 +259,7 @@ trusted internal func flush_file(pos file: &mut File) -> Result<unit, std.io.IoE
     requires(blocking_execution())
     uses(foreign_call)
 {
-    let status: std.platform.PlatformStatus = trusted std.io.platform_stream_flush(handle = file.handle);
+    let status: std.platform.PlatformStatus = trusted platform_file_flush(handle = file.handle);
 
     return checked_platform_status(status);
 }
@@ -275,7 +275,7 @@ trusted internal func seek_file(
     let mut position: u64 = 0;
     let position_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut position);
 
-    let status: std.platform.PlatformStatus = trusted platform_stream_seek(
+    let status: std.platform.PlatformStatus = trusted platform_file_seek(
         handle = file.handle,
         offset_bits = std.truncate_to<u64>(offset),
         origin = seek_origin_value(origin),

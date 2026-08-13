@@ -10,16 +10,15 @@ use bray_platform::{
     NativeChildProcess, NativeExitStatus, NativePipeReader, NativePipeWriter, NativeProcessCommand,
     NativeStdio, PlatformError, PlatformErrorKind,
 };
-use bray_platform_abi_support::native_platform_export;
+use bray_platform_abi_support::{
+    MemoryRegion, destination_slice, disjoint, mutually_disjoint, native_platform_export,
+    platform_io_error, publish_transfer_count, source_slice, validate_transfer,
+    PROCESS_HANDLE_TAG,
+};
 use bray_runtime_abi::{
     NativePlatformChildRequest, NativePlatformEnvironmentList, NativePlatformExitStatus,
     NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
 };
-
-use super::platform::platform_io_error;
-use super::region::{MemoryRegion, disjoint, mutually_disjoint};
-
-const FIRST_PROCESS_HANDLE: u64 = 1 << 63;
 
 enum ProcessHandle {
     Child(ChildState),
@@ -42,7 +41,7 @@ fn handles() -> &'static Mutex<BTreeMap<u64, Arc<Mutex<ProcessHandle>>>> {
 fn insert_handles(
     values: Vec<ProcessHandle>,
 ) -> Result<Vec<u64>, (NativePlatformStatus, Vec<ProcessHandle>)> {
-    static NEXT_HANDLE: AtomicU64 = AtomicU64::new(FIRST_PROCESS_HANDLE);
+    static NEXT_HANDLE: AtomicU64 = AtomicU64::new(PROCESS_HANDLE_TAG);
 
     let mut ids = Vec::with_capacity(values.len());
 
@@ -53,7 +52,7 @@ fn insert_handles(
     for _ in 0..values.len() {
         let id = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
 
-        if id < FIRST_PROCESS_HANDLE || handles.contains_key(&id) {
+        if id & PROCESS_HANDLE_TAG == 0 || handles.contains_key(&id) {
             return Err((NativePlatformStatus::EXHAUSTED, values));
         }
 
@@ -361,11 +360,7 @@ native_platform_export! {
     }
 }
 
-pub(super) const fn is_process_handle(id: u64) -> bool {
-    id >= FIRST_PROCESS_HANDLE
-}
-
-pub(super) fn is_process_stream(id: u64) -> bool {
+fn is_process_stream(id: u64) -> bool {
     handle(id).is_ok_and(|handle| {
         let handle = handle
             .lock()
@@ -375,7 +370,7 @@ pub(super) fn is_process_stream(id: u64) -> bool {
     })
 }
 
-pub(super) fn read_process_stream(
+fn read_process_stream(
     id: u64,
     destination: &mut [u8],
 ) -> Result<usize, NativePlatformStatus> {
@@ -394,7 +389,7 @@ pub(super) fn read_process_stream(
         .map_err(|error| platform_io_error(&error))
 }
 
-pub(super) fn write_process_stream(id: u64, source: &[u8]) -> Result<usize, NativePlatformStatus> {
+fn write_process_stream(id: u64, source: &[u8]) -> Result<usize, NativePlatformStatus> {
     let handle = handle(id)?;
 
     let mut handle = handle
@@ -410,7 +405,7 @@ pub(super) fn write_process_stream(id: u64, source: &[u8]) -> Result<usize, Nati
         .map_err(|error| platform_io_error(&error))
 }
 
-pub(super) fn flush_process_stream(id: u64) -> Result<(), NativePlatformStatus> {
+fn flush_process_stream(id: u64) -> Result<(), NativePlatformStatus> {
     let handle = handle(id)?;
 
     let mut handle = handle
@@ -424,7 +419,7 @@ pub(super) fn flush_process_stream(id: u64) -> Result<(), NativePlatformStatus> 
     writer.flush().map_err(|error| platform_io_error(&error))
 }
 
-pub(super) fn close_process_stream(id: u64) -> NativePlatformStatus {
+fn close_process_stream(id: u64) -> NativePlatformStatus {
     if !is_process_stream(id) {
         return NativePlatformStatus::INVALID_INPUT;
     }
@@ -433,6 +428,73 @@ pub(super) fn close_process_stream(id: u64) -> NativePlatformStatus {
         Ok(ProcessHandle::Reader(_) | ProcessHandle::Writer(_)) => NativePlatformStatus::SUCCESS,
         Ok(ProcessHandle::Child(_) | ProcessHandle::Closed) => NativePlatformStatus::INVALID_INPUT,
         Err(status) => status,
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_process_pipe_read(
+        handle: u64,
+        destination: *mut u8,
+        length: u64,
+        transferred: *mut u64,
+    ) -> NativePlatformStatus {
+        let Some(length) = validate_transfer(destination, length, transferred) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let initialized = unsafe { publish_transfer_count(transferred, 0) };
+
+        if initialized != NativePlatformStatus::SUCCESS {
+            return initialized;
+        }
+
+        let destination = unsafe { destination_slice(destination, length) };
+
+        match read_process_stream(handle, destination) {
+            Ok(count) => unsafe { publish_transfer_count(transferred, count) },
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_process_pipe_write(
+        handle: u64,
+        source: *const u8,
+        length: u64,
+        transferred: *mut u64,
+    ) -> NativePlatformStatus {
+        let Some(length) = validate_transfer(source, length, transferred) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let initialized = unsafe { publish_transfer_count(transferred, 0) };
+
+        if initialized != NativePlatformStatus::SUCCESS {
+            return initialized;
+        }
+
+        let source = unsafe { source_slice(source, length) };
+
+        match write_process_stream(handle, source) {
+            Ok(count) => unsafe { publish_transfer_count(transferred, count) },
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_process_pipe_flush(handle: u64) -> NativePlatformStatus {
+        match flush_process_stream(handle) {
+            Ok(()) => NativePlatformStatus::SUCCESS,
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_process_pipe_close(handle: u64) -> NativePlatformStatus {
+        close_process_stream(handle)
     }
 }
 
@@ -593,7 +655,7 @@ fn native_value(
 
     regions.push(region);
 
-    let bytes = unsafe { std::slice::from_raw_parts(value.address(), length) };
+    let bytes = unsafe { source_slice(value.address(), length) };
 
     native_text_from_bytes(bytes)
 }
@@ -652,12 +714,39 @@ mod tests {
         NativePlatformChildRequest, NativePlatformEnvironmentEntry, NativePlatformEnvironmentList,
         NativePlatformExitStatus, NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
     };
+    use bray_platform_abi_support::PROCESS_HANDLE_TAG;
 
     use super::{
         bray_platform_child_dispose, bray_platform_child_reap, bray_platform_child_spawn,
         bray_platform_child_wait,
+        bray_platform_process_pipe_close, bray_platform_process_pipe_read,
+        bray_platform_process_pipe_write,
     };
-    use crate::platform::{bray_platform_stream_close, bray_platform_stream_read};
+
+    #[test]
+    fn empty_process_pipe_transfers_still_validate_the_pipe_owner() {
+        let mut transferred = 1;
+
+        assert_eq!(
+            bray_platform_process_pipe_read(
+                1,
+                std::ptr::null_mut(),
+                0,
+                &raw mut transferred,
+            ),
+            NativePlatformStatus::INVALID_INPUT
+        );
+
+        assert_eq!(transferred, 0);
+        transferred = 1;
+
+        assert_eq!(
+            bray_platform_process_pipe_write(1, std::ptr::null(), 0, &raw mut transferred),
+            NativePlatformStatus::INVALID_INPUT
+        );
+
+        assert_eq!(transferred, 0);
+    }
 
     struct NativeText {
         bytes: Vec<u8>,
@@ -727,6 +816,8 @@ mod tests {
         assert_eq!(input, 0);
         assert_ne!(output, 0);
         assert_eq!(error, 0);
+        assert_ne!(child & PROCESS_HANDLE_TAG, 0);
+        assert_ne!(output & PROCESS_HANDLE_TAG, 0);
 
         let mut bytes = Vec::new();
         let mut buffer = [0_u8; 64];
@@ -735,7 +826,7 @@ mod tests {
             let mut transferred = 0;
 
             assert_eq!(
-                bray_platform_stream_read(
+                bray_platform_process_pipe_read(
                     output,
                     buffer.as_mut_ptr(),
                     buffer.len() as u64,
@@ -752,7 +843,7 @@ mod tests {
         }
 
         assert_eq!(
-            bray_platform_stream_close(output),
+            bray_platform_process_pipe_close(output),
             NativePlatformStatus::SUCCESS,
         );
 

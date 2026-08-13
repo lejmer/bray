@@ -108,12 +108,7 @@ impl Compilation {
             })
         });
 
-        let include_platform_services = runtime
-            .as_ref()
-            .is_none_or(|runtime| !runtime.embeds_platform_services());
-
-        let standard_library_inputs =
-            self.standard_library_link_inputs(kind, include_platform_services)?;
+        let standard_library_inputs = self.standard_library_link_inputs(kind)?;
 
         let native_inputs = configured_inputs
             .chain(runtime_inputs)
@@ -138,7 +133,6 @@ impl Compilation {
     pub(super) fn standard_library_link_inputs(
         &self,
         product_kind: ProductKind,
-        include_platform_services: bool,
     ) -> Result<Vec<Result<LinkInputSpec, NativeProductFactError>>, NativeProductFactError> {
         if product_kind == ProductKind::Library {
             return Ok(Vec::new());
@@ -154,15 +148,9 @@ impl Compilation {
             .target_artifacts(selected.profile().identity(), selected.runtime_abi())
             .map_err(NativeProductFactError::StandardLibrary)?;
 
-        let native_links = if include_platform_services {
-            Some(
-                resolver
-                    .target_native_links(selected.profile().identity(), selected.runtime_abi())
-                    .map_err(NativeProductFactError::StandardLibrary)?,
-            )
-        } else {
-            None
-        };
+        let native_links = resolver
+            .target_native_links(selected.profile().identity(), selected.runtime_abi())
+            .map_err(NativeProductFactError::StandardLibrary)?;
 
         let package = bray_symbols::PackageIdentity::try_new(
             bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
@@ -178,13 +166,8 @@ impl Compilation {
                 bray_standard_library::StandardLibraryArtifactKind::StaticLibrary => {
                     LinkInputKind::Archive
                 }
-                bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary
-                    if include_platform_services =>
-                {
-                    LinkInputKind::Archive
-                }
                 bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary => {
-                    return None;
+                    LinkInputKind::Archive
                 }
                 bray_standard_library::StandardLibraryArtifactKind::PackageInterface
                 | bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
@@ -201,17 +184,20 @@ impl Compilation {
                 LinkInputSpec::try_new(
                     kind,
                     LinkInputSource::file(artifact.path()),
-                    LinkInputProvenance::Package(package.clone()),
+                    match artifact.metadata().kind() {
+                        bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary => {
+                            LinkInputProvenance::PlatformProvider(package.clone())
+                        }
+                        _ => LinkInputProvenance::Package(package.clone()),
+                    },
                     LinkInputMode::Ordinary,
                 )
                 .map_err(|_| NativeProductFactError::InvalidNativeLinkInput),
             )
         });
 
-        let native_inputs = native_links.iter().flat_map(|requirements| {
-            requirements.iter().map(|requirement| {
-                native_link_input(requirement, LinkInputProvenance::Package(package.clone()))
-            })
+        let native_inputs = native_links.iter().map(|requirement| {
+            native_link_input(requirement, LinkInputProvenance::Package(package.clone()))
         });
 
         let inputs = artifact_inputs.chain(native_inputs).collect();

@@ -14,7 +14,7 @@ trait AsyncReader
 
 struct StandardInput
 {
-    internal handle: u64;
+    internal marker: bool;
 }
 
 internal func copy_buffered_bytes<Source>(pos reader: &mut BufferedReader<Source>, pos destination: &mut [u8]) -> usize

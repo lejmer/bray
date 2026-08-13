@@ -11,20 +11,34 @@ pub enum PlatformServiceRole {
     ContextCopy,
     /// Compares environment keys using the target's process-environment rules.
     ContextEnvironmentKeyEquals,
-    /// Reads bytes from a borrowed stream handle.
-    StreamRead,
-    /// Writes bytes to a borrowed stream handle.
-    StreamWrite,
-    /// Flushes a borrowed stream handle.
-    StreamFlush,
-    /// Seeks a borrowed seekable stream handle.
-    StreamSeek,
-    /// Closes an owned stream handle.
-    StreamClose,
-    /// Acquires product-wide serialization for a borrowed stream handle.
-    StreamLock,
-    /// Releases product-wide serialization for a borrowed stream handle.
-    StreamUnlock,
+    /// Reads bytes from standard input.
+    StandardInputRead,
+    /// Writes bytes to standard output.
+    StandardOutputWrite,
+    /// Flushes standard output.
+    StandardOutputFlush,
+    /// Acquires product-wide standard-output serialization.
+    StandardOutputLock,
+    /// Releases product-wide standard-output serialization.
+    StandardOutputUnlock,
+    /// Writes bytes to standard error.
+    StandardErrorWrite,
+    /// Flushes standard error.
+    StandardErrorFlush,
+    /// Acquires product-wide standard-error serialization.
+    StandardErrorLock,
+    /// Releases product-wide standard-error serialization.
+    StandardErrorUnlock,
+    /// Reads bytes from a borrowed file owner.
+    FileRead,
+    /// Writes bytes to a borrowed file owner.
+    FileWrite,
+    /// Flushes a borrowed file owner.
+    FileFlush,
+    /// Seeks a borrowed file owner.
+    FileSeek,
+    /// Closes an owned file owner.
+    FileClose,
     /// Opens one file stream.
     FileOpen,
     /// Reads metadata from a borrowed file stream.
@@ -45,6 +59,14 @@ pub enum PlatformServiceRole {
     PathRemoveDirectory,
     /// Renames one filesystem entry.
     PathRename,
+    /// Reads bytes from a borrowed child-process pipe owner.
+    ProcessPipeRead,
+    /// Writes bytes to a borrowed child-process pipe owner.
+    ProcessPipeWrite,
+    /// Flushes a borrowed child-process pipe owner.
+    ProcessPipeFlush,
+    /// Closes an owned child-process pipe owner.
+    ProcessPipeClose,
     /// Creates one child process and its requested pipe owners.
     ChildSpawn,
     /// Waits for a child to terminate without consuming its owner.
@@ -102,28 +124,39 @@ impl PlatformServiceRole {
             Self::ContextMeasure => 0x0001,
             Self::ContextCopy => 0x0002,
             Self::ContextEnvironmentKeyEquals => 0x0003,
-            Self::StreamRead => 0x0101,
-            Self::StreamWrite => 0x0102,
-            Self::StreamFlush => 0x0103,
-            Self::StreamSeek => 0x0104,
-            Self::StreamClose => 0x0105,
-            Self::StreamLock => 0x0106,
-            Self::StreamUnlock => 0x0107,
-            Self::FileOpen => 0x0201,
-            Self::FileMetadata => 0x0202,
-            Self::PathMetadata => 0x0203,
-            Self::DirectoryOpen => 0x0204,
-            Self::DirectoryNext => 0x0205,
-            Self::DirectoryClose => 0x0206,
-            Self::PathCreateDirectory => 0x0210,
-            Self::PathRemoveFile => 0x0211,
-            Self::PathRemoveDirectory => 0x0212,
-            Self::PathRename => 0x0213,
-            Self::ChildSpawn => 0x0301,
-            Self::ChildWait => 0x0302,
-            Self::ChildTerminate => 0x0303,
-            Self::ChildReap => 0x0304,
-            Self::ChildDispose => 0x0305,
+            Self::StandardInputRead => 0x0101,
+            Self::StandardOutputWrite => 0x0111,
+            Self::StandardOutputFlush => 0x0112,
+            Self::StandardOutputLock => 0x0113,
+            Self::StandardOutputUnlock => 0x0114,
+            Self::StandardErrorWrite => 0x0121,
+            Self::StandardErrorFlush => 0x0122,
+            Self::StandardErrorLock => 0x0123,
+            Self::StandardErrorUnlock => 0x0124,
+            Self::FileRead => 0x0201,
+            Self::FileWrite => 0x0202,
+            Self::FileFlush => 0x0203,
+            Self::FileSeek => 0x0204,
+            Self::FileClose => 0x0205,
+            Self::FileOpen => 0x0211,
+            Self::FileMetadata => 0x0212,
+            Self::PathMetadata => 0x0213,
+            Self::DirectoryOpen => 0x0221,
+            Self::DirectoryNext => 0x0222,
+            Self::DirectoryClose => 0x0223,
+            Self::PathCreateDirectory => 0x0230,
+            Self::PathRemoveFile => 0x0231,
+            Self::PathRemoveDirectory => 0x0232,
+            Self::PathRename => 0x0233,
+            Self::ProcessPipeRead => 0x0301,
+            Self::ProcessPipeWrite => 0x0302,
+            Self::ProcessPipeFlush => 0x0303,
+            Self::ProcessPipeClose => 0x0304,
+            Self::ChildSpawn => 0x0311,
+            Self::ChildWait => 0x0312,
+            Self::ChildTerminate => 0x0313,
+            Self::ChildReap => 0x0314,
+            Self::ChildDispose => 0x0315,
             Self::ClockMonotonicNow => 0x0401,
             Self::ClockWallNow => 0x0402,
             Self::ClockSleep => 0x0403,
@@ -152,13 +185,20 @@ impl PlatformServiceRole {
             Self::ContextMeasure => "platform.context.measure",
             Self::ContextCopy => "platform.context.copy",
             Self::ContextEnvironmentKeyEquals => "platform.context.environment_key_equals",
-            Self::StreamRead => "platform.stream.read",
-            Self::StreamWrite => "platform.stream.write",
-            Self::StreamFlush => "platform.stream.flush",
-            Self::StreamSeek => "platform.stream.seek",
-            Self::StreamClose => "platform.stream.close",
-            Self::StreamLock => "platform.stream.lock",
-            Self::StreamUnlock => "platform.stream.unlock",
+            Self::StandardInputRead => "platform.standard_input.read",
+            Self::StandardOutputWrite => "platform.standard_output.write",
+            Self::StandardOutputFlush => "platform.standard_output.flush",
+            Self::StandardOutputLock => "platform.standard_output.lock",
+            Self::StandardOutputUnlock => "platform.standard_output.unlock",
+            Self::StandardErrorWrite => "platform.standard_error.write",
+            Self::StandardErrorFlush => "platform.standard_error.flush",
+            Self::StandardErrorLock => "platform.standard_error.lock",
+            Self::StandardErrorUnlock => "platform.standard_error.unlock",
+            Self::FileRead => "platform.file.read",
+            Self::FileWrite => "platform.file.write",
+            Self::FileFlush => "platform.file.flush",
+            Self::FileSeek => "platform.file.seek",
+            Self::FileClose => "platform.file.close",
             Self::FileOpen => "platform.file.open",
             Self::FileMetadata => "platform.file.metadata",
             Self::PathMetadata => "platform.path.metadata",
@@ -169,6 +209,10 @@ impl PlatformServiceRole {
             Self::PathRemoveFile => "platform.path.remove_file",
             Self::PathRemoveDirectory => "platform.path.remove_directory",
             Self::PathRename => "platform.path.rename",
+            Self::ProcessPipeRead => "platform.process_pipe.read",
+            Self::ProcessPipeWrite => "platform.process_pipe.write",
+            Self::ProcessPipeFlush => "platform.process_pipe.flush",
+            Self::ProcessPipeClose => "platform.process_pipe.close",
             Self::ChildSpawn => "platform.child.spawn",
             Self::ChildWait => "platform.child.wait",
             Self::ChildTerminate => "platform.child.terminate",
@@ -202,13 +246,20 @@ impl PlatformServiceRole {
             "platform.context.measure" => Some(Self::ContextMeasure),
             "platform.context.copy" => Some(Self::ContextCopy),
             "platform.context.environment_key_equals" => Some(Self::ContextEnvironmentKeyEquals),
-            "platform.stream.read" => Some(Self::StreamRead),
-            "platform.stream.write" => Some(Self::StreamWrite),
-            "platform.stream.flush" => Some(Self::StreamFlush),
-            "platform.stream.seek" => Some(Self::StreamSeek),
-            "platform.stream.close" => Some(Self::StreamClose),
-            "platform.stream.lock" => Some(Self::StreamLock),
-            "platform.stream.unlock" => Some(Self::StreamUnlock),
+            "platform.standard_input.read" => Some(Self::StandardInputRead),
+            "platform.standard_output.write" => Some(Self::StandardOutputWrite),
+            "platform.standard_output.flush" => Some(Self::StandardOutputFlush),
+            "platform.standard_output.lock" => Some(Self::StandardOutputLock),
+            "platform.standard_output.unlock" => Some(Self::StandardOutputUnlock),
+            "platform.standard_error.write" => Some(Self::StandardErrorWrite),
+            "platform.standard_error.flush" => Some(Self::StandardErrorFlush),
+            "platform.standard_error.lock" => Some(Self::StandardErrorLock),
+            "platform.standard_error.unlock" => Some(Self::StandardErrorUnlock),
+            "platform.file.read" => Some(Self::FileRead),
+            "platform.file.write" => Some(Self::FileWrite),
+            "platform.file.flush" => Some(Self::FileFlush),
+            "platform.file.seek" => Some(Self::FileSeek),
+            "platform.file.close" => Some(Self::FileClose),
             "platform.file.open" => Some(Self::FileOpen),
             "platform.file.metadata" => Some(Self::FileMetadata),
             "platform.path.metadata" => Some(Self::PathMetadata),
@@ -219,6 +270,10 @@ impl PlatformServiceRole {
             "platform.path.remove_file" => Some(Self::PathRemoveFile),
             "platform.path.remove_directory" => Some(Self::PathRemoveDirectory),
             "platform.path.rename" => Some(Self::PathRename),
+            "platform.process_pipe.read" => Some(Self::ProcessPipeRead),
+            "platform.process_pipe.write" => Some(Self::ProcessPipeWrite),
+            "platform.process_pipe.flush" => Some(Self::ProcessPipeFlush),
+            "platform.process_pipe.close" => Some(Self::ProcessPipeClose),
             "platform.child.spawn" => Some(Self::ChildSpawn),
             "platform.child.wait" => Some(Self::ChildWait),
             "platform.child.terminate" => Some(Self::ChildTerminate),
@@ -262,7 +317,9 @@ impl PlatformServiceRole {
         const CONTEXT_ENVIRONMENT_KEY_EQUALS: &[PlatformAbiType] =
             &[NativeText, NativeText, PointerU32];
 
-        const STREAM_TRANSFER: &[PlatformAbiType] = &[U64, PointerU8, U64, PointerU64];
+        const STANDARD_STREAM_TRANSFER: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
+        const OWNED_STREAM_TRANSFER: &[PlatformAbiType] = &[U64, PointerU8, U64, PointerU64];
+        const NO_PARAMETERS: &[PlatformAbiType] = &[];
         const STREAM_HANDLE: &[PlatformAbiType] = &[U64];
         const STREAM_SEEK: &[PlatformAbiType] = &[U64, U64, U32, PointerU64];
         const FILE_OPEN: &[PlatformAbiType] = &[Path, FileOptions, PointerU64];
@@ -350,13 +407,25 @@ impl PlatformServiceRole {
             Self::ContextMeasure => CONTEXT_MEASURE,
             Self::ContextCopy => CONTEXT_COPY,
             Self::ContextEnvironmentKeyEquals => CONTEXT_ENVIRONMENT_KEY_EQUALS,
-            Self::StreamRead | Self::StreamWrite => STREAM_TRANSFER,
-            Self::StreamFlush
-            | Self::StreamClose
-            | Self::StreamLock
-            | Self::StreamUnlock
+            Self::StandardInputRead
+            | Self::StandardOutputWrite
+            | Self::StandardErrorWrite => STANDARD_STREAM_TRANSFER,
+            Self::StandardOutputFlush
+            | Self::StandardOutputLock
+            | Self::StandardOutputUnlock
+            | Self::StandardErrorFlush
+            | Self::StandardErrorLock
+            | Self::StandardErrorUnlock => NO_PARAMETERS,
+            Self::FileRead
+            | Self::FileWrite
+            | Self::ProcessPipeRead
+            | Self::ProcessPipeWrite => OWNED_STREAM_TRANSFER,
+            Self::FileFlush
+            | Self::FileClose
+            | Self::ProcessPipeFlush
+            | Self::ProcessPipeClose
             | Self::DirectoryClose => STREAM_HANDLE,
-            Self::StreamSeek => STREAM_SEEK,
+            Self::FileSeek => STREAM_SEEK,
             Self::FileOpen => FILE_OPEN,
             Self::FileMetadata => FILE_METADATA,
             Self::PathMetadata => PATH_METADATA,
@@ -521,16 +590,15 @@ mod tests {
 
     #[test]
     fn platform_roles_have_stable_names_ids_and_shapes() {
-        let role = PlatformServiceRole::StreamWrite;
+        let role = PlatformServiceRole::StandardOutputWrite;
 
-        assert_eq!(role.id(), 0x0102);
-        assert_eq!(role.as_str(), "platform.stream.write");
+        assert_eq!(role.id(), 0x0111);
+        assert_eq!(role.as_str(), "platform.standard_output.write");
         assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
 
         assert_eq!(
             role.signature().parameters(),
             [
-                PlatformAbiType::U64,
                 PlatformAbiType::PointerU8,
                 PlatformAbiType::U64,
                 PlatformAbiType::PointerU64,
@@ -544,7 +612,7 @@ mod tests {
     fn child_spawn_role_has_closed_request_and_owner_outputs() {
         let role = PlatformServiceRole::ChildSpawn;
 
-        assert_eq!(role.id(), 0x0301);
+        assert_eq!(role.id(), 0x0311);
         assert_eq!(role.as_str(), "platform.child.spawn");
         assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
 
@@ -586,18 +654,18 @@ mod tests {
     #[test]
     fn platform_bindings_require_module_qualified_declarations() {
         let Some(binding) = PlatformServiceBinding::try_new(
-            PlatformServiceRole::StreamFlush,
-            "std.io.platform_stream_flush",
+            PlatformServiceRole::StandardOutputFlush,
+            "std.io.platform_standard_output_flush",
         ) else {
             panic!("test binding path must be valid");
         };
 
         assert_eq!(binding.module().collect::<Vec<_>>(), ["std", "io"]);
-        assert_eq!(binding.declaration(), "platform_stream_flush");
-        assert_eq!(binding.dotted_path(), "std.io.platform_stream_flush");
+        assert_eq!(binding.declaration(), "platform_standard_output_flush");
+        assert_eq!(binding.dotted_path(), "std.io.platform_standard_output_flush");
 
         assert_eq!(
-            PlatformServiceBinding::try_new(PlatformServiceRole::StreamFlush, "flush"),
+            PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "flush"),
             None
         );
     }

@@ -1,10 +1,8 @@
 use std::time::Duration;
 
 use bray_platform::{MonotonicClock, WallClock};
-use bray_platform_abi_support::native_platform_export;
+use bray_platform_abi_support::{MemoryRegion, disjoint, native_platform_export};
 use bray_runtime_abi::NativePlatformStatus;
-
-use super::region::{MemoryRegion, disjoint};
 
 native_platform_export! {
     pub extern "C" fn bray_platform_clock_monotonic_now(

@@ -1,9 +1,17 @@
 use std::cell::RefCell;
 
-use bray_platform::{RunOutputContext, with_optional_run_output_context};
+#[cfg(feature = "test-output")]
+use bray_platform::{
+    RunOutputContext, current_run_output_context, with_optional_run_output_context,
+};
 use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::{CancellationContext, ExecutionLane, TaskId, TaskStartSite, TaskWakeHandle};
+
+#[cfg(feature = "test-output")]
+pub(crate) type TaskOutput = Option<RunOutputContext>;
+#[cfg(not(feature = "test-output"))]
+pub(crate) type TaskOutput = ();
 
 thread_local! {
     static CURRENT_CONTEXT: RefCell<Option<TaskExecutionContext>> =
@@ -18,7 +26,7 @@ pub struct TaskExecutionContext {
     task: TaskId,
     state: ProtectedFrameStateId,
     cancellation: CancellationContext,
-    output: Option<RunOutputContext>,
+    output: TaskOutput,
     lane: ExecutionLane,
     wake: TaskWakeHandle,
 }
@@ -29,7 +37,7 @@ impl TaskExecutionContext {
         task: TaskId,
         state: ProtectedFrameStateId,
         cancellation: CancellationContext,
-        output: Option<RunOutputContext>,
+        output: TaskOutput,
         lane: ExecutionLane,
         wake: TaskWakeHandle,
     ) -> Self {
@@ -120,7 +128,25 @@ pub(crate) fn with_task_execution_context<T>(
         cancellation: previous_cancellation,
     };
 
+    with_task_output(output, callback)
+}
+
+#[cfg(feature = "test-output")]
+pub(crate) fn current_task_output() -> TaskOutput {
+    current_run_output_context()
+}
+
+#[cfg(not(feature = "test-output"))]
+pub(crate) const fn current_task_output() -> TaskOutput {}
+
+#[cfg(feature = "test-output")]
+pub(crate) fn with_task_output<T>(output: TaskOutput, callback: impl FnOnce() -> T) -> T {
     with_optional_run_output_context(output, callback)
+}
+
+#[cfg(not(feature = "test-output"))]
+pub(crate) fn with_task_output<T>(_output: TaskOutput, callback: impl FnOnce() -> T) -> T {
+    callback()
 }
 
 pub(crate) fn with_run_cancellation_context<T>(
@@ -171,6 +197,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use bray_platform::RuntimeThreadScope;
+    #[cfg(feature = "test-output")]
     use bray_platform::{
         CapturedRunStream, RunOutputContext, RunOutputStream, with_run_output_context,
         write_current_run_output,
@@ -226,7 +253,7 @@ mod tests {
             task.id(),
             ProtectedFrameStateId::new(0),
             cancellation,
-            task.output_context().cloned(),
+            task.output_context().clone(),
             lane,
             registration.wake_handle(),
         );
@@ -255,6 +282,7 @@ mod tests {
         assert!(current_task_execution_context().is_none());
     }
 
+    #[cfg(feature = "test-output")]
     #[test]
     fn task_contexts_inherit_their_root_output_sinks() {
         let runtime = RuntimeThreadScope::enter()
@@ -289,7 +317,7 @@ mod tests {
             task.id(),
             ProtectedFrameStateId::new(0),
             cancellation,
-            task.output_context().cloned(),
+            task.output_context().clone(),
             ExecutionLane::new(
                 ExecutionLanePlacement::PinnedWorker(runtime.runtime().id()),
                 ExecutionWorkload::Cooperative,

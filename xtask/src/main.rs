@@ -5,6 +5,7 @@ mod command;
 mod compiler_known;
 mod dependency_audit;
 mod json;
+mod link_map;
 mod native_archive;
 mod native_product;
 mod native_toolchain;

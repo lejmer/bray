@@ -55,6 +55,32 @@ internal struct PlatformExitStatus
 }
 
 @abi(c)
+extern trusted internal func platform_process_pipe_read(
+    pos handle: u64,
+    pos destination: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_process_pipe_write(
+    pos handle: u64,
+    pos source: RawPointer<u8>,
+    pos length: u64,
+    pos transferred: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_process_pipe_flush(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
+extern trusted internal func platform_process_pipe_close(pos handle: u64) -> std.platform.PlatformStatus
+    uses(foreign_call);
+
+@abi(c)
 extern trusted internal func platform_child_spawn(
     pos request: PlatformChildRequest,
     pos child: RawPointer<u64>,

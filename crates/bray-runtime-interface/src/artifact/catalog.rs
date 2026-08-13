@@ -9,12 +9,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiOperation, ProtectedFrameAbiVersions,
-    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability, RuntimeContract,
-    RuntimeContractBuildError, RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
+    PlatformServiceRole, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactId, RuntimeCapability,
+    RuntimeContract, RuntimeContractBuildError, RuntimeIdentity, RuntimeRoleBinding,
+    RuntimeRoleImplementation,
 };
 
 const FORMAT: &str = "bray_native_runtime";
-const FORMAT_VERSION: u16 = 1;
+const FORMAT_VERSION: u16 = 2;
 const MAXIMUM_METADATA_BYTES: usize = 64 * 1024;
 
 /// Content digest of one packaged native runtime archive.
@@ -80,7 +81,7 @@ pub struct RuntimeArtifactComponentMetadata {
     dependencies: Arc<[RuntimeArtifactId]>,
     archive_file_name: NonEmptySharedStr,
     archive_digest: RuntimeArtifactDigest,
-    embedded_platform_services: bool,
+    platform_services: Arc<[PlatformServiceRole]>,
     native_links: Arc<[NativeLinkRequirement]>,
 }
 
@@ -113,7 +114,7 @@ impl RuntimeArtifactComponentMetadata {
             dependencies: Arc::from([]),
             archive_file_name,
             archive_digest,
-            embedded_platform_services: false,
+            platform_services: Arc::from([]),
             native_links: Arc::from([]),
         })
     }
@@ -128,9 +129,12 @@ impl RuntimeArtifactComponentMetadata {
         self
     }
 
-    /// Returns a component that contains the target platform-service provider.
-    pub const fn with_embedded_platform_services(mut self) -> Self {
-        self.embedded_platform_services = true;
+    /// Returns a component with the exact platform services it overrides.
+    pub fn with_platform_services(
+        mut self,
+        platform_services: impl IntoIterator<Item = PlatformServiceRole>,
+    ) -> Self {
+        self.platform_services = canonical_values(platform_services);
 
         self
     }
@@ -180,9 +184,9 @@ impl RuntimeArtifactComponentMetadata {
         self.archive_digest
     }
 
-    /// Returns whether this component supplies the platform-service provider.
-    pub const fn embeds_platform_services(&self) -> bool {
-        self.embedded_platform_services
+    /// Returns the platform services physically overridden by this component.
+    pub fn platform_services(&self) -> &[PlatformServiceRole] {
+        &self.platform_services
     }
 
     /// Returns native libraries and frameworks needed by this component.
@@ -361,6 +365,13 @@ pub enum RuntimeArtifactMetadataBuildError {
         /// Multiply owned runtime capability.
         capability: RuntimeCapability,
     },
+    /// One platform service is overridden more than once for a product category.
+    DuplicatePlatformServiceOwner {
+        /// Product category whose platform overrides are contradictory.
+        purpose: RuntimeArtifactPurpose,
+        /// Multiply owned platform service.
+        role: PlatformServiceRole,
+    },
 }
 
 /// Failure to encode validated runtime artifact metadata.
@@ -393,6 +404,8 @@ pub enum RuntimeArtifactMetadataDecodeError {
     UnknownCapability,
     /// A role name is not part of the closed runtime contract.
     UnknownRole,
+    /// A platform-service name is not part of the closed platform contract.
+    UnknownPlatformService,
     /// A role symbol name is empty.
     InvalidRoleSymbol,
     /// A role implementation boundary is unknown.
@@ -470,7 +483,7 @@ struct ComponentWire {
     capabilities: Vec<String>,
     dependencies: Vec<String>,
     native_links: Vec<NativeLinkWire>,
-    embedded_platform_services: bool,
+    platform_services: Vec<String>,
     archive: ArchiveWire,
 }
 
@@ -499,7 +512,11 @@ impl ComponentWire {
                 .iter()
                 .map(NativeLinkWire::from_requirement)
                 .collect(),
-            embedded_platform_services: metadata.embeds_platform_services(),
+            platform_services: metadata
+                .platform_services()
+                .iter()
+                .map(|role| role.as_str().to_owned())
+                .collect(),
             archive: ArchiveWire {
                 file: metadata.archive_file_name().to_owned(),
                 digest: metadata.archive_digest().to_hex(),
@@ -540,6 +557,15 @@ impl ComponentWire {
             .map(NativeLinkWire::into_requirement)
             .collect::<Result<Vec<_>, _>>()?;
 
+        let platform_services = self
+            .platform_services
+            .iter()
+            .map(|role| {
+                PlatformServiceRole::from_name(role)
+                    .ok_or(RuntimeArtifactMetadataDecodeError::UnknownPlatformService)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         let dependencies = self
             .dependencies
             .into_iter()
@@ -561,13 +587,7 @@ impl ComponentWire {
             digest,
         )
         .map(|metadata| metadata.with_dependencies(dependencies))
-        .map(|metadata| {
-            if self.embedded_platform_services {
-                metadata.with_embedded_platform_services()
-            } else {
-                metadata
-            }
-        })
+        .map(|metadata| metadata.with_platform_services(platform_services))
         .map(|metadata| metadata.with_native_links(native_links))
         .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
     }
@@ -732,10 +752,10 @@ mod tests {
         RuntimeArtifactPurpose,
     };
     use crate::{
-        BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiRole,
-        RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactId,
-        RuntimeArtifactSelectionError, RuntimeCapability, RuntimeContract, RuntimeIdentity,
-        RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+        BinarySymbolName, PanicAbiIdentity, PlatformServiceRole, ProtectedFrameAbiVersions,
+        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactBuildError,
+        RuntimeArtifactId, RuntimeArtifactSelectionError, RuntimeCapability, RuntimeContract,
+        RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
     };
 
     #[test]
@@ -1067,6 +1087,33 @@ mod tests {
     }
 
     #[test]
+    fn runtime_catalogs_reject_duplicate_platform_service_overrides() {
+        let metadata = metadata();
+
+        let components = metadata
+            .components()
+            .iter()
+            .cloned()
+            .map(|component| {
+                if component.purpose() == RuntimeArtifactPurpose::Product {
+                    component.with_platform_services([PlatformServiceRole::StandardOutputWrite])
+                } else {
+                    component
+                }
+            });
+
+        assert_eq!(
+            RuntimeArtifactMetadata::try_new(contract("bray.runtime.reference"), components),
+            Err(
+                RuntimeArtifactMetadataBuildError::DuplicatePlatformServiceOwner {
+                    purpose: RuntimeArtifactPurpose::Product,
+                    role: PlatformServiceRole::StandardOutputWrite,
+                }
+            )
+        );
+    }
+
+    #[test]
     fn runtime_component_dependencies_are_validated_and_selected() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
@@ -1094,6 +1141,9 @@ mod tests {
             .cloned()
             .map(|component| match component.identity().as_str() {
                 "runtime.product.execution" => {
+                    component.with_dependencies([product_support.clone()])
+                }
+                "runtime.product.main_thread" => {
                     component.with_dependencies([product_support.clone()])
                 }
                 "runtime.test.execution" => component.with_dependencies([test_support.clone()]),
@@ -1143,7 +1193,10 @@ mod tests {
         let selected = artifact
             .select(
                 RuntimeArtifactPurpose::Product,
-                &requirements([RuntimeAbiRole::MainThreadLaneStartup], []),
+                &requirements(
+                    [RuntimeAbiRole::MainThreadLaneStartup],
+                    [RuntimeCapability::MainThreadLane],
+                ),
             )
             .unwrap_or_else(|error| panic!("dependent selection must succeed: {error:?}"));
 
@@ -1155,7 +1208,11 @@ mod tests {
 
         assert_eq!(
             identities,
-            ["runtime.product.execution", "runtime.product.support"]
+            [
+                "runtime.product.execution",
+                "runtime.product.main_thread",
+                "runtime.product.support",
+            ]
         );
     }
 
@@ -1205,6 +1262,7 @@ mod tests {
                     [RuntimeCapability::CooperativeExecution],
                     digest,
                 )
+                .with_platform_services([PlatformServiceRole::StandardOutputWrite])
                 .with_native_links([native_link]),
                 component(
                     RuntimeArtifactPurpose::TestRunner,

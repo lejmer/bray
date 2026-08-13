@@ -235,6 +235,8 @@ fn run_workload(
         Some(map_output),
     )?;
 
+    audit_retention_contract(workload, &map)?;
+
     let profile = compilation
         .profile_report()
         .ok_or_else(|| format!("workload {} produced no compiler profile", workload.id))?;
@@ -346,18 +348,8 @@ fn unavailable_observations(workload: &Workload) -> WorkloadObservations {
     let reason = "the selected production runtime does not expose benchmark observation hooks";
     let unavailable = || Observation::Unavailable { reason: reason.to_owned() };
 
-    let operation_names = match workload.category {
-        super::super::model::WorkloadCategory::Streaming => &["stream_writes"][..],
-        super::super::model::WorkloadCategory::Concurrent => {
-            &["stream_writes", "task_suspensions"][..]
-        }
-        super::super::model::WorkloadCategory::Filesystem => &["filesystem_metadata_queries"][..],
-        super::super::model::WorkloadCategory::Process => &["process_identity_queries"][..],
-        super::super::model::WorkloadCategory::Time => &["monotonic_clock_queries"][..],
-        _ => &[],
-    };
-
-    let platform_operations = operation_names
+    let platform_operations = workload
+        .platform_operations
         .iter()
         .map(|name| ((*name).to_owned(), unavailable()))
         .collect::<BTreeMap<_, _>>();
@@ -368,4 +360,47 @@ fn unavailable_observations(workload: &Workload) -> WorkloadObservations {
         copied_bytes: unavailable(),
         platform_operations,
     }
+}
+
+fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), String> {
+    let contents = fs::read_to_string(map)
+        .map_err(|error| format!("could not read workload linker map {}: {error}", map.display()))?;
+
+    for symbol in workload.retention.required_symbols {
+        if !crate::link_map::contains_symbol(&contents, symbol) {
+            return Err(retention_error(workload, "did not retain required symbol", symbol));
+        }
+    }
+
+    for symbol in workload.retention.forbidden_symbols {
+        if crate::link_map::contains_symbol(&contents, symbol) {
+            return Err(retention_error(workload, "retained forbidden symbol", symbol));
+        }
+    }
+
+    for provenance in workload.retention.required_provenance {
+        if !retention::contains_retained_provenance(&contents, provenance) {
+            return Err(retention_error(
+                workload,
+                "did not retain required provenance",
+                provenance,
+            ));
+        }
+    }
+
+    for provenance in workload.retention.forbidden_provenance {
+        if retention::contains_retained_provenance(&contents, provenance) {
+            return Err(retention_error(
+                workload,
+                "retained forbidden provenance",
+                provenance,
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn retention_error(workload: &Workload, behavior: &str, identity: &str) -> String {
+    format!("workload {} {behavior} {identity}", workload.id)
 }

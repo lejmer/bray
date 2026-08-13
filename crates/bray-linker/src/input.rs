@@ -92,6 +92,8 @@ pub enum LinkInputProvenance {
     Product,
     /// Input supplied by a selected package dependency.
     Package(PackageIdentity),
+    /// Native platform provider supplied by a selected package dependency.
+    PlatformProvider(PackageIdentity),
     /// Input selected by the canonical target profile.
     TargetProfile,
     /// Component of the selected separately linked Bray runtime artifact.
