@@ -54,10 +54,12 @@ impl ManagedArtifactPath {
 pub enum OutputSink {
     /// Artifact path within one atomically published managed filesystem generation.
     ManagedFilesystem {
-        /// Pre-existing durable product root that owns the generation store and reference.
+        /// Durable output root that owns every private managed-publication store.
         root: PathBuf,
         /// Canonical artifact path within every complete generation.
         artifact: ManagedArtifactPath,
+        /// Stable public path of the selected artifact.
+        published: PathBuf,
     },
     /// Independent filesystem artifact path outside product generation publication.
     Filesystem(PathBuf),
@@ -109,8 +111,11 @@ impl OutputSink {
     /// Returns the locale-neutral diagnostic representation of this destination.
     pub fn diagnostic_sink(&self) -> DiagnosticOutputSink {
         match self {
-            Self::ManagedFilesystem { root, .. } | Self::Filesystem(root) => {
-                DiagnosticOutputSink::Filesystem(root.clone())
+            Self::ManagedFilesystem { published, .. } => {
+                DiagnosticOutputSink::Filesystem(published.clone())
+            }
+            Self::Filesystem(path) => {
+                DiagnosticOutputSink::Filesystem(path.clone())
             }
             Self::Memory { collector, .. } => {
                 DiagnosticOutputSink::Memory(collector.as_str().to_owned())
@@ -121,11 +126,8 @@ impl OutputSink {
 
     pub(crate) fn collision_key(&self) -> OutputSinkCollisionKey {
         match self {
-            Self::ManagedFilesystem { root, artifact } => {
-                OutputSinkCollisionKey::ManagedFilesystem {
-                    root: FilesystemCollisionKey::new(root),
-                    artifact: FilesystemCollisionKey::new(&artifact.to_path_buf()),
-                }
+            Self::ManagedFilesystem { published, .. } => {
+                OutputSinkCollisionKey::Filesystem(FilesystemCollisionKey::new(published))
             }
             Self::Filesystem(path) => {
                 OutputSinkCollisionKey::Filesystem(FilesystemCollisionKey::new(path))
@@ -150,10 +152,6 @@ impl OutputSink {
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum OutputSinkCollisionKey {
-    ManagedFilesystem {
-        root: FilesystemCollisionKey,
-        artifact: FilesystemCollisionKey,
-    },
     Filesystem(FilesystemCollisionKey),
     Memory {
         collector: OutputSinkId,

@@ -96,7 +96,7 @@ The table should contain:
 - source-order indexes for deterministic iteration,
 - lookup indexes needed by later phases.
 
-The canonical record contract is:
+The record contract is:
 
 ```text
 DeclarationRecord

@@ -488,7 +488,7 @@ fn callable_parameter_templates(
 }
 
 fn owned_template(template: &TypeExpressionTemplate) -> TypeExpressionTemplate {
-    // Published facts own their templates independently; recursive storage remains Arc-shared.
+    // Published facts own their templates independently. Recursive storage remains Arc-shared.
     template.clone()
 }
 

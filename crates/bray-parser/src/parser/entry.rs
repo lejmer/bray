@@ -124,7 +124,7 @@ impl SourceUnitSyntaxResult {
 pub fn parse_source_unit(snapshot: &SourceSnapshot) -> SourceUnitSyntaxResult {
     let source_id = snapshot.source_id();
 
-    // Parser owns a snapshot handle; cloning shares immutable source text.
+    // Parser owns a snapshot handle. Cloning shares immutable source text.
     let mut parser = Parser::new(snapshot.clone());
 
     let source_unit = parser.parse_source_unit();
@@ -300,7 +300,7 @@ pub fn parse_declaration_fragment(
     snapshot: &SourceSnapshot,
     context: DeclarationFragmentContext,
 ) -> DeclarationFragmentSyntaxResult {
-    // Parser owns a snapshot handle; cloning shares immutable source text.
+    // Parser owns a snapshot handle. Cloning shares immutable source text.
     let mut parser = Parser::new(snapshot.clone());
 
     let (declaration, is_recovered) = parser.parse_declaration_fragment(context);
@@ -356,7 +356,7 @@ impl TypeExpressionFragmentSyntaxResult {
 pub fn parse_type_expression_fragment(
     snapshot: &SourceSnapshot,
 ) -> TypeExpressionFragmentSyntaxResult {
-    // Parser owns a snapshot handle; cloning shares immutable source text.
+    // Parser owns a snapshot handle. Cloning shares immutable source text.
     let mut parser = Parser::new(snapshot.clone());
 
     let (type_expression, is_recovered) = parser.parse_type_expression_fragment();

@@ -427,6 +427,7 @@ mod tests {
         assert!(help.contains("N must be positive"));
         assert!(help.contains("--profile <MODE>"));
         assert!(help.contains("Collect compiler timing and unit statistics"));
+        assert!(!help.contains([';', '—']));
     }
 
     #[test]
@@ -478,6 +479,8 @@ mod tests {
             "executable",
             "--output",
             "out",
+            "--managed-output-directory",
+            "native/release/example.application",
             "main.bray",
         ])
         .unwrap_or_else(|error| panic!("build invocation should parse: {error:?}"));
@@ -531,7 +534,14 @@ mod tests {
             &[DriverInspectionArtifact::BackendIr]
         );
 
-        assert_eq!(configuration.output(), std::path::Path::new("out"));
+        assert_eq!(configuration.output_root(), std::path::Path::new("out"));
+
+        assert_eq!(
+            configuration
+                .managed_output_directory()
+                .map(bray_emitter::ManagedOutputDirectory::as_str),
+            Some("native/release/example.application")
+        );
     }
 
     #[test]

@@ -38,7 +38,7 @@ owning contracts, but those mechanisms do not change package identity.
 One selected toolchain supplies one public package with identity `std`. Public standard-library modules such as `std.io` and
 `std.memory` are modules inside that package rather than independently resolved packages.
 
-The public package has one canonical importable product identity:
+The public package has one stable importable product identity:
 
 - package identity `std`,
 - product identity `library`,
@@ -97,7 +97,7 @@ independent typed contracts:
 - and every artifact byte sequence matches its declared digest.
 
 A toolchain release may have a human-facing release version, but that value is not a semantic package version and cannot relax any
-compatibility check. The standard-library bundle identity is a domain-separated BLAKE3 digest of its canonical manifest hash
+compatibility check. The standard-library bundle identity is a domain-separated BLAKE3 digest of its normalized manifest hash
 payload. Equal bundle identities therefore mean equal selected content, not merely equal labels.
 
 No compatibility fallback selects a nearby target, older runtime ABI, differently named package, or alternate artifact after an
@@ -111,7 +111,7 @@ manifest records:
 - its serialization format revision,
 - the `std` package identity,
 - the package-interface artifact path, kind, byte length, and digest,
-- every target artifact set in canonical target-identity order,
+- every target artifact set in stable target-identity order,
 - each target set's exact target identity and runtime ABI requirement,
 - each target set's platform-service ABI, provided role set, and semantic-contract digest,
 - every native or dependency artifact's kind, relative path, byte length, and digest,
@@ -123,19 +123,19 @@ The bundle identity is the 32-byte result of:
 BLAKE3(
     "bray.standard-library.bundle\0"
     || little_endian_u32(format_revision)
-    || little_endian_u64(canonical_payload_byte_length)
-    || canonical_payload
+    || little_endian_u64(stable_payload_byte_length)
+    || stable_payload
 )
 ```
 
-`canonical_payload` is the strict compact JSON encoding of the complete semantic manifest with the `bundle_digest` field omitted.
+`stable_payload` is the strict compact JSON encoding of the complete semantic manifest with the `bundle_digest` field omitted.
 The manifest codec fixes object-field order, array order, number representation, UTF-8 string escaping, and the absence of
 insignificant whitespace. Artifact entries in that payload include their digest algorithm and lowercase hexadecimal digest bytes,
 so artifact identities participate in the bundle identity. The published manifest adds `bundle_digest` as the lowercase
 hexadecimal BLAKE3 result after the payload has been hashed. Validation reconstructs the payload rather than hashing the published
 manifest recursively.
 
-Unknown fields, duplicate identities, non-canonical ordering, unsafe relative paths, unrecognized artifact kinds, and digest or
+Unknown fields, duplicate identities, non-normalized ordering, unsafe relative paths, unrecognized artifact kinds, and digest or
 length mismatches are rejected. Paths use the portable path rules from the project-manifest contract and cannot escape the
 standard-library root.
 
@@ -185,7 +185,7 @@ Discovery proceeds as demand-driven facts:
 Diagnostics collection may demand these facts when a missing or incompatible standard library affects source checking. Merely
 creating a compilation does not eagerly read every target artifact.
 
-Selecting a configured root inserts one synthetic package dependency edge from each selected user product to the canonical
+Selecting a configured root inserts one synthetic package dependency edge from each selected user product to the stable
 `std:library` product. The edge is explicit in the immutable project graph even though it is not written in a user package
 manifest. No root means no edge. The target-selected `.brayi` then enters compilation through the ordinary dependency-interface
 input contract with package `std` and product `library`.
@@ -211,16 +211,16 @@ One deterministic build request fixes:
 - compiler-known catalog input,
 - and requested artifact kinds.
 
-Independent target builds may run in parallel. Their outputs are merged only by canonical target and artifact identity. Repeating a
+Independent target builds may run in parallel. Their outputs are merged only by selected target and artifact identity. Repeating a
 build with equal inputs produces byte-identical target interfaces, native artifacts, and bundle manifests.
 
 ## Ownership
 
-`bray-standard-library` owns the shared bundle-manifest semantic model, canonical JSON codec, bundle digest, portable artifact
+`bray-standard-library` owns the shared bundle-manifest semantic model, deterministic JSON codec, bundle digest, portable artifact
 inventory, and structural validation. Producers and consumers use this crate rather than defining separate wire models.
 
 `bray-project` owns portable configured roots, deterministic standard-library source/build graph selection, and insertion of the
-canonical `std:library` dependency edge.
+stable `std:library` dependency edge.
 
 `bray-package-interface` owns `.brayi` encoding, validation, compatibility, and imported semantic access.
 

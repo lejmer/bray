@@ -144,7 +144,7 @@ can preserve the abnormal edge. Absence of that summary term is not a promise th
 termination cannot occur.
 
 An `async` callable type carries suspendable execution and cooperative request-observation participation. This means its computation
-can be cancelled by its owning task or root according to the async observation rules; it is separate from the implicit effect of a
+can be cancelled by its owning task or root according to the async observation rules. It is separate from the implicit effect of a
 synchronous callable that explicitly checkpoints or forwards an observed child cancellation.
 
 Calling an async function creates an async computation whose cancellation behavior is governed by [Async and concurrency](../async-and-concurrency.md).
@@ -154,7 +154,7 @@ contract. They are not effects or conditions of inactive-frame construction.
 Awaiting an async computation, starting it as a task, joining a task, cancelling a task, and observing a run boundary must satisfy
 the async computation's ownership, borrowing, capability, effect, finalization, and cancellation obligations.
 
-A synchronous callable can request another task's cancellation only through an owner operation whose execution contract permits it;
+A synchronous callable can request another task's cancellation only through an owner operation whose execution contract permits it.
 it cannot drive an async cancellation computation or end an unresolved task obligation without an async execution context. It can
 still end its own current run through `std.run.checkpoint()`, a cancellation-aware synchronous operation, or `try RunResult`.
 
@@ -165,7 +165,7 @@ propagation is represented in checked control flow and body-effect metadata, not
 
 `blocking_execution()`, `compute_execution()`, and `main_thread_execution()` are compiler-provided context predicates used in
 `requires(...)`. For synchronous calls they are immediate preconditions. Async invocation defers them into `Future<T>` because
-invocation does not execute the body; direct await validates them against the current lane and task start selects a satisfying
+invocation does not execute the body. Direct await validates them against the current lane and task start selects a satisfying
 lane. The same phase distinction applies to body effects and capabilities: direct await requires them from the current execution
 context, while task start proves that the selected lane and every dependency transferred into it satisfy them.
 

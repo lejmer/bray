@@ -303,12 +303,22 @@ fn emission_request(
         RequestedArtifact::new(artifact.artifact_kind(), ArtifactRequirement::Optional)
     });
 
+    let destination = configuration.managed_output_directory().map_or_else(
+        || bray_emitter::ManagedFilesystemDestination::at_root(configuration.output_root()),
+        |directory| {
+            bray_emitter::ManagedFilesystemDestination::new(
+                configuration.output_root(),
+                directory.clone(),
+            )
+        },
+    );
+
     EmissionRequest::try_new(
         product,
         product_kind,
         executable_host,
         selected.profile().identity().clone(),
-        RequestedArtifactDestination::FilesystemDirectory(configuration.output().to_path_buf()),
+        RequestedArtifactDestination::FilesystemDirectory(destination),
         required.chain(inspections),
         ReplacementPolicy::ReplaceExisting,
     )
@@ -494,6 +504,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("published artifact must resolve: {error:?}"));
 
             assert!(path.is_file(), "{}", path.display());
+            assert_eq!(path.parent(), Some(output.as_path()));
         }
 
         std::fs::remove_dir_all(&output)
@@ -633,6 +644,8 @@ mod tests {
             OsString::from("executable"),
             OsString::from("--output"),
             output.as_os_str().to_os_string(),
+            OsString::from("--managed-output-directory"),
+            OsString::from("native/debug/command.line"),
             source.path().as_os_str().to_os_string(),
         ]);
 
@@ -645,8 +658,13 @@ mod tests {
 
         assert!(result.diagnostics().is_empty());
 
+        let directory = bray_emitter::ManagedOutputDirectory::try_new("native/debug/command.line")
+            .unwrap_or_else(|| panic!("test managed output directory must be valid"));
+
+        let destination = bray_emitter::ManagedFilesystemDestination::new(&output, directory);
+
         let executable = bray_emitter::resolve_published_artifact(
-            &output,
+            destination,
             &command_product("application"),
             ArtifactKind::Executable,
             0,
@@ -654,6 +672,10 @@ mod tests {
         .unwrap_or_else(|error| panic!("published executable must resolve: {error:?}"));
 
         assert!(executable.is_file());
+
+        let public_directory = output.join("native/debug/command.line");
+
+        assert_eq!(executable.parent(), Some(public_directory.as_path()));
 
         std::fs::remove_dir_all(&output)
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));

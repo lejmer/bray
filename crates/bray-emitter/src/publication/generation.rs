@@ -1,3 +1,6 @@
+mod layout;
+mod manifest;
+mod projection;
 mod reader;
 mod transaction;
 

@@ -1049,7 +1049,6 @@ const fn diagnostic_tool_stream(stream: ToolStream) -> DiagnosticToolStream {
 #[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
-    use std::hash::Hasher;
     use std::io::{Cursor, Read, Write};
     use std::path::{Path, PathBuf};
     use std::process::ExitCode;
@@ -1132,74 +1131,16 @@ mod tests {
                 return Ok(());
             }
 
-            let output = argument_value(request.arguments(), "--output").ok_or(())?;
-            let package = argument_value(request.arguments(), "--package").ok_or(())?;
+            let output_root = argument_value(request.arguments(), "--output").ok_or(())?;
+
+            let output_directory =
+                argument_value(request.arguments(), "--managed-output-directory").ok_or(())?;
+
             let product = argument_value(request.arguments(), "--product").ok_or(())?;
-            let output = Path::new(output);
+            let output = Path::new(output_root).join(output_directory);
 
-            std::fs::create_dir_all(output).map_err(|_| ())?;
-
-            let staged_artifact = output.join("test-executable");
-            let artifact_bytes = b"test executable";
-
-            std::fs::write(&staged_artifact, artifact_bytes).map_err(|_| ())?;
-
-            let artifact_digest = stable_digest(artifact_bytes);
-            let artifact_mode = unix_mode(&std::fs::metadata(&staged_artifact).map_err(|_| ())?);
-
-            let manifest = serde_json::to_vec(&serde_json::json!({
-                "revision": 1,
-                "product": {
-                    "package": package.to_string_lossy(),
-                    "name": product.to_string_lossy(),
-                },
-                "artifacts": [{
-                    "kind": "executable",
-                    "ordinal": 0,
-                    "requirement": "required",
-                    "role": "product",
-                    "path": "artifacts/application",
-                    "byte_len": artifact_bytes.len(),
-                    "digest_algorithm": "blake3",
-                    "digest": bray_base::lowercase_hex(&artifact_digest),
-                    "permissions": {
-                        "logical": "executable",
-                        "unix_mode": artifact_mode,
-                    },
-                    "producer": {
-                        "kind": "linker",
-                        "ordinal": 0,
-                    },
-                }],
-            }))
-            .map_err(|_| ())?;
-
-            let generation_digest = stable_digest(&manifest);
-            let generation = bray_base::lowercase_hex(&generation_digest);
-
-            let generation_directory = output.join(".bray").join("generations").join(&generation);
-
-            let artifact_directory = generation_directory.join("artifacts");
-
-            std::fs::create_dir_all(&artifact_directory).map_err(|_| ())?;
-
-            std::fs::rename(staged_artifact, artifact_directory.join("application"))
-                .map_err(|_| ())?;
-
-            std::fs::write(generation_directory.join("manifest.json"), manifest).map_err(|_| ())?;
-
-            let reference = serde_json::to_vec(&serde_json::json!({
-                "revision": 1,
-                "generation": generation,
-                "manifest_digest": bray_base::lowercase_hex(&generation_digest),
-            }))
-            .map_err(|_| ())?;
-
-            std::fs::write(
-                output.join(".bray").join("published-generation.json"),
-                reference,
-            )
-            .map_err(|_| ())?;
+            std::fs::create_dir_all(&output).map_err(|_| ())?;
+            std::fs::write(output.join(product), b"test executable").map_err(|_| ())?;
 
             Ok(())
         }
@@ -1303,26 +1244,6 @@ mod tests {
             .windows(2)
             .find(|pair| pair[0] == name)
             .map(|pair| pair[1].as_os_str())
-    }
-
-    fn stable_digest(bytes: &[u8]) -> [u8; 32] {
-        let mut digest = bray_base::StableDigestHasher::new();
-
-        digest.write(bytes);
-
-        digest.finalize()
-    }
-
-    #[cfg(unix)]
-    fn unix_mode(metadata: &std::fs::Metadata) -> Option<u32> {
-        use std::os::unix::fs::PermissionsExt;
-
-        Some(metadata.permissions().mode() & 0o777)
-    }
-
-    #[cfg(not(unix))]
-    const fn unix_mode(_: &std::fs::Metadata) -> Option<u32> {
-        None
     }
 
     #[test]
@@ -1577,14 +1498,20 @@ mod tests {
             request.arguments
         );
 
-        let output = request
+        let output_root = request
             .arguments
             .windows(2)
             .find(|pair| pair[0] == "--output")
             .map(|pair| PathBuf::from(&pair[1]))
             .unwrap_or_else(|| panic!("debug build must select an output directory"));
 
-        assert!(output.ends_with("native/debug/example.application/application"));
+        assert!(output_root.ends_with("build"));
+
+        assert!(has_argument_pair(
+            &request.arguments,
+            "--managed-output-directory",
+            "native/debug/example.application"
+        ));
 
         let runtime = std::path::absolute(&toolchain)
             .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
@@ -1719,14 +1646,20 @@ mod tests {
                 .any(|argument| argument == "--release")
         );
 
-        let output = request
+        let output_root = request
             .arguments
             .windows(2)
             .find(|pair| pair[0] == "--output")
             .map(|pair| PathBuf::from(&pair[1]))
             .unwrap_or_else(|| panic!("release build must select an output directory"));
 
-        assert!(output.ends_with("native/release/example.application/application"));
+        assert!(output_root.ends_with("build"));
+
+        assert!(has_argument_pair(
+            &request.arguments,
+            "--managed-output-directory",
+            "native/release/example.application"
+        ));
     }
 
     #[test]

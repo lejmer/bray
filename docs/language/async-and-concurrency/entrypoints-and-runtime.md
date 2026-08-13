@@ -30,7 +30,7 @@ Before shutdown, the host drains the mandatory cleanup-report sink. Suppressed c
 The root task is a task boundary but does not produce a source-visible `Task<T>` handle. Its normal result forms remain the
 entrypoint forms defined by executable products. The host's terminal observation is equivalent to observing `RunResult<T>`, but it
 is not a source-level join and cannot resume the root continuation. The host does not search for or re-resolve source-owned tasks,
-threads, or processes after publication; those obligations were already handled by the generated root frame's checked lexical
+threads, or processes after publication. Those obligations were already handled by the generated root frame's checked lexical
 cleanup.
 
 The root task remains on the distinguished main-thread lane for its lifetime. That lane establishes

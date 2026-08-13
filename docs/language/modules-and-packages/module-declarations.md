@@ -29,7 +29,7 @@ where:
 module-modifiers = ['trusted'] [visibility]
 ```
 
-The canonical modifier order is `trusted` before visibility.
+The required modifier order is `trusted` before visibility.
 
 The source-unit module declaration applies to every unbraced item that follows it in the source unit.
 

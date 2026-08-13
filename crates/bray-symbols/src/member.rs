@@ -242,7 +242,7 @@ where
 /// An immutable ordinary-name index over typed member candidates.
 ///
 /// The ID type should be a closed family containing every semantic category that competes in the
-/// owner's ordinary namespace. Entry enumeration preserves candidate order; map ordering never
+/// owner's ordinary namespace. Entry enumeration preserves candidate order. Map ordering never
 /// creates lookup precedence.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MemberLookupIndex<I> {

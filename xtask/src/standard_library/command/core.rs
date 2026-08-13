@@ -538,7 +538,7 @@ fn build_target(
         ProductKind::Library,
         None,
         target.clone(),
-        RequestedArtifactDestination::FilesystemDirectory(output),
+        RequestedArtifactDestination::FilesystemDirectory(output.into()),
         [
             RequestedArtifact::new(
                 ArtifactKind::PackageInterface,

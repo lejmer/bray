@@ -9,7 +9,7 @@ Dependencies are declared in project-owned files. Dependency resolution produces
 checksums, feature selections, build settings, target constraints, and linkage requirements are recorded as part of the build contract.
 
 Vendoring is the default dependency model. A vendored dependency may be source code, generated code, a compiled artifact, an interface description, a header/module description,
-metadata, or another declared build input. Vendoring means the project owns the exact dependency input used by the build; it does not require every dependency to be available
+metadata, or another declared build input. Vendoring means the project owns the exact dependency input used by the build. It does not require every dependency to be available
 in source form.
 
 Compiled dependencies are first-class dependency graph nodes. Their ABI, target platform, architecture, calling convention, exported interface, linkage mode, version identity,

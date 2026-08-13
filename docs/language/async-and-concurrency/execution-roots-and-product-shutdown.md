@@ -40,8 +40,8 @@ Runtime worker, reactor, blocking-lane, and compute-lane threads are product inf
 `std.thread.Thread<T>` children and cannot be joined, detached, or retained by source.
 
 Product and runtime configuration can impose hard limits on runtime tasks, native threads, and child processes. Ordinary
-`std.parallel.Budget<Domain>` values are algorithm-local concurrency bounds; they do not represent or reserve the host's hard-limit
-authority. Runtime task limits bound simultaneously executing lanes and can queue ready tasks; native-thread and process limits
+`std.parallel.Budget<Domain>` values are algorithm-local concurrency bounds. They do not represent or reserve the host's hard-limit
+authority. Runtime task limits bound simultaneously executing lanes and can queue ready tasks. Native-thread and process limits
 surface through their ordinary recoverable creation errors. A parallel algorithm remains subject to both its library permit and
 those underlying rules.
 

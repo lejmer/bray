@@ -17,7 +17,7 @@ files without moving formatter policy into the command layer.
 
 ## Layout
 
-The formatter implements the canonical policies in the
+The formatter implements the defined policies in the
 [Bray source style guide](../contributing/bray-style-guide.md). The style guide owns source conventions, while this document owns
 the formatter architecture and behavior required to apply them.
 
@@ -56,7 +56,7 @@ layout.
 Rule interaction and precedence must be deterministic and documented. Formatting the same source with the same configuration
 always produces the same result, and formatting that result again makes no changes.
 
-The canonical rule registry is exhaustive for independently configurable behavior:
+The rule registry is exhaustive for independently configurable behavior:
 
 - `indentation`,
 - `block-braces`,
@@ -93,7 +93,7 @@ conflicts. Adding an independently configurable behavior requires adding a regis
 idempotence, and interaction tests in the same change. A broad rule cannot hide unrelated style decisions merely to avoid assigning
 them stable names.
 
-Rule application has one canonical precedence. Recovery preservation decides whether formatting is allowed. Enabled syntax rewrites
+Rule application has one defined precedence. Recovery preservation decides whether formatting is allowed. Enabled syntax rewrites
 then produce the token sequence. Comment ownership and required structural breaks constrain layout groups. Delimiter and list rules
 choose group structure, spacing rules choose intra-group separation, line wrapping chooses among legal breaks, and line-ending and
 final-newline rules serialize the result. A lower stage cannot undo a constraint established by a higher stage. Rule descriptors

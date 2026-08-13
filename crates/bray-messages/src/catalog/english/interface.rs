@@ -8,13 +8,13 @@ const INVALID_MAGIC: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
 const UNSUPPORTED_FORMAT_REVISION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("unsupported package-interface format revision "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualRevision),
-    MessageTemplatePart::Text("; expected "),
+    MessageTemplatePart::Text(". Expected "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRevision),
 ];
 const UNSUPPORTED_LANGUAGE_REVISION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("unsupported package-interface language revision "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualRevision),
-    MessageTemplatePart::Text("; expected "),
+    MessageTemplatePart::Text(". Expected "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRevision),
 ];
 const UNSUPPORTED_ENCODING: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
@@ -37,7 +37,7 @@ const RESOURCE_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::InterfaceLimit),
     MessageTemplatePart::Text(" limit: "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
-    MessageTemplatePart::Text("; maximum "),
+    MessageTemplatePart::Text(". Maximum "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
 const PACKAGE_IDENTITY_MISMATCH: &[MessageTemplatePart] = &[

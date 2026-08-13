@@ -2706,7 +2706,7 @@ impl Compilation {
                         return None;
                     }
 
-                    // Signatures use shared slices; this clone releases the mapping borrow before recursion.
+                    // Signatures use shared slices. This clone releases the mapping borrow before recursion.
                     Some((mapping.ty(), signature.as_ref().clone()))
                 });
 
@@ -3202,7 +3202,7 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, CodegenFactError>>()?;
 
-                // Representation facts are shared; codegen mappings own exact tag magnitudes.
+                // Representation facts are shared. Codegen mappings own exact tag magnitudes.
                 Ok(CodegenUnionVariantLayout::new(
                     variant,
                     tag.value().clone(),

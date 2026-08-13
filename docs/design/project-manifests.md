@@ -8,7 +8,7 @@ part of the program, and the build, source, and dependency graphs are visible an
 `bray-project` owns:
 
 - the workspace and package manifest contracts,
-- canonical portable project paths,
+- normalized portable project paths,
 - validation of package, product, source-root, feature, target, dependency, and output selections,
 - deterministic discovery of Bray source files beneath declared source roots,
 - generated-source plans, output validation, and immutable generated source nodes,
@@ -23,7 +23,7 @@ inspection, and language-tooling entry points consume an already loaded explicit
 
 ## Manifest Serialization
 
-The canonical manifest serialization is strict UTF-8 JSON:
+The normalized manifest serialization is strict UTF-8 JSON:
 
 - `bray-workspace.json` is the single manifest at a workspace root.
 - `bray-package.json` is the single manifest in every directory listed by the workspace.
@@ -31,15 +31,15 @@ The canonical manifest serialization is strict UTF-8 JSON:
 - Unknown fields are rejected.
 
 Each compiler release has an explicit dispatch table of supported revisions. A revision defines the complete schema, validation,
-defaults, and canonical semantic projection, and a loader rejects unsupported revisions and unknown fields. The canonical writer
-emits no byte-order mark, uses LF line endings, two-space indentation, schema property order, canonical JSON escaping, normalized
+defaults, and stable semantic projection, and a loader rejects unsupported revisions and unknown fields. The reference writer
+emits no byte-order mark, uses LF line endings, two-space indentation, schema property order, deterministic JSON escaping, normalized
 set-like array order, and one final newline. Input formatting and semantically irrelevant array order do not affect the immutable
 project graph or its content identity.
 
 JSON is a serialization choice, not a package-management model. It provides explicit arrays and objects and strict unknown-field
 handling without introducing a manifest language, configuration evaluator, or second build DSL. The semantic contract is
 Bray-owned and independent of Rust or Cargo. An incompatible JSON schema uses a new exact revision. A replacement serialization
-uses new canonical workspace and package filenames, forbids both serialization families at one manifest boundary, and provides an
+uses new stable workspace and package filenames, forbids both serialization families at one manifest boundary, and provides an
 explicit converter rather than silently reinterpreting existing files.
 
 Package manifests declare semantic package versions. They do not contain version ranges, registries, repository URLs, lockfile
@@ -54,8 +54,8 @@ Every serialized path is relative and uses `/`. A path:
 - contains no `.`, `..`, backslash, null, leading separator, or trailing separator,
 - and is interpreted beneath the workspace or package boundary named by its field.
 
-This representation is canonical before any host path is constructed. Manifest loading never accepts an absolute path or a path
-that can escape the workspace. Manifest files and package inventory path components may not be symbolic links; every inventory
+This representation is stable before any host path is constructed. Manifest loading never accepts an absolute path or a path
+that can escape the workspace. Manifest files and package inventory path components may not be symbolic links. Every inventory
 entry therefore resolves only through project-owned directories beneath the explicit workspace root.
 
 Package source trees may not contain symbolic links. This keeps source ownership explicit and prevents a declared source root from
@@ -96,7 +96,7 @@ The workspace manifest records the complete package inventory and build-wide sel
 ```
 
 `output_root` is the sole workspace-relative root for project build outputs. It may not overlap any declared source root. Target
-entries map a workspace-local canonical name to an exact compiler-facing target identity. No target is inferred from the host.
+entries map a workspace-local defined name to an exact compiler-facing target identity. No target is inferred from the host.
 
 The optional workspace `package` object supplies metadata that package manifests may explicitly inherit. Its `version` is a
 Semantic Versioning value. The workspace itself is not a package and does not acquire a package identity or version from this
@@ -161,13 +161,13 @@ or explicitly inherit the workspace package version with `{"workspace": true}`. 
 package version. The resolved version is retained in the project graph and compiled package interface.
 
 Package-local names start with a lowercase ASCII letter and continue with lowercase letters, digits, `_`, or `-`. This rule covers
-features, source roots, products, and workspace target names. Every canonical selection is unique.
+features, source roots, products, and workspace target names. Every stable selection is unique.
 
 ### Source Roots
 
 Source roots are package-relative named directories. Products select one or more roots by name. During graph loading, every regular
 file with the exact `.bray` extension beneath a selected declared root becomes a source node. Directory traversal and resulting
-source paths are sorted canonically. Other regular files are ignored.
+source paths are sorted deterministically. Other regular files are ignored.
 
 The graph stores workspace-relative source paths, not host-absolute paths. A product selecting multiple roots receives the sorted
 deduplicated union of those roots' source nodes. Source-root declaration order and filesystem enumeration order have no semantic
@@ -252,12 +252,12 @@ Each product dependency edge names one exact package identity and one exact libr
 workspace inventory, and the product must appear in that package's manifest with kind `library`.
 
 Dependency edges contain no location, version requirement, range, registry, URL, or fallback. Location and the exact selected
-package version are supplied by the workspace's project-owned package inventory. A missing package or product is an error; it
+package version are supplied by the workspace's project-owned package inventory. A missing package or product is an error. It
 never starts a search.
 
 For each selected target, active product edges induce both an acyclic package dependency graph and an acyclic product dependency
 graph. A package cannot depend transitively on itself through different products. A dependency product is built before its
-dependents. Independent products are ordered by canonical package and product identity, so manifest ordering and parallel
+dependents. Independent products are ordered by stable package and product identity, so manifest ordering and parallel
 scheduling cannot affect the published build order.
 
 A test product may select one sibling library product through `tested_library`. The selected library is built first and its emitted
@@ -280,7 +280,7 @@ availability never activate an edge implicitly.
 The serialized shapes are `{"all": [predicate, ...]}`, `{"any": [predicate, ...]}`, `{"not": predicate}`,
 `{"property": name, "equals": value}`, `{"property": name, "not_equals": value}`, and
 `{"property": name, "in": [value, ...]}`. Empty `all` is true, empty `any` is false, membership values are sorted and unique in
-the canonical projection, and every other object shape or combination is invalid.
+the defined projection, and every other object shape or combination is invalid.
 
 Package-wide dependency syntax is not part of the manifest schema. The published graph and every downstream compiler contract
 contain only product-scoped edges.
@@ -294,7 +294,7 @@ Product `kind` is one of:
 - or `test`.
 
 A product selects one or more declared source roots, one or more workspace target configurations, and one or more external output
-categories. Output category names correspond to `bray-emitter`'s canonical external artifact taxonomy:
+categories. Output category names correspond to `bray-emitter`'s stable external artifact taxonomy:
 
 - `assembly`,
 - `backend_ir`,
@@ -317,9 +317,9 @@ while emission owns artifact planning and publication beneath `output_root`.
 
 A successful load publishes a `ProjectGraph` containing:
 
-- the canonical output root,
+- the configured output root,
 - target configurations sorted by workspace-local name,
-- package inventory nodes in canonical package identity order,
+- package inventory nodes in stable package identity order,
 - each package's identity, resolved semantic version, role, portable directory, declared and enabled features, source roots, and
   products,
 - each source root's exact sorted source files,
@@ -350,7 +350,7 @@ Manifest loading emits locale-neutral structured diagnostics through `bray-diagn
 - generated-source execution and reproducibility failures,
 - and product, host-tool, or generated-source dependency cycles.
 
-The loader retains exact validation categories in `ProjectLoadError`; localized prose is rendered only through `bray-messages`.
+The loader retains exact validation categories in `ProjectLoadError`. Localized prose is rendered only through `bray-messages`.
 Parser-library prose is not forwarded as a compiler diagnostic.
 
 ## Explicit Non-Goals

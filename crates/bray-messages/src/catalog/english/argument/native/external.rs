@@ -86,7 +86,7 @@ fn append_external_tool_stream(
         return;
     }
 
-    rendered.push_str("; ");
+    rendered.push_str(", ");
     rendered.push_str(name);
     rendered.push_str(" (");
     rendered.push_str(&capture.captured_byte_count().to_string());

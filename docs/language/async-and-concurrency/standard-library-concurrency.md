@@ -88,7 +88,7 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
 ```
 
 Checking these generic declarations infers an open dependency template for `T`. Publishing a value into channel storage requires
-that the synchronized shared owner preserve the value's dependencies; transferring an endpoint to another run additionally
+that the synchronized shared owner preserve the value's dependencies. Transferring an endpoint to another run additionally
 instantiates the template for that destination. A concrete use is rejected when `T` carries a creating-run borrow, incompatible
 thread affinity, unsynchronized mutation authority, or a lifecycle obligation that the receiver cannot resolve. This is ordinary
 generic dependency-contract inference, not a channel-specific trait bound or compiler-recognized `std` declaration.
@@ -228,7 +228,7 @@ either condition therefore remains assignable without charging the creating run.
 Implicit `Thread<T>` finalization on normal scope exit is valid only when the current context establishes
 `blocking_execution()` and an unobserved `Completed(T)` can be resolved synchronously and infallibly. If `T` has asynchronous or
 fallible finalization, source must consume the owner with `join()` or `cancel()` and explicitly preserve or handle the completed
-payload. During panic, synchronous infallible payload cleanup proceeds normally; payloads needing asynchronous finalization cannot
+payload. During panic, synchronous infallible payload cleanup proceeds normally. Payloads needing asynchronous finalization cannot
 be owned by the public thread owner whose possible implicit cleanup path cannot drive them, so public `start` rejects that
 instantiation.
 
@@ -245,7 +245,7 @@ the synchronously finalized `Thread<T>` owner, `run` can resolve a `T` whose lif
 
 If cancellation of the current task is observed while `run` is waiting, the bridge requests native-thread cancellation exactly
 once, enters shielded cleanup, and waits for the thread to terminate before allowing current-task cancellation to continue. The
-current task remains cancelled even if the thread races to normal completion; any completed `T` is lifecycle-resolved in the
+current task remains cancelled even if the thread races to normal completion. Any completed `T` is lifecycle-resolved in the
 shielded async context. A thread panic encountered during that cancellation is recorded as a suppressed panic, while type-erased
 payload-finalization failures become cleanup incidents. A noncooperative thread can therefore delay task cancellation indefinitely.
 If no current-task cancellation is active, a thread `Cancelled` outcome cancels the awaiting computation and a thread `Panicked`
@@ -463,7 +463,7 @@ protocol can construct `RunResult.Panicked(PanicReport)`.
 escalates according to the stored termination policy, reaps the operating-system child, and resolves any terminal payload. Because
 that cleanup can return `ProcessError`, implicit unresolved `Process<T>` finalization is rejected on normal scope exit. Source must
 consume the process with `join()` or `cancel()` and handle the outer infrastructure result. During panic or cancellation, shielded
-cleanup attempts the same policy; failure becomes an owned cleanup incident under the ordinary abnormal-exit rules.
+cleanup attempts the same policy. Failure becomes an owned cleanup incident under the ordinary abnormal-exit rules.
 
 `Process<T>` cannot detach or transfer its ownership obligation to the operating system. It resolves only through `join`, `cancel`,
 or abnormal-exit finalization.
@@ -549,7 +549,7 @@ child processes according to the budget's explicit domain:
 
 The algorithm's ordinary generic dependency contract proves which values can be borrowed within its scope, transferred to another
 thread, or encoded for another process. Scoped task or thread parallelism can borrow caller storage only while the algorithm
-statically owns every child and joins it before returning. Process parallelism cannot borrow caller memory; it transfers encoded
+statically owns every child and joins it before returning. Process parallelism cannot borrow caller memory. It transfers encoded
 values or uses an explicit shared-memory contract.
 
 Cancellation is hierarchical. Cancelling a parallel operation broadcasts cancellation to all owned runs before waiting for any of

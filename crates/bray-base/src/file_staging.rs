@@ -15,7 +15,7 @@ pub enum FileReplacementMode {
     ReplaceExisting,
 }
 
-/// A private same-directory file being prepared for publication.
+/// A private file being prepared for atomic publication.
 pub struct StagedFile {
     file: NamedTempFile,
     final_permissions: Option<Permissions>,
@@ -33,9 +33,27 @@ impl StagedFile {
         replacement: FileReplacementMode,
         default_permissions: Option<Permissions>,
     ) -> io::Result<Self> {
-        let final_permissions = replacement_permissions(destination, replacement)?;
+        Self::create_in(
+            destination_directory(destination),
+            destination,
+            replacement,
+            default_permissions,
+        )
+    }
 
-        let directory = destination_directory(destination);
+    /// Creates private staging in `staging_directory` for `destination`.
+    ///
+    /// The staging directory and destination must be on the same filesystem so
+    /// that promotion remains atomic. Existing regular-file permissions are
+    /// preserved for replacement. The supplied permissions apply only when no
+    /// existing regular file provides permissions to preserve.
+    pub fn create_in(
+        staging_directory: &Path,
+        destination: &Path,
+        replacement: FileReplacementMode,
+        default_permissions: Option<Permissions>,
+    ) -> io::Result<Self> {
+        let final_permissions = replacement_permissions(destination, replacement)?;
 
         let mut builder = Builder::new();
 
@@ -45,7 +63,7 @@ impl StagedFile {
             builder.permissions(permissions);
         }
 
-        let file = builder.tempfile_in(directory)?;
+        let file = builder.tempfile_in(staging_directory)?;
 
         Ok(Self {
             file,
@@ -209,6 +227,44 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(file_bytes(&destination), b"existing");
         assert!(!staging_path.exists());
+    }
+
+    #[test]
+    fn staging_directory_can_be_private_and_separate_from_destination() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let staging_directory = directory.path().join(".bray").join("staging");
+        let public_directory = directory.path().join("native").join("debug");
+        let destination = public_directory.join("application");
+
+        if std::fs::create_dir_all(&staging_directory).is_err()
+            || std::fs::create_dir_all(&public_directory).is_err()
+        {
+            panic!("test publication directories must be created");
+        }
+
+        let mut staging = StagedFile::create_in(
+            &staging_directory,
+            &destination,
+            FileReplacementMode::ReplaceExisting,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("test staging file must be created: {error:?}"));
+
+        write_staging(&mut staging, b"published");
+
+        let staging = finish(staging);
+
+        assert_eq!(staging.path().parent(), Some(staging_directory.as_path()));
+        assert!(!destination.exists());
+
+        if staging.promote(&destination).is_err() {
+            panic!("test staging file must move to its public destination");
+        }
+
+        assert_eq!(file_bytes(&destination), b"published");
     }
 
     #[test]

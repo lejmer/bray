@@ -302,7 +302,7 @@ func log(pos message: string)
 
 A `never` expression is produced by expressions that have no normal continuation.
 
-The canonical never-producing expression forms are:
+The never-producing expression forms are:
 
 - `return value` and `return;`,
 - `yield value` and `yield;` when they target a single-yield region,

@@ -48,7 +48,7 @@ mirror the C++ API.
 
 ## Core Value Model
 
-`Duration` is a signed exact span measured in seconds and nanoseconds. Its canonical representation uses floor seconds and a
+`Duration` is a signed exact span measured in seconds and nanoseconds. Its normalized representation uses floor seconds and a
 nonnegative nanosecond remainder below one billion. Duration arithmetic is independent of calendars and time zones.
 
 `Instant` is a process-local monotonic reading. It can establish ordering, elapsed durations, and deadlines only within its source
@@ -62,7 +62,7 @@ until interpreted through UTC, a fixed `UtcOffset`, or a named `TimeZone`.
 
 `UtcOffset` is a validated fixed displacement from UTC. It is not a named timezone and does not carry transition rules.
 
-`TimeZone` is an immutable named IANA timezone. Its process-local provider identity is an implementation detail. Its canonical name
+`TimeZone` is an immutable named IANA timezone. Its process-local provider identity is an implementation detail. Its defined name
 and timezone-database version are observable. It is not serialized by its process-local identity.
 
 `ZonedDateTime` combines a `Timestamp` and `TimeZone`. The timestamp remains the identity of the instant. Local calendar fields,
@@ -151,7 +151,7 @@ calendar presentation belong to locale services. Core time formatting remains de
 
 ## Provider Identity And Caching
 
-Named timezone loading is demand-driven and thread-safe. The runtime may intern successfully loaded immutable zones by canonical
+Named timezone loading is demand-driven and thread-safe. The runtime may intern successfully loaded immutable zones by stable
 name. Repeated loads reuse provider state without changing observable behavior. A failed lookup is also cacheable for one pinned
 database version.
 
@@ -160,7 +160,7 @@ timezone handles, C++ names, source paths, or the physical timezone database loc
 
 Every standard-library target artifact set includes temporal-provider provenance. The record identifies the shared provider source,
 the capability partition for each native translation unit, the timezone database, host-zone mapping data, and verified content
-digests used to build that target. The canonical partition inventory drives native provider construction. It is toolchain metadata
+digests used to build that target. The stable partition inventory drives native provider construction. It is toolchain metadata
 rather than a runtime dependency.
 
 Civil-date operations, deterministic parsing and formatting, and named-timezone operations occupy separate native retention
@@ -183,7 +183,7 @@ Conformance covers:
 - representative historical timezone changes and future transition rules,
 - unique, ambiguous, and nonexistent local times,
 - zones with non-hour and historical second-level offsets,
-- canonical aliases and unknown names,
+- stable aliases and unknown names,
 - deterministic behavior under a pinned timezone database,
 - strict RFC 3339 and ISO 8601 round trips and malformed inputs,
 - and equivalent serial and parallel demand of provider facts.

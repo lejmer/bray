@@ -35,12 +35,12 @@ These predicates describe execution-context requirements. Source cannot establis
 ordinary predicate implementation, or user-defined value. They are established only by a language-defined execution root or a
 selected runtime lane:
 
-- a synchronous executable entrypoint root establishes all three predicates for its host thread;
-- an async executable entrypoint root establishes `main_thread_execution()` on its distinguished cooperative main-thread lane;
+- a synchronous executable entrypoint root establishes all three predicates for its host thread.
+- an async executable entrypoint root establishes `main_thread_execution()` on its distinguished cooperative main-thread lane.
 - every `std.thread` native entry root establishes `blocking_execution()` and `compute_execution()` for that dedicated
-  operating-system thread, but not `main_thread_execution()`;
-- an async runtime lane establishes exactly the predicates advertised for that lane;
-- a test root follows its synchronous or async product entry contract;
+  operating-system thread, but not `main_thread_execution()`.
+- an async runtime lane establishes exactly the predicates advertised for that lane.
+- a test root follows its synchronous or async product entry contract.
 - a foreign callback establishes none of the predicates unless its trusted ABI contract explicitly supplies a compatible execution
   root.
 

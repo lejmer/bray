@@ -30,7 +30,7 @@ The design does not require one operating system, object format, runtime impleme
 
 ## Public Package Layout
 
-The public surface belongs to the canonical `std` package:
+The public surface belongs to the `std` package:
 
 | Module | Responsibility |
 | --- | --- |
@@ -41,7 +41,7 @@ The public surface belongs to the canonical `std` package:
 | `std.time` | Durations, monotonic instants, wall-clock values, deadlines, and timer adapters |
 | `std.random` | System entropy and deterministic pseudorandom generators |
 
-The canonical declaration names, parameter modes, owner types, error types, blocking requirements, asynchronous variants, and
+The declaration names, parameter modes, owner types, error types, blocking requirements, asynchronous variants, and
 result shapes are defined by the [I/O and platform standard-library surface](io-and-platform-surface.md). Standard-library source
 and package interfaces must preserve that declaration-level contract.
 
@@ -164,7 +164,7 @@ The minimum role families are:
 | File streams | Read, write, flush, seek, and close a typed file owner |
 | Process pipes | Read child output, write and flush child input, and close a typed pipe owner |
 | Filesystems | Open files and directories, query metadata, enumerate entries, mutate filesystem state, and close handles |
-| Child processes | Spawn with explicit arguments, environment, working directory, and stream policy; wait, signal, terminate, and reap |
+| Child processes | Spawn with explicit arguments, environment, working directory, and stream policy. Wait, signal, terminate, and reap |
 | Clocks | Read monotonic and wall clocks and expose target resolution |
 | Temporal data | Interpret calendar values and named timezone rules through the pinned native provider |
 | Entropy | Fill caller-owned mutable bytes from the target entropy source |
@@ -173,7 +173,7 @@ The minimum role families are:
 The role set is intentionally mechanism-oriented. Path normalization, buffering, text conversion, directory sorting, command
 policy, typed process protocols, random algorithms, cancellation policy, and public error composition remain Bray code.
 
-### Canonical Role Schema
+### Role Schema
 
 Every role descriptor uses the following closed schema fields:
 
@@ -207,7 +207,7 @@ The ABI shape vocabulary is:
 | `environment_list` | Call-only pointer plus count of key and value byte-span pairs |
 | `handle_ref<K>` | Borrowed nonzero `u64` opaque handle of class `K` |
 | `handle_owner<K>` | Owned nonzero `u64` opaque handle of class `K` |
-| `handle_owner<K>?` | Optional owned handle result; zero means absent and nonzero transfers ownership |
+| `handle_owner<K>?` | Optional owned handle result. Zero means absent and nonzero transfers ownership |
 | `out<T>` | Caller-owned aligned storage for one `T`, valid for the declared output statuses |
 | `child_request` | Call-only `AbiChildRequest` record |
 | `file_options` | `AbiFileOptions` record |
@@ -216,7 +216,7 @@ The ABI shape vocabulary is:
 | `start_result` | `AbiStartResult` record |
 | `operation_result` | `AbiOperationResult` record |
 
-The canonical descriptor encoding uses these closed ordinal tables:
+The defined descriptor encoding uses these closed ordinal tables:
 
 | Descriptor field | Ordinals |
 | --- | --- |
@@ -232,8 +232,8 @@ The canonical descriptor encoding uses these closed ordinal tables:
 | Cancellation | `not_applicable = 0`, `request_only = 1`, `request_and_complete = 2` |
 | Capability | `process_context = 0`, `streams = 1`, `filesystem = 2`, `child_processes = 3`, `clocks = 4`, `entropy = 5`, `wait_integration = 6`, `temporal = 7`, `dynamic_loading = 8` |
 
-`const_bytes` and `mut_bytes` both encode as `bytes`; byte access and lifetime distinguish them. `handle_ref` and `handle_owner`
-both encode as `handle`; handle class, presence, and the initial handle state distinguish them. `out<T>` encodes `T` with output
+`const_bytes` and `mut_bytes` both encode as `bytes`. Byte access and lifetime distinguish them. `handle_ref` and `handle_owner`
+both encode as `handle`. Handle class, presence, and the initial handle state distinguish them. `out<T>` encodes `T` with output
 direction. Every field not applicable to a descriptor is encoded with its `not_applicable` ordinal.
 
 Every handle requirement accepts only its exact class. Standard-stream roles carry no forgeable handle because their process-root
@@ -243,7 +243,7 @@ Reference-provider filesystem and process handles use disjoint numeric domains: 
 set for child processes and their pipes. Exact entry points also validate the owner variant, so a raw value from another resource
 family cannot accidentally identify a different live owner.
 
-Pointers have the selected target's pointer width and alignment. Every scalar length and offset is `u64`; the provider rejects a
+Pointers have the selected target's pointer width and alignment. Every scalar length and offset is `u64`. The provider rejects a
 value that cannot fit the target address space. All reserved fields and bits are zero. The provider validates pointer, length,
 alignment, overlap, handle class, and enum values before using an input.
 
@@ -297,7 +297,7 @@ an invalid zero operation handle. State `1` is `Pending` and requires a newly ow
 completed byte count when the role transfers bytes and is zero for other roles.
 
 `AbiOperationResult` contains `state: u32`, `reserved: u32`, `status: PlatformStatus`, `value0: u64`, and `value1: u64`. State `0`
-is `Pending`; state `1` is `Terminal`. A terminal result consumes the operation handle. For stream operations `value0` is the
+is `Pending`. State `1` is `Terminal`. A terminal result consumes the operation handle. For stream operations `value0` is the
 transferred byte count. For child wait it identifies the terminal exit representation. Timer completion leaves both values zero.
 For `Pending`, `status` is `Success` and both values are zero. For `Terminal`, `status` is a category allowed by the originating
 role's completion profile. The outer `platform.operation.complete` status describes only whether the completion query itself was
@@ -316,7 +316,7 @@ returns.
 ### Process Context Block
 
 The process-context roles expose one immutable product-lifetime block using context ABI version `1.0`. Its 72-byte header uses
-little-endian integers at these byte offsets; process-root standard streams are separate resources and are not encoded in the block:
+little-endian integers at these byte offsets. Process-root standard streams are separate resources and are not encoded in the block:
 
 | Offset | Field |
 | ---: | --- |
@@ -344,7 +344,7 @@ the same bytes for the product lifetime. A provider cannot use these roles to ex
 `platform.context.environment_key_equals` compares two call-only native-text values using the target process environment's key
 comparison rules. It writes `1` for equality and `0` otherwise. This role does not query mutable host environment state.
 
-### Canonical Closed Role Catalog
+### Closed Role Catalog
 
 All roles return `status`. Output storage is committed only for `Success`, except that byte-transfer counts are valid for every
 transfer status and required lengths are valid for `InsufficientBuffer`.
@@ -369,58 +369,58 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 
 | ID | Role | Parameters | Results | Status set | Mode and effects |
 | ---: | --- | --- | --- | --- | --- |
-| `0x0001` | `platform.context.measure` | none | `out<u64> required` | `context` | `nonblocking`; no ownership change |
-| `0x0002` | `platform.context.copy` | `mut_bytes(call) destination` | `out<u64> written_or_required` | `context_buffer` | `nonblocking`; `InsufficientBuffer` commits only required length |
-| `0x0003` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal` | `context` | `nonblocking`; no ownership change |
+| `0x0001` | `platform.context.measure` | none | `out<u64> required` | `context` | `nonblocking`. No ownership change |
+| `0x0002` | `platform.context.copy` | `mut_bytes(call) destination` | `out<u64> written_or_required` | `context_buffer` | `nonblocking`. `InsufficientBuffer` commits only required length |
+| `0x0003` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal` | `context` | `nonblocking`. No ownership change |
 
 #### Resource-specific streams
 
 | ID | Role | Parameters | Results | Status set | Mode and effects |
 | ---: | --- | --- | --- | --- | --- |
-| `0x0101` | `platform.standard_input.read` | `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`; process-root input identity is implicit |
-| `0x0111` | `platform.standard_output.write` | `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`; process-root output identity is implicit |
-| `0x0112` | `platform.standard_output.flush` | none | none | `stream` | `may_block`; output identity is implicit |
-| `0x0113` | `platform.standard_output.lock` | none | none | `stream` | `may_block`; acquires product-wide output serialization |
-| `0x0114` | `platform.standard_output.unlock` | none | none | `stream` | `nonblocking`; releases product-wide output serialization |
-| `0x0121` | `platform.standard_error.write` | `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`; process-root error identity is implicit |
-| `0x0122` | `platform.standard_error.flush` | none | none | `stream` | `may_block`; error identity is implicit |
-| `0x0123` | `platform.standard_error.lock` | none | none | `stream` | `may_block`; acquires product-wide error serialization |
-| `0x0124` | `platform.standard_error.unlock` | none | none | `stream` | `nonblocking`; releases product-wide error serialization |
-| `0x0201` | `platform.file.read` | `handle_ref<file_stream>`, `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`; file owner retained |
-| `0x0202` | `platform.file.write` | `handle_ref<file_stream>`, `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`; file owner retained |
-| `0x0203` | `platform.file.flush` | `handle_ref<file_stream>` | none | `stream` | `may_block`; file owner retained |
-| `0x0204` | `platform.file.seek` | `handle_ref<file_stream>`, `u64 offset_bits`, `u32 origin` | `out<u64> position` | `stream` | `may_block`; file owner retained |
-| `0x0205` | `platform.file.close` | `handle_owner<file_stream>` | none | `stream` | `may_block`; consumes the file owner |
-| `0x0301` | `platform.process_pipe.read` | `handle_ref<process_pipe>`, `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`; pipe owner retained |
-| `0x0302` | `platform.process_pipe.write` | `handle_ref<process_pipe>`, `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`; pipe owner retained |
-| `0x0303` | `platform.process_pipe.flush` | `handle_ref<process_pipe>` | none | `stream` | `may_block`; pipe owner retained |
-| `0x0304` | `platform.process_pipe.close` | `handle_owner<process_pipe>` | none | `stream` | `may_block`; consumes the pipe owner |
+| `0x0101` | `platform.standard_input.read` | `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Process-root input identity is implicit |
+| `0x0111` | `platform.standard_output.write` | `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Process-root output identity is implicit |
+| `0x0112` | `platform.standard_output.flush` | none | none | `stream` | `may_block`. Output identity is implicit |
+| `0x0113` | `platform.standard_output.lock` | none | none | `stream` | `may_block`. Acquires product-wide output serialization |
+| `0x0114` | `platform.standard_output.unlock` | none | none | `stream` | `nonblocking`. Releases product-wide output serialization |
+| `0x0121` | `platform.standard_error.write` | `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Process-root error identity is implicit |
+| `0x0122` | `platform.standard_error.flush` | none | none | `stream` | `may_block`. Error identity is implicit |
+| `0x0123` | `platform.standard_error.lock` | none | none | `stream` | `may_block`. Acquires product-wide error serialization |
+| `0x0124` | `platform.standard_error.unlock` | none | none | `stream` | `nonblocking`. Releases product-wide error serialization |
+| `0x0201` | `platform.file.read` | `handle_ref<file_stream>`, `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. File owner retained |
+| `0x0202` | `platform.file.write` | `handle_ref<file_stream>`, `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. File owner retained |
+| `0x0203` | `platform.file.flush` | `handle_ref<file_stream>` | none | `stream` | `may_block`. File owner retained |
+| `0x0204` | `platform.file.seek` | `handle_ref<file_stream>`, `u64 offset_bits`, `u32 origin` | `out<u64> position` | `stream` | `may_block`. File owner retained |
+| `0x0205` | `platform.file.close` | `handle_owner<file_stream>` | none | `stream` | `may_block`. Consumes the file owner |
+| `0x0301` | `platform.process_pipe.read` | `handle_ref<process_pipe>`, `mut_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Pipe owner retained |
+| `0x0302` | `platform.process_pipe.write` | `handle_ref<process_pipe>`, `const_bytes(call)` | `out<u64> transferred` | `stream` | `may_block`. Pipe owner retained |
+| `0x0303` | `platform.process_pipe.flush` | `handle_ref<process_pipe>` | none | `stream` | `may_block`. Pipe owner retained |
+| `0x0304` | `platform.process_pipe.close` | `handle_owner<process_pipe>` | none | `stream` | `may_block`. Consumes the pipe owner |
 
 Standard input, standard output, standard error, files, and process pipes have separate callable and artifact boundaries. A value's
-resource kind is established when its public owner or process-root environment is constructed; ordinary calls never rediscover the
+resource kind is established when its public owner or process-root environment is constructed. Ordinary calls never rediscover the
 kind by dispatching through a universal stream handle. Standard-stream locks are likewise specific to output or error.
 
 Seek origin `0` is `SeekFrom.Start` and interprets `offset_bits` as an unsigned absolute offset. Origins `1` and `2` are
 `SeekFrom.Current` and `SeekFrom.End` and interpret the same bits as a two's-complement `i64` offset. Other origins are invalid.
 
-Read and write starts use `byte_transfer`; flush starts use `status_only`; child-wait starts use `child_wait`; timer starts use
-`timer`; and `platform.operation.complete` uses `operation_dispatch`. Every other role uses `immediate`. Start roles use
+Read and write starts use `byte_transfer`. Flush starts use `status_only`. Child-wait starts use `child_wait`. Timer starts use
+`timer`. And `platform.operation.complete` uses `operation_dispatch`. Every other role uses `immediate`. Start roles use
 `request_and_complete`, `platform.operation.cancel` uses `request_only`, and every other role uses `not_applicable`.
 
 #### Filesystems
 
 | ID | Role | Parameters | Results | Status set | Mode and effects |
 | ---: | --- | --- | --- | --- | --- |
-| `0x0211` | `platform.file.open` | `path`, `file_options` | `out<handle_owner<file_stream>>` | `filesystem` | `may_block`; creates owner only on success |
-| `0x0212` | `platform.file.metadata` | `handle_ref<file_stream>` | `out<file_metadata>` | `filesystem` | `may_block`; handle retained |
-| `0x0213` | `platform.path.metadata` | `path` | `out<file_metadata>` | `filesystem` | `may_block`; no handle transition |
-| `0x0221` | `platform.directory.open` | `path` | `out<handle_owner<directory>>` | `filesystem` | `may_block`; creates owner only on success |
-| `0x0222` | `platform.directory.next` | `handle_ref<directory>`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> end`, `out<file_metadata>` | `filesystem_buffer` | `may_block`; advances only on success |
-| `0x0223` | `platform.directory.close` | `handle_owner<directory>` | none | `filesystem` | `may_block`; consumes owner on every terminal status |
-| `0x0230` | `platform.path.create_directory` | `path` | none | `filesystem` | `may_block`; no handle transition |
-| `0x0231` | `platform.path.remove_file` | `path` | none | `filesystem` | `may_block`; no handle transition |
-| `0x0232` | `platform.path.remove_directory` | `path` | none | `filesystem` | `may_block`; no handle transition |
-| `0x0233` | `platform.path.rename` | `path source`, `path destination` | none | `filesystem` | `may_block`; no handle transition |
+| `0x0211` | `platform.file.open` | `path`, `file_options` | `out<handle_owner<file_stream>>` | `filesystem` | `may_block`. Creates owner only on success |
+| `0x0212` | `platform.file.metadata` | `handle_ref<file_stream>` | `out<file_metadata>` | `filesystem` | `may_block`. Handle retained |
+| `0x0213` | `platform.path.metadata` | `path` | `out<file_metadata>` | `filesystem` | `may_block`. No handle transition |
+| `0x0221` | `platform.directory.open` | `path` | `out<handle_owner<directory>>` | `filesystem` | `may_block`. Creates owner only on success |
+| `0x0222` | `platform.directory.next` | `handle_ref<directory>`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> end`, `out<file_metadata>` | `filesystem_buffer` | `may_block`. Advances only on success |
+| `0x0223` | `platform.directory.close` | `handle_owner<directory>` | none | `filesystem` | `may_block`. Consumes owner on every terminal status |
+| `0x0230` | `platform.path.create_directory` | `path` | none | `filesystem` | `may_block`. No handle transition |
+| `0x0231` | `platform.path.remove_file` | `path` | none | `filesystem` | `may_block`. No handle transition |
+| `0x0232` | `platform.path.remove_directory` | `path` | none | `filesystem` | `may_block`. No handle transition |
+| `0x0233` | `platform.path.rename` | `path source`, `path destination` | none | `filesystem` | `may_block`. No handle transition |
 
 `platform.directory.next` sets `end` to one only for `Success` with no entry. `InsufficientBuffer` reports the required native path
 byte length and does not advance. Public asynchronous filesystem operations deliberately dispatch these same roles to a checked
@@ -431,18 +431,18 @@ cancellation, borrowing, and scheduling contracts are already expressed by the r
 
 | ID | Role | Parameters | Results | Status set | Mode and effects |
 | ---: | --- | --- | --- | --- | --- |
-| `0x0311` | `platform.child.spawn` | `child_request` | `out<handle_owner<child>>`, three `out<handle_owner<process_pipe>?>` pipe slots | `child` | `may_block`; outputs exist only on success |
-| `0x0312` | `platform.child.wait` | `handle_ref<child>` | `out<u32> terminal`, `out<exit_status>` | `child` | `may_block`; child owner retained |
-| `0x0313` | `platform.child.terminate` | `handle_ref<child>`, `u32 mode` | none | `child` | `may_block`; requests termination and retains owner |
-| `0x0314` | `platform.child.reap` | `handle_owner<child>` | `out<exit_status>` | `child` | `may_block`; consumes owner only on success |
-| `0x0315` | `platform.child.dispose` | `handle_owner<child>` | none | `child` | `may_block`; resolves and consumes the owner |
+| `0x0311` | `platform.child.spawn` | `child_request` | `out<handle_owner<child>>`, three `out<handle_owner<process_pipe>?>` pipe slots | `child` | `may_block`. Outputs exist only on success |
+| `0x0312` | `platform.child.wait` | `handle_ref<child>` | `out<u32> terminal`, `out<exit_status>` | `child` | `may_block`. Child owner retained |
+| `0x0313` | `platform.child.terminate` | `handle_ref<child>`, `u32 mode` | none | `child` | `may_block`. Requests termination and retains owner |
+| `0x0314` | `platform.child.reap` | `handle_owner<child>` | `out<exit_status>` | `child` | `may_block`. Consumes owner only on success |
+| `0x0315` | `platform.child.dispose` | `handle_owner<child>` | none | `child` | `may_block`. Resolves and consumes the owner |
 
 An unused pipe slot is zero. A successful spawn transfers every nonzero pipe owner to the trusted wrapper. A failed spawn commits no
 handle. `platform.child.wait` never reaps. `platform.child.terminate` never claims terminal completion. Reap is valid only after a
 terminal wait result and retains the child owner on failure so the wrapper can continue cleanup.
 
 Termination mode `0` requests the target's cooperative termination mechanism. Mode `1` requests forced termination. A target that
-cannot perform the requested mode returns `Unsupported`; every other value is invalid.
+cannot perform the requested mode returns `Unsupported`. Every other value is invalid.
 
 The public consuming completion operations do not return until reap succeeds. They can preserve the first infrastructure failure
 while retrying ownership resolution, then return that failure after the child is reaped. The typed Bray process wrapper applies its
@@ -452,11 +452,11 @@ separate `TerminationPolicy` through these roles.
 
 | ID | Role | Parameters | Results | Status set | Mode and effects |
 | ---: | --- | --- | --- | --- | --- |
-| `0x0401` | `platform.clock.monotonic_now` | none | `out<u64> ticks`, `out<u64> frequency`, `out<u64> clock_identity` | `clock` | `nonblocking`; no ownership change |
-| `0x0402` | `platform.clock.wall_now` | none | `out<i64> seconds`, `out<u32> nanoseconds` | `clock` | `nonblocking`; no ownership change |
-| `0x0403` | `platform.clock.sleep` | `u64 seconds`, `u32 nanoseconds` | none | `clock` | `may_block`; no ownership change |
-| `0x0411` | `platform.timer.start` | `u64 ticks`, `u64 clock_identity` | `out<start_result>` | `clock` | `starts_operation`; terminal completion has no payload |
-| `0x0501` | `platform.entropy.fill` | `mut_bytes(call)` | `out<u64> transferred` | `entropy` | `may_block`; initializes exactly the reported prefix |
+| `0x0401` | `platform.clock.monotonic_now` | none | `out<u64> ticks`, `out<u64> frequency`, `out<u64> clock_identity` | `clock` | `nonblocking`. No ownership change |
+| `0x0402` | `platform.clock.wall_now` | none | `out<i64> seconds`, `out<u32> nanoseconds` | `clock` | `nonblocking`. No ownership change |
+| `0x0403` | `platform.clock.sleep` | `u64 seconds`, `u32 nanoseconds` | none | `clock` | `may_block`. No ownership change |
+| `0x0411` | `platform.timer.start` | `u64 ticks`, `u64 clock_identity` | `out<start_result>` | `clock` | `starts_operation`. Terminal completion has no payload |
+| `0x0501` | `platform.entropy.fill` | `mut_bytes(call)` | `out<u64> transferred` | `entropy` | `may_block`. Initializes exactly the reported prefix |
 
 `platform.clock.monotonic_now` readings with one clock identity use one stable frequency and never decrease. `wall_now` nanoseconds
 are below one billion. Public async entropy dispatches the blocking role to a checked blocking lane. Timer cancellation uses the
@@ -464,7 +464,7 @@ common operation roles and forwards cancellation only after terminal operation c
 
 Each process-context, stream, filesystem, child-process, clock, and entropy role requires its same-named capability. The three
 operation roles require `wait_integration`. A target contract must advertise the capability and every role in that capability's
-canonical catalog before a trusted binding can use it.
+authoritative catalog before a trusted binding can use it.
 
 `platform.timer.start` always returns a pending operation. Its terminal `AbiOperationResult` leaves both values zero.
 
@@ -472,17 +472,17 @@ canonical catalog before a trusted binding can use it.
 
 | ID | Role | Parameters | Results | Mode and effects |
 | ---: | --- | --- | --- | --- |
-| `0x0701` | `platform.time.date_validate` | `i32 year`, `u32 month`, `u32 day` | `out<u32> outcome` | `nonblocking`; no ownership change |
-| `0x0702` | `platform.time.date_add` | `date_time`, `i32 years`, `i32 months`, `i32 days`, `u32 adjustment` | `out<date_time>`, `out<u32> outcome` | `nonblocking`; no ownership change |
-| `0x0710` | `platform.time.zone_load` | `native_text(call)` | `out<handle_owner<time_zone>>`, `out<u32> outcome` | `may_block`; creates an owner on success |
-| `0x0711` | `platform.time.zone_local` | none | `out<handle_owner<time_zone>>`, `out<u32> outcome` | `may_block`; creates an owner on success |
-| `0x0712` | `platform.time.zone_retain` | `handle_ref<time_zone>` | none | `nonblocking`; creates one additional owner |
-| `0x0713` | `platform.time.zone_close` | `handle_owner<time_zone>` | none | `nonblocking`; consumes one owner |
-| `0x0714` | `platform.time.zone_name` | `handle_ref<time_zone>`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`; initializes the reported prefix |
-| `0x0720` | `platform.time.observe` | `handle_ref<time_zone> or zero`, fixed offset, timestamp, `mut_bytes(call)` | `out<temporal_observation>`, `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`; initializes the reported prefix |
-| `0x0721` | `platform.time.resolve` | `handle_ref<time_zone> or zero`, fixed offset, `date_time` | `out<temporal_resolution>`, `out<u32> outcome` | `nonblocking`; no ownership change |
-| `0x0730` | `platform.time.parse` | `u32 kind`, `native_text(call)` | `out<temporal_value>`, `out<u64> invalid_offset`, `out<u32> outcome` | `nonblocking`; no ownership change |
-| `0x0731` | `platform.time.format` | `u32 kind`, `temporal_value`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`; initializes the reported prefix |
+| `0x0701` | `platform.time.date_validate` | `i32 year`, `u32 month`, `u32 day` | `out<u32> outcome` | `nonblocking`. No ownership change |
+| `0x0702` | `platform.time.date_add` | `date_time`, `i32 years`, `i32 months`, `i32 days`, `u32 adjustment` | `out<date_time>`, `out<u32> outcome` | `nonblocking`. No ownership change |
+| `0x0710` | `platform.time.zone_load` | `native_text(call)` | `out<handle_owner<time_zone>>`, `out<u32> outcome` | `may_block`. Creates an owner on success |
+| `0x0711` | `platform.time.zone_local` | none | `out<handle_owner<time_zone>>`, `out<u32> outcome` | `may_block`. Creates an owner on success |
+| `0x0712` | `platform.time.zone_retain` | `handle_ref<time_zone>` | none | `nonblocking`. Creates one additional owner |
+| `0x0713` | `platform.time.zone_close` | `handle_owner<time_zone>` | none | `nonblocking`. Consumes one owner |
+| `0x0714` | `platform.time.zone_name` | `handle_ref<time_zone>`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`. Initializes the reported prefix |
+| `0x0720` | `platform.time.observe` | `handle_ref<time_zone> or zero`, fixed offset, timestamp, `mut_bytes(call)` | `out<temporal_observation>`, `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`. Initializes the reported prefix |
+| `0x0721` | `platform.time.resolve` | `handle_ref<time_zone> or zero`, fixed offset, `date_time` | `out<temporal_resolution>`, `out<u32> outcome` | `nonblocking`. No ownership change |
+| `0x0730` | `platform.time.parse` | `u32 kind`, `native_text(call)` | `out<temporal_value>`, `out<u64> invalid_offset`, `out<u32> outcome` | `nonblocking`. No ownership change |
+| `0x0731` | `platform.time.format` | `u32 kind`, `temporal_value`, `mut_bytes(call)` | `out<u64> written_or_required`, `out<u32> outcome` | `nonblocking`. Initializes the reported prefix |
 
 The `0x07xx` role family is backed by the static temporal provider described in [Time library](time.md). The roles exchange
 fixed-width calendar fields, timestamps, caller-owned text buffers, and opaque process-local timezone identities. They do not
@@ -517,13 +517,13 @@ The `dynamic_loading` capability requires all four roles and makes `target.platf
 complete catalog exposes none of the operations and sets the fact to false.
 
 Cancellation is a request, not a terminal result. Once requested, the provider eventually makes `operation.complete` terminal.
-Normal completion wins a race that became terminal before cancellation was accepted; otherwise accepted cancellation completes with
+Normal completion wins a race that became terminal before cancellation was accepted. Otherwise accepted cancellation completes with
 `Cancelled`. No cancellation path releases an operation owner, retained handle borrow, or retained buffer before that terminal
 completion. Completion publishes retained buffer writes before releasing those borrows.
 
 ### Contract Encoding And Hashing
 
-The compiler and provider encode role descriptors in ascending numeric role order. The canonical little-endian encoding contains:
+The compiler and provider encode role descriptors in ascending numeric role order. The defined little-endian encoding contains:
 
 1. platform ABI major and minor as `u16`,
 2. descriptor count as `u32`,
@@ -538,7 +538,7 @@ The compiler and provider encode role descriptors in ascending numeric role orde
 9. and each ordered buffer effect as parameter index `u16`, byte-access `u8`, and lifetime `u8`.
 
 Handle-transition subject kind `0` means parameter and `1` means result. Counts and indices are encoded little-endian. Descriptor
-fields are emitted in callable order; handle transitions and buffer effects are emitted by subject kind and then ascending index.
+fields are emitted in callable order. Handle transitions and buffer effects are emitted by subject kind and then ascending index.
 The callable's direct `status` return is implicit and is not included in the result count.
 
 Shape, direction, byte-access, lifetime, presence, handle-class, handle-state, call-mode, completion, cancellation-mode, capability,
@@ -550,8 +550,8 @@ The semantic-contract digest is:
 ```text
 BLAKE3(
     "bray.platform.role-contract\0"
-    || little_endian_u64(canonical_descriptor_bytes.length)
-    || canonical_descriptor_bytes
+    || little_endian_u64(stable_descriptor_bytes.length)
+    || stable_descriptor_bytes
 )
 ```
 
@@ -561,11 +561,11 @@ nonconforming. Binding validation compares the complete descriptor and digest be
 
 The descriptor records handle effects as ordered transition tuples. A borrowed input remains `borrowed` after immediate completion.
 A start role changes each operation-retained input to `retained_borrow` only when it returns `Pending`, then restores `borrowed` at
-terminal completion. A successful required owner result changes from `absent` to `owned`; it remains `absent` on failure. A
+terminal completion. A successful required owner result changes from `absent` to `owned`. It remains `absent` on failure. A
 successful optional owner result changes to `owned` when nonzero and remains `absent` when zero. A close role changes its input from
 `owned` to `consumed` on every terminal status. `operation.complete` changes its operation input to `retained_owner` while pending
 and `consumed` when terminal. The wait-source result is `borrowed` and becomes invalid with terminal operation completion. These
-rules cover every handle effect in the canonical catalog and are part of the canonical descriptor.
+rules cover every handle effect in the authoritative catalog and are part of the defined descriptor.
 
 ### ABI Values
 
@@ -647,7 +647,7 @@ Each standard-library target artifact set records:
 The reference native provider is packaged independently of the protected-frame concurrency runtime. Standard-library target
 inventories carry capability-partitioned archives, and each archive carries only its own direct system-library requirements. A
 runtime component may declare the exact platform roles it overrides, such as a test host's reserved standard input and bounded
-standard-output and standard-error capture leaves; the ordinary provider archives remain available for every other reachable role.
+standard-output and standard-error capture leaves. The ordinary provider archives remain available for every other reachable role.
 This separation ensures that a synchronous product can use native platform services without acquiring task scheduling,
 protected-frame storage, or other concurrency-runtime code.
 
@@ -662,7 +662,7 @@ structures, unusual calling conventions, or signal and unwind trampolines. A shi
 Standard input, standard output, standard error, files, process pipes, sockets, and captured test streams occupy independent
 retention boundaries. The production standard-stream leaves call only the exact target stream mechanism and do not route through
 Rust `std::io`, capture state, filesystem dispatch, or process-pipe dispatch. Test-runner products select a capture-capable host
-component explicitly; ordinary products never probe for capture at runtime.
+component explicitly. Ordinary products never probe for capture at runtime.
 
 Compilation gathers required roles from reachable checked standard-library bindings. Product formation merges those requirements
 deterministically, validates the selected provider, and publishes typed link-plan inputs. Capability-specific archives and object
@@ -681,7 +681,7 @@ Platform service facts follow the compiler's ordinary lazy architecture:
 6. Code generation and link planning request the exact selected target artifact records.
 
 Independent wrappers and role validations can run in parallel from immutable inputs. Required-role merging, diagnostics, and link
-inputs use stable typed identities and canonical ordering so scheduling cannot affect the result.
+inputs use stable typed identities and stable ordering so scheduling cannot affect the result.
 
 ## Diagnostics
 

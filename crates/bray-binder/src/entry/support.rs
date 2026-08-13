@@ -195,7 +195,7 @@ where
         return insert_named_surface(binder, scope, symbol, name);
     }
 
-    // Insertion mutates the binder after releasing the graph borrow; symbol names are Arc-backed.
+    // Insertion mutates the binder after releasing the graph borrow. Symbol names are Arc-backed.
     let name = binder
         .facts()
         .symbols()

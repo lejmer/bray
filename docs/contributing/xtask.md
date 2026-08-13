@@ -179,7 +179,7 @@ cargo xtask standard-library test
 ```
 
 The target bundle publishes separate core, standard-stream, filesystem, and process platform archives. Each archive records its
-exact native platform capabilities and direct native dependencies in the manifest; the build fails if that inventory is incomplete
+exact native platform capabilities and direct native dependencies in the manifest. The build fails if that inventory is incomplete
 or overlaps another archive.
 Standard input, standard output, and standard error remain separate object leaves inside the standard-stream archive.
 
@@ -191,7 +191,7 @@ cargo xtask standard-library performance --output <directory>
 
 The command is intentionally outside ordinary unit tests. It builds one host runtime and standard-library toolchain, compiles each
 workload with compiler summary profiling, performs warmups followed by seven measured executions, validates stable output, and
-writes bounded `candidate.txt` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract;
+writes bounded `candidate.txt` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract.
 agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
@@ -208,7 +208,7 @@ digest, so a focused report can only compare with the same focused selection.
 
 Reports keep executable and relocatable-object sizes, per-section sizes, static linker-map provenance, dynamic library
 dependencies, the complete compiler profile, and robust median/MAD execution statistics. Allocation, copying, and platform-call
-observations are tagged as measured or unavailable; never replace a missing observation hook with an inferred count. Section,
+observations are tagged as measured or unavailable. Never replace a missing observation hook with an inferred count. Section,
 dynamic-library, and retained-input collections have fixed entry limits and disclose omitted counts rather than allowing reports
 to grow without bound.
 

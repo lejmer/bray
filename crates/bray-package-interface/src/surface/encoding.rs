@@ -65,7 +65,7 @@ impl StringEncoder {
 
         let values: Vec<_> = values.into_iter().collect();
 
-        // Encoding owns this short-lived index; cloned strings avoid self-referential storage.
+        // Encoding owns this short-lived index. Cloned strings avoid self-referential storage.
         let ids = values
             .iter()
             .enumerate()

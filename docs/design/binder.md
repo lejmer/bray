@@ -127,7 +127,7 @@ storage identities, storage accesses, and other semantic identities through type
 ### Unit Completion
 
 Completion is a compilation query guarantee, not another semantic-tree representation. A completed-unit query references the
-canonical `BoundUnit` and requires every typed semantic fact promised by its contract. Each contributing fact retains the diagnostics
+published `BoundUnit` and requires every typed semantic fact promised by its contract. Each contributing fact retains the diagnostics
 produced while computing it.
 
 ---
@@ -156,7 +156,7 @@ bray-ir -------------> bray-lowering
 
 The exact Cargo edges can be narrower, but these ownership rules are mandatory:
 
-- `bray-symbols` owns canonical semantic types, constant values, open constant terms, generic substitutions, and their typed IDs in
+- `bray-symbols` owns interned semantic types, constant values, open constant terms, generic substitutions, and their typed IDs in
   addition to declaration symbols, and must not depend on `bray-binder`, `bray-bound-tree`, or `bray-checker`,
 - `bray-bound-tree` owns published bound node types, typed node IDs, immutable arenas, and bound walkers,
 - `bray-checker` owns focused semantic rule services and checker-specific analysis state,
@@ -181,14 +181,14 @@ binder and checker services. This does not create a reverse crate dependency fro
 
 ### Ownership
 
-`bray-symbols` owns the canonical semantic identity substrate that directly composes with symbols:
+`bray-symbols` owns the semantic identity substrate that directly composes with symbols:
 
 - `TypeId` and immutable semantic type records,
 - `ConstantValueId` and immutable closed typed constant values,
 - `ConstantTermId` and immutable open checked constant terms,
 - `GenericSubstitutionId`,
 - `ConcreteGenericSubstitutionId`,
-- trait applications, callable instances, implementation instances, and related canonical identities,
+- trait applications, callable instances, implementation instances, and related stable identities,
 - interner and read-only view APIs for those values.
 
 These values are not declaration symbols. They live in `bray-symbols` because their identities directly reference typed symbol IDs,
@@ -202,7 +202,7 @@ Other responsibilities remain separate:
 - `bray-bound-tree` owns checked constant-expression templates and source-shaped HIR,
 - `bray-checker` owns inference variables, unification, type relations, constraint proofs, and constant evaluation,
 - `bray-compilation` owns semantic-store instances, query caches, target-specific evaluation, cancellation, and publication,
-- `bray-package-interface` maps canonical values to and from stable interface encodings,
+- `bray-package-interface` maps stable values to and from stable interface encodings,
 - `bray-lowering` consumes finalized types and values without rerunning type checking or constant evaluation.
 
 `bray-symbols` owns pure structural construction, interning, inspection, and substitution over already validated semantic values. It
@@ -212,7 +212,7 @@ does not own the semantic algorithms that determine whether a conversion, constr
 
 One compilation or immutable symbol snapshot owns a `SemanticValueStore` associated with its symbol identity space.
 
-Conceptually, the store contains append-only canonical tables for:
+Conceptually, the store contains append-only intern tables for:
 
 - types,
 - closed constant values,
@@ -223,7 +223,7 @@ Conceptually, the store contains append-only canonical tables for:
 - implementation instances.
 
 Entries are immutable after insertion. Internal synchronized mutation is permitted only to intern a new immutable entry or publish a
-completed lookup cache. Concurrent construction of the same structural key must return one canonical ID in that store.
+completed lookup cache. Concurrent construction of the same structural key must return one interned ID in that store.
 
 The store is not process-global because its records contain compilation-local symbol IDs. `TypeId`, `ConstantValueId`,
 `ConstantTermId`, and substitution IDs are valid only with the semantic store that issued them.
@@ -233,7 +233,7 @@ source.
 
 ### Type Representation
 
-`TypeId` identifies one canonical immutable `TypeData` record.
+`TypeId` identifies one stable immutable `TypeData` record.
 
 Conceptually, durable variants include:
 
@@ -281,15 +281,15 @@ subject type and compile-time argument that participates in identity.
 Contextual `Self` retains the exact named type, trait, or implementation context that gives the type its meaning. It is not lowered
 to an error type or represented as a synthetic generic parameter.
 
-Type-valued member projections remain explicit canonical types while their selected type is not globally fixed. A context that
+Type-valued member projections remain explicit stable types while their selected type is not globally fixed. A context that
 selects an implementation can resolve the projection through an ordinary semantic fact without mutating the original `TypeId`.
 
-One canonical error type supports recovery. The diagnostic belongs to the fact that produced the error type. Error types do not
+One shared error type supports recovery. The diagnostic belongs to the fact that produced the error type. Error types do not
 embed diagnostic IDs or source text and are forbidden in successfully emitted package interfaces.
 
 ### Inference Types
 
-Inference variables are checker-local work state, not canonical semantic types:
+Inference variables are checker-local work state, not interned semantic types:
 
 ```rust
 pub struct InferenceTypeId(u32);
@@ -299,7 +299,7 @@ Inference variables, unification parents, candidate sets, deferred constraints, 
 inference context. They must not be interned as `TypeId`, stored on published bound nodes, serialized into package interfaces,
 or exposed by completed symbol facts.
 
-Before publication, every inference variable is resolved to a canonical `TypeId` or the canonical error type with diagnostics owned
+Before publication, every inference variable is resolved to a stable `TypeId` or the shared error type with diagnostics owned
 by the checking fact.
 
 ### Closed Constant Values
@@ -328,14 +328,14 @@ pub struct ConstantValueData {
 - constant union variant values,
 - other aggregate forms explicitly permitted by constant materialization rules.
 
-Aggregate records reference child `ConstantValueId` values and form an immutable canonical DAG. They do not represent runtime storage
+Aggregate records reference child `ConstantValueId` values and form an immutable interned DAG. They do not represent runtime storage
 identity.
 
 Integer evaluation can use exact intermediate arithmetic in checker-owned state. A published integer constant is normalized to its
 declared type after representability has been checked. Real and complex values retain the exact selected runtime-format bits. Strings
-use canonical string content. Aggregate identity includes exact type, variant where applicable, and ordered child values.
+use stable string content. Aggregate identity includes exact type, variant where applicable, and ordered child values.
 
-A canonical error constant value supports recovery. Its diagnostics remain on the failed constant-instance fact. Error values are
+A shared error constant value supports recovery. Its diagnostics remain on the failed constant-instance fact. Error values are
 never valid generic arguments for concrete instantiation and are forbidden in emitted interfaces.
 
 Literal adaptation intermediates, unbounded evaluation integers, evaluation stacks, resource counters, and traces are checker-owned
@@ -389,7 +389,7 @@ symbols, not syntax tokens or unresolved names.
 `DefinitionApplication` can remain open. `ConstantInstanceKey` is the separate concrete evaluation key and requires a
 `ConcreteGenericSubstitutionId` plus the selected target profile.
 
-This is a restricted canonical identity representation, not a second general bound tree. Full checked constant initializer,
+This is a restricted stable identity representation, not a second general bound tree. Full checked constant initializer,
 predicate, contract, and runtime-default templates remain in `bray-bound-tree`.
 
 Closed subterms are evaluated and interned as `Value`. Open terms preserve evaluation order and selected operations. Interning does
@@ -402,13 +402,13 @@ host width or become a closed `ConstantValueId` before target validation succeed
 
 A constant expression embedded in a declaration type is first retained in a target-independent source type-expression template. The
 template records the exact declaration owner, syntax anchor, and source of the expected type. The owner identifies the lexical
-generic context. The expected type is either an already canonical `TypeId` or the exact generic const parameter whose declared type
+generic context. The expected type is either an already stable `TypeId` or the exact generic const parameter whose declared type
 must be requested later.
 
 Declaration-surface binding publishes this template without classifying the expression into operations, requesting expression
 typing or selection, or manufacturing a `ConstantTermId`. The cooperating type and selection fixed point resolves only the embedded
-occurrences demanded by its query. Successful checking produces canonical open terms and resolves the containing template into a
-canonical type, trait application, implementation subject, or callable signature. Constant validity and evaluation then consume
+occurrences demanded by its query. Successful checking produces interned open terms and resolves the containing template into a
+stable type, trait application, implementation subject, or callable signature. Constant validity and evaluation then consume
 those checked results without rerunning syntax binding.
 
 The occurrence key is source stable and target independent. It must not include a target profile, inferred type, selected candidate,
@@ -430,7 +430,7 @@ pub enum GenericArgument {
 }
 ```
 
-The owner lets canonical construction validate parameter count, order, and argument category. An empty substitution is canonical for
+The owner lets stable construction validate parameter count, order, and argument category. An empty substitution is stable for
 its owner rather than an untyped globally reusable empty list.
 
 `GenericSubstitutionId` can describe an open generic context. `ConcreteGenericSubstitutionId` is a validated typed wrapper whose type
@@ -438,25 +438,25 @@ arguments are concrete and whose constant terms have evaluated to valid closed v
 instantiation, including concrete constant-instance evaluation and code generation, require the concrete ID rather than repeatedly
 checking an open substitution.
 
-Applying a substitution is a pure structural operation over canonical semantic values. It creates or reuses canonical types, terms,
+Applying a substitution is a pure structural operation over interned semantic values. It creates or reuses stable types, terms,
 trait applications, and instances through the semantic store. It does not perform name lookup, overload resolution, constraint
 proof, or constant evaluation.
 
 ### Equality And Contextual Proof
 
-Within one semantic store, equal canonical IDs guarantee equal canonical representations.
+Within one semantic store, equal interned IDs guarantee equal normalized representations.
 
-Closed constructed types use exact definition identity and exact ordered type and constant values. Open types use canonical open
+Closed constructed types use exact definition identity and exact ordered type and constant values. Open types use stable open
 terms. Different open `TypeId` values are not globally merged because one local generic constraint proves their const arguments
 equal.
 
 The checker owns context-sensitive type relations. A constraint context can prove two different open terms or open types equivalent
 for one operation without changing global interning. Consequently:
 
-- equal `TypeId` values are definitively the same canonical type,
+- equal `TypeId` values are definitively the same stable type,
 - unequal concrete `TypeId` values are different concrete types,
 - unequal open `TypeId` values can still be proven equivalent in an exact constraint context,
-- such a proof is a checker fact and does not mutate or alias either canonical ID.
+- such a proof is a checker fact and does not mutate or alias either interned ID.
 
 This keeps interning deterministic and context-independent while allowing generic proofs to establish the relationships required by
 the language.
@@ -466,10 +466,10 @@ the language.
 Semantic value IDs are opaque store-local cache handles. Equivalent structural keys return the same ID within one store, but numeric
 ID values are not serialized and need not remain equal across compilations, snapshots, or different lazy demand orders.
 
-Compiler outputs, interface encoding, diagnostics, and deterministic ordering must use canonical structural keys or rendered
+Compiler outputs, interface encoding, diagnostics, and deterministic ordering must use stable structural keys or rendered
 semantic values rather than numeric ID order. Numeric assignment must never become observable language behavior.
 
-Incremental reuse across snapshots uses stable symbol keys, canonical type and constant keys, package-interface values, and explicit
+Incremental reuse across snapshots uses stable symbol keys, stable type and constant keys, package-interface values, and explicit
 remapping. It does not persist raw `TypeId`, `ConstantValueId`, `ConstantTermId`, or substitution integers.
 
 ---
@@ -525,10 +525,10 @@ Exact category APIs and completion rules remain owned by `docs/design/symbols.md
 A fact that only resolves a type, target, or relationship need not allocate a `BoundTree`. Its result retains the source anchors and
 typed error state required by diagnostics and tooling.
 
-A fact whose meaning includes a bound expression depends on the canonical `BoundUnit`. The symbol-facing result exposes the stable
+A fact whose meaning includes a bound expression depends on the published `BoundUnit`. The symbol-facing result exposes the stable
 semantic summary required by symbol consumers without storing bound node IDs or copying the source-shaped representation.
 
-An expression-backed symbol fact and its bound unit have separate canonical diagnosing queries. Alternate summary, tooling, and
+An expression-backed symbol fact and its bound unit have separate stable diagnosing queries. Alternate summary, tooling, and
 lowering views preserve the original diagnostic identity and ownership rather than copying diagnostic bags.
 
 Binding-dependent symbol facts use the same injected fact context, dependency recording, cycle detection, cancellation, diagnostic
@@ -590,7 +590,7 @@ snapshot and owns interning, caching, scheduling, dependency edges, cancellation
 
 ## Bound Unit API
 
-Binding publishes one canonical immutable `BoundUnit`. Semantic analysis phases must not copy the bound tree into a new wrapper when
+Binding publishes one stable immutable `BoundUnit`. Semantic analysis phases must not copy the bound tree into a new wrapper when
 they establish another fact.
 
 Conceptually:
@@ -624,7 +624,7 @@ present in source. Bound-unit construction validates these invariants before pub
 - every bound node ID stored by the tree belongs to that tree's unit,
 - the local snapshot region corresponds to the same semantic unit key and unit ID,
 - every local and scope reference resolves through that snapshot,
-- nested unit keys are complete, unique where identity requires it, and in canonical source order.
+- nested unit keys are complete, unique where identity requires it, and in stable source order.
 
 Conceptually:
 
@@ -644,7 +644,7 @@ for one compilation fact key.
 
 ### Semantic Analysis Facts
 
-Each semantic analysis publishes only its own typed immutable facts keyed to the canonical `BoundUnit`. It does not produce another
+Each semantic analysis publishes only its own typed immutable facts keyed to the published `BoundUnit`. It does not produce another
 representation of the unit.
 
 `CheckedControlFlowFacts` stores the exact unit, unit category, and durable control-completion summary. It does not retain the
@@ -662,7 +662,7 @@ Callers request bound units and semantic facts through typed symbol views or `Co
 phase-execution method.
 
 The workspace-internal cross-crate boundary uses category-specific `bind_*` functions to produce task-local pending units. A pending
-unit exposes its canonical direct nested-unit keys, but it cannot be published. Finishing it freezes the one immutable `BoundUnit`.
+unit exposes its stable direct nested-unit keys, but it cannot be published. Finishing it freezes the one immutable `BoundUnit`.
 One unit's semantic fact does not request the same fact for nested units unless that dependency is part of the fact's semantic
 contract. Broad consumers such as package diagnostics traverse reachable nested-unit keys explicitly through typed fact accessors.
 Binder diagnostics remain owned by the bound-unit fact and checker diagnostics remain owned by the checker fact that produced them.
@@ -672,7 +672,7 @@ declarations, symbol graph, semantic value store, selected target context, symbo
 It constructs a private `Binder` with the injected fact context and rejects unit keys whose owners do not belong to that symbol
 graph.
 
-The binder fact context also exposes the canonical `bray_target::TargetProfile`. Binding that depends on pointer width, machine
+The binder fact context also exposes the stable `bray_target::TargetProfile`. Binding that depends on pointer width, machine
 properties, or another language-visible target property must request that profile explicitly. It must not inspect the compiler
 host or accept a missing target value as a portable fallback.
 
@@ -747,7 +747,7 @@ Each `BoundTree` owns immutable dense storage for one unit.
 The implementation can use mutable per-category arena builders during binding. Publication freezes them into immutable arrays or
 equivalent compact storage.
 
-Committed slots use canonical source-semantic construction order. Speculative candidate order, checker worker completion, and query
+Committed slots use authoritative source-semantic construction order. Speculative candidate order, checker worker completion, and query
 request order cannot affect published node IDs.
 
 A bound node belongs to exactly one bound unit. Cross-unit relationships use typed unit, symbol, or stable semantic references rather
@@ -805,7 +805,7 @@ impl BoundTree {
 ```
 
 The exact storage can be generated mechanically. Public access remains typed and does not expose raw arena indexes, mutable vectors,
-or one canonical heterogeneous child list.
+or one general heterogeneous child list.
 
 ### Node Shape
 
@@ -848,10 +848,10 @@ or ordinals distinguish their stable keys when identity is required.
 
 ### Parent And Traversal Data
 
-Canonical bound storage is child-directed. Parent pointers are not required on every node.
+Defined bound storage is child-directed. Parent pointers are not required on every node.
 
 When parent or path lookup is needed by diagnostics or tooling, `bray-bound-tree` can provide an immutable derived parent index scoped
-to one unit. The parent index must not become the canonical ownership model.
+to one unit. The parent index must not become the stable ownership model.
 
 Bound walkers and visitors belong to `bray-bound-tree`. Default traversal follows deterministic source-semantic order and supports
 explicit subtree skipping and early termination.
@@ -860,7 +860,7 @@ explicit subtree skipping and early termination.
 
 ## Semantic Facts On Bound Nodes
 
-A completed-unit query provides every semantic fact promised by its contract alongside the canonical bound unit.
+A completed-unit query provides every semantic fact promised by its contract alongside the published bound unit.
 
 Facts stored on or indexed by bound nodes include, where meaningful:
 
@@ -878,7 +878,7 @@ Facts stored on or indexed by bound nodes include, where meaningful:
 
 Async facts also include hidden frame identity, suspension sites, invocation and deferred execution contracts,
 normal-completion postcondition templates, state-indexed affinity causes, task-boundary operations, phase-separated frame traversal,
-and checked structured cleanup plan references where later lowering or diagnostics require them. These remain typed semantic facts;
+and checked structured cleanup plan references where later lowering or diagnostics require them. These remain typed semantic facts.
 they are not encoded as source generic arguments or runtime symbol strings. The complete contract is defined in
 `docs/design/async-runtime.md`.
 
@@ -1070,7 +1070,7 @@ requests. APIs and records always use the complete names `DependencyContract`, `
 appropriate. A generic `DependencyId` or `DependencySet` must not make the two concepts ambiguous.
 
 Requesting a symbol contract, storage-related target fact, or implementation witness can record query dependencies while producing a
-dependency contract. The query edges remain owned by `bray-compilation`; the semantic contract remains owned by `bray-symbols` or
+dependency contract. The query edges remain owned by `bray-compilation`. The semantic contract remains owned by `bray-symbols` or
 the bound-unit fact domain according to its identity requirements.
 
 ---
@@ -1147,7 +1147,7 @@ The binder uses a task-local mutable builder to create:
 - error-aware duplicate and recovered local records.
 
 Before semantic binding, the binder can perform an identity-only scan over the unit's typed syntax. That scan assigns deterministic
-keys and slots in canonical syntax order without resolving names or making type decisions.
+keys and slots in stable syntax order without resolving names or making type decisions.
 
 Pre-allocating identity does not make a local visible before its declaration. Name-index activation follows the language-defined
 scope and source-order rules during binding.
@@ -1221,11 +1221,11 @@ One bound-unit computation proceeds conceptually as follows:
 
 1. Validate the typed query key, syntax root, and owner relationship.
 2. Establish the bound unit and corresponding local region identities.
-3. Scan local identity and lexical-scope shape in canonical syntax order where the unit can introduce locals.
+3. Scan local identity and lexical-scope shape in stable syntax order where the unit can introduce locals.
 4. Bind names, paths, declarations, patterns, and nested unit references in source-semantic order.
 5. Record binding decisions and error-aware recovery on task-local bound builders.
 6. Freeze the bound arenas and local snapshot, finalize binder diagnostics, and return recorded dependency edges to the query layer.
-7. Publish the canonical immutable `BoundUnit` atomically through the compilation query.
+7. Publish the stable immutable `BoundUnit` atomically through the compilation query.
 8. Run each requested checker analysis over that published unit once its typed dependencies are available.
 9. Publish each checker result and its diagnostics as a separate immutable fact.
 
@@ -1283,7 +1283,7 @@ immutable after construction and is shared by the focused analyses for that unit
 
 The graph is not:
 
-- the canonical source-shaped bound HIR,
+- the source-shaped bound HIR,
 - a second published bound tree,
 - backend-independent MIR,
 - a symbol or compiled package-interface fact.
@@ -1404,7 +1404,7 @@ compiler invariant failure, not a user diagnostic.
 
 Unit-scoped semantic fact evaluation follows this boundary:
 
-1. Binding publishes the canonical `BoundUnit` after committing the decisions needed to establish source evaluation order.
+1. Binding publishes the published `BoundUnit` after committing the decisions needed to establish source evaluation order.
 2. A focused checker domain receives a validated `CheckerUnitView` over that committed unit without cloning its arenas.
 3. A flow domain builds or consumes the shared immutable control-flow graph only when its fact contract requires that graph.
 4. The requested domain evaluates after its exact typed prerequisite facts are available.
@@ -1423,7 +1423,7 @@ counts, temporary alias sets, and intermediate fixed-point iterations are discar
 explicitly requests a derived control-flow view.
 
 The tooling control-flow query publishes an immutable source-correlated projection keyed by the bound unit. That projection is a
-separate lazy fact with its own stable contract. It does not expose checker-private IDs or make the control-flow graph canonical
+separate lazy fact with its own stable contract. It does not expose checker-private IDs or make the control-flow graph stable
 compiler state.
 
 ### Determinism, Parallelism, And Recovery
@@ -1528,9 +1528,9 @@ target availability.
 Diagnostics use `bray-diagnostics` kinds, typed arguments, labels, notes, suggestions, and source spans. Binder and checker logic must
 not construct user-facing English. Rendering goes through `bray-messages`.
 
-Every semantic unit has one canonical diagnosing fact. Executable and anonymous callable units own their unit diagnostics directly.
-A declaration-owned expression backed by a symbol fact uses that symbol fact as the canonical diagnostic owner. Nested semantic
-units own their own diagnostics even when an enclosing unit depends on them. Compilation diagnostics traverse required canonical
+Every semantic unit has one stable diagnosing fact. Executable and anonymous callable units own their unit diagnostics directly.
+A declaration-owned expression backed by a symbol fact uses that symbol fact as the stable diagnostic owner. Nested semantic
+units own their own diagnostics even when an enclosing unit depends on them. Compilation diagnostics traverse required stable
 facts and merge their bags deterministically without duplicating dependency diagnostics into each caller or projection.
 
 Diagnostic order within one unit follows stable source-semantic traversal and typed diagnostic ordering. Parallel worker completion
@@ -1598,8 +1598,8 @@ attach one changed side fact.
 The complete lowering and MIR representation contract is defined in `docs/design/lowering.md`. This section defines the
 binder-facing input boundary.
 
-Lowering consumes canonical bound units only through a query that guarantees every semantic fact required by lowering is available.
-`bray-lowering::LoweringInput` must be a borrowing view over that canonical `BoundUnit` and the exact independently published side
+Lowering consumes published bound units only through a query that guarantees every semantic fact required by lowering is available.
+`bray-lowering::LoweringInput` must be a borrowing view over that published `BoundUnit` and the exact independently published side
 facts required by lowering. Its constructor must validate the compilation-local unit identity and semantic unit category of every
 supplied fact. It must not own, clone, enrich, or progressively wrap the bound tree.
 
@@ -1636,7 +1636,7 @@ semantic fact.
 
 Public cross-crate binder and bound-tree APIs should favor:
 
-- one canonical bound-unit type with a closed exact root,
+- one stable bound-unit type with a closed exact root,
 - typed unit, node, scope, symbol, type, storage, storage-access, and target IDs,
 - immutable borrowed access or shared immutable ownership,
 - exact root accessors,
@@ -1654,7 +1654,7 @@ They should avoid:
 - caller-managed phase workflow methods,
 - global diagnostic bags,
 - global local-symbol registries,
-- trait-object inheritance as canonical node storage,
+- trait-object inheritance as stable node storage,
 - syntax or symbol cloning for convenience,
 - APIs that imply semantic analyses completed without depending on their typed facts.
 
@@ -1669,14 +1669,14 @@ Binder tests should validate semantic contracts rather than builder implementati
 
 Required unit coverage includes:
 
-- canonical type, constant value, constant term, and substitution interning,
-- concurrent interning returning one canonical ID per structural key,
+- stable type, constant value, constant term, and substitution interning,
+- concurrent interning returning one interned ID per structural key,
 - checked access rejecting IDs from another semantic store,
 - inference variables never appearing in published types or interfaces,
 - concrete substitutions rejecting open, unresolved, or error arguments,
 - closed constant folding and exact typed value identity,
 - open term identity preserving selected operation and evaluation order,
-- contextual proofs relating open terms without globally merging canonical IDs,
+- contextual proofs relating open terms without globally merging interned IDs,
 - numeric semantic ID assignment not affecting diagnostics or serialized ordering,
 - storage identity remaining distinct from binding, node, and storage-access identity,
 - dynamic access occurrences not becoming equal through structural interning,
@@ -1704,7 +1704,7 @@ Required unit coverage includes:
 - capture-free anonymous callable boundaries,
 - complete bound-unit roots with category validation,
 - category-specific error nodes and recovery facts,
-- checker facts depending on the canonical bound unit without copying it,
+- checker facts depending on the published bound unit without copying it,
 - speculative checkpoint rollback and commit,
 - abandoned candidates publishing no nodes, locals, or diagnostics,
 - cancellation publishing no partial unit,
@@ -1733,20 +1733,20 @@ structured diagnostics, never memory unsafety or user-triggered panics.
 Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined
 above:
 
-1. Define canonical type, constant, open-term, source type-expression template, substitution,
+1. Define stable type, constant, open-term, source type-expression template, substitution,
    dependency-contract-template, and semantic-store contracts in `bray-symbols`.
 2. Define the injected binder fact context and binding-dependent symbol-fact provider contracts.
 3. Define bound unit kinds, typed IDs, stable keys, origins, and checked arena-access behavior.
 4. Define storage identities, storage accesses, borrow capabilities, and portable and bound dependency-contract identities.
 5. Define immutable per-unit bound storage and category-specific error nodes.
-6. Define the canonical `BoundUnit`, its closed root, and `DiagnosticResult<T>` publication integration.
+6. Define the published `BoundUnit`, its closed root, and `DiagnosticResult<T>` publication integration.
 7. Implement local snapshot and lexical-scope builders against the contracts in `docs/design/symbols.md`.
 8. Define the task-local `Binder`, its builders, checkpoints, frozen output, and deterministic query-dependency recording.
 9. Implement typed name and path resolution over surface and local symbol APIs.
 10. Implement patterns, locals, blocks, and anonymous callable unit boundaries.
 11. Complete each grammar category against the closed bound-node registry and semantic-unit contract.
 12. Define the shared checker-internal control-flow graph, typed edge refinements, and reusable fixed-point mechanics.
-13. Integrate focused checker domains as typed side facts over canonical bound units.
+13. Integrate focused checker domains as typed side facts over published bound units.
 14. Add deterministic diagnostic aggregation, cancellation, speculation, recovery, convergence, and parallel-query tests.
 15. Establish the completed-HIR-to-`bray-ir` MIR boundary and its complete lowering input contract.
 

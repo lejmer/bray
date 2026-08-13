@@ -42,7 +42,7 @@ Foreign interoperability follows these rules:
 
 ## Public Package Layout
 
-The public surface belongs to the canonical `std` package:
+The public surface belongs to the `std` package:
 
 | Module | Responsibility |
 | --- | --- |
@@ -86,7 +86,7 @@ explicit checked or wrapping operation according to the named conversion. Observ
 No general module-level type alias is introduced, and a C wrapper is not implicitly interchangeable with an equal-width Bray
 scalar.
 
-Each property maps one C type to a canonical Bray scalar spelling or `"unavailable"`. The target-profile validator guarantees equal
+Each property maps one C type to a stable Bray scalar spelling or `"unavailable"`. The target-profile validator guarantees equal
 value representation, size, alignment, and C callable classification. The standard library then selects one target-gated
 transparent wrapper by an exact property comparison. A wrapper is unavailable when its property is `"unavailable"`. Compiled
 package interfaces record every `target.c` property that affects a public representation.
@@ -266,7 +266,7 @@ system with `"windows"`. The gate is evaluated before declaration identity and b
 properties that affect every public target-specific declaration.
 
 Native constants have one authority: generated target-specific Bray source checked into the standard-library tree. `cargo xtask`
-generation reads only pinned target SDK descriptions, writes canonical source with its input digest, and fails verification when
+generation reads only pinned target SDK descriptions, writes authoritative source with its input digest, and fails verification when
 regeneration differs. Compilation never reads the compiler host's headers. The generated source bytes participate in the ordinary
 package source and artifact digests, so cross compilation and repeated builds use the same target constants even when the host
 operating system differs. Target metadata may validate a value but never supplies an alternate constant definition.
@@ -403,7 +403,7 @@ semantics. Tests distinguish compiler diagnostics, typed operational failures, p
 Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
 
 1. Publish C ABI value, string, error, and conversion conveniences over the existing language ABI machinery.
-2. Establish canonical foreign-resource and native-handle ownership helpers.
+2. Establish stable foreign-resource and native-handle ownership helpers.
 3. Implement dynamic libraries, foreign callbacks, and target-specific operating-system modules over those foundations.
 4. Add end-to-end native conformance for every mechanism and cleanup path.
 

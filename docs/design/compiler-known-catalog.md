@@ -165,7 +165,7 @@ Later consumers interpret typed metadata without adding reverse dependencies:
 
 ### Module Shape
 
-The canonical crate layout follows the thin-root module rule:
+The required crate layout follows the thin-root module rule:
 
 ```text
 crates/bray-compiler-known/
@@ -209,7 +209,7 @@ when that keeps generated diffs and incremental Rust compilation focused.
 Checked-in definitions live under `crates/bray-compiler-known/catalog/` because they are owned by the compiler-known catalog crate.
 They must not live under `bray-syntax/src/syntax/`, the language specification, or a source package directory.
 
-Files are grouped by semantic domain rather than by implementation consumer. The canonical groups are:
+Files are grouped by semantic domain rather than by implementation consumer. The groups are:
 
 - ambient scalar and fundamental declarations,
 - compiler-known result, async computation, task, and execution-context declarations,
@@ -226,15 +226,15 @@ select, checkpoint, or cancellation-token declarations.
 No compiler-known catalog scope uses the `std` package root. `std` identities appear only in the recognized or ordinary
 standard-library catalog sections and remain subject to normal package visibility.
 
-The crate owns a canonical source manifest that explicitly lists every `.braydef` input consumed by the generator. Generation must
+The crate owns an authoritative source manifest that explicitly lists every `.braydef` input consumed by the generator. Generation must
 not enumerate the build machine's filesystem or depend on directory iteration order.
 
 The generator emits checked-in Rust modules under `crates/bray-compiler-known/src/catalog/generated/`. Those modules contain the
-canonical descriptor tables, indexes, and prevalidated surface data shipped in the compiler binary. Production compiler binaries do
+defined descriptor tables, indexes, and prevalidated surface data shipped in the compiler binary. Production compiler binaries do
 not embed the raw `.braydef` files and do not require them at runtime.
 
 Catalog source order is retained for developer diagnostics and review only. Semantic identity and descriptor IDs are derived from
-stable keys in canonical key order.
+stable keys in stable key order.
 
 ---
 
@@ -318,7 +318,7 @@ They do not become new public `SyntaxKind` values.
 Whitespace and comments are insignificant to catalog semantics but remain available in the internal source snapshot for developer
 diagnostics.
 
-Catalog files use UTF-8. Include paths are not part of the catalog language. The canonical Rust-owned source manifest lists every
+Catalog files use UTF-8. Include paths are not part of the catalog language. The stable Rust-owned source manifest lists every
 catalog file and is the sole composition mechanism. The generated catalog works in an installed compiler without filesystem
 access.
 
@@ -419,7 +419,7 @@ construction must materialize it as a trusted capability, never as a callable pr
 
 Every source file declares the same exact supported catalog revision. A revision defines the complete grammar, field registry,
 required fields, defaults, and descriptor projection. The parser rejects unsupported revisions, unknown fields, duplicate fields,
-missing required fields, unsupported entry kinds, non-canonical literals, and trailing tokens. Catalog semantics never depend on
+missing required fields, unsupported entry kinds, non-normalized literals, and trailing tokens. Catalog semantics never depend on
 preserving unknown metadata for another compiler version.
 
 Every `recognized_standard_library` declaration requires an explicit `identity` field. Compiler-known declarations cannot use this
@@ -453,7 +453,7 @@ A scope declaration defines catalog ownership, not a source module declaration. 
 typed module or compiler-known-root symbols.
 
 The same logical scope can be split across several catalog files. Scope contributions merge by stable scope key only when their
-locations and catalog kinds agree. Merge order is canonical and immutable.
+locations and catalog kinds agree. Merge order is stable and immutable.
 
 ### Declaration Entries
 
@@ -532,7 +532,7 @@ Stable keys are validated identifiers stored through a dedicated `CompilerKnownD
 equivalent typed key. Consumers must not pass unvalidated strings through semantic APIs.
 
 Catalog keys remain serializable language identities. Compilation-local descriptor and symbol IDs can be compact integers assigned
-in canonical stable-key order.
+in stable key order.
 
 Compiler code should obtain frequently used symbols through typed environment APIs such as compiler-known type or trait accessors.
 It should not repeatedly look up string spellings or catalog keys throughout checking and lowering.
@@ -567,7 +567,7 @@ Catalog validation rejects:
 ### Typed Role Registries
 
 The generated catalog must publish immutable typed role indexes. Representation roles must resolve to a closed target that
-distinguishes ordinary declaration IDs from special-value IDs. Implementation hooks must resolve to declaration IDs in canonical
+distinguishes ordinary declaration IDs from special-value IDs. Implementation hooks must resolve to declaration IDs in stable
 descriptor order. Expression operation roles must resolve to validated contracts of exact category-specific declaration IDs. These
 indexes must not use declaration names, catalog key strings, function pointers, or consumer-owned behavior.
 
@@ -697,7 +697,7 @@ deserialize a catalog blob during compiler startup.
 The catalog is target-independent and can be shared by all compilations in the process. A target-specific available-surface view is
 a separate compilation-owned lazy fact.
 
-Generated tables include canonical typed indexes so publication requires no mutable global construction. If a derived runtime view
+Generated tables include stable typed indexes so publication requires no mutable global construction. If a derived runtime view
 genuinely requires allocation, it may use one-time immutable initialization, but catalog parsing and validation remain build-time
 work. Demand order, worker count, and source manifest order must not alter stable keys or descriptor IDs.
 
@@ -713,7 +713,7 @@ ordinary user diagnostic bags.
 
 Catalog generation proceeds in deterministic stages:
 
-1. Read every source named by the canonical manifest.
+1. Read every source named by the normalized manifest.
 2. Parse every catalog source independently.
 3. Parse each embedded Bray fragment through `bray-parser`.
 4. Reject syntax diagnostics and recovered syntax.
@@ -721,7 +721,7 @@ Catalog generation proceeds in deterministic stages:
 6. Build the complete stable-key skeleton.
 7. Resolve scope contributions and declaration owners.
 8. Validate ownership cycles and owner-to-child declaration contexts.
-9. Assign compact descriptor IDs in canonical stable-key order.
+9. Assign compact descriptor IDs in stable key order.
 10. Build immutable typed indexes and pre-parsed surface records.
 11. Render deterministic Rust modules and a source-manifest digest.
 12. Verify that rendering the generated model again produces byte-identical output.
@@ -770,7 +770,7 @@ receive source `DeclarationId` values.
 The provider:
 
 1. Builds the dedicated `CompilerKnownEnvironmentSymbol` and compiler-known module scope skeleton.
-2. Assigns compilation-local typed symbol IDs from canonical catalog descriptor order.
+2. Assigns compilation-local typed symbol IDs from authoritative catalog descriptor order.
 3. Creates ordinary kind-specific symbol records with `CompilerKnown` or `CompilerProvided` origin.
 4. Publishes stable catalog-key-to-symbol-ID indexes.
 5. Supplies lazy declaration-surface facts backed by catalog descriptors.
@@ -831,11 +831,11 @@ cargo xtask compiler-known check
 
 `generate` should:
 
-- read every source in the canonical manifest,
+- read every source in the normalized manifest,
 - report all structural catalog errors deterministically,
 - parse and validate embedded Bray surfaces through ordinary parser APIs,
 - emit deterministic checked-in Rust descriptor and surface tables,
-- stamp the generated output with a digest of the canonical source manifest and source contents,
+- stamp the generated output with a digest of the authoritative source manifest and source contents,
 - avoid rewriting files whose contents are unchanged.
 
 `generate --check` should perform the same work without writing and fail when generated output differs. A lightweight Cargo build
@@ -881,7 +881,7 @@ compilation. It is not used to defer parsing or validating the compiler's own ca
 The catalog must satisfy these invariants:
 
 - stable keys are globally unique within their catalog identity domain,
-- descriptor IDs are assigned from canonical stable-key order,
+- descriptor IDs are assigned from stable key order,
 - source file order does not define semantic identity,
 - owner resolution does not depend on declaration order,
 - scope contribution merging is deterministic,
@@ -931,7 +931,7 @@ Tests should compare stable keys and typed relationships rather than relying on 
 
 Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
 
-1. Add `bray-compiler-known` with stable keys, metadata enums, immutable descriptor types, and the canonical source manifest.
+1. Add `bray-compiler-known` with stable keys, metadata enums, immutable descriptor types, and the authoritative source manifest.
 2. Add the private catalog lexer cursor, parser, structural validation, and deterministic descriptor builder.
 3. Add declaration and type-expression fragment entry points to `bray-parser` using existing parser methods.
 4. Add representative ambient, module-scoped, nested, compiler-provided, and special-value catalog entries.

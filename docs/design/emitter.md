@@ -70,7 +70,7 @@ It fixes artifact identities, required and optional artifact kinds, logical orde
 requests, package-interface output, staging requirements, and prospective link outputs before backend emission or publication begins.
 
 The planning boundary is an immutable `EmissionPlanner` composed from target-output facts, an optional selected backend with its
-canonical codegen-unit keys and output policy, an optional completed `InterfaceArtifact`, and an optional completed
+stable codegen-unit keys and output policy, an optional completed `InterfaceArtifact`, and an optional completed
 `ImplementationBundle` for the selected product. Planning consumes one `EmissionRequest` and returns either the complete
 `EmissionPlan` or a typed planning error. Callers do not preassemble planned artifacts or backend artifact requests.
 
@@ -300,7 +300,7 @@ Names derive from typed package, product, target, artifact-kind, and codegen-uni
 memory addresses, temporary names, or compilation-local numeric IDs whose assignment depends on lazy demand.
 
 Target-specific extensions and naming conventions are typed target-output facts. They are not raw strings assembled by codegen.
-`bray-target` represents these as a target identity, machine properties, and canonical per-artifact prefix and suffix rules. The
+`bray-target` represents these as a target identity, machine properties, and stable per-artifact prefix and suffix rules. The
 emitter validates product-derived filename stems and applies those rules while resolving final sinks.
 
 Explicit user-selected output names and target-derived final filenames are validated against host filename rules before use. They
@@ -314,11 +314,11 @@ digests, diagnostics ordering, or cache keys.
 
 ## Product Staging And Atomic Publication
 
-Every filesystem product is published through one managed generation beneath its product and target output root. The emitter
-creates a private generation directory on that filesystem, stages every required compiler, backend, linker, interface,
-implementation bundle, and companion artifact there, and writes a canonical generation manifest containing their logical
-identities, relative paths, lengths, digests, permissions, producer identities, and relationships. No required artifact has a
-public path outside its generation.
+Every filesystem product is published through one managed generation under `<output-root>/.bray/`. The emitter creates a private
+generation directory on that filesystem, stages every required compiler, backend, linker, interface, implementation bundle, and
+companion artifact there, and writes a stable generation manifest containing their logical identities, private and stable
+public relative paths, lengths, digests, permissions, producer identities, and relationships. Each requested product artifact is
+also projected to its deterministic public filename beneath the host-selected public directory.
 
 The publication sequence is:
 
@@ -326,26 +326,31 @@ The publication sequence is:
 2. Create a unique private generation that cannot replace an existing path.
 3. Write or link every required artifact into that generation.
 4. Close producers, flush content, and validate kinds, lengths, digests, permissions, and cross-artifact relationships.
-5. Write, flush, and validate the canonical generation manifest.
-6. Hash the canonical manifest to obtain the generation identity, make the generation immutable to emitter writers, and place it at
+5. Write, flush, and validate the stable generation manifest.
+6. Hash the normalized manifest to obtain the generation identity, make the generation immutable to emitter writers, and place it at
    its content-addressed generation identity with atomic no-replace publication.
-7. Atomically replace the product's published-generation reference with a reference to the complete generation.
-8. Record the product and all emitted artifacts from the now-published manifest.
+7. Prepare and atomically replace each stable public artifact, retaining rollback copies until the transaction commits.
+8. Atomically replace the product's private published-generation reference with a reference to the complete generation.
+9. Retain the current and immediately preceding generation, then remove older validated generation directories.
+10. Record the product and all emitted artifacts from the now-published manifest.
 
-Readers resolve product artifacts through the published-generation reference and manifest, so they observe either the preceding
-complete generation or the replacement complete generation, never a mixture. A host filesystem that cannot atomically replace the
-reference on the same filesystem does not support managed product publication and produces a structured capability diagnostic. A
-require-absent request uses an atomic no-replace operation or fails.
+Ordinary users and automation consume the invariant stable public path directly. Compiler readers validate that projection through
+the private published-generation reference and manifest. The private reference observes either the preceding complete generation
+or the replacement complete generation, while each public file replacement is independently atomic. If a later projection or the
+reference commit fails, the emitter restores every public file already replaced. A host filesystem that cannot provide the required
+same-filesystem atomic operations does not support managed product publication and produces a structured capability diagnostic. A
+require-absent request uses atomic no-replace operations or fails.
 
 If the content-addressed generation already exists, the emitter validates its manifest and artifact identities and reuses it only
 when they match exactly. A collision or mismatched existing generation is a publication failure. The published-generation reference
-contains only the generation identity and canonical manifest digest, never private staging paths.
+contains only the generation identity and normalized manifest digest, never private staging paths.
 
-Cancellation or failure before step 7 leaves the preceding generation visible and removes only explicitly recorded private staging
-state. Cancellation after the atomic reference replacement cannot retract the published generation. New Unix artifacts use
-artifact-appropriate modes subject to the process umask. The manifest makes retention and garbage collection explicit, and the
-emitter never scans output directories to infer ownership or deletes an unreferenced generation without a host-selected retention
-operation.
+Cancellation or failure before step 8 restores the preceding stable public files and leaves the preceding generation reference
+visible while removing only explicitly recorded private staging state. Cancellation after the atomic reference replacement cannot
+retract the published generation. New Unix artifacts use artifact-appropriate modes subject to the process umask. The manifest
+makes retention explicit. Cleanup considers only validated content-addressed directories in the product's private generation
+store. It keeps the current and preceding generation so a reader that observed the former reference can finish validation, and it
+never infers ownership from public output directories.
 
 A separately requested inspection output that is explicitly marked independent of product success may use per-artifact atomic
 publication. Transactional streams and memory collectors expose the complete product generation only when their single host commit
@@ -374,7 +379,7 @@ The plan is assembled from already resolved compilation and target facts:
 - platform linker options represented through typed policy,
 - debug and companion output requirements.
 
-The emitter does not rediscover these requirements from source directives. It maps canonical facts to emitted paths and validates
+The emitter does not rediscover these requirements from source directives. It maps validated facts to emitted paths and validates
 that every plan input exists in the emission plan.
 
 Async runtime requirements arrive as already resolved product facts defined by `docs/design/async-runtime.md`. The emitter does not
@@ -475,6 +480,6 @@ Delivery follows this dependency order. Every completed step must use the final 
 4. Implement managed generation staging, manifest validation, and atomic product publication.
 5. Integrate completed `.brayi` and `.brayimpl` artifacts without moving encoding policy.
 6. Derive backend artifact requests and merge immutable codegen contributions.
-7. Construct typed link plans from emitted and canonical compilation inputs.
+7. Construct typed link plans from emitted and stable compilation inputs.
 8. Integrate linked staging results and complete product emission outcomes.
 9. Add cancellation, parallelism, determinism, hostile-path, and failure tests.

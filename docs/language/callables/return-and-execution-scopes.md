@@ -89,7 +89,7 @@ If a callable panics, the panic propagates to the nearest panic-catching boundar
 
 A `catch` expression creates an expression-level panic-catching boundary.
 
-The canonical never-producing expression forms are defined by the Expressions chapter.
+The never-producing expression forms are defined by the Expressions chapter.
 
 ## Callable result exits
 

@@ -64,7 +64,7 @@ Each entry records:
 - required runtime capabilities,
 - optional compiler-known display metadata needed for structured failures.
 
-Catalog order is the canonical ascending order of fully qualified test identity, with source identity and source position as stable
+Catalog order is the stable ascending order of fully qualified test identity, with source identity and source position as stable
 tie breakers. Discovery, filtering, sharding, and final reporting preserve this order. A catalog contains no rendered English and
 no volatile value such as a duration, process identity, temporary path, or completion timestamp.
 
@@ -82,7 +82,7 @@ Every catalog entry carries one of these constraints:
 `@test(serial)` selects the serial constraint for a function test entry. Bare `@test` selects `parallel`. Module-level `@test`
 remains argumentless because it controls source contribution rather than entry scheduling. The parser publishes the optional
 constraint as typed directive metadata, and semantic validation rejects any other argument or use of `serial` on a module.
-A command-wide sequential mode does not rewrite entry metadata; it sets the global scheduler concurrency budget to one.
+A command-wide sequential mode does not rewrite entry metadata. It sets the global scheduler concurrency budget to one.
 
 Serial entries form deterministic global barriers across all selected products. Bray Tack owns the global admission permit. It
 finishes every admitted invocation, grants the serial entry the only permit, waits for its terminal outcome, and only then grants
@@ -94,7 +94,7 @@ command-wide exclusion without defining a language-level execution order.
 Bray Tack starts each selected native test host with dedicated protocol input and output channels that are distinct from the child
 process's stdout and stderr handles. Runtime-provided per-test stream sinks convert test writes into test-identified protocol events.
 The raw process streams are not a capture transport and any unframed host write is an infrastructure failure. Protocol messages use
-a bounded, canonical, length-prefixed binary encoding so arbitrary user output cannot be interpreted as control data.
+a bounded, stable, length-prefixed binary encoding so arbitrary user output cannot be interpreted as control data.
 
 The connection begins with a handshake that establishes:
 
@@ -109,7 +109,7 @@ when the enclosing protocol version permits them. All lengths, counts, and nesti
 
 The runner first sends one immutable selection plan containing:
 
-- selected test identities in canonical order,
+- selected test identities in stable order,
 - per-test timeout policy,
 - capture policy and byte limits,
 - command cancellation identity,
@@ -122,7 +122,7 @@ completion, host diagnostics, and host shutdown. Every event carries its test id
 Completion can arrive in any order. The final report is assembled in catalog order.
 
 Live events are observational and can reflect actual completion order. They are not stored as reproducible facts. JSON reports
-separate canonical result data from explicitly volatile timing and live-progress fields.
+separate defined result data from explicitly volatile timing and live-progress fields.
 
 ## Invocation Lifecycle
 
@@ -147,12 +147,12 @@ support exists for that type. Test validity does not depend on the error type im
 
 No terminal outcome is published until the root scope has resolved child tasks, lifecycle members, finalization, destruction,
 cleanup incidents, and suppressed panics according to ordinary language rules. Cleanup failure enriches or replaces the pending
-outcome according to the existing panic and cancellation contracts; it is never silently discarded.
+outcome according to the existing panic and cancellation contracts. It is never silently discarded.
 
 ## Cancellation And Timeouts
 
 Command cancellation and per-test timeout use the ordinary run-cancellation mechanism. A timeout is initiated by a host timer and
-reported as `timed_out`; an explicit runner or user request is reported as `cancelled`. Both request cooperative cancellation, wake
+reported as `timed_out`. An explicit runner or user request is reported as `cancelled`. Both request cooperative cancellation, wake
 cancellation-aware waits, and allow cleanup to finish.
 
 The runner can cancel the complete plan or an individual invocation. The host acknowledges each accepted request and publishes the
@@ -214,7 +214,7 @@ when a concrete fixture behavior cannot be expressed by those language mechanism
 
 The built-in `assert(...)` expression remains the primary assertion surface. Its lowered failure carries a source anchor, optional
 user message, and compiler-known assertion identity as structured data. Comparison operands can be attached only when their values
-have checked formatting support and evaluation has already occurred; reporting never reevaluates an expression.
+have checked formatting support and evaluation has already occurred. Reporting never reevaluates an expression.
 
 `std.testing` does not duplicate operators into an assertion family. `assert(actual == expected)` continues to use ordinary Bray
 equality and type checking.

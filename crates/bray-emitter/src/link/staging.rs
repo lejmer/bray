@@ -32,6 +32,11 @@ impl LinkStaging {
         contributions: impl IntoIterator<Item = ArtifactContribution>,
         cancellation: &dyn Cancellation,
     ) -> Result<Self, LinkStagingError> {
+        if cancellation.is_cancelled() {
+            return Err(LinkStagingError::Cancelled);
+        }
+
+        let managed_staging = managed_staging_directory(plan)?;
         let contributions = contributions_by_id(contributions)?;
         let mut paths = Vec::new();
         let mut inputs = Vec::new();
@@ -47,7 +52,7 @@ impl LinkStaging {
 
             validate_contribution(planned, contribution)?;
 
-            let path = stage_input(contribution, cancellation)?;
+            let path = stage_input(contribution, managed_staging.as_deref(), cancellation)?;
 
             // The typed staging record outlives this borrow from the immutable plan.
             let staged = StagedArtifact::try_new(planned.id().clone(), path.to_path_buf())
@@ -76,7 +81,8 @@ impl LinkStaging {
                 return Err(LinkStagingError::Cancelled);
             }
 
-            let (directory, path) = reserve_output(planned, cancellation)?;
+            let (directory, path) =
+                reserve_output(planned, managed_staging.as_deref(), cancellation)?;
 
             let kind = linked_kind(planned.id().kind())
                 .ok_or_else(|| LinkStagingError::UnsupportedOutput(planned.id().clone()))?;
@@ -198,6 +204,7 @@ fn validate_contribution(
 
 fn stage_input(
     contribution: &ArtifactContribution,
+    managed_staging: Option<&Path>,
     cancellation: &dyn Cancellation,
 ) -> Result<TempPath, LinkStagingError> {
     if cancellation.is_cancelled() {
@@ -206,9 +213,14 @@ fn stage_input(
 
     let artifact = contribution.id().clone();
 
-    let mut staging = Builder::new()
-        .prefix(LINK_INPUT_PREFIX)
-        .tempfile()
+    let mut builder = Builder::new();
+
+    builder.prefix(LINK_INPUT_PREFIX);
+
+    let mut staging = managed_staging.map_or_else(
+        || builder.tempfile(),
+        |directory| builder.tempfile_in(directory),
+    )
         .map_err(|error| LinkStagingError::Create {
             artifact: artifact.clone(),
             kind: error.kind(),
@@ -278,6 +290,7 @@ fn stage_input(
 
 fn reserve_output(
     planned: &PlannedArtifact,
+    managed_staging: Option<&Path>,
     cancellation: &dyn Cancellation,
 ) -> Result<(TempDir, PathBuf), LinkStagingError> {
     if cancellation.is_cancelled() {
@@ -289,9 +302,10 @@ fn reserve_output(
     builder.prefix(LINK_OUTPUT_PREFIX);
 
     let directory = match planned.destination() {
-        PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { root, .. }) => {
-            builder.tempdir_in(root)
-        }
+        PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { .. }) => builder
+            .tempdir_in(managed_staging.ok_or_else(|| {
+                LinkStagingError::InvalidStagingPath(planned.id().clone())
+            })?),
         PlannedArtifactDestination::Publish(OutputSink::Filesystem(destination)) => {
             let directory = destination
                 .parent()
@@ -340,6 +354,64 @@ fn reserve_output(
     let path = directory.path().join(name);
 
     Ok((directory, path))
+}
+
+fn managed_staging_directory(plan: &EmissionPlan) -> Result<Option<PathBuf>, LinkStagingError> {
+    let Some((root, artifact)) = plan.published_artifacts().find_map(|artifact| {
+        let PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { root, .. }) =
+            artifact.destination()
+        else {
+            return None;
+        };
+
+        Some((root, artifact.id()))
+    }) else {
+        return Ok(None);
+    };
+
+    let metadata = root.join(".bray");
+    let staging = metadata.join("staging");
+
+    create_private_directory(root, &metadata, artifact)?;
+    create_private_directory(&metadata, &staging, artifact)?;
+
+    Ok(Some(staging))
+}
+
+fn create_private_directory(
+    parent: &Path,
+    path: &Path,
+    artifact: &ArtifactId,
+) -> Result<(), LinkStagingError> {
+    match std::fs::create_dir(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+                LinkStagingError::Create {
+                    artifact: artifact.clone(),
+                    kind: error.kind(),
+                }
+            })?;
+
+            if !metadata.file_type().is_dir() {
+                return Err(LinkStagingError::Create {
+                    artifact: artifact.clone(),
+                    kind: io::ErrorKind::AlreadyExists,
+                });
+            }
+        }
+        Err(error) => {
+            return Err(LinkStagingError::Create {
+                artifact: artifact.clone(),
+                kind: error.kind(),
+            });
+        }
+    }
+
+    bray_base::sync_directory(parent).map_err(|error| LinkStagingError::Create {
+        artifact: artifact.clone(),
+        kind: error.kind(),
+    })
 }
 
 const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
@@ -525,7 +597,10 @@ mod tests {
             .parent()
             .unwrap_or_else(|| panic!("staged output must have a private directory"));
 
-        assert_eq!(output_directory.parent(), Some(directory.path()));
+        let private_staging = directory.path().join(".bray/staging");
+
+        assert_eq!(output_directory.parent(), Some(private_staging.as_path()));
+        assert_eq!(input_path.parent(), Some(private_staging.as_path()));
 
         assert_eq!(
             first.outputs()[0].path().file_name(),
@@ -589,7 +664,7 @@ mod tests {
         ));
 
         assert_eq!(
-            std::fs::read_dir(directory.path())
+            std::fs::read_dir(directory.path().join(".bray/staging"))
                 .unwrap_or_else(|error| panic!("test output directory must be readable: {error:?}"))
                 .count(),
             0
@@ -615,7 +690,7 @@ mod tests {
             crate::ProductKind::Executable,
             Some(executable_host_contract()),
             target_identity(),
-            RequestedArtifactDestination::FilesystemDirectory(destination),
+            RequestedArtifactDestination::FilesystemDirectory(destination.into()),
             [RequestedArtifact::new(
                 ArtifactKind::Executable,
                 ArtifactRequirement::Required,

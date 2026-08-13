@@ -13,7 +13,7 @@ destination owner preserves every lifetime, affinity, synchronization, cancellat
 
 A thread-affine capability records the exact origin thread or a typed compatible-lane class in the dependency contract. A task
 retaining it can run only on that thread or on a lane proven to belong to that class. The requirement is not a boolean “local” flag.
-The frame descriptor records the requirement for every control state; an implementation can migrate only between states whose live
+The frame descriptor records the requirement for every control state. An implementation can migrate only between states whose live
 dependency sets permit the destination, and must conservatively pin the whole task when it does not implement state-sensitive
 affinity. No different task type is required. A migratable task has no live affinity requirement and can run on any selected worker
 satisfying its execution requirements.

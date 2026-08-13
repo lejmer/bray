@@ -569,7 +569,7 @@ language-defined result rule states otherwise.
 
 The `try` expression unwraps `Result.Ok` and propagates `Result.Error` according to result propagation rules.
 
-`RunResult<T>` is the compiler-known union type for observing a run boundary. Compiler-known task observation produces it directly;
+`RunResult<T>` is the compiler-known union type for observing a run boundary. Compiler-known task observation produces it directly.
 ordinary standard-library thread and conforming child-process facilities use the same type in their public contracts.
 
 Its semantic declaration is:

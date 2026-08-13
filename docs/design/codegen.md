@@ -144,7 +144,7 @@ syntax, bound HIR, MIR, codegen policy, emission, and linking.
 - backend identity and capability types,
 - codegen-unit keys and immutable requests,
 - reachable concrete monomorphized-instance and unit-partitioning policy,
-- packaging of canonical layout, ABI, symbol, target, runtime, and linkage facts,
+- packaging of defined layout, ABI, symbol, target, runtime, and linkage facts,
 - backend-neutral code generation options,
 - backend artifact request and contribution types,
 - backend artifact kinds and immutable artifact sets,
@@ -152,7 +152,7 @@ syntax, bound HIR, MIR, codegen policy, emission, and linking.
 - backend conformance contracts,
 - codegen orchestration that does not depend on one backend implementation.
 
-Each backend request carries one canonical `CodegenMappings` value for its concrete unit. The value binds demanded semantic types,
+Each backend request carries one stable `CodegenMappings` value for its concrete unit. The value binds demanded semantic types,
 concrete definitions, runtime roles, protected-frame operations, and MIR source anchors to exact target layouts, callable
 signatures, binary symbols, linkage, and source locations. Mapping construction rejects target disagreement, incomplete concrete
 instance coverage, unsupported linkage, duplicate identities, and missing directly used type representations before backend work
@@ -229,7 +229,7 @@ bray-tooling --------------> bray
 ```
 
 The `bray-driver` and `bray` command drivers are composition roots. Shared in-tree backend construction belongs to
-`bray-tooling`; each driver decides whether its command requires code generation and supplies the resulting backend-neutral
+`bray-tooling`. Each driver decides whether its command requires code generation and supplies the resulting backend-neutral
 service handles and requested backend identity to `Compilation`. `bray-codegen` validates the selection.
 
 `Compilation` treats available backend identities and capabilities as immutable request inputs. Its lazy codegen facts use the
@@ -313,7 +313,7 @@ Codegen units should be large enough to optimize coherent code and small enough 
 Unit partitioning is codegen policy owned by `bray-codegen`, not a concrete backend. The LLVM backend must not repartition the
 source package based on LLVM implementation convenience.
 
-`bray-codegen` requests canonical compilation facts to collect reachable concrete monomorphized instances and package them into
+`bray-codegen` requests validated compilation facts to collect reachable concrete monomorphized instances and package them into
 units. It does not rediscover reachability from syntax, reinterpret directives, or make semantic instance selections.
 
 Each unit must have:
@@ -327,7 +327,7 @@ Each unit must have:
 
 Partitioning begins with stable concrete semantic instance identities, preserves strongly connected definition groups that require
 co-placement, and groups the remaining instances by package, linkage, and deterministic estimated generation cost. Cost estimates
-come from canonical MIR size and operation complexity rather than wall-clock measurements. The partitioner balances those groups
+come from stable MIR size and operation complexity rather than wall-clock measurements. The partitioner balances those groups
 within configured lower and upper work bounds while retaining unchanged groups whenever a local source change does not require
 their movement. Equivalent compiler inputs therefore produce equivalent membership regardless of source discovery order, demand
 order, timing, or worker assignment, and a local change invalidates a bounded set of units.
@@ -356,7 +356,7 @@ feature strings, object-format controls, relocation model, code model, and toolc
 
 `CodegenTarget` should contain typed values for:
 
-- target identity and canonical target triple,
+- target identity and normalized target triple,
 - architecture and object format,
 - pointer and scalar representation facts,
 - endianness and alignment,
@@ -412,7 +412,7 @@ substitutions beside each reachable key, validates that their forward-derived id
 payload to realize signatures, layouts, symbols, callees, and mappings.
 
 Specialization discovery remains demand-driven. Compilation starts from concrete product roots, realizes direct MIR dependencies
-only when their owning instance reaches the frontier, and publishes the closed graph and its validated payloads in canonical key
+only when their owning instance reaches the frontier, and publishes the closed graph and its validated payloads in stable key
 order. Backends receive completed immutable mappings and do not query semantic values.
 
 The backend does not:
@@ -423,7 +423,7 @@ The backend does not:
 - materialize runtime-default providers from unchecked expressions,
 - merge semantically distinct instances because their machine representation happens to match.
 
-Deduplication based on canonical semantic identity may occur before code generation. Backend-level identical-code folding is an
+Deduplication based on stable semantic identity may occur before code generation. Backend-level identical-code folding is an
 optimization and must preserve externally observable identity, linkage, debugging, and address semantics.
 
 ---
@@ -436,7 +436,7 @@ resolved to explicit MIR references before code generation.
 Async MIR carries typed frame identities, resume states, direct-await composition, task start, cancellation, terminal publication,
 current-run forwarding of observed `RunResult<T>`, cleanup-incident transfer, and checked phase-one broadcast and phase-two
 lifecycle plans. Concrete and erased descriptors retain separate entry points for those phases. The backend must not lower every
-async call as a task or mandatory heap allocation. Direct await has no task-control-block or scheduler semantics;
+async call as a task or mandatory heap allocation. Direct await has no task-control-block or scheduler semantics.
 `Future<T>.start()` is the independent task-storage boundary. Async entrypoint lowering pins the host-owned root frame to the
 distinguished main-thread lane, completes checked root lexical cleanup before terminal publication, and preserves the published
 terminal outcome through subsequent product shutdown.

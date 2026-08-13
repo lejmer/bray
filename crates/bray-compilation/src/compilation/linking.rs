@@ -703,7 +703,7 @@ mod tests {
             ProductKind::Executable,
             Some(synchronous_host()),
             target.identity().clone(),
-            RequestedArtifactDestination::FilesystemDirectory(root.to_owned()),
+            RequestedArtifactDestination::FilesystemDirectory(root.to_owned().into()),
             [RequestedArtifact::new(
                 ArtifactKind::Executable,
                 ArtifactRequirement::Required,

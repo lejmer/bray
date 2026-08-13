@@ -1,7 +1,7 @@
 # Scope exits, panics, and cancellation
 
 Scope exit resolves local ownership and lifecycle state for the scope being left. Initialized owned values whose ownership remains
-in the scope are resolved; moved values are not. Partially initialized values resolve only initialized represented parts.
+in the scope are resolved. Moved values are not. Partially initialized values resolve only initialized represented parts.
 
 Reachable exits must agree on ownership, borrowing, initialization, destruction, finalization, capabilities, effects, task
 obligations, and which contract guarantees remain available.
@@ -26,7 +26,7 @@ If an ordinary scope cannot resolve a lifecycle obligation, transfer it to a val
 ownership form, the program is rejected. The abnormal-exit fallback does not weaken that rule for normal execution.
 
 For an unresolved `Task<T>`, `std.thread.Thread<T>`, or `std.process.Process<T>`, this normal-exit check includes the lifecycle of a
-possible unobserved `Completed(T)` payload. Task cleanup can drive asynchronous infallible finalization; thread-owner cleanup is
+possible unobserved `Completed(T)` payload. Task cleanup can drive asynchronous infallible finalization. Thread-owner cleanup is
 synchronous. The standard-library process owner's finalizer is explicitly fallible, so an unresolved `Process<T>` is always
 rejected on normal exit and must be consumed through `join()` or `cancel()` with its outer `Result` handled. Other implicit paths
 are rejected when they cannot completely resolve a possible payload and terminal infrastructure outcome in the current context.

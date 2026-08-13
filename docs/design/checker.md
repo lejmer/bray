@@ -7,7 +7,7 @@ policy into binding, publishing checker-private analysis state, or creating circ
 
 `docs/design/compiler-architecture.md` defines the compiler-wide phase, query, and publication model.
 
-`docs/design/symbols.md` defines canonical semantic identities, types, constants, contracts, and symbol-owned facts.
+`docs/design/symbols.md` defines stable semantic identities, types, constants, contracts, and symbol-owned facts.
 
 `docs/design/binder.md` defines binding orchestration, bound semantic units, storage terminology, and the shared control-flow graph
 boundary.
@@ -105,11 +105,11 @@ convergence engines, and the construction of structured checker diagnostics.
 `bray-bound-tree` owns the source-shaped bound HIR, durable node and side-fact types, unit-local storage and access identities,
 borrow capabilities, and instantiated dependency contracts.
 
-`bray-symbols` owns canonical semantic types, constant values and terms, generic substitutions, implementation selections,
+`bray-symbols` owns interned semantic types, constant values and terms, generic substitutions, implementation selections,
 declaration contract summaries, portable dependency-contract templates, and symbol-facing lazy fact contracts.
 
 `bray-binder` owns expected contexts, candidate transactions, point-local checker cooperation during binding, deterministic
-diagnostic ownership, and atomic publication of the canonical bound unit.
+diagnostic ownership, and atomic publication of the published bound unit.
 
 `bray-compilation` owns typed lazy fact accessors, caches, private dependency evaluation, cancellation sources, cross-unit
 parallelism, and immutable fact publication.
@@ -163,7 +163,7 @@ pub struct ConversionCheckConclusion {
 }
 ```
 
-The exact public boundary can use borrowed inputs where the caller already owns canonical records. It must not use strings, loosely
+The exact public boundary can use borrowed inputs where the caller already owns defined records. It must not use strings, loosely
 typed maps, or boolean parameter combinations to describe semantic categories.
 
 Requests that can encounter compiler-known representations, implementations, or special values must borrow the compilation-local
@@ -174,7 +174,7 @@ focused checker services.
 ### Typed Fact Accessors
 
 The public semantic model is the set of typed lazy fact accessors exposed by `Compilation` and symbol views. A caller requests the
-fact it needs by its existing typed key and receives that fact's canonical immutable value and diagnostics. Examples include
+fact it needs by its existing typed key and receives that fact's stable immutable value and diagnostics. Examples include
 expression types, selected calls, selected operations, control-completion facts, storage-access facts, effect summaries, and
 constant values.
 
@@ -279,7 +279,7 @@ bound structure, symbol facts, and target results
 
 The diagram describes semantic dependencies, not a requirement for one monolithic execution. Target gate and declaration-
 availability results are available before any check that can select or reject a target-conditional declaration. Layout and ABI
-validity consumes canonical selected types and operations, so it follows selection and cannot feed overload choice. Type and
+validity consumes stable selected types and operations, so it follows selection and cannot feed overload choice. Type and
 candidate checks normally run during binding as their operands become available. Whole-unit domains consume committed checked
 operations.
 
@@ -312,11 +312,11 @@ The type domain owns:
 - `unit`, `never`, and error-type behavior,
 - type requirements for assignment, return, propagation, construction, and access.
 
-Inputs use canonical `TypeId`, substitutions, selected semantic entities, typed operation categories, and source origins. Outputs use
-canonical types and category-specific compatibility or adaptation results.
+Inputs use stable `TypeId`, substitutions, selected semantic entities, typed operation categories, and source origins. Outputs use
+stable types and category-specific compatibility or adaptation results.
 
 Whole-unit expression typing publishes one immutable result for every reachable `BoundExpressionId`. The result stores the
-canonical checked or recovery `TypeId` and whether recovery affected that occurrence. It is a focused side table over the canonical
+checked or recovery `TypeId` and whether recovery affected that occurrence. It is a focused side table over the stable
 bound tree, not another semantic tree. Literal adaptation and semantic selection contribute typed evidence to the same inference
 context before publication.
 
@@ -337,22 +337,22 @@ selection, but it must not be exposed as a complete checked fact or publish fina
 
 The same fixed point resolves source type-expression templates when their embedded constant expressions depend on expression
 typing, callable selection, implementation selection, or a target-sized representation. Each occurrence is keyed by its declaration
-owner and exact syntax anchor. Its expected type comes from either an already canonical type or the declared type fact of the exact
+owner and exact syntax anchor. Its expected type comes from either an already stable type or the declared type fact of the exact
 generic const parameter. Resolving one occurrence must not force unrelated declaration types, bodies, or constant instances.
 
-Successful occurrence checking publishes a canonical open `ConstantTermId`. Resolving a containing template then constructs the
-canonical type, trait application, implementation subject, or callable signature. No partially resolved template or intermediate
+Successful occurrence checking publishes a stable open `ConstantTermId`. Resolving a containing template then constructs the
+stable type, trait application, implementation subject, or callable signature. No partially resolved template or intermediate
 fixed-point state is published.
 
 Expected types are directional constraints. They propagate into language-defined child contexts such as tuple and array elements,
 but an expected type alone does not establish an expression's actual type or select an overload, member, operator, conversion, or
-other operation. A completed inference variable must have independent type evidence or resolve to the canonical error type with an
+other operation. A completed inference variable must have independent type evidence or resolve to the shared error type with an
 owned diagnostic.
 
-The canonical error type supports recovery but never proves compatibility by itself. Checks that consume an error type return a
+The shared error type supports recovery but never proves compatibility by itself. Checks that consume an error type return a
 typed recovered result and avoid diagnostics that merely repeat the originating type failure.
 
-Generic definition checks operate over canonical symbolic parameters and constraints. Concrete instantiation requests check only
+Generic definition checks operate over stable symbolic parameters and constraints. Concrete instantiation requests check only
 the substitution-dependent type, selection, constant, and target facts required by that instance. They do not eagerly enumerate
 possible substitutions.
 
@@ -374,7 +374,7 @@ The selection domain owns:
 Candidate enumeration must come from typed symbol lookup and implementation indexes. Exact implementation lookup must expose an
 immutable candidate-set fact keyed by the checked subject type and trait application. Candidate records must be origin-neutral and
 must retain stable implementation identity, inferred substitution, generic constraint templates, target-fact dependencies, and
-coherence evidence without asserting applicability. The checker must evaluate candidates in canonical order. It must not rank
+coherence evidence without asserting applicability. The checker must evaluate candidates in stable order. It must not rank
 candidates when the language says that exactly one applicable arm is required.
 
 The checker must evaluate the retained generic constraints, target availability, and coherence requirements before requesting an
@@ -384,7 +384,7 @@ the checked commitment reached after all applicability predicates that can affec
 The binder must supply source-associated callable candidate records with stable semantic keys, target availability, effective
 accessibility, static-constraint state, and the declared operand or parameter surface. Trait-backed operator, index, and conversion
 candidates must also carry typed evidence for the exact compiler-known trait application, callable member, checked signature, and
-implementation selection used by the candidate. The checker must consume those records together with canonical expression types.
+implementation selection used by the candidate. The checker must consume those records together with stable expression types.
 
 The checker request context must resolve each closed compiler-known operation role, including exact operator and indexing forms, to
 the trait and callable declarations assigned by the compiler-known catalog. Candidate evidence cannot assign its own operation role.
@@ -394,7 +394,7 @@ trusted role binding.
 The checker must produce category-specific selections for exact callable targets and ABIs, normalized explicit and defaulted
 argument mappings, members, operators, indexing contracts, construction behavior, conversions, and implementation witnesses. The
 durable selected values and the immutable expression-keyed selection table must belong to `bray-bound-tree`. Checker-owned request,
-candidate, failure, and algorithm types must remain in `bray-checker`. The table supplements the canonical bound tree and does not
+candidate, failure, and algorithm types must remain in `bray-checker`. The table supplements the stable bound tree and does not
 create another semantic tree.
 
 Construction selections must retain explicit field, payload, or parameter mappings in source order followed by omitted runtime
@@ -403,7 +403,7 @@ component, including participating `ConvertTo<Target>` implementations. Publicat
 bound unit, source expression category, selected result type, and source-order operand mapping.
 
 Selection failures are typed as unavailable, ambiguous, inaccessible, incompatible, or recovered. An inaccessible candidate is
-reported only when it would otherwise be applicable. Ambiguities retain candidate keys in canonical order. Structured diagnostics
+reported only when it would otherwise be applicable. Ambiguities retain candidate keys in stable order. Structured diagnostics
 identify the selection category without embedding rendered language text in checker code.
 
 Callable overload applicability uses explicit argument mapping, parameter type compatibility, receiver type and receiver mode for
@@ -471,7 +471,7 @@ The constant domain owns:
 - constant dependency and cycle detection,
 - admissible constant control flow and termination,
 - target-fact dependencies,
-- canonical constant value and term production.
+- interned constant value and term production.
 
 Source type-expression templates are inputs to this domain, not checked constant terms. The domain validates their embedded
 occurrences through ordinary expression typing and selection before producing open terms. A declaration-surface binder must not
@@ -491,7 +491,7 @@ referenced `ConstantValueId` or a cycle result for each constant-reference occur
 diagnostic and error-value recovery for a reported cycle.
 
 The evaluator reads literal spellings through their exact token ranges, excluding trivia, and converts them directly into the
-selected language representation. Integer values use arbitrary-width canonical magnitude storage. Floating-point and complex
+selected language representation. Integer values use arbitrary-width stable magnitude storage. Floating-point and complex
 components use the selected IEEE binary format without host floating-point conversion. Equivalent typed values are interned in the
 semantic value store and published as `ConstantValueId` results.
 
@@ -579,7 +579,7 @@ checker can report the actual target constraint.
 Target checks receive the immutable selected target profile and available compiler-known surface. They do not read process-global
 host properties or infer the target from the machine running the compiler.
 
-`CheckerRequestContext` supplies the canonical `bray_target::TargetProfile` used by the request. Target-sized literal and constant
+`CheckerRequestContext` supplies the stable `bray_target::TargetProfile` used by the request. Target-sized literal and constant
 checks take their width from that profile and do not accept an optional caller-supplied width. The same request context supplies the
 target-filtered compiler-known declaration view. Post-selection layout and ABI checks must consume these inputs rather than build a
 parallel target model.
@@ -597,13 +597,13 @@ request point does not make target policy part of package loading or declaration
 
 Preselection target expressions use the closed target-selection context defined by the language. That context can reference only
 the selected profile, compiler-known target properties and values, literals, and the permitted built-in operations. It uses the
-canonical built-in scalar checks but cannot request source declaration lookup, user callable selection, or a source-owned constant
+stable built-in scalar checks but cannot request source declaration lookup, user callable selection, or a source-owned constant
 fact. This closed foundational surface prevents a dependency cycle from target availability back into ordinary source selection.
 
 Public target-dependent facts record the exact target-property dependencies required by compiled package interfaces and incremental
 queries.
 
-The post-selection validity layer consumes canonical selected types, substitutions, declarations, and operations. It owns:
+The post-selection validity layer consumes stable selected types, substitutions, declarations, and operations. It owns:
 
 - target-dependent generic and constant validity beyond declaration participation,
 - layout and ABI requirements whose answer depends on the selected target,
@@ -767,7 +767,7 @@ Generic bodies use open dependency subjects. An operation that publishes such a 
 independent in-process run, or an encoded child-process protocol adds an open transfer term naming the destination class. The term
 remains in the portable template and is validated against concrete value dependencies at instantiation. Process transfer terms add
 encoding and process-isolation requirements rather than pretending that an address-space-local borrow can move. This is the same
-analysis for user declarations, standard-library declarations, and private trusted ABI wrappers; no package or textual declaration
+analysis for user declarations, standard-library declarations, and private trusted ABI wrappers. No package or textual declaration
 name is special.
 
 The merge is a deterministic normalized union of requirements with typed guards. Requirements are discharged only by a checked
@@ -844,7 +844,7 @@ obligations participate through their checked declaration contracts rather than 
 descriptor broadcast visitors and lifecycle-resolution operations for concrete and erased state. It rejects implicit thread cleanup
 when a possible completion payload cannot be resolved synchronously and infallibly. Because the ordinary process finalizer returns
 `Result<unit, ProcessError>`, it always rejects an unresolved `Process<T>` on normal exit and requires explicit consuming
-observation; abnormal cleanup can record its failure as an incident.
+observation. Abnormal cleanup can record its failure as an incident.
 
 The complete implementation contract is defined in `docs/design/async-runtime.md`.
 
@@ -856,7 +856,7 @@ Result-affecting semantic work limits belong to the immutable compilation reques
 domain contexts rather than a separate budget service.
 
 Package-level implementation-coherence and callable-overload validation each consume the configured comparison limit within their
-requested fact. Candidate families and pairs remain ordered canonically. Reaching the limit emits one structured diagnostic at the
+requested fact. Candidate families and pairs remain ordered by stable identity. Reaching the limit emits one structured diagnostic at the
 next deterministic source participant and rejects the incomplete package-level answer instead of silently accepting unchecked
 pairs.
 
@@ -916,12 +916,12 @@ operations. A cancelled fixed point publishes nothing.
 ## Durable Publication
 
 Checker output remains task-local until the compilation validates its unit identity and publishes it through the matching typed
-fact accessor. Publication freezes that fact and its diagnostics without mutating or wrapping the canonical bound unit.
+fact accessor. Publication freezes that fact and its diagnostics without mutating or wrapping the published bound unit.
 
 Durable checked data can include:
 
 - expression, pattern, and block result categories,
-- canonical result types and selected semantic operations,
+- defined result types and selected semantic operations,
 - checked conversions, calls, implementations, and witnesses,
 - checked storage accesses and operation modes,
 - borrow capabilities and mutation-authority facts,
@@ -960,7 +960,7 @@ Small units should remain serial when parallel coordination costs more than the 
 Parallelism cannot change:
 
 - candidate or implementation selection,
-- canonical type, value, contract, or witness identity,
+- stable type, value, contract, or witness identity,
 - block, edge, or operation order,
 - fixed-point results,
 - diagnostic content or order,

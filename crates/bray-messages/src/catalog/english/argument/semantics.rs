@@ -254,7 +254,7 @@ fn format_available_types(types: &[bray_diagnostics::DiagnosticType], relation: 
         .collect::<Vec<_>>()
         .join(", ");
 
-    format!("; available boundaries {relation} {types}")
+    format!(". Available boundaries {relation} {types}")
 }
 
 pub(super) fn format_english_array_generator_problem(

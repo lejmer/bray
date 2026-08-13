@@ -157,7 +157,7 @@ target.platform.dynamic_loading
 
 The other properties listed above have type `bool`.
 
-Each `target.c` property is either the canonical spelling of one available Bray scalar type or `"unavailable"`. A scalar mapping
+Each `target.c` property is either the defined spelling of one available Bray scalar type or `"unavailable"`. A scalar mapping
 promises equal C value representation, size, alignment, and by-value classification under `target.abi.C`. Equal width alone is
 insufficient. The standard library selects transparent C wrappers with exact comparisons against these property values. A public wrapper,
 constant, layout, or callable signature selected that way records the consulted `target.c` property in its compiled interface.

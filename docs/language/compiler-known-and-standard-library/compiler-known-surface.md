@@ -23,7 +23,7 @@ The compiler-known surface consists of:
 - the compiler-known `Ordering` result used by relational comparison,
 - the compiler-known literals and special values `true`, `false`, `unit`, and `none`.
 
-`Heap` is an ambient compiler-known struct declaration with the canonical compiler-known declaration key `Heap`. Default-storage
+`Heap` is an ambient compiler-known struct declaration with the stable compiler-known declaration key `Heap`. Default-storage
 owned indirection refers to that exact declaration identity, not to a source declaration that happens to use the same spelling.
 
 Each compiler-known entity is governed by the owning rules for that entity.

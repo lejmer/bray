@@ -13,7 +13,7 @@ pub const WORKSPACE: &str = "Use DIRECTORY as the project workspace root";
 pub const TOOLCHAIN_ROOT: &str =
     "Load compiler, standard library, and runtime artifacts from DIRECTORY";
 /// Describes the worker-count option.
-pub const CPU_COUNT: &str = "Run compiler work with at most N worker threads; N must be positive";
+pub const CPU_COUNT: &str = "Run compiler work with at most N worker threads. N must be positive";
 /// Describes the output-format option.
 pub const OUTPUT_FORMAT: &str = "Render command diagnostics and reports in the selected format";
 /// Describes plain-text output.
@@ -71,7 +71,7 @@ pub const TARGET: &str = "Select target NAME or target triple";
 pub const RELEASE: &str = "Build with release optimization and release artifact paths";
 /// Describes arguments passed to a program.
 pub const PROGRAM_ARGUMENT: &str =
-    "Pass ARG to the executed program; arguments after the command are not parsed by Bray";
+    "Pass ARG to the executed program. Arguments after the command are not parsed by Bray";
 /// Describes sequential tests.
 pub const TEST_SEQUENTIAL: &str = "Run one test at a time";
 /// Describes test concurrency.
@@ -88,14 +88,14 @@ pub const TEST_CAPTURE_LIMIT: &str = "Capture at most BYTES from each output str
 pub const TEST_SHOW_OUTPUT: &str = "Show captured output for successful tests as well as failures";
 /// Describes test filters.
 pub const TEST_FILTER: &str =
-    "Run tests whose qualified identity contains FILTER; multiple filters are combined";
+    "Run tests whose qualified identity contains FILTER. Multiple filters are combined";
 /// Describes format verification.
 pub const FORMAT_CHECK: &str = "Report files that would change without rewriting them";
 /// Describes formatter configuration.
 pub const FORMAT_CONFIG: &str = "Read formatter configuration from FILE";
 /// Describes source-file inputs.
 pub const SOURCE_FILE: &str =
-    "Read Bray source from FILE; use - for standard input where supported";
+    "Read Bray source from FILE. Use - for standard input where supported";
 /// Describes inspection representation selection.
 pub const INSPECTION: &str = "Select the representation to render";
 /// Describes a source identity used for inspection.
@@ -145,7 +145,7 @@ pub const SOURCE_PACKAGE: &str = "Treat source declarations as owned by package 
 pub const PRODUCT_KIND: &str = "Compile the selected product as this product kind";
 /// Describes dependency product selection.
 pub const DEPENDENCY_PRODUCT: &str =
-    "Import product PACKAGE/PRODUCT; repeat in the same order as dependency paths";
+    "Import product PACKAGE/PRODUCT. Repeat in the same order as dependency paths";
 /// Describes dependency interface paths.
 pub const DEPENDENCY_INTERFACE: &str =
     "Load the corresponding dependency package interface from PATH";
@@ -164,10 +164,13 @@ pub const RUNTIME_PROFILE: &str = "Select toolchain runtime profile PROFILE";
 pub const RUNTIME_CAPABILITY: &str = "Require the selected runtime to provide CAPABILITY";
 /// Describes artifact output directories.
 pub const BUILD_OUTPUT: &str = "Write build artifacts under DIRECTORY";
+/// Reports an invalid compiler-host output namespace.
+pub const MANAGED_OUTPUT_DIRECTORY_INVALID: &str =
+    "managed output directory must be a normalized relative path";
 /// Describes test catalog output.
 pub const TEST_CATALOG: &str = "Write the emitted test catalog to PATH";
 /// Describes requested build artifacts.
-pub const ARTIFACT: &str = "Emit ARTIFACT; repeat to request multiple artifact kinds";
+pub const ARTIFACT: &str = "Emit ARTIFACT. Repeat to request multiple artifact kinds";
 /// Describes backend inspection artifacts.
 pub const INSPECTION_ARTIFACT: &str = "Retain and report backend ARTIFACT for inspection";
 /// Describes package interface output.

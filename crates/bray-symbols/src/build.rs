@@ -104,7 +104,7 @@ fn build_roots_and_modules(
 
     let mut module_ids = Vec::new();
 
-    // Compiler-known module records are immutable and small; graph storage clones them so its
+    // Compiler-known module records are immutable and small. Graph storage clones them so its
     // existing ordered all-module view remains contiguous.
     let mut modules = compiler_known.modules().to_vec();
     let mut module_owners = BTreeMap::new();

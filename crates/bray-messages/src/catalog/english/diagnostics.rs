@@ -618,7 +618,7 @@ const FORMATTER_CONFIGURATION_UNKNOWN_RULE: &[MessageTemplatePart] = &[
 const FORMATTER_CONFIGURATION_INVALID_MAXIMUM_WIDTH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("formatter maximum line width must be between 1 and 65535 in "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
-    MessageTemplatePart::Text("; found "),
+    MessageTemplatePart::Text(". Found "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
 ];
 

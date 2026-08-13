@@ -38,7 +38,7 @@ preserves every resulting dependency.
 
 This rule applies to user code and standard-library code equally. A trusted private runtime operation that creates a thread or
 publishes synchronized storage obtains the same boundary from the selected product ABI's compiler-readable semantic contract. The
-private binding is associated with a closed binary ABI role during the trusted product-and-standard-library build; its source name
+private binding is associated with a closed binary ABI role during the trusted product-and-standard-library build. Its source name
 or package receives no special recognition. The compiler validates the role and contract encoding, checks ordinary wrappers from
 it, and trusts the substrate implementation. Public wrapper interfaces export only the inferred portable dependency template, not
 the private role.
@@ -64,7 +64,7 @@ A trait view carries the dependency contract of the access or storage form that 
 
 An `Future<T>` carries the dependency contract of its hidden frame state. A `Task<T>` preserves that contract across the independent
 run boundary and adds the task-resolution obligation represented by the handle. Their value contracts also preserve the deferred
-execution contract and guaranteed normal-completion postcondition template; control-flow merge retains only guarantees common to
+execution contract and guaranteed normal-completion postcondition template. Control-flow merge retains only guarantees common to
 every reachable producer.
 
 Moving a value moves its dependency contract with the value.

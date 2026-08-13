@@ -27,7 +27,7 @@ The lowering architecture should:
 - convert checked source structure into an explicit execution graph,
 - make evaluation order, control flow, storage, cleanup, and exceptional behavior explicit,
 - preserve every semantic decision already established by binding and checking,
-- reuse canonical semantic identities and values when their meaning is unchanged,
+- reuse stable semantic identities and values when their meaning is unchanged,
 - introduce MIR-owned types only for genuinely execution-level concepts and invariants,
 - provide a backend-independent input that code generation can consume without interpreting source constructs,
 - publish one immutable lowering result for each demanded concrete bound unit or compiler-generated host, containing validated MIR
@@ -46,7 +46,7 @@ Lowering does not:
 - infer types, select overloads, select implementations, or prove generic constraints,
 - decide ownership, borrowing, effects, capabilities, contracts, layout, or source-level ABI rules,
 - create another source-shaped tree with a reduced set of bound-node variants,
-- copy canonical semantic primitives into MIR-prefixed equivalents,
+- copy interned semantic primitives into MIR-prefixed equivalents,
 - expose task-local lowering state as a durable compiler representation,
 - introduce backend-specific types, instructions, target machines, or optimization policy,
 - repair missing semantic facts by reinterpreting syntax or bound nodes,
@@ -97,7 +97,7 @@ Mutable MIR builder state is private to one worker. Only the completed immutable
 The phase boundary is:
 
 ```text
-canonical bound HIR
+bound HIR
     + exact durable semantic facts
     + selected compiler-known and target facts
     -> task-local lowering
@@ -134,7 +134,7 @@ and operation invariants that do not apply to source-shaped HIR.
 Lowering must introduce a new type only when it represents a genuinely different execution-level concept or enforces an invariant
 that does not belong to an existing semantic type.
 
-Canonical semantic meaning must retain its canonical type across the lowering boundary. MIR should directly reuse:
+Defined semantic meaning must retain its stable type across the lowering boundary. MIR should directly reuse:
 
 - semantic type and constant values,
 - concrete symbol, callable, implementation, declaration, and member identities,
@@ -202,13 +202,13 @@ Lowering may begin only with a validated `LoweringInput`.
 
 For a source-backed unit, the input must borrow:
 
-- the canonical bound unit,
+- the published bound unit,
 - control-flow facts,
 - final expression types,
 - pattern and match facts,
 - semantic selections,
 - final literal values,
-- the canonical semantic-value store owning referenced types, constants, and callable instances,
+- the stable semantic-value store owning referenced types, constants, and callable instances,
 - storage identities and access plans,
 - liveness and refinement facts,
 - ownership, movement, and borrowing decisions,
@@ -228,7 +228,7 @@ If lowering needs a semantic decision absent from `LoweringInput`, the input con
 Lowering must not perform the missing analysis itself.
 
 Compiler-generated executable hosts use a distinct typed input because they have no source-backed bound unit. They still consume
-the same canonical target, runtime, callable, and product facts where those meanings are shared.
+the same selected target, runtime, callable, and product facts where those meanings are shared.
 
 ---
 
@@ -308,7 +308,7 @@ Lowering-generated temporaries receive MIR identities, not local symbols. They d
 
 Lexical storage, captured storage, async frame storage, ABI storage, and compiler-generated temporaries may use distinct MIR roles
 when those roles enforce different lifetime or code generation contracts. They should not use separate storage types when one
-typed role on the canonical MIR storage representation is sufficient.
+typed role on the stable MIR storage representation is sufficient.
 
 ---
 
@@ -410,7 +410,7 @@ Lowering-generated operations should use the most specific meaningful source anc
 them. Compiler-generated operations without a direct source occurrence use explicit generated provenance associated with the
 owning unit or product.
 
-MIR must not retain bound node IDs as deferred execution policy. A bound identity may appear only when it is itself the canonical
+MIR must not retain bound node IDs as deferred execution policy. A bound identity may appear only when it is itself the stable
 semantic origin required for correlation, not because code generation still needs to interpret the bound node.
 
 Source correlation must not affect MIR identity assignment, control-flow meaning, or deterministic output.
@@ -419,13 +419,13 @@ Source correlation must not affect MIR identity assignment, control-flow meaning
 
 ## Lazy Demand, Parallelism, And Caching
 
-Compilation exposes a typed lowering result as a lazy fact keyed by the canonical concrete unit identity and every input whose
+Compilation exposes a typed lowering result as a lazy fact keyed by the stable concrete unit identity and every input whose
 change can alter that result. Executable units produce validated MIR. Units whose meaning is consumed entirely before runtime
 produce an explicit compile-time-only classification instead of an absent MIR value.
 
 A request for one lowering result:
 
-1. requests that unit's canonical bound HIR,
+1. requests that unit's bound HIR,
 2. classifies compile-time-only units without requesting execution facts,
 3. requests only the durable semantic facts named by `LoweringInput` for executable units,
 4. validates the lowering input,

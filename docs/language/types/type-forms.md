@@ -368,7 +368,7 @@ If the access path owns a present value, that value is destroyed before the acce
 
 If the access path holds a borrow, assigning `none` ends the borrow before the access path becomes absent.
 
-The binding, field, parameter, or other declaration remains declared; only the nullable storage state changes.
+The binding, field, parameter, or other declaration remains declared. Only the nullable storage state changes.
 
 Nullable-to-nullable conversion follows the recursive explicit convertibility rule when the contained source type is explicitly convertible to the contained target type.
 

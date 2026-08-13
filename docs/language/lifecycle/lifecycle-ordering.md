@@ -21,7 +21,7 @@ Default represented-part destruction order is defined by the represented type's 
 Lifecycle ordering is preserved on ordinary scope exit, early control-flow exit, panic propagation, cancellation, and failed partial construction.
 
 Async scope exit adds a task cancellation-broadcast phase before reverse lifecycle resolution. Panic and cancellation cleanup can
-apply the abnormal finalization fallback after an attempted fallible finalizer fails; destruction ordering remains unchanged.
+apply the abnormal finalization fallback after an attempted fallible finalizer fails. Destruction ordering remains unchanged.
 
 If evaluation exits before construction completes, already-initialized parts, temporaries, acquired capabilities, and partially initialized storage are resolved by the corresponding ownership, destruction, finalization, and capability rules.
 

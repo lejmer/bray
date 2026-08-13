@@ -118,9 +118,9 @@ mod tests {
         }
 
         for message in [
-            "linking failed; to fix this, install LLVM",
-            "linking failed; you should install LLVM",
-            "linking failed; you can select another target",
+            "linking failed. To fix this, install LLVM",
+            "linking failed. You should install LLVM",
+            "linking failed. You can select another target",
         ] {
             assert!(text_contains_recovery_instruction(message), "{message}");
         }
