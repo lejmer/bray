@@ -9,7 +9,7 @@ using std.path;
 trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Result<unit, std.ffi.ForeignError>
     uses(foreign_call, layout_reinterpret)
 {
-    let relative_result: Result<std.path.Path, std.path.PathError> = std.path.Path.from_string("ambient-loader-name");
+    let relative_result: Result<std.path.Path, std.path.PathError> = std.path.Path.from_string(&"ambient-loader-name");
 
     let relative: std.path.Path = match consume relative_result
     {

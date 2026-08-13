@@ -13,7 +13,7 @@ func assertion_failure()
 @test
 func explicit_failure()
 {
-    std.testing.fail("expected explicit failure");
+    std.testing.fail(&"expected explicit failure");
 }
 
 @test

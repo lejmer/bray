@@ -5,6 +5,6 @@ scope StandardTesting at std.testing {
         identity name fail;
         implementation TestingFail;
 
-        surface { func fail(pos message: string) -> never; }
+        surface { func fail(pos message: &string) -> never; }
     }
 }

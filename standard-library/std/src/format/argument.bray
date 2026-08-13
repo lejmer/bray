@@ -4,10 +4,10 @@ using std.memory;
 
 struct Argument<Value>
 {
-    value: Value;
+    value: &Value;
     options: Options;
 
-    construct(pos value: Value) -> Self
+    construct(pos value: &Value) -> Self
     {
         return
         {
@@ -16,7 +16,7 @@ struct Argument<Value>
         };
     }
 
-    construct with_options(pos value: Value, options: Options) -> Self
+    construct with_options(pos value: &Value, options: Options) -> Self
     {
         return
         {
@@ -37,7 +37,7 @@ func write<Value>(
 ) -> Result<unit, std.memory.MemoryLayoutError>
     with(Value: Format)
 {
-    let formatted: Value = value.value;
+    let formatted: &Value = value.value;
     let formatting_options: Options = value.options;
 
     return formatted.format(destination, &formatting_options);

@@ -2370,28 +2370,46 @@ impl Compilation {
         additional: impl IntoIterator<Item = bray_symbols::ConstantValueId>,
     ) -> Result<Vec<CodegenConstantMapping>, CodegenFactError> {
         let values = self.semantic_value_store()?;
-        let mut pending: Vec<_> = demanded_constants(unit).values().iter().copied().collect();
+        let demands = demanded_constants(unit);
+        let mut pending = Vec::new();
         let mut mapped = BTreeMap::new();
 
-        pending.extend(additional);
-
-        while let Some(value) = pending.pop() {
-            if mapped.contains_key(&value) {
-                continue;
+        for value in demands.values() {
+            match demands.types().get(value) {
+                Some(types) if !types.is_empty() => {
+                    pending.extend(types.iter().map(|ty| (*value, Some(*ty))));
+                }
+                Some(_) | None => pending.push((*value, None)),
             }
+        }
 
+        pending.extend(additional.into_iter().map(|value| (value, None)));
+
+        while let Some((value, representation)) = pending.pop() {
             let data = values
                 .constant_value_data(value)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-            pending.extend(child_constants(data.kind()));
-            mapped.insert(value, data.as_ref().clone());
+            let representation = representation.unwrap_or_else(|| data.ty());
+            let key = (value, representation);
+
+            if mapped.contains_key(&key) {
+                continue;
+            }
+
+            pending.extend(child_constants(data.kind()).map(|child| (child, None)));
+
+            mapped.insert(
+                key,
+                CodegenConstantMapping::with_representation(
+                    value,
+                    data.as_ref().clone(),
+                    representation,
+                ),
+            );
         }
 
-        Ok(mapped
-            .into_iter()
-            .map(|(value, data)| CodegenConstantMapping::new(value, data))
-            .collect())
+        Ok(mapped.into_values().collect())
     }
 
     fn codegen_constant_terms(

@@ -162,7 +162,7 @@ func missing_files_report_the_portable_error_kind()
 
 func test_path(pos value: string) -> std.path.Path
 {
-    match std.path.Path.from_string(value)
+    match std.path.Path.from_string(&value)
     {
         case Ok(result) { return result; }
         case Error(_) { panic("test path should be valid"); }

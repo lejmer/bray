@@ -71,7 +71,7 @@ impl CodegenMappings {
         types.sort_unstable_by_key(CodegenTypeMapping::ty);
         instance_types.sort_unstable();
         symbols.sort_unstable_by(|left, right| left.key().cmp(right.key()));
-        constants.sort_unstable_by_key(CodegenConstantMapping::value);
+        constants.sort_unstable_by_key(|mapping| (mapping.value(), mapping.representation()));
         constant_terms.sort_unstable_by(compare_constant_terms);
         callables.sort_unstable_by(compare_callables);
         operations.sort_unstable_by(compare_operations);
@@ -90,7 +90,10 @@ impl CodegenMappings {
 
         if constants
             .windows(2)
-            .any(|pair| pair[0].value() == pair[1].value())
+            .any(|pair| {
+                pair[0].value() == pair[1].value()
+                    && pair[0].representation() == pair[1].representation()
+            })
         {
             return Err(CodegenMappingsBuildError::DuplicateConstant);
         }
@@ -327,10 +330,25 @@ impl CodegenMappings {
             .map(|index| &self.symbols[index])
     }
 
-    /// Returns the materialized mapping for one constant value.
+    /// Returns the semantic representation for one constant value.
     pub fn constant(&self, value: ConstantValueId) -> Option<&CodegenConstantMapping> {
         self.constants
-            .binary_search_by_key(&value, CodegenConstantMapping::value)
+            .iter()
+            .find(|mapping| {
+                mapping.value() == value && mapping.semantic_type() == mapping.representation()
+            })
+    }
+
+    /// Returns the materialized mapping for one exact constant use representation.
+    pub fn constant_with_representation(
+        &self,
+        value: ConstantValueId,
+        representation: TypeId,
+    ) -> Option<&CodegenConstantMapping> {
+        self.constants
+            .binary_search_by_key(&(value, representation), |mapping| {
+                (mapping.value(), mapping.representation())
+            })
             .ok()
             .map(|index| &self.constants[index])
     }
@@ -643,11 +661,13 @@ fn validate_constant_mappings(
     let mut expected_values = demands.values().clone();
 
     if demands.types().iter().any(|(value, types)| {
-        types.len() != 1
-            || mappings
-                .binary_search_by_key(value, CodegenConstantMapping::value)
-                .ok()
-                .is_none_or(|index| !types.contains(&mappings[index].data().ty()))
+        types.iter().any(|ty| {
+            mappings
+                .binary_search_by_key(&(*value, *ty), |mapping| {
+                    (mapping.value(), mapping.representation())
+                })
+                .is_err()
+        })
     }) {
         return Err(CodegenMappingsBuildError::ConstantCoverageMismatch);
     }

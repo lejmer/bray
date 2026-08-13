@@ -195,16 +195,23 @@ internal func write_unsigned_digits(
     pos uppercase: bool,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    if value < radix
+    let mut divisor: u128 = 1;
+
+    while value / divisor >= radix
     {
-        return std.bytes.push(&mut destination.buffer, value = digit_byte(value, uppercase));
+        divisor *= radix;
     }
 
-    let digit: u8 = digit_byte(value % radix, uppercase);
+    while divisor > 0
+    {
+        let digit: u8 = digit_byte((value / divisor) % radix, uppercase);
 
-    try write_unsigned_digits(&mut destination, value / radix, radix, uppercase);
+        try std.bytes.push(&mut destination.buffer, value = digit);
 
-    return std.bytes.push(&mut destination.buffer, value = digit);
+        divisor /= radix;
+    }
+
+    return Ok(unit);
 }
 
 internal func write_signed_digits(
@@ -214,16 +221,23 @@ internal func write_signed_digits(
     pos uppercase: bool,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    if value > -radix
+    let mut divisor: i128 = -1;
+
+    while value / divisor >= radix
     {
-        return std.bytes.push(&mut destination.buffer, value = signed_digit_byte(-value, uppercase));
+        divisor *= radix;
     }
 
-    let digit: u8 = signed_digit_byte(-(value % radix), uppercase);
+    while divisor < 0
+    {
+        let digit: u8 = signed_digit_byte((value / divisor) % radix, uppercase);
 
-    try write_signed_digits(&mut destination, value / radix, radix, uppercase);
+        try std.bytes.push(&mut destination.buffer, value = digit);
 
-    return std.bytes.push(&mut destination.buffer, value = digit);
+        divisor /= radix;
+    }
+
+    return Ok(unit);
 }
 
 internal func write_requested_sign(
@@ -408,20 +422,19 @@ internal func write_boolean_value(
     pos options: &Options,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let rendered: string = boolean_text(value);
-    let content: &[u8] = std.string.utf8(&rendered);
+    let content: &[u8] = std.string.utf8(boolean_text(value));
 
     return write_aligned(destination, content, options);
 }
 
-internal func boolean_text(pos value: bool) -> string
+internal func boolean_text(pos value: bool) -> &string
 {
     if value
     {
-        return "true";
+        return &"true";
     }
 
-    return "false";
+    return &"false";
 }
 
 internal func character_is_escaped(pos scalar: u32) -> bool

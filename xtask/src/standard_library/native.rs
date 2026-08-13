@@ -456,8 +456,7 @@ fn run_tests(
     product: &str,
     test_arguments: &[&str],
 ) -> Result<Output, BuildError> {
-    let executable = root
-        .join("target")
+    let executable = crate::workspace::cargo_target(root)
         .join("debug")
         .join(crate::native_toolchain::executable_name("bray"));
 

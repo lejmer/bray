@@ -1,11 +1,15 @@
+use std::hash::Hasher as _;
+
 use super::core::UnitTranslator;
 use super::support::{insert_value, integer_constant, llvm, real_width, real_words};
+use bray_base::{StableDigestHasher, lowercase_hex};
 use bray_codegen::{CodegenFailure, CodegenTypeBehavior, CodegenTypeKind};
 use bray_ir::{MirImmediateValue, MirOperand};
 use bray_symbols::{ConstantValueId, ConstantValueKind, RealConstantBits};
+use inkwell::comdat::ComdatSelectionKind;
 use inkwell::module::Linkage;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValueEnum, PointerValue};
+use inkwell::values::{BasicValueEnum, GlobalValue, PointerValue, UnnamedAddress};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn operand(
@@ -42,9 +46,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "load",
                 ))?;
 
-                if matches!(operand, MirOperand::Copy(_)) {
-                    self.retain_copied_value(value, place.ty())?;
-                }
+                self.retain_copied_value(value, place.ty())?;
 
                 Ok(value)
             }
@@ -60,8 +62,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .build_load(self.types.map(place.ty())?, pointer, "move"),
                 )
             }
-            MirOperand::Constant { value, .. } => self.constant(*value),
+            MirOperand::Constant { value, ty } => self.constant_as(*value, *ty),
         }
+    }
+
+    fn constant_as(
+        &mut self,
+        value: ConstantValueId,
+        representation: bray_symbols::TypeId,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let mapping = self
+            .request
+            .mappings()
+            .constant_with_representation(value, representation)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        self.mapped_constant_as(
+            mapping.semantic_type(),
+            representation,
+            mapping.data().kind().clone(),
+        )
     }
 
     pub(super) fn clear_moved_places(&mut self) -> Result<(), CodegenFailure> {
@@ -216,10 +236,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .constant(value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let ty = mapping.data().ty();
+        self.mapped_constant(mapping.data().clone())
+    }
 
-        // Child constants are translated recursively after releasing the parent mapping borrow.
-        let kind = mapping.data().kind().clone();
+    fn mapped_constant(
+        &mut self,
+        data: bray_symbols::ConstantValueData,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let ty = data.ty();
+        let kind = data.kind().clone();
+
+        self.mapped_constant_as(ty, ty, kind)
+    }
+
+    fn mapped_constant_as(
+        &mut self,
+        semantic_type: bray_symbols::TypeId,
+        representation: bray_symbols::TypeId,
+        kind: ConstantValueKind,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let ty = representation;
 
         match kind {
             ConstantValueKind::Error => Err(CodegenFailure::GeneratedModuleInvariant),
@@ -248,7 +284,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 insert_value(&self.builder, value, imaginary, 1)
             }
-            ConstantValueKind::String(text) => self.string_constant(value, ty, &text),
+            ConstantValueKind::String(text) => {
+                self.string_constant(semantic_type, representation, &text)
+            }
             ConstantValueKind::Unit | ConstantValueKind::NullableAbsent => {
                 Ok(self.types.map(ty)?.const_zero())
             }
@@ -443,12 +481,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn string_constant(
         &mut self,
-        value: ConstantValueId,
-        ty: bray_symbols::TypeId,
+        semantic_type: bray_symbols::TypeId,
+        representation: bray_symbols::TypeId,
         text: &str,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let bytes = self.types.context().const_string(text.as_bytes(), false);
-        let name = format!("bray.constant.string.{}", value.slot());
+        let identity = string_constant_name(text);
+        let name = format!("{identity}.data");
 
         let global = self
             .module
@@ -456,50 +495,45 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .unwrap_or_else(|| self.module.add_global(bytes.get_type(), None, &name));
 
         global.set_constant(true);
-        global.set_linkage(Linkage::Private);
+        global.set_linkage(Linkage::LinkOnceODR);
+        global.set_unnamed_address(UnnamedAddress::Global);
         global.set_initializer(&bytes);
 
-        let pointer: BasicValueEnum<'context> = global.as_pointer_value().into();
+        self.set_string_constant_comdat(global, &name);
 
         let mapping = self
-            .type_mapping(ty)
+            .type_mapping(representation)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         match mapping.kind() {
-            CodegenTypeKind::Pointer { .. } => Ok(pointer),
+            CodegenTypeKind::Pointer { .. } => {
+                let value = self.string_value_constant(
+                    semantic_type,
+                    global.as_pointer_value(),
+                    text.len(),
+                )?;
+
+                let name = format!("{identity}.value");
+
+                let global = self.module.get_global(&name).unwrap_or_else(|| {
+                    self.module.add_global(value.get_type(), None, &name)
+                });
+
+                global.set_constant(true);
+                global.set_linkage(Linkage::LinkOnceODR);
+                global.set_unnamed_address(UnnamedAddress::Global);
+                global.set_initializer(&value);
+
+                self.set_string_constant_comdat(global, &name);
+
+                Ok(global.as_pointer_value().into())
+            }
             CodegenTypeKind::Aggregate(fields)
                 if fields.len() == 3
                     && mapping.behavior() == Some(bray_codegen::CodegenTypeBehavior::String) =>
             {
-                let mut value = self.types.map(ty)?.const_zero();
-                let pointer_index = 0;
-                let length_index = 2;
-
-                let BasicTypeEnum::IntType(length_type) =
-                    self.types.map(fields[length_index].ty())?
-                else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                };
-
-                value = insert_value(
-                    &self.builder,
-                    value,
-                    pointer,
-                    self.aggregate_value_element(fields, pointer_index)?,
-                )?;
-
-                insert_value(
-                    &self.builder,
-                    value,
-                    length_type
-                        .const_int(
-                            u64::try_from(text.len())
-                                .map_err(|_| CodegenFailure::ResourceExhausted)?,
-                            false,
-                        )
-                        .into(),
-                    self.aggregate_value_element(fields, length_index)?,
-                )
+                self.string_value_constant(representation, global.as_pointer_value(), text.len())
+                    .map(Into::into)
             }
             CodegenTypeKind::Unit
             | CodegenTypeKind::Boolean
@@ -513,6 +547,80 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::Union { .. }
             | CodegenTypeKind::Callable(_) => Err(CodegenFailure::GeneratedModuleInvariant),
         }
+    }
+
+    fn set_string_constant_comdat(&self, global: GlobalValue<'context>, name: &str) {
+        let selection = match self.request.target().machine().object_format() {
+            bray_target::ObjectFormat::Coff => Some(ComdatSelectionKind::ExactMatch),
+            bray_target::ObjectFormat::Elf | bray_target::ObjectFormat::WebAssembly => {
+                Some(ComdatSelectionKind::Any)
+            }
+            bray_target::ObjectFormat::MachO | bray_target::ObjectFormat::Xcoff => None,
+        };
+
+        if let Some(selection) = selection {
+            let comdat = self.module.get_or_insert_comdat(name);
+
+            comdat.set_selection_kind(selection);
+            global.set_comdat(comdat);
+        }
+    }
+
+    fn string_value_constant(
+        &mut self,
+        ty: bray_symbols::TypeId,
+        data: PointerValue<'context>,
+        length: usize,
+    ) -> Result<inkwell::values::StructValue<'context>, CodegenFailure> {
+        let mapping = self
+            .type_mapping(ty)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        if fields.len() != 3
+            || mapping.behavior() != Some(bray_codegen::CodegenTypeBehavior::String)
+        {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let BasicTypeEnum::StructType(value_type) = self.types.map(ty)? else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let mut values = value_type
+            .get_field_types()
+            .into_iter()
+            .map(BasicTypeEnum::const_zero)
+            .collect::<Vec<_>>();
+
+        let pointer_index = self.aggregate_value_element(fields, 0)?;
+        let length_index = self.aggregate_value_element(fields, 2)?;
+
+        let BasicTypeEnum::IntType(length_type) = self.types.map(fields[2].ty())? else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let pointer = values
+            .get_mut(pointer_index)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        *pointer = data.into();
+
+        let length_value = values
+            .get_mut(length_index)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        *length_value = length_type
+            .const_int(
+                u64::try_from(length).map_err(|_| CodegenFailure::ResourceExhausted)?,
+                false,
+            )
+            .into();
+
+        Ok(value_type.const_named_struct(&values))
     }
 
     pub(super) fn union_constant(
@@ -615,16 +723,31 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 }
 
+fn string_constant_name(text: &str) -> String {
+    let mut hasher = StableDigestHasher::new();
+
+    hasher.write(b"bray.string.utf8.without-terminator\0");
+    hasher.write_u128(text.len() as u128);
+    hasher.write(text.as_bytes());
+
+    let digest = hasher.finalize();
+
+    format!("bray.constant.string.{}", lowercase_hex(&digest))
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
-    use bray_codegen::test_support::{codegen_request_for_unit, codegen_target};
+    use bray_codegen::test_support::{
+        codegen_request_for_unit, codegen_request_for_unit_with_debug_information, codegen_target,
+    };
     use bray_codegen::{
-        CodeGenerator, CodegenCallableSignature, CodegenDebugLocation, CodegenFieldLayout,
-        CodegenLinkage, CodegenMappings, CodegenResultMapping, CodegenSourceFile, CodegenSymbolKey,
-        CodegenSymbolMapping, CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping,
-        CodegenUnionVariantLayout, CodegenUnit, TargetAddressSpaceKind,
+        CodeGenerator, CodegenCallableSignature, CodegenConstantMapping, CodegenDebugLocation,
+        CodegenFieldLayout, CodegenLinkage, CodegenMappings, CodegenResultMapping,
+        CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget,
+        CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
+        CodegenUnit, DebugInformationMode, TargetAddressSpaceKind,
     };
     use bray_ir::{
         MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
@@ -634,13 +757,14 @@ mod tests {
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::testing::intern_type;
     use bray_symbols::{
-        CallableAbi, IntegerConstant, SemanticValueStore, SymbolId, TypeData, TypeId,
-        UnionVariantSymbolId,
+        CallableAbi, ConstantValueData, ConstantValueKind, IntegerConstant, SemanticValueStore,
+        SymbolId, TypeData, TypeId, UnionVariantSymbolId,
     };
-    use bray_target::{TargetLayoutContract, TargetValueLayout};
+    use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use inkwell::context::Context;
 
     use super::super::super::super::backend::LlvmCodeGenerator;
+    use super::string_constant_name;
 
     #[derive(Clone, Copy)]
     struct CompositeTypes {
@@ -650,6 +774,7 @@ mod tests {
         boolean: TypeId,
         tag: TypeId,
         string: TypeId,
+        string_borrow: TypeId,
         nullable: TypeId,
         tuple: TypeId,
         union: TypeId,
@@ -675,6 +800,238 @@ mod tests {
         assert!(ir.contains("copy.union.variant.0"), "{ir}");
         assert!(ir.contains("copy.union.variant.1"), "{ir}");
         assert!(module.verify().is_ok(), "{ir}");
+    }
+
+    #[test]
+    fn same_immutable_text_content_has_one_identity_across_modules() {
+        let backend = LlvmCodeGenerator::try_new()
+            .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}"));
+
+        let first = immutable_text_literal_ir(&backend, "canonical text", false);
+        let second = immutable_text_literal_ir(&backend, "canonical text", false);
+        let name = string_constant_name("canonical text");
+
+        assert_eq!(first.matches(&name).count(), 4, "{first}");
+        assert_eq!(second.matches(&name).count(), 4, "{second}");
+
+        assert!(
+            first.contains("linkonce_odr unnamed_addr constant [14 x i8] c\"canonical text\""),
+            "{first}"
+        );
+
+        assert!(first.contains("comdat any"), "{first}");
+
+        assert!(!first.contains("atomicrmw"), "{first}");
+        assert!(!first.contains("bray_runtime_memory_allocate"), "{first}");
+    }
+
+    #[test]
+    fn different_immutable_text_content_stays_distinct_across_modules() {
+        let backend = LlvmCodeGenerator::try_new()
+            .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}"));
+
+        let first = immutable_text_literal_ir(&backend, "canonical text", false);
+        let second = immutable_text_literal_ir(&backend, "different text", false);
+        let first_name = string_constant_name("canonical text");
+        let second_name = string_constant_name("different text");
+
+        assert_ne!(first_name, second_name);
+        assert!(first.contains(&first_name), "{first}");
+        assert!(!first.contains(&second_name), "{first}");
+        assert!(second.contains(&second_name), "{second}");
+        assert!(!second.contains(&first_name), "{second}");
+    }
+
+    #[test]
+    fn borrowed_immutable_text_points_to_a_static_read_only_value() {
+        let backend = LlvmCodeGenerator::try_new()
+            .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}"));
+
+        let ir = immutable_text_literal_ir(&backend, "borrowed text", true);
+        let name = string_constant_name("borrowed text");
+
+        assert!(ir.contains(&format!("@{name}.data = linkonce_odr unnamed_addr constant")), "{ir}");
+        assert!(ir.contains(&format!("@{name}.value = linkonce_odr unnamed_addr constant %bray.type.")), "{ir}");
+        assert!(ir.contains("ptr null, i64 13"), "{ir}");
+        assert!(ir.contains(&format!("store ptr @{name}.value")), "{ir}");
+    }
+
+    #[test]
+    fn immutable_text_comdat_selection_matches_the_object_format() {
+        let backend = LlvmCodeGenerator::try_new()
+            .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}"));
+
+        let elf = immutable_text_literal_ir_for_target(
+            &backend,
+            "format-specific text",
+            true,
+            NativeTarget::X86_64LinuxGnu,
+        );
+
+        let coff = immutable_text_literal_ir_for_target(
+            &backend,
+            "format-specific text",
+            true,
+            NativeTarget::X86_64WindowsMsvc,
+        );
+
+        let mach_o = immutable_text_literal_ir_for_target(
+            &backend,
+            "format-specific text",
+            true,
+            NativeTarget::X86_64MacOs,
+        );
+
+        assert!(elf.contains("comdat any"), "{elf}");
+        assert!(coff.contains("comdat exactmatch"), "{coff}");
+        assert!(!mach_o.contains("comdat"), "{mach_o}");
+    }
+
+    fn immutable_text_literal_ir(
+        backend: &LlvmCodeGenerator,
+        text: &'static str,
+        borrowed: bool,
+    ) -> String {
+        immutable_text_literal_ir_with_target(backend, text, borrowed, codegen_target())
+    }
+
+    fn immutable_text_literal_ir_for_target(
+        backend: &LlvmCodeGenerator,
+        text: &'static str,
+        borrowed: bool,
+        target: NativeTarget,
+    ) -> String {
+        immutable_text_literal_ir_with_target(
+            backend,
+            text,
+            borrowed,
+            CodegenTarget::for_native(target),
+        )
+    }
+
+    fn immutable_text_literal_ir_with_target(
+        backend: &LlvmCodeGenerator,
+        text: &'static str,
+        borrowed: bool,
+        target: CodegenTarget,
+    ) -> String {
+        let fixture = immutable_text_literal_fixture(backend, text, borrowed, target);
+        let context = Context::create();
+
+        let (_, module) = backend
+            .prepare_module(fixture.request(), &context)
+            .unwrap_or_else(|error| panic!("text literal must generate: {error:?}"))
+            .unwrap_or_else(|| panic!("text literal generation must not be cancelled"));
+
+        let ir = module.print_to_string().to_string();
+
+        assert!(ir.contains("!dbg"), "{ir}");
+        assert!(ir.contains("composite-copy.bray"), "{ir}");
+        assert!(module.verify().is_ok(), "{ir}");
+
+        ir
+    }
+
+    fn immutable_text_literal_fixture(
+        backend: &LlvmCodeGenerator,
+        text: &'static str,
+        borrowed: bool,
+        target: CodegenTarget,
+    ) -> bray_codegen::test_support::CodegenRequestFixture {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store must initialize: {error:?}"));
+
+        let types = composite_types_in(&store);
+        let data = ConstantValueData::new(types.string, ConstantValueKind::string(text));
+
+        let literal = store
+            .intern_constant_value(data.clone())
+            .unwrap_or_else(|error| panic!("text literal must intern: {error:?}"));
+
+        let bound = bray_testing::test_bound_unit(396);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+        );
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap_or_else(|error| panic!("literal test block must build: {error:?}"));
+
+        let representations = if borrowed {
+            [types.string, types.string_borrow]
+        } else {
+            [types.string, types.string]
+        };
+
+        for literal_type in representations {
+            let storage = builder
+                .push_storage(source.clone(), MirStorageKind::Local, literal_type)
+                .unwrap_or_else(|error| panic!("literal storage must build: {error:?}"));
+
+            builder
+                .push_operation(
+                    entry,
+                    source.clone(),
+                    MirOperationKind::Store {
+                        kind: MirStoreKind::Initialize,
+                        destination: MirPlace::new(storage, [], literal_type),
+                        value: MirOperand::Constant {
+                            value: literal,
+                            ty: literal_type,
+                        },
+                    },
+                    None,
+                )
+                .unwrap_or_else(|error| panic!("literal store must build: {error:?}"));
+        }
+
+        builder
+            .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
+            .unwrap_or_else(|error| panic!("literal test return must build: {error:?}"));
+
+        let mir = builder
+            .finish(entry)
+            .unwrap_or_else(|error| panic!("literal test MIR must validate: {error:?}"));
+
+        let unit = CodegenUnit::try_new(
+            bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
+            bray_codegen::test_support::codegen_partition_compatibility(),
+            [mir],
+        )
+        .unwrap_or_else(|error| panic!("literal test codegen unit must validate: {error:?}"));
+
+        let constant_mappings = if borrowed {
+            vec![
+                CodegenConstantMapping::new(literal, data.clone()),
+                CodegenConstantMapping::with_representation(
+                    literal,
+                    data,
+                    types.string_borrow,
+                ),
+            ]
+        } else {
+            vec![CodegenConstantMapping::new(literal, data)]
+        };
+
+        let mappings = composite_mappings(
+            &unit,
+            &target,
+            types,
+            source,
+            constant_mappings,
+        );
+
+        codegen_request_for_unit_with_debug_information(
+            unit,
+            target,
+            mappings,
+            backend.identity().clone(),
+            DebugInformationMode::LineTables,
+        )
     }
 
     fn copied_composite_fixture(
@@ -749,7 +1106,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("copy test codegen unit must validate: {error:?}"));
 
-        let mappings = composite_mappings(&unit, &target, types, source);
+        let mappings = composite_mappings(&unit, &target, types, source, Vec::new());
 
         codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
     }
@@ -758,15 +1115,28 @@ mod tests {
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store must initialize: {error:?}"));
 
-        let byte = intern_type(&store, TypeData::Error);
-        let pointer = intern_type(&store, TypeData::tuple([byte]));
-        let usize = intern_type(&store, TypeData::tuple([pointer]));
-        let boolean = intern_type(&store, TypeData::tuple([usize]));
-        let tag = intern_type(&store, TypeData::tuple([boolean]));
-        let string = intern_type(&store, TypeData::tuple([tag]));
-        let nullable = intern_type(&store, TypeData::Nullable(string));
-        let tuple = intern_type(&store, TypeData::tuple([string, string]));
-        let union = intern_type(&store, TypeData::tuple([nullable, tuple]));
+        composite_types_in(&store)
+    }
+
+    fn composite_types_in(store: &SemanticValueStore) -> CompositeTypes {
+        let byte = intern_type(store, TypeData::Error);
+        let pointer = intern_type(store, TypeData::tuple([byte]));
+        let usize = intern_type(store, TypeData::tuple([pointer]));
+        let boolean = intern_type(store, TypeData::tuple([usize]));
+        let tag = intern_type(store, TypeData::tuple([boolean]));
+        let string = intern_type(store, TypeData::tuple([tag]));
+
+        let string_borrow = intern_type(
+            store,
+            TypeData::Borrow {
+                kind: bray_symbols::BorrowKind::Shared,
+                target: string,
+            },
+        );
+
+        let nullable = intern_type(store, TypeData::Nullable(string));
+        let tuple = intern_type(store, TypeData::tuple([string, string]));
+        let union = intern_type(store, TypeData::tuple([nullable, tuple]));
 
         CompositeTypes {
             byte,
@@ -775,6 +1145,7 @@ mod tests {
             boolean,
             tag,
             string,
+            string_borrow,
             nullable,
             tuple,
             union,
@@ -786,6 +1157,7 @@ mod tests {
         target: &bray_codegen::CodegenTarget,
         types: CompositeTypes,
         source: MirSourceAnchor,
+        constants: Vec<CodegenConstantMapping>,
     ) -> CodegenMappings {
         let align1 = NonZeroU64::MIN;
         let align8 = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
@@ -834,6 +1206,14 @@ mod tests {
                 ]),
             )
             .with_behavior(Some(CodegenTypeBehavior::String)),
+            CodegenTypeMapping::new(
+                types.string_borrow,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.string,
+                    address_space: TargetAddressSpaceKind::Default,
+                },
+            ),
             CodegenTypeMapping::new(
                 types.nullable,
                 layout(32, align8),
@@ -893,7 +1273,7 @@ mod tests {
             type_mappings,
             [],
             [symbol],
-            [],
+            constants,
             [],
             [],
             [],

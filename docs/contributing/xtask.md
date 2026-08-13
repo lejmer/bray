@@ -189,10 +189,11 @@ writes bounded `candidate.txt` and structured `candidate.json` reports. Each wor
 agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
-The corpus covers a minimal executable plus scale-sensitive byte growth, formatting, stream output, asynchronous execution,
-filesystem metadata, process context, and clock access. Add a workload only when it has a stable identity, deterministic output,
-an explicit scale and unit, and exercises a distinct implemented cost boundary. Prefer increasing the scale of a focused workload
-over combining unrelated operations in one source file.
+The corpus covers a minimal executable plus scale-sensitive byte growth, borrowed and explicitly owned text pipelines, formatting,
+stream output, asynchronous execution, filesystem metadata, process context, and clock access. The text pipeline covers merged
+literals, UTF-8 substrings, long and repeated input, imported parsing, comparison, hashing, and raw and escaped formatting. Add a
+workload only when it has a stable identity, deterministic output, an explicit scale and unit, and exercises a distinct implemented
+cost boundary. Prefer increasing the scale of a focused workload over combining unrelated operations in one source file.
 
 Use repeated `--workload <identity>` options for focused development runs. The selected workload set participates in the corpus
 digest, so a focused report can only compare with the same focused selection.

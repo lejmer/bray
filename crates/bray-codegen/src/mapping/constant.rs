@@ -1,4 +1,4 @@
-use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId};
+use bray_symbols::{ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
 
 use crate::CodegenInstanceKey;
 
@@ -6,18 +6,49 @@ use crate::CodegenInstanceKey;
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenConstantMapping {
     value: ConstantValueId,
+    semantic_type: TypeId,
     data: ConstantValueData,
 }
 
 impl CodegenConstantMapping {
     /// Creates a mapping from one semantic constant identity to its immutable value data.
     pub const fn new(value: ConstantValueId, data: ConstantValueData) -> Self {
-        Self { value, data }
+        Self {
+            value,
+            semantic_type: data.ty(),
+            data,
+        }
+    }
+
+    /// Creates a mapping materialized with the representation required by one MIR use.
+    pub fn with_representation(
+        value: ConstantValueId,
+        data: ConstantValueData,
+        representation: TypeId,
+    ) -> Self {
+        let semantic_type = data.ty();
+        let data = ConstantValueData::new(representation, data.kind().clone());
+
+        Self {
+            value,
+            semantic_type,
+            data,
+        }
     }
 
     /// Returns the demanded constant identity.
     pub const fn value(&self) -> ConstantValueId {
         self.value
+    }
+
+    /// Returns the semantic type that establishes the constant's identity.
+    pub const fn semantic_type(&self) -> TypeId {
+        self.semantic_type
+    }
+
+    /// Returns the materialized representation required by this use.
+    pub const fn representation(&self) -> TypeId {
+        self.data.ty()
     }
 
     /// Returns the complete materializable constant data.
