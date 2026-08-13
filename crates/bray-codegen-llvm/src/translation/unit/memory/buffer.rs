@@ -6,7 +6,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use super::super::core::UnitTranslator;
-use super::super::support::{extract_value, insert_value, llvm};
+use super::super::support::{extract_value, llvm};
 use super::support::LoadedMemoryAggregate;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -88,23 +88,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (buffer, llvm_type, _, fields) = self.load_raw_buffer(buffer, *buffer_type)?;
 
-        let BasicTypeEnum::StructType(llvm_type) = llvm_type else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let initialized = self.aggregate_element(&fields, 2)?;
         let count = self.operand(count)?;
 
-        let initialized = llvm(self.builder.build_struct_gep(
-            llvm_type,
+        self.store_raw_buffer_initialized_count(
             buffer,
-            initialized,
+            llvm_type,
+            &fields,
+            count,
             "memory.buffer.initialized",
-        ))?;
-
-        llvm(self.builder.build_store(initialized, count))?;
-
-        Ok(())
+        )
     }
 
     pub(super) fn translate_raw_buffer_release(
@@ -186,11 +178,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
         element: bray_symbols::TypeId,
     ) -> Result<(), CodegenFailure> {
-        let [destination, source, initialized] = memory.operands() else {
+        let [destination, source] = memory.operands() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let [destination_type, source_type, _] = memory.operand_types() else {
+        let [destination_type, source_type] = memory.operand_types() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
@@ -205,14 +197,99 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let destination = self.memory_pointer(destination)?;
 
-        let (source, llvm_type, value, fields) = self.load_raw_buffer(source, *source_type)?;
-
-        let initialized_field = self.aggregate_value_element(&fields, 2)?;
-        let initialized = self.operand(initialized)?;
-        let value = insert_value(&self.builder, value, initialized, initialized_field)?;
+        let (source, llvm_type, value, _) = self.load_raw_buffer(source, *source_type)?;
 
         llvm(self.builder.build_store(destination, value))?;
         llvm(self.builder.build_store(source, llvm_type.const_zero()))?;
+
+        Ok(())
+    }
+
+    pub(super) fn translate_raw_buffer_relocate(
+        &mut self,
+        memory: &MirMemoryOperation,
+        element: bray_symbols::TypeId,
+    ) -> Result<(), CodegenFailure> {
+        let [source, destination] = memory.operands() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let [source_type, destination_type] = memory.operand_types() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let (source, source_llvm_type, source_value, source_fields) =
+            self.load_raw_buffer(source, *source_type)?;
+
+        let (destination, destination_llvm_type, destination_value, destination_fields) =
+            self.load_raw_buffer(destination, *destination_type)?;
+
+        let source_pointer = self.memory_aggregate_pointer(source_value, &source_fields, 0)?;
+        let initialized = self.memory_aggregate_integer(source_value, &source_fields, 2)?;
+
+        let destination_pointer =
+            self.memory_aggregate_pointer(destination_value, &destination_fields, 0)?;
+
+        let layout = self.memory_layout(element)?;
+
+        let bytes = llvm(self.builder.build_int_mul(
+            initialized,
+            self.pointer_integer_type().const_int(layout.size(), false),
+            "memory.buffer.relocate.bytes",
+        ))?;
+
+        let alignment = u32::try_from(layout.alignment().get())
+            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+
+        llvm(self.builder.build_memcpy(
+            destination_pointer,
+            alignment,
+            source_pointer,
+            alignment,
+            bytes,
+        ))?;
+
+        self.observe_memory_copy(bytes)?;
+
+        self.store_raw_buffer_initialized_count(
+            destination,
+            destination_llvm_type,
+            &destination_fields,
+            initialized.into(),
+            "memory.buffer.relocate.destination",
+        )?;
+
+        self.store_raw_buffer_initialized_count(
+            source,
+            source_llvm_type,
+            &source_fields,
+            self.pointer_integer_type().const_zero().into(),
+            "memory.buffer.relocate.source",
+        )
+    }
+
+    fn store_raw_buffer_initialized_count(
+        &self,
+        buffer: PointerValue<'context>,
+        llvm_type: BasicTypeEnum<'context>,
+        fields: &[bray_codegen::CodegenFieldLayout],
+        initialized: BasicValueEnum<'context>,
+        name: &str,
+    ) -> Result<(), CodegenFailure> {
+        let BasicTypeEnum::StructType(llvm_type) = llvm_type else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let initialized_field = self.aggregate_element(fields, 2)?;
+
+        let initialized_pointer = llvm(self.builder.build_struct_gep(
+            llvm_type,
+            buffer,
+            initialized_field,
+            name,
+        ))?;
+
+        llvm(self.builder.build_store(initialized_pointer, initialized))?;
 
         Ok(())
     }

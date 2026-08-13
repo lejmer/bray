@@ -77,11 +77,26 @@ fn execute(mut options: Options) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
+    let observation_runtime = if selected.iter().any(|workload| workload.storage.is_some()) {
+        Some(crate::runtime_artifact::build_for_performance_observation(
+            options.target,
+            &options.output.join("observation-runtime"),
+        )?)
+    } else {
+        None
+    };
+
     let identity = report_identity(&root, &options, &selected)?;
     let mut workloads = Vec::with_capacity(selected.len());
 
     for workload in selected {
-        workloads.push(run_workload(&options, workload, &toolchain, &runtime)?);
+        workloads.push(run_workload(
+            &options,
+            workload,
+            &toolchain,
+            &runtime,
+            observation_runtime.as_deref(),
+        )?);
     }
 
     let candidate = PerformanceReport {
@@ -142,6 +157,7 @@ fn run_workload(
     workload: &Workload,
     toolchain: &Path,
     runtime: &Path,
+    observation_runtime: Option<&Path>,
 ) -> Result<WorkloadReport, String> {
     let output = options.output.join("workloads").join(workload.id);
 
@@ -257,6 +273,8 @@ fn run_workload(
     )
     .ok();
 
+    super::super::observation::require_production_symbols_absent(&map)?;
+
     let output_digest = expected_output_digest(workload.expected_output)?;
 
     let execution = execute_samples(
@@ -267,6 +285,62 @@ fn run_workload(
         workload.scale,
         &output_digest,
     )?;
+
+    let observations = if let Some(expected) = workload.storage {
+        let runtime = observation_runtime.ok_or_else(|| {
+            format!("workload {} requires a memory-observation runtime", workload.id)
+        })?;
+
+        let observation_output = output.join("observation");
+        let observation_map = observation_output.join("application.map");
+
+        fs::create_dir_all(&observation_output).map_err(|error| {
+            format!("could not create {}: {error}", observation_output.display())
+        })?;
+
+        let map_output = bray_linker::SystemLinkerMapOutput::try_new(observation_map.clone())
+            .ok_or_else(|| {
+                format!(
+                    "invalid observed workload linker-map path: {}",
+                    observation_map.display()
+                )
+            })?;
+
+        crate::native_product::emit_executable_with_configuration(
+            &compilation,
+            product.clone(),
+            options.target,
+            runtime,
+            &observation_output,
+            [],
+            Some(map_output),
+            bray_compilation::BuildConfiguration::ObservedRelease,
+        )?;
+
+        let observed = resolve_published_artifact(
+            &observation_output,
+            &product,
+            EmittedArtifactKind::Executable,
+            0,
+        )
+        .map_err(|error| {
+            format!(
+                "could not resolve observed workload {} executable: {error:?}",
+                workload.id
+            )
+        })?;
+
+        super::super::observation::measure(
+            &observed,
+            &observation_map,
+            &observation_output,
+            &observation_output,
+            &output_digest,
+            expected,
+        )?
+    } else {
+        unavailable_observations(workload)
+    };
 
     let mut artifacts = vec![retention::inspect(
         ArtifactKind::Executable,
@@ -291,7 +365,7 @@ fn run_workload(
         compilation: profile,
         execution,
         artifacts,
-        observations: unavailable_observations(workload),
+        observations,
     })
 }
 

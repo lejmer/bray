@@ -163,28 +163,34 @@
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::RawBufferRelease" }
     },
     {
+      "name": "RawBufferReplace",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferReplace" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::RawBufferReplace" }
+    },
+    {
+      "name": "RawBufferRelocate",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferRelocate" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::RawBufferRelocate" }
+    },
+    {
       "name": "ByteBufferFill",
       "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::ByteBufferFill" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::ByteBufferFill" }
     },
     {
-      "name": "ByteBufferCopy",
-      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::ByteBufferCopy" },
+      "name": "ByteSliceCopy",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::ByteSliceCopy" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
-      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::ByteBufferCopy" }
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::ByteSliceCopy" }
     },
     {
       "name": "ByteBufferRead",
       "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::ByteBufferRead" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::ByteBufferRead" }
-    },
-    {
-      "name": "RawBufferReplace",
-      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::RawBufferReplace" },
-      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
-      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::RawBufferReplace" }
     },
     {
       "name": "SliceLength",

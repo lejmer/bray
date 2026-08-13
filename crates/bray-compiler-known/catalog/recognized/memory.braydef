@@ -463,16 +463,15 @@ scope StandardMemory at std.memory {
         }
     }
 
-    declaration StandardMemoryByteBufferCopy {
-        identity name byte_buffer_copy;
+    declaration StandardMemoryByteSliceCopy {
+        identity name byte_slice_copy;
         availability Allocation;
-        implementation ByteBufferCopy;
+        implementation ByteSliceCopy;
 
         surface {
-            trusted internal func byte_buffer_copy(
-                pos source: RawPointer<u8>,
+            trusted internal func byte_slice_copy(
+                pos source: &[u8],
                 pos destination: RawPointer<u8>,
-                count: usize,
             ) -> unit
                 uses(raw_memory, unchecked_init);
         }
@@ -500,9 +499,32 @@ scope StandardMemory at std.memory {
             trusted internal func raw_buffer_replace<T>(
                 pos destination: &mut RawBuffer<T>,
                 pos source: &mut RawBuffer<T>,
-                initialized: usize,
             ) -> unit
                 uses(manual_alloc);
+        }
+    }
+
+    declaration StandardMemoryRawBufferRelocate {
+        identity name raw_buffer_relocate;
+        availability Allocation;
+        implementation RawBufferRelocate;
+
+        surface {
+            trusted internal func raw_buffer_relocate<T>(
+                pos source: &mut RawBuffer<T>,
+                pos destination: &mut RawBuffer<T>,
+            ) -> unit
+                requires(
+                    destination.initialized == 0,
+                    source.initialized <= destination.capacity,
+                    trusted core.memory.non_overlapping<T>(
+                        left = source.pointer,
+                        left_count = source.initialized,
+                        right = destination.pointer,
+                        right_count = source.initialized,
+                    ),
+                )
+                uses(raw_memory, unchecked_init);
         }
     }
 

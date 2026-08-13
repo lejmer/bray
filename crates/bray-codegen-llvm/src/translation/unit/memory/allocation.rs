@@ -29,7 +29,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let function = self.memory_allocation_function(pointer);
 
-        llvm(self.builder.build_call(
+        let pointer = llvm(self.builder.build_call(
             function,
             &[bytes.into(), alignment.into()],
             "memory.allocate",
@@ -37,8 +37,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         .try_as_basic_value()
         .basic()
         .and_then(pointer_value)
-        .map(Into::into)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        self.observe_memory_allocation(bytes)?;
+
+        Ok(pointer.into())
     }
 
     pub(super) fn translate_raw_memory_deallocation(
@@ -104,6 +107,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         .basic()
         .and_then(pointer_value)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        self.observe_memory_allocation(bytes)?;
 
         let mut allocation = self.types.map(result)?.const_zero();
 
@@ -234,6 +239,52 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.module
                     .add_function(bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL, ty, None)
             })
+    }
+
+    pub(super) fn observe_memory_allocation(
+        &self,
+        bytes: IntValue<'context>,
+    ) -> Result<(), CodegenFailure> {
+        self.observe_memory_operation(
+            bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
+            bytes,
+            "memory.observe.allocation",
+        )
+    }
+
+    pub(super) fn observe_memory_copy(
+        &self,
+        bytes: IntValue<'context>,
+    ) -> Result<(), CodegenFailure> {
+        self.observe_memory_operation(
+            bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL,
+            bytes,
+            "memory.observe.copy",
+        )
+    }
+
+    fn observe_memory_operation(
+        &self,
+        symbol: &str,
+        value: IntValue<'context>,
+        name: &str,
+    ) -> Result<(), CodegenFailure> {
+        if self.request.options().runtime_observations()
+            != bray_codegen::RuntimeObservationMode::Memory
+        {
+            return Ok(());
+        }
+
+        let integer = self.pointer_integer_type();
+
+        let function = self
+            .module
+            .get_function(symbol)
+            .unwrap_or_else(|| self.module.add_function(symbol, self.types.context().void_type().fn_type(&[integer.into()], false), None));
+
+        llvm(self.builder.build_call(function, &[value.into()], name))?;
+
+        Ok(())
     }
 
     pub(in crate::translation::unit) fn memory_deallocation_function(

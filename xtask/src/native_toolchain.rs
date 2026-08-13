@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
-use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use bray_runtime_interface::RuntimeArtifactMetadata;
@@ -86,17 +85,4 @@ pub(crate) fn executable_name(name: &str) -> std::ffi::OsString {
     } else {
         name.into()
     }
-}
-
-pub(crate) fn cargo_target_directory(root: &Path) -> PathBuf {
-    env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .map(|directory| {
-            if directory.is_absolute() {
-                directory
-            } else {
-                root.join(directory)
-            }
-        })
-        .unwrap_or_else(|| root.join("target"))
 }

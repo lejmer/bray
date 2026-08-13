@@ -19,6 +19,28 @@ pub(crate) fn emit_executable(
     additional_search_paths: impl IntoIterator<Item = LinkSearchPath>,
     map_output: Option<bray_linker::SystemLinkerMapOutput>,
 ) -> Result<(), String> {
+    emit_executable_with_configuration(
+        compilation,
+        product,
+        target,
+        runtime,
+        output,
+        additional_search_paths,
+        map_output,
+        BuildConfiguration::Release,
+    )
+}
+
+pub(crate) fn emit_executable_with_configuration(
+    compilation: &Compilation,
+    product: ProductIdentity,
+    target: NativeTarget,
+    runtime: &Path,
+    output: &Path,
+    additional_search_paths: impl IntoIterator<Item = LinkSearchPath>,
+    map_output: Option<bray_linker::SystemLinkerMapOutput>,
+    configuration: BuildConfiguration,
+) -> Result<(), String> {
     let selected = SelectedTarget::for_native(target);
 
     let linker = native_linker(target, map_output).map_err(|error| {
@@ -38,7 +60,7 @@ pub(crate) fn emit_executable(
     let native = compilation
         .native_product_facts(
             product.clone(),
-            BuildConfiguration::Release,
+            configuration,
             Some(runtime),
             [],
             Some(&linker),

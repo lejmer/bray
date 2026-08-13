@@ -1,5 +1,6 @@
 module bray.standard_library_tests.collection;
 
+using std.bytes;
 using std.collection;
 using std.collection.ListElementIndex;
 using std.collection.ListMoveIterable;
@@ -14,6 +15,11 @@ using std.iteration.EnumerateIterator;
 using std.iteration.SkipIterator;
 using std.iteration.TakeIterator;
 using std.memory;
+
+struct OwnedValue
+{
+    bytes: std.bytes.Buffer;
+}
 
 @test
 trusted func list_operations() -> Result<unit, std.memory.MemoryLayoutError>
@@ -257,6 +263,68 @@ trusted func iterator_boundaries() -> Result<unit, std.memory.MemoryLayoutError>
         case ?_ { assert(false); }
         case none {}
     }
+
+    return Ok(unit);
+}
+
+@test
+trusted func list_growth_relocates_only_initialized_owned_values() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let first_bytes: [u8; 1] = [11];
+    let second_bytes: [u8; 1] = [22];
+
+    let first: OwnedValue =
+    {
+        bytes = try std.bytes.Buffer.from_slice(&first_bytes[..]),
+    };
+
+    let second: OwnedValue =
+    {
+        bytes = try std.bytes.Buffer.from_slice(&second_bytes[..]),
+    };
+
+    let mut values: std.collection.List<OwnedValue> = try trusted std.collection.List<OwnedValue>(capacity = 4);
+
+    try trusted std.collection.push<OwnedValue>(&mut values, first);
+    try trusted std.collection.push<OwnedValue>(&mut values, second);
+    try trusted std.collection.reserve<OwnedValue>(&mut values, additional = 3);
+
+    assert(std.collection.length<OwnedValue>(&values) == 2);
+    assert(std.collection.capacity<OwnedValue>(&values) == 8);
+
+    try trusted std.collection.reserve_exact<OwnedValue>(&mut values, additional = 1);
+
+    assert(std.collection.capacity<OwnedValue>(&values) == 8);
+
+    let stored: &[OwnedValue] = std.collection.as_slice<OwnedValue>(&values);
+
+    assert(std.bytes.as_slice(&stored[0].bytes)[0] == 11);
+    assert(std.bytes.as_slice(&stored[1].bytes)[0] == 22);
+
+    let removed: OwnedValue? = trusted std.collection.pop<OwnedValue>(&mut values);
+
+    match consume removed
+    {
+        case ?value { assert(std.bytes.as_slice(&value.bytes)[0] == 22); }
+        case none { assert(false); }
+    }
+
+    return Ok(unit);
+}
+
+@test
+trusted func list_growth_preserves_zero_sized_values() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut empty: std.collection.List<unit> = try trusted std.collection.List<unit>();
+
+    try trusted std.collection.push<unit>(&mut empty, unit);
+    try trusted std.collection.push<unit>(&mut empty, unit);
+    try trusted std.collection.push<unit>(&mut empty, unit);
+    try trusted std.collection.push<unit>(&mut empty, unit);
+    try trusted std.collection.push<unit>(&mut empty, unit);
+
+    assert(std.collection.length<unit>(&empty) == 5);
+    assert(std.collection.capacity<unit>(&empty) == 8);
 
     return Ok(unit);
 }

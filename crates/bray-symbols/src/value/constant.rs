@@ -277,6 +277,11 @@ impl ConstantValueData {
     pub const fn kind(&self) -> &ConstantValueKind {
         &self.kind
     }
+
+    /// Separates the exact semantic type from the owned constant payload.
+    pub fn into_parts(self) -> (TypeId, ConstantValueKind) {
+        (self.ty, self.kind)
+    }
 }
 
 /// A selected checked unary operation in an open constant term.

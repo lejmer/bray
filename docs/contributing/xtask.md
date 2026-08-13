@@ -195,9 +195,11 @@ writes bounded `candidate.txt` and structured `candidate.json` reports. Each wor
 agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
-The corpus covers a minimal executable plus scale-sensitive byte growth, formatting, stream output, asynchronous execution,
-filesystem metadata, file output, process context, and clock access. Representative stream-only and file-only workloads also
-enforce required and forbidden linker-map provenance so resource capability boundaries remain independently retainable. Add a
+The corpus covers a minimal executable plus scale-sensitive byte growth, borrowed and explicitly owned text pipelines, formatting,
+stream output, asynchronous execution, filesystem metadata, file output, process context, and clock access. The text pipeline covers
+merged literals, UTF-8 substrings, long and repeated input, imported parsing, comparison, hashing, and raw and escaped formatting.
+Representative stream-only and file-only workloads also enforce required and forbidden linker-map provenance so resource capability
+boundaries remain independently retainable. Add a
 workload only when it has a stable identity, deterministic output, an explicit scale and unit, and exercises a distinct implemented
 cost boundary. Prefer increasing the scale of a focused workload over combining unrelated operations in one source file.
 
@@ -209,6 +211,11 @@ dependencies, the complete compiler profile, and robust median/MAD execution sta
 observations are tagged as measured or unavailable; never replace a missing observation hook with an inferred count. Section,
 dynamic-library, and retained-input collections have fixed entry limits and disclose omitted counts rather than allowing reports
 to grow without bound.
+
+The incremental byte workloads run a separate untimed, opt-in observed artifact and report successful generated allocation and
+bulk-transfer events. Their fixed 64-byte and 4096-byte contracts prove logarithmic allocation growth and linear allocation and
+copy work. Production workload artifacts retain no observation callbacks, so timing and artifact measurements remain those of the
+ordinary release build.
 
 Compare an equivalent baseline and candidate with:
 

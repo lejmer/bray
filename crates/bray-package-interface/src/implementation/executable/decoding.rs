@@ -1213,10 +1213,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 element: self.ty()?,
             }),
             22 => Ok(Kind::ByteBufferFill),
-            23 => Ok(Kind::ByteBufferCopy),
+            23 => Ok(Kind::RawBufferRelocate {
+                element: self.ty()?,
+            }),
             24 => Ok(Kind::ByteBufferRead),
             25 => Ok(Kind::SliceLength),
             26 => Ok(Kind::CallbackState { state: self.ty()? }),
+            27 => Ok(Kind::ByteSliceCopy),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

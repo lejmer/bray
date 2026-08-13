@@ -49,8 +49,7 @@ fn build_rust_static_library_with_options(
     features: &[&str],
     abort_on_panic: bool,
 ) -> Result<RustStaticLibrary, BuildError> {
-    let target_directory = crate::native_toolchain::cargo_target_directory(root);
-
+    let target_directory = crate::workspace::cargo_target(root);
     let mut command = Command::new("cargo");
 
     command.current_dir(root).args([

@@ -34,6 +34,16 @@ pub enum DebugInformationMode {
     Full,
 }
 
+/// Runtime event instrumentation requested for one generated artifact.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum RuntimeObservationMode {
+    /// Generate no runtime observation calls.
+    #[default]
+    None,
+    /// Observe generated allocation and memory-transfer events.
+    Memory,
+}
+
 /// Immutable backend-neutral generation policy for one codegen unit.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenOptions {
@@ -41,6 +51,7 @@ pub struct CodegenOptions {
     size_preference: SizePreference,
     debug_information: DebugInformationMode,
     reproducibility: crate::ReproducibilityLevel,
+    runtime_observations: RuntimeObservationMode,
 }
 
 impl CodegenOptions {
@@ -50,12 +61,14 @@ impl CodegenOptions {
         size_preference: SizePreference,
         debug_information: DebugInformationMode,
         reproducibility: crate::ReproducibilityLevel,
+        runtime_observations: RuntimeObservationMode,
     ) -> Self {
         Self {
             optimization,
             size_preference,
             debug_information,
             reproducibility,
+            runtime_observations,
         }
     }
 
@@ -77,5 +90,10 @@ impl CodegenOptions {
     /// Returns the required reproducibility strength.
     pub const fn reproducibility(self) -> crate::ReproducibilityLevel {
         self.reproducibility
+    }
+
+    /// Returns the requested generated-runtime observation mode.
+    pub const fn runtime_observations(self) -> RuntimeObservationMode {
+        self.runtime_observations
     }
 }

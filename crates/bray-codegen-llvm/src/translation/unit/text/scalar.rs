@@ -55,9 +55,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let (left_data, left_length, _) = self.borrowed_string_parts(*left, *left_type)?;
+        let (left_data, left_length, _) = self.string_view_parts(*left, *left_type)?;
 
-        let (right_data, right_length, _) = self.borrowed_string_parts(*right, *right_type)?;
+        let (right_data, right_length, _) = self.string_view_parts(*right, *right_type)?;
 
         let integer = self.pointer_integer_type();
         let byte = self.types.context().i8_type();
@@ -105,7 +105,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let (data, length, _) = self.borrowed_string_parts(*text, *text_type)?;
+        let (data, length, _) = self.string_view_parts(*text, *text_type)?;
 
         let index = self.pointer_sized_integer(*index)?;
         let scalar_type = self.types.context().i32_type();
@@ -156,7 +156,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let (data, length, _) = self.borrowed_string_parts(*text, *text_type)?;
+        let (data, length, _) = self.string_view_parts(*text, *text_type)?;
 
         let start = self.pointer_sized_integer(*start)?;
         let end = self.pointer_sized_integer(*end)?;

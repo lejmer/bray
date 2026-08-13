@@ -1,12 +1,13 @@
 use bray_bound_tree::{
-    BoundExpressionId, SelectedOperation, SelectedReceiver, StorageAccessId, StorageAccessPurpose,
-    StorageIdentity, StorageIdentityId, StorageOperationStatus, StorageProjection,
+    BoundExpressionId, SelectedReceiver, StorageAccessId,
+    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StorageOperationStatus,
+    StorageProjection,
 };
 use bray_ir::{
     MirBlockId, MirFieldReference, MirOperand, MirOperationKind, MirPlace, MirProjection,
     MirProjectionKind, MirStoreKind,
 };
-use bray_symbols::{AnySymbolId, BorrowKind, ReceiverMode, TypeData, TypeId};
+use bray_symbols::{BorrowKind, ConstantValueKind, ReceiverMode, TypeData, TypeId};
 
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
@@ -47,6 +48,18 @@ impl Lowerer<'_> {
 
         if *result_kind != kind {
             return Err(LoweringError::UnsupportedExpression(id));
+        }
+
+        let [operand] = expression.operands() else {
+            return Err(LoweringError::UnsupportedExpression(id));
+        };
+
+        if let Some(value) = self.static_string_literal_borrow(*operand, kind, result_type)? {
+            return Ok(LoweredExpression::continuing(
+                current,
+                Some(value),
+                source,
+            ));
         }
 
         self.lower_storage_borrow(id, id, current, kind, *target, result_type, source)
@@ -217,130 +230,59 @@ impl Lowerer<'_> {
 
         let source = self.expression_source(operand)?;
 
+        if let Some(value) = self.static_string_literal_borrow(operand, kind, result_type)? {
+            return Ok(LoweredExpression::continuing(
+                current,
+                Some(value),
+                source,
+            ));
+        }
+
         self.lower_storage_borrow(operand, parent, current, kind, target, result_type, source)
     }
 
-    pub(super) fn lower_member_access(
-        &mut self,
-        id: BoundExpressionId,
-        current: MirBlockId,
-    ) -> Result<LoweredExpression, LoweringError> {
-        match self.input.semantic_selections().expression(id) {
-            Some(bray_bound_tree::SemanticSelection::Operation(
-                SelectedOperation::Construction(_),
-            )) => self.lower_construction(id, current),
-            Some(bray_bound_tree::SemanticSelection::Operation(SelectedOperation::Member(
-                target,
-            ))) => match target.member() {
-                AnySymbolId::UnionVariant(_) => self.lower_construction(id, current),
-                AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_) => {
-                    self.lower_storage_operand(id, current)
-                }
-                _ => Err(LoweringError::UnsupportedExpression(id)),
-            },
-            None => self.lower_storage_operand(id, current),
-            _ => Err(LoweringError::UnsupportedExpression(id)),
-        }
-    }
-
-    pub(super) fn lower_storage_operand(
-        &mut self,
+    fn static_string_literal_borrow(
+        &self,
         expression: BoundExpressionId,
-        current: MirBlockId,
-    ) -> Result<LoweredExpression, LoweringError> {
-        let decision = self
-            .storage_decision(expression, |purpose| {
-                matches!(
-                    purpose,
-                    StorageAccessPurpose::Read
-                        | StorageAccessPurpose::Copy
-                        | StorageAccessPurpose::Move
-                        | StorageAccessPurpose::ValueTransfer
-                )
-            })
-            .or_else(|error| match error {
-                LoweringError::MissingStorageAccess(_) => {
-                    self.storage_decision(expression, |purpose| {
-                        matches!(
-                            purpose,
-                            StorageAccessPurpose::Member
-                                | StorageAccessPurpose::Index
-                                | StorageAccessPurpose::Slice
-                                | StorageAccessPurpose::Projection
-                        )
-                    })
-                }
-                _ => Err(error),
-            })?;
-
-        let source = self.expression_source(expression)?;
-
-        let (block, place) =
-            match self.lower_access_place(expression, decision.access(), current)? {
-                LoweredPlace::Continuing { block, place } => (block, place),
-                LoweredPlace::Terminated(completion) => return Ok(completion),
-            };
-
-        let entry_borrow = self
-            .input
-            .storage_plan()
-            .root_identity(decision.access())
-            .and_then(|identity| self.input.storage_plan().identity(identity))
-            .is_some_and(|identity| {
-                matches!(
-                    identity,
-                    StorageIdentity::Parameter(_)
-                        | StorageIdentity::Receiver(_)
-                        | StorageIdentity::AnonymousParameter(_)
-                        | StorageIdentity::PredicateParameter(_)
-                )
-            });
-
-        if entry_borrow
-            && place.projections().is_empty()
-            && let TypeData::Borrow { kind, target } = self
-                .input
-                .semantic_values()
-                .type_data(place.ty())
-                .map_err(|_| LoweringError::SemanticValueUnavailable)?
-                .as_ref()
-        {
-            let target = MirPlace::new(
-                place.storage(),
-                [MirProjection::new(
-                    MirProjectionKind::Dereference,
-                    place.ty(),
-                    *target,
-                )],
-                *target,
-            );
-
-            let value = self.push_value_operation(
-                expression,
-                block,
-                Self::retained_source(&source),
-                MirOperationKind::Borrow {
-                    kind: *kind,
-                    place: target,
-                },
-            )?;
-
-            return Ok(LoweredExpression::continuing(block, Some(value), source));
+        kind: BorrowKind,
+        result_type: TypeId,
+    ) -> Result<Option<MirOperand>, LoweringError> {
+        if kind != BorrowKind::Shared {
+            return Ok(None);
         }
 
-        let operand = match decision.purpose() {
-            StorageAccessPurpose::Move => MirOperand::Move(place),
-            StorageAccessPurpose::Read
-            | StorageAccessPurpose::Copy
-            | StorageAccessPurpose::ValueTransfer
-            | StorageAccessPurpose::Member
-            | StorageAccessPurpose::Index
-            | StorageAccessPurpose::Slice
-            | StorageAccessPurpose::Projection => MirOperand::Copy(place),
-            _ => return Err(LoweringError::UnsupportedStorageAccess(decision.access())),
+        let Some(value) = self.input.literal_values().expression(expression) else {
+            return Ok(None);
         };
 
-        Ok(LoweredExpression::continuing(block, Some(operand), source))
+        let data = self
+            .input
+            .semantic_values()
+            .constant_value_data(value)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let representation = self
+            .input
+            .semantic_values()
+            .type_data(result_type)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let TypeData::Borrow { target, .. } = representation.as_ref() else {
+            return Ok(None);
+        };
+
+        let ConstantValueKind::String(_) = data.kind() else {
+            return Ok(None);
+        };
+
+        if data.ty() != *target {
+            return Ok(None);
+        }
+
+        Ok(Some(MirOperand::Constant {
+            value,
+            ty: result_type,
+        }))
     }
 
     pub(super) fn lower_expression_place(

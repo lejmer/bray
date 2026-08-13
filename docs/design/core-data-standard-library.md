@@ -205,7 +205,7 @@ An owned byte buffer:
 Growing a buffer may replace its allocation. Existing views prevent growth or mutation whenever ordinary borrowing rules make the
 operation incompatible. Capacity is not part of byte-sequence equality or ordering.
 
-Safe byte operations are implemented over the `std.memory` contracts. Trusted code may bridge between raw allocation facts and the
+Safe byte operations are implemented over the `std.memory` contracts. Trusted code may bridge between raw allocation state and the
 safe buffer invariant, but callers of the safe surface do not inherit raw-memory obligations.
 
 Encoding and decoding APIs name their encoding and failure policy. UTF-8 conversion uses the recognized `std.string` operations.
@@ -245,6 +245,11 @@ func reserve(
     additional: usize,
 ) -> Result<unit, std.memory.MemoryLayoutError>;
 
+func reserve_exact(
+    pos buffer: &mut Buffer,
+    additional: usize,
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
 func resize(
     pos buffer: &mut Buffer,
     new_length: usize,
@@ -270,7 +275,8 @@ func pop(pos buffer: &mut Buffer) -> u8?;
 
 `create` and `from_slice` return `MemoryLayoutError` when the requested capacity cannot be represented. Allocation failure follows
 the language allocation panic contract. `equals` compares complete byte sequences without allocation. `reserve` guarantees
-capacity for `length(buffer) + additional` without changing the byte sequence. `resize` preserves the existing prefix, truncates
+capacity for `length(buffer) + additional` without changing the byte sequence and uses the canonical geometric growth policy.
+`reserve_exact` grows only to the required capacity for callers that know the final size. `resize` preserves the existing prefix, truncates
 when shrinking, and appends `fill` bytes when growing. `truncate` leaves the buffer unchanged when
 `new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
 
@@ -279,7 +285,11 @@ rejected while an incompatible view remains live by ordinary borrowing rules. A 
 `buffer` as the `bytes` argument of `append` while also supplying the required mutable borrow of that buffer.
 
 Private standard-library support may transfer a `Buffer` to or from its `RawBuffer<u8>` representation. That bridge is not part of
-the public `std.bytes` surface and does not expose raw allocation facts to ordinary callers.
+the public `std.bytes` surface and does not expose raw allocation details to ordinary callers.
+
+Byte-buffer construction, append, and buffered I/O use the compiler-recognized byte-slice bulk transfer operation. The operation
+accepts an initialized source slice and distinct writable destination storage, so these paths lower to one native memory transfer
+instead of a standard-library loop while preserving slice bounds and aliasing checks at the caller boundary.
 
 ## Iteration
 

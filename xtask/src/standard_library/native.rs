@@ -16,7 +16,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 64;
+const API_TEST_COUNT: usize = 70;
 const API_FILTERED_TEST_COUNT: usize = 3;
 
 pub(super) fn test() -> Result<(), BuildError> {
@@ -501,7 +501,7 @@ fn run_tests(
     product: &str,
     test_arguments: &[&str],
 ) -> Result<Output, BuildError> {
-    let executable = crate::native_toolchain::cargo_target_directory(root)
+    let executable = crate::workspace::cargo_target(root)
         .join("debug")
         .join(crate::native_toolchain::executable_name("bray"));
 

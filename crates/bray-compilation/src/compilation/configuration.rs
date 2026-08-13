@@ -1,4 +1,7 @@
-use bray_codegen::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
+use bray_codegen::{
+    CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode,
+    SizePreference,
+};
 
 impl super::Compilation {
     pub(super) fn package_implementation_configuration(
@@ -35,6 +38,8 @@ pub enum BuildConfiguration {
     Development,
     /// Favor generated-code performance and omit debug information.
     Release,
+    /// Preserve release behavior while observing generated memory work.
+    ObservedRelease,
 }
 
 impl BuildConfiguration {
@@ -57,12 +62,21 @@ impl BuildConfiguration {
                 SizePreference::None,
                 DebugInformationMode::LineTables,
                 bray_codegen::ReproducibilityLevel::ByteForByte,
+                RuntimeObservationMode::None,
             ),
             Self::Release => CodegenOptions::new(
                 OptimizationLevel::Full,
                 SizePreference::None,
                 DebugInformationMode::None,
                 bray_codegen::ReproducibilityLevel::ByteForByte,
+                RuntimeObservationMode::None,
+            ),
+            Self::ObservedRelease => CodegenOptions::new(
+                OptimizationLevel::Full,
+                SizePreference::None,
+                DebugInformationMode::None,
+                bray_codegen::ReproducibilityLevel::ByteForByte,
+                RuntimeObservationMode::Memory,
             ),
         }
     }
@@ -82,6 +96,7 @@ mod tests {
     fn configurations_select_distinct_codegen_policy() {
         let development = BuildConfiguration::Development.codegen_options();
         let release = BuildConfiguration::Release.codegen_options();
+        let observed = BuildConfiguration::ObservedRelease.codegen_options();
 
         assert_eq!(development.optimization(), OptimizationLevel::Basic);
 
@@ -92,6 +107,11 @@ mod tests {
 
         assert_eq!(release.optimization(), OptimizationLevel::Full);
         assert_eq!(release.debug_information(), DebugInformationMode::None);
+
+        assert_eq!(
+            observed.runtime_observations(),
+            bray_codegen::RuntimeObservationMode::Memory
+        );
     }
 
     #[test]
@@ -104,6 +124,11 @@ mod tests {
 
         assert!(
             !BuildConfiguration::Release
+                .requires_linked_debug_companion(bray_target::ObjectFormat::Coff)
+        );
+
+        assert!(
+            !BuildConfiguration::ObservedRelease
                 .requires_linked_debug_companion(bray_target::ObjectFormat::Coff)
         );
     }

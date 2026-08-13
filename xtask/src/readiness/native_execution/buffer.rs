@@ -21,10 +21,12 @@ const STANDARD_BUFFER_FIXTURES: &[&str] = &[
     "xtask/fixtures/native-execution/standard-buffer-clear.bray",
     "xtask/fixtures/native-execution/standard-buffer-pop.bray",
 ];
-const STANDARD_BUFFER_MEMORY_FIXTURE: &str =
-    "xtask/fixtures/native-execution/standard-buffer-memory.bray";
+const STANDARD_ROOT_SOURCE: &str = "standard-library/std/src/std.bray";
+const STANDARD_MEMORY_SOURCE: &str = "standard-library/std/src/memory.bray";
+const STANDARD_BYTES_ROOT_SOURCE: &str = "standard-library/std/src/bytes.bray";
 const STANDARD_BYTES_SOURCE: &str = "standard-library/std/src/bytes/buffer.bray";
 const STANDARD_CHARACTER_SOURCE: &str = "standard-library/std/src/character.bray";
+const STANDARD_FORMAT_ROOT_SOURCE: &str = "standard-library/std/src/format.bray";
 const STANDARD_FORMAT_OPTIONS_SOURCE: &str = "standard-library/std/src/format/options.bray";
 const STANDARD_FORMAT_ARGUMENT_SOURCE: &str = "standard-library/std/src/format/argument.bray";
 const STANDARD_FORMAT_SINK_SOURCE: &str = "standard-library/std/src/format/sink.bray";
@@ -41,7 +43,9 @@ pub(super) fn audit_standard_buffer(
         let output = native_output("bray-native-standard-buffer-")?;
 
         let fixtures = [
-            STANDARD_BUFFER_MEMORY_FIXTURE,
+            STANDARD_ROOT_SOURCE,
+            STANDARD_MEMORY_SOURCE,
+            STANDARD_BYTES_ROOT_SOURCE,
             STANDARD_BYTES_SOURCE,
             fixture,
         ];
@@ -51,7 +55,7 @@ pub(super) fn audit_standard_buffer(
 
         let context = format!("executing standard byte-buffer fixture {fixture}");
 
-        execute_product(&executable_path(output.path(), target), 0, &context)?;
+        execute_product(&executable_path(output.path(), "std")?, 0, &context)?;
     }
 
     Ok(())
@@ -65,10 +69,13 @@ pub(super) fn audit_standard_format(
     let output = native_output("bray-native-standard-format-")?;
 
     let fixtures = [
-        STANDARD_BUFFER_MEMORY_FIXTURE,
+        STANDARD_ROOT_SOURCE,
+        STANDARD_MEMORY_SOURCE,
+        STANDARD_BYTES_ROOT_SOURCE,
         STANDARD_BYTES_SOURCE,
         STANDARD_STRING_SOURCE,
         STANDARD_CHARACTER_SOURCE,
+        STANDARD_FORMAT_ROOT_SOURCE,
         STANDARD_FORMAT_OPTIONS_SOURCE,
         STANDARD_FORMAT_ARGUMENT_SOURCE,
         STANDARD_FORMAT_SINK_SOURCE,
@@ -79,7 +86,7 @@ pub(super) fn audit_standard_format(
     build_standard_library_fixtures(root, target, runtime, output.path(), &fixtures)?;
 
     execute_product(
-        &executable_path(output.path(), target),
+        &executable_path(output.path(), "std")?,
         0,
         "executing standard formatting fixture",
     )

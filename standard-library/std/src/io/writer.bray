@@ -41,12 +41,13 @@ internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos sour
     let accepted: usize = smaller(source_length, available);
     let destination: &mut [u8] = std.bytes.as_slice_mut(&mut writer.storage);
 
-    let mut index: usize = 0;
-
-    while index < accepted
+    if accepted > 0
     {
-        destination[writer.length + index] = source[index];
-        index += 1;
+        let accepted_source: &[u8] = &source[0.. accepted];
+        let available_destination: &mut [u8] = &mut destination[writer.length.. writer.length + accepted];
+        let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(available_destination);
+
+        trusted internal std.memory.byte_slice_copy(source = accepted_source, destination = destination_pointer);
     }
 
     writer.length += accepted;

@@ -57,7 +57,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
 }
 
 fn audit_memory_rejection(root: &Path, target: NativeTarget) -> Result<(), String> {
-    let compiler = crate::native_toolchain::cargo_target_directory(root)
+    let compiler = crate::workspace::cargo_target(root)
         .join("debug")
         .join(crate::native_toolchain::executable_name("brayc"));
 
@@ -120,8 +120,8 @@ fn audit_memory_layout(root: &Path, target: NativeTarget, runtime: &Path) -> Res
 
     build_standard_library_fixtures(root, target, runtime, second.path(), &fixtures)?;
 
-    let first_executable = executable_path(first.path(), target);
-    let second_executable = executable_path(second.path(), target);
+    let first_executable = executable_path(first.path(), "command.line")?;
+    let second_executable = executable_path(second.path(), "command.line")?;
     let first_objects = object_files(first.path(), target)?;
     let second_objects = object_files(second.path(), target)?;
 
@@ -149,7 +149,7 @@ fn audit_text_cursor(root: &Path, target: NativeTarget, runtime: &Path) -> Resul
     )?;
 
     execute_product(
-        &executable_path(output.path(), target),
+        &executable_path(output.path(), "std")?,
         42,
         "executing standard text scalar iteration",
     )
@@ -208,8 +208,8 @@ fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Res
     build_fixture(root, target, runtime, ABI_FIXTURE, first.path())?;
     build_fixture(root, target, runtime, ABI_FIXTURE, second.path())?;
 
-    let first_executable = executable_path(first.path(), target);
-    let second_executable = executable_path(second.path(), target);
+    let first_executable = executable_path(first.path(), "command.line")?;
+    let second_executable = executable_path(second.path(), "command.line")?;
     let first_objects = object_files(first.path(), target)?;
     let second_objects = object_files(second.path(), target)?;
 
@@ -281,8 +281,8 @@ fn audit_repeatable_fixture(
     build_fixture(root, target, runtime, fixture, first.path())?;
     build_fixture(root, target, runtime, fixture, second.path())?;
 
-    let first_executable = executable_path(first.path(), target);
-    let second_executable = executable_path(second.path(), target);
+    let first_executable = executable_path(first.path(), "command.line")?;
+    let second_executable = executable_path(second.path(), "command.line")?;
 
     require_equal_files(
         &first_executable,
@@ -327,8 +327,8 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
         build_fixture(root, target, runtime, fixture, first.path())?;
         build_fixture(root, target, runtime, fixture, second.path())?;
 
-        let first_executable = executable_path(first.path(), target);
-        let second_executable = executable_path(second.path(), target);
+        let first_executable = executable_path(first.path(), "command.line")?;
+        let second_executable = executable_path(second.path(), "command.line")?;
 
         require_equal_files(&first_executable, &second_executable, name)?;
 
@@ -378,7 +378,7 @@ fn build_fixtures(
     package: Option<&str>,
     fixtures: &[&str],
 ) -> Result<(), String> {
-    let compiler = crate::native_toolchain::cargo_target_directory(root)
+    let compiler = crate::workspace::cargo_target(root)
         .join("debug")
         .join(crate::native_toolchain::executable_name("brayc"));
 
@@ -591,12 +591,20 @@ pub(super) fn product_output(executable: &Path, operation: &str) -> Result<Outpu
         .map_err(|error| format!("could not start {operation}: {error}"))
 }
 
-pub(super) fn executable_path(directory: &Path, target: NativeTarget) -> PathBuf {
-    let name = TargetOutputName::for_native(target.object_format(), TargetOutputKind::Executable)
-        .file_name(PRODUCT_NAME)
-        .unwrap_or_else(|| panic!("native executable name must be valid"));
+pub(super) fn executable_path(directory: &Path, package: &str) -> Result<PathBuf, String> {
+    let package = bray_symbols::PackageIdentity::try_new(package)
+        .ok_or_else(|| "native fixture package identity is invalid".to_owned())?;
 
-    directory.join(name)
+    let product = bray_symbols::ProductIdentity::try_new(package, PRODUCT_NAME)
+        .ok_or_else(|| "native fixture product identity is invalid".to_owned())?;
+
+    bray_emitter::resolve_published_artifact(
+        directory,
+        &product,
+        bray_emitter::ArtifactKind::Executable,
+        0,
+    )
+    .map_err(|error| format!("could not resolve native fixture executable: {error:?}"))
 }
 
 fn output_contains(output: &Output, required: &str) -> bool {

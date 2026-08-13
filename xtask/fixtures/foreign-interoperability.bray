@@ -459,7 +459,7 @@ trusted func audit_dynamic_library()
     requires(blocking_execution())
     uses(foreign_call, layout_reinterpret)
 {
-    let path: std.path.Path = match consume std.path.Path.from_string("__SHARED_LIBRARY_PATH__")
+    let path: std.path.Path = match consume std.path.Path.from_string(&"__SHARED_LIBRARY_PATH__")
     {
         case Error(_)
         {
