@@ -2399,6 +2399,8 @@ impl Compilation {
 
             pending.extend(child_constants(data.kind()).map(|child| (child, None)));
 
+            // Code generation mappings outlive this shared semantic-store read and therefore
+            // take independent ownership of the immutable payload at this boundary.
             mapped.insert(
                 key,
                 CodegenConstantMapping::with_representation(

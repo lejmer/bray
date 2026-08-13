@@ -26,8 +26,9 @@ impl CodegenConstantMapping {
         data: ConstantValueData,
         representation: TypeId,
     ) -> Self {
-        let semantic_type = data.ty();
-        let data = ConstantValueData::new(representation, data.kind().clone());
+        let (semantic_type, kind) = data.into_parts();
+
+        let data = ConstantValueData::new(representation, kind);
 
         Self {
             value,

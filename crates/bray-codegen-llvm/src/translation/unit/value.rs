@@ -3,7 +3,9 @@ use std::hash::Hasher as _;
 use super::core::UnitTranslator;
 use super::support::{insert_value, integer_constant, llvm, real_width, real_words};
 use bray_base::{StableDigestHasher, lowercase_hex};
-use bray_codegen::{CodegenFailure, CodegenTypeBehavior, CodegenTypeKind};
+use bray_codegen::{
+    CodegenConstantMapping, CodegenFailure, CodegenTypeBehavior, CodegenTypeKind,
+};
 use bray_ir::{MirImmediateValue, MirOperand};
 use bray_symbols::{ConstantValueId, ConstantValueKind, RealConstantBits};
 use inkwell::comdat::ComdatSelectionKind;
@@ -77,11 +79,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .constant_with_representation(value, representation)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        self.mapped_constant_as(
-            mapping.semantic_type(),
-            representation,
-            mapping.data().kind().clone(),
-        )
+        let (semantic_type, representation, kind) = owned_constant_parts(mapping);
+
+        self.mapped_constant_as(semantic_type, representation, kind)
     }
 
     pub(super) fn clear_moved_places(&mut self) -> Result<(), CodegenFailure> {
@@ -236,17 +236,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .constant(value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        self.mapped_constant(mapping.data().clone())
-    }
+        let (semantic_type, representation, kind) = owned_constant_parts(mapping);
 
-    fn mapped_constant(
-        &mut self,
-        data: bray_symbols::ConstantValueData,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let ty = data.ty();
-        let kind = data.kind().clone();
-
-        self.mapped_constant_as(ty, ty, kind)
+        self.mapped_constant_as(semantic_type, representation, kind)
     }
 
     fn mapped_constant_as(
@@ -485,21 +477,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         representation: bray_symbols::TypeId,
         text: &str,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let bytes = self.types.context().const_string(text.as_bytes(), false);
+        let bytes = self
+            .types
+            .context()
+            .const_string(text.as_bytes(), false)
+            .into();
+
         let identity = string_constant_name(text);
         let name = format!("{identity}.data");
-
-        let global = self
-            .module
-            .get_global(&name)
-            .unwrap_or_else(|| self.module.add_global(bytes.get_type(), None, &name));
-
-        global.set_constant(true);
-        global.set_linkage(Linkage::LinkOnceODR);
-        global.set_unnamed_address(UnnamedAddress::Global);
-        global.set_initializer(&bytes);
-
-        self.set_string_constant_comdat(global, &name);
+        let global = self.publish_string_global(&name, bytes);
 
         let mapping = self
             .type_mapping(representation)
@@ -511,20 +497,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     semantic_type,
                     global.as_pointer_value(),
                     text.len(),
-                )?;
+                )?
+                .into();
 
                 let name = format!("{identity}.value");
-
-                let global = self.module.get_global(&name).unwrap_or_else(|| {
-                    self.module.add_global(value.get_type(), None, &name)
-                });
-
-                global.set_constant(true);
-                global.set_linkage(Linkage::LinkOnceODR);
-                global.set_unnamed_address(UnnamedAddress::Global);
-                global.set_initializer(&value);
-
-                self.set_string_constant_comdat(global, &name);
+                let global = self.publish_string_global(&name, value);
 
                 Ok(global.as_pointer_value().into())
             }
@@ -547,6 +524,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::Union { .. }
             | CodegenTypeKind::Callable(_) => Err(CodegenFailure::GeneratedModuleInvariant),
         }
+    }
+
+    fn publish_string_global(
+        &self,
+        name: &str,
+        initializer: BasicValueEnum<'context>,
+    ) -> GlobalValue<'context> {
+        let global = self
+            .module
+            .get_global(name)
+            .unwrap_or_else(|| self.module.add_global(initializer.get_type(), None, name));
+
+        global.set_constant(true);
+        global.set_linkage(Linkage::LinkOnceODR);
+        global.set_unnamed_address(UnnamedAddress::Global);
+        global.set_initializer(&initializer);
+
+        self.set_string_constant_comdat(global, name);
+
+        global
     }
 
     fn set_string_constant_comdat(&self, global: GlobalValue<'context>, name: &str) {
@@ -721,6 +718,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperand::Copy(place) | MirOperand::Move(place) => Ok(place.ty()),
         }
     }
+}
+
+fn owned_constant_parts(
+    mapping: &CodegenConstantMapping,
+) -> (
+    bray_symbols::TypeId,
+    bray_symbols::TypeId,
+    ConstantValueKind,
+) {
+    // Recursive materialization mutably borrows the translator, so release its request mapping
+    // borrow by taking one owned payload at this narrow code generation boundary.
+    (
+        mapping.semantic_type(),
+        mapping.representation(),
+        mapping.data().kind().clone(),
+    )
 }
 
 fn string_constant_name(text: &str) -> String {

@@ -65,7 +65,7 @@ pub(super) fn audit_standard_hello_world(
 
     let result = product_output(&executable, "executing Bray Tack build output")?;
 
-    require_hello_world_output(&result, "executing Bray Tack build output", false)?;
+    require_hello_world_output(&result, "executing Bray Tack build output", None)?;
 
     let mut run = Command::new(bray);
 
@@ -84,7 +84,7 @@ pub(super) fn audit_standard_hello_world(
     require_hello_world_output(
         &result,
         "running standard-library hello world through Bray Tack",
-        true,
+        Some(target),
     )
 }
 
@@ -145,7 +145,7 @@ fn write_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
 fn require_hello_world_output(
     output: &std::process::Output,
     operation: &str,
-    expect_progress: bool,
+    progress_target: Option<NativeTarget>,
 ) -> Result<(), String> {
     if !output.status.success() {
         return Err(crate::command::failure(operation, output));
@@ -160,14 +160,17 @@ fn require_hello_world_output(
 
     let progress = String::from_utf8_lossy(&output.stderr);
 
-    if expect_progress
-        && (!progress.contains("Building example.hello/application [debug]")
-            || !progress.contains("Finished application.exe build/native/debug/example.hello/application"))
-    {
-        return Err(format!("{operation} omitted expected build progress: {progress:?}"));
+    if let Some(target) = progress_target {
+        let finished = finished_progress(target)?;
+
+        if !progress.contains("Building example.hello/application [debug]")
+            || !progress.contains(&finished)
+        {
+            return Err(format!("{operation} omitted expected build progress: {progress:?}"));
+        }
     }
 
-    if !expect_progress && !output.stderr.is_empty() {
+    if progress_target.is_none() && !output.stderr.is_empty() {
         return Err(format!(
             "{operation} wrote unexpected stderr: {:?}",
             progress
@@ -175,4 +178,48 @@ fn require_hello_world_output(
     }
 
     Ok(())
+}
+
+fn finished_progress(target: NativeTarget) -> Result<String, String> {
+    let executable_name = bray_target::TargetOutputName::for_native(
+        target.object_format(),
+        bray_target::TargetOutputKind::Executable,
+    )
+    .file_name(PRODUCT_NAME)
+    .ok_or_else(|| "hello-world executable name is invalid".to_owned())?;
+
+    Ok(format!(
+        "Finished {executable_name} build/native/debug/example.hello/application"
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_target::NativeTarget;
+
+    use super::finished_progress;
+
+    #[test]
+    fn finished_progress_uses_the_target_executable_name() {
+        assert_eq!(
+            finished_progress(NativeTarget::X86_64WindowsMsvc),
+            Ok(String::from(
+                "Finished application.exe build/native/debug/example.hello/application"
+            ))
+        );
+
+        for target in [
+            NativeTarget::X86_64LinuxGnu,
+            NativeTarget::Aarch64LinuxGnu,
+            NativeTarget::X86_64MacOs,
+            NativeTarget::Aarch64MacOs,
+        ] {
+            assert_eq!(
+                finished_progress(target),
+                Ok(String::from(
+                    "Finished application build/native/debug/example.hello/application"
+                ))
+            );
+        }
+    }
 }

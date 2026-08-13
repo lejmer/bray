@@ -3,11 +3,13 @@ module bray.standard_library_tests.format;
 using std.format;
 using std.format.BooleanFormat;
 using std.format.CharacterFormat;
+using std.format.I128Format;
 using std.format.I32Format;
 using std.format.StringFormat;
 using std.format.U32Format;
 using std.bytes;
 using std.memory;
+using std.string;
 
 @test
 func formatting_options_are_available()
@@ -74,6 +76,43 @@ func formatting_options_control_output() -> Result<unit, std.memory.MemoryLayout
     let expected: [u8; 6] = [32, 43, 48, 48, 50, 65];
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected[..]));
+
+    return Ok(unit);
+}
+
+@test
+func signed_minimum_formatting_is_total() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let minimum: i128 = -170141183460469231731687303715884105727 - 1;
+    let mut decimal_sink: std.format.ByteSink = try std.format.ByteSink(capacity = 40);
+
+    try std.format.write<i128>(&mut decimal_sink, std.format.Argument<i128>(&minimum));
+
+    let expected_decimal: string = "-170141183460469231731687303715884105728";
+
+    assert(std.bytes.equals(std.format.bytes(&decimal_sink), std.string.utf8(&expected_decimal)));
+
+    let hexadecimal_options: std.format.Options = std.format.Options(
+        radix = std.format.Radix.HexadecimalLowercase,
+
+        precision = 0,
+        width = 0,
+
+        alignment = std.format.Alignment.Right,
+        sign = std.format.Sign.NegativeOnly,
+        escaping = std.format.Escaping.Raw,
+    );
+
+    let mut hexadecimal_sink: std.format.ByteSink = try std.format.ByteSink(capacity = 33);
+
+    try std.format.write<i128>(
+        &mut hexadecimal_sink,
+        std.format.Argument.with_options<i128>(&minimum, options = hexadecimal_options),
+    );
+
+    let expected_hexadecimal: string = "-80000000000000000000000000000000";
+
+    assert(std.bytes.equals(std.format.bytes(&hexadecimal_sink), std.string.utf8(&expected_hexadecimal)));
 
     return Ok(unit);
 }

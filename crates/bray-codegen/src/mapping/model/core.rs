@@ -10,6 +10,7 @@ use crate::{
     CodegenConstantTermMapping, CodegenDebugLocation, CodegenHelperMapping, CodegenInstanceKey,
     CodegenInstanceTypeMapping, CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping,
     CodegenTarget, CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
+    CodegenTypeBehavior, CodegenTypeKind, TargetAddressSpaceKind,
 };
 
 use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
@@ -170,7 +171,7 @@ impl CodegenMappings {
         validate_callable_mappings(unit, &expected_instances, &symbols, &callables)?;
         validate_operation_mappings(unit, &symbols, &operations)?;
         validate_terminator_mappings(unit, &terminators)?;
-        validate_constant_mappings(unit, &constants, &constant_terms, &terminators)?;
+        validate_constant_mappings(unit, &types, &constants, &constant_terms, &terminators)?;
 
         let expected_runtime_references = mapped_runtime_references(unit, &operations, &symbols);
 
@@ -332,10 +333,15 @@ impl CodegenMappings {
 
     /// Returns the semantic representation for one constant value.
     pub fn constant(&self, value: ConstantValueId) -> Option<&CodegenConstantMapping> {
-        self.constants
+        let start = self
+            .constants
+            .partition_point(|mapping| mapping.value() < value);
+
+        self.constants[start..]
             .iter()
+            .take_while(|mapping| mapping.value() == value)
             .find(|mapping| {
-                mapping.value() == value && mapping.semantic_type() == mapping.representation()
+                mapping.semantic_type() == mapping.representation()
             })
     }
 
@@ -481,6 +487,8 @@ pub enum CodegenMappingsBuildError {
     TerminatorCoverageMismatch,
     /// Demanded constants and closed terms are not completely materialized.
     ConstantCoverageMismatch,
+    /// A constant mapping selects a representation incompatible with its semantic value.
+    InvalidConstantRepresentation,
     /// Demanded private runtime references do not have exact symbol coverage.
     RuntimeSymbolCoverageMismatch,
     /// Protected-frame descriptors do not have exact operation-symbol coverage.
@@ -653,10 +661,18 @@ fn validate_terminator_mappings(
 
 fn validate_constant_mappings(
     unit: &CodegenUnit,
+    types: &[CodegenTypeMapping],
     mappings: &[CodegenConstantMapping],
     terms: &[CodegenConstantTermMapping],
     terminators: &[CodegenTerminatorMapping],
 ) -> Result<(), CodegenMappingsBuildError> {
+    if mappings
+        .iter()
+        .any(|mapping| !valid_constant_representation(mapping, types))
+    {
+        return Err(CodegenMappingsBuildError::InvalidConstantRepresentation);
+    }
+
     let demands = demanded_constants(unit);
     let mut expected_values = demands.values().clone();
 
@@ -712,6 +728,38 @@ fn validate_constant_mappings(
     Ok(())
 }
 
+fn valid_constant_representation(
+    constant: &CodegenConstantMapping,
+    types: &[CodegenTypeMapping],
+) -> bool {
+    if constant.semantic_type() == constant.representation() {
+        return true;
+    }
+
+    let semantic = types
+        .binary_search_by_key(&constant.semantic_type(), CodegenTypeMapping::ty)
+        .ok()
+        .and_then(|index| types.get(index));
+
+    let representation = types
+        .binary_search_by_key(&constant.representation(), CodegenTypeMapping::ty)
+        .ok()
+        .and_then(|index| types.get(index));
+
+    semantic.is_some_and(|mapping| {
+        mapping.behavior() == Some(CodegenTypeBehavior::String)
+            && matches!(mapping.kind(), CodegenTypeKind::Aggregate(_))
+    }) && representation.is_some_and(|mapping| {
+        matches!(
+            mapping.kind(),
+            CodegenTypeKind::Pointer {
+                target,
+                address_space: TargetAddressSpaceKind::Default,
+            } if *target == constant.semantic_type()
+        )
+    })
+}
+
 fn valid_helper(symbols: &[CodegenSymbolMapping], helper: &CodegenHelperMapping) -> bool {
     let Some(key) = helper.symbol() else {
         return true;
@@ -728,22 +776,29 @@ mod tests {
     use std::num::{NonZeroU16, NonZeroU64};
 
     use bray_ir::{
-        MirAsyncOperation, MirBlockKind, MirOperationKind, MirRuntimeReference, MirSourceAnchor,
-        MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+        MirAsyncOperation, MirBlockKind, MirOperand, MirOperationKind, MirPlace,
+        MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
+        MirUnitBuilder, MirUnitKind,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiRole, RuntimeAbiVersion};
-    use bray_symbols::{ConstantValueData, ConstantValueKind, SemanticValueStore, TypeData};
+    use bray_symbols::{
+        BorrowKind, ConstantValueData, ConstantValueKind, SemanticValueStore, TypeData,
+    };
     use bray_target::{TargetLayoutContract, TargetValueLayout};
     use bray_testing::{test_bound_unit, test_mir_target, test_mir_type};
 
-    use super::{CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources};
+    use super::{
+        CodegenMappings, CodegenMappingsBuildError, demanded_debug_sources,
+        valid_constant_representation,
+    };
     use crate::demanded_types;
     use crate::test_support::{codegen_partition_compatibility, codegen_request};
     use crate::{
         CodegenCallableSignature, CodegenConstantMapping, CodegenGenericArgument, CodegenInstance,
         CodegenInstanceKey, CodegenInstanceTypeMapping, CodegenLinkage, CodegenPartitionPolicy,
         CodegenResultMapping, CodegenSpecialization, CodegenSymbolKey, CodegenSymbolMapping,
-        CodegenTypeKind, CodegenTypeMapping, CodegenUnit, CodegenValueKey,
+        CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping, CodegenUnit, CodegenValueKey,
+        TargetAddressSpaceKind,
     };
 
     #[test]
@@ -974,6 +1029,199 @@ mod tests {
                 mappings.debug_locations().iter().cloned(),
             ),
             Err(CodegenMappingsBuildError::ConstantCoverageMismatch)
+        );
+    }
+
+    #[test]
+    fn constant_representations_are_limited_to_owned_values_and_string_borrows() {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store must initialize: {error:?}"));
+
+        let string = store
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("string type must intern: {error:?}"));
+
+        let borrowed_string = store
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target: string,
+            })
+            .unwrap_or_else(|error| panic!("borrowed string type must intern: {error:?}"));
+
+        let unrelated = store
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("unrelated type must intern: {error:?}"));
+
+        let layout = TargetValueLayout::new(
+            8,
+            NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN),
+            TargetLayoutContract::Default,
+        );
+
+        let mut types = vec![
+            CodegenTypeMapping::new(string, layout, CodegenTypeKind::aggregate([]))
+                .with_behavior(Some(CodegenTypeBehavior::String)),
+            CodegenTypeMapping::new(
+                borrowed_string,
+                layout,
+                CodegenTypeKind::Pointer {
+                    target: string,
+                    address_space: TargetAddressSpaceKind::Default,
+                },
+            ),
+            CodegenTypeMapping::new(
+                unrelated,
+                layout,
+                CodegenTypeKind::UnsignedInteger(
+                    NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN),
+                ),
+            ),
+        ];
+
+        types.sort_unstable_by_key(CodegenTypeMapping::ty);
+
+        let data = ConstantValueData::new(string, ConstantValueKind::string("text"));
+
+        let value = store
+            .intern_constant_value(data.clone())
+            .unwrap_or_else(|error| panic!("string value must intern: {error:?}"));
+
+        let owned = CodegenConstantMapping::new(value, data.clone());
+
+        let borrowed = CodegenConstantMapping::with_representation(
+            value,
+            data.clone(),
+            borrowed_string,
+        );
+
+        let invalid = CodegenConstantMapping::with_representation(value, data, unrelated);
+
+        assert!(valid_constant_representation(&owned, &types));
+        assert!(valid_constant_representation(&borrowed, &types));
+        assert!(!valid_constant_representation(&invalid, &types));
+    }
+
+    #[test]
+    fn mappings_reject_constants_retagged_as_unrelated_demanded_types() {
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store must initialize: {error:?}"));
+
+        let string = store
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("string type must intern: {error:?}"));
+
+        let unrelated = store
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("unrelated type must intern: {error:?}"));
+
+        let data = ConstantValueData::new(string, ConstantValueKind::string("text"));
+
+        let value = store
+            .intern_constant_value(data.clone())
+            .unwrap_or_else(|error| panic!("string value must intern: {error:?}"));
+
+        let bound = test_bound_unit(396);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            test_mir_target(),
+        );
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap_or_else(|error| panic!("constant test block must build: {error:?}"));
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Local, unrelated)
+            .unwrap_or_else(|error| panic!("constant test storage must build: {error:?}"));
+
+        builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Store {
+                    kind: MirStoreKind::Initialize,
+                    destination: MirPlace::new(storage, [], unrelated),
+                    value: MirOperand::Constant {
+                        value,
+                        ty: unrelated,
+                    },
+                },
+                None,
+            )
+            .unwrap_or_else(|error| panic!("constant test store must build: {error:?}"));
+
+        builder
+            .set_terminator(entry, source, MirTerminatorKind::Return(None))
+            .unwrap_or_else(|error| panic!("constant test return must build: {error:?}"));
+
+        let mir = builder
+            .finish(entry)
+            .unwrap_or_else(|error| panic!("constant test MIR must validate: {error:?}"));
+
+        let unit = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [mir],
+        )
+        .unwrap_or_else(|error| panic!("constant test unit must validate: {error:?}"));
+
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let target = request.target();
+
+        let layout = TargetValueLayout::new(
+            8,
+            NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN),
+            TargetLayoutContract::Default,
+        );
+
+        let types = [
+            CodegenTypeMapping::new(string, layout, CodegenTypeKind::aggregate([]))
+                .with_behavior(Some(CodegenTypeBehavior::String)),
+            CodegenTypeMapping::new(
+                unrelated,
+                layout,
+                CodegenTypeKind::UnsignedInteger(
+                    NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN),
+                ),
+            ),
+        ];
+
+        let name = BinarySymbolName::try_new("invalid_constant_representation")
+            .unwrap_or_else(|| panic!("constant test symbol must validate"));
+
+        let symbol = CodegenSymbolMapping::new(
+            CodegenSymbolKey::Instance(unit.instances()[0].key().clone()),
+            name,
+            CodegenLinkage::Internal,
+            CodegenCallableSignature::new(
+                [],
+                CodegenResultMapping::Void,
+                bray_symbols::CallableAbi::Bray,
+                false,
+            ),
+        );
+
+        assert_eq!(
+            CodegenMappings::try_new(
+                &unit,
+                target,
+                types,
+                [],
+                [symbol],
+                [CodegenConstantMapping::with_representation(
+                    value, data, unrelated,
+                )],
+                [],
+                [],
+                [],
+                [],
+                [],
+            ),
+            Err(CodegenMappingsBuildError::InvalidConstantRepresentation)
         );
     }
 

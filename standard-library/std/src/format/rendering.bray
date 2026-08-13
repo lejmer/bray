@@ -221,14 +221,19 @@ internal func write_signed_digits(
     pos uppercase: bool,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut divisor: i128 = -1;
+    if value > -radix
+    {
+        return std.bytes.push(&mut destination.buffer, value = signed_digit_byte(-value, uppercase));
+    }
+
+    let mut divisor: i128 = -radix;
 
     while value / divisor >= radix
     {
         divisor *= radix;
     }
 
-    while divisor < 0
+    while divisor < -1
     {
         let digit: u8 = signed_digit_byte((value / divisor) % radix, uppercase);
 
@@ -237,7 +242,7 @@ internal func write_signed_digits(
         divisor /= radix;
     }
 
-    return Ok(unit);
+    return std.bytes.push(&mut destination.buffer, value = signed_digit_byte(-(value % radix), uppercase));
 }
 
 internal func write_requested_sign(
