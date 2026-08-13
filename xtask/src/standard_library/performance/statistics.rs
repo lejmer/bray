@@ -1,6 +1,10 @@
 use super::model::ExecutionStatistics;
 
-pub(super) fn summarize(mut samples: Vec<u64>, units: u64) -> Option<ExecutionStatistics> {
+pub(super) fn summarize(
+    mut samples: Vec<u64>,
+    units: u64,
+    scope: &str,
+) -> Option<ExecutionStatistics> {
     if samples.is_empty() {
         return None;
     }
@@ -26,6 +30,7 @@ pub(super) fn summarize(mut samples: Vec<u64>, units: u64) -> Option<ExecutionSt
         .unwrap_or(u64::MAX);
 
     Some(ExecutionStatistics {
+        scope: scope.to_owned(),
         samples_nanoseconds: samples,
         minimum_nanoseconds,
         median_nanoseconds,

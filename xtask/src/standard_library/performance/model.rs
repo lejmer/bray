@@ -2,12 +2,18 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCHEMA_REVISION: u32 = 1;
+pub(super) const SCHEMA_REVISION: u32 = 2;
 pub(super) const MAX_SAMPLE_COUNT: u32 = 10_000;
 pub(super) const MAX_SECTION_COUNT: usize = 512;
 pub(super) const MAX_RETAINED_INPUT_COUNT: usize = 4_096;
 pub(super) const MAX_DYNAMIC_LIBRARY_COUNT: usize = 256;
 pub(super) const MAX_PLATFORM_OPERATION_COUNT: usize = 32;
+pub(super) const PROCESS_EXECUTION_SCOPE: &str =
+    "wall-clock process execution including startup and teardown";
+pub(super) const BRAY_EXECUTION_SCOPE: &str =
+    "generated root execution from entry dispatch through result resolution";
+pub(super) const STORAGE_OBSERVATION_SCOPE: &str =
+    "generated memory work in one dedicated observed execution";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub(super) struct PerformanceReport {
@@ -38,7 +44,8 @@ pub(super) struct WorkloadReport {
     pub units: String,
     pub expected_output_sha256: String,
     pub compilation: bray_compilation::CompilationProfileReport,
-    pub execution: ExecutionStatistics,
+    pub process_execution: ExecutionStatistics,
+    pub bray_execution: ExecutionStatistics,
     pub artifacts: Vec<ArtifactReport>,
     pub observations: WorkloadObservations,
 }
@@ -58,6 +65,7 @@ pub(super) enum WorkloadCategory {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct ExecutionStatistics {
+    pub scope: String,
     pub samples_nanoseconds: Vec<u64>,
     pub minimum_nanoseconds: u64,
     pub median_nanoseconds: u64,
@@ -139,7 +147,8 @@ pub(super) struct ComparisonReport {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct WorkloadComparison {
     pub id: String,
-    pub execution: MetricComparison,
+    pub process_execution: MetricComparison,
+    pub bray_execution: MetricComparison,
     pub compiler_operations: BTreeMap<String, MetricComparison>,
     pub compiler_metrics: BTreeMap<String, MetricComparison>,
     pub artifacts: Vec<ArtifactComparison>,

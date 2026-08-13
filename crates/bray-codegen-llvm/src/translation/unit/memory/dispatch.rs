@@ -405,6 +405,8 @@ mod tests {
 
         assert!(allocation < allocation_observation);
         assert!(relocation < copy_observation);
+        assert!(!ir.contains(bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL));
+        assert!(!ir.contains(bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL));
     }
 
     fn position(ir: &str, symbol: &str) -> usize {

@@ -50,7 +50,9 @@ impl Compilation {
                 DebugLinkPolicy::Companion
             }
             crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
-            crate::BuildConfiguration::Release | crate::BuildConfiguration::ObservedRelease => {
+            crate::BuildConfiguration::Release
+            | crate::BuildConfiguration::ObservedRelease
+            | crate::BuildConfiguration::TimedRelease => {
                 DebugLinkPolicy::None
             }
         };
@@ -64,7 +66,8 @@ impl Compilation {
                 match configuration {
                     crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
                     crate::BuildConfiguration::Release
-                    | crate::BuildConfiguration::ObservedRelease => DebugLinkPolicy::None,
+                    | crate::BuildConfiguration::ObservedRelease
+                    | crate::BuildConfiguration::TimedRelease => DebugLinkPolicy::None,
                 },
                 None,
             ),

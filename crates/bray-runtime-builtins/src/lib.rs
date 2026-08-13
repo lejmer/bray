@@ -11,5 +11,7 @@ mod allocation;
 mod character;
 #[cfg(feature = "memory")]
 mod memory;
+#[cfg(feature = "performance-observation")]
+mod performance;
 #[cfg(feature = "string")]
 mod string;

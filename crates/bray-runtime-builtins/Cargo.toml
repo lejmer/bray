@@ -10,7 +10,7 @@ crate-type = ["rlib", "staticlib"]
 
 [features]
 memory = []
-memory-observation = ["memory"]
+performance-observation = ["memory"]
 string = []
 character = []
 

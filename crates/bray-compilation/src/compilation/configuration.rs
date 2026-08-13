@@ -40,6 +40,8 @@ pub enum BuildConfiguration {
     Release,
     /// Preserve release behavior while observing generated memory work.
     ObservedRelease,
+    /// Preserve release behavior while observing the generated root interval.
+    TimedRelease,
 }
 
 impl BuildConfiguration {
@@ -78,6 +80,13 @@ impl BuildConfiguration {
                 bray_codegen::ReproducibilityLevel::ByteForByte,
                 RuntimeObservationMode::Memory,
             ),
+            Self::TimedRelease => CodegenOptions::new(
+                OptimizationLevel::Full,
+                SizePreference::None,
+                DebugInformationMode::None,
+                bray_codegen::ReproducibilityLevel::ByteForByte,
+                RuntimeObservationMode::PerformanceInterval,
+            ),
         }
     }
 
@@ -97,6 +106,7 @@ mod tests {
         let development = BuildConfiguration::Development.codegen_options();
         let release = BuildConfiguration::Release.codegen_options();
         let observed = BuildConfiguration::ObservedRelease.codegen_options();
+        let timed = BuildConfiguration::TimedRelease.codegen_options();
 
         assert_eq!(development.optimization(), OptimizationLevel::Basic);
 
@@ -111,6 +121,11 @@ mod tests {
         assert_eq!(
             observed.runtime_observations(),
             bray_codegen::RuntimeObservationMode::Memory
+        );
+
+        assert_eq!(
+            timed.runtime_observations(),
+            bray_codegen::RuntimeObservationMode::PerformanceInterval
         );
     }
 
@@ -129,6 +144,11 @@ mod tests {
 
         assert!(
             !BuildConfiguration::ObservedRelease
+                .requires_linked_debug_companion(bray_target::ObjectFormat::Coff)
+        );
+
+        assert!(
+            !BuildConfiguration::TimedRelease
                 .requires_linked_debug_companion(bray_target::ObjectFormat::Coff)
         );
     }
