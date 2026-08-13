@@ -2,6 +2,7 @@ mod execution;
 mod identity;
 mod options;
 mod output;
+mod progress;
 
 pub(in crate::standard_library) use execution::run;
 pub(super) use identity::expected_output_digest;

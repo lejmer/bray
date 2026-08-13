@@ -24,6 +24,7 @@ use super::super::model::{
 use super::super::{report, retention, statistics};
 use super::identity::{expected_output_digest, report_identity};
 use super::options::Options;
+use super::progress;
 
 const USAGE: &str = "usage: cargo xtask standard-library performance \
     --output <directory> [--baseline <report.json>] [--target <triple>] \
@@ -46,6 +47,7 @@ pub(in crate::standard_library) fn run(
 }
 
 fn execute(mut options: Options) -> Result<(), String> {
+    let started = Instant::now();
     let root = crate::workspace::root()?;
 
     if options.output.is_relative() {
@@ -62,9 +64,13 @@ fn execute(mut options: Options) -> Result<(), String> {
     fs::create_dir_all(&options.output)
         .map_err(|error| format!("could not create {}: {error}", options.output.display()))?;
 
+    progress::phase("Preparing performance runtime");
+
     let runtime_directory = options.output.join("runtime");
     let runtime = crate::runtime_artifact::build_for_readiness(options.target, &runtime_directory)?;
     let toolchain = options.output.join("toolchain");
+
+    progress::phase("Assembling performance toolchain");
 
     crate::native_toolchain::assemble(&root, options.target, &runtime, &toolchain)?;
 
@@ -75,6 +81,8 @@ fn execute(mut options: Options) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
+    progress::phase("Preparing performance observations");
+
     let observation_runtime = crate::runtime_artifact::build_for_performance_observation(
         options.target,
         &options.output.join("observation-runtime"),
@@ -83,7 +91,11 @@ fn execute(mut options: Options) -> Result<(), String> {
     let identity = report_identity(&root, &options, &selected)?;
     let mut workloads = Vec::with_capacity(selected.len());
 
-    for workload in selected {
+    progress::plan(selected.len(), options.warmup, options.samples);
+
+    for (index, workload) in selected.iter().enumerate() {
+        progress::workload(index.saturating_add(1), selected.len(), workload.id);
+
         workloads.push(run_workload(
             &options,
             workload,
@@ -102,21 +114,31 @@ fn execute(mut options: Options) -> Result<(), String> {
     super::super::validation::validate(&candidate)?;
 
     let candidate_path = options.output.join("candidate.json");
+    let candidate_html = options.output.join("candidate.html");
 
     crate::json::write_pretty(&candidate_path, &candidate)?;
-    report::write_candidate(&options.output.join("candidate.html"), &candidate)?;
+    report::write_candidate(&candidate_html, &candidate)?;
+
+    progress::report("Candidate HTML", &candidate_html);
 
     if let Some(path) = options.baseline {
+        progress::phase("Comparing performance reports");
+
         let bytes = read_baseline(&path)?;
 
         let baseline: PerformanceReport = serde_json::from_slice(&bytes)
             .map_err(|error| format!("baseline {} is invalid: {error}", path.display()))?;
 
         let comparison = compare(&baseline, &candidate)?;
+        let comparison_html = options.output.join("comparison.html");
 
         crate::json::write_pretty(&options.output.join("comparison.json"), &comparison)?;
-        report::write_comparison(&options.output.join("comparison.html"), &comparison)?;
+        report::write_comparison(&comparison_html, &comparison)?;
+
+        progress::report("Comparison HTML", &comparison_html);
     }
+
+    progress::finished(started.elapsed());
 
     println!("{}", candidate_path.display());
 
@@ -220,6 +242,8 @@ fn run_workload(
         request.with_standard_library_source_authority()
     };
 
+    progress::workload_phase("Compiling Bray artifacts");
+
     let compilation = load_llvm_compilation(request)
         .map_err(|error| format!("could not load workload {}: {error:?}", workload.id))?;
 
@@ -274,6 +298,8 @@ fn run_workload(
     let output_digest = expected_output_digest(workload.expected_output)?;
     let timing_output = output.join("timing");
 
+    progress::workload_phase("Building timing artifact");
+
     let (timed_executable, timing_map) = emit_observed_executable(
         &compilation,
         product.clone(),
@@ -283,6 +309,8 @@ fn run_workload(
         bray_compilation::BuildConfiguration::TimedRelease,
         workload.id,
     )?;
+
+    progress::workload_phase("Preparing Rust and C++ peers");
 
     let peer_build = super::super::peer::build(
         &crate::workspace::root()?,
@@ -307,6 +335,8 @@ fn run_workload(
         }));
     }
 
+    progress::workload_phase("Running warmups and measured samples");
+
     let mut execution = execute_interleaved(
         &implementations,
         &output,
@@ -321,6 +351,8 @@ fn run_workload(
         .ok_or_else(|| "interleaved execution omitted Bray".to_owned())?;
 
     let mut observations = if let Some(expected) = workload.storage {
+        progress::workload_phase("Measuring storage work");
+
         let storage_output = output.join("storage-observation");
 
         let (storage_executable, storage_map) = emit_observed_executable(
@@ -349,6 +381,8 @@ fn run_workload(
 
     let peers = peer_reports(peer_build, execution)?;
 
+    progress::workload_phase("Inspecting artifacts");
+
     let mut artifacts = vec![retention::inspect(
         ArtifactKind::Executable,
         &executable,
@@ -363,7 +397,7 @@ fn run_workload(
         )?);
     }
 
-    Ok(WorkloadReport {
+    let report = WorkloadReport {
         id: workload.id.to_owned(),
         peer_contract: super::super::peer::comparison_contract(workload.id).map(str::to_owned),
         category: workload.category,
@@ -376,7 +410,11 @@ fn run_workload(
         artifacts,
         observations,
         peers,
-    })
+    };
+
+    progress::workload_phase("Complete");
+
+    Ok(report)
 }
 
 fn peer_reports(
