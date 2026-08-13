@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 2;
+pub(super) const CORPUS_REVISION: u32 = 3;
 
 pub(super) struct Workload {
     pub id: &'static str,
@@ -10,12 +10,20 @@ pub(super) struct Workload {
     pub source: &'static str,
     pub standard_library_sources: &'static [&'static str],
     pub expected_output: ExpectedOutput,
+    pub storage: Option<StorageExpectation>,
 }
 
 #[derive(Clone, Copy)]
 pub(super) enum ExpectedOutput {
     Empty,
     Repeated { byte: u8, count: u64 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct StorageExpectation {
+    pub allocation_count: u64,
+    pub allocated_bytes: u64,
+    pub copied_bytes: u64,
 }
 
 pub(super) const WORKLOADS: [Workload; 9] = [
@@ -30,6 +38,7 @@ func main() {}
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        storage: None,
     },
     Workload {
         id: "incremental_bytes_small",
@@ -62,6 +71,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             "standard-library/std/src/bytes/buffer.bray",
         ],
         expected_output: ExpectedOutput::Empty,
+        storage: Some(StorageExpectation {
+            allocation_count: 5,
+            allocated_bytes: 124,
+            copied_bytes: 60,
+        }),
     },
     Workload {
         id: "incremental_bytes",
@@ -94,6 +108,11 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             "standard-library/std/src/bytes/buffer.bray",
         ],
         expected_output: ExpectedOutput::Empty,
+        storage: Some(StorageExpectation {
+            allocation_count: 11,
+            allocated_bytes: 8_188,
+            copied_bytes: 4_092,
+        }),
     },
     Workload {
         id: "format_numbers",
@@ -131,6 +150,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             "standard-library/std/src/format/rendering.bray",
         ],
         expected_output: ExpectedOutput::Empty,
+        storage: None,
     },
     Workload {
         id: "stream_output",
@@ -159,6 +179,7 @@ func main() -> Result<unit, std.io.IoError>
             byte: b'x',
             count: 1024,
         },
+        storage: None,
     },
     Workload {
         id: "async_output",
@@ -187,6 +208,7 @@ async func main() -> Result<unit, std.io.IoError>
             byte: b'x',
             count: 128,
         },
+        storage: None,
     },
     Workload {
         id: "filesystem_metadata",
@@ -216,6 +238,7 @@ func main() -> Result<unit, std.io.IoError>
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        storage: None,
     },
     Workload {
         id: "process_context",
@@ -239,6 +262,7 @@ func main()
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        storage: None,
     },
     Workload {
         id: "monotonic_clock",
@@ -264,5 +288,31 @@ func main() -> Result<unit, std.time.ClockError>
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        storage: None,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::WORKLOADS;
+
+    #[test]
+    fn incremental_growth_scales_logarithmic_allocations_and_linear_transfer_work() {
+        let small = storage("incremental_bytes_small");
+        let large = storage("incremental_bytes");
+
+        let additional_allocations = large.allocation_count - small.allocation_count;
+
+        assert_eq!(1_u64 << additional_allocations, 4096 / 64);
+        assert_eq!(large.allocated_bytes + 4, (small.allocated_bytes + 4) * 64);
+        assert_eq!(large.copied_bytes + 4, (small.copied_bytes + 4) * 64);
+    }
+
+    fn storage(identity: &str) -> super::StorageExpectation {
+        WORKLOADS
+            .iter()
+            .find(|workload| workload.id == identity)
+            .and_then(|workload| workload.storage)
+            .unwrap_or_else(|| panic!("{identity} must define storage work"))
+    }
+}

@@ -26,6 +26,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let destination = self.memory_pointer(destination)?;
 
         llvm(self.builder.build_memcpy(destination, 1, source_pointer, 1, bytes))?;
+        self.observe_memory_copy(bytes)?;
 
         Ok(())
     }
@@ -70,6 +71,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )?;
             }
         }
+
+        self.observe_memory_copy(bytes)?;
 
         Ok(())
     }

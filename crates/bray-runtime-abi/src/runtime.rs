@@ -62,6 +62,22 @@ pub const MEMORY_ALLOCATION_SYMBOL: &str = "bray_runtime_memory_allocation_v1";
 /// Stable symbol releasing manually managed Bray storage.
 pub const MEMORY_DEALLOCATION_SYMBOL: &str = "bray_runtime_memory_deallocation_v1";
 
+/// Stable symbol observing one successful generated memory allocation.
+pub const MEMORY_ALLOCATION_OBSERVATION_SYMBOL: &str =
+    "bray_runtime_memory_allocation_observation_v1";
+
+/// Stable symbol observing one completed generated memory transfer.
+pub const MEMORY_COPY_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_copy_observation_v1";
+
+/// Per-process file selected for opt-in generated memory observations.
+pub const MEMORY_OBSERVATION_PATH_ENVIRONMENT: &str = "BRAY_MEMORY_OBSERVATION_PATH";
+
+/// Versioned fixed-record observation stream header.
+pub const MEMORY_OBSERVATION_HEADER: [u8; 8] = *b"BRAYMO01";
+
+/// Maximum number of generated memory events retained by one observed run.
+pub const MAX_MEMORY_OBSERVATION_RECORDS: u64 = 1_000_000;
+
 /// Stable symbol measuring the immutable process-context block.
 pub const PLATFORM_CONTEXT_MEASURE_SYMBOL: &str = "bray_platform_context_measure";
 

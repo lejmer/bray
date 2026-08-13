@@ -46,7 +46,10 @@ pub use mapping::{
     demanded_debug_sources, demanded_runtime_references, demanded_runtime_references_for_mir,
     demanded_types, mapped_runtime_references,
 };
-pub use options::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
+pub use options::{
+    CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode,
+    SizePreference,
+};
 pub use outcome::{
     CodegenFailure, CodegenOutcome, CodegenOutcomeBuildError, CodegenStatus,
     codegen_failure_diagnostic, codegen_failure_diagnostics,

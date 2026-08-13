@@ -81,6 +81,19 @@ impl CodegenRequestFixture {
     pub const fn optional_artifact(&self) -> &BackendArtifactId {
         &self.optional_artifact
     }
+
+    /// Returns the fixture with the requested runtime observation mode.
+    pub fn with_runtime_observations(mut self, mode: crate::RuntimeObservationMode) -> Self {
+        self.options = CodegenOptions::new(
+            self.options.optimization(),
+            self.options.size_preference(),
+            self.options.debug_information(),
+            self.options.reproducibility(),
+            mode,
+        );
+
+        self
+    }
 }
 
 /// Creates a complete validated code generation request fixture.
@@ -179,6 +192,7 @@ pub fn codegen_request_for_unit(
             SizePreference::None,
             DebugInformationMode::None,
             crate::ReproducibilityLevel::ByteForByte,
+            crate::RuntimeObservationMode::None,
         ),
         artifacts,
         required_artifact,

@@ -249,6 +249,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             bytes,
         ))?;
 
+        self.observe_memory_copy(bytes)?;
+
         self.store_raw_buffer_initialized_count(
             destination,
             destination_llvm_type,

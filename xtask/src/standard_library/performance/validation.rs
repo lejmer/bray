@@ -116,6 +116,22 @@ fn validate_workload(
     validate_observation(&workload.observations.allocated_bytes)?;
     validate_observation(&workload.observations.copied_bytes)?;
 
+    if let Some(expected) = canonical.storage
+        && (
+            measured_value(&workload.observations.allocation_count)
+                != Some(expected.allocation_count)
+                || measured_value(&workload.observations.allocated_bytes)
+                    != Some(expected.allocated_bytes)
+                || measured_value(&workload.observations.copied_bytes)
+                    != Some(expected.copied_bytes)
+        )
+    {
+        return Err(format!(
+            "workload {} does not contain its required storage observations",
+            workload.id
+        ));
+    }
+
     if workload.observations.platform_operations.len() > MAX_PLATFORM_OPERATION_COUNT {
         return Err(format!("workload {} has too many platform observations", workload.id));
     }
@@ -182,6 +198,13 @@ fn validate_observation(observation: &Observation) -> Result<(), String> {
             Err("unavailable observations require a reason".to_owned())
         }
         _ => Ok(()),
+    }
+}
+
+const fn measured_value(observation: &Observation) -> Option<u64> {
+    match observation {
+        Observation::Measured { value, .. } => Some(*value),
+        Observation::Unavailable { .. } => None,
     }
 }
 

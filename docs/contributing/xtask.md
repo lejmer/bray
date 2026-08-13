@@ -203,6 +203,11 @@ observations are tagged as measured or unavailable; never replace a missing obse
 dynamic-library, and retained-input collections have fixed entry limits and disclose omitted counts rather than allowing reports
 to grow without bound.
 
+The incremental byte workloads run a separate untimed, opt-in observed artifact and report successful generated allocation and
+bulk-transfer events. Their fixed 64-byte and 4096-byte contracts prove logarithmic allocation growth and linear allocation and
+copy work. Production workload artifacts retain no observation callbacks, so timing and artifact measurements remain those of the
+ordinary release build.
+
 Compare an equivalent baseline and candidate with:
 
 ```text

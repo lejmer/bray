@@ -71,6 +71,7 @@ mod tests {
             size_preference,
             DebugInformationMode::None,
             bray_codegen::ReproducibilityLevel::ByteForByte,
+            bray_codegen::RuntimeObservationMode::None,
         )
     }
 }

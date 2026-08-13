@@ -371,6 +371,50 @@ mod tests {
     }
 
     #[test]
+    fn observed_memory_operations_record_only_after_the_effect() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = memory_operation_fixture(&backend)
+            .with_runtime_observations(bray_codegen::RuntimeObservationMode::Memory);
+
+        let context = Context::create();
+
+        let (_machine, module) = backend
+            .prepare_module(fixture.request(), &context)
+            .unwrap_or_else(|error| panic!("observed memory LLVM must generate: {error:?}"))
+            .unwrap_or_else(|| panic!("observed memory LLVM must not be cancelled"));
+
+        let ir = module.print_to_string().to_string();
+        let allocation = position(&ir, bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL);
+
+        let allocation_observation = position(
+            &ir,
+            bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
+        );
+
+        let relocation = ir
+            .find("memory.buffer.relocate.bytes")
+            .unwrap_or_else(|| panic!("observed memory LLVM must relocate storage"));
+
+        let copy_observation = ir[relocation..]
+            .find(bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL)
+            .map(|position| relocation + position)
+            .unwrap_or_else(|| panic!("observed memory LLVM must record relocation"));
+
+        assert!(allocation < allocation_observation);
+        assert!(relocation < copy_observation);
+    }
+
+    fn position(ir: &str, symbol: &str) -> usize {
+        ir.match_indices(symbol)
+            .find(|(position, _)| ir[..*position].rsplit_once('\n').is_some_and(|(_, line)| line.contains("call")))
+            .map(|(position, _)| position)
+            .unwrap_or_else(|| panic!("observed memory LLVM is missing {symbol}"))
+    }
+
+    #[test]
     fn unavailable_memory_capabilities_fail_before_artifact_serialization() {
         let Ok(backend) = LlvmCodeGenerator::try_new() else {
             panic!("LLVM backend constants must be valid");
