@@ -338,7 +338,7 @@ An `AnySymbolId` closed enum is useful for:
 - generic containment queries,
 - tooling protocols that explicitly request any symbol.
 
-It is an identity-erasing adapter, not canonical symbol storage.
+It is an identity-erasing adapter, not stable symbol storage.
 
 Core APIs must not return `Vec<AnySymbolId>` when a semantic relationship has a more precise type.
 
@@ -628,7 +628,7 @@ These concepts should use separate typed identities where interning or cross-ref
 A constructed entity references its original definition symbol and ordered arguments. It does not reuse the definition's symbol ID
 as though construction had not occurred.
 
-`bray-symbols` owns source type-expression templates, canonical semantic types, constant values, open constant terms,
+`bray-symbols` owns source type-expression templates, interned semantic types, constant values, open constant terms,
 substitutions, portable dependency-contract templates, and their interner APIs because they directly compose from typed symbol IDs
 and are returned by symbol facts. They remain separate semantic categories and do not become symbols merely because the symbol crate
 owns their dependency-safe representation. The full contract is defined in `docs/design/binder.md`.
@@ -660,7 +660,7 @@ Examples:
 
 ### No Generic Child List
 
-Canonical storage and public APIs must use typed semantic relationships.
+Defined storage and public APIs must use typed semantic relationships.
 
 A generic `children()` operation can exist only as a derived visitor or tooling projection. It must not be the source of truth used by
 binding or diagnostics.
@@ -716,7 +716,7 @@ stable-key strings.
 Target-available views must apply their existing availability result to both forward and reverse role queries for symbols and
 special values. The complete provider and its registry remain unchanged.
 
-Its ambient collections remain category-specific. They must not use a generic canonical child list merely because several symbol
+Its ambient collections remain category-specific. They must not use a generic stable child list merely because several symbol
 kinds are ambient.
 
 Declaration categories that can be owned either by a module or directly by the compiler-known environment use a closed owner family
@@ -814,9 +814,9 @@ inaccessible, unsatisfied constraints, malformed, and conflicting declarations. 
 type, the member's declaring module, and the member's own visibility. An inherent implementation does not create another visibility
 or activation boundary.
 
-Stable enumeration lists direct members in source order, followed by inherent implementations in canonical declaration-table order
+Stable enumeration lists direct members in source order, followed by inherent implementations in stable declaration-table order
 and each implementation's members in source order. This order is observable only for deterministic metadata, diagnostics, tooling,
-and tests. It is never lookup precedence. A conflict retains every candidate and emits diagnostics in canonical order rather than
+and tests. It is never lookup precedence. A conflict retains every candidate and emits diagnostics in stable order rather than
 selecting the first declaration.
 
 The type-associated surface fact owns aggregation diagnostics. Successful publication caches the immutable surface and its
@@ -826,7 +826,7 @@ If an inherent implementation subject cannot be resolved to an owned named type 
 error-aware symbol with its own diagnostics and is not attached to an arbitrary type surface.
 
 Public APIs over this fact remain kind-specific. Types expose typed field, variant, callable, constructor, lifecycle, constant,
-predicate, type-valued-member, overload-family, and inherent-implementation collections rather than a canonical generic child list.
+predicate, type-valued-member, overload-family, and inherent-implementation collections rather than a generic child list.
 
 ### Trait Relationships
 
@@ -861,7 +861,7 @@ and conflict diagnostics consume this key through checker-owned coherence querie
 An implementation candidate-set fact must be keyed by one exact checked subject type and trait application. Its immutable candidates
 must be origin-neutral across source, imported, and compiler-known declarations and must be ordered by stable semantic implementation
 key. Each candidate must retain its implementation identity, inferred generic substitution, declaration-ordered generic constraint
-templates, canonical target-property dependencies, and coherence evidence.
+templates, selected target-property dependencies, and coherence evidence.
 
 A candidate set must record declarations that require applicability checking. It must not prove generic constraints, target
 availability, or coherence, and it must not manufacture a selected implementation instance. `ImplementationSelectionFact` must
@@ -960,7 +960,7 @@ Examples:
 - implementation fulfillment lookup by the trait member being fulfilled,
 - overload family arm lookup by stable arm order.
 
-Indexes are derived facts over canonical typed child collections.
+Indexes are derived facts over stable typed child collections.
 
 A context-specific lookup such as type lookup or value lookup first resolves the ordinary name and then validates the resolved
 entity's semantic category. Finding an entity of the wrong category must remain distinguishable from not finding the name. Typed
@@ -1626,10 +1626,10 @@ Every region has a deterministic `LocalSymbolRegionKey` derived from:
 - the exact declared or synthesized semantic owner,
 - the bound fact category,
 - the region's stable `SyntaxAnchor`,
-- a canonical role or ordinal when one owner has multiple regions at the same anchor.
+- a defined role or ordinal when one owner has multiple regions at the same anchor.
 
 A declared callable body uses its callable symbol and body anchor. An anonymous callable region uses the nearest declared or
-synthesized root plus the canonical path of lambda anchors leading to that lambda. A declaration-owned expression uses its owning
+synthesized root plus the normalized path of lambda anchors leading to that lambda. A declaration-owned expression uses its owning
 symbol, exact fact category, and expression anchor.
 
 The lambda region owns the anonymous callable symbol, its parameter symbols, its contracts, and its body-local symbols. The enclosing
@@ -1724,7 +1724,7 @@ impl LocalSymbolSnapshot {
 ```
 
 The exact storage can use dense per-category tables generated by shared infrastructure. Public APIs remain category-specific and do
-not expose one canonical heterogeneous child list.
+not expose one general heterogeneous child list.
 
 The checked-region API exposes its local snapshot directly. Lowering receives the checked bound HIR and its local snapshot together
 rather than resolving locals through a mutable compilation-wide registry.
@@ -1754,7 +1754,7 @@ The root local scope references the applicable surface symbols without cloning t
 
 ### Deterministic Construction And Recovery
 
-Local slots are assigned in canonical syntax order within each category. Pattern bindings use their language-defined logical binding
+Local slots are assigned in stable syntax order within each category. Pattern bindings use their language-defined logical binding
 order. Stable keys combine the region key, introducing syntax anchor, exact local category, and a role or ordinal where one syntax
 form introduces multiple symbols.
 
@@ -1840,11 +1840,11 @@ This prevents definition identity, generic substitution, and use-site selection 
 
 Original-definition queries are explicit on application values. They must not rely on stripping information from a reused symbol ID.
 
-Canonical semantic types, constant values, open constant terms, and generic substitutions are stored in a compilation- or immutable
+Defined semantic types, constant values, open constant terms, and generic substitutions are stored in a compilation- or immutable
 symbol-snapshot-scoped semantic value store owned by `bray-symbols`. The store interns immutable structural keys and returns opaque
 typed IDs. Numeric IDs are never persisted or used for deterministic output ordering.
 
-Inference variables are checker-local and never appear as `TypeId`. Closed constant values use `ConstantValueId`; open const
+Inference variables are checker-local and never appear as `TypeId`. Closed constant values use `ConstantValueId`. Open const
 parameters and checked terms used in generic type identity use `ConstantTermId`. An open `GenericSubstitutionId` is distinct from a
 validated `ConcreteGenericSubstitutionId` required by concrete constant evaluation and code generation.
 
@@ -1882,7 +1882,7 @@ The public cross-crate API should favor:
 
 The public API should avoid:
 
-- trait-object inheritance as canonical symbol storage,
+- trait-object inheritance as stable symbol storage,
 - downcasting from a universal symbol object,
 - public green or syntax storage internals,
 - one untyped child list,
@@ -1903,12 +1903,12 @@ Symbol tests should validate semantic contracts rather than cache implementation
 Required coverage includes:
 
 - kind and exact-ID distinction,
-- canonical semantic values reusing one ID per structural key within a store,
+- interned semantic values reusing one ID per structural key within a store,
 - semantic value IDs remaining store-local and absent from persisted interfaces,
 - open and concrete generic substitutions remaining type-distinct,
 - dependency-contract templates using formal subjects and structural interface encoding,
 - dependency-contract templates containing no bound-unit storage, access, or borrow-capability IDs,
-- source, imported, and compiler-known facts sharing canonical type and constant APIs,
+- source, imported, and compiler-known facts sharing stable type and constant APIs,
 - exactly one compiler-known environment root and no compilation-root symbol,
 - package and compiler-known module owners remaining distinguishable through `ModuleOwnerId`,
 - ambient compiler-known lookup not changing source-module package containment,
@@ -1965,7 +1965,7 @@ tables, the compiler-known catalog, and compiled dependency interfaces.
 Delivery follows this dependency order. Every completed step must use the final contracts and ownership boundaries defined above:
 
 1. Define symbol kinds, typed IDs, semantic value IDs, origins, keys, and common immutable identity data.
-2. Define canonical semantic type, constant value, open constant term, generic substitution, dependency-contract-template, and
+2. Define interned semantic type, constant value, open constant term, generic substitution, dependency-contract-template, and
    semantic-store contracts.
 3. Define the symbol graph, `SymbolRootId`, package roots, the compiler-known environment root ID, module owner families, module
    symbols, and deterministic source declaration-to-symbol identity mapping.

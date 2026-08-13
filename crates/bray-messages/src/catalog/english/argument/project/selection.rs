@@ -35,7 +35,7 @@ pub(crate) fn format_english_project_selection_problem(
             interfaces,
             implementations,
         } => format!(
-            "dependency options contain {products} products, {interfaces} interface paths, and {implementations} implementation paths; each selected product requires one interface path and either zero or one implementation path"
+            "dependency options contain {products} products, {interfaces} interface paths, and {implementations} implementation paths. Each selected product requires one interface path and either zero or one implementation path"
         ),
         Problem::InvalidDependencyProduct(value) => format!(
             "{} is not a valid dependency product identity",

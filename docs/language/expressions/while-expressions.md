@@ -42,10 +42,10 @@ The syntactic body block of a while expression belongs to the while expression's
 
 The else body belongs to the same break-capable region.
 
-A while body does not capture `yield`; a `yield` inside a while body targets the nearest enclosing yield-capable region unless a
+A while body does not capture `yield`. A `yield` inside a while body targets the nearest enclosing yield-capable region unless a
 nested yield-capable region captures it.
 
-An else body does not capture `yield`; a `yield` inside an else body targets the nearest enclosing yield-capable region unless a
+An else body does not capture `yield`. A `yield` inside an else body targets the nearest enclosing yield-capable region unless a
 nested yield-capable region captures it.
 
 `break value` exits the while expression and supplies the while result.

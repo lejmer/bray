@@ -649,6 +649,7 @@ mod tests {
                     root: ".".into(),
                     artifact: crate::ManagedArtifactPath::try_new("artifacts/same-output")
                         .unwrap_or_else(|| panic!("test managed path must be valid")),
+                    published: "same-output".into(),
                 }
             ))
         );

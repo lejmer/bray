@@ -2,8 +2,6 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use bray_emitter::ArtifactKind;
-use bray_symbols::{PackageIdentity, ProductIdentity};
 use bray_target::NativeTarget;
 
 use super::core::{PRODUCT_NAME, native_output, product_output};
@@ -46,22 +44,16 @@ pub(super) fn audit_standard_hello_world(
         .join("build")
         .join("native")
         .join("debug")
-        .join("example.hello")
-        .join(PRODUCT_NAME);
+        .join("example.hello");
 
-    let package = PackageIdentity::try_new("example.hello")
-        .ok_or_else(|| "hello-world package identity is invalid".to_owned())?;
-
-    let product = ProductIdentity::try_new(package, PRODUCT_NAME)
-        .ok_or_else(|| "hello-world product identity is invalid".to_owned())?;
-
-    let executable = bray_emitter::resolve_published_artifact(
-        &output_directory,
-        &product,
-        ArtifactKind::Executable,
-        0,
+    let executable_name = bray_target::TargetOutputName::for_native(
+        target.object_format(),
+        bray_target::TargetOutputKind::Executable,
     )
-    .map_err(|error| format!("could not resolve Bray Tack build output: {error:?}"))?;
+    .file_name(PRODUCT_NAME)
+    .ok_or_else(|| "hello-world executable name is invalid".to_owned())?;
+
+    let executable = output_directory.join(executable_name);
 
     let result = product_output(&executable, "executing Bray Tack build output")?;
 
@@ -189,7 +181,7 @@ fn finished_progress(target: NativeTarget) -> Result<String, String> {
     .ok_or_else(|| "hello-world executable name is invalid".to_owned())?;
 
     Ok(format!(
-        "Finished {executable_name} build/native/debug/example.hello/application"
+        "Finished {executable_name} build/native/debug/example.hello"
     ))
 }
 
@@ -204,7 +196,7 @@ mod tests {
         assert_eq!(
             finished_progress(NativeTarget::X86_64WindowsMsvc),
             Ok(String::from(
-                "Finished application.exe build/native/debug/example.hello/application"
+                "Finished application.exe build/native/debug/example.hello"
             ))
         );
 
@@ -217,7 +209,7 @@ mod tests {
             assert_eq!(
                 finished_progress(target),
                 Ok(String::from(
-                    "Finished application build/native/debug/example.hello/application"
+                    "Finished application build/native/debug/example.hello"
                 ))
             );
         }

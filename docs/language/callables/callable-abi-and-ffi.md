@@ -38,7 +38,7 @@ callable CompareCallback =
 ### Extern callable declarations
 
 The `extern` modifier declares a callable whose body is supplied by another linked artifact. The artifact can itself contain
-separately compiled Bray; `extern` does not imply C or another foreign implementation language.
+separately compiled Bray. `extern` does not imply C or another foreign implementation language.
 
 ```bray
 @link(name = "c")

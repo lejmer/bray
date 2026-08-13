@@ -87,7 +87,7 @@ Compiler panics are for violated compiler invariants.
 
 Project-oriented tools first load explicit workspace and package manifests through `bray-project`. That boundary validates
 project-owned paths, enumerates declared source roots, resolves exact package-product dependency edges against the workspace
-inventory, and publishes one immutable dependency-first graph. Compilation, inspection, and language tooling consume that graph;
+inventory, and publishes one immutable dependency-first graph. Compilation, inspection, and language tooling consume that graph.
 they do not search for packages or consult ambient dependency state.
 
 The user-facing command boundary and its explicit acquisition non-goals are defined in
@@ -135,13 +135,13 @@ No phase should rely on a later phase to repair invalid data.
 The main durable representations are:
 
 - a lossless syntax tree,
-- a canonical source-shaped bound high-level IR with independently published semantic facts,
+- an authoritative source-shaped bound high-level IR with independently published semantic facts,
 - a backend-independent mid-level IR.
 
 No universal checked-program object records which analyses have run. Each consumer observes the source-shaped bound HIR through a
 validated view containing only the immutable semantic facts required by that consumer.
 
-Lowering receives one such view over a canonical bound unit and its required typed side facts.
+Lowering receives one such view over a published bound unit and its required typed side facts.
 It publishes one execution-shaped MIR owned by `bray-ir`, not another durable family of lowered bound nodes.
 
 ---
@@ -171,7 +171,7 @@ diagnostics. Neither the command driver nor the check-diagnostics query enumerat
 directly.
 
 One compilation request carries the source package identity as an explicit semantic input. `Compilation` owns that identity and
-lazily derives the matching symbol graph and canonical semantic value store. Binder-facing query APIs construct their read-only fact
+lazily derives the matching symbol graph and interned semantic value store. Binder-facing query APIs construct their read-only fact
 context internally from compilation-owned inputs. They must not accept arbitrary caller contexts that could populate one cache from
 another syntax, symbol, target, or semantic-value universe.
 
@@ -205,7 +205,7 @@ template preserves embedded constant-expression occurrences and their expected-t
 selection, target validation, or constant evaluation. A separate checked type or signature accessor resolves only the occurrences
 required by that request through the cooperating semantic fixed point.
 
-Binding publishes one canonical immutable `BoundUnit`. Each semantic analysis publishes only its typed side facts keyed to that
+Binding publishes one stable immutable `BoundUnit`. Each semantic analysis publishes only its typed side facts keyed to that
 unit. The compiler must not copy the bound tree into stage-specific wrapper families as analyses complete. A consumer that needs a
 set of facts requests that exact set through typed accessors. There is no universal whole-unit completion query.
 
@@ -235,7 +235,7 @@ Diagnostics from lazily evaluated facts must be merged and ordered deterministic
 ## Selected Target Facts
 
 One product compilation selects one immutable target context before requesting target-dependent semantic facts. The context owns
-the canonical `bray_target::TargetProfile`, the applicable runtime compatibility facts, and the capabilities used to derive the
+the stable `bray_target::TargetProfile`, the applicable runtime compatibility facts, and the capabilities used to derive the
 target-available compiler-known declaration view. Product formation selects a runtime only after reachable requirements are known.
 None of these values may be inferred from the compiler host.
 
@@ -381,7 +381,7 @@ Syntax trees, syntax nodes, syntax tokens, and syntax trivia are immutable after
 
 The parser can use mutable builders internally, but the published syntax tree is immutable.
 
-The canonical syntax-tree storage is green-style storage:
+The syntax-tree storage is green-style storage:
 
 - green nodes are parentless immutable nodes with a `SyntaxKind`, full source width, and source-order child elements,
 - green child elements are either green nodes or green tokens,
@@ -520,12 +520,12 @@ reachable. The exact fact contracts and provider APIs are defined in `docs/desig
 
 Binding resolves names, paths, member references, local bindings, declarations, and reference targets.
 
-Binding consumes syntax plus symbol tables and produces the canonical bound HIR while using focused checker services for decisions
+Binding consumes syntax plus symbol tables and produces the bound HIR while using focused checker services for decisions
 required during binding.
 
 The bound tree is the compiler's source-shaped high-level intermediate representation.
 
-The binder owns bound-tree construction. Compilation-owned semantic queries call focused checker services after the canonical bound
+The binder owns bound-tree construction. Compilation-owned semantic queries call focused checker services after the stable bound
 unit and their other declared inputs are available.
 
 The binder can use mutable builders internally, but the published bound representation is immutable. The compiler should not
@@ -545,7 +545,7 @@ Compilation owns semantic-analysis orchestration. Binding does not define every 
 Type checking, ownership checking, borrowing, aliasing, effect checking, contract solving, and target-availability checking live
 in focused semantic checker services.
 
-Those services return diagnostics and typed semantic facts for compilation to publish beside the canonical bound unit.
+Those services return diagnostics and typed semantic facts for compilation to publish beside the published bound unit.
 
 Some semantic facts require data-flow over an already published bound unit. Their queries depend on that unit and publish only their
 own durable results.
@@ -598,7 +598,7 @@ dependency-contract propagation share that graph while retaining focused typed a
 ownership, movement, borrowing, mutation-authority, and lifecycle facts use one composite storage-flow domain rather than circular
 independent passes.
 
-The control-flow graph is task-local checker infrastructure. It is neither canonical bound HIR nor published Bray MIR, and
+The control-flow graph is task-local checker infrastructure. It is neither bound HIR nor published Bray MIR, and
 its block, edge, operation, and program-point IDs do not enter symbols, package interfaces, or published checked nodes. A separately
 requested tooling view can later project source-correlated control flow without exposing checker-private identity.
 
@@ -607,7 +607,7 @@ in parallel when their explicit input facts are available and doing so is profit
 published facts must not depend on worker scheduling.
 
 There is no single checked-program or checked-unit representation. A diagnostic, tooling, lowering, or emission request observes
-the canonical bound HIR together with the exact immutable semantic facts required by that consumer.
+the bound HIR together with the exact immutable semantic facts required by that consumer.
 
 Checker services should publish facts precise enough that lowering can consume its declared inputs without re-checking source
 semantics. Lowering does not use the existence of unrelated cached facts as evidence that its requirements are satisfied.
@@ -677,7 +677,7 @@ diagnostics are isolated in `bray-codegen-llvm`. They must not appear in `bray-i
 facts, or emission APIs.
 
 `bray-codegen` owns backend selection, codegen-unit partitioning, reachable concrete monomorphized-instance collection, backend
-identity, capabilities, requests, and outcomes. It packages canonical layout, ABI, symbol, target, runtime, and linkage facts that
+identity, capabilities, requests, and outcomes. It packages defined layout, ABI, symbol, target, runtime, and linkage facts that
 earlier phases already resolved. It does not reinterpret source directives or rediscover language semantics.
 
 The compiler composition root supplies the selected backend through that backend-neutral contract. `bray-compilation` coordinates
@@ -839,7 +839,7 @@ IR operation kinds.
 
 Kinds are useful for typed dispatch, pattern matching, diagnostics, debugging, snapshots, and exhaustive handling in visitors.
 
-Kinds are not identities. Two different syntax nodes can have the same `SyntaxKind`; two different symbols can have the same
+Kinds are not identities. Two different syntax nodes can have the same `SyntaxKind`. Two different symbols can have the same
 `SymbolKind`.
 
 ### Typed IDs
@@ -855,7 +855,7 @@ Typed IDs should not be interchangeable raw integers.
 
 Tables keyed by typed IDs should live in the crate that owns the identified concept.
 
-Kinds and IDs should both be explicit in APIs when both are relevant. A `SyntaxNodeId` identifies a specific syntax node; a
+Kinds and IDs should both be explicit in APIs when both are relevant. A `SyntaxNodeId` identifies a specific syntax node. A
 `SyntaxKind` classifies that node.
 
 ### Spans And Ranges
@@ -974,8 +974,8 @@ constructs, including source input, semantic and MIR work, concrete code generat
 artifact sizes.
 
 Trace mode includes the summary and a bounded event timeline. Events use monotonic session-relative timestamps, stable numeric and
-canonical operation and query identities, schema-scoped subject fingerprints, worker-local sequence, and explicit completed,
-failed, cancelled, or abandoned outcomes. Report context identifies the canonical package, product, and target. Per-worker fixed
+defined operation and query identities, schema-scoped subject fingerprints, worker-local sequence, and explicit completed,
+failed, cancelled, or abandoned outcomes. Report context identifies the stable package, product, and target. Per-worker fixed
 aggregate storage and bounded event buffers avoid a process-wide synchronization point. A report declares how many events were
 dropped after the configured bound was reached.
 
@@ -1025,13 +1025,13 @@ Context handles should expose typed APIs, not raw maps or global mutable state.
 Phase-specific context handles should stay narrow. A parser context should not expose semantic checking APIs, and a checker service
 context should not expose emission policy.
 
-### Interners And Canonical Tables
+### Interners And Tables
 
-Interners and canonical tables deduplicate stable compiler values.
+Interners and intern tables deduplicate stable compiler values.
 
 They should expose typed handles and deterministic behavior.
 
-Canonical semantic types, closed constant values, open constant terms, generic substitutions, trait applications, and callable or
+Defined semantic types, closed constant values, open constant terms, generic substitutions, trait applications, and callable or
 implementation instances use a semantic value store whose value types and APIs are owned by `bray-symbols`. The compilation or
 immutable symbol snapshot owns the store instance because its entries reference compilation-local symbol IDs.
 
@@ -1039,7 +1039,7 @@ Inference variables, unification state, evaluation stacks, and solver traces are
 the checker operation that owns them.
 
 Semantic value IDs are opaque store-local handles. Numeric assignment can vary with lazy demand without affecting semantics because
-serialization, diagnostics, sorting, and incremental reuse use canonical structural keys rather than numeric ID order.
+serialization, diagnostics, sorting, and incremental reuse use stable structural keys rather than numeric ID order.
 
 Interning should not be used to hide ownership boundaries or to avoid defining a real semantic identity.
 

@@ -85,7 +85,7 @@ pub(crate) fn emit_executable_with_configuration(
         ProductKind::Executable,
         native.executable_host().cloned(),
         selected.profile().identity().clone(),
-        RequestedArtifactDestination::FilesystemDirectory(output.to_path_buf()),
+        RequestedArtifactDestination::FilesystemDirectory(output.to_path_buf().into()),
         [
             RequestedArtifact::new(ArtifactKind::Executable, ArtifactRequirement::Required),
             RequestedArtifact::new(

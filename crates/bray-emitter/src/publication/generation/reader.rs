@@ -1,15 +1,21 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bray_base::decode_lowercase_hex;
 use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm};
 use serde::Deserialize;
 
+use super::layout::product_store;
+use super::lock::open_lock_file;
+use super::manifest::{
+    GenerationManifest, GenerationReference, permission_key,
+};
 use super::transaction::{
-    GENERATION_MANIFEST, GENERATIONS_DIRECTORY, GenerationManifest, GenerationReference,
-    MANIFEST_REVISION, METADATA_DIRECTORY, PUBLISHED_REFERENCE, permission_key,
+    GENERATION_MANIFEST, GENERATIONS_DIRECTORY, MANIFEST_REVISION, PUBLISHED_REFERENCE,
 };
 use crate::artifact::content::validate_staged_content;
-use crate::{ArtifactKind, ManagedArtifactPath};
+use crate::{
+    ArtifactKind, ManagedArtifactPath, ManagedFilesystemDestination, ManagedOutputDirectory,
+};
 
 /// Failure to resolve one artifact from the atomically published product generation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,14 +42,58 @@ pub enum PublishedGenerationReadError {
     InvalidArtifact,
 }
 
+/// Shared product-publication lock held while stable public artifact paths are consumed.
+pub struct PublishedProductReadGuard {
+    _file: std::fs::File,
+}
+
+/// Waits until any product publication finishes and prevents replacement until this guard drops.
+pub fn lock_published_product(
+    destination: impl Into<ManagedFilesystemDestination>,
+    product: &bray_symbols::ProductIdentity,
+) -> Result<PublishedProductReadGuard, PublishedGenerationReadError> {
+    let destination = destination.into();
+
+    lock_product_destination(&destination, product)
+}
+
+fn lock_product_destination(
+    destination: &ManagedFilesystemDestination,
+    product: &bray_symbols::ProductIdentity,
+) -> Result<PublishedProductReadGuard, PublishedGenerationReadError> {
+
+    let public_directory = destination
+        .relative_directory()
+        .map_or_else(PathBuf::new, ManagedOutputDirectory::to_path_buf);
+
+    let store = product_store(destination.root(), &public_directory, product);
+
+    let file = open_lock_file(&store)
+        .map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;
+
+    file.lock_shared()
+        .map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;
+
+    Ok(PublishedProductReadGuard { _file: file })
+}
+
 /// Resolves and validates one artifact from the currently published product generation.
 pub fn resolve_published_artifact(
-    root: &Path,
+    destination: impl Into<ManagedFilesystemDestination>,
     product: &bray_symbols::ProductIdentity,
     kind: ArtifactKind,
     ordinal: u32,
 ) -> Result<PathBuf, PublishedGenerationReadError> {
-    let reference_path = root.join(METADATA_DIRECTORY).join(PUBLISHED_REFERENCE);
+    let destination = destination.into();
+
+    let public_directory = destination
+        .relative_directory()
+        .map_or_else(PathBuf::new, ManagedOutputDirectory::to_path_buf);
+
+    let store = product_store(destination.root(), &public_directory, product);
+    let _guard = lock_product_destination(&destination, product)?;
+
+    let reference_path = store.join(PUBLISHED_REFERENCE);
 
     let reference_bytes = std::fs::read(reference_path)
         .map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;
@@ -70,8 +120,7 @@ pub fn resolve_published_artifact(
         return Err(PublishedGenerationReadError::InvalidGenerationIdentity);
     }
 
-    let generation = root
-        .join(METADATA_DIRECTORY)
+    let generation = store
         .join(GENERATIONS_DIRECTORY)
         .join(&reference.generation);
 
@@ -116,9 +165,15 @@ pub fn resolve_published_artifact(
     let relative = ManagedArtifactPath::try_new(artifact.path.as_str())
         .ok_or(PublishedGenerationReadError::InvalidArtifact)?;
 
-    let path = generation.join(relative.to_path_buf());
+    let internal_path = generation.join(relative.to_path_buf());
+
+    let published = ManagedArtifactPath::try_new(artifact.published_path.as_str())
+        .ok_or(PublishedGenerationReadError::InvalidArtifact)?;
+
+    let path = destination.root().join(published.to_path_buf());
 
     if artifact.permissions.logical != permission_key(kind)
+        || !artifact.permissions.matches(&internal_path).unwrap_or(false)
         || !artifact.permissions.matches(&path).unwrap_or(false)
     {
         return Err(PublishedGenerationReadError::InvalidArtifact);
@@ -135,6 +190,9 @@ pub fn resolve_published_artifact(
 
     let digest = ArtifactDigest::try_new(algorithm, digest_bytes)
         .ok_or(PublishedGenerationReadError::InvalidArtifact)?;
+
+    validate_staged_content(&internal_path, artifact.byte_len, Some(&digest), &|| false)
+        .map_err(|_| PublishedGenerationReadError::InvalidArtifact)?;
 
     validate_staged_content(&path, artifact.byte_len, Some(&digest), &|| false)
         .map_err(|_| PublishedGenerationReadError::InvalidArtifact)?;

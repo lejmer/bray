@@ -183,7 +183,7 @@ visibility-modifier =
     | "internal" ;
 ```
 
-The canonical module modifier order is `trusted` before visibility.
+The required module modifier order is `trusted` before visibility.
 
 ---
 
@@ -509,7 +509,7 @@ against field defaults.
 
 A non-empty expected-type struct construction body is recognized by the top-level `identifier "="` field-initializer shape. An empty
 braced expression is accepted as expected-type struct construction only when the expression context supplies the constructed struct
-type; otherwise it is an empty block expression.
+type. Otherwise it is an empty block expression.
 
 ### Type-form construction expressions
 
@@ -527,7 +527,7 @@ box-construction-expression =
 
 `box[S](...)` supplies explicit type-form arguments before the runtime construction arguments.
 
-The runtime arguments use `argument-list` syntax. Type-form construction expressions are not ordinary calls; type-form selection,
+The runtime arguments use `argument-list` syntax. Type-form construction expressions are not ordinary calls. Type-form selection,
 produced type, subject type, storage behavior, argument validity, ownership, effects, capabilities, and initialization are semantic
 checks.
 
@@ -549,7 +549,7 @@ Two-or-more-element tuples use comma-separated expressions and can include a tra
 
 Parentheses around a single expression without a comma are parsed as `grouped-expression`, not `tuple-expression`.
 
-The unit value is spelled `unit`; there is no empty tuple expression syntax.
+The unit value is spelled `unit`. There is no empty tuple expression syntax.
 
 ### Array expressions
 
@@ -663,7 +663,7 @@ A block-shaped expression is self-delimiting and can appear directly as a block 
 trailing `;`, in which case it is a sequenced expression.
 
 Other expression block items are sequenced expressions and always end with `;`. A block expression does not use a final
-unterminated expression as its result; value production is handled by `yield`.
+unterminated expression as its result. Value production is handled by `yield`.
 
 Block-level declarations are local binding declarations and constant declarations.
 
@@ -943,7 +943,7 @@ whether it is a binding pattern or a named pattern.
 
 Product field shorthand is the `identifier` case of a product field pattern.
 
-Payload entries without `=` are checked as positional payload entries while positional payload fields are available; otherwise they
+Payload entries without `=` are checked as positional payload entries while positional payload fields are available. Otherwise they
 are checked as payload field shorthand.
 
 `..` is parsed as `remaining-pattern`. Semantic checking enforces where it is allowed and that each pattern body contains at most
@@ -1107,7 +1107,7 @@ type-form-argument =
 ```
 
 Prefix type forms consume a complete type expression as their subject. Postfix type operations bind to the nearest primary type
-expression. For example, `box[Heap] Point?` is a box whose subject is `Point?`; `(box[Heap] Point)?` is a nullable box.
+expression. For example, `box[Heap] Point?` is a box whose subject is `Point?`. `(box[Heap] Point)?` is a nullable box.
 
 `Self` is a keyword type expression in trait and implementation contexts.
 
@@ -1635,7 +1635,7 @@ single-parameter-list =
 Finalizers, destructors, scope enter declarations, and scope exit declarations use lifecycle keywords instead of user-chosen
 function names.
 
-Finalizers, destructors, and scope exit declarations can omit the result clause; omitted result means `unit`.
+Finalizers, destructors, and scope exit declarations can omit the result clause. Omitted result means `unit`.
 
 Scope enter declarations require a result clause because the result type names the scoped capability value made available to the
 `with` body.
@@ -2085,7 +2085,7 @@ Generic parameters, when present, are written after the function name and before
 
 The result clause is optional. An omitted result type means `unit`.
 
-The grammar accepts either a callable-body block or `;`. Extern functions use `;`; non-extern functions use a callable-body block.
+The grammar accepts either a callable-body block or `;`. Extern functions use `;`. Non-extern functions use a callable-body block.
 Context-specific body requirements are semantic checks.
 
 Function modifiers can appear in any source order. Duplicate modifiers and incompatible combinations are semantic errors.

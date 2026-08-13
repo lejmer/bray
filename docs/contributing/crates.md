@@ -9,7 +9,7 @@ Compiler libraries and installed Bray tools.
 
 - `bray-base`
     - Small foundational types and helpers shared across otherwise unrelated compiler crates,
-      including private same-directory staging for atomic file publication.
+      including private same-filesystem staging for atomic file publication.
 
 - `bray-source`
     - Source identities, snapshots, text ranges, spans, and source-location utilities.
@@ -103,7 +103,7 @@ Compiler libraries and installed Bray tools.
 - `bray-platform`
     - Safe typed ownership of native threads, waits, clocks, memory, processes, sockets, and other mechanisms used by compiler-host
       tooling and trusted runtime or standard-library layers. Resource features let provider and runtime archives compile only the
-      mechanisms they own; ordinary compiler-host consumers retain the complete default mechanism set.
+      mechanisms they own. Ordinary compiler-host consumers retain the complete default mechanism set.
 
 - `bray-platform-abi`
     - Feature-partitioned native adapters that publish independent core, standard-stream, filesystem, and process archives for the

@@ -97,7 +97,7 @@ Text comparison is defined over Unicode scalar values unless an API explicitly s
 collation, normalization, grapheme segmentation, and case conversion are separate policy-bearing facilities and must not be hidden
 inside basic equality, ordering, indexing, or slicing.
 
-### Canonical Text Surface
+### Public Text Surface
 
 The text surface uses `&string` as its borrowed text view and `&[u8]` as its borrowed UTF-8 byte view. It does not introduce
 `StringView`, `TextView`, `ByteView`, or index-wrapper types that add no invariant beyond those structural forms. Scalar positions
@@ -154,7 +154,7 @@ The cursor representation is private. The value returned by `scalars` carries th
 scalar order, and remains exhausted after returning `none`. Byte iteration uses the slice returned by `utf8` and the ordinary
 slice iteration contract rather than a second string-specific byte cursor.
 
-The canonical `std.character` surface is:
+The `std.character` surface is:
 
 ```bray
 module std.character;
@@ -211,7 +211,7 @@ safe buffer invariant, but callers of the safe surface do not inherit raw-memory
 Encoding and decoding APIs name their encoding and failure policy. UTF-8 conversion uses the recognized `std.string` operations.
 No byte API silently assumes host endianness, native integer width, or null termination.
 
-### Canonical Buffer Surface
+### Public Buffer Surface
 
 The owning byte-buffer identity is `std.bytes.Buffer`. Its representation is private and contains one
 `std.memory.RawBuffer<u8>` whose initialized prefix is the buffer's byte sequence. The type is movable and not copyable.
@@ -275,7 +275,7 @@ func pop(pos buffer: &mut Buffer) -> u8?;
 
 `create` and `from_slice` return `MemoryLayoutError` when the requested capacity cannot be represented. Allocation failure follows
 the language allocation panic contract. `equals` compares complete byte sequences without allocation. `reserve` guarantees
-capacity for `length(buffer) + additional` without changing the byte sequence and uses the canonical geometric growth policy.
+capacity for `length(buffer) + additional` without changing the byte sequence and uses the stable geometric growth policy.
 `reserve_exact` grows only to the required capacity for callers that know the final size. `resize` preserves the existing prefix, truncates
 when shrinking, and appends `fill` bytes when growing. `truncate` leaves the buffer unchanged when
 `new_length >= length(buffer)`. `pop` returns `none` for an empty buffer.
@@ -336,12 +336,12 @@ duplicate operations state their element requirements and failure behavior. Shar
 dependencies follow ordinary Bray rules.
 
 Insertion transfers or constructs ownership according to the operation signature. Removal returns ownership of removed values
-when applicable. Reallocation moves elements according to their movement and lifecycle contracts; it does not bitwise-relocate
+when applicable. Reallocation moves elements according to their movement and lifecycle contracts. It does not bitwise-relocate
 values unless a recognized low-level contract permits that operation.
 
 Sequence operations preserve element order. Ordered maps and sets define iteration through their ordering policy. Hash-based maps
 and sets define lookup behavior but do not promise an order unless their concrete type explicitly provides one. Public output and
-tests must not treat unspecified hash iteration order as canonical ordering.
+tests must not treat unspecified hash iteration order as stable ordering.
 
 Collection indexing uses the compiler-known indexing contracts where expression syntax participates. Named lookup operations use
 typed results for absence and do not return fabricated default values. Bounds errors follow the declared result or panic contract
@@ -461,17 +461,17 @@ not parse a type-erased host-language value or depend on debug reflection. Forma
 alignment, sign, and escaping are typed policy values with deterministic defaults.
 
 The core formatting contract is independent of terminals, files, locales, and operating-system streams. `std.io` adapts its
-writers to the formatting sink contract. Compiler diagnostics continue to use `bray-messages`; the standard formatting library is
+writers to the formatting sink contract. Compiler diagnostics continue to use `bray-messages`. The standard formatting library is
 not a replacement for compiler message localization.
 
 Default formatting is deterministic for equal values and equal options. Container formatting follows the container's specified
-iteration order. A container without specified iteration order must not acquire a false canonical order through default
+iteration order. A container without specified iteration order must not acquire a false stable order through default
 formatting.
 
 ## Hashing And Ordering
 
 `std.hash` defines value-to-hash-state contribution separately from the chosen hash algorithm. Hashable implementations contribute
-their semantic components to an abstract hash state in a defined order; containers choose the concrete state and policy they use.
+their semantic components to an abstract hash state in a defined order. Containers choose the concrete state and policy they use.
 
 Hash equality obeys the equality contract: values equal under the selected equality policy must contribute equal hashes under the
 matching hash policy. A hash value is not an object identity, a serialization, or a persistence format unless a specifically named
@@ -489,7 +489,7 @@ a separately named API rather than silently changing this contract.
 
 `std.order` builds sorting, searching, minimum, maximum, and ordering adapters over the compiler-known `Comparable<Rhs>` contract
 and `Ordering` result. Stable and unstable algorithms are named or typed distinctly. A comparison callback must define a coherent
-ordering for the values presented to the algorithm; algorithms do not repair inconsistent comparison behavior.
+ordering for the values presented to the algorithm. Algorithms do not repair inconsistent comparison behavior.
 
 ## Numeric Utilities
 
@@ -535,7 +535,7 @@ Target-independent declarations produce equal observable results for equal seman
 on target width is explicit through types such as `usize`, `isize`, and target properties. Endianness, pointer width, native
 handles, and host locale do not leak into portable text, byte, collection, formatting, hashing, ordering, or numeric contracts.
 
-The core data modules compile as ordinary source in the canonical `std:library` product. Their public declarations are published
+The core data modules compile as ordinary source in the stable `std:library` product. Their public declarations are published
 through the standard package interface. Native implementation support, when required, is selected through the standard-library
 artifact and private runtime contracts rather than through undeclared host calls.
 

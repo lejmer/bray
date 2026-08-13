@@ -7,9 +7,20 @@ use bray_base::{
     Cancellation, StagedFile, atomic_rename_exclusive, atomic_rename_exclusive_is_supported,
     lowercase_hex, sync_directory,
 };
-use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm, BackendArtifactKind};
-use serde::{Deserialize, Serialize};
+use bray_codegen::ArtifactDigest;
 use tempfile::{Builder, TempDir};
+
+use super::layout::{METADATA_DIRECTORY, STAGING_DIRECTORY, product_store_relative};
+use super::lock::ProductPublicationLock;
+use super::cleanup::{generation_public_paths, retain_recent_generations, stale_public_paths};
+use super::manifest::{
+    GenerationManifest, GenerationReference, ManifestArtifact, ManifestPermissions,
+    ManifestProduct, permission_key,
+};
+use super::projection::{
+    commit_public_projections, prepare_public_projections, rollback_public_projections,
+    sync_public_projections,
+};
 
 use crate::artifact::content::validate_staged_content;
 use crate::publication::diagnostic::{PublicationError, PublicationErrorKind};
@@ -19,12 +30,10 @@ use crate::publication::operation::{
 };
 use crate::publication::staging::{create_new_artifact_file, replacement_mode};
 use crate::{
-    ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole, EmissionPlan,
-    EmittedArtifact, EmittedArtifactSet, OutputSink, PlannedArtifactDestination,
+    EmissionPlan, EmittedArtifact, EmittedArtifactSet, OutputSink, PlannedArtifactDestination,
     ProductGenerationIdentity, PublishedProductGeneration, ReplacementPolicy,
 };
 
-pub(super) const METADATA_DIRECTORY: &str = ".bray";
 pub(super) const GENERATIONS_DIRECTORY: &str = "generations";
 pub(super) const GENERATION_MANIFEST: &str = "manifest.json";
 pub(super) const PUBLISHED_REFERENCE: &str = "published-generation.json";
@@ -56,9 +65,17 @@ pub(in crate::publication) fn publish_managed_generation(
     }
 
     let layout = create_layout(root, first.planned)?;
+    let _publication_lock = ProductPublicationLock::acquire(&layout.metadata, first.planned)?;
+    let preceding_generation = referenced_generation(&layout);
+
+    let preceding_public_paths = preceding_generation
+        .map(|identity| generation_public_paths(root, &layout, identity, first.planned))
+        .transpose()?
+        .unwrap_or_default();
+
     let private = create_private_generation(&layout, first.planned)?;
 
-    let (manifest, emitted) = stage_generation(&private, &prepared, cancellation)?;
+    let (manifest, emitted) = stage_generation(root, &private, &prepared, cancellation)?;
 
     let manifest_bytes = encode_manifest(&manifest, first.planned)?;
     let manifest_digest = *blake3::hash(&manifest_bytes).as_bytes();
@@ -86,15 +103,49 @@ pub(in crate::publication) fn publish_managed_generation(
         return Err(ArtifactPublicationFailure::Cancelled);
     }
 
+    let projections = prepare_public_projections(
+        &layout,
+        identity,
+        &prepared,
+        stale_public_paths(root, &manifest, preceding_public_paths, first.planned)?,
+        replacement,
+        cancellation,
+    )?;
+
+    let committed = commit_public_projections(projections, cancellation)?;
+
+    if let Err(error) = sync_public_projections(&committed, first.planned) {
+        rollback_public_projections(committed, first.planned)?;
+
+        return Err(error);
+    }
+
     let reference_bytes = encode_reference(identity, manifest_digest, first.planned)?;
 
-    let warning = commit_reference(
+    let reference_warning = match commit_reference(
         &layout,
         replacement,
         &reference_bytes,
         first.planned,
         cancellation,
-    )?;
+    ) {
+        Ok(warning) => warning,
+        Err(error) => {
+            rollback_public_projections(committed, first.planned)?;
+
+            return Err(error);
+        }
+    };
+
+    let retention_warning = retain_recent_generations(
+        &layout,
+        identity,
+        preceding_generation,
+        first.planned,
+    )
+    .err();
+
+    let warning = reference_warning.or(retention_warning);
 
     let artifacts = EmittedArtifactSet::from_publication(plan, emitted);
 
@@ -102,6 +153,7 @@ pub(in crate::publication) fn publish_managed_generation(
         identity,
         manifest_digest,
         root.to_owned(),
+        layout.metadata,
         layout.reference,
         // The generation and outcome share immutable Arc-backed artifact records.
         artifacts.clone(),
@@ -114,10 +166,11 @@ pub(in crate::publication) fn publish_managed_generation(
     })
 }
 
-struct ManagedLayout {
-    metadata: PathBuf,
-    generations: PathBuf,
-    reference: PathBuf,
+pub(super) struct ManagedLayout {
+    pub(super) metadata: PathBuf,
+    pub(super) generations: PathBuf,
+    pub(super) reference: PathBuf,
+    pub(super) staging: PathBuf,
 }
 
 fn managed_root<'prepared>(
@@ -146,12 +199,45 @@ fn create_layout(
     root: &Path,
     planned: &crate::PlannedArtifact,
 ) -> Result<ManagedLayout, ArtifactPublicationFailure> {
-    let metadata = root.join(METADATA_DIRECTORY);
-    let generations = metadata.join(GENERATIONS_DIRECTORY);
+    let PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
+        published, ..
+    }) = planned.destination()
+    else {
+        return Err(artifact_failure(
+            planned,
+            PublicationErrorKind::InvalidContribution,
+        ));
+    };
+
+    let Some(public_directory) = published.parent() else {
+        return Err(artifact_failure(
+            planned,
+            PublicationErrorKind::InvalidContribution,
+        ));
+    };
+
+    let relative_public_directory = public_directory.strip_prefix(root).map_err(|_| {
+        artifact_failure(planned, PublicationErrorKind::InvalidContribution)
+    })?;
 
     require_directory(root, planned)?;
 
-    create_managed_directory(root, &metadata, planned)?;
+    create_managed_path(root, relative_public_directory, planned)?;
+
+    let staging = create_managed_path(
+        root,
+        Path::new(METADATA_DIRECTORY).join(STAGING_DIRECTORY).as_path(),
+        planned,
+    )?;
+
+    let metadata = create_managed_path(
+        root,
+        &product_store_relative(relative_public_directory, planned.id().product()),
+        planned,
+    )?;
+
+    let generations = metadata.join(GENERATIONS_DIRECTORY);
+
     create_managed_directory(&metadata, &generations, planned)?;
 
     let supported = atomic_rename_exclusive_is_supported(&generations)
@@ -171,7 +257,33 @@ fn create_layout(
         reference: metadata.join(PUBLISHED_REFERENCE),
         metadata,
         generations,
+        staging,
     })
+}
+
+fn create_managed_path(
+    root: &Path,
+    relative: &Path,
+    planned: &crate::PlannedArtifact,
+) -> Result<PathBuf, ArtifactPublicationFailure> {
+    let mut path = root.to_owned();
+
+    for component in relative.components() {
+        let std::path::Component::Normal(component) = component else {
+            return Err(artifact_failure(
+                planned,
+                PublicationErrorKind::InvalidContribution,
+            ));
+        };
+
+        let child = path.join(component);
+
+        create_managed_directory(&path, &child, planned)?;
+
+        path = child;
+    }
+
+    Ok(path)
 }
 
 fn create_managed_directory(
@@ -224,6 +336,7 @@ fn create_private_generation(
 }
 
 fn stage_generation(
+    root: &Path,
     private: &TempDir,
     prepared: &[PreparedArtifact<'_, '_>],
     cancellation: &dyn Cancellation,
@@ -278,9 +391,25 @@ fn stage_generation(
             ));
         };
 
+        let OutputSink::ManagedFilesystem { published, .. } = sink else {
+            return Err(artifact_failure(
+                artifact.planned,
+                PublicationErrorKind::InvalidContribution,
+            ));
+        };
+
+        let published = published.strip_prefix(root).map_err(|_| {
+            artifact_failure(artifact.planned, PublicationErrorKind::InvalidContribution)
+        })?;
+
+        let published = portable_path(published).ok_or_else(|| {
+            artifact_failure(artifact.planned, PublicationErrorKind::InvalidContribution)
+        })?;
+
         manifest_artifacts.push(ManifestArtifact::new(
             artifact,
             relative.as_str(),
+            &published,
             &digest,
             permissions,
         ));
@@ -310,6 +439,28 @@ fn stage_generation(
     };
 
     Ok((manifest, emitted))
+}
+
+fn referenced_generation(layout: &ManagedLayout) -> Option<ProductGenerationIdentity> {
+    let bytes = std::fs::read(&layout.reference).ok()?;
+    let reference = serde_json::from_slice::<GenerationReference>(&bytes).ok()?;
+    let identity = bray_base::decode_lowercase_hex::<32>(&reference.generation)?;
+
+    Some(ProductGenerationIdentity::new(identity))
+}
+
+fn portable_path(path: &Path) -> Option<String> {
+    let mut parts = Vec::new();
+
+    for component in path.components() {
+        let std::path::Component::Normal(component) = component else {
+            return None;
+        };
+
+        parts.push(component.to_str()?);
+    }
+
+    (!parts.is_empty()).then(|| parts.join("/"))
 }
 
 fn write_artifact(
@@ -571,201 +722,6 @@ where
         .map(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind()))))
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct GenerationManifest {
-    revision: u32,
-    pub(super) product: ManifestProduct,
-    pub(super) artifacts: Vec<ManifestArtifact>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ManifestProduct {
-    pub(super) package: String,
-    pub(super) name: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ManifestArtifact {
-    pub(super) kind: String,
-    pub(super) ordinal: u32,
-    requirement: String,
-    role: String,
-    pub(super) path: String,
-    pub(super) byte_len: u64,
-    pub(super) digest_algorithm: String,
-    pub(super) digest: String,
-    pub(super) permissions: ManifestPermissions,
-    producer: ManifestProducer,
-}
-
-impl ManifestArtifact {
-    fn new(
-        artifact: &PreparedArtifact<'_, '_>,
-        path: &str,
-        digest: &ArtifactDigest,
-        permissions: ManifestPermissions,
-    ) -> Self {
-        Self {
-            kind: artifact.planned.id().kind().machine_key().to_owned(),
-            ordinal: artifact.planned.id().ordinal(),
-            requirement: requirement_key(artifact.planned.requirement()).to_owned(),
-            role: role_key(artifact.planned.role()).to_owned(),
-            path: path.to_owned(),
-            byte_len: artifact.content.byte_len(),
-            digest_algorithm: digest_algorithm_key(digest.algorithm()).to_owned(),
-            digest: lowercase_hex(digest.bytes()),
-            permissions,
-            producer: ManifestProducer::new(artifact.planned.producer()),
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ManifestPermissions {
-    pub(super) logical: String,
-    unix_mode: Option<u32>,
-}
-
-impl ManifestPermissions {
-    fn read(path: &Path, kind: ArtifactKind) -> std::io::Result<Self> {
-        let metadata = std::fs::symlink_metadata(path)?;
-
-        if !metadata.file_type().is_file() {
-            return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
-        }
-
-        Ok(Self {
-            logical: permission_key(kind).to_owned(),
-            unix_mode: unix_mode(&metadata.permissions()),
-        })
-    }
-
-    pub(super) fn matches(&self, path: &Path) -> std::io::Result<bool> {
-        let metadata = std::fs::symlink_metadata(path)?;
-
-        Ok(metadata.file_type().is_file() && self.unix_mode == unix_mode(&metadata.permissions()))
-    }
-}
-
-#[cfg(unix)]
-fn unix_mode(permissions: &std::fs::Permissions) -> Option<u32> {
-    use std::os::unix::fs::PermissionsExt;
-
-    Some(permissions.mode() & 0o777)
-}
-
-#[cfg(not(unix))]
-const fn unix_mode(_: &std::fs::Permissions) -> Option<u32> {
-    None
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ManifestProducer {
-    Backend {
-        name: String,
-        revision: String,
-        toolchain_revision: String,
-        unit: String,
-        artifact_kind: String,
-        ordinal: u32,
-    },
-    PackageInterface,
-    PackageImplementation,
-    DependencyMetadata {
-        ordinal: u32,
-    },
-    Linker {
-        ordinal: u32,
-    },
-}
-
-impl ManifestProducer {
-    fn new(producer: &ArtifactProducer) -> Self {
-        match producer {
-            ArtifactProducer::Backend { artifact, backend } => Self::Backend {
-                name: backend.name().to_owned(),
-                revision: backend.revision().to_owned(),
-                toolchain_revision: backend.toolchain_revision().to_owned(),
-                unit: lowercase_hex(&artifact.unit().content_identity()),
-                artifact_kind: backend_artifact_kind_key(artifact.kind()).to_owned(),
-                ordinal: artifact.ordinal(),
-            },
-            ArtifactProducer::PackageInterface => Self::PackageInterface,
-            ArtifactProducer::PackageImplementation => Self::PackageImplementation,
-            ArtifactProducer::DependencyMetadata(identity) => Self::DependencyMetadata {
-                ordinal: identity.ordinal(),
-            },
-            ArtifactProducer::Linker(identity) => Self::Linker {
-                ordinal: identity.ordinal(),
-            },
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct GenerationReference {
-    revision: u32,
-    pub(super) generation: String,
-    pub(super) manifest_digest: String,
-}
-
-const fn requirement_key(requirement: ArtifactRequirement) -> &'static str {
-    match requirement {
-        ArtifactRequirement::Required => "required",
-        ArtifactRequirement::Optional => "optional",
-    }
-}
-
-const fn role_key(role: ArtifactRole) -> &'static str {
-    match role {
-        ArtifactRole::Product => "product",
-        ArtifactRole::Inspection => "inspection",
-        ArtifactRole::LinkInput => "link_input",
-        ArtifactRole::Companion => "companion",
-    }
-}
-
-const fn digest_algorithm_key(algorithm: ArtifactDigestAlgorithm) -> &'static str {
-    match algorithm {
-        ArtifactDigestAlgorithm::Blake3 => "blake3",
-        ArtifactDigestAlgorithm::Sha256 => "sha256",
-    }
-}
-
-pub(super) const fn permission_key(kind: ArtifactKind) -> &'static str {
-    match kind {
-        ArtifactKind::Executable | ArtifactKind::ExecutableModule => "executable",
-        ArtifactKind::Assembly
-        | ArtifactKind::BackendIr
-        | ArtifactKind::BackendBitcode
-        | ArtifactKind::RelocatableObject
-        | ArtifactKind::DebugCompanion
-        | ArtifactKind::PackageInterface
-        | ArtifactKind::PackageImplementation
-        | ArtifactKind::DependencyMetadata
-        | ArtifactKind::StaticLibrary
-        | ArtifactKind::SharedLibrary
-        | ArtifactKind::LinkedCompanion => "data",
-    }
-}
-
-const fn backend_artifact_kind_key(kind: BackendArtifactKind) -> &'static str {
-    match kind {
-        BackendArtifactKind::RelocatableObject => "relocatable_object",
-        BackendArtifactKind::Assembly => "assembly",
-        BackendArtifactKind::BackendIr => "backend_ir",
-        BackendArtifactKind::BackendBitcode => "backend_bitcode",
-        BackendArtifactKind::ExecutableModule => "executable_module",
-        BackendArtifactKind::DebugCompanion => "debug_companion",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io;
@@ -790,6 +746,7 @@ mod tests {
         let layout = ManagedLayout {
             generations: metadata.join("generations"),
             reference: reference.clone(),
+            staging: metadata.join("staging"),
             metadata,
         };
 

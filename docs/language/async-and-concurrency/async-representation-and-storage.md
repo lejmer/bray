@@ -17,7 +17,7 @@ the same declared result type can have different frame layouts while both invoca
 
 Ordinary control-flow merges, parameters, returns, and homogeneous aggregates can therefore contain `Future<T>` values from different
 producers. The compiler uses closed result-place storage when all representations are known and an erased descriptor plus suitably
-owned backing storage when they are not. Representation erasure can require dynamic storage; direct await of a known producer does
+owned backing storage when they are not. Representation erasure can require dynamic storage. Direct await of a known producer does
 not.
 
 The hidden frame identity and its size, alignment, move, resume, cancellation, result-move, and destruction operations are portable

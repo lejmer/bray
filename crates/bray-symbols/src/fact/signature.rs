@@ -211,7 +211,7 @@ impl CallableSignatureTemplate {
         &self,
         semantic_values: &SemanticValueStore,
     ) -> Result<Vec<TypeExpressionTemplate>, CallableSignatureTemplateError> {
-        // Callers own the returned templates; recursive template storage remains Arc-shared.
+        // Callers own the returned templates. Recursive template storage remains Arc-shared.
         let types = match self.callable_type() {
             TypeExpressionTemplate::Callable(callable) => callable
                 .parameters()
@@ -248,7 +248,7 @@ impl CallableSignatureTemplate {
         &self,
         semantic_values: &SemanticValueStore,
     ) -> Result<Vec<crate::CallableParameterName>, CallableSignatureTemplateError> {
-        // Callers own the returned names; canonical spellings remain Arc-shared.
+        // Callers own the returned names. Canonical spellings remain Arc-shared.
         let names = match self.callable_type() {
             TypeExpressionTemplate::Callable(callable) => callable
                 .parameters()
@@ -294,7 +294,7 @@ impl CallableSignatureTemplate {
             return Err(CallableSignatureTemplateError::ParameterIdentityMismatch);
         }
 
-        // The caller needs an independent template; recursive template storage remains Arc-shared.
+        // The caller needs an independent template. Recursive template storage remains Arc-shared.
         match self.callable_type() {
             TypeExpressionTemplate::Callable(callable) => {
                 if callable.parameters().len() != self.parameters().len() {

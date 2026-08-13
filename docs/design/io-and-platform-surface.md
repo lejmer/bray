@@ -29,7 +29,7 @@ another language rule explicitly identifies a particular declaration as compiler
 
 ## Public Declaration Surface
 
-The declarations in this section are the canonical public contract. The bodyless forms describe declaration surfaces and
+The declarations in this section are the public contract. The bodyless forms describe declaration surfaces and
 are not source syntax that an ordinary package can use to omit a body. Fields named `internal state` represent private standard
 library storage and are not part of the public package interface.
 
@@ -572,7 +572,7 @@ little-endian `u64` state words. The all-zero state is replaced with state words
 `[11400714819323198485, 0, 0, 0]`. `fill` emits each `next_u64` result in little-endian byte order. Equal seeds therefore produce
 equal byte and `u64` sequences on every target. No generator method consults system entropy after construction.
 
-The async entropy operations defer `blocking_execution()` into their futures. Starting one selects a compatible blocking lane;
+The async entropy operations defer `blocking_execution()` into their futures. Starting one selects a compatible blocking lane.
 direct await requires the current lane to permit blocking. This keeps operating-system entropy acquisition off cooperative workers
 without duplicating the platform entropy provider.
 

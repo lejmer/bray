@@ -14,7 +14,7 @@ Use `DiagnosticNote` when information beyond the primary message materially impr
 
 ## Suggestions and edits
 
-Use `DiagnosticSuggestion::try_edits` for corrections with source edits. Applicable suggestions require a nonempty, canonically ordered set of non-overlapping edits. Edits with the same start position conflict. Use `Manual` for useful guidance without edits.
+Use `DiagnosticSuggestion::try_edits` for corrections with source edits. Applicable suggestions require a nonempty ordered set of non-overlapping edits. Edits with the same start position conflict. Use `Manual` for useful guidance without edits.
 
 Applicability describes confidence that applying the edit preserves intent:
 

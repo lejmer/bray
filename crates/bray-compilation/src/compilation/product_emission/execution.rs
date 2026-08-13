@@ -1198,7 +1198,7 @@ mod tests {
             ProductKind::Library,
             None,
             SelectedTarget::default().profile().identity().clone(),
-            RequestedArtifactDestination::FilesystemDirectory(destination.to_path_buf()),
+            RequestedArtifactDestination::FilesystemDirectory(destination.to_path_buf().into()),
             [RequestedArtifact::new(
                 ArtifactKind::PackageInterface,
                 ArtifactRequirement::Required,

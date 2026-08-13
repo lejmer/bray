@@ -51,7 +51,7 @@ The linker does not:
 ### Link Plan
 
 A `LinkPlan` is the complete immutable typed description of one native link or archive operation. `bray-linker` owns its contracts
-and validation builder. `bray-emitter` constructs it from emitted artifacts and canonical compilation facts.
+and validation builder. `bray-emitter` constructs it from emitted artifacts and validated compilation facts.
 
 ### Link Input
 
@@ -97,7 +97,7 @@ link requirements before emission.
 Plan construction rejects missing inputs, duplicate incompatible inputs, unsupported combinations, output collisions, invalid
 target options, and a driver that cannot satisfy the selected target contract.
 
-Input order is canonical where the platform permits it and language-defined where order affects linker semantics.
+Input order is stable where the platform permits it and language-defined where order affects linker semantics.
 
 ---
 
@@ -276,7 +276,7 @@ output kind, and exit status. User-facing English is rendered through `bray-mess
 External linker stdout and stderr are retained as explicitly labeled external-tool detail. They are not treated as localized Bray
 diagnostic text and do not receive invented source spans.
 
-When canonical symbol provenance is available, a linker diagnostic can relate an unresolved or duplicate external symbol to a Bray
+When stable symbol provenance is available, a linker diagnostic can relate an unresolved or duplicate external symbol to a Bray
 declaration through typed related information. The linker does not reverse-engineer source locations from mangled names.
 
 ---

@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
+use bray_emitter::ManagedOutputDirectory;
 use bray_messages::command_help as help;
 use bray_runtime_interface::RuntimeCapability;
 use bray_target::TargetOutputKind;
@@ -72,7 +73,8 @@ pub struct DriverProductConfiguration {
     build: bray_compilation::BuildConfiguration,
     runtime: Option<DriverRuntimeSelection>,
     required_capabilities: Vec<RuntimeCapability>,
-    output: PathBuf,
+    output_root: PathBuf,
+    managed_output_directory: Option<ManagedOutputDirectory>,
     test_catalog: Option<PathBuf>,
     artifacts: Vec<TargetOutputKind>,
     inspections: Vec<DriverInspectionArtifact>,
@@ -85,7 +87,7 @@ impl DriverProductConfiguration {
         build: bray_compilation::BuildConfiguration,
         runtime: Option<DriverRuntimeSelection>,
         mut required_capabilities: Vec<RuntimeCapability>,
-        output: PathBuf,
+        output_root: PathBuf,
         test_catalog: Option<PathBuf>,
         mut artifacts: Vec<TargetOutputKind>,
         mut inspections: Vec<DriverInspectionArtifact>,
@@ -102,7 +104,8 @@ impl DriverProductConfiguration {
             build,
             runtime,
             required_capabilities,
-            output,
+            output_root,
+            managed_output_directory: None,
             test_catalog,
             artifacts,
             inspections,
@@ -129,9 +132,21 @@ impl DriverProductConfiguration {
         &self.required_capabilities
     }
 
-    /// Returns the product output directory.
-    pub fn output(&self) -> &Path {
-        &self.output
+    /// Selects a stable public directory beneath the output root.
+    pub fn with_managed_output_directory(mut self, directory: ManagedOutputDirectory) -> Self {
+        self.managed_output_directory = Some(directory);
+
+        self
+    }
+
+    /// Returns the root that owns public output and private compiler state.
+    pub fn output_root(&self) -> &Path {
+        &self.output_root
+    }
+
+    /// Returns the stable root-relative public output directory, when configured by a host.
+    pub const fn managed_output_directory(&self) -> Option<&ManagedOutputDirectory> {
+        self.managed_output_directory.as_ref()
     }
 
     /// Returns the requested test-catalog publication path, when applicable.
@@ -180,6 +195,13 @@ pub(crate) struct CliBuildCommand {
     required_capabilities: Vec<CliRuntimeCapability>,
     #[arg(long, value_name = "DIRECTORY", help = help::BUILD_OUTPUT)]
     output: PathBuf,
+    #[arg(
+        long,
+        value_name = "RELATIVE-DIRECTORY",
+        value_parser = parse_managed_output_directory,
+        hide = true
+    )]
+    managed_output_directory: Option<ManagedOutputDirectory>,
     #[arg(long = "test-catalog", value_name = "PATH", help = help::TEST_CATALOG)]
     test_catalog: Option<PathBuf>,
     #[arg(long = "artifact", value_enum, value_name = "ARTIFACT", help = help::ARTIFACT)]
@@ -209,7 +231,7 @@ impl CliBuildCommand {
                 })
             });
 
-        let configuration = DriverProductConfiguration::new(
+        let mut configuration = DriverProductConfiguration::new(
             self.backend.into(),
             if self.release {
                 bray_compilation::BuildConfiguration::Release
@@ -233,8 +255,17 @@ impl CliBuildCommand {
                 .collect(),
         );
 
+        if let Some(directory) = self.managed_output_directory {
+            configuration = configuration.with_managed_output_directory(directory);
+        }
+
         DriverCommand::build(configuration, self.files)
     }
+}
+
+fn parse_managed_output_directory(value: &str) -> Result<ManagedOutputDirectory, String> {
+    ManagedOutputDirectory::try_new(value)
+        .ok_or_else(|| help::MANAGED_OUTPUT_DIRECTORY_INVALID.to_owned())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]

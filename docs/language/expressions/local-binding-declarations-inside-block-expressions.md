@@ -267,7 +267,7 @@ If initializer evaluation leaves the declaration before it completes, the patter
 This includes `return`, `yield` to an enclosing yield-capable region, `break`, `continue`, nullable propagation, result
 propagation, run-result propagation, uncaught panic propagation, cancellation, and any expression path with type `never`.
 
-A caught panic inside the initializer does not leave the declaration; it produces the catch expression's normal result.
+A caught panic inside the initializer does not leave the declaration. It produces the catch expression's normal result.
 
 Values and temporaries already initialized during initializer evaluation are handled by the corresponding control-flow,
 ownership, destruction, and finalization rules.

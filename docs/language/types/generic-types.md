@@ -82,7 +82,7 @@ Generic type parameters are invariant.
 
 Generic const parameters match by exact compile-time value and declared const parameter type.
 
-Closed const arguments use canonical typed value identity. Integer arguments compare by their exact value in the declared type.
+Closed const arguments use stable typed value identity. Integer arguments compare by their exact value in the declared type.
 Real and complex arguments compare by their exact selected runtime-format bits. Strings and aggregate arguments compare by exact
 typed content recursively.
 
@@ -95,7 +95,7 @@ proof does not globally identify the two open type expressions outside the conte
 determine type identity.
 
 Two concrete generic instantiations are the same type only when they use the same generic declaration and the same ordered generic
-arguments. Two open instantiations have the same global canonical identity when their ordered open argument terms are canonical
+arguments. Two open instantiations have the same global stable identity when their ordered open argument terms are stable
 matches. A contextual proof of equality does not change that global identity.
 
 ```bray

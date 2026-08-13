@@ -67,9 +67,9 @@ pub(crate) fn format_english_selection_rejections(
     match rendered.as_slice() {
         [] => "no rejected candidates".to_owned(),
         [only] => only.clone(),
-        [first, second] => format!("{first}; {second}"),
+        [first, second] => format!("{first} and {second}"),
         [leading @ .., final_rejection] => {
-            format!("{}; and {final_rejection}", leading.join("; "))
+            format!("{}, and {final_rejection}", leading.join(", "))
         }
     }
 }
@@ -142,7 +142,7 @@ fn format_english_callable_argument_rejection(
             ordinal.saturating_add(1)
         ),
         Reason::UnknownName { provided, accepted } => format!(
-            "argument name {provided} is not accepted; candidate parameter names are {}",
+            "argument name {provided} is not accepted. Candidate parameter names are {}",
             accepted.join(", ")
         ),
         Reason::PositionalUnavailable { ordinal } => format!(
@@ -187,7 +187,7 @@ fn format_english_construction_input_rejection(
     match reason {
         Reason::PositionalAfterNamed => "a positional input follows a named input".to_owned(),
         Reason::UnknownName { provided, accepted } => format!(
-            "input name {provided} is not accepted; candidate input names are {}",
+            "input name {provided} is not accepted. Candidate input names are {}",
             accepted.join(", ")
         ),
         Reason::PositionalUnavailable { ordinal } => format!(

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_runtime_interface::ExecutableHostContract;
@@ -6,14 +6,101 @@ use bray_target::TargetIdentity;
 
 use crate::{
     ArtifactKind, ArtifactRequirement, OutputSinkId, ProductIdentity, ProductKind,
-    ReplacementPolicy,
+    ManagedArtifactPath, ReplacementPolicy,
 };
+
+/// Canonical portable directory beneath a managed filesystem output root.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ManagedOutputDirectory(ManagedArtifactPath);
+
+impl ManagedOutputDirectory {
+    /// Creates a non-empty relative output directory without traversal or host-specific components.
+    pub fn try_new(value: impl Into<Arc<str>>) -> Option<Self> {
+        ManagedArtifactPath::try_new(value).map(Self)
+    }
+
+    /// Returns the canonical `/`-separated relative directory.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    pub(crate) fn to_path_buf(&self) -> PathBuf {
+        self.0.to_path_buf()
+    }
+}
+
+/// Stable public directory and private state root for one managed filesystem product.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ManagedFilesystemDestination {
+    root: PathBuf,
+    directory: Option<ManagedOutputDirectory>,
+}
+
+impl ManagedFilesystemDestination {
+    /// Creates a managed destination whose private state belongs to `root` and whose artifacts
+    /// are published directly beneath `directory`.
+    pub fn new(root: impl Into<PathBuf>, directory: ManagedOutputDirectory) -> Self {
+        Self {
+            root: root.into(),
+            directory: Some(directory),
+        }
+    }
+
+    /// Creates a managed destination that publishes artifacts directly beneath its state root.
+    pub fn at_root(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: root.into(),
+            directory: None,
+        }
+    }
+
+    /// Returns the output root that owns all private managed-publication state.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Returns the stable public directory for the selected product's artifacts.
+    pub fn directory(&self) -> PathBuf {
+        self.directory
+            .as_ref()
+            .map_or_else(|| self.root.clone(), |directory| self.root.join(directory.to_path_buf()))
+    }
+
+    /// Returns the canonical root-relative public directory, when artifacts are namespaced.
+    pub const fn relative_directory(&self) -> Option<&ManagedOutputDirectory> {
+        self.directory.as_ref()
+    }
+}
+
+impl From<PathBuf> for ManagedFilesystemDestination {
+    fn from(root: PathBuf) -> Self {
+        Self::at_root(root)
+    }
+}
+
+impl From<&Path> for ManagedFilesystemDestination {
+    fn from(root: &Path) -> Self {
+        Self::at_root(root)
+    }
+}
+
+impl From<&PathBuf> for ManagedFilesystemDestination {
+    fn from(root: &PathBuf) -> Self {
+        Self::at_root(root)
+    }
+}
+
+impl From<&str> for ManagedFilesystemDestination {
+    fn from(root: &str) -> Self {
+        Self::at_root(root)
+    }
+}
 
 /// High-level destination supplied before deterministic output names are planned.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RequestedArtifactDestination {
     /// Derive one or more final artifact paths beneath this directory.
-    FilesystemDirectory(PathBuf),
+    FilesystemDirectory(ManagedFilesystemDestination),
     /// Publish exactly one externally requested artifact at this path.
     FilesystemFile(PathBuf),
     /// Publish keyed artifacts to a host-owned in-memory collector.
@@ -200,7 +287,10 @@ fn validate_executable_host(
 
 #[cfg(test)]
 mod tests {
-    use super::{EmissionRequest, EmissionRequestBuildError, RequestedArtifact};
+    use super::{
+        EmissionRequest, EmissionRequestBuildError, ManagedFilesystemDestination,
+        ManagedOutputDirectory, RequestedArtifact,
+    };
     use crate::test_support::{
         emission_request, executable_host_contract, product_identity, target_identity,
     };
@@ -208,6 +298,25 @@ mod tests {
         ArtifactKind, ArtifactRequirement, ProductKind, ReplacementPolicy,
         RequestedArtifactDestination,
     };
+
+    #[test]
+    fn managed_destinations_separate_public_namespace_from_private_root() {
+        let directory = ManagedOutputDirectory::try_new("native/debug/example.package")
+            .unwrap_or_else(|| panic!("test managed directory must be valid"));
+
+        let destination = ManagedFilesystemDestination::new("build", directory);
+
+        assert_eq!(destination.root(), std::path::Path::new("build"));
+
+        assert_eq!(
+            destination.directory(),
+            std::path::Path::new("build/native/debug/example.package")
+        );
+
+        for invalid in ["", "/native/debug", "native\\debug", "native/../debug"] {
+            assert_eq!(ManagedOutputDirectory::try_new(invalid), None, "{invalid}");
+        }
+    }
 
     #[test]
     fn requests_require_at_least_one_required_artifact() {

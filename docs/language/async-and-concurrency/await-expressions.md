@@ -16,7 +16,7 @@ The current task drives the child frame until one of these events occurs:
 Direct await does not produce `RunResult<T>` because it does not cross an independent run boundary.
 
 `await` is permitted only in an async callable body or an async-capable lifecycle body. Ordinary block expressions inside that body
-inherit the same async execution context; no async block form exists.
+inherit the same async execution context. No async block form exists.
 
 Before the child first executes, the checker verifies that the current execution context satisfies the child computation's deferred
 body effects, capabilities, lifecycle contract, execution requirements, and thread-affinity constraints. Awaiting a computation

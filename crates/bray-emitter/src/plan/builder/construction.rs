@@ -233,17 +233,20 @@ impl<'planner> PlanBuilder<'planner> {
         role: ArtifactRole,
     ) -> Result<PlannedArtifactDestination, EmissionPlanningError> {
         let sink = match self.request.destination() {
-            RequestedArtifactDestination::FilesystemDirectory(directory) => {
+            RequestedArtifactDestination::FilesystemDirectory(destination) => {
                 let stem = output_stem(self.request.product().name(), unit_ordinal);
                 let name = self.output_name(id.kind(), &stem)?;
 
                 let artifact = ManagedArtifactPath::try_new(format!("artifacts/{name}"))
                     .ok_or(EmissionPlanningError::InvalidGeneratedFileName(id.kind()))?;
 
+                let published = destination.directory().join(&name);
+
                 OutputSink::ManagedFilesystem {
-                    // The plan owns the managed product root independently of the request.
-                    root: directory.clone(),
+                    // The plan owns managed and public paths independently of the request.
+                    root: destination.root().to_owned(),
                     artifact,
+                    published,
                 }
             }
             RequestedArtifactDestination::FilesystemFile(path) => {
@@ -578,9 +581,8 @@ mod tests {
             .published_artifacts()
             .map(|artifact| match artifact.destination() {
                 PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
-                    root,
-                    artifact,
-                }) => root.join(artifact.to_path_buf()),
+                    published, ..
+                }) => published.clone(),
                 PlannedArtifactDestination::Publish(
                     OutputSink::Filesystem(_) | OutputSink::Memory { .. } | OutputSink::Stream(_),
                 )
@@ -593,9 +595,9 @@ mod tests {
         assert_eq!(
             published_paths,
             [
-                Path::new("out/artifacts/application.0.s"),
-                Path::new("out/artifacts/application.1.s"),
-                Path::new("out/artifacts/application"),
+                Path::new("out/application.0.s"),
+                Path::new("out/application.1.s"),
+                Path::new("out/application"),
             ]
         );
 
@@ -638,6 +640,7 @@ mod tests {
                 root: "out".into(),
                 artifact: ManagedArtifactPath::try_new("artifacts/application.brayi")
                     .unwrap_or_else(|| panic!("test managed artifact path must be valid")),
+                published: "out/application.brayi".into(),
             })
         );
     }
@@ -1004,6 +1007,7 @@ mod tests {
                     root: "out".into(),
                     artifact: ManagedArtifactPath::try_new("artifacts/application.out")
                         .unwrap_or_else(|| panic!("test managed path must be valid")),
+                    published: "out/application.out".into(),
                 }
             ))
         );
@@ -1107,6 +1111,7 @@ mod tests {
                     root: "out".into(),
                     artifact: ManagedArtifactPath::try_new("artifacts/application.OUT")
                         .unwrap_or_else(|| panic!("test managed path must be valid")),
+                    published: "out/application.OUT".into(),
                 }
             ))
         );

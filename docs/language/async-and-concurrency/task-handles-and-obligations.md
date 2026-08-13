@@ -14,7 +14,7 @@ impl Task<T>
 ```
 
 Both method calls consume the handle into an inactive `Future<RunResult<T>>` according to ordinary async method-call typing. Calling
-the method alone neither waits nor requests cancellation; those effects begin when the returned computation is awaited, started, or
+the method alone neither waits nor requests cancellation. Those effects begin when the returned computation is awaited, started, or
 resolved by async cleanup.
 
 `join()` waits for the task without requesting cancellation. It produces:
@@ -48,12 +48,12 @@ An unresolved `Task<T>` has a compiler-known asynchronous finalization obligatio
 
 Implicit task resolution on an otherwise-normal scope exit is well formed only when every possible `Completed(T)` payload can be
 fully resolved in that async context without a fallible finalizer. An asynchronous but infallible finalizer is driven before
-destruction. If `T` has fallible finalization, the checker rejects normal implicit resolution; source must explicitly observe
+destruction. If `T` has fallible finalization, the checker rejects normal implicit resolution. Source must explicitly observe
 `await task.join()` or `await task.cancel()` and preserve, transfer, or explicitly handle the `Completed(value)` lifecycle
 obligation. This is a static rule because cleanup cannot assume that cancellation will beat an already completed task.
 
 During parent panic or cancellation, an unobserved completed payload follows the universal abnormal-exit lifecycle path. Its
-finalizer is attempted in shielded cleanup; an error becomes an ordered cleanup incident and destruction still runs. A cleanup
+finalizer is attempted in shielded cleanup. An error becomes an ordered cleanup incident and destruction still runs. A cleanup
 panic follows the task-boundary panic rules.
 
 After terminal resolution, its synchronous destructor releases the runtime task-control storage.

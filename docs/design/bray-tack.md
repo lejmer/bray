@@ -55,14 +55,24 @@ unused linked content, and request any debug companion required by the target. R
 the production optimization pipeline, omit debug information, and permit dead-code and section
 removal. Both configurations preserve Bray language semantics.
 
-Published products use separate directories beneath `output_root`:
+Published product artifacts use one invariant directory beneath `output_root`:
 
 ```text
-<output_root>/<workspace-target>/<debug|release>/<package>/<product>/
+<output_root>/<workspace-target>/<debug|release>/<package>/<target-prefix><product><target-suffix>
 ```
 
-This separation prevents build, run, and test commands from reusing or replacing artifacts from
-another configuration. Check and semantic inspection remain configuration-independent.
+For example, the native Windows debug executable for package `hello_world` and product
+`application` is always `build/native/debug/hello_world/application.exe`. Automation can derive
+this path from the target output naming contract without reading manifests, scanning directories,
+or discovering a generation identity. All compiler-private generations, manifests, caches, and
+staging state remain beneath `<output_root>/.bray/`. Configuration separation prevents build, run,
+and test commands from reusing or replacing artifacts from another configuration. Check and
+semantic inspection remain configuration-independent.
+
+Structured build results report every complete stable artifact path directly. Progress JSON also
+includes the full stable product path as one field, while retaining the filename and directory
+fields used by terminal presentation. Run and test hold the product's shared publication lock for
+the lifetime of native execution so a concurrent build cannot expose a mixed companion set.
 
 ## Formatter Configuration
 
@@ -101,7 +111,7 @@ for each package without changing the underlying work. All visible vocabulary is
 Building hello_world/application [debug]
    ✓ Compiled std               toolchain/standard-library      1/1 units  128 ms
    ✓ Compiled hello_world       examples/hello_world            1/1 units   94 ms
-   ✓ Finished application.exe   build/native/debug/             2/2 units  247 ms
+   ✓ Finished application.exe   build/native/debug/hello_world  2/2 units  247 ms
 ```
 
 JSON output carries the same workflow facts as structured data rather than terminal-rendered
@@ -161,7 +171,7 @@ The installed artifact layout is:
             └─ <runtime archive>
 ```
 
-The standard-library directory is the bundle root containing its canonical manifest and target-selected package interfaces,
+The standard-library directory is the bundle root containing its normalized manifest and target-selected package interfaces,
 implementation payloads, and native artifacts. Each runtime directory contains metadata and the archive named by that metadata.
 Release assembly and development xtasks must publish this layout. Normal Bray Tack commands only consume it and never compile
 toolchain source.

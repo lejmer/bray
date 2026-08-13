@@ -179,7 +179,7 @@ mod tests {
         assert!(help.contains("--check"));
         assert!(help.contains("without rewriting"));
         assert!(help.contains("<FILE>..."));
-        assert!(help.contains("use - for standard input"));
+        assert!(help.contains("Use - for standard input"));
     }
 
     #[test]

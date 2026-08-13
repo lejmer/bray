@@ -369,6 +369,11 @@ mod tests {
                         .map(|suggestion| ("suggestion", suggestion.message())),
                 )
             {
+                assert!(
+                    !message.contains([';', '—']),
+                    "{kind:?} {component} uses prohibited prose punctuation: {message:?}"
+                );
+
                 let forbidden = if kind.as_str().starts_with("inspection_") {
                     forbidden_internal_term(message)
                 } else {
@@ -619,8 +624,8 @@ mod tests {
             renderer.render(&incompatible_candidate).message(),
             concat!(
                 "construction operation candidates reject the supplied expressions: ",
-                "built-in operation with signature (i32) -> i32: input name y is not accepted; ",
-                "candidate input names are x"
+                "built-in operation with signature (i32) -> i32: input name y is not accepted. ",
+                "Candidate input names are x"
             )
         );
 
@@ -741,12 +746,12 @@ mod tests {
 
         assert_eq!(
             renderer.render(&result).message(),
-            "cannot propagate error type i32 because no enclosing result boundary accepts it; available boundaries accept i64"
+            "cannot propagate error type i32 because no enclosing result boundary accepts it. Available boundaries accept i64"
         );
 
         assert_eq!(
             renderer.render(&nullable).message(),
-            "cannot propagate nullable type because no enclosing boundary returns a nullable type; available boundaries return i32"
+            "cannot propagate nullable type because no enclosing boundary returns a nullable type. Available boundaries return i32"
         );
 
         assert_eq!(

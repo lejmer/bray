@@ -21,7 +21,7 @@ Modifier validity depends on the declaration form and declaration context.
 `trusted` marks declarations or declaration contexts that participate in trusted capability and trusted obligation rules.
 
 `extern` marks a callable declaration whose body is supplied by another linked artifact. The artifact can itself contain separately
-compiled Bray; the selected ABI determines whether the call is foreign.
+compiled Bray. The selected ABI determines whether the call is foreign.
 
 `const` marks a callable body as valid in constant-evaluation context.
 
@@ -41,7 +41,7 @@ Incompatible modifier combinations are rejected.
 
 When grammar accepts modifiers in more than one source order, the semantic declaration surface is the same regardless of source order.
 
-Where a declaration form defines a canonical modifier order, formatters and generated source use that order.
+Where a declaration form defines a required modifier order, formatters and generated source use that order.
 
 ## Navigation
 

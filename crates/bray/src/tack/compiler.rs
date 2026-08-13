@@ -108,8 +108,12 @@ impl<'project> ProjectCompiler<'project> {
             });
         }
 
-        let output_directory =
-            self.output_directory(product.identity(), planned.target_name(), configuration);
+        let output_root = self.graph.output_root().beneath(self.workspace_root);
+
+        let relative_output_directory =
+            self.relative_output_directory(product.identity(), planned.target_name(), configuration);
+
+        let output_directory = output_root.join(&relative_output_directory);
 
         std::fs::create_dir_all(&output_directory).map_err(|error| {
             operation_diagnostics(DiagnosticProjectCommandFailure::Io {
@@ -126,7 +130,8 @@ impl<'project> ProjectCompiler<'project> {
             &product,
             planned.target(),
             CompilerAction::Build {
-                output: output_directory.clone(),
+                output_root,
+                output_directory: relative_output_directory,
                 configuration,
                 test_catalog: test_catalog.clone(),
             },
@@ -138,7 +143,7 @@ impl<'project> ProjectCompiler<'project> {
         outputs.push(output);
 
         let executable = if success {
-            self.published_executable_path(&output_directory, &product)?
+            self.executable_path(&output_directory, &product, planned.target())?
         } else {
             None
         };
@@ -182,6 +187,10 @@ impl<'project> ProjectCompiler<'project> {
             configuration,
             artifact,
             display_path(&output_directory, self.workspace_root),
+            executable
+                .as_deref()
+                .map(|path| display_path(path, self.workspace_root))
+                .unwrap_or_else(|| display_path(&output_directory, self.workspace_root)),
             packages,
         ))
     }
@@ -610,19 +619,66 @@ impl<'project> ProjectCompiler<'project> {
         target_name: &str,
         configuration: TackBuildConfiguration,
     ) -> PathBuf {
-        self.graph
-            .output_root()
-            .beneath(self.workspace_root)
-            .join(target_name)
-            .join(configuration.directory_name())
-            .join(product.package().as_str())
-            .join(product.name())
+        self.graph.output_root().beneath(self.workspace_root).join(
+            self.relative_output_directory(product, target_name, configuration),
+        )
+    }
+
+    pub(crate) fn lock_published_product(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<bray_emitter::PublishedProductReadGuard, DiagnosticBag> {
+        let product = self.project_product(planned)?;
+        let output_root = self.graph.output_root().beneath(self.workspace_root);
+
+        let relative = self.relative_output_directory(
+            product.identity(),
+            planned.target_name(),
+            configuration,
+        );
+
+        let directory = bray_emitter::ManagedOutputDirectory::try_new(relative.replace('\\', "/"))
+        .ok_or_else(|| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                operation: DiagnosticProjectOperation::ProductOutputDirectory,
+                path: PathBuf::from(&relative),
+                error: DiagnosticIoErrorKind::InvalidInput,
+            })
+        })?;
+
+        bray_emitter::lock_published_product(
+            bray_emitter::ManagedFilesystemDestination::new(output_root, directory),
+            product.identity(),
+        )
+        .map_err(|_| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                operation: DiagnosticProjectOperation::ProductOutputDirectory,
+                path: PathBuf::from(relative),
+                error: DiagnosticIoErrorKind::Other,
+            })
+        })
+    }
+
+    fn relative_output_directory(
+        &self,
+        product: &ProductIdentity,
+        target_name: &str,
+        configuration: TackBuildConfiguration,
+    ) -> String {
+        format!(
+            "{}/{}/{}",
+            target_name,
+            configuration.directory_name(),
+            product.package().as_str()
+        )
     }
 
     fn cache_interface_path(&self, product: &ProductIdentity, target: &TargetIdentity) -> PathBuf {
         self.graph
             .output_root()
             .beneath(self.workspace_root)
+            .join(".bray")
             .join("cache")
             .join("interfaces")
             .join(target.as_str())
@@ -656,29 +712,6 @@ impl<'project> ProjectCompiler<'project> {
                 })?;
 
         Ok(Some(output_directory.join(name)))
-    }
-
-    fn published_executable_path(
-        &self,
-        output_directory: &Path,
-        product: &ProjectProduct,
-    ) -> Result<Option<PathBuf>, DiagnosticBag> {
-        if !product.outputs().contains(&TargetOutputKind::Executable) {
-            return Ok(None);
-        }
-
-        bray_emitter::resolve_published_artifact(
-            output_directory,
-            product.identity(),
-            bray_emitter::ArtifactKind::Executable,
-            0,
-        )
-        .map(Some)
-        .map_err(|_| {
-            operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
-                DiagnosticProjectOperation::PublishedExecutable,
-            ))
-        })
     }
 
     fn test_catalog_path(&self, output_directory: &Path, product: &ProjectProduct) -> PathBuf {
@@ -730,7 +763,8 @@ enum CompilerAction {
         interface: Option<PathBuf>,
     },
     Build {
-        output: PathBuf,
+        output_root: PathBuf,
+        output_directory: String,
         configuration: TackBuildConfiguration,
         test_catalog: Option<PathBuf>,
     },
@@ -772,14 +806,17 @@ impl CompilerAction {
                 }
             }
             Self::Build {
-                output,
+                output_root,
+                output_directory,
                 configuration,
                 test_catalog,
             } => {
                 request
                     .arg("build")
                     .arg("--output")
-                    .arg(output.into_os_string());
+                    .arg(output_root.into_os_string())
+                    .arg("--managed-output-directory")
+                    .arg(output_directory);
 
                 if configuration == TackBuildConfiguration::Release {
                     request.arg("--release");

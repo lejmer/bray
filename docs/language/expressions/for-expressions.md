@@ -55,10 +55,10 @@ The syntactic body block of a for expression belongs to the for expression's bre
 
 The else body belongs to the same break-capable region.
 
-A for body does not capture `yield`; a `yield` inside a for body targets the nearest enclosing yield-capable region unless a nested
+A for body does not capture `yield`. A `yield` inside a for body targets the nearest enclosing yield-capable region unless a nested
 yield-capable region captures it.
 
-An else body does not capture `yield`; a `yield` inside an else body targets the nearest enclosing yield-capable region unless a
+An else body does not capture `yield`. A `yield` inside an else body targets the nearest enclosing yield-capable region unless a
 nested yield-capable region captures it.
 
 `break value` exits the for expression and supplies the for result.

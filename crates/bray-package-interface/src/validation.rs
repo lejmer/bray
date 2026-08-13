@@ -1195,7 +1195,7 @@ mod tests {
 
         assert_eq!(
             DiagnosticRenderer::english().render(&diagnostic).message(),
-            "package interface exceeds the configured record count limit: 12; maximum 10"
+            "package interface exceeds the configured record count limit: 12. Maximum 10"
         );
 
         let section = InterfaceValidationError::SectionChecksumMismatch {
@@ -1216,7 +1216,7 @@ mod tests {
         .into_diagnostic(DiagnosticId::new(6));
 
         let expected = format!(
-            "unsupported package-interface format revision {}; expected {}",
+            "unsupported package-interface format revision {}. Expected {}",
             unsupported_revision.raw(),
             CURRENT_FORMAT_REVISION.raw()
         );

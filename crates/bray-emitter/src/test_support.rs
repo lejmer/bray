@@ -158,6 +158,7 @@ pub(crate) fn emission_plan() -> EmissionPlan {
             root: "out".into(),
             artifact: crate::ManagedArtifactPath::try_new("artifacts/application.brayi")
                 .unwrap_or_else(|| panic!("test managed path must be valid")),
+            published: "out/application.brayi".into(),
         }),
     );
 
@@ -202,6 +203,7 @@ pub(crate) fn linked_artifact(
             root: root.to_owned(),
             artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
                 .unwrap_or_else(|| panic!("test managed path must be valid")),
+            published: path.to_owned(),
         }),
     )
 }

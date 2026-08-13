@@ -1,6 +1,6 @@
 # Bray source style guide
 
-This guide defines the canonical style for Bray source code. It applies to the standard library, examples, tests, generated
+This guide defines the source style for Bray source code. It applies to the standard library, examples, tests, generated
 Bray source, and other Bray code maintained in this repository. It is also the default style produced by `brayfmt`.
 
 Style does not change program meaning. The language specification determines whether source is valid, while this guide
@@ -64,7 +64,7 @@ boundaries. Files define physical organization.
 
 The thin module root contains:
 
-- the canonical Braydoc comment for the module,
+- the Braydoc comment for the module,
 - the module declaration,
 - directives and metadata that genuinely apply to the whole module.
 
@@ -216,8 +216,8 @@ func isolated_case()
 }
 ```
 
-Use the canonical modifier order defined for a declaration form. Module modifiers use `trusted` before visibility. Where the
-language does not define a canonical order, keep modifiers in a stable order within the surrounding API rather than changing
+Use the required modifier order defined for a declaration form. Module modifiers use `trusted` before visibility. Where the
+language does not define an order, keep modifiers in a stable order within the surrounding API rather than changing
 the order declaration by declaration.
 
 Keep a callable header on one line when it fits. When its parameter list must wrap, place one parameter on each line, include a
@@ -352,7 +352,7 @@ directly documents that line. Otherwise, place it on the preceding line at the i
 Do not manually wrap comment text merely to make the formatter alter it. Comment spelling is preserved exactly, and a comment
 without a safe breakpoint may exceed the line-width target.
 
-Place a declaration's Braydoc comment immediately before its directives and declaration. The canonical module Braydoc comment
+Place a declaration's Braydoc comment immediately before its directives and declaration. The module Braydoc comment
 belongs in the thin module root.
 
 Document public APIs in terms of purpose, observable behavior, caller obligations, and failure conditions. Do not expose

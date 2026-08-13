@@ -55,7 +55,7 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 ## Do not repeat yourself
 
 - Before adding a helper, function, type, or module, search for equivalent or near-equivalent behavior.
-- If equivalent behavior exists, reuse it or move it to one canonical implementation in the appropriate owning crate or module.
+- If equivalent behavior exists, reuse it or move it to one shared implementation in the appropriate owning crate or module.
 - If similar behavior exists, extend the existing implementation when that keeps the design clearer.
 - If no equivalent helper exists but the behavior is reusable beyond the immediate local context, place it where future callers can find it.
 - Keep behavior local only when it is tightly coupled to one function or module.
@@ -126,6 +126,10 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 - Compiler logic must emit structured diagnostics, not hardcoded user-facing English strings.
 - Use diagnostic codes, severities, spans, labels, notes, suggestions, related locations, message IDs, and typed message arguments.
 - User-facing text must be rendered through the locale-aware `bray-messages` infrastructure.
+- Do not use semicolons or em dash characters in user-facing prose, comments, or documentation.
+  A semicolon is allowed only when it is part of literal code syntax.
+- Prefer precise terms such as normalized, stable, shared, or authoritative. Use "canonical" only
+  when it names a defined uniqueness or normalization property.
 - CLI and LSP output must use localized messages.
 - Diagnostic data must be designed so multiple locales can be added without changing compiler logic.
 - Do not construct user-facing prose inside parser, binder, checker, lowering, codegen, emitter, or linker logic.
@@ -266,7 +270,7 @@ The following structural rules apply to Rust source:
 - A production function over 250 physical source lines produces an error. Keep the design target at roughly 200 lines so functions do not routinely approach the enforced limit. Tests, dedicated test sources, and helpers inside test-only modules do not count.
 - `lib.rs` and a module file paired with a same-named directory must be thin roots. They may contain documentation and attributes, external module declarations, and visible reexports, but no implementation, declarations, private imports, or inline modules.
 - The legacy `mod.rs` layout is an error.
-- A submodule filename that repeats its parent module name, such as `foo/foo_parser.rs`, produces a warning. Name it `foo/parser.rs`; the directory already supplies the parent context.
+- A submodule filename that repeats its parent module name, such as `foo/foo_parser.rs`, produces a warning. Name it `foo/parser.rs`. The directory already supplies the parent context.
 - Wildcard imports and reexports are errors regardless of visibility.
 
 Where a rule is genuinely unreasonable for a specific source location, use a narrow source exemption with a nonempty reason:

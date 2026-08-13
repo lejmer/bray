@@ -50,7 +50,7 @@ impl ProjectPath {
 
     pub(crate) fn joined(&self, suffix: &Self) -> Self {
         if self.as_str() == "." {
-            // Project paths are immutable Arc-backed values; retaining one is constant time.
+            // Project paths are immutable Arc-backed values. Retaining one is constant time.
             return suffix.clone();
         }
 

@@ -24,7 +24,7 @@ async operation integrates an external completion source with task suspension, i
 visibility semantics without blocking a cooperative worker. Ordinary parallel budgets remain standard-library permit hierarchies
 and do not grant product-host capacity authority.
 
-The cleanup-report sink is a product-host service and does not require an async scheduler; synchronous products using native
+The cleanup-report sink is a product-host service and does not require an async scheduler. Synchronous products using native
 threads provide it too. It is mandatory even when a product has no interactive debugger or logging backend. It accepts an ordered
 batch of owned type-erased incidents and suppressed child-run panic reports at terminal-boundary observation, reports each
 entry's kind, concrete type, producer/source identity, and ordinal to the product host or persistent inspection stream, then

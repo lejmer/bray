@@ -794,7 +794,7 @@ mod tests {
     use std::num::NonZeroU64;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Barrier, Mutex};
 
     use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
     use bray_diagnostics::DiagnosticBag;
@@ -944,7 +944,7 @@ mod tests {
 
         assert_complete_artifact(&first, b"first");
 
-        let reference = output.path().join(".bray/published-generation.json");
+        let reference = test_generation_store(output.path()).join("published-generation.json");
         let first_reference = file_bytes(&reference);
 
         let rejected = ArtifactPublisher::new(&never_cancelled).publish(
@@ -968,6 +968,7 @@ mod tests {
         );
 
         assert_eq!(file_bytes(&reference), first_reference);
+        assert_eq!(file_bytes(&output.path().join("application.brayd")), b"first");
 
         let replace = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
@@ -987,7 +988,12 @@ mod tests {
             .artifact_path(artifact.id())
             .unwrap_or_else(|| panic!("managed artifact path must resolve"));
 
+        let published = generation
+            .published_artifact_path(artifact.id())
+            .unwrap_or_else(|| panic!("stable artifact path must resolve"));
+
         assert_eq!(file_bytes(&path), b"second");
+        assert_eq!(file_bytes(&published), b"second");
 
         let resolved = crate::resolve_published_artifact(
             output.path(),
@@ -997,7 +1003,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("published manifest must resolve: {error:?}"));
 
-        assert_eq!(resolved, path);
+        assert_eq!(resolved, published);
     }
 
     #[test]
@@ -1027,13 +1033,163 @@ mod tests {
 
         assert_eq!(first_generation.identity(), second_generation.identity());
 
-        let generations = output.path().join(".bray/generations");
+        let generations = first_generation.store().join("generations");
 
         let count = std::fs::read_dir(generations)
             .unwrap_or_else(|error| panic!("generation store must be readable: {error}"))
             .count();
 
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn managed_generation_retention_keeps_only_current_and_preceding_products() {
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let first = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"first", None)]);
+
+        assert_complete_artifact(&first, b"first");
+
+        let first_generation = first
+            .generation()
+            .unwrap_or_else(|| panic!("first managed generation must exist"));
+
+        let first_path = first_generation
+            .artifact_path(first.artifacts().artifacts()[0].id())
+            .unwrap_or_else(|| panic!("first private artifact path must resolve"));
+
+        let second = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"second", None)]);
+
+        assert_complete_artifact(&second, b"second");
+        assert!(first_path.exists());
+
+        let third = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"third", None)]);
+
+        assert_complete_artifact(&third, b"third");
+        assert!(!first_path.exists());
+
+        let generations = third
+            .generation()
+            .unwrap_or_else(|| panic!("third managed generation must exist"))
+            .store()
+            .join("generations");
+
+        let count = std::fs::read_dir(generations)
+            .unwrap_or_else(|error| panic!("generation store must be readable: {error}"))
+            .count();
+
+        assert_eq!(count, 2);
+        assert_eq!(file_bytes(&output.path().join("application.brayd")), b"third");
+    }
+
+    #[test]
+    fn replacement_removes_public_artifacts_absent_from_the_new_generation() {
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let interface = output.path().join("application.brayint");
+        let metadata = output.path().join("application.brayd");
+
+        let first = filesystem_artifact_plan([
+            (package_interface_spec(), interface.clone()),
+            (required_dependency_metadata_spec(), metadata.clone()),
+        ]);
+
+        let first_outcome = ArtifactPublisher::new(&never_cancelled).publish(
+            &first,
+            [contribution_for(
+                &first,
+                ArtifactKind::DependencyMetadata,
+                b"metadata",
+                None,
+                None,
+            )],
+        );
+
+        assert!(matches!(first_outcome.status(), EmissionStatus::Complete));
+        assert!(metadata.is_file());
+
+        let replacement = filesystem_artifact_plan([(package_interface_spec(), interface)]);
+
+        let replacement_outcome =
+            ArtifactPublisher::new(&never_cancelled).publish(&replacement, []);
+
+        assert!(matches!(
+            replacement_outcome.status(),
+            EmissionStatus::Complete
+        ));
+
+        assert!(!metadata.exists());
+    }
+
+    #[test]
+    fn concurrent_product_publishers_leave_one_complete_visible_generation() {
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let plan = Arc::new(filesystem_plan(
+            output.path(),
+            ReplacementPolicy::ReplaceExisting,
+        ));
+
+        let barrier = Arc::new(Barrier::new(3));
+
+        let outcomes = std::thread::scope(|scope| {
+            let publish = |bytes: &'static [u8]| {
+                let plan = Arc::clone(&plan);
+                let barrier = Arc::clone(&barrier);
+
+                scope.spawn(move || {
+                    let contribution = contribution(&plan, bytes, None);
+                    barrier.wait();
+
+                    ArtifactPublisher::new(&never_cancelled).publish(&plan, [contribution])
+                })
+            };
+
+            let first = publish(b"first concurrent product");
+            let second = publish(b"second concurrent product");
+            barrier.wait();
+
+            [
+                first
+                    .join()
+                    .unwrap_or_else(|_| panic!("first publisher must finish")),
+                second
+                    .join()
+                    .unwrap_or_else(|_| panic!("second publisher must finish")),
+            ]
+        });
+
+        assert!(outcomes
+            .iter()
+            .all(|outcome| matches!(outcome.status(), EmissionStatus::Complete)));
+
+        let visible = file_bytes(&output.path().join("application.brayd"));
+
+        assert!(matches!(
+            visible.as_slice(),
+            b"first concurrent product" | b"second concurrent product"
+        ));
+
+        let resolved = crate::resolve_published_artifact(
+            output.path(),
+            plan.request().product(),
+            ArtifactKind::DependencyMetadata,
+            0,
+        )
+        .unwrap_or_else(|error| panic!("visible generation must resolve: {error:?}"));
+
+        assert_eq!(file_bytes(&resolved), visible);
     }
 
     #[test]
@@ -1133,7 +1289,7 @@ mod tests {
             panic!("test output directory must be created");
         };
 
-        let reference = output.path().join(".bray/published-generation.json");
+        let reference = test_generation_store(output.path()).join("published-generation.json");
         let cancellation = || reference.exists();
         let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
@@ -1157,8 +1313,15 @@ mod tests {
 
         assert_complete_artifact(&existing, b"existing");
 
-        let reference = directory.path().join(".bray/published-generation.json");
+        let reference = test_generation_store(directory.path()).join("published-generation.json");
         let existing_reference = file_bytes(&reference);
+
+        let existing_artifact = existing
+            .generation()
+            .and_then(|generation| {
+                generation.published_artifact_path(existing.artifacts().artifacts()[0].id())
+            })
+            .unwrap_or_else(|| panic!("stable existing artifact path must resolve"));
 
         let contribution = contribution(&plan, b"replacement", None);
         let outcome = ArtifactPublisher::new(&always_cancelled).publish(&plan, [contribution]);
@@ -1167,6 +1330,7 @@ mod tests {
         assert!(outcome.artifacts().artifacts().is_empty());
         assert!(outcome.diagnostics().is_empty());
         assert_eq!(file_bytes(&reference), existing_reference);
+        assert_eq!(file_bytes(&existing_artifact), b"existing");
     }
 
     #[test]
@@ -1207,7 +1371,7 @@ mod tests {
         assert!(
             !directory
                 .path()
-                .join(".bray/published-generation.json")
+                .join(".bray/products/example.package/application/published-generation.json")
                 .exists()
         );
     }
@@ -1245,7 +1409,7 @@ mod tests {
         assert!(
             !directory
                 .path()
-                .join(".bray/published-generation.json")
+                .join(".bray/products/example.package/application/published-generation.json")
                 .exists()
         );
     }
@@ -1832,7 +1996,7 @@ mod tests {
             product_kind,
             executable_host,
             target_identity(),
-            RequestedArtifactDestination::FilesystemDirectory(directory.to_owned()),
+            RequestedArtifactDestination::FilesystemDirectory(directory.to_owned().into()),
             requested,
             ReplacementPolicy::ReplaceExisting,
         ) else {
@@ -1981,6 +2145,7 @@ mod tests {
                 root: root.to_owned(),
                 artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
                     .unwrap_or_else(|| panic!("test managed path must be valid")),
+                published: path,
             }),
         )
     }
@@ -2046,11 +2211,12 @@ mod tests {
 
     fn filesystem_plan(path: &Path, replacement: ReplacementPolicy) -> EmissionPlan {
         publication_plan(
-            RequestedArtifactDestination::FilesystemDirectory(path.to_owned()),
+            RequestedArtifactDestination::FilesystemDirectory(path.to_owned().into()),
             OutputSink::ManagedFilesystem {
                 root: path.to_owned(),
                 artifact: crate::ManagedArtifactPath::try_new("artifacts/application.brayd")
                     .unwrap_or_else(|| panic!("test managed path must be valid")),
+                published: path.join("application.brayd"),
             },
             replacement,
         )
@@ -2081,7 +2247,7 @@ mod tests {
             ProductKind::Library,
             None,
             target_identity(),
-            RequestedArtifactDestination::FilesystemDirectory(root.clone()),
+            RequestedArtifactDestination::FilesystemDirectory(root.clone().into()),
             requested,
             ReplacementPolicy::ReplaceExisting,
         ) else {
@@ -2105,6 +2271,7 @@ mod tests {
                     root: root.clone(),
                     artifact: crate::ManagedArtifactPath::try_new(format!("artifacts/{name}"))
                         .unwrap_or_else(|| panic!("test managed path must be valid")),
+                    published: path,
                 }),
             )
         });
@@ -2311,6 +2478,10 @@ mod tests {
         };
 
         bytes
+    }
+
+    fn test_generation_store(root: &Path) -> PathBuf {
+        root.join(".bray/products/example.package/application")
     }
 
     struct CapturingResolver {

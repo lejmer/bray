@@ -105,7 +105,7 @@ An ordinary function returning `Future<T>` binds as an ordinary call and cannot 
 callable contract is async creates an async frame operation.
 
 Member lookup for `.start()`, `.join()`, and `.cancel()` uses the ordinary type-associated member surface and receiver-mode rules. The
-selected compiler-provided identity determines the later intrinsic semantic operation; parser shape and method spelling do not.
+selected compiler-provided identity determines the later intrinsic semantic operation. Parser shape and method spelling do not.
 
 ---
 
@@ -168,7 +168,7 @@ The checker rejects:
 - task migration when retained state is thread-affine.
 
 Affinity facts identify an exact origin thread or compatible lane class for each live control state. A backend can use
-state-sensitive migration only when its descriptor preserves those state-indexed facts; otherwise it uses their conservative union
+state-sensitive migration only when its descriptor preserves those state-indexed facts. Otherwise it uses their conservative union
 and pins the task for its whole lifetime.
 
 The checker represents affinity as a typed dependency property. It does not insert an implicit clone, shared owner, `'static`
@@ -200,7 +200,7 @@ The plan contains two explicit phases:
 2. async finalization and ordinary lifecycle resolution after all requests.
 
 Phase one invokes only descriptor broadcast visitors. A visitor follows initialized ownership paths through inactive erased frames,
-the active direct-await child, guarded aggregates, and recursive indirections; it can request cancellation but cannot resume, wait,
+the active direct-await child, guarded aggregates, and recursive indirections. It can request cancellation but cannot resume, wait,
 finalize, or destroy. Phase two invokes the distinct lifecycle-resolution operations after the complete traversal returns. MIR
 validation rejects a descriptor or cleanup plan that can discover a new phase-one task while phase two is running.
 
@@ -288,7 +288,7 @@ required cleanup edges. MIR validation rejects lowering that copies the report, 
 cancellation into panic, or skips lifecycle resolution.
 
 Cancellation forwarding, run checkpoints, and cancellation-aware operations add `may_cancel_current_run` to the checked body
-effect summary. The term is preserved in declaration metadata but creates no source keyword or callable-type clause; it is the
+effect summary. The term is preserved in declaration metadata but creates no source keyword or callable-type clause. It is the
 cancellation counterpart to implicit panic propagation. Lowering uses it to retain abnormal cleanup edges, while effect-free
 contexts reject it.
 
@@ -305,7 +305,7 @@ not forced through that allocation strategy.
 
 When differently represented `Future<T>` values merge into homogeneous storage, lowering uses checked existential frame metadata and
 an appropriate result-place or erased-storage plan. Erasure strategy must preserve movement before first resume and stable storage
-after execution begins. Its descriptor retains separate phase-one broadcast and phase-two lifecycle entry points; an erased generic
+after execution begins. Its descriptor retains separate phase-one broadcast and phase-two lifecycle entry points. An erased generic
 cleanup callback is insufficient.
 
 ---
@@ -340,7 +340,7 @@ cancellation cleanup without waiting for another checkpoint. This makes the requ
 the abandoned ordinary continuation from resuming.
 
 `std.run.cancellation_requested()` and `std.run.checkpoint()` are ordinary wrappers over the current-root ABI record. Task and
-thread helpers delegate to them. Async roots use task observation rules; synchronous roots use explicit run checkpoints and
+thread helpers delegate to them. Async roots use task observation rules. Synchronous roots use explicit run checkpoints and
 cancellation-aware synchronous operations. A conforming child-process host maps the authenticated parent request to its child root
 state.
 
@@ -493,7 +493,7 @@ For an async entrypoint, lowering creates a compiler-owned host stub and root fr
 
 The host process and its initial thread are product roots rather than source-owned standard-library child values. A synchronous
 entrypoint executes as the root run and establishes `blocking_execution()`, `compute_execution()`, and
-`main_thread_execution()`. An async entrypoint frame becomes a host-owned root task pinned to the distinguished main-thread lane;
+`main_thread_execution()`. An async entrypoint frame becomes a host-owned root task pinned to the distinguished main-thread lane.
 that lane establishes `main_thread_execution()` but not the blocking or compute predicates.
 
 The root body first creates an outcome candidate. Before publication, the generated root frame performs its checked phase-one task
@@ -525,10 +525,10 @@ modules. Their public declarations are encoded in package interfaces exactly lik
 Private trusted declarations bind runtime events, current-run cancellation state, checkpoint/yield operations, native-thread
 creation, child-process creation and transport, reactor registration, and other nonportable services. Their associated ABI-role
 contract records must establish every ownership, dependency, visibility, callback-root, cancellation, and lifecycle fact used by
-safe wrappers. The association is private product metadata; public wrapper interfaces contain only ordinary inferred contracts.
+safe wrappers. The association is private product metadata. Public wrapper interfaces contain only ordinary inferred contracts.
 
 Generic operations that publish values to synchronized shared storage or an independent run produce open run-transfer terms in the
-ordinary inferred dependency template. A private ABI operation obtains that semantic boundary from its ABI-role contract record;
+ordinary inferred dependency template. A private ABI operation obtains that semantic boundary from its ABI-role contract record.
 the compiler does not recognize its source name. Consumers instantiate the exported term with concrete value dependencies, so
 `std.channel`, `std.thread`, `std.process`, and `std.parallel` reject creating-run borrows, incompatible affinity, unsynchronized
 mutation, unencodable process-local state, and undrivable lifecycle obligations without a public marker trait or another
@@ -542,7 +542,7 @@ selects one terminal result and resolves every loser. `std.concurrent.all` retur
 `std.thread.Thread<T>` and its entry callable are ordinary standard-library types, allowing synchronous-only products to use native
 threads without selecting the async runtime. The standard library's async thread bridge integrates those owners with runtime events
 when used from tasks. Synchronous executable roots establish all three execution predicates. Native-thread roots establish blocking
-and compute execution but not main-thread execution; ordinary sync calls only inherit existing facts. Blocking `Thread<T>` join,
+and compute execution but not main-thread execution. Ordinary sync calls only inherit existing facts. Blocking `Thread<T>` join,
 cancel, and finalization contracts require `blocking_execution()`. The async bridge turns current-task cancellation into
 request-thread-cancellation, shielded wait, terminal lifecycle resolution, and continuation of the original task cancellation. It
 uses a private async-finalizable standard-library owner rather than the public synchronous thread owner, preserving ordinary Bray
@@ -554,8 +554,8 @@ surface is available only when `target.platform.native_threads` is true.
 
 `std.process.Process<T>` is an ordinary asynchronously finalizable standard-library owner whose explicit finalizer returns
 `Result<unit, ProcessError>`. Normal scope exit therefore rejects an unresolved owner and requires an explicit consuming `join` or
-`cancel`; abnormal cleanup records finalizer failure as a cleanup incident. Its outer `Result` reports process creation, transport,
-protocol, encoding, decoding, termination, and reaping failures; its inner `RunResult<T>` represents a conforming Bray child run.
+`cancel`. Abnormal cleanup records finalizer failure as a cleanup incident. Its outer `Result` reports process creation, transport,
+protocol, encoding, decoding, termination, and reaping failures. Its inner `RunResult<T>` represents a conforming Bray child run.
 
 `Executable`, `ProductDependency`, `Codec<T>`, `TerminationPolicy`, and `Program<Input, T>` are ordinary nonforgeable
 standard-library owners with internal represented state. Executable identity comes from a declared executable product dependency.
@@ -566,7 +566,7 @@ compiler synthesizes no serialization. A child executable's
 ordinary async main directly awaits `std.process.serve(worker, codecs...)`, which registers a private host terminal reporter and
 maps root completion, panic, or cancellation into the authenticated protocol. The handshake validates executable and protocol
 identity. Parent observation retains raw payload bytes until termination, reaping, and all fallible protocol checks complete, and
-only then decodes and commits `T` or `PanicReport`; no outer process error is possible after that commit. Raw external programs adapt
+only then decodes and commits `T` or `PanicReport`. No outer process error is possible after that commit. Raw external programs adapt
 their explicit exit representation rather than pretending every nonzero status or signal is a Bray panic.
 
 `Program<Input, T>` carries explicit arguments, environment policy and edits, working directory, and standard-stream policy. Typed
@@ -575,7 +575,7 @@ implementations construct the closed `CodecFailure` categories, while private pr
 numeric code under their stable `ProcessError` variant.
 
 `std.parallel` algorithms accept `Budget<TaskDomain>`, `Budget<ThreadDomain>`, or `Budget<ProcessDomain>`. These ordinary
-nonforgeable standard-library owners bound one algorithm hierarchy; they are not product capacity authority and do not change
+nonforgeable standard-library owners bound one algorithm hierarchy. They are not product capacity authority and do not change
 `Future<T>.start()`. `try_acquire`, cancellation-safe FIFO `acquire`, and FIFO `acquire_blocking` produce one owned
 `Permit<Domain>` per active child. Permit release follows terminal observation. Nested algorithms split unacquired and unreserved
 capacity from a same-domain parent, and child destruction returns the reservation. Independent budgets can collectively exceed
@@ -605,7 +605,7 @@ timer heaps, task registries, join state, cancellation state, cleanup-report rou
 The irreducible target boundary supplies native thread and process creation, kernel wait/wake operations, process signalling and
 reaping, platform event polling, virtual-memory acquisition, and target-specific unwind, signal, thread-local, or host-report
 integration. Direct private FFI declarations are sufficient when the target exposes stable callable symbols. A custom native shim is
-allowed only to normalize an otherwise unsuitable platform ABI; it must remain a mechanism layer and cannot implement Bray
+allowed only to normalize an otherwise unsuitable platform ABI. It must remain a mechanism layer and cannot implement Bray
 ownership, structured concurrency, cancellation policy, process protocol semantics, budgets, or parallel algorithms.
 
 The backend and link plan record whether each required private role is implemented by compiler lowering, a Bray runtime artifact, a

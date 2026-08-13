@@ -378,7 +378,7 @@ declaring module, or member visibility prevents access.
 The deterministic enumeration order is:
 
 1. direct type members in source order,
-2. inherent implementations in canonical declaration order,
+2. inherent implementations in stable declaration order,
 3. members within each inherent implementation in source order.
 
 This order exists for deterministic metadata, diagnostics, tooling, and tests. It is not semantic lookup precedence.

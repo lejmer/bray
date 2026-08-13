@@ -30,6 +30,7 @@ pub struct PublishedProductGeneration {
     identity: ProductGenerationIdentity,
     manifest_digest: [u8; 32],
     root: PathBuf,
+    store: PathBuf,
     reference: PathBuf,
     artifacts: EmittedArtifactSet,
 }
@@ -39,6 +40,7 @@ impl PublishedProductGeneration {
         identity: ProductGenerationIdentity,
         manifest_digest: [u8; 32],
         root: PathBuf,
+        store: PathBuf,
         reference: PathBuf,
         artifacts: EmittedArtifactSet,
     ) -> Self {
@@ -46,6 +48,7 @@ impl PublishedProductGeneration {
             identity,
             manifest_digest,
             root,
+            store,
             reference,
             artifacts,
         }
@@ -61,7 +64,7 @@ impl PublishedProductGeneration {
         &self.manifest_digest
     }
 
-    /// Returns the managed product root that owns this generation.
+    /// Returns the managed output root that owns this generation's private state.
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -69,6 +72,11 @@ impl PublishedProductGeneration {
     /// Returns the single publication reference that exposes this generation.
     pub fn reference(&self) -> &Path {
         &self.reference
+    }
+
+    /// Returns the private product store containing immutable generations and the publication reference.
+    pub fn store(&self) -> &Path {
+        &self.store
     }
 
     /// Returns the complete canonical artifact records from the published manifest.
@@ -83,6 +91,7 @@ impl PublishedProductGeneration {
         let OutputSink::ManagedFilesystem {
             root,
             artifact: relative,
+            ..
         } = artifact.sink()
         else {
             return None;
@@ -93,11 +102,24 @@ impl PublishedProductGeneration {
         }
 
         Some(
-            self.root
-                .join(".bray")
+            self.store
                 .join("generations")
                 .join(self.identity.to_hex())
                 .join(relative.to_path_buf()),
         )
+    }
+
+    /// Resolves one managed artifact to its stable public path.
+    pub fn published_artifact_path(&self, id: &ArtifactId) -> Option<PathBuf> {
+        let artifact = self.artifacts.artifact(id)?;
+
+        let OutputSink::ManagedFilesystem {
+            root, published, ..
+        } = artifact.sink()
+        else {
+            return None;
+        };
+
+        (root == &self.root).then(|| published.clone())
     }
 }

@@ -24,7 +24,7 @@ Every `Task<T>` is a linear source-level ownership obligation. Moving the handle
 owned when a lexical scope exits, scope cleanup requests cancellation and waits for the task before ownership ends. Bray has no
 detached task state without a source-level owner.
 
-Every executable has one host-owned root run. A synchronous entrypoint is that run directly; an async entrypoint is transferred
+Every executable has one host-owned root run. A synchronous entrypoint is that run directly. An async entrypoint is transferred
 into a host-owned root task with no source-visible `Task<T>`. Child tasks, operating-system threads, and processes remain owned by
 that root or by a checked nested source owner until their terminal outcomes and payload lifecycles resolve.
 

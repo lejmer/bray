@@ -226,7 +226,7 @@ The diagnostics crate owns the structured records and rendering contracts.
 
 The `bray-messages` layer owns localized text.
 
-Locale identities are canonical BCP 47 language tags. A compiler distribution contains an installed catalog bundle with a manifest
+Locale identities are stable BCP 47 language tags. A compiler distribution contains an installed catalog bundle with a manifest
 that records the exact supported locale identities, catalog schema revision, message-set digest, and English fallback catalog.
 Every catalog supplies every registered message ID with the exact typed argument signature declared by `bray-messages`. Catalog
 validation rejects missing or extra messages, argument mismatches, invalid plural categories, and invalid locale identities.
