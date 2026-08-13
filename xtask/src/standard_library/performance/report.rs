@@ -8,6 +8,7 @@ use super::model::{
 
 use super::format::{grouped, kibibytes, milliseconds, nanoseconds_title, signed_kibibytes, signed_milliseconds};
 use super::html::{BoundedHtml, document_start, escape, finish, write};
+use super::ranking::{CandidateWinners, executable_bytes, observation_value};
 
 pub(super) fn write_candidate(path: &Path, report: &PerformanceReport) -> Result<(), String> {
     write(path, render_candidate(report)?)
@@ -34,15 +35,19 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
     );
 
     for workload in &report.workloads {
+        let winners = CandidateWinners::for_workload(workload);
+
         candidate_row(
             &mut html,
             workload,
             "Bray",
+            true,
             &workload.bray_execution,
             &workload.process_execution,
             workload.compilation.elapsed_nanoseconds,
             &workload.artifacts,
             &workload.observations,
+            &winners,
         );
 
         for (language, peer) in &workload.peers {
@@ -50,11 +55,13 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
                 &mut html,
                 workload,
                 peer_language(*language),
+                false,
                 &peer.controlled_execution,
                 &peer.process_execution,
                 peer.production_compile_link_nanoseconds,
                 &peer.artifacts,
                 &peer.observations,
+                &winners,
             );
         }
     }
@@ -76,37 +83,70 @@ fn candidate_row(
     html: &mut BoundedHtml,
     workload: &super::model::WorkloadReport,
     language: &str,
+    is_bray: bool,
     controlled: &super::model::ExecutionStatistics,
     process: &super::model::ExecutionStatistics,
     compile_link_nanoseconds: u64,
     artifacts: &[super::model::ArtifactReport],
     observations: &super::model::WorkloadObservations,
+    winners: &CandidateWinners,
 ) {
-    let executable = artifacts
-        .iter()
-        .find(|artifact| artifact.kind == ArtifactKind::Executable);
+    let executable = executable_bytes(artifacts);
+    let allocation_count = observation_value(&observations.allocation_count);
+    let allocated_bytes = observation_value(&observations.allocated_bytes);
+    let copied_bytes = observation_value(&observations.copied_bytes);
+    let row_class = if is_bray { " class=\"bray-row\"" } else { "" };
 
     let _ = write!(
         html,
-        "<tr><th>{}</th><td>{}</td><td {}>{}</td><td {}>{}</td><td {}>{}</td>\
-        <td>{} {}/s</td><td>{}</td><td {}>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+        "<tr{row_class}><th>{}</th><td>{}</td><td {} {}>{}</td><td {} {}>{}</td><td {} {}>{}</td>\
+        <td {}>{} {}/s</td><td {}>{}</td><td {} {}>{}</td><td {}>{}</td><td {}>{}</td><td {}>{}</td></tr>",
         escape(&workload.id),
         language,
+        winner_class(
+            Some(controlled.median_nanoseconds),
+            winners.controlled_median
+        ),
         nanoseconds_title(controlled.median_nanoseconds),
         milliseconds(controlled.median_nanoseconds),
+        winner_class(
+            Some(controlled.median_absolute_deviation_nanoseconds),
+            winners.controlled_mad
+        ),
         nanoseconds_title(controlled.median_absolute_deviation_nanoseconds),
         milliseconds(controlled.median_absolute_deviation_nanoseconds),
+        winner_class(Some(process.median_nanoseconds), winners.process_median),
         nanoseconds_title(process.median_nanoseconds),
         milliseconds(process.median_nanoseconds),
+        winner_class(
+            Some(controlled.median_units_per_second),
+            winners.throughput
+        ),
         grouped(controlled.median_units_per_second),
         escape(&workload.units),
-        executable.map_or_else(|| "Unavailable".to_owned(), |artifact| kibibytes(artifact.bytes)),
+        winner_class(executable, winners.executable_bytes),
+        executable.map_or_else(|| "Unavailable".to_owned(), kibibytes),
+        winner_class(
+            Some(compile_link_nanoseconds),
+            winners.compile_link_nanoseconds
+        ),
         nanoseconds_title(compile_link_nanoseconds),
         milliseconds(compile_link_nanoseconds),
+        winner_class(allocation_count, winners.allocation_count),
         observation_count(&observations.allocation_count),
+        winner_class(allocated_bytes, winners.allocated_bytes),
         observation_bytes(&observations.allocated_bytes),
+        winner_class(copied_bytes, winners.copied_bytes),
         observation_bytes(&observations.copied_bytes),
     );
+}
+
+const fn winner_class(value: Option<u64>, winner: Option<u64>) -> &'static str {
+    if matches!((value, winner), (Some(value), Some(winner)) if value == winner) {
+        "class=\"metric-best\""
+    } else {
+        ""
+    }
 }
 
 pub(super) fn write_comparison(
@@ -148,7 +188,7 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
 
         let _ = write!(
             html,
-            "<tr><th>{}</th><td>Bray</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            "<tr class=\"bray-row\"><th>{}</th><td>Bray</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
             escape(&workload.id),
             comparison_metric(workload.bray_execution, MetricUnit::Duration),
             comparison_metric(workload.process_execution, MetricUnit::Duration),
@@ -691,6 +731,8 @@ mod tests {
     use super::{render_candidate, render_comparison};
     use super::super::format::{grouped, kibibytes, signed_kibibytes};
     use super::super::html::{BoundedHtml, MAX_HTML_BYTES, escape, finish};
+    use super::super::model::PeerLanguage;
+    use super::super::ranking::CandidateWinners;
 
     #[test]
     fn html_escaping_covers_text_and_attribute_delimiters() {
@@ -745,7 +787,40 @@ mod tests {
         assert!(first.contains("Rust peer details"));
         assert!(first.contains("C++ peer details"));
         assert!(first.contains(&report.identity.corpus_sha256));
+        assert!(first.contains("<tr class=\"bray-row\">"));
+        assert_eq!(first.matches("class=\"metric-best\"").count(), 17);
         assert!(!first.contains("<artifact>"));
+    }
+
+    #[test]
+    fn candidate_winners_use_direction_and_require_complete_measurements() {
+        let mut report = super::super::tests::report("corpus", 2_500_000, 100_000);
+        let workload = &mut report.workloads[0];
+
+        workload.bray_execution.median_units_per_second = 20;
+
+        let rust = workload
+            .peers
+            .get_mut(&PeerLanguage::Rust)
+            .unwrap_or_else(|| panic!("Rust peer must exist"));
+
+        rust.controlled_execution.median_nanoseconds = 1_500_000;
+        rust.controlled_execution.median_units_per_second = 30;
+
+        let cpp = workload
+            .peers
+            .get_mut(&PeerLanguage::Cpp)
+            .unwrap_or_else(|| panic!("C++ peer must exist"));
+
+        cpp.controlled_execution.median_nanoseconds = 3_500_000;
+        cpp.controlled_execution.median_units_per_second = 10;
+
+        let winners = CandidateWinners::for_workload(workload);
+
+        assert_eq!(winners.controlled_median, Some(1_500_000));
+        assert_eq!(winners.throughput, Some(30));
+        assert_eq!(winners.executable_bytes, Some(80));
+        assert_eq!(winners.allocation_count, None);
     }
 
     #[test]
@@ -765,6 +840,7 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.contains("-1.500 ms"));
         assert!(first.contains("Improved"));
+        assert!(first.contains("<tr class=\"bray-row\">"));
 
         assert!(first.contains(
             "Incomparable. Baseline unavailable because not observed. Candidate unavailable because not observed."

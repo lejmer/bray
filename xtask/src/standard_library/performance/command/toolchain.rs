@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use bray_target::NativeTarget;
 use sha2::{Digest as _, Sha256};
@@ -7,21 +8,20 @@ use sha2::{Digest as _, Sha256};
 use super::progress;
 use crate::bundle::DirectoryPublication;
 
-const CACHE_FORMAT_REVISION: u8 = 1;
+const CACHE_FORMAT_REVISION: u8 = 2;
 const CACHE_INPUT_FILE_NAME: &str = "input.sha256";
+const INPUT_FILES: &[&str] = &["Cargo.lock", "Cargo.toml", "xtask/Cargo.toml"];
 const SOURCE_ROOTS: &[&str] = &[
-    "crates/bray-platform",
-    "crates/bray-platform-abi",
-    "crates/bray-platform-abi-support",
-    "crates/bray-platform-abi-temporal",
-    "crates/bray-runtime",
-    "crates/bray-runtime-abi",
-    "crates/bray-runtime-adapter",
-    "crates/bray-runtime-builtins",
-    "crates/bray-runtime-interface",
-    "crates/bray-runtime-model",
+    "crates",
     "standard-library",
     "third-party/temporal",
+    "toolchains",
+    "xtask/src",
+];
+const EXCLUDED_SOURCE_PATHS: &[&str] = &[
+    "xtask/src/standard_library/performance/html.rs",
+    "xtask/src/standard_library/performance/ranking.rs",
+    "xtask/src/standard_library/performance/report.rs",
 ];
 
 pub(super) struct PreparedToolchain {
@@ -132,12 +132,20 @@ fn input_digest(root: &Path, target: NativeTarget) -> Result<String, String> {
     digest.update(target.as_str().as_bytes());
     digest.update([0]);
 
-    hash_file(&mut digest, Path::new("Cargo.lock"), &root.join("Cargo.lock"))?;
+    for input in INPUT_FILES {
+        hash_file(&mut digest, Path::new(input), &root.join(input))?;
+    }
 
-    let executable = std::env::current_exe()
-        .map_err(|error| format!("could not locate the running xtask executable: {error}"))?;
+    let rustc = Command::new("rustc")
+        .arg("-vV")
+        .output()
+        .map_err(|error| format!("could not inspect the Rust compiler: {error}"))?;
 
-    hash_file(&mut digest, Path::new("xtask"), &executable)?;
+    if !rustc.status.success() {
+        return Err("could not inspect the Rust compiler".to_owned());
+    }
+
+    digest.update(rustc.stdout);
 
     for source_root in SOURCE_ROOTS {
         hash_directory(&mut digest, root, Path::new(source_root))?;
@@ -159,6 +167,10 @@ fn hash_directory(digest: &mut Sha256, root: &Path, relative: &Path) -> Result<(
     for entry in entries {
         let entry_relative = relative.join(entry.file_name());
 
+        if source_path_is_excluded(&entry_relative) {
+            continue;
+        }
+
         let file_type = entry.file_type().map_err(|error| {
             format!("could not inspect {}: {error}", entry.path().display())
         })?;
@@ -171,6 +183,12 @@ fn hash_directory(digest: &mut Sha256, root: &Path, relative: &Path) -> Result<(
     }
 
     Ok(())
+}
+
+fn source_path_is_excluded(path: &Path) -> bool {
+    EXCLUDED_SOURCE_PATHS
+        .iter()
+        .any(|excluded| path == Path::new(excluded))
 }
 
 fn hash_file(digest: &mut Sha256, identity: &Path, path: &Path) -> Result<(), String> {
@@ -190,8 +208,35 @@ fn hash_file(digest: &mut Sha256, identity: &Path, path: &Path) -> Result<(), St
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
-    use super::{CACHE_INPUT_FILE_NAME, PreparedToolchain, cache_is_complete, cached_input};
+    use super::{
+        CACHE_INPUT_FILE_NAME, PreparedToolchain, cache_is_complete, cached_input,
+        source_path_is_excluded,
+    };
+
+    #[test]
+    fn report_rendering_does_not_invalidate_the_compiled_toolchain() {
+        assert!(source_path_is_excluded(Path::new(
+            "xtask/src/standard_library/performance/report.rs"
+        )));
+
+        assert!(source_path_is_excluded(Path::new(
+            "xtask/src/standard_library/performance/html.rs"
+        )));
+
+        assert!(source_path_is_excluded(Path::new(
+            "xtask/src/standard_library/performance/ranking.rs"
+        )));
+
+        assert!(!source_path_is_excluded(Path::new(
+            "xtask/src/standard_library/performance/model.rs"
+        )));
+
+        assert!(!source_path_is_excluded(Path::new(
+            "xtask/src/standard_library/performance/command/toolchain.rs"
+        )));
+    }
 
     #[test]
     fn complete_cache_requires_both_runtimes_and_the_standard_library() {
