@@ -32,6 +32,7 @@ pub struct DriverRunResult {
     report_file: Option<PathBuf>,
     profile: Option<CompilationProfileReport>,
     profile_output: Option<PathBuf>,
+    published_artifacts: Vec<PathBuf>,
 }
 
 impl DriverRunResult {
@@ -66,6 +67,7 @@ impl DriverRunResult {
             report_file: None,
             profile: None,
             profile_output: None,
+            published_artifacts: Vec::new(),
         }
     }
 
@@ -87,6 +89,7 @@ impl DriverRunResult {
             report_file: None,
             profile,
             profile_output: None,
+            published_artifacts: Vec::new(),
         }
     }
 
@@ -148,6 +151,11 @@ impl DriverRunResult {
         self.profile_output.as_deref()
     }
 
+    /// Returns complete stable paths published by a successful build.
+    pub fn published_artifacts(&self) -> &[PathBuf] {
+        &self.published_artifacts
+    }
+
     /// Returns whether this result carries driver-owned terminal output.
     pub fn has_terminal_output(&self) -> bool {
         !self.stdout.is_empty() || !self.stderr.is_empty()
@@ -161,6 +169,12 @@ impl DriverRunResult {
 
     pub(super) fn with_profile_output(mut self, profile_output: Option<PathBuf>) -> Self {
         self.profile_output = profile_output;
+
+        self
+    }
+
+    pub(super) fn with_published_artifacts(mut self, artifacts: Vec<PathBuf>) -> Self {
+        self.published_artifacts = artifacts;
 
         self
     }

@@ -63,6 +63,10 @@ pub(crate) fn write_driver_output(
         return Ok(());
     }
 
+    if result.output_format() == OutputFormat::Json && !result.published_artifacts().is_empty() {
+        return write_build_json(result, stdout, stderr);
+    }
+
     write_diagnostics(
         result.diagnostics(),
         result.sources(),
@@ -71,6 +75,49 @@ pub(crate) fn write_driver_output(
         stderr,
     )
     .map_err(|error| DriverOutputError::DiagnosticOutput(error.kind()))
+}
+
+fn write_build_json(
+    result: &DriverRunResult,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> Result<(), DriverOutputError> {
+    let mut diagnostic_bytes = Vec::new();
+
+    write_diagnostics(
+        result.diagnostics(),
+        result.sources(),
+        OutputFormat::Json,
+        &mut diagnostic_bytes,
+        stderr,
+    )
+    .map_err(|error| DriverOutputError::DiagnosticOutput(error.kind()))?;
+
+    let mut report = serde_json::from_slice::<serde_json::Value>(&diagnostic_bytes)
+        .map_err(|_| DriverOutputError::DiagnosticOutput(std::io::ErrorKind::InvalidData))?;
+
+    let Some(report) = report.as_object_mut() else {
+        return Err(DriverOutputError::DiagnosticOutput(
+            std::io::ErrorKind::InvalidData,
+        ));
+    };
+
+    report.insert(
+        String::from("artifacts"),
+        serde_json::to_value(result.published_artifacts())
+            .map_err(|_| DriverOutputError::DiagnosticOutput(std::io::ErrorKind::InvalidData))?,
+    );
+
+    serde_json::to_writer_pretty(&mut *stdout, &report)
+        .map_err(|error| {
+            DriverOutputError::StandardOutput(
+                error.io_error_kind().unwrap_or(std::io::ErrorKind::Other),
+            )
+        })?;
+
+    stdout
+        .write_all(b"\n")
+        .map_err(|error| DriverOutputError::StandardOutput(error.kind()))
 }
 
 pub(crate) fn write_driver_output_error(
@@ -194,13 +241,45 @@ fn write_profile_summary(
 mod tests {
     use std::io;
     use std::path::PathBuf;
+    use std::process::ExitCode;
 
     use bray_diagnostics::{
-        DiagnosticKind, DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
+        DiagnosticBag, DiagnosticKind, DiagnosticProjectCommandFailure,
+        DiagnosticProjectOperation,
     };
     use bray_tooling::OutputFormat;
 
-    use super::{DriverOutputError, driver_output_error_diagnostic, write_driver_output_error};
+    use super::{
+        DriverOutputError, driver_output_error_diagnostic, write_driver_output,
+        write_driver_output_error,
+    };
+    use crate::run::DriverRunResult;
+
+    #[test]
+    fn build_json_reports_complete_stable_artifact_paths() {
+        let result = DriverRunResult::new(
+            ExitCode::SUCCESS,
+            DiagnosticBag::new(),
+            OutputFormat::Json,
+        )
+        .with_published_artifacts(vec![PathBuf::from(
+            "build/native/debug/hello_world/application.exe",
+        )]);
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        write_driver_output(&result, &mut stdout, &mut stderr)
+            .unwrap_or_else(|_| panic!("build JSON must render"));
+
+        let report: serde_json::Value = serde_json::from_slice(&stdout)
+            .unwrap_or_else(|error| panic!("build JSON must parse: {error}"));
+
+        assert_eq!(
+            report["artifacts"][0],
+            "build/native/debug/hello_world/application.exe"
+        );
+    }
 
     #[test]
     fn report_write_failures_preserve_the_operation_path_and_io_category() {

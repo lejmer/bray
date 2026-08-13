@@ -24,7 +24,7 @@ pub(super) struct CommittedPublicProjection {
 pub(super) struct PreparedPublicProjection<'plan> {
     planned: &'plan crate::PlannedArtifact,
     destination: PathBuf,
-    staged: CompletedStagedFile,
+    staged: Option<CompletedStagedFile>,
     backup: Option<CompletedStagedFile>,
 }
 
@@ -32,6 +32,7 @@ pub(super) fn prepare_public_projections<'plan>(
     layout: &ManagedLayout,
     identity: ProductGenerationIdentity,
     prepared: &'plan [PreparedArtifact<'_, '_>],
+    stale_paths: impl IntoIterator<Item = PathBuf>,
     replacement: ReplacementPolicy,
     cancellation: &dyn Cancellation,
 ) -> Result<Vec<PreparedPublicProjection<'plan>>, ArtifactPublicationFailure> {
@@ -84,9 +85,26 @@ pub(super) fn prepare_public_projections<'plan>(
         projections.push(PreparedPublicProjection {
             planned: artifact.planned,
             destination: published.clone(),
-            staged,
+            staged: Some(staged),
             backup,
         });
+    }
+
+    for destination in stale_paths {
+        let backup = prepare_public_backup(
+            &layout.staging,
+            &destination,
+            prepared[0].planned,
+        )?;
+
+        if backup.is_some() {
+            projections.push(PreparedPublicProjection {
+                planned: prepared[0].planned,
+                destination,
+                staged: None,
+                backup,
+            });
+        }
     }
 
     Ok(projections)
@@ -105,7 +123,12 @@ pub(super) fn commit_public_projections(
             return Err(ArtifactPublicationFailure::Cancelled);
         }
 
-        if let Err(error) = projection.staged.promote(&projection.destination) {
+        let promotion = match projection.staged {
+            Some(staged) => staged.promote(&projection.destination),
+            None => std::fs::remove_file(&projection.destination),
+        };
+
+        if let Err(error) = promotion {
             rollback_public_projections(committed, projection.planned)?;
 
             return Err(artifact_failure(

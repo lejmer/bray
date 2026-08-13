@@ -613,6 +613,11 @@ fn run_one(
         );
     };
 
+    let _publication_guard = match compiler.lock_published_product(product, configuration) {
+        Ok(guard) => guard,
+        Err(diagnostics) => return failure(diagnostics, output_format),
+    };
+
     let exit_code = match run_project_process(&executable, &arguments, workspace_root) {
         Ok(exit_code) => exit_code,
         Err(diagnostics) => return failure(diagnostics, output_format),
@@ -658,6 +663,7 @@ fn run_tests(
 
     let mut outputs = Vec::new();
     let mut hosts = Vec::new();
+    let mut publication_guards = Vec::new();
 
     for product in products {
         let plan = match compiler.build_progress_plan(&product, configuration) {
@@ -703,6 +709,11 @@ fn run_tests(
             );
         };
 
+        let guard = match compiler.lock_published_product(&product, configuration) {
+            Ok(guard) => guard,
+            Err(diagnostics) => return failure(diagnostics, output_format),
+        };
+
         let Some(host) = BuiltTestHost::try_new(executable, test_catalog) else {
             return failure(
                 selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost),
@@ -711,6 +722,7 @@ fn run_tests(
         };
 
         hosts.push(host);
+        publication_guards.push(guard);
     }
 
     let mut result = result_from_outputs(outputs, output_format);

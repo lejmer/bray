@@ -34,7 +34,10 @@ pub use plan::{
     EmissionPlanner, EmissionPlanningError, PlannedArtifact, PlannedArtifactDestination,
 };
 pub use publication::ArtifactPublisher;
-pub use publication::{PublishedGenerationReadError, resolve_published_artifact};
+pub use publication::{
+    PublishedGenerationReadError, PublishedProductReadGuard, lock_published_product,
+    resolve_published_artifact,
+};
 pub use request::{
     EmissionRequest, EmissionRequestBuildError, ManagedFilesystemDestination,
     ManagedOutputDirectory, RequestedArtifact, RequestedArtifactDestination,

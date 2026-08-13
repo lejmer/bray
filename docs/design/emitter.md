@@ -329,17 +329,23 @@ The publication sequence is:
 5. Write, flush, and validate the stable generation manifest.
 6. Hash the normalized manifest to obtain the generation identity, make the generation immutable to emitter writers, and place it at
    its content-addressed generation identity with atomic no-replace publication.
-7. Prepare and atomically replace each stable public artifact, retaining rollback copies until the transaction commits.
+7. While holding the product publication lock, prepare and atomically replace each stable public artifact, retaining rollback
+   copies until the transaction commits. Remove public paths absent from the replacement manifest through the same rollback set.
 8. Atomically replace the product's private published-generation reference with a reference to the complete generation.
 9. Retain the current and immediately preceding generation, then remove older validated generation directories.
 10. Record the product and all emitted artifacts from the now-published manifest.
 
-Ordinary users and automation consume the invariant stable public path directly. Compiler readers validate that projection through
-the private published-generation reference and manifest. The private reference observes either the preceding complete generation
-or the replacement complete generation, while each public file replacement is independently atomic. If a later projection or the
-reference commit fails, the emitter restores every public file already replaced. A host filesystem that cannot provide the required
-same-filesystem atomic operations does not support managed product publication and produces a structured capability diagnostic. A
-require-absent request uses atomic no-replace operations or fails.
+Ordinary users and automation consume the invariant stable public path directly after the build command completes. A reader that
+can race another publisher holds the shared product publication lock while opening stable paths. Bray Tack follows this protocol
+for run and test execution. The emitter holds the exclusive lock across public projection, reference replacement, rollback, and
+retention. This gives readers one complete public path set and prevents two compiler processes from interleaving one product
+transaction. Compiler readers also validate the projection through the private published-generation reference and manifest.
+
+The private reference observes either the preceding complete generation or the replacement complete generation. Each public file
+replacement is independently atomic inside the locked transaction. If a later projection or the reference commit fails, the
+emitter restores every public file already replaced. A host filesystem that cannot provide the required same-filesystem atomic
+operations does not support managed product publication and produces a structured capability diagnostic. A require-absent request
+uses atomic no-replace operations or fails.
 
 If the content-addressed generation already exists, the emitter validates its manifest and artifact identities and reuses it only
 when they match exactly. A collision or mismatched existing generation is a publication failure. The published-generation reference
@@ -349,8 +355,9 @@ Cancellation or failure before step 8 restores the preceding stable public files
 visible while removing only explicitly recorded private staging state. Cancellation after the atomic reference replacement cannot
 retract the published generation. New Unix artifacts use artifact-appropriate modes subject to the process umask. The manifest
 makes retention explicit. Cleanup considers only validated content-addressed directories in the product's private generation
-store. It keeps the current and preceding generation so a reader that observed the former reference can finish validation, and it
-never infers ownership from public output directories.
+store. It keeps the current and preceding generation so a reader that observed the former reference can finish validation. Stable
+public names come from those manifests, and replacement removes names absent from the new generation. Cleanup never infers
+ownership from unrelated files in public output directories.
 
 A separately requested inspection output that is explicitly marked independent of product success may use per-artifact atomic
 publication. Transactional streams and memory collectors expose the complete product generation only when their single host commit

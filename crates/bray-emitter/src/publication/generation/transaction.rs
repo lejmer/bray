@@ -11,6 +11,8 @@ use bray_codegen::ArtifactDigest;
 use tempfile::{Builder, TempDir};
 
 use super::layout::{METADATA_DIRECTORY, STAGING_DIRECTORY, product_store_relative};
+use super::lock::ProductPublicationLock;
+use super::cleanup::{generation_public_paths, retain_recent_generations, stale_public_paths};
 use super::manifest::{
     GenerationManifest, GenerationReference, ManifestArtifact, ManifestPermissions,
     ManifestProduct, permission_key,
@@ -63,7 +65,14 @@ pub(in crate::publication) fn publish_managed_generation(
     }
 
     let layout = create_layout(root, first.planned)?;
+    let _publication_lock = ProductPublicationLock::acquire(&layout.metadata, first.planned)?;
     let preceding_generation = referenced_generation(&layout);
+
+    let preceding_public_paths = preceding_generation
+        .map(|identity| generation_public_paths(root, &layout, identity, first.planned))
+        .transpose()?
+        .unwrap_or_default();
+
     let private = create_private_generation(&layout, first.planned)?;
 
     let (manifest, emitted) = stage_generation(root, &private, &prepared, cancellation)?;
@@ -98,6 +107,7 @@ pub(in crate::publication) fn publish_managed_generation(
         &layout,
         identity,
         &prepared,
+        stale_public_paths(root, &manifest, preceding_public_paths, first.planned)?,
         replacement,
         cancellation,
     )?;
@@ -437,58 +447,6 @@ fn referenced_generation(layout: &ManagedLayout) -> Option<ProductGenerationIden
     let identity = bray_base::decode_lowercase_hex::<32>(&reference.generation)?;
 
     Some(ProductGenerationIdentity::new(identity))
-}
-
-fn retain_recent_generations(
-    layout: &ManagedLayout,
-    current: ProductGenerationIdentity,
-    preceding: Option<ProductGenerationIdentity>,
-    planned: &crate::PlannedArtifact,
-) -> Result<(), PublicationError> {
-    let entries = std::fs::read_dir(&layout.generations).map_err(|error| {
-        planned_error(planned, PublicationErrorKind::Commit(error.kind()))
-    })?;
-
-    let mut obsolete = Vec::new();
-
-    for entry in entries {
-        let entry = entry.map_err(|error| {
-            planned_error(planned, PublicationErrorKind::Commit(error.kind()))
-        })?;
-
-        let file_type = entry.file_type().map_err(|error| {
-            planned_error(planned, PublicationErrorKind::Commit(error.kind()))
-        })?;
-
-        if !file_type.is_dir() {
-            continue;
-        }
-
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
-        };
-
-        let Some(identity) = bray_base::decode_lowercase_hex::<32>(&name)
-            .map(ProductGenerationIdentity::new)
-        else {
-            continue;
-        };
-
-        if identity != current && Some(identity) != preceding {
-            obsolete.push(entry.path());
-        }
-    }
-
-    obsolete.sort();
-
-    for path in obsolete {
-        std::fs::remove_dir_all(path).map_err(|error| {
-            planned_error(planned, PublicationErrorKind::Commit(error.kind()))
-        })?;
-    }
-
-    sync_directory(&layout.generations)
-        .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))
 }
 
 fn portable_path(path: &Path) -> Option<String> {

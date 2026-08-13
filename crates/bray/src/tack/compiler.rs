@@ -187,6 +187,10 @@ impl<'project> ProjectCompiler<'project> {
             configuration,
             artifact,
             display_path(&output_directory, self.workspace_root),
+            executable
+                .as_deref()
+                .map(|path| display_path(path, self.workspace_root))
+                .unwrap_or_else(|| display_path(&output_directory, self.workspace_root)),
             packages,
         ))
     }
@@ -618,6 +622,42 @@ impl<'project> ProjectCompiler<'project> {
         self.graph.output_root().beneath(self.workspace_root).join(
             self.relative_output_directory(product, target_name, configuration),
         )
+    }
+
+    pub(crate) fn lock_published_product(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<bray_emitter::PublishedProductReadGuard, DiagnosticBag> {
+        let product = self.project_product(planned)?;
+        let output_root = self.graph.output_root().beneath(self.workspace_root);
+
+        let relative = self.relative_output_directory(
+            product.identity(),
+            planned.target_name(),
+            configuration,
+        );
+
+        let directory = bray_emitter::ManagedOutputDirectory::try_new(relative.replace('\\', "/"))
+        .ok_or_else(|| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                operation: DiagnosticProjectOperation::ProductOutputDirectory,
+                path: PathBuf::from(&relative),
+                error: DiagnosticIoErrorKind::InvalidInput,
+            })
+        })?;
+
+        bray_emitter::lock_published_product(
+            bray_emitter::ManagedFilesystemDestination::new(output_root, directory),
+            product.identity(),
+        )
+        .map_err(|_| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                operation: DiagnosticProjectOperation::ProductOutputDirectory,
+                path: PathBuf::from(relative),
+                error: DiagnosticIoErrorKind::Other,
+            })
+        })
     }
 
     fn relative_output_directory(

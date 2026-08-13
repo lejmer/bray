@@ -154,6 +154,18 @@ pub(crate) fn run_build_command(
         Ok(outcome) => {
             let diagnostics = outcome.diagnostics().clone();
 
+            let published_artifacts = outcome
+                .generation()
+                .map(|generation| {
+                    outcome
+                        .artifacts()
+                        .artifacts()
+                        .iter()
+                        .filter_map(|artifact| generation.published_artifact_path(artifact.id()))
+                        .collect()
+                })
+                .unwrap_or_default();
+
             let exit_code = match outcome.status() {
                 EmissionStatus::Complete => exit_code_from_diagnostics(&diagnostics),
                 EmissionStatus::Failed(_) | EmissionStatus::Cancelled => ExitCode::FAILURE,
@@ -172,6 +184,7 @@ pub(crate) fn run_build_command(
             }
 
             driver_result_from_compilation(compilation, diagnostics, output_format, exit_code)
+                .with_published_artifacts(published_artifacts)
         }
         Err(error) => driver_result_from_compilation(
             compilation,

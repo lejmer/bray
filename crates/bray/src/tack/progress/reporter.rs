@@ -515,6 +515,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("progress JSON must parse: {error:?}"));
 
         assert_eq!(report["build_progress"][0]["status"], "failed");
+
+        assert_eq!(
+            report["build_progress"][0]["path"],
+            "build/native/debug/application.exe"
+        );
+
         assert_eq!(report["build_progress"][0]["packages"][0]["package"], "std");
         assert!(result.stdout().find("Compiling").is_none());
     }
@@ -525,6 +531,7 @@ mod tests {
             TackBuildConfiguration::Debug,
             "application.exe",
             "build/native/debug",
+            "build/native/debug/application.exe",
             vec![
                 BuildProgressPackage::new(
                     "std",

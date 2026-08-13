@@ -5,6 +5,7 @@ use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm};
 use serde::Deserialize;
 
 use super::layout::product_store;
+use super::lock::open_lock_file;
 use super::manifest::{
     GenerationManifest, GenerationReference, permission_key,
 };
@@ -41,6 +42,41 @@ pub enum PublishedGenerationReadError {
     InvalidArtifact,
 }
 
+/// Shared product-publication lock held while stable public artifact paths are consumed.
+pub struct PublishedProductReadGuard {
+    _file: std::fs::File,
+}
+
+/// Waits until any product publication finishes and prevents replacement until this guard drops.
+pub fn lock_published_product(
+    destination: impl Into<ManagedFilesystemDestination>,
+    product: &bray_symbols::ProductIdentity,
+) -> Result<PublishedProductReadGuard, PublishedGenerationReadError> {
+    let destination = destination.into();
+
+    lock_product_destination(&destination, product)
+}
+
+fn lock_product_destination(
+    destination: &ManagedFilesystemDestination,
+    product: &bray_symbols::ProductIdentity,
+) -> Result<PublishedProductReadGuard, PublishedGenerationReadError> {
+
+    let public_directory = destination
+        .relative_directory()
+        .map_or_else(PathBuf::new, ManagedOutputDirectory::to_path_buf);
+
+    let store = product_store(destination.root(), &public_directory, product);
+
+    let file = open_lock_file(&store)
+        .map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;
+
+    file.lock_shared()
+        .map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;
+
+    Ok(PublishedProductReadGuard { _file: file })
+}
+
 /// Resolves and validates one artifact from the currently published product generation.
 pub fn resolve_published_artifact(
     destination: impl Into<ManagedFilesystemDestination>,
@@ -55,6 +91,7 @@ pub fn resolve_published_artifact(
         .map_or_else(PathBuf::new, ManagedOutputDirectory::to_path_buf);
 
     let store = product_store(destination.root(), &public_directory, product);
+    let _guard = lock_product_destination(&destination, product)?;
 
     let reference_path = store.join(PUBLISHED_REFERENCE);
 

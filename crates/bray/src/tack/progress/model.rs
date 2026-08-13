@@ -55,6 +55,7 @@ pub(crate) struct BuildProgressPlan {
     configuration: TackBuildConfiguration,
     artifact: String,
     output_path: String,
+    path: String,
     packages: Vec<BuildProgressPackage>,
 }
 
@@ -64,6 +65,7 @@ impl BuildProgressPlan {
         configuration: TackBuildConfiguration,
         artifact: impl Into<String>,
         output_path: impl Into<String>,
+        path: impl Into<String>,
         packages: Vec<BuildProgressPackage>,
     ) -> Self {
         Self {
@@ -71,6 +73,7 @@ impl BuildProgressPlan {
             configuration,
             artifact: artifact.into(),
             output_path: output_path.into(),
+            path: path.into(),
             packages,
         }
     }
@@ -89,6 +92,10 @@ impl BuildProgressPlan {
 
     pub(crate) fn output_path(&self) -> &str {
         &self.output_path
+    }
+
+    pub(crate) fn path(&self) -> &str {
+        &self.path
     }
 
     pub(crate) fn packages(&self) -> &[BuildProgressPackage] {
@@ -172,6 +179,7 @@ pub(super) struct BuildProgressReport {
     status: BuildProgressStatus,
     artifact: String,
     output_path: String,
+    path: String,
     completed_units: u64,
     total_units: u64,
     duration_milliseconds: u64,
@@ -196,6 +204,7 @@ impl BuildProgressReport {
             status,
             artifact: plan.artifact().to_owned(),
             output_path: plan.output_path().to_owned(),
+            path: plan.path().to_owned(),
             completed_units,
             total_units: plan.total_units(),
             duration_milliseconds,

@@ -69,6 +69,11 @@ staging state remain beneath `<output_root>/.bray/`. Configuration separation pr
 and test commands from reusing or replacing artifacts from another configuration. Check and
 semantic inspection remain configuration-independent.
 
+Structured build results report every complete stable artifact path directly. Progress JSON also
+includes the full stable product path as one field, while retaining the filename and directory
+fields used by terminal presentation. Run and test hold the product's shared publication lock for
+the lifetime of native execution so a concurrent build cannot expose a mixed companion set.
+
 ## Formatter Configuration
 
 Formatting uses the formatter defaults when the workspace does not select a formatter configuration. The optional
