@@ -192,6 +192,8 @@ cargo xtask standard-library performance --output <directory>
 The command is intentionally outside ordinary unit tests. It builds one host runtime and standard-library toolchain, compiles each
 workload with compiler summary profiling, performs warmups followed by seven measured executions, validates stable output, and
 writes bounded self-contained `candidate.html` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract.
+The command writes phase and workload progress to standard error while keeping the `candidate.json` path as its only standard
+output line.
 Agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
