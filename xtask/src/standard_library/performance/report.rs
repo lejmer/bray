@@ -741,14 +741,14 @@ mod tests {
     }
 
     #[test]
-    fn grouped_integers_are_human_readable() {
+    fn grouped_integers_use_digit_separators() {
         assert_eq!(grouped(999), "999");
         assert_eq!(grouped(1_000), "1,000");
         assert_eq!(grouped(1_234_567), "1,234,567");
     }
 
     #[test]
-    fn human_size_units_retain_exact_byte_values() {
+    fn size_units_retain_exact_byte_values() {
         assert_eq!(kibibytes(1), "0.00 KiB (1 byte)");
         assert_eq!(kibibytes(1_024), "1.00 KiB (1,024 bytes)");
         assert_eq!(signed_kibibytes(-1), "-0.00 KiB (-1 byte)");
