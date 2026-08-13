@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::model::{
     ArtifactComparison, ArtifactKind, ChangeAssessment, ComparisonReport, MetricComparison,
     Observation, ObservationComparison, ObservationComparisonReport, PerformanceReport,
-    SCHEMA_REVISION, WorkloadComparison,
+    PeerComparison, PeerOutcome, SCHEMA_REVISION, WorkloadComparison,
 };
 
 pub(super) fn compare(
@@ -28,6 +28,7 @@ pub(super) fn compare(
             .ok_or_else(|| format!("baseline is missing workload {}", candidate_workload.id))?;
 
         if baseline_workload.category != candidate_workload.category
+            || baseline_workload.peer_contract != candidate_workload.peer_contract
             || baseline_workload.scale != candidate_workload.scale
             || baseline_workload.units != candidate_workload.units
             || baseline_workload.expected_output_sha256
@@ -75,6 +76,7 @@ pub(super) fn compare(
             compiler_metrics: compare_compiler_metrics(baseline_workload, candidate_workload),
             artifacts: compare_artifacts(baseline_workload, candidate_workload)?,
             observations: compare_observations(baseline_workload, candidate_workload),
+            peers: compare_peers(baseline_workload, candidate_workload)?,
         });
     }
 
@@ -108,6 +110,101 @@ fn validate_identity(
     }
 
     Ok(())
+}
+
+fn compare_peers(
+    baseline: &super::model::WorkloadReport,
+    candidate: &super::model::WorkloadReport,
+) -> Result<BTreeMap<super::model::PeerLanguage, PeerComparison>, String> {
+    if baseline.peers.keys().ne(candidate.peers.keys()) {
+        return Err(format!(
+            "workload {} peer language sets differ",
+            candidate.id
+        ));
+    }
+
+    let workload_id = &candidate.id;
+
+    baseline
+        .peers
+        .iter()
+        .map(|(language, baseline)| {
+            let candidate = candidate
+                .peers
+                .get(language)
+                .ok_or_else(|| "candidate peer disappeared during comparison".to_owned())?;
+
+            let comparison = match (baseline, candidate) {
+                (
+                    PeerOutcome::Unsupported {
+                        reason: baseline_reason,
+                    },
+                    PeerOutcome::Unsupported {
+                        reason: candidate_reason,
+                    },
+                ) if baseline_reason == candidate_reason => PeerComparison::Unsupported {
+                    reason: baseline_reason.clone(),
+                },
+                (
+                    PeerOutcome::Measured { report: baseline },
+                    PeerOutcome::Measured { report: candidate },
+                ) => {
+                    if baseline.toolchain != candidate.toolchain
+                        || baseline.build_configuration != candidate.build_configuration
+                        || baseline.source_sha256 != candidate.source_sha256
+                        || baseline.process_execution.scope != candidate.process_execution.scope
+                        || baseline.controlled_execution.scope
+                            != candidate.controlled_execution.scope
+                    {
+                        return Err(format!(
+                            "workload {} {language:?} peer configurations differ",
+                            workload_id
+                        ));
+                    }
+
+                    PeerComparison::Measured {
+                        compile_link: observed_metric(
+                            baseline.production_compile_link_nanoseconds,
+                            candidate.production_compile_link_nanoseconds,
+                        ),
+                        process_execution: noisy_metric(
+                            baseline.process_execution.median_nanoseconds,
+                            candidate.process_execution.median_nanoseconds,
+                            baseline
+                                .process_execution
+                                .median_absolute_deviation_nanoseconds,
+                            candidate
+                                .process_execution
+                                .median_absolute_deviation_nanoseconds,
+                        ),
+                        controlled_execution: noisy_metric(
+                            baseline.controlled_execution.median_nanoseconds,
+                            candidate.controlled_execution.median_nanoseconds,
+                            baseline
+                                .controlled_execution
+                                .median_absolute_deviation_nanoseconds,
+                            candidate
+                                .controlled_execution
+                                .median_absolute_deviation_nanoseconds,
+                        ),
+                        artifacts: compare_artifact_sets(
+                            &baseline.artifacts,
+                            &candidate.artifacts,
+                            &format!("{:?} peer", language),
+                        )?,
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "workload {} {language:?} peer support differs",
+                        workload_id
+                    ));
+                }
+            };
+
+            Ok((*language, comparison))
+        })
+        .collect()
 }
 
 fn compare_compiler_operations(
@@ -193,26 +290,38 @@ fn compare_artifacts(
     baseline: &super::model::WorkloadReport,
     candidate: &super::model::WorkloadReport,
 ) -> Result<Vec<ArtifactComparison>, String> {
+    compare_artifact_sets(
+        &baseline.artifacts,
+        &candidate.artifacts,
+        &format!("workload {}", baseline.id),
+    )
+}
+
+fn compare_artifact_sets(
+    baseline: &[super::model::ArtifactReport],
+    candidate: &[super::model::ArtifactReport],
+    owner: &str,
+) -> Result<Vec<ArtifactComparison>, String> {
     let kinds: BTreeSet<_> = baseline
-        .artifacts
         .iter()
-        .chain(&candidate.artifacts)
+        .chain(candidate)
         .map(|artifact| artifact.kind)
         .collect();
 
     kinds
         .into_iter()
-        .map(|kind| compare_artifact(kind, baseline, candidate))
+        .map(|kind| compare_artifact(kind, baseline, candidate, owner))
         .collect()
 }
 
 fn compare_artifact(
     kind: ArtifactKind,
-    baseline: &super::model::WorkloadReport,
-    candidate: &super::model::WorkloadReport,
+    baseline: &[super::model::ArtifactReport],
+    candidate: &[super::model::ArtifactReport],
+    owner: &str,
 ) -> Result<ArtifactComparison, String> {
-    let baseline = artifact(baseline, kind)?;
-    let candidate = artifact(candidate, kind)?;
+    let baseline = artifact(baseline, kind, owner)?;
+    let candidate = artifact(candidate, kind, owner)?;
     let baseline_sections = section_map(baseline);
     let candidate_sections = section_map(candidate);
 
@@ -288,24 +397,21 @@ fn compare_linker_map_bytes(
     }
 }
 
-fn artifact(
-    workload: &super::model::WorkloadReport,
+fn artifact<'a>(
+    artifacts: &'a [super::model::ArtifactReport],
     kind: ArtifactKind,
-) -> Result<&super::model::ArtifactReport, String> {
-    let mut matching = workload
-        .artifacts
+    owner: &str,
+) -> Result<&'a super::model::ArtifactReport, String> {
+    let mut matching = artifacts
         .iter()
         .filter(|artifact| artifact.kind == kind);
 
     let artifact = matching
         .next()
-        .ok_or_else(|| format!("workload {} has no {kind:?} artifact", workload.id))?;
+        .ok_or_else(|| format!("{owner} has no {kind:?} artifact"))?;
 
     if matching.next().is_some() {
-        return Err(format!(
-            "workload {} has duplicate {kind:?} artifacts",
-            workload.id
-        ));
+        return Err(format!("{owner} has duplicate {kind:?} artifacts"));
     }
 
     Ok(artifact)

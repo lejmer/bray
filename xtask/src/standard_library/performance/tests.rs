@@ -10,10 +10,12 @@ use bray_compilation::{
 use sha2::{Digest as _, Sha256};
 
 use super::comparison::compare;
-use super::command::parse_options_for_test;
+use super::command::{parse_options_for_test, validate_output_parts};
+use super::corpus::ExpectedSideEffects;
 use super::model::{
-    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PerformanceReport,
-    ReportIdentity, SCHEMA_REVISION, WorkloadCategory, WorkloadObservations, WorkloadReport,
+    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBuildConfiguration,
+    PeerLanguage, PeerOutcome, PeerReport, PerformanceReport, ReportIdentity, SCHEMA_REVISION,
+    WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
     bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,
@@ -60,6 +62,77 @@ fn command_options_enforce_positive_bounded_samples_and_known_workloads() {
             "--workload",
             "small_output",
         ])
+        .is_ok()
+    );
+}
+
+#[test]
+fn output_validation_rejects_peer_output_mismatches() {
+    let expected = bray_base::lowercase_hex(&Sha256::digest([]));
+
+    let working_directory = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("output validation directory must exist: {error}"));
+
+    assert!(
+        validate_output_parts(
+            &[],
+            &[],
+            &expected,
+            ExpectedSideEffects::None,
+            working_directory.path(),
+        )
+        .is_ok()
+    );
+
+    assert!(
+        validate_output_parts(
+            b"unexpected",
+            &[],
+            &expected,
+            ExpectedSideEffects::None,
+            working_directory.path(),
+        )
+        .is_err()
+    );
+
+    assert!(
+        validate_output_parts(
+            &[],
+            b"unexpected",
+            &expected,
+            ExpectedSideEffects::None,
+            working_directory.path(),
+        )
+        .is_err()
+    );
+
+    let effect = working_directory.path().join("effect");
+
+    std::fs::write(&effect, [])
+        .unwrap_or_else(|error| panic!("output effect fixture must write: {error}"));
+
+    assert!(
+        validate_output_parts(
+            &[],
+            &[],
+            &expected,
+            ExpectedSideEffects::AbsentPath("effect"),
+            working_directory.path(),
+        )
+        .is_err()
+    );
+
+    std::fs::remove_file(effect)
+        .unwrap_or_else(|error| panic!("output effect fixture must remove: {error}"));
+
+    assert!(
+        validate_output_parts(
+            &[],
+            &[],
+            &expected,
+            ExpectedSideEffects::AbsentPath("effect"),
+            working_directory.path(),
+        )
         .is_ok()
     );
 }
@@ -181,6 +254,18 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
     invalid_output.workloads[0].expected_output_sha256 = "0".repeat(64);
 
     assert!(compare(&baseline, &invalid_output).is_err());
+
+    let mut different_peer_configuration = report("corpus", 102, 4);
+
+    if let PeerOutcome::Measured { report } = different_peer_configuration.workloads[0]
+        .peers
+        .get_mut(&PeerLanguage::Rust)
+        .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
+    {
+        report.build_configuration.production_arguments.push("different flag".to_owned());
+    }
+
+    assert!(compare(&baseline, &different_peer_configuration).is_err());
 }
 
 #[test]
@@ -271,6 +356,48 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
     )
     .unwrap_or_else(|| panic!("fixture Bray samples must produce statistics"));
 
+    let peer = || PeerOutcome::Measured {
+        report: PeerReport {
+            toolchain: "peer compiler".to_owned(),
+            build_configuration: PeerBuildConfiguration {
+                target: "test-target".to_owned(),
+                production_arguments: vec!["release".to_owned()],
+                timed_arguments: vec!["release".to_owned(), "timed".to_owned()],
+                linker: "test-linker".to_owned(),
+                runtime_linkage: "test-runtime".to_owned(),
+                post_link_actions: vec!["test-strip".to_owned()],
+            },
+            source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
+            production_compile_link_nanoseconds: median,
+            process_execution: process_execution.clone(),
+            controlled_execution: bray_execution.clone(),
+            artifacts: vec![ArtifactReport {
+                kind: ArtifactKind::Executable,
+                path: "peer".to_owned(),
+                bytes: 80,
+                sections: bounded(vec![super::model::SectionSize {
+                    name: ".text".to_owned(),
+                    bytes: 15,
+                }]),
+                dependencies: ArtifactDependencies {
+                    static_inputs: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
+                    dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
+                },
+                linker_map: None,
+            }],
+            observations: WorkloadObservations {
+                allocation_count: unavailable(),
+                allocated_bytes: unavailable(),
+                copied_bytes: unavailable(),
+                platform_operations: BTreeMap::new(),
+            },
+        },
+    };
+
+    let peers = [(PeerLanguage::Rust, peer()), (PeerLanguage::Cpp, peer())]
+        .into_iter()
+        .collect();
+
     PerformanceReport {
         schema_revision: SCHEMA_REVISION,
         identity: ReportIdentity {
@@ -287,6 +414,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
         },
         workloads: vec![WorkloadReport {
             id: "small_output".to_owned(),
+            peer_contract: Some("start and complete an empty program once".to_owned()),
             category: WorkloadCategory::Small,
             scale: 1,
             units: "executions".to_owned(),
@@ -314,6 +442,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 copied_bytes: unavailable(),
                 platform_operations: BTreeMap::new(),
             },
+            peers,
         }],
     }
 }

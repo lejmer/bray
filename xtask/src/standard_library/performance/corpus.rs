@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 4;
+pub(super) const CORPUS_REVISION: u32 = 5;
 
 pub(super) struct Workload {
     pub id: &'static str,
@@ -10,6 +10,7 @@ pub(super) struct Workload {
     pub source: &'static str,
     pub standard_library_sources: &'static [&'static str],
     pub expected_output: ExpectedOutput,
+    pub expected_side_effects: ExpectedSideEffects,
     pub platform_operations: &'static [&'static str],
     pub retention: RetentionContract,
     pub storage: Option<StorageExpectation>,
@@ -35,6 +36,12 @@ pub(super) enum ExpectedOutput {
     Repeated { byte: u8, count: u64 },
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum ExpectedSideEffects {
+    None,
+    AbsentPath(&'static str),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct StorageExpectation {
     pub allocation_count: u64,
@@ -54,6 +61,7 @@ func main() {}
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
         retention: NO_RETENTION_CONTRACT,
         storage: None,
@@ -79,7 +87,6 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     }
 
     assert(length(&buffer) == 64);
-    assert(capacity(&buffer) == 64);
     return Ok(unit);
 }
 "#,
@@ -89,6 +96,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             "standard-library/std/src/bytes/buffer.bray",
         ],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
         storage: Some(StorageExpectation {
             allocation_count: 5,
             allocated_bytes: 124,
@@ -118,7 +126,6 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     }
 
     assert(length(&buffer) == 4096);
-    assert(capacity(&buffer) == 4096);
     return Ok(unit);
 }
 "#,
@@ -128,6 +135,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             "standard-library/std/src/bytes/buffer.bray",
         ],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
         retention: NO_RETENTION_CONTRACT,
         storage: Some(StorageExpectation {
@@ -225,6 +233,7 @@ func main()
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
         storage: None,
         platform_operations: &[],
         retention: NO_RETENTION_CONTRACT,
@@ -270,6 +279,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             "standard-library/std/src/format/rendering.bray",
         ],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
         retention: NO_RETENTION_CONTRACT,
         storage: None,
@@ -301,6 +311,7 @@ func main() -> Result<unit, std.io.IoError>
             byte: b'x',
             count: 1024,
         },
+        expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[
             "platform.standard_output.write",
             "platform.standard_output.flush",
@@ -367,6 +378,7 @@ async func main() -> Result<unit, std.io.IoError>
             byte: b'x',
             count: 128,
         },
+        expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[
             "platform.standard_output.write",
             "platform.standard_output.flush",
@@ -404,6 +416,7 @@ func main() -> Result<unit, std.io.IoError>
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[
             "platform.context.measure",
             "platform.context.copy",
@@ -467,6 +480,7 @@ func output_path() -> std.path.Path
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::AbsentPath("bray-performance-file-output"),
         platform_operations: &[
             "platform.context.measure",
             "platform.context.copy",
@@ -526,6 +540,7 @@ func main()
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &["platform.context.measure", "platform.context.copy"],
         retention: NO_RETENTION_CONTRACT,
         storage: None,
@@ -554,6 +569,7 @@ func main() -> Result<unit, std.time.ClockError>
 "#,
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &["platform.clock.monotonic_now"],
         retention: NO_RETENTION_CONTRACT,
         storage: None,

@@ -3,14 +3,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use bray_base::lowercase_hex;
-use sha2::{Digest as _, Sha256};
-
-use super::corpus::StorageExpectation;
-use super::model::{
-    BRAY_EXECUTION_SCOPE, ExecutionStatistics, Observation, STORAGE_OBSERVATION_SCOPE,
-    WorkloadObservations,
-};
+use super::corpus::{ExpectedSideEffects, StorageExpectation};
+use super::model::{Observation, STORAGE_OBSERVATION_SCOPE, WorkloadObservations};
 
 const RECORD_BYTES: usize = 9;
 const ALLOCATION_RECORD: u8 = 1;
@@ -37,51 +31,34 @@ pub(super) fn require_production_symbols_absent(linker_map: &Path) -> Result<(),
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the observed run requires the same explicit execution contract as the production samples"
-)]
-pub(super) fn measure_timing_samples(
+pub(super) fn validate_timing_artifact(linker_map: &Path) -> Result<(), String> {
+    require_observation_symbols(linker_map, ObservationKind::Timing)
+}
+
+pub(super) fn execute_timing_sample(
     executable: &Path,
-    linker_map: &Path,
     working_directory: &Path,
     output: &Path,
-    warmup: u32,
-    samples: u32,
-    scale: u64,
+    iteration: u32,
     expected_output_sha256: &str,
- ) -> Result<ExecutionStatistics, String> {
-    require_observation_symbols(linker_map, ObservationKind::Timing)?;
+    expected_side_effects: ExpectedSideEffects,
+) -> Result<u64, String> {
+    let recorded = execute_observed(
+        executable,
+        working_directory,
+        output,
+        iteration,
+        expected_output_sha256,
+        expected_side_effects,
+    )?;
 
-    let capacity = usize::try_from(samples)
-        .map_err(|_| "sample count cannot be represented by this host".to_owned())?;
-
-    let mut durations = Vec::with_capacity(capacity);
-
-    for iteration in 0..warmup.saturating_add(samples) {
-        let recorded = execute_observed(
-            executable,
-            working_directory,
-            output,
-            iteration,
-            expected_output_sha256,
-        )?;
-
-        let duration = recorded.duration_nanoseconds.ok_or_else(|| {
-            "timed performance execution did not record its controlled interval".to_owned()
-        })?;
-
-        if recorded.storage != empty_storage() {
-            return Err("timed performance execution unexpectedly recorded memory work".to_owned());
-        }
-
-        if iteration >= warmup {
-            durations.push(duration);
-        }
+    if recorded.storage != empty_storage() {
+        return Err("timed performance execution unexpectedly recorded memory work".to_owned());
     }
 
-    super::statistics::summarize(durations, scale, BRAY_EXECUTION_SCOPE)
-        .ok_or_else(|| "at least one timed execution sample is required".to_owned())
+    recorded.duration_nanoseconds.ok_or_else(|| {
+        "timed performance execution did not record its controlled interval".to_owned()
+    })
 }
 
 pub(super) fn measure_storage(
@@ -100,6 +77,7 @@ pub(super) fn measure_storage(
         output,
         0,
         expected_output_sha256,
+        ExpectedSideEffects::None,
     )?;
 
     if recorded.duration_nanoseconds.is_some() {
@@ -132,6 +110,7 @@ fn execute_observed(
     output: &Path,
     iteration: u32,
     expected_output_sha256: &str,
+    expected_side_effects: ExpectedSideEffects,
 ) -> Result<RecordedExecution, String> {
     let observation_path = output.join(format!("performance-observations-{iteration}.bin"));
 
@@ -151,9 +130,12 @@ fn execute_observed(
         ));
     }
 
-    if lowercase_hex(&Sha256::digest(&execution.stdout)) != expected_output_sha256 {
-        return Err("observed artifact did not produce the corpus-defined output".to_owned());
-    }
+    super::validate_output(
+        &execution,
+        expected_output_sha256,
+        expected_side_effects,
+        working_directory,
+    )?;
 
     let recorded = read(&observation_path)?;
 

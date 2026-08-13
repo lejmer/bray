@@ -195,6 +195,18 @@ writes bounded self-contained `candidate.html` and structured `candidate.json` r
 Agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
+Matched workloads also build maintained Rust and C++ peers directly through `rustc` and `clang++`. The report records each exact
+toolchain, optimization configuration, source digest, compile and link duration, process duration, language-controlled duration,
+artifact size, sections, and dependencies. Process and language-controlled rounds rotate their starting language independently so
+Bray, Rust, and C++ do not receive a fixed warm-cache or scheduling advantage. Every execution must produce the same validated
+output digest. The HTML report states the shared semantic contract for each matched row.
+
+Peer comparisons currently cover the empty program, two growable byte-sequence scales, filesystem metadata, process context, and
+monotonic clock workloads. Text hashing and escaping, Bray formatting options, stream locking, structured asynchronous output, and
+partial file-write behavior do not have faithful standard-library peers. Those rows remain in the report with an explicit reason
+instead of presenting a misleading benchmark. Rust and C++ memory-work observations remain unavailable until equally attributed
+measurement support exists for all three languages.
+
 The corpus covers a minimal executable plus scale-sensitive byte growth, borrowed and explicitly owned text pipelines, formatting,
 stream output, asynchronous execution, filesystem metadata, file output, process context, and clock access. The text pipeline covers
 merged literals, UTF-8 substrings, long and repeated input, imported parsing, comparison, hashing, and raw and escaped formatting.
