@@ -109,7 +109,7 @@ func required_child_executable() -> std.path.Path
 
 func required_native_text(pos value: string) -> std.path.NativeText
 {
-    return match consume std.path.NativeText.from_string(value)
+    return match consume std.path.NativeText.from_string(&value)
     {
         case Ok(text) { yield text; }
         case Error(_) { panic("test native text must be valid"); }

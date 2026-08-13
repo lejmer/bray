@@ -274,7 +274,7 @@ mod tests {
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::RuntimeAbiVersion;
-    use bray_symbols::{BorrowKind, PackageIdentity, ProductKind, TypeData};
+    use bray_symbols::{BorrowKind, ConstantValueKind, PackageIdentity, ProductKind, TypeData};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::Compilation;
@@ -667,6 +667,106 @@ mod tests {
             mir.blocks()[1].terminator().kind(),
             MirTerminatorKind::Return(Some(MirOperand::Value(_)))
         ));
+    }
+
+    #[test]
+    fn shared_string_literal_borrows_lower_as_static_constants() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func text(pos selected: bool) -> &string\n",
+            "{\n",
+            "    if selected\n",
+            "    {\n",
+            "        return &\"static text\";\n",
+            "    }\n",
+            "\n",
+            "    return &\"other text\";\n",
+            "}\n",
+        ));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "text"))
+            .unwrap_or_else(|error| panic!("borrowed literal must lower: {error:?}"));
+
+        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let constants = lowered_mir(&lowered)
+            .blocks()
+            .iter()
+            .filter_map(|block| {
+                let MirTerminatorKind::BeginCleanup(cleanup) = block.terminator().kind() else {
+                    return None;
+                };
+
+                let [MirOperand::Constant { value, ty }] = cleanup.edge().arguments() else {
+                    return None;
+                };
+
+                Some((*value, *ty))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(constants.len(), 2);
+
+        for (value, ty) in constants {
+            let ty = values
+                .type_data(ty)
+                .unwrap_or_else(|error| panic!("borrow type must be available: {error:?}"));
+
+            let value = values
+                .constant_value_data(value)
+                .unwrap_or_else(|error| panic!("borrowed literal must be available: {error:?}"));
+
+            let TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target,
+            } = ty.as_ref()
+            else {
+                panic!("literal must use a shared borrow representation");
+            };
+
+            assert_eq!(value.ty(), *target);
+            assert!(matches!(value.kind(), ConstantValueKind::String(_)));
+        }
+    }
+
+    #[test]
+    fn shared_nonliteral_borrows_continue_through_storage() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func accept(pos text: &string)\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "func forward(pos text: string)\n",
+            "{\n",
+            "    accept(&text);\n",
+            "}\n",
+        ));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "forward"))
+            .unwrap_or_else(|error| panic!("nonliteral borrow must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        assert!(lowered_mir(&lowered).operations().iter().any(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::Borrow {
+                    kind: BorrowKind::Shared,
+                    ..
+                }
+            )
+        }));
     }
 
     #[test]
@@ -1643,6 +1743,59 @@ func both_bounds(pos values: Values) -> i32
     }
 
     #[test]
+    fn cleanup_does_not_materialize_unreached_temporary_storage() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Resource\n",
+            "{\n",
+            "    destruct()\n",
+            "    {\n",
+            "    }\n",
+            "}\n",
+            "union OpenError\n",
+            "{\n",
+            "    Failed;\n",
+            "}\n",
+            "func open() -> Result<Resource, OpenError>\n",
+            "{\n",
+            "    return Ok(Resource {});\n",
+            "}\n",
+            "func read(pos text: &string) -> bool\n",
+            "{\n",
+            "    return true;\n",
+            "}\n",
+            "func main() -> Result<unit, OpenError>\n",
+            "{\n",
+            "    let resource: Resource = try open();\n",
+            "    let observed: bool = read(&\"borrowed\");\n",
+            "    return Ok(unit);\n",
+            "}\n",
+        ));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .unwrap_or_else(|error| panic!("resource cleanup must lower: {error:?}"));
+
+        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+
+        let cleanup_places = lowered_mir(&lowered)
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Cleanup { place, .. } => Some((place.storage(), place.ty())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let cleanup_storages = cleanup_places
+            .iter()
+            .map(|(storage, _)| *storage)
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(cleanup_storages.len(), 2, "{cleanup_places:?}");
+    }
+
+    #[test]
     fn checked_result_propagation_lowers_success_and_error_paths() {
         let compilation = compilation(RESULT_PROPAGATION_LOWERING_SOURCE);
         let key = source_callable_body_key(&compilation);
@@ -2017,12 +2170,12 @@ func both_bounds(pos values: Values) -> i32
             concat!(
                 "module std.testing;\n",
                 "\n",
-                "func exercise(pos message: string) -> never\n",
+                "func exercise(pos message: &string) -> never\n",
                 "{\n",
                 "    fail(message);\n",
                 "}\n",
                 "\n",
-                "func catch_failure(pos message: string) -> Result<never, PanicReport>\n",
+                "func catch_failure(pos message: &string) -> Result<never, PanicReport>\n",
                 "{\n",
                 "    return catch fail(message);\n",
                 "}\n",
@@ -2248,6 +2401,51 @@ func both_bounds(pos values: Values) -> i32
             }
             _ => panic!("slice bound must be a present or absent nullable: {operand:#?}"),
         }
+    }
+
+    #[test]
+    fn shared_receiver_storage_is_read_through_its_borrowed_representation() {
+        let compilation = compilation(
+            r#"module app;
+
+trait Read
+{
+    func read() -> i32;
+}
+
+impl I32Read = i32(Read)
+{
+    func read() -> i32
+    {
+        return self;
+    }
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_trait_callable_fulfillment_body_key(
+                &compilation,
+                "read",
+            ))
+            .unwrap_or_else(|error| panic!("shared receiver body must lower: {error:?}"));
+
+        let mir = lowered_mir(&lowered);
+
+        assert!(mir.blocks().iter().any(|block| matches!(
+            block.terminator().kind(),
+            MirTerminatorKind::Return(Some(MirOperand::Copy(place)))
+                if matches!(
+                    place.projections().first().map(bray_ir::MirProjection::kind),
+                    Some(MirProjectionKind::Dereference)
+                )
+        )), "{mir:#?}");
     }
 
     fn declared_unit_key(compilation: &Compilation, kind: BoundUnitKind) -> BoundUnitKey {

@@ -5,6 +5,7 @@ mod core;
 mod index;
 mod memory;
 mod numeric;
+mod operand;
 mod run;
 mod testing;
 mod text;

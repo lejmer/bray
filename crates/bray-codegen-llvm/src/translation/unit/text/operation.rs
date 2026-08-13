@@ -266,7 +266,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let (data, length, _) = self.borrowed_string_parts(*value, *ty)?;
+        let (data, length, _) = self.string_view_parts(*value, *ty)?;
 
         Ok((data, length))
     }
@@ -300,10 +300,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .collect()
     }
 
-    pub(super) fn borrowed_string_parts(
+    pub(in super::super) fn string_view_parts(
         &mut self,
         value: BasicValueEnum<'context>,
-        borrow: bray_symbols::TypeId,
+        ty: bray_symbols::TypeId,
     ) -> Result<
         (
             PointerValue<'context>,
@@ -312,13 +312,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ),
         CodegenFailure,
     > {
-        let target = self
-            .type_mapping(borrow)
-            .and_then(|mapping| match mapping.kind() {
-                CodegenTypeKind::Pointer { target, .. } => Some(*target),
-                _ => None,
-            })
+        let mapping = self
+            .type_mapping(ty)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Pointer { target, .. } = mapping.kind() else {
+            return self.string_parts(value, ty);
+        };
+
+        let target = *target;
 
         let pointer = value.into_pointer_value();
 

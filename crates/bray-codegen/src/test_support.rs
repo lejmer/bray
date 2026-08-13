@@ -142,6 +142,23 @@ pub fn codegen_request_for_unit(
     mappings: CodegenMappings,
     backend: BackendIdentity,
 ) -> CodegenRequestFixture {
+    codegen_request_for_unit_with_debug_information(
+        unit,
+        target,
+        mappings,
+        backend,
+        DebugInformationMode::None,
+    )
+}
+
+/// Creates a complete generation fixture with explicit source debug information.
+pub fn codegen_request_for_unit_with_debug_information(
+    unit: CodegenUnit,
+    target: CodegenTarget,
+    mappings: CodegenMappings,
+    backend: BackendIdentity,
+    debug_information: DebugInformationMode,
+) -> CodegenRequestFixture {
     let required_artifact = BackendArtifactId::new(
         unit.key().clone(),
         BackendArtifactKind::RelocatableObject,
@@ -170,7 +187,12 @@ pub fn codegen_request_for_unit(
     let Ok(artifacts) = BackendArtifactRequest::try_new(
         unit.key().clone(),
         entries,
-        DebugInformationOutputMode::Omit,
+        match debug_information {
+            DebugInformationMode::None => DebugInformationOutputMode::Omit,
+            DebugInformationMode::LineTables | DebugInformationMode::Full => {
+                DebugInformationOutputMode::Embedded
+            }
+        },
         Some(LinkableArtifactRequirement::new(
             LinkableArtifactKind::RelocatableObject,
             BackendArtifactRequirement::Required,
@@ -190,7 +212,7 @@ pub fn codegen_request_for_unit(
         options: CodegenOptions::new(
             OptimizationLevel::None,
             SizePreference::None,
-            DebugInformationMode::None,
+            debug_information,
             crate::ReproducibilityLevel::ByteForByte,
             crate::RuntimeObservationMode::None,
         ),

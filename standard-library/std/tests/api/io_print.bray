@@ -8,7 +8,7 @@ using std.string;
 @test
 func standard_output_is_captured() -> Result<unit, std.io.IoError>
 {
-    return std.io.print("captured-standard-output");
+    return std.io.print(&"captured-standard-output");
 }
 
 @test

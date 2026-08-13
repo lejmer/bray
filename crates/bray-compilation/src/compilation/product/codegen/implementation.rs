@@ -1081,6 +1081,59 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_literal_identity_remains_reachable_for_every_representation() {
+        let (_, compilation) = codegen_compilation_for_product(
+            concat!(
+                "module app;\n",
+                "\n",
+                "public func owned() -> string\n",
+                "{\n",
+                "    return \"shared literal\";\n",
+                "}\n",
+                "\n",
+                "public func borrowed() -> &string\n",
+                "{\n",
+                "    return &\"shared literal\";\n",
+                "}\n",
+            ),
+            ProductKind::Library,
+        );
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("borrowed literal must remain reachable: {error:?}"));
+
+        let mappings = facts
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::constants)
+            .filter(|mapping| {
+                matches!(
+                    mapping.data().kind(),
+                    ConstantValueKind::String(text) if text.as_ref() == "shared literal"
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let borrowed = mappings
+            .iter()
+            .copied()
+            .find(|mapping| mapping.semantic_type() != mapping.representation())
+            .unwrap_or_else(|| panic!("borrow representation must be materialized"));
+
+        assert!(mappings.iter().any(|mapping| {
+            mapping.value() == borrowed.value()
+                && mapping.semantic_type() == mapping.representation()
+        }));
+    }
+
+    #[test]
     fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
         let (backend, facts) = runtime_native_facts(include_str!(
             "../../../../../../xtask/fixtures/native-execution/async-i32.bray"

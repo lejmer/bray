@@ -26,7 +26,7 @@ pub(super) struct StorageExpectation {
     pub copied_bytes: u64,
 }
 
-pub(super) const WORKLOADS: [Workload; 9] = [
+pub(super) const WORKLOADS: [Workload; 10] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -115,6 +115,97 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         }),
     },
     Workload {
+        id: "borrowed_text",
+        category: WorkloadCategory::CoreData,
+        scale: 256,
+        units: "text pipelines",
+        source: r#"module borrowed_text;
+
+using std.bytes;
+using std.format;
+using std.format.StringFormat;
+using std.hash;
+using std.hash.StableHasherSink;
+using std.hash.StringHashable;
+using std.numeric;
+using std.string;
+
+func parsed_literal() -> bool
+{
+    match consume std.numeric.parse_u64(&"42")
+    {
+        case Ok(value) { return value == 42; }
+        case Error(_) { return false; }
+    }
+}
+
+func main()
+{
+    let literal: string = "borrowed text";
+    let duplicate: string = "borrowed text";
+    let long: string = "Bray immutable text pipeline repeated across a deliberately long UTF-8 literal for stable throughput coverage.";
+    let long_bytes: &[u8] = std.string.utf8(&long);
+    let byte_count: usize = std.bytes.slice_length(long_bytes);
+    let middle: &[u8] = &long_bytes[1.. byte_count - 1];
+
+    let decoded: Result<string, std.string.Utf8Error> = std.string.from_utf8(std.string.utf8(&"owned text"));
+    let owned: string = match consume decoded
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { assert(false); yield ""; }
+    };
+
+    let quoted: std.format.Options = std.format.Options(
+        radix = std.format.Radix.Decimal,
+        precision = 0,
+        width = 0,
+        alignment = std.format.Alignment.Left,
+        sign = std.format.Sign.NegativeOnly,
+        escaping = std.format.Escaping.Quoted,
+    );
+
+    let mut sink: std.format.ByteSink = match consume std.format.ByteSink(capacity = 0)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("text sink allocation failed"); }
+    };
+    let mut index: usize = 0;
+
+    assert(std.bytes.slice_length(middle) == byte_count - 2);
+    assert(std.string.equals(&literal, &duplicate));
+    assert(std.string.equals(&owned, &"owned text"));
+    assert(std.hash.stable_hash(&literal) == std.hash.stable_hash(&duplicate));
+    assert(std.hash.stable_hash(&literal) != std.hash.stable_hash(&long));
+    assert(parsed_literal());
+
+    while index < 256
+    {
+        match consume std.format.write<string>(&mut sink, std.format.Argument<string>(&literal))
+        {
+            case Ok(_) {}
+            case Error(_) { panic("raw text formatting failed"); }
+        }
+
+        index = index + 1;
+    }
+
+    match consume std.format.write<string>(
+        &mut sink,
+        std.format.Argument.with_options<string>(&long, options = quoted),
+    )
+    {
+        case Ok(_) {}
+        case Error(_) { panic("escaped text formatting failed"); }
+    }
+
+    assert(std.bytes.slice_length(std.format.bytes(&sink)) > 0);
+}
+"#,
+        standard_library_sources: &[],
+        expected_output: ExpectedOutput::Empty,
+        storage: None,
+    },
+    Workload {
         id: "format_numbers",
         category: WorkloadCategory::Formatting,
         scale: 1024,
@@ -130,7 +221,12 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     while value < 1024
     {
-        try write(&mut sink, Argument<u32>(value));
+        let formatted: u32 = value;
+
+        {
+            try write(&mut sink, Argument<u32>(&formatted));
+        }
+
         value = value + 1;
     }
 
@@ -167,7 +263,7 @@ func main() -> Result<unit, std.io.IoError>
 
     while index < 1024
     {
-        try std.io.print("x");
+        try std.io.print(&"x");
         index = index + 1;
     }
 
@@ -196,7 +292,7 @@ async func main() -> Result<unit, std.io.IoError>
 
     while index < 128
     {
-        try await std.io.print_async("x");
+        try await std.io.print_async(&"x");
         index = index + 1;
     }
 

@@ -432,6 +432,16 @@ impl Lowerer<'_> {
             MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
             MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
         }) {
+            let identity = self
+                .input
+                .storage_plan()
+                .root_identity(*access)
+                .ok_or(LoweringError::MissingStorageIdentity(*access))?;
+
+            if !self.storages.contains_key(&identity) {
+                continue;
+            }
+
             let place = self.place_for_access(*access, false)?;
 
             self.builder.push_operation(
