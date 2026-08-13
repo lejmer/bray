@@ -177,6 +177,45 @@ Run native standard-library integration tests with:
 cargo xtask standard-library test
 ```
 
+Build, execute, validate, and measure the standard-library performance corpus with:
+
+```text
+cargo xtask standard-library performance --output <directory>
+```
+
+The command is intentionally outside ordinary unit tests. It builds one host runtime and standard-library toolchain, compiles each
+workload with compiler summary profiling, performs warmups followed by seven measured executions, validates stable output, and
+writes bounded `candidate.txt` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract;
+agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
+explicit equivalent run configuration.
+
+The corpus covers a minimal executable plus scale-sensitive byte growth, formatting, stream output, asynchronous execution,
+filesystem metadata, process context, and clock access. Add a workload only when it has a stable identity, deterministic output,
+an explicit scale and unit, and exercises a distinct implemented cost boundary. Prefer increasing the scale of a focused workload
+over combining unrelated operations in one source file.
+
+Use repeated `--workload <identity>` options for focused development runs. The selected workload set participates in the corpus
+digest, so a focused report can only compare with the same focused selection.
+
+Reports keep executable and relocatable-object sizes, per-section sizes, static linker-map provenance, dynamic library
+dependencies, the complete compiler profile, and robust median/MAD execution statistics. Allocation, copying, and platform-call
+observations are tagged as measured or unavailable; never replace a missing observation hook with an inferred count. Section,
+dynamic-library, and retained-input collections have fixed entry limits and disclose omitted counts rather than allowing reports
+to grow without bound.
+
+Compare an equivalent baseline and candidate with:
+
+```text
+cargo xtask standard-library performance --output <directory> --baseline <candidate.json>
+```
+
+Comparison first requires the same schema, corpus digest, target, host, compiler version, LLVM version, warmup count, sample count,
+scale, units, and validated output. Runtime changes inside three combined median absolute deviations are reported as indeterminate,
+not as regressions. Artifact and section sizes are deterministic and are attributed directly. The comparison writes both
+`comparison.txt` and `comparison.json`. The structured comparison attributes compiler operation and metric changes, artifact and
+section sizes, linker-map size, added and removed static inputs and dynamic libraries, allocation/copy observations, and selected
+platform-operation observations by workload. Retaining the machine reports is the supported way to establish a baseline.
+
 Regenerate the checked-in target-specific operating-system constants from the pinned SDK description:
 
 ```text

@@ -308,12 +308,13 @@ fn emit_fixture(
         })?;
 
     crate::native_product::emit_executable(
-        compilation,
+        &compilation,
         product.clone(),
         target,
         runtime,
         output,
         [search_path],
+        None,
     )
     .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
 

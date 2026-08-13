@@ -100,7 +100,7 @@ pub(super) fn build_standard_library_fixtures(
     let product = ProductIdentity::try_new(package, PRODUCT_NAME)
         .ok_or_else(|| "standard-library fixture product identity is invalid".to_owned())?;
 
-    crate::native_product::emit_executable(compilation, product, target, runtime, output, [])
+    crate::native_product::emit_executable(&compilation, product, target, runtime, output, [], None)
 }
 
 pub(super) fn standard_library_compilation(

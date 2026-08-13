@@ -123,12 +123,7 @@ fn write_workspace(root: &Path, target: NativeTarget, workspace: &Path) -> Resul
 }
 
 fn write_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
-    let mut bytes = serde_json::to_vec_pretty(value)
-        .map_err(|error| format!("could not encode {}: {error}", path.display()))?;
-
-    bytes.push(b'\n');
-
-    fs::write(path, bytes).map_err(|error| format!("could not write {}: {error}", path.display()))
+    crate::json::write_pretty(path, value)
 }
 
 fn require_hello_world_output(

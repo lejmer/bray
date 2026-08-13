@@ -73,12 +73,16 @@ impl LinkerDriver for SystemLinkerDriver {
             return failed_outcome(plan, failure);
         }
 
-        let arguments = match system_arguments_for(plan, self.family()) {
+        let mut arguments = match system_arguments_for(plan, self.family()) {
             Ok(arguments) => arguments,
             Err(_) => {
                 return failed_outcome(plan, LinkFailure::DriverIncompatible);
             }
         };
+
+        if let Some(output) = self.configuration.map_output() {
+            arguments.extend(output.arguments(self.family()));
+        }
 
         let invocation = match invocation(&self.configuration, plan, arguments) {
             Ok(invocation) => invocation,
@@ -164,6 +168,69 @@ mod tests {
             ),
             Err(SystemLinkerDriverBuildError::DriverKindMismatch)
         ));
+    }
+
+    #[test]
+    fn linker_map_arguments_follow_each_driver_family() {
+        let path = Path::new("reports/application.map");
+
+        let cases = [
+            (
+                SystemLinkerFamily::Gnu,
+                vec![OsString::from("-Map"), path.as_os_str().to_owned()],
+            ),
+            (
+                SystemLinkerFamily::Microsoft,
+                vec![OsString::from("/map:reports/application.map")],
+            ),
+            (
+                SystemLinkerFamily::Apple,
+                vec![OsString::from("-map"), path.as_os_str().to_owned()],
+            ),
+            (
+                SystemLinkerFamily::GnuCompiler,
+                vec![
+                    OsString::from("-Xlinker"),
+                    OsString::from("-Map"),
+                    OsString::from("-Xlinker"),
+                    path.as_os_str().to_owned(),
+                ],
+            ),
+            (
+                SystemLinkerFamily::WslGnuCompiler,
+                vec![
+                    OsString::from("-Xlinker"),
+                    OsString::from("-Map"),
+                    OsString::from("-Xlinker"),
+                    path.as_os_str().to_owned(),
+                ],
+            ),
+            (
+                SystemLinkerFamily::MicrosoftCompiler,
+                vec![
+                    OsString::from("-Xlinker"),
+                    OsString::from("/map:reports/application.map"),
+                ],
+            ),
+            (
+                SystemLinkerFamily::AppleCompiler,
+                vec![
+                    OsString::from("-Xlinker"),
+                    OsString::from("-map"),
+                    OsString::from("-Xlinker"),
+                    path.as_os_str().to_owned(),
+                ],
+            ),
+        ];
+
+        for (family, expected) in cases {
+            let output = crate::SystemLinkerMapOutput::try_new(path)
+                .unwrap_or_else(|| panic!("test map path must be valid"));
+
+            let arguments = output.arguments(family);
+
+            assert_eq!(arguments, expected);
+        }
     }
 
     #[test]

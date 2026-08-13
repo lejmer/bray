@@ -34,7 +34,7 @@ use crate::workspace;
 
 const USAGE: &str = "usage: cargo xtask standard-library \
     <build --output <directory> [--source <directory>] [--target <triple>] | \
-    os-constants generate [--check] | test | verify>";
+    os-constants generate [--check] | performance ... | test | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
@@ -42,6 +42,8 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
         Some("os-constants") => crate::standard_library::os_constants::run(arguments)
             .map(|()| PathBuf::new())
             .map_err(BuildError::OsConstants),
+        Some("performance") => crate::standard_library::performance::run(arguments)
+            .map(|()| PathBuf::new()),
         Some("test") => native_test(arguments).map(|()| PathBuf::new()),
         Some("verify") => verify(arguments).map(|()| PathBuf::new()),
         _ => Err(BuildError::Usage),
@@ -460,7 +462,7 @@ fn build_target(
 
     let compilation = load_llvm_compilation(request).map_err(BuildError::CompilerUnavailable)?;
 
-    let linker = native_linker(native).map_err(|error| BuildError::LinkerUnavailable {
+    let linker = native_linker(native, None).map_err(|error| BuildError::LinkerUnavailable {
         target: target.clone(),
         detail: format!("{error:?}"),
     })?;
