@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCHEMA_REVISION: u32 = 3;
+pub(super) const SCHEMA_REVISION: u32 = 4;
 pub(super) const MAX_SAMPLE_COUNT: u32 = 10_000;
 pub(super) const MAX_SECTION_COUNT: usize = 512;
 pub(super) const MAX_RETAINED_INPUT_COUNT: usize = 4_096;
@@ -69,13 +69,23 @@ pub(super) enum PeerOutcome {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct PeerReport {
     pub toolchain: String,
-    pub build_configuration: String,
+    pub build_configuration: PeerBuildConfiguration,
     pub source_sha256: String,
-    pub compile_link_nanoseconds: u64,
+    pub production_compile_link_nanoseconds: u64,
     pub process_execution: ExecutionStatistics,
     pub controlled_execution: ExecutionStatistics,
     pub artifacts: Vec<ArtifactReport>,
     pub observations: WorkloadObservations,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct PeerBuildConfiguration {
+    pub target: String,
+    pub production_arguments: Vec<String>,
+    pub timed_arguments: Vec<String>,
+    pub linker: String,
+    pub runtime_linkage: String,
+    pub post_link_actions: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

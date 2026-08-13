@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use super::corpus::StorageExpectation;
+use super::corpus::{ExpectedSideEffects, StorageExpectation};
 use super::model::{Observation, STORAGE_OBSERVATION_SCOPE, WorkloadObservations};
 
 const RECORD_BYTES: usize = 9;
@@ -41,6 +41,7 @@ pub(super) fn execute_timing_sample(
     output: &Path,
     iteration: u32,
     expected_output_sha256: &str,
+    expected_side_effects: ExpectedSideEffects,
 ) -> Result<u64, String> {
     let recorded = execute_observed(
         executable,
@@ -48,6 +49,7 @@ pub(super) fn execute_timing_sample(
         output,
         iteration,
         expected_output_sha256,
+        expected_side_effects,
     )?;
 
     if recorded.storage != empty_storage() {
@@ -75,6 +77,7 @@ pub(super) fn measure_storage(
         output,
         0,
         expected_output_sha256,
+        ExpectedSideEffects::None,
     )?;
 
     if recorded.duration_nanoseconds.is_some() {
@@ -107,6 +110,7 @@ fn execute_observed(
     output: &Path,
     iteration: u32,
     expected_output_sha256: &str,
+    expected_side_effects: ExpectedSideEffects,
 ) -> Result<RecordedExecution, String> {
     let observation_path = output.join(format!("performance-observations-{iteration}.bin"));
 
@@ -126,7 +130,12 @@ fn execute_observed(
         ));
     }
 
-    super::validate_output(&execution.stdout, expected_output_sha256)?;
+    super::validate_output(
+        &execution,
+        expected_output_sha256,
+        expected_side_effects,
+        working_directory,
+    )?;
 
     let recorded = read(&observation_path)?;
 

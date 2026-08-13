@@ -6,15 +6,15 @@ use bray_base::lowercase_hex;
 use bray_target::{NativeTarget, ObjectFormat};
 use sha2::{Digest as _, Sha256};
 
-use super::super::model::PeerLanguage;
+use super::super::model::{PeerBuildConfiguration, PeerLanguage};
 use super::source::{PeerSource, sources};
 
 pub(in crate::standard_library::performance) struct BuiltPeer {
     pub language: PeerLanguage,
     pub toolchain: String,
-    pub build_configuration: String,
+    pub build_configuration: PeerBuildConfiguration,
     pub source_sha256: String,
-    pub compile_link_nanoseconds: u64,
+    pub production_compile_link_nanoseconds: u64,
     pub executable: PathBuf,
     pub linker_map: PathBuf,
     pub timed_executable: PathBuf,
@@ -35,7 +35,7 @@ pub(in crate::standard_library::performance) fn build(
 
     for source in sources {
         peers.push(match source.language {
-            PeerLanguage::Rust => build_rust(output, target, source)?,
+            PeerLanguage::Rust => build_rust(root, output, target, source)?,
             PeerLanguage::Cpp => build_cpp(root, output, target, source)?,
         });
     }
@@ -44,6 +44,7 @@ pub(in crate::standard_library::performance) fn build(
 }
 
 fn build_rust(
+    root: &Path,
     output: &Path,
     target: NativeTarget,
     source: PeerSource,
@@ -60,6 +61,9 @@ fn build_rust(
 
     let executable = directory.join(crate::native_toolchain::executable_name("peer"));
     let linker_map = directory.join("peer.map");
+    let linker = rust_linker(root, target);
+    let production_arguments = rust_arguments(target, source.selector, &linker, false);
+    let timed_arguments = rust_arguments(target, source.selector, &linker, true);
     let started = Instant::now();
 
     run_rustc(
@@ -68,10 +72,11 @@ fn build_rust(
         &linker_map,
         target,
         source.selector,
+        &linker,
         false,
     )?;
 
-    let compile_link_nanoseconds = elapsed_nanoseconds(started);
+    let production_compile_link_nanoseconds = elapsed_nanoseconds(started);
     let timed_executable = directory.join(crate::native_toolchain::executable_name("peer-timed"));
     let timed_linker_map = directory.join("peer-timed.map");
 
@@ -81,15 +86,23 @@ fn build_rust(
         &timed_linker_map,
         target,
         source.selector,
+        &linker,
         true,
     )?;
 
     Ok(BuiltPeer {
         language: PeerLanguage::Rust,
         toolchain: command_identity(Command::new("rustc").arg("--version"), "rustc")?,
-        build_configuration: "rustc opt-level=3, debuginfo=0, panic=abort, one codegen unit, no LTO, stripped symbols".to_owned(),
+        build_configuration: PeerBuildConfiguration {
+            target: target.as_str().to_owned(),
+            production_arguments,
+            timed_arguments,
+            linker: linker.display().to_string(),
+            runtime_linkage: runtime_linkage(target).to_owned(),
+            post_link_actions: vec!["rustc strips symbols during linking".to_owned()],
+        },
         source_sha256: source_digest(source.selector, source.contents),
-        compile_link_nanoseconds,
+        production_compile_link_nanoseconds,
         executable,
         linker_map,
         timed_executable,
@@ -102,6 +115,7 @@ fn run_rustc(
     linker_map: &Path,
     target: NativeTarget,
     workload: &str,
+    linker: &Path,
     timed: bool,
 ) -> Result<(), String> {
     let mut command = Command::new("rustc");
@@ -112,8 +126,14 @@ fn run_rustc(
         .args(["-C", "opt-level=3", "-C", "debuginfo=0"])
         .args(["-C", "panic=abort", "-C", "codegen-units=1"])
         .args(["-C", "lto=off", "-C", "strip=symbols"])
+        .arg("-C")
+        .arg(format!("linker={}", linker.display()))
         .arg("--cfg")
         .arg(format!("peer_workload=\"{workload}\""));
+
+    if target.object_format() == ObjectFormat::Coff {
+        command.args(["-C", "target-feature=-crt-static"]);
+    }
 
     if timed {
         command.args(["--cfg", "peer_timing"]);
@@ -123,6 +143,47 @@ fn run_rustc(
     command.arg("-o").arg(executable);
 
     crate::command::require_success(command, "building Rust performance peer").map(|_| ())
+}
+
+fn rust_linker(root: &Path, target: NativeTarget) -> PathBuf {
+    let name = match target.object_format() {
+        ObjectFormat::Coff => "lld-link",
+        ObjectFormat::Elf => "ld.lld",
+        ObjectFormat::MachO => "ld64.lld",
+        ObjectFormat::WebAssembly | ObjectFormat::Xcoff => "ld.lld",
+    };
+
+    bray_llvm_toolchain::tool_path(root, name)
+}
+
+fn rust_arguments(
+    target: NativeTarget,
+    workload: &str,
+    linker: &Path,
+    timed: bool,
+) -> Vec<String> {
+    let mut arguments = vec![
+        "--edition=2024".to_owned(),
+        format!("--target={}", target.as_str()),
+        "-C opt-level=3".to_owned(),
+        "-C debuginfo=0".to_owned(),
+        "-C panic=abort".to_owned(),
+        "-C codegen-units=1".to_owned(),
+        "-C lto=off".to_owned(),
+        "-C strip=symbols".to_owned(),
+        format!("-C linker={}", linker.display()),
+        format!("--cfg peer_workload=\"{workload}\""),
+    ];
+
+    if target.object_format() == ObjectFormat::Coff {
+        arguments.push("-C target-feature=-crt-static".to_owned());
+    }
+
+    if timed {
+        arguments.push("--cfg peer_timing".to_owned());
+    }
+
+    arguments
 }
 
 fn build_cpp(
@@ -146,6 +207,8 @@ fn build_cpp(
 
     let executable = directory.join(crate::native_toolchain::executable_name("peer"));
     let linker_map = directory.join("peer.map");
+    let production_arguments = cpp_arguments(target, source.selector, false);
+    let timed_arguments = cpp_arguments(target, source.selector, true);
     let started = Instant::now();
 
     run_cpp(
@@ -158,7 +221,9 @@ fn build_cpp(
         false,
     )?;
 
-    let compile_link_nanoseconds = elapsed_nanoseconds(started);
+    strip_cpp_artifact(root, &executable)?;
+
+    let production_compile_link_nanoseconds = elapsed_nanoseconds(started);
     let timed_executable = directory.join(crate::native_toolchain::executable_name("peer-timed"));
     let timed_linker_map = directory.join("peer-timed.map");
 
@@ -172,12 +237,21 @@ fn build_cpp(
         true,
     )?;
 
+    strip_cpp_artifact(root, &timed_executable)?;
+
     Ok(BuiltPeer {
         language: PeerLanguage::Cpp,
         toolchain: command_identity(Command::new(&clang).arg("--version"), "clang")?,
-        build_configuration: "clang++ C++20, O3, no debug information, no exceptions, no RTTI, no LTO, stripped symbols".to_owned(),
+        build_configuration: PeerBuildConfiguration {
+            target: target.as_str().to_owned(),
+            production_arguments,
+            timed_arguments,
+            linker: "lld selected through the clang++ driver".to_owned(),
+            runtime_linkage: runtime_linkage(target).to_owned(),
+            post_link_actions: vec!["llvm-strip --strip-all".to_owned()],
+        },
         source_sha256: source_digest(source.selector, source.contents),
-        compile_link_nanoseconds,
+        production_compile_link_nanoseconds,
         executable,
         linker_map,
         timed_executable,
@@ -205,8 +279,12 @@ fn run_cpp(
         .arg(format!("--target={}", target.as_str()))
         .arg(format!("-DBRAY_WORKLOAD={selector}"));
 
-    if target.as_str().starts_with("x86_64-") && target.object_format() == ObjectFormat::Coff {
-        command.arg("-D_AMD64_");
+    if target.object_format() == ObjectFormat::Coff {
+        command.arg("-fms-runtime-lib=dll");
+
+        if target.as_str().starts_with("x86_64-") {
+            command.arg("-D_AMD64_");
+        }
     }
 
     if timed {
@@ -217,6 +295,51 @@ fn run_cpp(
     command.arg(source).arg("-o").arg(executable);
 
     crate::command::require_success(command, "building C++ performance peer").map(|_| ())
+}
+
+fn cpp_arguments(target: NativeTarget, selector: &str, timed: bool) -> Vec<String> {
+    let mut arguments = vec![
+        "--driver-mode=g++".to_owned(),
+        "-std=c++20".to_owned(),
+        "-O3".to_owned(),
+        "-DNDEBUG".to_owned(),
+        "-fno-exceptions".to_owned(),
+        "-fno-rtti".to_owned(),
+        "-fuse-ld=lld".to_owned(),
+        format!("--target={}", target.as_str()),
+        format!("-DBRAY_WORKLOAD={selector}"),
+    ];
+
+    if target.object_format() == ObjectFormat::Coff {
+        arguments.push("-fms-runtime-lib=dll".to_owned());
+
+        if target.as_str().starts_with("x86_64-") {
+            arguments.push("-D_AMD64_".to_owned());
+        }
+    }
+
+    if timed {
+        arguments.push("-DBRAY_PEER_TIMING".to_owned());
+    }
+
+    arguments
+}
+
+fn strip_cpp_artifact(root: &Path, executable: &Path) -> Result<(), String> {
+    let strip = bray_llvm_toolchain::tool_path(root, "llvm-strip");
+    let mut command = Command::new(strip);
+
+    command.args(["--strip-all"]).arg(executable);
+
+    crate::command::require_success(command, "stripping C++ performance peer").map(|_| ())
+}
+
+fn runtime_linkage(target: NativeTarget) -> &'static str {
+    if target.object_format() == ObjectFormat::Coff {
+        "dynamic Microsoft C and C++ runtime"
+    } else {
+        "target-default dynamic system and language runtime"
+    }
 }
 
 fn append_rust_linker_map(

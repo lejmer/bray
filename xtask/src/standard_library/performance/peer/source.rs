@@ -85,10 +85,10 @@ pub(in crate::standard_library::performance) fn comparison_contract(
     match workload {
         "small_output" => Some("start and complete an empty program once"),
         "incremental_bytes_small" => Some(
-            "append 64 bytes with value 65 to an initially empty growable byte sequence and validate its final length",
+            "successfully append 64 bytes with value 65 to an initially empty growable byte sequence and validate its final length",
         ),
         "incremental_bytes" => Some(
-            "append 4096 bytes with value 65 to an initially empty growable byte sequence and validate its final length",
+            "successfully append 4096 bytes with value 65 to an initially empty growable byte sequence and validate its final length",
         ),
         "filesystem_metadata" => Some(
             "read metadata successfully for the same existing path 256 times",

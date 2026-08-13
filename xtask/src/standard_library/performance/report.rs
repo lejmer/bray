@@ -27,7 +27,7 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
     html.push_str(
         "<section><h2>Workloads</h2><div class=\"table-scroll\"><table><thead><tr>\
         <th>Workload</th><th>Language</th><th>Controlled median</th><th>Controlled MAD</th><th>Process median</th>\
-        <th>Throughput</th><th>Executable</th><th>Compile time</th>\
+        <th>Throughput</th><th>Executable</th><th>Compile and link time</th>\
         <th>Allocations</th><th>Allocated</th><th>Copied</th></tr></thead><tbody>",
     );
 
@@ -51,7 +51,7 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
                     peer_language(*language),
                     &report.controlled_execution,
                     &report.process_execution,
-                    report.compile_link_nanoseconds,
+                    report.production_compile_link_nanoseconds,
                     &report.artifacts,
                     &report.observations,
                 ),
@@ -475,16 +475,17 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
                 let _ = write!(
                     html,
                     "<details><summary>{language} peer details</summary><dl>\
-                    <dt>Toolchain</dt><dd>{}</dd><dt>Build configuration</dt><dd>{}</dd>\
+                    <dt>Toolchain</dt><dd>{}</dd>\
                     <dt>Source SHA-256</dt><dd><code>{}</code></dd><dt>Compile and link</dt>\
                     <dd {}>{}</dd><dt>Controlled scope</dt><dd>{}</dd></dl>",
                     escape(&report.toolchain),
-                    escape(&report.build_configuration),
                     escape(&report.source_sha256),
-                    nanoseconds_title(report.compile_link_nanoseconds),
-                    milliseconds(report.compile_link_nanoseconds),
+                    nanoseconds_title(report.production_compile_link_nanoseconds),
+                    milliseconds(report.production_compile_link_nanoseconds),
                     escape(&report.controlled_execution.scope),
                 );
+
+                peer_configuration(html, &report.build_configuration);
 
                 html.push_str("<h4>Observed work</h4><dl>");
                 observation_detail(html, "Allocations", &report.observations.allocation_count);
@@ -505,6 +506,28 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
     }
 
     html.push_str("</section>");
+}
+
+fn peer_configuration(
+    html: &mut BoundedHtml,
+    configuration: &super::model::PeerBuildConfiguration,
+) {
+    let _ = write!(
+        html,
+        "<h4>Build configuration</h4><dl><dt>Target</dt><dd><code>{}</code></dd>\
+        <dt>Linker</dt><dd><code>{}</code></dd><dt>Runtime linkage</dt><dd>{}</dd></dl>",
+        escape(&configuration.target),
+        escape(&configuration.linker),
+        escape(&configuration.runtime_linkage),
+    );
+
+    html.push_str("<h5>Production compiler arguments</h5><ul>");
+    escaped_list(html, &configuration.production_arguments);
+    html.push_str("</ul><h5>Timed compiler arguments</h5><ul>");
+    escaped_list(html, &configuration.timed_arguments);
+    html.push_str("</ul><h5>Post-link actions</h5><ul>");
+    escaped_list(html, &configuration.post_link_actions);
+    html.push_str("</ul>");
 }
 
 fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactReport]) {

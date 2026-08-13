@@ -10,11 +10,12 @@ use bray_compilation::{
 use sha2::{Digest as _, Sha256};
 
 use super::comparison::compare;
-use super::command::parse_options_for_test;
+use super::command::{parse_options_for_test, validate_output_parts};
+use super::corpus::ExpectedSideEffects;
 use super::model::{
-    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerLanguage, PeerOutcome,
-    PeerReport, PerformanceReport, ReportIdentity, SCHEMA_REVISION, WorkloadCategory,
-    WorkloadObservations, WorkloadReport,
+    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBuildConfiguration,
+    PeerLanguage, PeerOutcome, PeerReport, PerformanceReport, ReportIdentity, SCHEMA_REVISION,
+    WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
     bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,
@@ -69,8 +70,71 @@ fn command_options_enforce_positive_bounded_samples_and_known_workloads() {
 fn output_validation_rejects_peer_output_mismatches() {
     let expected = bray_base::lowercase_hex(&Sha256::digest([]));
 
-    assert!(super::validate_output(&[], &expected).is_ok());
-    assert!(super::validate_output(b"unexpected", &expected).is_err());
+    let working_directory = tempfile::tempdir()
+        .unwrap_or_else(|error| panic!("output validation directory must exist: {error}"));
+
+    assert!(
+        validate_output_parts(
+            &[],
+            &[],
+            &expected,
+            ExpectedSideEffects::None,
+            working_directory.path(),
+        )
+        .is_ok()
+    );
+
+    assert!(
+        validate_output_parts(
+            b"unexpected",
+            &[],
+            &expected,
+            ExpectedSideEffects::None,
+            working_directory.path(),
+        )
+        .is_err()
+    );
+
+    assert!(
+        validate_output_parts(
+            &[],
+            b"unexpected",
+            &expected,
+            ExpectedSideEffects::None,
+            working_directory.path(),
+        )
+        .is_err()
+    );
+
+    let effect = working_directory.path().join("effect");
+
+    std::fs::write(&effect, [])
+        .unwrap_or_else(|error| panic!("output effect fixture must write: {error}"));
+
+    assert!(
+        validate_output_parts(
+            &[],
+            &[],
+            &expected,
+            ExpectedSideEffects::AbsentPath("effect"),
+            working_directory.path(),
+        )
+        .is_err()
+    );
+
+    std::fs::remove_file(effect)
+        .unwrap_or_else(|error| panic!("output effect fixture must remove: {error}"));
+
+    assert!(
+        validate_output_parts(
+            &[],
+            &[],
+            &expected,
+            ExpectedSideEffects::AbsentPath("effect"),
+            working_directory.path(),
+        )
+        .is_ok()
+    );
 }
 
 #[test]
@@ -198,7 +262,7 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
         .get_mut(&PeerLanguage::Rust)
         .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
     {
-        report.build_configuration = "different flags".to_owned();
+        report.build_configuration.production_arguments.push("different flag".to_owned());
     }
 
     assert!(compare(&baseline, &different_peer_configuration).is_err());
@@ -295,9 +359,16 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
     let peer = || PeerOutcome::Measured {
         report: PeerReport {
             toolchain: "peer compiler".to_owned(),
-            build_configuration: "release".to_owned(),
+            build_configuration: PeerBuildConfiguration {
+                target: "test-target".to_owned(),
+                production_arguments: vec!["release".to_owned()],
+                timed_arguments: vec!["release".to_owned(), "timed".to_owned()],
+                linker: "test-linker".to_owned(),
+                runtime_linkage: "test-runtime".to_owned(),
+                post_link_actions: vec!["test-strip".to_owned()],
+            },
             source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
-            compile_link_nanoseconds: median,
+            production_compile_link_nanoseconds: median,
             process_execution: process_execution.clone(),
             controlled_execution: bray_execution.clone(),
             artifacts: vec![ArtifactReport {

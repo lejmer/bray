@@ -16,7 +16,7 @@ use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 
 use super::super::comparison::compare;
-use super::super::corpus::{WORKLOADS, Workload};
+use super::super::corpus::{ExpectedSideEffects, WORKLOADS, Workload};
 use super::super::model::{
     ArtifactKind, Observation, PeerLanguage, PeerOutcome, PeerReport, PerformanceReport,
     SCHEMA_REVISION, WorkloadReport,
@@ -98,6 +98,8 @@ fn execute(mut options: Options) -> Result<(), String> {
         identity,
         workloads,
     };
+
+    super::super::validation::validate(&candidate)?;
 
     let candidate_path = options.output.join("candidate.json");
 
@@ -310,7 +312,7 @@ fn run_workload(
         &output,
         options.warmup,
         options.samples,
-        workload.scale,
+        workload,
         &output_digest,
     )?;
 
@@ -418,7 +420,8 @@ fn peer_reports(
                     toolchain: built.toolchain,
                     build_configuration: built.build_configuration,
                     source_sha256: built.source_sha256,
-                    compile_link_nanoseconds: built.compile_link_nanoseconds,
+                    production_compile_link_nanoseconds: built
+                        .production_compile_link_nanoseconds,
                     process_execution: measured.process,
                     controlled_execution: measured.controlled,
                     artifacts,
@@ -504,7 +507,7 @@ fn execute_interleaved(
     working_directory: &Path,
     warmup: u32,
     samples: u32,
-    scale: u64,
+    workload: &Workload,
     expected_output_sha256: &str,
 ) -> Result<BTreeMap<ImplementationKey, ImplementationExecution>, String> {
     let sample_capacity = usize::try_from(samples)
@@ -543,6 +546,7 @@ fn execute_interleaved(
                 implementation.executable,
                 working_directory,
                 expected_output_sha256,
+                workload.expected_side_effects,
             )?;
 
             if iteration >= warmup {
@@ -566,6 +570,7 @@ fn execute_interleaved(
                 working_directory,
                 iteration,
                 expected_output_sha256,
+                workload.expected_side_effects,
             )?;
 
             if iteration >= warmup {
@@ -583,14 +588,14 @@ fn execute_interleaved(
         .map(|(key, samples)| {
             let process = statistics::summarize(
                 samples.process,
-                scale,
+                workload.scale,
                 super::super::model::PROCESS_EXECUTION_SCOPE,
             )
             .ok_or_else(|| "at least one process execution sample is required".to_owned())?;
 
             let controlled = statistics::summarize(
                 samples.controlled,
-                scale,
+                workload.scale,
                 super::super::model::BRAY_EXECUTION_SCOPE,
             )
             .ok_or_else(|| "at least one controlled execution sample is required".to_owned())?;
@@ -617,6 +622,7 @@ fn execute_process_sample(
     executable: &Path,
     working_directory: &Path,
     expected_output_sha256: &str,
+    expected_side_effects: ExpectedSideEffects,
 ) -> Result<u64, String> {
     let started = Instant::now();
 
@@ -635,7 +641,12 @@ fn execute_process_sample(
         ));
     }
 
-    super::super::validate_output(&output.stdout, expected_output_sha256)?;
+    super::super::validate_output(
+        &output,
+        expected_output_sha256,
+        expected_side_effects,
+        working_directory,
+    )?;
 
     Ok(elapsed)
 }
@@ -722,7 +733,10 @@ fn retention_error(workload: &Workload, behavior: &str, identity: &str) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use super::rotation_start;
+    use std::collections::BTreeSet;
+
+    use super::super::options::Options;
+    use super::{execute, rotation_start};
 
     #[test]
     fn process_and_controlled_rounds_rotate_language_priority() {
@@ -739,5 +753,54 @@ mod tests {
                 .collect::<Vec<_>>(),
             [1, 2, 0, 1, 2, 0]
         );
+    }
+
+    #[test]
+    #[ignore = "requires the pinned LLVM toolchain and native process execution"]
+    fn small_cross_language_comparison_runs_end_to_end() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("comparison directory must exist: {error}"));
+
+        let target = bray_target::NativeTarget::current()
+            .unwrap_or_else(|| panic!("comparison test requires a supported native host"));
+
+        let workloads = BTreeSet::from(["small_output".to_owned()]);
+        let baseline_output = directory.path().join("baseline");
+
+        execute(Options {
+            output: baseline_output.clone(),
+            baseline: None,
+            target,
+            warmup: 1,
+            samples: 1,
+            workloads,
+        })
+        .unwrap_or_else(|error| panic!("baseline comparison run must pass: {error}"));
+
+        let report = std::fs::read(baseline_output.join("candidate.json"))
+            .unwrap_or_else(|error| panic!("candidate report must be readable: {error}"));
+
+        let report: super::super::super::model::PerformanceReport = serde_json::from_slice(&report)
+            .unwrap_or_else(|error| panic!("candidate report must decode: {error}"));
+
+        let comparison = super::super::super::comparison::compare(&report, &report)
+            .unwrap_or_else(|error| panic!("candidate must compare with itself: {error}"));
+
+        let comparison_path = baseline_output.join("comparison.json");
+
+        crate::json::write_pretty(&comparison_path, &comparison)
+            .unwrap_or_else(|error| panic!("comparison JSON must write: {error}"));
+
+        super::super::super::report::write_comparison(
+            &baseline_output.join("comparison.html"),
+            &comparison,
+        )
+        .unwrap_or_else(|error| panic!("comparison HTML must write: {error}"));
+
+        assert_eq!(comparison.workloads.len(), 1);
+        assert_eq!(comparison.workloads[0].peers.len(), 2);
+        assert!(baseline_output.join("candidate.html").is_file());
+        assert!(comparison_path.is_file());
+        assert!(baseline_output.join("comparison.html").is_file());
     }
 }

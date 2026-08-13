@@ -1,10 +1,27 @@
-#include <chrono>
+#include <cstddef>
 #include <cstdint>
-#include <cstdio>
+
+#if defined(BRAY_PEER_TIMING) || BRAY_WORKLOAD == 6
+#include <chrono>
+#endif
+
+#if defined(BRAY_PEER_TIMING)
 #include <cstdlib>
-#include <filesystem>
 #include <fstream>
+#endif
+
+#if BRAY_WORKLOAD == 2 || BRAY_WORKLOAD == 3
 #include <vector>
+#endif
+
+#if BRAY_WORKLOAD == 4
+#include <filesystem>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <sys/stat.h>
+#endif
+#endif
 
 #if defined(_WIN32) && BRAY_WORKLOAD == 5
 #include <processthreadsapi.h>
@@ -52,6 +69,7 @@ bool incremental_bytes(std::size_t count)
     for (std::size_t index = 0; index < count; ++index)
         bytes.push_back(65);
 
+    retain_work(bytes);
     return bytes.size() == count;
 }
 
@@ -62,20 +80,29 @@ bool workload()
 #elif BRAY_WORKLOAD == 4
 bool workload()
 {
-    std::error_code error;
-    const auto path = std::filesystem::current_path(error);
+    std::error_code path_error;
+    const auto path = std::filesystem::current_path(path_error);
 
-    if (error)
+    if (path_error)
         return false;
 
     for (std::size_t index = 0; index < 256; ++index)
     {
-        const auto status = std::filesystem::status(path, error);
+#if defined(_WIN32)
+        WIN32_FILE_ATTRIBUTE_DATA metadata;
 
-        if (error || status.type() == std::filesystem::file_type::not_found)
+        if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &metadata) == 0)
             return false;
 
-        retain_work(status);
+        retain_work(metadata);
+#else
+        struct stat metadata;
+
+        if (::stat(path.c_str(), &metadata) != 0)
+            return false;
+
+        retain_work(metadata);
+#endif
     }
 
     return true;

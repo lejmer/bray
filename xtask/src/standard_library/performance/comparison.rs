@@ -164,8 +164,8 @@ fn compare_peers(
 
                     PeerComparison::Measured {
                         compile_link: observed_metric(
-                            baseline.compile_link_nanoseconds,
-                            candidate.compile_link_nanoseconds,
+                            baseline.production_compile_link_nanoseconds,
+                            candidate.production_compile_link_nanoseconds,
                         ),
                         process_execution: noisy_metric(
                             baseline.process_execution.median_nanoseconds,

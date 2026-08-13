@@ -1,5 +1,8 @@
+#[cfg(peer_timing)]
 use std::fs::File;
+#[cfg(peer_timing)]
 use std::io::Write as _;
+#[cfg(any(peer_timing, peer_workload = "monotonic_clock"))]
 use std::time::Instant;
 
 const OBSERVATION_HEADER: &[u8] = b"BRAYPO01";
@@ -41,6 +44,10 @@ fn incremental_bytes(count: usize) -> bool {
     let mut bytes = Vec::new();
 
     for _ in 0..count {
+        if bytes.try_reserve(1).is_err() {
+            return false;
+        }
+
         bytes.push(65_u8);
     }
 

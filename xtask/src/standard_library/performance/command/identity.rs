@@ -5,7 +5,7 @@ use bray_base::lowercase_hex;
 use bray_target::NativeTarget;
 use sha2::{Digest as _, Sha256};
 
-use super::super::corpus::{CORPUS_REVISION, ExpectedOutput, Workload};
+use super::super::corpus::{CORPUS_REVISION, ExpectedOutput, ExpectedSideEffects, Workload};
 use super::super::model::{ReportIdentity, WorkloadCategory};
 use super::options::Options;
 
@@ -104,6 +104,15 @@ fn corpus_digest(workloads: &[&Workload]) -> String {
             ExpectedOutput::Repeated { byte, count } => {
                 digest.update([1, byte]);
                 digest.update(count.to_le_bytes());
+            }
+        }
+
+        match workload.expected_side_effects {
+            ExpectedSideEffects::None => digest.update([0]),
+            ExpectedSideEffects::AbsentPath(path) => {
+                digest.update([1]);
+                digest.update(path.as_bytes());
+                digest.update([0]);
             }
         }
 

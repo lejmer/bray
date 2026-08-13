@@ -180,7 +180,7 @@ fn validate_workload(
         validate_observation(observation)?;
     }
 
-    validate_peers(workload, expected_samples)?;
+    validate_peers(workload, expected_samples, &report.identity.target)?;
 
     Ok(())
 }
@@ -188,6 +188,7 @@ fn validate_workload(
 fn validate_peers(
     workload: &super::model::WorkloadReport,
     expected_samples: usize,
+    expected_target: &str,
 ) -> Result<(), String> {
     let languages = workload.peers.keys().copied().collect::<BTreeSet<_>>();
 
@@ -205,10 +206,16 @@ fn validate_peers(
             (Some(expected), PeerOutcome::Unsupported { reason }) if reason == expected => {}
             (None, PeerOutcome::Measured { report }) => {
                 if report.toolchain.is_empty()
-                    || report.build_configuration.is_empty()
+                    || report.build_configuration.target != expected_target
+                    || report.build_configuration.target.is_empty()
+                    || report.build_configuration.production_arguments.is_empty()
+                    || report.build_configuration.timed_arguments.is_empty()
+                    || report.build_configuration.linker.is_empty()
+                    || report.build_configuration.runtime_linkage.is_empty()
+                    || report.build_configuration.post_link_actions.is_empty()
                     || report.source_sha256.len() != 64
                     || !is_lowercase_hex(&report.source_sha256)
-                    || report.compile_link_nanoseconds == 0
+                    || report.production_compile_link_nanoseconds == 0
                     || report.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
                     || report.controlled_execution.scope != super::model::BRAY_EXECUTION_SCOPE
                     || !execution_is_valid(
