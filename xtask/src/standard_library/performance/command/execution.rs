@@ -61,18 +61,10 @@ fn execute(mut options: Options) -> Result<(), String> {
         ));
     }
 
+    let prepared = super::toolchain::prepare(&root, options.target)?;
+
     fs::create_dir_all(&options.output)
         .map_err(|error| format!("could not create {}: {error}", options.output.display()))?;
-
-    progress::phase("Preparing performance runtime");
-
-    let runtime_directory = options.output.join("runtime");
-    let runtime = crate::runtime_artifact::build_for_readiness(options.target, &runtime_directory)?;
-    let toolchain = options.output.join("toolchain");
-
-    progress::phase("Assembling performance toolchain");
-
-    crate::native_toolchain::assemble(&root, options.target, &runtime, &toolchain)?;
 
     let selected = WORKLOADS
         .iter()
@@ -80,13 +72,6 @@ fn execute(mut options: Options) -> Result<(), String> {
             options.workloads.is_empty() || options.workloads.contains(workload.id)
         })
         .collect::<Vec<_>>();
-
-    progress::phase("Preparing performance observations");
-
-    let observation_runtime = crate::runtime_artifact::build_for_performance_observation(
-        options.target,
-        &options.output.join("observation-runtime"),
-    )?;
 
     let identity = report_identity(&root, &options, &selected)?;
     let mut workloads = Vec::with_capacity(selected.len());
@@ -99,9 +84,9 @@ fn execute(mut options: Options) -> Result<(), String> {
         workloads.push(run_workload(
             &options,
             workload,
-            &toolchain,
-            &runtime,
-            &observation_runtime,
+            prepared.toolchain(),
+            prepared.runtime(),
+            prepared.observation_runtime(),
         )?);
     }
 

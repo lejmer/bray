@@ -3,6 +3,7 @@ mod identity;
 mod options;
 mod output;
 mod progress;
+mod toolchain;
 
 pub(in crate::standard_library) use execution::run;
 pub(super) use identity::expected_output_digest;

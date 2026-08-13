@@ -194,6 +194,9 @@ workload with compiler summary profiling, performs warmups followed by seven mea
 writes bounded self-contained `candidate.html` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract.
 The command writes phase and workload progress to standard error while keeping the `candidate.json` path as its only standard
 output line.
+The first run prepares a target-specific runtime and standard-library toolchain under Cargo's target directory. Later runs reuse
+that toolchain when the compiler, Cargo lockfile, runtime, platform providers, standard library, and selected target are unchanged.
+Changing report options such as `--warmup`, `--samples`, `--workload`, or `--output` does not rebuild it.
 Agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
