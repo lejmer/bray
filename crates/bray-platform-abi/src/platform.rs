@@ -7,7 +7,7 @@ use bray_platform_abi_support::{
 use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 
 const CONTEXT_HEADER_BYTES: usize = 72;
-const CONTEXT_ABI_MAJOR: u16 = 2;
+const CONTEXT_ABI_MAJOR: u16 = 1;
 const CONTEXT_ABI_MINOR: u16 = 0;
 
 native_platform_export! {
@@ -325,6 +325,7 @@ mod tests {
 
         total.copy_from_slice(&context[64..72]);
 
+        assert_eq!((CONTEXT_ABI_MAJOR, CONTEXT_ABI_MINOR), (1, 0));
         assert!(context.len() >= CONTEXT_HEADER_BYTES);
         assert_eq!(u16::from_le_bytes([context[0], context[1]]), CONTEXT_ABI_MAJOR);
         assert_eq!(u16::from_le_bytes([context[2], context[3]]), CONTEXT_ABI_MINOR);

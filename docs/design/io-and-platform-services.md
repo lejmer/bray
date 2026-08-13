@@ -315,7 +315,7 @@ returns.
 
 ### Process Context Block
 
-The process-context roles expose one immutable product-lifetime block using context ABI version `2.0`. Its 72-byte header uses
+The process-context roles expose one immutable product-lifetime block using context ABI version `1.0`. Its 72-byte header uses
 little-endian integers at these byte offsets; process-root standard streams are separate resources and are not encoded in the block:
 
 | Offset | Field |

@@ -4,7 +4,7 @@ using std.memory;
 
 const CONTEXT_HEADER_BYTES: usize = 72;
 
-const CONTEXT_ABI_MAJOR: u8 = 2;
+const CONTEXT_ABI_MAJOR: u8 = 1;
 
 const CONTEXT_ABI_MINOR: u8 = 0;
 

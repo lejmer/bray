@@ -35,9 +35,7 @@ inline BrayPlatformStatus bray_lock_standard_stream(BrayStandardStreamLock* lock
     const auto thread = GetCurrentThreadId();
 
     if (!bray_ensure_standard_stream_lock_initialized(lock))
-    {
         return {BRAY_PLATFORM_OTHER, 0, static_cast<std::int64_t>(GetLastError())};
-    }
 
     EnterCriticalSection(&lock->section);
 
@@ -57,28 +55,20 @@ inline BrayPlatformStatus bray_unlock_standard_stream(BrayStandardStreamLock* lo
     const auto thread = GetCurrentThreadId();
 
     if (!bray_ensure_standard_stream_lock_initialized(lock))
-    {
         return {BRAY_PLATFORM_OTHER, 0, static_cast<std::int64_t>(GetLastError())};
-    }
 
     if (!TryEnterCriticalSection(&lock->section))
-    {
         return {BRAY_PLATFORM_INVALID_INPUT, 0, 0};
-    }
 
     const bool owner = lock->owner == thread;
 
     if (owner)
-    {
         lock->owner = 0;
-    }
 
     LeaveCriticalSection(&lock->section);
 
     if (!owner)
-    {
         return {BRAY_PLATFORM_INVALID_INPUT, 0, 0};
-    }
 
     LeaveCriticalSection(&lock->section);
 
@@ -124,16 +114,12 @@ inline BrayPlatformStatus bray_lock_standard_stream(BrayStandardStreamLock* lock
     bray_unlock_standard_stream_owner(lock);
 
     if (reentrant)
-    {
         return {BRAY_PLATFORM_INVALID_INPUT, 0, 0};
-    }
 
     const auto result = pthread_mutex_lock(&lock->mutex);
 
     if (result != 0)
-    {
         return {BRAY_PLATFORM_OTHER, 0, result};
-    }
 
     bray_lock_standard_stream_owner(lock);
 
@@ -154,16 +140,12 @@ inline BrayPlatformStatus bray_unlock_standard_stream(BrayStandardStreamLock* lo
     const bool owner = lock->owned && pthread_equal(lock->owner, thread) != 0;
 
     if (owner)
-    {
         lock->owned = false;
-    }
 
     bray_unlock_standard_stream_owner(lock);
 
     if (!owner)
-    {
         return {BRAY_PLATFORM_INVALID_INPUT, 0, 0};
-    }
 
     const auto result = pthread_mutex_unlock(&lock->mutex);
 
