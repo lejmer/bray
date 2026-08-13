@@ -17,14 +17,9 @@ const ALLOCATION_RECORD: u8 = 1;
 const COPY_RECORD: u8 = 2;
 const CONTROLLED_DURATION_RECORD: u8 = 3;
 
-pub(super) struct ObservedExecution {
-    pub execution: ExecutionStatistics,
-    pub observations: WorkloadObservations,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RecordedExecution {
-    duration_nanoseconds: u64,
+    duration_nanoseconds: Option<u64>,
     storage: StorageExpectation,
 }
 
@@ -46,7 +41,7 @@ pub(super) fn require_production_symbols_absent(linker_map: &Path) -> Result<(),
     clippy::too_many_arguments,
     reason = "the observed run requires the same explicit execution contract as the production samples"
 )]
-pub(super) fn measure_samples(
+pub(super) fn measure_timing_samples(
     executable: &Path,
     linker_map: &Path,
     working_directory: &Path,
@@ -55,83 +50,121 @@ pub(super) fn measure_samples(
     samples: u32,
     scale: u64,
     expected_output_sha256: &str,
-    expected_storage: Option<StorageExpectation>,
-) -> Result<ObservedExecution, String> {
-    require_observation_symbols(linker_map, expected_storage.is_some())?;
+ ) -> Result<ExecutionStatistics, String> {
+    require_observation_symbols(linker_map, ObservationKind::Timing)?;
 
     let capacity = usize::try_from(samples)
         .map_err(|_| "sample count cannot be represented by this host".to_owned())?;
 
     let mut durations = Vec::with_capacity(capacity);
-    let mut sampled_storage = None;
 
     for iteration in 0..warmup.saturating_add(samples) {
-        let observation_path = output.join(format!("performance-observations-{iteration}.bin"));
+        let recorded = execute_observed(
+            executable,
+            working_directory,
+            output,
+            iteration,
+            expected_output_sha256,
+        )?;
 
-        let execution = Command::new(executable)
-            .current_dir(working_directory)
-            .env(
-                bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
-                &observation_path,
-            )
-            .output()
-            .map_err(|error| format!("could not execute observed artifact: {error}"))?;
-
-        if !execution.status.success() {
-            return Err(format!(
-                "observed artifact exited unsuccessfully: {}",
-                String::from_utf8_lossy(&execution.stderr).trim()
-            ));
-        }
-
-        if lowercase_hex(&Sha256::digest(&execution.stdout)) != expected_output_sha256 {
-            return Err("observed artifact did not produce the corpus-defined output".to_owned());
-        }
-
-        let recorded = read(&observation_path)?;
-
-        fs::remove_file(&observation_path).map_err(|error| {
-            format!(
-                "could not remove performance observation {}: {error}",
-                observation_path.display()
-            )
+        let duration = recorded.duration_nanoseconds.ok_or_else(|| {
+            "timed performance execution did not record its controlled interval".to_owned()
         })?;
 
-        if let Some(expected) = expected_storage
-            && recorded.storage != expected
-        {
-            return Err(format!(
-                "observed storage work differs from the corpus contract: expected {expected:?}, measured {:?}",
-                recorded.storage
-            ));
+        if recorded.storage != empty_storage() {
+            return Err("timed performance execution unexpectedly recorded memory work".to_owned());
         }
 
         if iteration >= warmup {
-            durations.push(recorded.duration_nanoseconds);
-            sampled_storage.get_or_insert(recorded.storage);
+            durations.push(duration);
         }
     }
 
-    let storage = sampled_storage
-        .ok_or_else(|| "at least one observed execution sample is required".to_owned())?;
+    super::statistics::summarize(durations, scale, BRAY_EXECUTION_SCOPE)
+        .ok_or_else(|| "at least one timed execution sample is required".to_owned())
+}
 
-    let execution = super::statistics::summarize(durations, scale, BRAY_EXECUTION_SCOPE)
-        .ok_or_else(|| "at least one observed execution sample is required".to_owned())?;
+pub(super) fn measure_storage(
+    executable: &Path,
+    linker_map: &Path,
+    working_directory: &Path,
+    output: &Path,
+    expected_output_sha256: &str,
+    expected: StorageExpectation,
+) -> Result<WorkloadObservations, String> {
+    require_observation_symbols(linker_map, ObservationKind::Memory)?;
+
+    let recorded = execute_observed(
+        executable,
+        working_directory,
+        output,
+        0,
+        expected_output_sha256,
+    )?;
+
+    if recorded.duration_nanoseconds.is_some() {
+        return Err("memory observation execution unexpectedly recorded timing".to_owned());
+    }
+
+    if recorded.storage != expected {
+        return Err(format!(
+            "observed storage work differs from the corpus contract: expected {expected:?}, measured {:?}",
+            recorded.storage
+        ));
+    }
 
     let measured = |value| Observation::Measured {
         value,
         scope: STORAGE_OBSERVATION_SCOPE.to_owned(),
     };
 
-    Ok(ObservedExecution {
-        execution,
-        observations: WorkloadObservations {
-            allocation_count: measured(storage.allocation_count),
-            allocated_bytes: measured(storage.allocated_bytes),
-            copied_bytes: measured(storage.copied_bytes),
-            platform_operations: BTreeMap::new(),
-        },
+    Ok(WorkloadObservations {
+        allocation_count: measured(recorded.storage.allocation_count),
+        allocated_bytes: measured(recorded.storage.allocated_bytes),
+        copied_bytes: measured(recorded.storage.copied_bytes),
+        platform_operations: BTreeMap::new(),
     })
+}
+
+fn execute_observed(
+    executable: &Path,
+    working_directory: &Path,
+    output: &Path,
+    iteration: u32,
+    expected_output_sha256: &str,
+) -> Result<RecordedExecution, String> {
+    let observation_path = output.join(format!("performance-observations-{iteration}.bin"));
+
+    let execution = Command::new(executable)
+        .current_dir(working_directory)
+        .env(
+            bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
+            &observation_path,
+        )
+        .output()
+        .map_err(|error| format!("could not execute observed artifact: {error}"))?;
+
+    if !execution.status.success() {
+        return Err(format!(
+            "observed artifact exited unsuccessfully: {}",
+            String::from_utf8_lossy(&execution.stderr).trim()
+        ));
+    }
+
+    if lowercase_hex(&Sha256::digest(&execution.stdout)) != expected_output_sha256 {
+        return Err("observed artifact did not produce the corpus-defined output".to_owned());
+    }
+
+    let recorded = read(&observation_path)?;
+
+    fs::remove_file(&observation_path).map_err(|error| {
+        format!(
+            "could not remove performance observation {}: {error}",
+            observation_path.display()
+        )
+    })?;
+
+    Ok(recorded)
 }
 
 fn read(path: &Path) -> Result<RecordedExecution, String> {
@@ -202,25 +235,31 @@ fn read(path: &Path) -> Result<RecordedExecution, String> {
         return Err("performance observation stream ends with a partial record".to_owned());
     }
 
-    let duration_nanoseconds = duration_nanoseconds
-        .ok_or_else(|| "performance observation stream has no controlled interval".to_owned())?;
-
     Ok(RecordedExecution {
         duration_nanoseconds,
         storage,
     })
 }
 
-fn require_observation_symbols(linker_map: &Path, memory_required: bool) -> Result<(), String> {
+#[derive(Clone, Copy)]
+enum ObservationKind {
+    Timing,
+    Memory,
+}
+
+fn require_observation_symbols(linker_map: &Path, kind: ObservationKind) -> Result<(), String> {
     let symbols = linked_symbols(linker_map)?;
 
-    let required = [
-        bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
-        bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
-    ]
-    .into_iter()
-    .chain(memory_required.then_some(bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL))
-    .chain(memory_required.then_some(bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL));
+    let required: &[&str] = match kind {
+        ObservationKind::Timing => &[
+            bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
+            bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
+        ],
+        ObservationKind::Memory => &[
+            bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
+            bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL,
+        ],
+    };
 
     for symbol in required {
         if !symbols.contains(symbol) {
@@ -229,6 +268,14 @@ fn require_observation_symbols(linker_map: &Path, memory_required: bool) -> Resu
     }
 
     Ok(())
+}
+
+const fn empty_storage() -> StorageExpectation {
+    StorageExpectation {
+        allocation_count: 0,
+        allocated_bytes: 0,
+        copied_bytes: 0,
+    }
 }
 
 fn linked_symbols(linker_map: &Path) -> Result<String, String> {
@@ -272,7 +319,7 @@ mod tests {
         assert_eq!(
             read(&path).unwrap_or_else(|error| panic!("observation must parse: {error}")),
             RecordedExecution {
-                duration_nanoseconds: 50,
+                duration_nanoseconds: Some(50),
                 storage: super::StorageExpectation {
                     allocation_count: 2,
                     allocated_bytes: 3,
@@ -283,11 +330,10 @@ mod tests {
     }
 
     #[test]
-    fn fixed_records_reject_unknown_partial_missing_and_repeated_intervals() {
+    fn fixed_records_reject_unknown_partial_and_repeated_intervals() {
         let cases = [
             vec![7; 9],
             vec![ALLOCATION_RECORD; 1],
-            record(ALLOCATION_RECORD, 1),
             [
                 record(CONTROLLED_DURATION_RECORD, 1),
                 record(CONTROLLED_DURATION_RECORD, 2),
@@ -309,6 +355,32 @@ mod tests {
 
             assert!(read(&path).is_err());
         }
+    }
+
+    #[test]
+    fn fixed_records_allow_timing_and_memory_to_be_observed_separately() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+
+        let path = directory.path().join("observations.bin");
+        let mut bytes = bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER.to_vec();
+
+        push(&mut bytes, ALLOCATION_RECORD, 8);
+
+        fs::write(&path, bytes)
+            .unwrap_or_else(|error| panic!("observation fixture must write: {error}"));
+
+        assert_eq!(
+            read(&path).unwrap_or_else(|error| panic!("observation must parse: {error}")),
+            RecordedExecution {
+                duration_nanoseconds: None,
+                storage: super::StorageExpectation {
+                    allocation_count: 1,
+                    allocated_bytes: 8,
+                    copied_bytes: 0,
+                },
+            }
+        );
     }
 
     fn record(kind: u8, value: u64) -> Vec<u8> {

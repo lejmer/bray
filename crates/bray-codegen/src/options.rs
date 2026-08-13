@@ -40,8 +40,10 @@ pub enum RuntimeObservationMode {
     /// Generate no runtime observation calls.
     #[default]
     None,
-    /// Observe root execution and generated memory work in a performance artifact.
-    Performance,
+    /// Observe the generated root execution interval.
+    PerformanceInterval,
+    /// Observe generated allocation and memory-transfer events.
+    Memory,
 }
 
 /// Immutable backend-neutral generation policy for one codegen unit.

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
@@ -281,58 +281,54 @@ fn run_workload(
         &output_digest,
     )?;
 
-    let observation_output = output.join("observation");
-    let observation_map = observation_output.join("application.map");
+    let timing_output = output.join("timing");
 
-    fs::create_dir_all(&observation_output).map_err(|error| {
-        format!("could not create {}: {error}", observation_output.display())
-    })?;
-
-    let map_output = bray_linker::SystemLinkerMapOutput::try_new(observation_map.clone())
-        .ok_or_else(|| {
-            format!(
-                "invalid observed workload linker-map path: {}",
-                observation_map.display()
-            )
-        })?;
-
-    crate::native_product::emit_executable_with_configuration(
+    let (timed_executable, timing_map) = emit_observed_executable(
         &compilation,
         product.clone(),
         options.target,
         observation_runtime,
-        &observation_output,
-        [],
-        Some(map_output),
-        bray_compilation::BuildConfiguration::ObservedRelease,
+        &timing_output,
+        bray_compilation::BuildConfiguration::TimedRelease,
+        workload.id,
     )?;
 
-    let observed = resolve_published_artifact(
-        &observation_output,
-        &product,
-        EmittedArtifactKind::Executable,
-        0,
-    )
-    .map_err(|error| {
-        format!(
-            "could not resolve observed workload {} executable: {error:?}",
-            workload.id
-        )
-    })?;
-
-    let observed = super::super::observation::measure_samples(
-        &observed,
-        &observation_map,
-        &observation_output,
-        &observation_output,
+    let bray_execution = super::super::observation::measure_timing_samples(
+        &timed_executable,
+        &timing_map,
+        &timing_output,
+        &timing_output,
         options.warmup,
         options.samples,
         workload.scale,
         &output_digest,
-        workload.storage,
     )?;
 
-    let mut observations = observed.observations;
+    let mut observations = if let Some(expected) = workload.storage {
+        let storage_output = output.join("storage-observation");
+
+        let (storage_executable, storage_map) = emit_observed_executable(
+            &compilation,
+            product.clone(),
+            options.target,
+            observation_runtime,
+            &storage_output,
+            bray_compilation::BuildConfiguration::ObservedRelease,
+            workload.id,
+        )?;
+
+        super::super::observation::measure_storage(
+            &storage_executable,
+            &storage_map,
+            &storage_output,
+            &storage_output,
+            &output_digest,
+            expected,
+        )?
+    } else {
+        unavailable_storage_observations()
+    };
+
     observations.platform_operations = unavailable_platform_observations(workload);
 
     let mut artifacts = vec![retention::inspect(
@@ -357,10 +353,51 @@ fn run_workload(
         expected_output_sha256: output_digest,
         compilation: profile,
         process_execution,
-        bray_execution: observed.execution,
+        bray_execution,
         artifacts,
         observations,
     })
+}
+
+fn emit_observed_executable(
+    compilation: &bray_compilation::Compilation,
+    product: ProductIdentity,
+    target: bray_target::NativeTarget,
+    runtime: &Path,
+    output: &Path,
+    configuration: bray_compilation::BuildConfiguration,
+    workload: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    fs::create_dir_all(output)
+        .map_err(|error| format!("could not create {}: {error}", output.display()))?;
+
+    let map = output.join("application.map");
+
+    let map_output = bray_linker::SystemLinkerMapOutput::try_new(map.clone())
+        .ok_or_else(|| format!("invalid observed workload linker-map path: {}", map.display()))?;
+
+    crate::native_product::emit_executable_with_configuration(
+        compilation,
+        product.clone(),
+        target,
+        runtime,
+        output,
+        [],
+        Some(map_output),
+        configuration,
+    )?;
+
+    let executable = resolve_published_artifact(
+        output,
+        &product,
+        EmittedArtifactKind::Executable,
+        0,
+    )
+    .map_err(|error| {
+        format!("could not resolve observed workload {workload} executable: {error:?}")
+    })?;
+
+    Ok((executable, map))
 }
 
 fn execute_samples(
@@ -421,6 +458,19 @@ fn unavailable_platform_observations(workload: &Workload) -> BTreeMap<String, Ob
         .iter()
         .map(|name| ((*name).to_owned(), unavailable()))
         .collect()
+}
+
+fn unavailable_storage_observations() -> super::super::model::WorkloadObservations {
+    let unavailable = || Observation::Unavailable {
+        reason: "the workload has no storage observation contract".to_owned(),
+    };
+
+    super::super::model::WorkloadObservations {
+        allocation_count: unavailable(),
+        allocated_bytes: unavailable(),
+        copied_bytes: unavailable(),
+        platform_operations: BTreeMap::new(),
+    }
 }
 
 fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), String> {

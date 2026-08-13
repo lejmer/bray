@@ -209,15 +209,18 @@ digest, so a focused report can only compare with the same focused selection.
 Reports keep executable and relocatable-object sizes, per-section sizes, static linker-map provenance, dynamic library
 dependencies, the complete compiler profile, and robust median and MAD execution statistics. The HTML report presents duration in
 milliseconds and artifact size in KiB, with exact nanoseconds available as hover text. It reports process wall time separately from
-the measured Bray root execution interval, and bases throughput on the Bray interval. Allocation, copying, and platform-call
+the measured Bray root execution interval, and bases throughput on the Bray interval. Exact byte counts appear beside rounded KiB
+values. Allocation, copying, and platform-call
 observations are tagged as measured or unavailable. Never replace a missing observation hook with an inferred count. Section,
 dynamic-library, and retained-input collections have fixed entry limits and disclose omitted counts rather than allowing reports
 to grow without bound.
 
-Every workload also runs a separate opt-in observed release artifact. It reports the root execution interval and successful generated
-allocation and bulk-transfer events. The incremental byte workloads use fixed 64-byte and 4096-byte storage contracts to prove
-logarithmic allocation growth and linear allocation and copy work. Production workload artifacts retain no observation callbacks,
-so process timing and artifact measurements remain those of the ordinary release build.
+Every workload also runs a timing-only release artifact that records the root execution interval without memory observation calls.
+Workloads with storage contracts run another untimed artifact that records successful generated allocation and bulk-transfer
+events. Keeping these executions separate prevents observation file writes from affecting the Bray interval. The incremental byte
+workloads use fixed 64-byte and 4096-byte storage contracts to prove logarithmic allocation growth and linear allocation and copy
+work. Production workload artifacts retain no observation callbacks, so process timing and artifact measurements remain those of
+the ordinary release build.
 
 Compare an equivalent baseline and candidate with:
 

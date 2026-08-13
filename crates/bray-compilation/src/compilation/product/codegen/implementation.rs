@@ -60,7 +60,10 @@ impl Compilation {
     ) -> Result<Arc<NativeProductFacts>, Arc<NativeProductFactError>> {
         let mut required_capabilities: Vec<_> = required_capabilities.into_iter().collect();
 
-        if configuration == crate::BuildConfiguration::ObservedRelease {
+        if matches!(
+            configuration,
+            crate::BuildConfiguration::ObservedRelease | crate::BuildConfiguration::TimedRelease
+        ) {
             required_capabilities.push(RuntimeCapability::MemoryOperations);
         }
 

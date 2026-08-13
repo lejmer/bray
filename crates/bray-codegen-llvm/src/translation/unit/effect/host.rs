@@ -255,7 +255,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         name: &str,
     ) -> Result<(), CodegenFailure> {
         if self.request.options().runtime_observations()
-            != bray_codegen::RuntimeObservationMode::Performance
+            != bray_codegen::RuntimeObservationMode::PerformanceInterval
         {
             return Ok(());
         }

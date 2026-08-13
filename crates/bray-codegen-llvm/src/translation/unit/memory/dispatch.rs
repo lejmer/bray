@@ -377,7 +377,7 @@ mod tests {
         };
 
         let fixture = memory_operation_fixture(&backend)
-            .with_runtime_observations(bray_codegen::RuntimeObservationMode::Performance);
+            .with_runtime_observations(bray_codegen::RuntimeObservationMode::Memory);
 
         let context = Context::create();
 
@@ -405,6 +405,8 @@ mod tests {
 
         assert!(allocation < allocation_observation);
         assert!(relocation < copy_observation);
+        assert!(!ir.contains(bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL));
+        assert!(!ir.contains(bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL));
     }
 
     fn position(ir: &str, symbol: &str) -> usize {

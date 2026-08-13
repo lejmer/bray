@@ -277,7 +277,14 @@ fn observation_comparison_detail(
             comparison_metric(*comparison, unit),
             escape(scope)
         ),
-        ObservationComparison::Incomparable { .. } => "Incomparable".to_owned(),
+        ObservationComparison::Incomparable {
+            baseline,
+            candidate,
+        } => format!(
+            "Incomparable. Baseline {}. Candidate {}.",
+            observation_summary(baseline, unit),
+            observation_summary(candidate, unit),
+        ),
     };
 
     let _ = write!(
@@ -286,6 +293,23 @@ fn observation_comparison_detail(
         escape(label),
         rendered
     );
+}
+
+fn observation_summary(observation: &Observation, unit: MetricUnit) -> String {
+    match observation {
+        Observation::Measured { value, scope } => {
+            let value = match unit {
+                MetricUnit::Duration => milliseconds(*value),
+                MetricUnit::Bytes => kibibytes(*value),
+                MetricUnit::Count => grouped(*value),
+            };
+
+            format!("measured {value} in {}", escape(scope))
+        }
+        Observation::Unavailable { reason } => {
+            format!("unavailable because {}", escape(reason))
+        }
+    }
 }
 
 fn retained_inputs(html: &mut BoundedHtml, inputs: &[super::model::RetainedInput]) {
@@ -559,11 +583,15 @@ fn signed_milliseconds(nanoseconds: i128) -> String {
 }
 
 fn kibibytes(bytes: u64) -> String {
-    format!("{:.2} KiB", bytes as f64 / 1024.0)
+    let unit = if bytes == 1 { "byte" } else { "bytes" };
+
+    format!("{:.2} KiB ({} {unit})", bytes as f64 / 1024.0, grouped(bytes))
 }
 
 fn signed_kibibytes(bytes: i128) -> String {
-    format!("{:+.2} KiB", bytes as f64 / 1024.0)
+    let unit = if bytes.unsigned_abs() == 1 { "byte" } else { "bytes" };
+
+    format!("{:+.2} KiB ({bytes:+} {unit})", bytes as f64 / 1024.0)
 }
 
 fn nanoseconds_title(nanoseconds: u64) -> String {
@@ -640,8 +668,8 @@ code { font-family: ui-monospace, monospace; }
 #[cfg(test)]
 mod tests {
     use super::{
-        BoundedHtml, MAX_HTML_BYTES, escape, finish, grouped, render_candidate,
-        render_comparison,
+        BoundedHtml, MAX_HTML_BYTES, escape, finish, grouped, kibibytes, render_candidate,
+        render_comparison, signed_kibibytes,
     };
 
     #[test]
@@ -654,6 +682,13 @@ mod tests {
         assert_eq!(grouped(999), "999");
         assert_eq!(grouped(1_000), "1,000");
         assert_eq!(grouped(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn human_size_units_retain_exact_byte_values() {
+        assert_eq!(kibibytes(1), "0.00 KiB (1 byte)");
+        assert_eq!(kibibytes(1_024), "1.00 KiB (1,024 bytes)");
+        assert_eq!(signed_kibibytes(-1), "-0.00 KiB (-1 byte)");
     }
 
     #[test]
@@ -685,6 +720,7 @@ mod tests {
         assert!(first.contains("workload&lt;&amp;&gt;&quot;&#39;"));
         assert!(first.contains("&lt;artifact&gt;"));
         assert!(first.contains("2.500 ms"));
+        assert!(first.contains("0.10 KiB (100 bytes)"));
         assert!(first.contains(&report.identity.corpus_sha256));
         assert!(!first.contains("<artifact>"));
     }
@@ -706,6 +742,11 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.contains("-1.500 ms"));
         assert!(first.contains("Improved"));
+
+        assert!(first.contains(
+            "Incomparable. Baseline unavailable because not observed. Candidate unavailable because not observed."
+        ));
+
         assert!(first.contains(&comparison.candidate_identity.corpus_sha256));
     }
 }
