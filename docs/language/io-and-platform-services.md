@@ -73,8 +73,10 @@ The executable root receives one immutable process-context snapshot containing:
 - process identity,
 - process arguments,
 - environment entries,
-- the startup working directory,
-- and standard-stream capabilities.
+- and the startup working directory.
+
+Standard input, standard output, and standard error are separate process-root resources obtained through `std.io`; they are not
+encoded as interchangeable handles in the process-context snapshot.
 
 Public `std.process` accessors observe this snapshot. Changes made to host-global process state after the snapshot was formed are not
 visible through it.

@@ -29,6 +29,8 @@ pub enum DiagnosticStandardLibraryManifestProblem {
     DuplicateTarget,
     InvalidIdentity,
     InvalidNativeLink,
+    InvalidPlatformServices,
+    DuplicatePlatformService,
     BundleDigestMismatch,
     LengthExceeded,
 }
@@ -51,6 +53,8 @@ impl DiagnosticStandardLibraryManifestProblem {
             Self::DuplicateTarget => "duplicate_target",
             Self::InvalidIdentity => "invalid_identity",
             Self::InvalidNativeLink => "invalid_native_link",
+            Self::InvalidPlatformServices => "invalid_platform_services",
+            Self::DuplicatePlatformService => "duplicate_platform_service",
             Self::BundleDigestMismatch => "bundle_digest_mismatch",
             Self::LengthExceeded => "length_exceeded",
         }

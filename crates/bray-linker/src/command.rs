@@ -556,7 +556,7 @@ enum SymbolArgument {
 mod tests {
     use std::ffi::OsString;
 
-    use bray_runtime_interface::BinarySymbolName;
+    use bray_runtime_interface::{BinarySymbolName, RuntimeArtifactId};
     use bray_target::{
         CodeModel, NativeTarget, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity,
     };
@@ -623,6 +623,58 @@ mod tests {
                 OsString::from("-lpthread"),
             ])
         );
+    }
+
+    #[test]
+    fn runtime_dependency_archives_reach_linker_arguments_after_their_owners() {
+        let runtime = RuntimeArtifactId::try_new("runtime.test")
+            .unwrap_or_else(|| panic!("test runtime identity must be valid"));
+
+        let mut builder = link_plan_builder();
+
+        for (ordinal, path) in ["runtime-owner.lib", "runtime-support.lib"]
+            .into_iter()
+            .enumerate()
+        {
+            builder.push_input(
+                LinkInput::try_new(
+                    LinkInputId::new(ordinal as u32),
+                    LinkInputKind::RuntimeComponent,
+                    LinkInputSource::file(path),
+                    LinkInputProvenance::Runtime(runtime.clone()),
+                    LinkInputMode::Ordinary,
+                )
+                .unwrap_or_else(|error| panic!("runtime input must be valid: {error:?}")),
+            );
+        }
+
+        builder.push_output(planned_output(
+            0,
+            LinkedArtifactKind::Executable,
+            LinkedArtifactRequirement::Required,
+            "application.stage",
+        ));
+
+        builder.set_executable_host(crate::test_support::async_executable_host_contract(runtime));
+
+        let plan = builder
+            .finish()
+            .unwrap_or_else(|error| panic!("runtime link plan must be valid: {error:?}"));
+
+        let arguments = arguments_for(&plan, LldFlavor::Coff)
+            .unwrap_or_else(|error| panic!("runtime linker arguments must be valid: {error:?}"));
+
+        let owner = arguments
+            .iter()
+            .position(|argument| argument == "runtime-owner.lib")
+            .unwrap_or_else(|| panic!("runtime owner must reach linker arguments"));
+
+        let support = arguments
+            .iter()
+            .position(|argument| argument == "runtime-support.lib")
+            .unwrap_or_else(|| panic!("runtime support must reach linker arguments"));
+
+        assert!(owner < support);
     }
 
     #[test]

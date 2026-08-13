@@ -1,29 +1,30 @@
-#include <cstdint>
-
-extern "C"
-{
-
-struct BrayPlatformStatus
-{
-    std::uint32_t category;
-    std::uint32_t reserved;
-    std::int64_t native_code;
-};
-
-BrayPlatformStatus bray_platform_stream_write(
-    std::uint64_t handle,
-    const std::uint8_t* source,
-    std::uint64_t length,
-    std::uint64_t* transferred
-);
-
-}
+#include "bray_standard_stream.h"
 
 int main()
 {
+    const auto unowned = bray_platform_standard_output_unlock();
+
+    if (unowned.category != BRAY_PLATFORM_INVALID_INPUT)
+        return 1;
+
+    const auto acquired = bray_platform_standard_output_lock();
+
+    if (acquired.category != BRAY_PLATFORM_SUCCESS)
+        return 2;
+
+    const auto reentrant = bray_platform_standard_output_lock();
+
+    if (reentrant.category != BRAY_PLATFORM_INVALID_INPUT)
+        return 3;
+
+    const auto released = bray_platform_standard_output_unlock();
+
+    if (released.category != BRAY_PLATFORM_SUCCESS)
+        return 4;
+
     std::uint64_t transferred = 0;
 
-    const auto status = bray_platform_stream_write(2, nullptr, 0, &transferred);
+    const auto status = bray_platform_standard_output_write(nullptr, 0, &transferred);
 
-    return static_cast<int>(status.category);
+    return status.category == BRAY_PLATFORM_SUCCESS && transferred == 0 ? 0 : 5;
 }

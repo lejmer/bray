@@ -4,8 +4,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use bray_runtime_interface::RuntimeAbiVersion;
-use bray_symbols::NativeLinkRequirement;
+use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
 use bray_target::TargetIdentity;
 
 use crate::{
@@ -131,16 +130,46 @@ impl StandardLibraryResolver {
             .map(Arc::from)
     }
 
-    /// Returns the native libraries and frameworks required by a target inventory.
-    pub fn target_native_links(
+    /// Returns target artifacts after selecting only providers for the required platform roles.
+    pub fn target_artifacts_for_platform_services(
         &self,
         target: &TargetIdentity,
         runtime_abi: RuntimeAbiVersion,
-    ) -> Result<Arc<[NativeLinkRequirement]>, StandardLibraryLoadError> {
+        platform_services: &[PlatformServiceRole],
+    ) -> Result<Arc<[ResolvedStandardLibraryArtifact]>, StandardLibraryLoadError> {
         let manifest = self.manifest()?;
         let selected = target_inventory(&manifest, target, runtime_abi)?;
 
-        Ok(Arc::from(selected.native_links()))
+        selected
+            .artifacts()
+            .iter()
+            .filter(|artifact| {
+                artifact.kind() != crate::StandardLibraryArtifactKind::PlatformServiceLibrary
+                    || artifact
+                        .platform_services()
+                        .iter()
+                        .any(|role| platform_services.contains(role))
+            })
+            .map(|artifact| self.resolve(artifact))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Arc::from)
+    }
+
+    /// Returns the platform-service roles available for one target and runtime ABI.
+    pub fn target_platform_services(
+        &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<Arc<[PlatformServiceRole]>, StandardLibraryLoadError> {
+        let manifest = self.manifest()?;
+        let selected = target_inventory(&manifest, target, runtime_abi)?;
+
+        Ok(selected
+            .artifacts()
+            .iter()
+            .flat_map(StandardLibraryArtifact::platform_services)
+            .copied()
+            .collect())
     }
 
     fn resolve(
@@ -296,9 +325,7 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use bray_base::NonEmptySharedStr;
     use bray_runtime_interface::RuntimeAbiVersion;
-    use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
     use bray_target::TargetIdentity;
     use tempfile::TempDir;
 
@@ -352,19 +379,6 @@ mod tests {
             .unwrap_or_else(|| panic!("fixture must contain its archive"));
 
         assert_eq!(archive.bytes(), b"archive");
-
-        let native_links = resolver
-            .target_native_links(&target, RuntimeAbiVersion::new(1, 0))
-            .unwrap_or_else(|error| panic!("target native links must resolve: {error:?}"));
-
-        assert_eq!(
-            native_links.as_ref(),
-            [NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("c")
-                    .unwrap_or_else(|| panic!("native library name must be valid")),
-                NativeLinkKind::System,
-            )]
-        );
 
         assert!(matches!(
             resolver.target_artifacts(&target, RuntimeAbiVersion::new(2, 0)),
@@ -524,13 +538,6 @@ mod tests {
                 bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
                 [interface, implementation, archive],
             )
-            .map(|target| {
-                target.with_native_links([NativeLinkRequirement::new(
-                    NonEmptySharedStr::try_new("c")
-                        .unwrap_or_else(|| panic!("native library name must be valid")),
-                    NativeLinkKind::System,
-                )])
-            })
             .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
 
             let manifest = StandardLibraryBundleManifest::try_new([target])

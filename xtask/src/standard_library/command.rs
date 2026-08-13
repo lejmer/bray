@@ -1,5 +1,6 @@
 mod core;
 mod error;
+mod platform;
 
 pub(super) use core::{
     build, compare_bundles, read_manifest, standard_library_product,

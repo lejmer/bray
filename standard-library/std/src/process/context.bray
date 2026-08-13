@@ -143,7 +143,7 @@ func arguments() -> Arguments
 {
     return
     {
-        state = process_context_table(length_offset = 56, table_offset = 64),
+        state = process_context_table(length_offset = 32, table_offset = 40),
     };
 }
 
@@ -151,7 +151,7 @@ func environment() -> Environment
 {
     return
     {
-        state = process_context_table(length_offset = 72, table_offset = 80),
+        state = process_context_table(length_offset = 48, table_offset = 56),
     };
 }
 
@@ -172,7 +172,7 @@ internal func process_context_table(length_offset: usize, table_offset: usize) -
 func current_directory() -> std.path.Path
 {
     let context: std.memory.RawBuffer<u8> = trusted internal std.platform.required_process_context();
-    let bytes: &[u8] = internal std.platform.context_range(&context, descriptor_offset = 40);
+    let bytes: &[u8] = internal std.platform.context_range(&context, descriptor_offset = 16);
     let path: Result<std.path.Path, std.path.PathError> = trusted internal std.path.path_from_bytes(bytes);
 
     match consume path

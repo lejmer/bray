@@ -440,7 +440,7 @@ impl RuntimeConformance for BrayRuntime {
             parent.id(),
             ProtectedFrameStateId::new(0),
             parent.cancellation_context().clone(),
-            parent.output_context().cloned(),
+            parent.output_context().clone(),
             cooperative_lane(),
             registration.wake_handle(),
         );

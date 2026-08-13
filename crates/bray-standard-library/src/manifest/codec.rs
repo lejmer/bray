@@ -1,4 +1,5 @@
 use bray_base::NonEmptySharedStr;
+use bray_runtime_interface::PlatformServiceRole;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::TargetIdentity;
 
@@ -48,18 +49,11 @@ pub fn decode_standard_library_manifest(
                 .map(decode_artifact)
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let native_links = target
-                .native_links
-                .into_iter()
-                .map(decode_native_link)
-                .collect::<Result<Vec<_>, _>>()?;
-
             StandardLibraryTargetArtifacts::try_new(
                 identity,
                 runtime_abi(target.runtime_abi),
                 artifacts,
             )
-            .map(|target| target.with_native_links(native_links))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -99,7 +93,24 @@ fn decode_artifact(
 
     let digest = StandardLibraryArtifactDigest::new(decode_digest(wire.digest)?);
 
+    let platform_services = wire
+        .platform_services
+        .iter()
+        .map(|role| {
+            PlatformServiceRole::from_name(role)
+                .ok_or(StandardLibraryManifestError::InvalidPlatformServices)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let native_links = wire
+        .native_links
+        .into_iter()
+        .map(decode_native_link)
+        .collect::<Result<Vec<_>, _>>()?;
+
     StandardLibraryArtifact::try_new(kind, wire.path, wire.byte_len, digest)
+        .map(|artifact| artifact.with_platform_services(platform_services))
+        .map(|artifact| artifact.with_native_links(native_links))
 }
 
 fn decode_native_link(
@@ -117,7 +128,7 @@ fn decode_native_link(
 #[cfg(test)]
 mod tests {
     use bray_base::NonEmptySharedStr;
-    use bray_runtime_interface::RuntimeAbiVersion;
+    use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
     use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
     use bray_target::TargetIdentity;
 
@@ -168,6 +179,89 @@ mod tests {
         );
     }
 
+    #[test]
+    fn platform_archives_require_disjoint_capability_inventories() {
+        let provider = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libplatform.a",
+            b"provider",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite])
+        })
+        .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}"));
+
+        let target = manifest().targets()[0].clone();
+
+        let duplicate_provider = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libplatform-duplicate.a",
+            b"duplicate provider",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite])
+        })
+        .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}"));
+
+        let artifacts = target
+            .artifacts()
+            .iter()
+            .cloned()
+            .chain([provider, duplicate_provider]);
+
+        assert_eq!(
+            StandardLibraryTargetArtifacts::try_new(
+                target.target().clone(),
+                target.runtime_abi(),
+                artifacts,
+            ),
+            Err(StandardLibraryManifestError::DuplicatePlatformService)
+        );
+
+        let error = StandardLibraryTargetArtifacts::try_new(
+            target.target().clone(),
+            target.runtime_abi(),
+            target.artifacts().iter().cloned().chain([
+                StandardLibraryArtifact::try_for_bytes(
+                    StandardLibraryArtifactKind::PlatformServiceLibrary,
+                    "targets/x86_64-unknown-linux-gnu/1.0/libplatform-empty.a",
+                    b"provider",
+                )
+                .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}")),
+            ]),
+        )
+        .expect_err("platform archives must declare capabilities");
+
+        assert_eq!(error, StandardLibraryManifestError::InvalidPlatformServices);
+
+        let ordinary_native_link = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::StaticLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libinvalid-native-link.a",
+            b"invalid native link owner",
+        )
+        .map(|artifact| {
+            artifact.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("c")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
+        .unwrap_or_else(|error| panic!("artifact metadata must be valid: {error:?}"));
+
+        assert_eq!(
+            StandardLibraryTargetArtifacts::try_new(
+                target.target().clone(),
+                target.runtime_abi(),
+                target
+                    .artifacts()
+                    .iter()
+                    .cloned()
+                    .chain([ordinary_native_link]),
+            ),
+            Err(StandardLibraryManifestError::InvalidNativeLink)
+        );
+    }
+
     fn manifest() -> StandardLibraryBundleManifest {
         let interface = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::PackageInterface,
@@ -190,21 +284,31 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("archive must be valid: {error:?}"));
 
+        let provider = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/x86_64-unknown-linux-gnu/1.0/libplatform-core.a",
+            b"provider",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([PlatformServiceRole::ClockMonotonicNow])
+        })
+        .map(|artifact| {
+            artifact.with_native_links([NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("c")
+                    .unwrap_or_else(|| panic!("native library name must be valid")),
+                NativeLinkKind::System,
+            )])
+        })
+        .unwrap_or_else(|error| panic!("provider must be valid: {error:?}"));
+
         let target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
             .unwrap_or_else(|| panic!("target identity must be valid"));
 
         let target = StandardLibraryTargetArtifacts::try_new(
             target,
             RuntimeAbiVersion::new(1, 0),
-            [interface, implementation, archive],
+            [interface, implementation, archive, provider],
         )
-        .map(|target| {
-            target.with_native_links([NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("c")
-                    .unwrap_or_else(|| panic!("native library name must be valid")),
-                NativeLinkKind::System,
-            )])
-        })
         .unwrap_or_else(|error| panic!("target artifacts must be valid: {error:?}"));
 
         StandardLibraryBundleManifest::try_new([target])

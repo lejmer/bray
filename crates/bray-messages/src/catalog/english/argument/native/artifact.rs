@@ -176,6 +176,7 @@ pub(crate) fn format_english_runtime_artifact_problem(
         Problem::InvalidPanicAbi => "invalid panic ABI identity".to_owned(),
         Problem::UnknownCapability => "unknown runtime capability".to_owned(),
         Problem::UnknownRole => "unknown runtime role".to_owned(),
+        Problem::UnknownPlatformService => "unknown native operation".to_owned(),
         Problem::InvalidRoleSymbol => "invalid runtime role symbol".to_owned(),
         Problem::UnknownRoleImplementation => "unknown runtime role implementation".to_owned(),
         Problem::InvalidNativeLinkName => "invalid native link name".to_owned(),
@@ -235,6 +236,10 @@ pub(crate) fn format_english_runtime_artifact_problem(
             capability,
         } => format!(
             "{} runtime surface has multiple owners for capability `{capability}`",
+            format_english_runtime_artifact_purpose(*purpose),
+        ),
+        Problem::DuplicatePlatformServiceOwner { purpose } => format!(
+            "the same native operation is provided more than once for {} programs",
             format_english_runtime_artifact_purpose(*purpose),
         ),
         Problem::MissingComponent => "missing runtime component".to_owned(),

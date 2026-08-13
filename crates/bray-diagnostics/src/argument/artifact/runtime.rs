@@ -31,6 +31,8 @@ pub enum DiagnosticRuntimeArtifactProblem {
     UnknownCapability,
     /// Metadata names a role outside the closed runtime contract.
     UnknownRole,
+    /// Metadata names a native platform capability outside the closed contract.
+    UnknownPlatformService,
     /// Metadata declares an invalid runtime role symbol.
     InvalidRoleSymbol,
     /// Metadata declares an unknown runtime role implementation boundary.
@@ -100,6 +102,11 @@ pub enum DiagnosticRuntimeArtifactProblem {
         /// Multiply owned runtime capability.
         capability: String,
     },
+    /// A native platform capability is overridden by multiple components.
+    DuplicatePlatformServiceOwner {
+        /// Product category with contradictory overrides.
+        purpose: DiagnosticRuntimeArtifactPurpose,
+    },
     /// A declared component has no resolved archive path.
     MissingComponent,
     /// A resolved archive path has no declared component.
@@ -121,6 +128,7 @@ impl DiagnosticRuntimeArtifactProblem {
             Self::InvalidPanicAbi => "invalid_panic_abi",
             Self::UnknownCapability => "unknown_capability",
             Self::UnknownRole => "unknown_role",
+            Self::UnknownPlatformService => "unknown_platform_service",
             Self::InvalidRoleSymbol => "invalid_role_symbol",
             Self::UnknownRoleImplementation => "unknown_role_implementation",
             Self::InvalidNativeLinkName => "invalid_native_link_name",
@@ -143,6 +151,9 @@ impl DiagnosticRuntimeArtifactProblem {
             Self::DuplicateRoleOwner { .. } => "duplicate_role_owner",
             Self::MissingCapabilityOwner { .. } => "missing_capability_owner",
             Self::DuplicateCapabilityOwner { .. } => "duplicate_capability_owner",
+            Self::DuplicatePlatformServiceOwner { .. } => {
+                "duplicate_platform_service_owner"
+            }
             Self::MissingComponent => "missing_component",
             Self::UnexpectedComponent => "unexpected_component",
             Self::ArchiveFileNameMismatch => "archive_file_name_mismatch",

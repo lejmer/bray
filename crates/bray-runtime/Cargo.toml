@@ -8,9 +8,15 @@ rust-version.workspace = true
 [lib]
 crate-type = ["rlib", "staticlib"]
 
+[features]
+test-output = ["bray-platform/test-output"]
+
 [dependencies]
-bray-platform = { path = "../bray-platform" }
-bray-platform-abi = { path = "../bray-platform-abi" }
+bray-platform = {
+    path = "../bray-platform",
+    default-features = false,
+    features = ["clock", "event", "memory", "thread"],
+}
 bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-runtime-model = { path = "../bray-runtime-model" }
 

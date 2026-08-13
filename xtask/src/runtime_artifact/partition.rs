@@ -11,6 +11,7 @@ use super::command::{CommandError, RuntimeArchiveKind};
 pub(super) struct RuntimeArchivePartitioner {
     tool: PathBuf,
     common: BTreeMap<[u8; 32], Vec<u8>>,
+    test_common: BTreeMap<[u8; 32], Vec<u8>>,
     components: BTreeMap<RuntimeArchiveKind, BTreeMap<[u8; 32], Vec<u8>>>,
 }
 
@@ -22,6 +23,7 @@ impl RuntimeArchivePartitioner {
         Ok(Self {
             tool,
             common: BTreeMap::new(),
+            test_common: BTreeMap::new(),
             components: BTreeMap::new(),
         })
     }
@@ -31,7 +33,7 @@ impl RuntimeArchivePartitioner {
         kind: RuntimeArchiveKind,
         archive: &Path,
         crate_member_prefix: &str,
-        isolate_unique_support: bool,
+        test_support: bool,
     ) -> Result<(), CommandError> {
         let members = extract_members(&self.tool, archive)?;
         let mut owned = BTreeMap::new();
@@ -39,10 +41,10 @@ impl RuntimeArchivePartitioner {
         for member in members {
             let digest = Sha256::digest(&member.bytes).into();
 
-            if member.name.starts_with(crate_member_prefix)
-                || (isolate_unique_support && !self.common.contains_key(&digest))
-            {
+            if member.name.starts_with(crate_member_prefix) {
                 owned.entry(digest).or_insert(member.bytes);
+            } else if test_support {
+                self.test_common.entry(digest).or_insert(member.bytes);
             } else {
                 self.common.entry(digest).or_insert(member.bytes);
             }
@@ -65,6 +67,15 @@ impl RuntimeArchivePartitioner {
                 RuntimeArchiveKind::Common,
             )),
             self.common.values(),
+        )?;
+
+        write_archive(
+            &self.tool,
+            &output.join(super::command::archive_file_name(
+                target,
+                RuntimeArchiveKind::TestCommon,
+            )),
+            self.test_common.values(),
         )?;
 
         for (kind, members) in self.components {

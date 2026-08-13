@@ -39,32 +39,60 @@
           "declaration": "std.platform.environment_key_equals"
         },
         {
-          "role": "platform.stream.read",
-          "declaration": "std.io.platform_stream_read"
+          "role": "platform.standard_input.read",
+          "declaration": "std.io.platform_standard_input_read"
         },
         {
-          "role": "platform.stream.write",
-          "declaration": "std.io.platform_stream_write"
+          "role": "platform.standard_output.write",
+          "declaration": "std.io.platform_standard_output_write"
         },
         {
-          "role": "platform.stream.flush",
-          "declaration": "std.io.platform_stream_flush"
+          "role": "platform.standard_output.flush",
+          "declaration": "std.io.platform_standard_output_flush"
         },
         {
-          "role": "platform.stream.lock",
-          "declaration": "std.io.platform_stream_lock"
+          "role": "platform.standard_output.lock",
+          "declaration": "std.io.platform_standard_output_lock"
         },
         {
-          "role": "platform.stream.unlock",
-          "declaration": "std.io.platform_stream_unlock"
+          "role": "platform.standard_output.unlock",
+          "declaration": "std.io.platform_standard_output_unlock"
         },
         {
-          "role": "platform.stream.seek",
-          "declaration": "std.fs.platform_stream_seek"
+          "role": "platform.standard_error.write",
+          "declaration": "std.io.platform_standard_error_write"
         },
         {
-          "role": "platform.stream.close",
-          "declaration": "std.fs.platform_stream_close"
+          "role": "platform.standard_error.flush",
+          "declaration": "std.io.platform_standard_error_flush"
+        },
+        {
+          "role": "platform.standard_error.lock",
+          "declaration": "std.io.platform_standard_error_lock"
+        },
+        {
+          "role": "platform.standard_error.unlock",
+          "declaration": "std.io.platform_standard_error_unlock"
+        },
+        {
+          "role": "platform.file.read",
+          "declaration": "std.fs.platform_file_read"
+        },
+        {
+          "role": "platform.file.write",
+          "declaration": "std.fs.platform_file_write"
+        },
+        {
+          "role": "platform.file.flush",
+          "declaration": "std.fs.platform_file_flush"
+        },
+        {
+          "role": "platform.file.seek",
+          "declaration": "std.fs.platform_file_seek"
+        },
+        {
+          "role": "platform.file.close",
+          "declaration": "std.fs.platform_file_close"
         },
         {
           "role": "platform.file.open",
@@ -109,6 +137,22 @@
         {
           "role": "platform.child.spawn",
           "declaration": "std.process.platform_child_spawn"
+        },
+        {
+          "role": "platform.process_pipe.read",
+          "declaration": "std.process.platform_process_pipe_read"
+        },
+        {
+          "role": "platform.process_pipe.write",
+          "declaration": "std.process.platform_process_pipe_write"
+        },
+        {
+          "role": "platform.process_pipe.flush",
+          "declaration": "std.process.platform_process_pipe_flush"
+        },
+        {
+          "role": "platform.process_pipe.close",
+          "declaration": "std.process.platform_process_pipe_close"
         },
         {
           "role": "platform.child.wait",

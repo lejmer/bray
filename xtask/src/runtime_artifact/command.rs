@@ -13,10 +13,11 @@ use crate::bundle::{
 use crate::workspace;
 use bray_base::sha256_file;
 use bray_runtime_interface::{
-    BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiRole,
-    RuntimeAbiVersion, RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactId,
-    RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability, RuntimeContract,
-    RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation, native_runtime_role_symbol,
+    BinarySymbolName, PanicAbiIdentity, PlatformServiceRole, ProtectedFrameAbiVersions,
+    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactComponentMetadata, RuntimeArtifactDigest,
+    RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability,
+    RuntimeContract, RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
+    native_runtime_role_symbol,
 };
 use bray_symbols::NativeLinkRequirement;
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
@@ -225,7 +226,9 @@ fn build_contents(
                 &["test-host"][..],
                 "bray_runtime_adapter-",
             ),
-            RuntimeArchiveKind::Common => unreachable!("common support is derived from owners"),
+            RuntimeArchiveKind::Common | RuntimeArchiveKind::TestCommon => {
+                unreachable!("common support is derived from owners")
+            }
         };
 
         let built = crate::native_archive::build_rust_static_library(
@@ -258,7 +261,10 @@ fn build_contents(
             Ok(BuiltComponent {
                 kind,
                 digest: digest_file(&archive)?,
-                native_links: if kind == RuntimeArchiveKind::Common {
+                native_links: if matches!(
+                    kind,
+                    RuntimeArchiveKind::Common | RuntimeArchiveKind::TestCommon
+                ) {
                     native_links.clone()
                 } else {
                     Vec::new()
@@ -378,82 +384,99 @@ fn metadata(
                 name,
                 [],
                 [capability],
-                false,
             )?);
         }
+
+        let common_kind = match purpose {
+            RuntimeArtifactPurpose::Product => RuntimeArchiveKind::Common,
+            RuntimeArtifactPurpose::TestRunner => RuntimeArchiveKind::TestCommon,
+        };
 
         let common_identity = component_identity(target, purpose, "common")?;
 
         let common = component_metadata(
             target,
             purpose,
-            component(components, RuntimeArchiveKind::Common)?,
+            component(components, common_kind)?,
             "common",
             [],
             [],
-            true,
         )?;
 
-        metadata_components.push(common);
-
-        for (kind, name, capabilities) in [
-            (RuntimeArchiveKind::Host, "host", &[][..]),
-            (
-                RuntimeArchiveKind::Scheduler,
-                "scheduler",
-                &SCHEDULER_CAPABILITIES[..],
-            ),
-            (RuntimeArchiveKind::Cancellation, "cancellation", &[][..]),
-            (
-                RuntimeArchiveKind::Event,
-                "event",
-                &[RuntimeCapability::Reactor][..],
-            ),
-        ] {
-            let roles = contract
+        if purpose == RuntimeArtifactPurpose::Product {
+            for (kind, name, capabilities) in [
+                (RuntimeArchiveKind::Host, "host", &[][..]),
+                (
+                    RuntimeArchiveKind::Scheduler,
+                    "scheduler",
+                    &SCHEDULER_CAPABILITIES[..],
+                ),
+                (RuntimeArchiveKind::Cancellation, "cancellation", &[][..]),
+                (
+                    RuntimeArchiveKind::Event,
+                    "event",
+                    &[RuntimeCapability::Reactor][..],
+                ),
+            ] {
+                let roles = contract
                 .role_bindings()
                 .iter()
                 .map(RuntimeRoleBinding::role)
                 .filter(|role| runtime_role_archive(*role) == Some(kind));
 
-            metadata_components.push(
-                component_metadata(
-                    target,
-                    purpose,
-                    component(components, kind)?,
-                    name,
-                    roles,
-                    capabilities.iter().copied(),
-                    false,
-                )?
-                .with_dependencies([common_identity.clone()]),
-            );
+                metadata_components.push(
+                    component_metadata(
+                        target,
+                        purpose,
+                        component(components, kind)?,
+                        name,
+                        roles,
+                        capabilities.iter().copied(),
+                    )?
+                    .with_dependencies([common_identity.clone()]),
+                );
+            }
         }
 
         if purpose == RuntimeArtifactPurpose::TestRunner {
+            let roles = contract
+                .role_bindings()
+                .iter()
+                .map(RuntimeRoleBinding::role);
+
             metadata_components.push(
                 component_metadata(
                     target,
                     purpose,
                     component(components, RuntimeArchiveKind::TestHost)?,
                     "test_host",
-                    [RuntimeAbiRole::TestEntrySelection],
-                    [],
-                    false,
+                    roles,
+                    SCHEDULER_CAPABILITIES
+                        .into_iter()
+                        .chain([RuntimeCapability::Reactor]),
                 )?
+                .with_platform_services([
+                    PlatformServiceRole::StandardInputRead,
+                    PlatformServiceRole::StandardOutputWrite,
+                    PlatformServiceRole::StandardOutputFlush,
+                    PlatformServiceRole::StandardOutputLock,
+                    PlatformServiceRole::StandardOutputUnlock,
+                    PlatformServiceRole::StandardErrorWrite,
+                    PlatformServiceRole::StandardErrorFlush,
+                    PlatformServiceRole::StandardErrorLock,
+                    PlatformServiceRole::StandardErrorUnlock,
+                ])
                 .with_dependencies([common_identity.clone()]),
             );
         }
+
+        metadata_components.push(common);
     }
 
     RuntimeArtifactMetadata::try_new(contract, metadata_components)
         .map_err(|_| CommandError::MetadataContract)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "runtime component publication keeps each ownership dimension explicit"
-)]
 fn component_metadata(
     target: NativeTarget,
     purpose: RuntimeArtifactPurpose,
@@ -461,7 +484,6 @@ fn component_metadata(
     name: &str,
     roles: impl IntoIterator<Item = RuntimeAbiRole>,
     capabilities: impl IntoIterator<Item = RuntimeCapability>,
-    embeds_platform_services: bool,
 ) -> Result<RuntimeArtifactComponentMetadata, CommandError> {
     let identity = component_identity(target, purpose, name)?;
 
@@ -479,13 +501,10 @@ fn component_metadata(
     )
     .map_err(|_| CommandError::MetadataContract)?;
 
-    let metadata = if embeds_platform_services {
-        metadata.with_embedded_platform_services()
-    } else {
-        metadata
-    };
-
-    let native_links = if component.kind == RuntimeArchiveKind::Common {
+    let native_links = if matches!(
+        component.kind,
+        RuntimeArchiveKind::Common | RuntimeArchiveKind::TestCommon
+    ) {
         super::native_link::common_support_requirements(target, &component.native_links)
     } else {
         component.native_links.clone()
@@ -644,6 +663,7 @@ struct BuiltComponent {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum RuntimeArchiveKind {
     Common,
+    TestCommon,
     Memory,
     String,
     Character,
@@ -661,8 +681,9 @@ enum MemoryObservation {
 }
 
 impl RuntimeArchiveKind {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 10] = [
         Self::Common,
+        Self::TestCommon,
         Self::Memory,
         Self::String,
         Self::Character,
@@ -687,6 +708,7 @@ impl RuntimeArchiveKind {
     const fn archive_stem(self) -> &'static str {
         match self {
             Self::Common => "bray_runtime_common",
+            Self::TestCommon => "bray_runtime_test_common",
             Self::Memory => "bray_runtime_memory",
             Self::String => "bray_runtime_string",
             Self::Character => "bray_runtime_character",
@@ -861,7 +883,9 @@ fn required_value(
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::{RuntimeAbiRole, RuntimeArtifactDigest};
+    use bray_runtime_interface::{
+        PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest,
+    };
     use bray_target::NativeTarget;
 
     use super::{
@@ -944,7 +968,7 @@ mod tests {
 
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
-            assert_eq!(first.components().len(), 17);
+            assert_eq!(first.components().len(), 13);
 
             let common = first
                 .components()
@@ -965,13 +989,25 @@ mod tests {
                 )
             );
 
+            let test_host = first
+                .components()
+                .iter()
+                .find(|component| component.identity().as_str().ends_with("test_runner.test_host"))
+                .unwrap_or_else(|| panic!("runtime metadata must contain test output support"));
+
             assert_eq!(
-                first
-                    .components()
-                    .iter()
-                    .filter(|component| component.embeds_platform_services())
-                    .count(),
-                2
+                test_host.platform_services(),
+                &[
+                    PlatformServiceRole::StandardInputRead,
+                    PlatformServiceRole::StandardOutputWrite,
+                    PlatformServiceRole::StandardOutputFlush,
+                    PlatformServiceRole::StandardOutputLock,
+                    PlatformServiceRole::StandardOutputUnlock,
+                    PlatformServiceRole::StandardErrorWrite,
+                    PlatformServiceRole::StandardErrorFlush,
+                    PlatformServiceRole::StandardErrorLock,
+                    PlatformServiceRole::StandardErrorUnlock,
+                ]
             );
 
             assert_eq!(

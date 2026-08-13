@@ -5,10 +5,9 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use bray_platform::{RunOutputContext, current_run_output_context};
 use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
-use crate::context::current_task_start_site;
+use crate::context::{TaskOutput, current_task_output, current_task_start_site};
 use crate::frame::suspension_state;
 use crate::{
     CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext,
@@ -154,7 +153,7 @@ pub struct TaskControlBlock<
     descriptor: ProtectedFrameDescriptor,
     data: Mutex<TaskData<T, F>>,
     cancellation: CancellationContext,
-    output: Option<RunOutputContext>,
+    output: TaskOutput,
     resuming: AtomicBool,
 }
 
@@ -258,7 +257,7 @@ where
                 next_join_waiter: 0,
             }),
             cancellation,
-            output: current_run_output_context(),
+            output: current_task_output(),
             resuming: AtomicBool::new(false),
         }))
     }
@@ -320,8 +319,8 @@ where
         &self.cancellation
     }
 
-    pub(crate) const fn output_context(&self) -> Option<&RunOutputContext> {
-        self.output.as_ref()
+    pub(crate) const fn output_context(&self) -> &TaskOutput {
+        &self.output
     }
 
     /// Enters or resumes the task without allowing concurrent execution.
@@ -776,7 +775,7 @@ mod tests {
             parent.id(),
             ProtectedFrameStateId::new(0),
             parent.cancellation_context().clone(),
-            parent.output_context().cloned(),
+            parent.output_context().clone(),
             ExecutionLane::new(
                 ExecutionLanePlacement::PinnedWorker(runtime.runtime().id()),
                 ExecutionWorkload::Cooperative,

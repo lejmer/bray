@@ -6,7 +6,7 @@ use bray_target::NativeTarget;
 use sha2::{Digest as _, Sha256};
 
 use super::super::corpus::{CORPUS_REVISION, ExpectedOutput, Workload};
-use super::super::model::ReportIdentity;
+use super::super::model::{ReportIdentity, WorkloadCategory};
 use super::options::Options;
 
 pub(super) fn report_identity(
@@ -84,6 +84,11 @@ fn corpus_digest(workloads: &[&Workload]) -> String {
     for workload in workloads {
         digest.update(workload.id.as_bytes());
         digest.update([0]);
+        digest.update(category_name(workload.category).as_bytes());
+        digest.update([0]);
+        digest.update(workload.scale.to_le_bytes());
+        digest.update(workload.units.as_bytes());
+        digest.update([0]);
         digest.update(workload.source.as_bytes());
         digest.update([0]);
 
@@ -99,9 +104,41 @@ fn corpus_digest(workloads: &[&Workload]) -> String {
                 digest.update(count.to_le_bytes());
             }
         }
+
+        for operation in workload.platform_operations {
+            digest.update(operation.as_bytes());
+            digest.update([0]);
+        }
+
+        for identities in [
+            workload.retention.required_symbols,
+            workload.retention.forbidden_symbols,
+            workload.retention.required_provenance,
+            workload.retention.forbidden_provenance,
+        ] {
+            for identity in identities {
+                digest.update(identity.as_bytes());
+                digest.update([0]);
+            }
+
+            digest.update([0xff]);
+        }
     }
 
     hex(digest.finalize().into())
+}
+
+const fn category_name(category: WorkloadCategory) -> &'static str {
+    match category {
+        WorkloadCategory::Small => "small",
+        WorkloadCategory::CoreData => "core_data",
+        WorkloadCategory::Formatting => "formatting",
+        WorkloadCategory::Streaming => "streaming",
+        WorkloadCategory::Concurrent => "concurrent",
+        WorkloadCategory::Filesystem => "filesystem",
+        WorkloadCategory::Process => "process",
+        WorkloadCategory::Time => "time",
+    }
 }
 
 fn command_text(command: &mut Command) -> Result<String, String> {

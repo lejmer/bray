@@ -155,8 +155,9 @@ impl<'plan> LinkPlanConstructor<'plan> {
         self.push_startup_inputs()?;
         self.push_staged_inputs()?;
         self.validate_native_inputs()?;
-        self.push_native_inputs_matching(is_archive_input)?;
+        self.push_native_inputs_matching(is_ordinary_archive_input)?;
         self.push_runtime_input()?;
+        self.push_native_inputs_matching(is_platform_provider_input)?;
         self.push_native_inputs_matching(is_native_library_input)?;
         self.push_termination_inputs()?;
         self.push_outputs()?;
@@ -270,14 +271,14 @@ impl<'plan> LinkPlanConstructor<'plan> {
 
     fn push_native_inputs_matching(
         &mut self,
-        include: fn(LinkInputKind) -> bool,
+        include: fn(&LinkInputSpec) -> bool,
     ) -> Result<(), LinkPlanConstructionError> {
         // The link plan owns input specifications independently of the product-fact borrow.
         for input in self
             .facts
             .native_inputs
             .iter()
-            .filter(|input| include(input.kind()))
+            .filter(|input| include(input))
             .cloned()
             .collect::<Vec<_>>()
         {
@@ -407,13 +408,19 @@ fn startup_mode(product: LinkedProductKind, facts: &ProductLinkFacts) -> LinkSta
     }
 }
 
-fn is_archive_input(kind: LinkInputKind) -> bool {
-    kind == LinkInputKind::Archive
+fn is_ordinary_archive_input(input: &LinkInputSpec) -> bool {
+    input.kind() == LinkInputKind::Archive
+        && !matches!(input.provenance(), LinkInputProvenance::PlatformProvider(_))
 }
 
-fn is_native_library_input(kind: LinkInputKind) -> bool {
+fn is_platform_provider_input(input: &LinkInputSpec) -> bool {
+    input.kind() == LinkInputKind::Archive
+        && matches!(input.provenance(), LinkInputProvenance::PlatformProvider(_))
+}
+
+fn is_native_library_input(input: &LinkInputSpec) -> bool {
     matches!(
-        kind,
+        input.kind(),
         LinkInputKind::NativeLibrary | LinkInputKind::Framework
     )
 }
@@ -644,6 +651,11 @@ mod tests {
                     "dependencies/standard-library.a",
                     LinkInputProvenance::HostConfiguration,
                 ),
+                file_input(
+                    LinkInputKind::Archive,
+                    "dependencies/platform-provider.a",
+                    LinkInputProvenance::PlatformProvider(product_identity().package().clone()),
+                ),
             ]);
 
         let link_plan = construct_link_plan(
@@ -673,9 +685,15 @@ mod tests {
                 LinkInputKind::RelocatableObject,
                 LinkInputKind::Archive,
                 LinkInputKind::RuntimeComponent,
+                LinkInputKind::Archive,
                 LinkInputKind::NativeLibrary,
             ]
         );
+
+        assert!(matches!(
+            link_plan.inputs()[4].provenance(),
+            LinkInputProvenance::PlatformProvider(_)
+        ));
 
         let runtime_inputs = link_plan
             .inputs()

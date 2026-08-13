@@ -175,7 +175,7 @@ fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
 
     if let Some(symbol) = required
         .iter()
-        .find(|symbol| !contains_link_symbol(&contents, symbol))
+        .find(|symbol| !crate::link_map::contains_symbol(&contents, symbol))
     {
         return Err(CommandError::SynchronousLinkMapBoundary(format!(
             "missing {symbol}"
@@ -186,7 +186,7 @@ fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
         if **symbol == "blake3" {
             contents.contains(*symbol)
         } else {
-            contains_link_symbol(&contents, symbol)
+            crate::link_map::contains_symbol(&contents, symbol)
         }
     }) {
         return Err(CommandError::SynchronousLinkMapBoundary(format!(
@@ -197,18 +197,12 @@ fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn contains_link_symbol(contents: &str, symbol: &str) -> bool {
-    contents
-        .split_whitespace()
-        .any(|token| token == symbol || token.strip_prefix('_') == Some(symbol))
-}
-
 fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
     for component in &package.components {
         let symbols = defined_symbols(&component.archive)?;
 
         let (required, forbidden): (&[&str], &[&str]) = match component.kind {
-            RuntimeArchiveKind::Common => (
+            RuntimeArchiveKind::Common | RuntimeArchiveKind::TestCommon => (
                 &[],
                 &[
                     "bray_runtime_memory_",
@@ -216,6 +210,7 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     "bray_runtime_character_",
                     "bray_runtime_root_",
                     "bray_runtime_task_",
+                    "bray_platform_standard_",
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
                 ],
             ),
@@ -224,7 +219,11 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
                     bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
                 ],
-                &["bray_runtime_string_", "bray_runtime_character_"],
+                &[
+                    "bray_runtime_string_",
+                    "bray_runtime_character_",
+                    "bray_platform_standard_",
+                ],
             ),
             RuntimeArchiveKind::String => (
                 &[
@@ -234,7 +233,11 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     bray_runtime_abi::STRING_SCALAR_SLICE_SYMBOL,
                     bray_runtime_abi::STRING_FROM_UTF8_SYMBOL,
                 ],
-                &["bray_runtime_memory_", "bray_runtime_character_"],
+                &[
+                    "bray_runtime_memory_",
+                    "bray_runtime_character_",
+                    "bray_platform_standard_",
+                ],
             ),
             RuntimeArchiveKind::Character => (
                 &[
@@ -246,7 +249,11 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     bray_runtime_abi::CHARACTER_IS_NUMERIC_SYMBOL,
                     bray_runtime_abi::CHARACTER_IS_WHITESPACE_SYMBOL,
                 ],
-                &["bray_runtime_memory_", "bray_runtime_string_"],
+                &[
+                    "bray_runtime_memory_",
+                    "bray_runtime_string_",
+                    "bray_platform_standard_",
+                ],
             ),
             RuntimeArchiveKind::Host => (
                 &[
@@ -260,6 +267,7 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
                     bray_runtime_abi::TASK_START_SYMBOL,
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                    "bray_platform_standard_",
                 ],
             ),
             RuntimeArchiveKind::Scheduler => (
@@ -273,6 +281,7 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                     "bray_runtime_memory_",
                     "bray_runtime_string_",
                     "bray_runtime_character_",
+                    "bray_platform_standard_",
                 ],
             ),
             RuntimeArchiveKind::Cancellation => (
@@ -280,6 +289,7 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                 &[
                     bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                    "bray_platform_standard_",
                 ],
             ),
             RuntimeArchiveKind::Event => (
@@ -287,10 +297,21 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
                 &[
                     bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
                     bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                    "bray_platform_standard_",
                 ],
             ),
             RuntimeArchiveKind::TestHost => (
-                &[bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL],
+                &[
+                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+                    bray_runtime_abi::PLATFORM_STANDARD_OUTPUT_WRITE_SYMBOL,
+                    bray_runtime_abi::PLATFORM_STANDARD_OUTPUT_FLUSH_SYMBOL,
+                    bray_runtime_abi::PLATFORM_STANDARD_OUTPUT_LOCK_SYMBOL,
+                    bray_runtime_abi::PLATFORM_STANDARD_OUTPUT_UNLOCK_SYMBOL,
+                    bray_runtime_abi::PLATFORM_STANDARD_ERROR_WRITE_SYMBOL,
+                    bray_runtime_abi::PLATFORM_STANDARD_ERROR_FLUSH_SYMBOL,
+                    bray_runtime_abi::PLATFORM_STANDARD_ERROR_LOCK_SYMBOL,
+                    bray_runtime_abi::PLATFORM_STANDARD_ERROR_UNLOCK_SYMBOL,
+                ],
                 &[
                     "bray_runtime_memory_",
                     "bray_runtime_string_",
@@ -299,10 +320,15 @@ fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
             ),
         };
 
+        let undeclared_platform_service = symbols.iter().any(|symbol| {
+            symbol.starts_with("bray_platform_") && !required.contains(&symbol.as_str())
+        });
+
         if required.iter().any(|symbol| !symbols.contains(*symbol))
             || forbidden
                 .iter()
                 .any(|prefix| symbols.iter().any(|symbol| symbol.starts_with(prefix)))
+            || undeclared_platform_service
         {
             return Err(CommandError::RuntimeComponentBoundary(component.kind));
         }

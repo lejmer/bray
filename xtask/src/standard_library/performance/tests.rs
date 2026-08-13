@@ -16,7 +16,8 @@ use super::model::{
     ReportIdentity, SCHEMA_REVISION, WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
-    bounded_retained_inputs_for_test, retained_inputs_for_test, sections_for_test,
+    bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,
+    sections_for_test,
 };
 use super::statistics::summarize;
 
@@ -82,6 +83,17 @@ fn linker_map_inputs_preserve_archive_member_provenance() {
     }));
 
     assert!(microsoft.iter().any(|input| input.artifact == "C:/work/application.obj"));
+}
+
+#[test]
+fn retention_provenance_ignores_unselected_archive_load_records() {
+    let map = "LOAD libbray_platform_process.a\n\
+        libbray_platform_filesystem.a(hash-filesystem.o)\n\
+        0000 _run_output_context";
+
+    assert!(!contains_retained_provenance(map, "bray_platform_process"));
+    assert!(contains_retained_provenance(map, "bray_platform_filesystem"));
+    assert!(contains_retained_provenance(map, "run_output_context"));
 }
 
 #[test]

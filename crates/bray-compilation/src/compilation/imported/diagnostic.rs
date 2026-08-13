@@ -203,6 +203,12 @@ const fn manifest_problem(
         StandardLibraryManifestError::InvalidNativeLink => {
             DiagnosticStandardLibraryManifestProblem::InvalidNativeLink
         }
+        StandardLibraryManifestError::InvalidPlatformServices => {
+            DiagnosticStandardLibraryManifestProblem::InvalidPlatformServices
+        }
+        StandardLibraryManifestError::DuplicatePlatformService => {
+            DiagnosticStandardLibraryManifestProblem::DuplicatePlatformService
+        }
         StandardLibraryManifestError::BundleDigestMismatch => {
             DiagnosticStandardLibraryManifestProblem::BundleDigestMismatch
         }

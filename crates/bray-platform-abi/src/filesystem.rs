@@ -7,18 +7,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_platform::WallClockTimestamp;
-use bray_platform_abi_support::native_platform_export;
+use bray_platform_abi_support::{
+    MemoryRegion, destination_slice, disjoint, native_platform_export, platform_io_error,
+    publish_transfer_count, source_slice, startup_working_directory, validate_transfer,
+    PROCESS_HANDLE_TAG,
+};
 use bray_runtime_abi::{
     NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath, NativePlatformStatus,
 };
 
-use super::platform::{platform_io_error, startup_working_directory};
-use super::region::{MemoryRegion, disjoint};
-
 #[cfg(windows)]
 use std::path::{Component, Prefix};
 
-const FIRST_OWNED_HANDLE: u64 = 4;
+const FIRST_OWNED_HANDLE: u64 = 1;
 
 enum NativeHandle {
     File(NativeFile),
@@ -74,7 +75,7 @@ fn insert_handle(handle: NativeHandle) -> Result<u64, NativePlatformStatus> {
     for _ in 0..128 {
         let id = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
 
-        if id == 0 || handles.contains_key(&id) {
+        if id == 0 || id & PROCESS_HANDLE_TAG != 0 || handles.contains_key(&id) {
             continue;
         }
 
@@ -141,15 +142,7 @@ impl HandleKind {
     }
 }
 
-pub(super) fn is_file_handle(id: u64) -> bool {
-    handle(id).is_ok_and(|handle| {
-        handle
-            .lock()
-            .is_ok_and(|handle| matches!(*handle, NativeHandle::File(_)))
-    })
-}
-
-pub(super) fn read_file(id: u64, destination: &mut [u8]) -> Result<usize, NativePlatformStatus> {
+fn read_file(id: u64, destination: &mut [u8]) -> Result<usize, NativePlatformStatus> {
     with_file(id, |file| {
         if !file.access.readable() {
             return Err(NativePlatformStatus::INVALID_INPUT);
@@ -161,7 +154,7 @@ pub(super) fn read_file(id: u64, destination: &mut [u8]) -> Result<usize, Native
     })
 }
 
-pub(super) fn write_file(id: u64, source: &[u8]) -> Result<usize, NativePlatformStatus> {
+fn write_file(id: u64, source: &[u8]) -> Result<usize, NativePlatformStatus> {
     with_file(id, |file| {
         if !file.access.writable() {
             return Err(NativePlatformStatus::INVALID_INPUT);
@@ -173,7 +166,7 @@ pub(super) fn write_file(id: u64, source: &[u8]) -> Result<usize, NativePlatform
     })
 }
 
-pub(super) fn flush_file(id: u64) -> Result<(), NativePlatformStatus> {
+fn flush_file(id: u64) -> Result<(), NativePlatformStatus> {
     with_file(id, |file| {
         if !file.access.writable() {
             return Err(NativePlatformStatus::INVALID_INPUT);
@@ -183,7 +176,7 @@ pub(super) fn flush_file(id: u64) -> Result<(), NativePlatformStatus> {
     })
 }
 
-pub(super) fn seek_file(
+fn seek_file(
     id: u64,
     offset_bits: u64,
     origin: u32,
@@ -202,11 +195,100 @@ pub(super) fn seek_file(
     })
 }
 
-pub(super) fn close_file(id: u64) -> NativePlatformStatus {
+fn close_file(id: u64) -> NativePlatformStatus {
     match remove_handle(id, HandleKind::File) {
         Ok(NativeHandle::File(_)) => NativePlatformStatus::SUCCESS,
         Ok(NativeHandle::Directory(_)) => NativePlatformStatus::OTHER,
         Err(status) => status,
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_file_read(
+        handle: u64,
+        destination: *mut u8,
+        length: u64,
+        transferred: *mut u64,
+    ) -> NativePlatformStatus {
+        let Some(length) = validate_transfer(destination, length, transferred) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let initialized = unsafe { publish_transfer_count(transferred, 0) };
+
+        if initialized != NativePlatformStatus::SUCCESS {
+            return initialized;
+        }
+
+        let destination = unsafe { destination_slice(destination, length) };
+
+        match read_file(handle, destination) {
+            Ok(count) => unsafe { publish_transfer_count(transferred, count) },
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_file_write(
+        handle: u64,
+        source: *const u8,
+        length: u64,
+        transferred: *mut u64,
+    ) -> NativePlatformStatus {
+        let Some(length) = validate_transfer(source, length, transferred) else {
+            return NativePlatformStatus::INVALID_INPUT;
+        };
+
+        let initialized = unsafe { publish_transfer_count(transferred, 0) };
+
+        if initialized != NativePlatformStatus::SUCCESS {
+            return initialized;
+        }
+
+        let source = unsafe { source_slice(source, length) };
+
+        match write_file(handle, source) {
+            Ok(count) => unsafe { publish_transfer_count(transferred, count) },
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_file_flush(handle: u64) -> NativePlatformStatus {
+        match flush_file(handle) {
+            Ok(()) => NativePlatformStatus::SUCCESS,
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_file_seek(
+        handle: u64,
+        offset_bits: u64,
+        origin: u32,
+        position: *mut u64,
+    ) -> NativePlatformStatus {
+        if MemoryRegion::write(position).is_none() {
+            return NativePlatformStatus::INVALID_INPUT;
+        }
+
+        match seek_file(handle, offset_bits, origin) {
+            Ok(value) => {
+                unsafe { position.write(value) };
+
+                NativePlatformStatus::SUCCESS
+            }
+            Err(status) => status,
+        }
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_file_close(handle: u64) -> NativePlatformStatus {
+        close_file(handle)
     }
 }
 
@@ -614,11 +696,7 @@ pub(super) fn native_path(path: NativePlatformPath) -> Result<PathBuf, NativePla
         return Err(NativePlatformStatus::INVALID_INPUT);
     }
 
-    let bytes = if length == 0 {
-        &[]
-    } else {
-        unsafe { std::slice::from_raw_parts(path.address(), length) }
-    };
+    let bytes = unsafe { source_slice(path.address(), length) };
 
     let path = native_path_from_bytes(bytes)?;
 
@@ -721,13 +799,45 @@ mod tests {
         NativePlatformFileMetadata, NativePlatformFileOptions, NativePlatformPath,
         NativePlatformStatus,
     };
+    use bray_platform_abi_support::PROCESS_HANDLE_TAG;
     use bray_testing::unique_temporary_directory;
 
     use super::{
         anchor_native_path, bray_platform_directory_close, bray_platform_directory_next,
         bray_platform_directory_open, bray_platform_file_metadata, bray_platform_file_open,
-        close_file, flush_file, native_text, read_file, seek_file, write_file,
+        bray_platform_file_read, bray_platform_file_write, close_file, flush_file, native_text,
+        read_file, seek_file, write_file,
     };
+
+    #[test]
+    fn empty_file_transfers_still_validate_the_file_owner() {
+        let mut transferred = 1;
+
+        assert_eq!(
+            bray_platform_file_read(
+                PROCESS_HANDLE_TAG,
+                std::ptr::null_mut(),
+                0,
+                &raw mut transferred,
+            ),
+            NativePlatformStatus::INVALID_INPUT
+        );
+
+        assert_eq!(transferred, 0);
+        transferred = 1;
+
+        assert_eq!(
+            bray_platform_file_write(
+                PROCESS_HANDLE_TAG,
+                std::ptr::null(),
+                0,
+                &raw mut transferred,
+            ),
+            NativePlatformStatus::INVALID_INPUT
+        );
+
+        assert_eq!(transferred, 0);
+    }
 
     #[test]
     fn native_files_support_create_transfer_seek_metadata_and_close() {
@@ -745,6 +855,7 @@ mod tests {
             NativePlatformStatus::SUCCESS
         );
 
+        assert_eq!(handle & PROCESS_HANDLE_TAG, 0);
         assert_eq!(write_file(handle, b"bray"), Ok(4));
         assert_eq!(seek_file(handle, 0, 0), Ok(0));
 

@@ -177,7 +177,7 @@ impl RuntimeArtifact {
             }
         }
 
-        let components = selected
+        let components = dependency_link_order(&selected, &self.components)
             .into_iter()
             .map(|index| self.components[index].clone())
             .collect::<Vec<_>>()
@@ -237,16 +237,9 @@ impl RuntimeArtifactSelection {
         &self.contract
     }
 
-    /// Returns selected components in canonical catalog order.
+    /// Returns selected components in deterministic native link order.
     pub fn components(&self) -> &[RuntimeArtifactComponent] {
         &self.components
-    }
-
-    /// Returns whether any selected component embeds platform services.
-    pub fn embeds_platform_services(&self) -> bool {
-        self.components
-            .iter()
-            .any(|component| component.metadata().embeds_platform_services())
     }
 
     /// Returns native dependencies across selected components in link order.
@@ -255,6 +248,33 @@ impl RuntimeArtifactSelection {
             .iter()
             .flat_map(|component| component.metadata().native_links())
     }
+}
+
+fn dependency_link_order(
+    selected: &BTreeSet<usize>,
+    components: &[RuntimeArtifactComponent],
+) -> Vec<usize> {
+    let mut remaining = selected.clone();
+    let mut ordered = Vec::with_capacity(remaining.len());
+
+    while let Some(index) = remaining.iter().copied().find(|index| {
+        let identity = components[*index].metadata().identity();
+
+        !remaining.iter().any(|candidate| {
+            candidate != index
+                && components[*candidate]
+                    .metadata()
+                    .dependencies()
+                    .contains(identity)
+        })
+    }) {
+        remaining.remove(&index);
+        ordered.push(index);
+    }
+
+    debug_assert!(remaining.is_empty(), "runtime component graph was validated");
+
+    ordered
 }
 
 /// A contract violation that prevents resolving metadata to an archive path.

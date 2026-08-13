@@ -15,6 +15,7 @@ use bray_package_interface::{
     PackageInterfaceIdentity,
 };
 use bray_project::{ProjectGraph, ProjectProduct, load_standard_library_project_graph};
+use bray_runtime_interface::PlatformServiceRole;
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
@@ -315,8 +316,7 @@ fn build_bundle(
             interface_bytes,
             implementation_bytes,
             archive_bytes,
-            platform_archive_bytes,
-            platform_native_links,
+            platform_archives,
         } = built;
 
         let abi = selected.runtime_abi();
@@ -357,18 +357,25 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        let platform_file_name = platform_abi_archive_name(native)?;
+        let mut artifacts = vec![interface, implementation, archive];
 
-        let platform_path = format!("{target_path}/{platform_file_name}");
+        for platform in platform_archives {
+            let platform_file_name = platform_abi_archive_name(native, platform.name)?;
+            let platform_path = format!("{target_path}/{platform_file_name}");
 
-        write_bundle_artifact(bundle, &platform_path, &platform_archive_bytes)?;
+            write_bundle_artifact(bundle, &platform_path, &platform.bytes)?;
 
-        let platform_archive = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::PlatformServiceLibrary,
-            platform_path,
-            &platform_archive_bytes,
-        )
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+            let platform_archive = StandardLibraryArtifact::try_for_bytes(
+                StandardLibraryArtifactKind::PlatformServiceLibrary,
+                platform_path,
+                &platform.bytes,
+            )
+            .map(|artifact| artifact.with_platform_services(platform.roles.iter().copied()))
+            .map(|artifact| artifact.with_native_links(platform.native_links))
+            .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
+            artifacts.push(platform_archive);
+        }
 
         let provenance_path = format!("{target_path}/temporal-provider.json");
 
@@ -381,19 +388,10 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        let target = StandardLibraryTargetArtifacts::try_new(
-            target.clone(),
-            abi,
-            [
-                interface,
-                implementation,
-                archive,
-                platform_archive,
-                provenance,
-            ],
-        )
-        .map(|target| target.with_native_links(platform_native_links))
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+        artifacts.push(provenance);
+
+        let target = StandardLibraryTargetArtifacts::try_new(target.clone(), abi, artifacts)
+            .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         built_targets.push(target);
     }
@@ -408,8 +406,48 @@ struct BuiltTarget {
     interface_bytes: Vec<u8>,
     implementation_bytes: Vec<u8>,
     archive_bytes: Vec<u8>,
-    platform_archive_bytes: Vec<u8>,
-    platform_native_links: Vec<bray_symbols::NativeLinkRequirement>,
+    platform_archives: Vec<BuiltPlatformArchive>,
+}
+
+struct BuiltPlatformArchive {
+    name: &'static str,
+    roles: &'static [PlatformServiceRole],
+    bytes: Vec<u8>,
+    native_links: Vec<bray_symbols::NativeLinkRequirement>,
+}
+
+struct BuiltPlatformArtifacts {
+    archives: Vec<BuiltPlatformArchive>,
+}
+
+fn build_platform_archives(
+    root: &Path,
+    native: NativeTarget,
+) -> Result<BuiltPlatformArtifacts, BuildError> {
+    let mut archives = Vec::new();
+
+    for partition in super::platform::PARTITIONS {
+        let build = if partition.uses_rust_standard_library {
+            crate::native_archive::build_rust_static_library
+        } else {
+            crate::native_archive::build_no_std_rust_static_library
+        };
+
+        let built = build(root, native, "bray-platform-abi", "release", &[partition.feature])
+        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
+
+        let bytes = fs::read(built.archive())
+            .map_err(|error| BuildError::read(built.archive(), error))?;
+
+        archives.push(BuiltPlatformArchive {
+            name: partition.name,
+            roles: partition.roles,
+            bytes,
+            native_links: built.native_links().to_vec(),
+        });
+    }
+
+    Ok(BuiltPlatformArtifacts { archives })
 }
 
 fn standard_library_archive_name(target: NativeTarget) -> Result<String, BuildError> {
@@ -418,9 +456,12 @@ fn standard_library_archive_name(target: NativeTarget) -> Result<String, BuildEr
         .ok_or(BuildError::InvalidIdentity)
 }
 
-fn platform_abi_archive_name(target: NativeTarget) -> Result<String, BuildError> {
+fn platform_abi_archive_name(
+    target: NativeTarget,
+    partition: &str,
+) -> Result<String, BuildError> {
     TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
-        .file_name("bray_platform_abi")
+        .file_name(partition)
         .ok_or(BuildError::InvalidIdentity)
 }
 
@@ -431,6 +472,12 @@ fn build_target(
     target: &TargetIdentity,
     work: &Path,
 ) -> Result<BuiltTarget, BuildError> {
+    if !super::platform::inventory_matches(product.platform_services()) {
+        return Err(BuildError::Manifest(
+            "platform archive role inventory does not match the standard library".to_owned(),
+        ));
+    }
+
     let selected = SelectedTarget::for_identity(target)
         .ok_or_else(|| BuildError::UnsupportedTarget(target.clone()))?;
 
@@ -440,19 +487,13 @@ fn build_target(
 
     let root = workspace::root().map_err(BuildError::Workspace)?;
 
-    let platform = crate::native_archive::build_rust_static_library(
-        &root,
-        native,
-        "bray-platform-abi",
-        "release",
-        &[],
-    )
-    .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
-
-    let platform_archive_bytes = fs::read(platform.archive())
-        .map_err(|error| BuildError::read(platform.archive(), error))?;
-
-    let platform_native_links = platform.native_links().to_vec();
+    let platform = if product.platform_services().is_empty() {
+        BuiltPlatformArtifacts {
+            archives: Vec::new(),
+        }
+    } else {
+        build_platform_archives(&root, native)?
+    };
 
     let output = work.join(target.as_str());
 
@@ -554,8 +595,7 @@ fn build_target(
         interface_bytes,
         implementation_bytes,
         archive_bytes,
-        platform_archive_bytes,
-        platform_native_links,
+        platform_archives: platform.archives,
     })
 }
 
@@ -757,15 +797,18 @@ mod tests {
         );
 
         assert_eq!(
-            platform_abi_archive_name(NativeTarget::X86_64WindowsMsvc)
+            platform_abi_archive_name(
+                NativeTarget::X86_64WindowsMsvc,
+                "bray_platform_standard_streams",
+            )
                 .unwrap_or_else(|error| panic!("Windows platform archive must be valid: {error}")),
-            "bray_platform_abi.lib"
+            "bray_platform_standard_streams.lib"
         );
 
         assert_eq!(
-            platform_abi_archive_name(NativeTarget::X86_64LinuxGnu)
+            platform_abi_archive_name(NativeTarget::X86_64LinuxGnu, "bray_platform_filesystem")
                 .unwrap_or_else(|error| panic!("Linux platform archive must be valid: {error}")),
-            "libbray_platform_abi.a"
+            "libbray_platform_filesystem.a"
         );
     }
 

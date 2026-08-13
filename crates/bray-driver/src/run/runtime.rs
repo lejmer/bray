@@ -160,6 +160,9 @@ fn metadata_problem(
         RuntimeArtifactMetadataDecodeError::UnknownRole => {
             DiagnosticRuntimeArtifactProblem::UnknownRole
         }
+        RuntimeArtifactMetadataDecodeError::UnknownPlatformService => {
+            DiagnosticRuntimeArtifactProblem::UnknownPlatformService
+        }
         RuntimeArtifactMetadataDecodeError::InvalidRoleSymbol => {
             DiagnosticRuntimeArtifactProblem::InvalidRoleSymbol
         }
@@ -266,6 +269,11 @@ fn catalog_problem(
             purpose: diagnostic_purpose(*purpose),
             capability: capability.as_str().to_owned(),
         },
+        RuntimeArtifactMetadataBuildError::DuplicatePlatformServiceOwner { purpose, .. } => {
+            DiagnosticRuntimeArtifactProblem::DuplicatePlatformServiceOwner {
+                purpose: diagnostic_purpose(*purpose),
+            }
+        }
     }
 }
 

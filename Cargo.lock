@@ -503,6 +503,9 @@ dependencies = [
 [[package]]
 name = "bray-platform-abi-support"
 version = "0.0.0"
+dependencies = [
+ "bray-runtime-abi",
+]
 
 [[package]]
 name = "bray-platform-abi-temporal"
@@ -539,7 +542,6 @@ name = "bray-runtime"
 version = "0.0.0"
 dependencies = [
  "bray-platform",
- "bray-platform-abi",
  "bray-runtime-abi",
  "bray-runtime-model",
  "bray-testing",
@@ -554,6 +556,7 @@ name = "bray-runtime-adapter"
 version = "0.0.0"
 dependencies = [
  "bray-platform",
+ "bray-platform-abi-support",
  "bray-runtime",
  "bray-runtime-abi",
  "bray-source",
@@ -1128,12 +1131,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "log"
-version = "0.4.33"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
-
-[[package]]
 name = "memchr"
 version = "2.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1164,7 +1161,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30d65c71f1ce40ab09135ce117d742b9f8a19ff91a41a8b57ed50bc2de59c427"
 dependencies = [
  "libc",
- "log",
  "wasi",
  "windows-sys",
 ]

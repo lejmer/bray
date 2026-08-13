@@ -18,4 +18,5 @@ pub use super::export::{
     bray_runtime_task_allocation_v1, bray_runtime_task_cancellation_request_v1,
     bray_runtime_task_start_v1, bray_runtime_terminal_publication_v1, bray_runtime_wake_v1,
 };
+#[cfg(feature = "test-output")]
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};

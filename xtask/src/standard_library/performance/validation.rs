@@ -136,11 +136,27 @@ fn validate_workload(
         return Err(format!("workload {} has too many platform observations", workload.id));
     }
 
-    for (name, observation) in &workload.observations.platform_operations {
-        if name.is_empty() {
-            return Err("platform observation names must be nonempty".to_owned());
-        }
+    let expected_operations = canonical
+        .platform_operations
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
 
+    let actual_operations = workload
+        .observations
+        .platform_operations
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+
+    if actual_operations != expected_operations {
+        return Err(format!(
+            "workload {} platform observations do not match the canonical corpus",
+            workload.id
+        ));
+    }
+
+    for observation in workload.observations.platform_operations.values() {
         validate_observation(observation)?;
     }
 
