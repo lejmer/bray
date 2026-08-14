@@ -68,12 +68,11 @@ fn execute(mut options: Options) -> Result<(), String> {
 
     let selected = WORKLOADS
         .iter()
-        .filter(|workload| {
-            options.workloads.is_empty() || options.workloads.contains(workload.id)
-        })
+        .filter(|workload| options.workloads.is_empty() || options.workloads.contains(workload.id))
         .collect::<Vec<_>>();
 
-    let identity = report_identity(&root, &options, &selected)?;
+    let timer_resolution_nanoseconds = statistics::timer_resolution_nanoseconds()?;
+    let identity = report_identity(&root, &options, &selected, timer_resolution_nanoseconds)?;
     let mut workloads = Vec::with_capacity(selected.len());
 
     progress::plan(selected.len(), options.warmup, options.samples);
@@ -87,6 +86,7 @@ fn execute(mut options: Options) -> Result<(), String> {
             prepared.toolchain(),
             prepared.runtime(),
             prepared.observation_runtime(),
+            timer_resolution_nanoseconds,
         )?);
     }
 
@@ -161,6 +161,7 @@ fn run_workload(
     toolchain: &Path,
     runtime: &Path,
     observation_runtime: &Path,
+    timer_resolution_nanoseconds: u64,
 ) -> Result<WorkloadReport, String> {
     let output = options.output.join("workloads").join(workload.id);
 
@@ -262,21 +263,19 @@ fn run_workload(
         .profile_report()
         .ok_or_else(|| format!("workload {} produced no compiler profile", workload.id))?;
 
-    let executable = resolve_published_artifact(
-        &output,
-        &product,
-        EmittedArtifactKind::Executable,
-        0,
-    )
-    .map_err(|error| format!("could not resolve workload {} executable: {error:?}", workload.id))?;
+    let executable =
+        resolve_published_artifact(&output, &product, EmittedArtifactKind::Executable, 0).map_err(
+            |error| {
+                format!(
+                    "could not resolve workload {} executable: {error:?}",
+                    workload.id
+                )
+            },
+        )?;
 
-    let object = resolve_published_artifact(
-        &output,
-        &product,
-        EmittedArtifactKind::RelocatableObject,
-        0,
-    )
-    .ok();
+    let object =
+        resolve_published_artifact(&output, &product, EmittedArtifactKind::RelocatableObject, 0)
+            .ok();
 
     super::super::observation::require_production_symbols_absent(&map)?;
 
@@ -291,7 +290,9 @@ fn run_workload(
         options.target,
         observation_runtime,
         &timing_output,
-        bray_compilation::BuildConfiguration::TimedRelease,
+        bray_compilation::BuildConfiguration::TimedRelease {
+            inner_iterations: workload.controlled_inner_iterations,
+        },
         workload.id,
     )?;
 
@@ -302,6 +303,7 @@ fn run_workload(
         &output.join("peers"),
         options.target,
         workload.id,
+        workload.controlled_inner_iterations,
     )?;
 
     let mut implementations = vec![ImplementationTarget {
@@ -327,6 +329,7 @@ fn run_workload(
         options.samples,
         workload,
         &output_digest,
+        timer_resolution_nanoseconds,
     )?;
 
     let bray = execution
@@ -451,8 +454,12 @@ fn emit_observed_executable(
 
     let map = output.join("application.map");
 
-    let map_output = bray_linker::SystemLinkerMapOutput::try_new(map.clone())
-        .ok_or_else(|| format!("invalid observed workload linker-map path: {}", map.display()))?;
+    let map_output = bray_linker::SystemLinkerMapOutput::try_new(map.clone()).ok_or_else(|| {
+        format!(
+            "invalid observed workload linker-map path: {}",
+            map.display()
+        )
+    })?;
 
     crate::native_product::emit_executable_with_configuration(
         compilation,
@@ -465,15 +472,10 @@ fn emit_observed_executable(
         configuration,
     )?;
 
-    let executable = resolve_published_artifact(
-        output,
-        &product,
-        EmittedArtifactKind::Executable,
-        0,
-    )
-    .map_err(|error| {
-        format!("could not resolve observed workload {workload} executable: {error:?}")
-    })?;
+    let executable =
+        resolve_published_artifact(output, &product, EmittedArtifactKind::Executable, 0).map_err(
+            |error| format!("could not resolve observed workload {workload} executable: {error:?}"),
+        )?;
 
     Ok((executable, map))
 }
@@ -512,6 +514,7 @@ fn execute_interleaved(
     samples: u32,
     workload: &Workload,
     expected_output_sha256: &str,
+    timer_resolution_nanoseconds: u64,
 ) -> Result<BTreeMap<ImplementationKey, ImplementationExecution>, String> {
     let sample_capacity = usize::try_from(samples)
         .map_err(|_| "sample count cannot be represented by this host".to_owned())?;
@@ -564,8 +567,7 @@ fn execute_interleaved(
         let timing_start = rotation_start(iteration, implementations.len(), 1);
 
         for offset in 0..implementations.len() {
-            let implementation =
-                &implementations[(timing_start + offset) % implementations.len()];
+            let implementation = &implementations[(timing_start + offset) % implementations.len()];
 
             let elapsed = super::super::observation::execute_timing_sample(
                 implementation.timed_executable,
@@ -593,6 +595,8 @@ fn execute_interleaved(
                 samples.process,
                 workload.scale,
                 super::super::model::PROCESS_EXECUTION_SCOPE,
+                1,
+                timer_resolution_nanoseconds,
             )
             .ok_or_else(|| "at least one process execution sample is required".to_owned())?;
 
@@ -600,6 +604,8 @@ fn execute_interleaved(
                 samples.controlled,
                 workload.scale,
                 super::super::model::BRAY_EXECUTION_SCOPE,
+                workload.controlled_inner_iterations.get(),
+                timer_resolution_nanoseconds,
             )
             .ok_or_else(|| "at least one controlled execution sample is required".to_owned())?;
 
@@ -656,7 +662,10 @@ fn execute_process_sample(
 
 fn unavailable_platform_observations(workload: &Workload) -> BTreeMap<String, Observation> {
     let reason = "the selected production runtime does not expose benchmark observation hooks";
-    let unavailable = || Observation::Unavailable { reason: reason.to_owned() };
+
+    let unavailable = || Observation::Unavailable {
+        reason: reason.to_owned(),
+    };
 
     workload
         .platform_operations
@@ -680,7 +689,8 @@ fn unavailable_storage_observations() -> super::super::model::WorkloadObservatio
 
 fn unavailable_peer_observations() -> super::super::model::WorkloadObservations {
     let unavailable = || Observation::Unavailable {
-        reason: "the selected language runtime does not expose matching observation hooks".to_owned(),
+        reason: "the selected language runtime does not expose matching observation hooks"
+            .to_owned(),
     };
 
     super::super::model::WorkloadObservations {
@@ -692,18 +702,30 @@ fn unavailable_peer_observations() -> super::super::model::WorkloadObservations 
 }
 
 fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), String> {
-    let contents = fs::read_to_string(map)
-        .map_err(|error| format!("could not read workload linker map {}: {error}", map.display()))?;
+    let contents = fs::read_to_string(map).map_err(|error| {
+        format!(
+            "could not read workload linker map {}: {error}",
+            map.display()
+        )
+    })?;
 
     for symbol in workload.retention.required_symbols {
         if !crate::link_map::contains_symbol(&contents, symbol) {
-            return Err(retention_error(workload, "did not retain required symbol", symbol));
+            return Err(retention_error(
+                workload,
+                "did not retain required symbol",
+                symbol,
+            ));
         }
     }
 
     for symbol in workload.retention.forbidden_symbols {
         if crate::link_map::contains_symbol(&contents, symbol) {
-            return Err(retention_error(workload, "retained forbidden symbol", symbol));
+            return Err(retention_error(
+                workload,
+                "retained forbidden symbol",
+                symbol,
+            ));
         }
     }
 

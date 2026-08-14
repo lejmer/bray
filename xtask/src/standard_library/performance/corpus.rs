@@ -1,12 +1,16 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 6;
+pub(super) const CORPUS_REVISION: u32 = 7;
+// The fixed workload count is nonzero by construction.
+pub(super) const BATCHED_INNER_ITERATIONS: std::num::NonZeroU64 =
+    std::num::NonZeroU64::new(50_000_000).unwrap();
 
 pub(super) struct Workload {
     pub id: &'static str,
     pub category: WorkloadCategory,
     pub scale: u64,
     pub units: &'static str,
+    pub controlled_inner_iterations: std::num::NonZeroU64,
     pub source: &'static str,
     pub standard_library_sources: &'static [&'static str],
     pub expected_output: ExpectedOutput,
@@ -55,6 +59,7 @@ pub(super) const WORKLOADS: [Workload; 11] = [
         category: WorkloadCategory::Small,
         scale: 1,
         units: "executions",
+        controlled_inner_iterations: BATCHED_INNER_ITERATIONS,
         source: r#"module small_output;
 
 func main() {}
@@ -71,6 +76,7 @@ func main() {}
         category: WorkloadCategory::CoreData,
         scale: 64,
         units: "bytes",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module std.bytes;
 
 using std.bytes;
@@ -110,6 +116,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::CoreData,
         scale: 4096,
         units: "bytes",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module std.bytes;
 
 using std.bytes;
@@ -149,6 +156,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::CoreData,
         scale: 256,
         units: "text pipelines",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module borrowed_text;
 
 using std.bytes;
@@ -243,6 +251,7 @@ func main()
         category: WorkloadCategory::Formatting,
         scale: 1024,
         units: "values",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module std.format;
 
 using std.format;
@@ -289,6 +298,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::Streaming,
         scale: 1024,
         units: "writes",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module stream_output;
 
 using std.io;
@@ -356,6 +366,7 @@ func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Concurrent,
         scale: 128,
         units: "awaits",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module async_output;
 
 using std.io;
@@ -393,6 +404,7 @@ async func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Filesystem,
         scale: 256,
         units: "lookups",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module filesystem_metadata;
 
 using std.fs;
@@ -430,6 +442,7 @@ func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Filesystem,
         scale: 4096,
         units: "bytes",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module file_output;
 
 using std.fs;
@@ -523,6 +536,7 @@ func output_path() -> std.path.Path
         category: WorkloadCategory::Process,
         scale: 1024,
         units: "lookups",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module process_context;
 
 using std.process;
@@ -550,6 +564,7 @@ func main()
         category: WorkloadCategory::Time,
         scale: 1024,
         units: "readings",
+        controlled_inner_iterations: std::num::NonZeroU64::MIN,
         source: r#"module monotonic_clock;
 
 using std.time;

@@ -6,7 +6,10 @@ use super::model::{
     ObservationComparison, PerformanceReport, RuntimeLinkage,
 };
 
-use super::format::{grouped, kibibytes, milliseconds, nanoseconds_title, signed_kibibytes, signed_milliseconds};
+use super::format::{
+    grouped, kibibytes, milliseconds, nanoseconds_title, picoseconds_milliseconds,
+    picoseconds_title, signed_kibibytes, signed_milliseconds, signed_picoseconds_milliseconds,
+};
 use super::html::{BoundedHtml, document_start, escape, finish, write};
 use super::ranking::{CandidateWinners, executable_bytes, observation_value};
 
@@ -22,7 +25,8 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
     html.push_str(
         "<section><h2>How to read this report</h2>\
         <p>The primary duration is the language-controlled workload execution. Process duration also includes \
-        executable startup and teardown. Throughput uses the controlled duration.</p>\
+        executable startup and teardown. Throughput uses the controlled duration. Very small workloads repeat \
+        inside one controlled interval, and the reported duration is adjusted to one workload execution.</p>\
         <p>Bray, Rust, and C++ embed their application and language runtimes in each executable. \
         Target operating-system libraries may remain dynamic.</p></section>",
     );
@@ -104,24 +108,21 @@ fn candidate_row(
         escape(&workload.id),
         language,
         winner_class(
-            Some(controlled.median_nanoseconds),
+            Some(controlled.median_picoseconds),
             winners.controlled_median
         ),
-        nanoseconds_title(controlled.median_nanoseconds),
-        milliseconds(controlled.median_nanoseconds),
+        picoseconds_title(controlled.median_picoseconds),
+        picoseconds_milliseconds(controlled.median_picoseconds),
         winner_class(
-            Some(controlled.median_absolute_deviation_nanoseconds),
+            Some(controlled.median_absolute_deviation_picoseconds),
             winners.controlled_mad
         ),
-        nanoseconds_title(controlled.median_absolute_deviation_nanoseconds),
-        milliseconds(controlled.median_absolute_deviation_nanoseconds),
-        winner_class(Some(process.median_nanoseconds), winners.process_median),
-        nanoseconds_title(process.median_nanoseconds),
-        milliseconds(process.median_nanoseconds),
-        winner_class(
-            Some(controlled.median_units_per_second),
-            winners.throughput
-        ),
+        picoseconds_title(controlled.median_absolute_deviation_picoseconds),
+        picoseconds_milliseconds(controlled.median_absolute_deviation_picoseconds),
+        winner_class(Some(process.median_picoseconds), winners.process_median),
+        picoseconds_title(process.median_picoseconds),
+        picoseconds_milliseconds(process.median_picoseconds),
+        winner_class(Some(controlled.median_units_per_second), winners.throughput),
         grouped(controlled.median_units_per_second),
         escape(&workload.units),
         winner_class(executable, winners.executable_bytes),
@@ -149,10 +150,7 @@ const fn winner_class(value: Option<u64>, winner: Option<u64>) -> &'static str {
     }
 }
 
-pub(super) fn write_comparison(
-    path: &Path,
-    comparison: &ComparisonReport,
-) -> Result<(), String> {
+pub(super) fn write_comparison(path: &Path, comparison: &ComparisonReport) -> Result<(), String> {
     write(path, render_comparison(comparison)?)
 }
 
@@ -190,8 +188,8 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
             html,
             "<tr class=\"bray-row\"><th>{}</th><td>Bray</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
             escape(&workload.id),
-            comparison_metric(workload.bray_execution, MetricUnit::Duration),
-            comparison_metric(workload.process_execution, MetricUnit::Duration),
+            comparison_metric(workload.bray_execution, MetricUnit::PicosecondsDuration),
+            comparison_metric(workload.process_execution, MetricUnit::PicosecondsDuration),
             executable.map_or_else(
                 || "Unavailable".to_owned(),
                 |artifact| comparison_metric(artifact.bytes, MetricUnit::Bytes)
@@ -248,8 +246,8 @@ fn comparison_row(
         "<tr><th>{}</th><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
         escape(workload),
         language,
-        comparison_metric(controlled, MetricUnit::Duration),
-        comparison_metric(process, MetricUnit::Duration),
+        comparison_metric(controlled, MetricUnit::PicosecondsDuration),
+        comparison_metric(process, MetricUnit::PicosecondsDuration),
         executable.map_or_else(
             || "Unavailable".to_owned(),
             |artifact| comparison_metric(artifact.bytes, MetricUnit::Bytes)
@@ -393,12 +391,7 @@ fn observation_comparison_detail(
         ),
     };
 
-    let _ = write!(
-        html,
-        "<dt>{}</dt><dd>{}</dd>",
-        escape(label),
-        rendered
-    );
+    let _ = write!(html, "<dt>{}</dt><dd>{}</dd>", escape(label), rendered);
 }
 
 fn observation_summary(observation: &Observation, unit: MetricUnit) -> String {
@@ -406,6 +399,7 @@ fn observation_summary(observation: &Observation, unit: MetricUnit) -> String {
         Observation::Measured { value, scope } => {
             let value = match unit {
                 MetricUnit::Duration => milliseconds(*value),
+                MetricUnit::PicosecondsDuration => picoseconds_milliseconds(*value),
                 MetricUnit::Bytes => kibibytes(*value),
                 MetricUnit::Count => grouped(*value),
             };
@@ -446,6 +440,8 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
         escape(&workload.expected_output_sha256),
     );
 
+    measurement_detail(html, "Bray", &workload.bray_execution);
+
     let _ = write!(
         html,
         "<p><strong>Shared comparison contract:</strong> {}</p>",
@@ -454,7 +450,13 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
 
     html.push_str("<h3>Observed work</h3><dl>");
     observation_detail(html, "Allocations", &workload.observations.allocation_count);
-    observation_detail(html, "Allocated bytes", &workload.observations.allocated_bytes);
+
+    observation_detail(
+        html,
+        "Allocated bytes",
+        &workload.observations.allocated_bytes,
+    );
+
     observation_detail(html, "Copied bytes", &workload.observations.copied_bytes);
 
     for (operation, observation) in &workload.observations.platform_operations {
@@ -481,6 +483,8 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
             escape(&peer.controlled_execution.scope),
         );
 
+        measurement_detail(html, language, &peer.controlled_execution);
+
         peer_configuration(html, &peer.build_configuration);
 
         html.push_str("<h4>Observed work</h4><dl>");
@@ -493,6 +497,24 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
     }
 
     html.push_str("</section>");
+}
+
+fn measurement_detail(
+    html: &mut BoundedHtml,
+    language: &str,
+    execution: &super::model::ExecutionStatistics,
+) {
+    let raw_median = super::statistics::median(&execution.raw_samples_nanoseconds);
+
+    let _ = write!(
+        html,
+        "<dl><dt>{language} controlled measurement</dt><dd>{} inner iterations, raw median {} ns, \
+        adjusted median {} ps, timer resolution {} ns</dd></dl>",
+        grouped(execution.inner_iterations),
+        grouped(raw_median),
+        grouped(execution.median_picoseconds),
+        grouped(execution.timer_resolution_nanoseconds),
+    );
 }
 
 fn peer_configuration(
@@ -567,10 +589,7 @@ fn artifact_details(html: &mut BoundedHtml, artifacts: &[super::model::ArtifactR
     }
 }
 
-fn compiler_details(
-    html: &mut BoundedHtml,
-    profile: &bray_compilation::CompilationProfileReport,
-) {
+fn compiler_details(html: &mut BoundedHtml, profile: &bray_compilation::CompilationProfileReport) {
     html.push_str(
         "<details><summary>Compiler breakdown</summary><h4>Operations</h4><table><thead><tr>\
         <th>Operation</th><th>Calls</th><th>Self time</th><th>Maximum</th></tr></thead><tbody>",
@@ -640,7 +659,8 @@ fn identity(html: &mut BoundedHtml, label: &str, identity: &super::model::Report
         <dt>Host</dt><dd>{}</dd><dt>Compiler</dt><dd>{}</dd><dt>Source revision</dt>\
         <dd><code>{}</code></dd><dt>LLVM</dt><dd>{}</dd><dt>Runtime linkage</dt><dd>{}</dd>\
         <dt>Corpus SHA-256</dt>\
-        <dd><code>{}</code></dd><dt>Samples</dt><dd>{} warmup and {} measured</dd></dl></section>",
+        <dd><code>{}</code></dd><dt>Samples</dt><dd>{} warmup and {} measured</dd>\
+        <dt>Timer resolution</dt><dd>{} ns</dd></dl></section>",
         escape(&identity.target),
         escape(&identity.host),
         escape(&identity.compiler_version),
@@ -650,6 +670,7 @@ fn identity(html: &mut BoundedHtml, label: &str, identity: &super::model::Report
         escape(&identity.corpus_sha256),
         identity.warmup_iterations,
         identity.sample_iterations,
+        grouped(identity.timer_resolution_nanoseconds),
     );
 }
 
@@ -678,6 +699,7 @@ fn observation_bytes(observation: &Observation) -> String {
 #[derive(Clone, Copy)]
 enum MetricUnit {
     Duration,
+    PicosecondsDuration,
     Bytes,
     Count,
 }
@@ -685,6 +707,7 @@ enum MetricUnit {
 fn comparison_metric(metric: MetricComparison, unit: MetricUnit) -> String {
     let delta = match unit {
         MetricUnit::Duration => signed_milliseconds(metric.delta),
+        MetricUnit::PicosecondsDuration => signed_picoseconds_milliseconds(metric.delta),
         MetricUnit::Bytes => signed_kibibytes(metric.delta),
         MetricUnit::Count => format!("{:+}", metric.delta),
     };
@@ -728,11 +751,11 @@ const fn assessment_class(value: ChangeAssessment) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{render_candidate, render_comparison};
     use super::super::format::{grouped, kibibytes, signed_kibibytes};
     use super::super::html::{BoundedHtml, MAX_HTML_BYTES, escape, finish};
     use super::super::model::PeerLanguage;
     use super::super::ranking::CandidateWinners;
+    use super::{render_candidate, render_comparison};
 
     #[test]
     fn html_escaping_covers_text_and_attribute_delimiters() {
@@ -804,7 +827,7 @@ mod tests {
             .get_mut(&PeerLanguage::Rust)
             .unwrap_or_else(|| panic!("Rust peer must exist"));
 
-        rust.controlled_execution.median_nanoseconds = 1_500_000;
+        rust.controlled_execution.median_picoseconds = 1_500_000_000;
         rust.controlled_execution.median_units_per_second = 30;
 
         let cpp = workload
@@ -812,12 +835,12 @@ mod tests {
             .get_mut(&PeerLanguage::Cpp)
             .unwrap_or_else(|| panic!("C++ peer must exist"));
 
-        cpp.controlled_execution.median_nanoseconds = 3_500_000;
+        cpp.controlled_execution.median_picoseconds = 3_500_000_000;
         cpp.controlled_execution.median_units_per_second = 10;
 
         let winners = CandidateWinners::for_workload(workload);
 
-        assert_eq!(winners.controlled_median, Some(1_500_000));
+        assert_eq!(winners.controlled_median, Some(1_500_000_000));
         assert_eq!(winners.throughput, Some(30));
         assert_eq!(winners.executable_bytes, Some(80));
         assert_eq!(winners.allocation_count, None);

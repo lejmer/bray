@@ -1,6 +1,5 @@
 use bray_codegen::{
-    CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode,
-    SizePreference,
+    CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,
 };
 
 impl super::Compilation {
@@ -41,7 +40,10 @@ pub enum BuildConfiguration {
     /// Preserve release behavior while observing generated memory work.
     ObservedRelease,
     /// Preserve release behavior while observing the generated root interval.
-    TimedRelease,
+    TimedRelease {
+        /// Number of root executions included in the observed interval.
+        inner_iterations: std::num::NonZeroU64,
+    },
 }
 
 impl BuildConfiguration {
@@ -80,12 +82,12 @@ impl BuildConfiguration {
                 bray_codegen::ReproducibilityLevel::ByteForByte,
                 RuntimeObservationMode::Memory,
             ),
-            Self::TimedRelease => CodegenOptions::new(
+            Self::TimedRelease { inner_iterations } => CodegenOptions::new(
                 OptimizationLevel::Full,
                 SizePreference::None,
                 DebugInformationMode::None,
                 bray_codegen::ReproducibilityLevel::ByteForByte,
-                RuntimeObservationMode::PerformanceInterval,
+                RuntimeObservationMode::PerformanceInterval { inner_iterations },
             ),
         }
     }
@@ -106,7 +108,11 @@ mod tests {
         let development = BuildConfiguration::Development.codegen_options();
         let release = BuildConfiguration::Release.codegen_options();
         let observed = BuildConfiguration::ObservedRelease.codegen_options();
-        let timed = BuildConfiguration::TimedRelease.codegen_options();
+
+        let timed = BuildConfiguration::TimedRelease {
+            inner_iterations: std::num::NonZeroU64::MIN,
+        }
+        .codegen_options();
 
         assert_eq!(development.optimization(), OptimizationLevel::Basic);
 
@@ -125,7 +131,9 @@ mod tests {
 
         assert_eq!(
             timed.runtime_observations(),
-            bray_codegen::RuntimeObservationMode::PerformanceInterval
+            bray_codegen::RuntimeObservationMode::PerformanceInterval {
+                inner_iterations: std::num::NonZeroU64::MIN,
+            }
         );
     }
 
@@ -148,8 +156,10 @@ mod tests {
         );
 
         assert!(
-            !BuildConfiguration::TimedRelease
-                .requires_linked_debug_companion(bray_target::ObjectFormat::Coff)
+            !BuildConfiguration::TimedRelease {
+                inner_iterations: std::num::NonZeroU64::MIN,
+            }
+            .requires_linked_debug_companion(bray_target::ObjectFormat::Coff)
         );
     }
 }

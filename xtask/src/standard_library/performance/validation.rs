@@ -11,9 +11,15 @@ use super::model::{
     PerformanceReport, RetainedInput, RuntimeLinkage, SCHEMA_REVISION,
 };
 
+const MINIMUM_BATCH_INTERVAL_NANOSECONDS: u64 = 10_000_000;
+const MINIMUM_TIMER_RESOLUTION_MULTIPLE: u64 = 10_000;
+
 pub(super) fn validate(report: &PerformanceReport) -> Result<(), String> {
     if report.schema_revision != SCHEMA_REVISION {
-        return Err(format!("unsupported report schema revision: {}", report.schema_revision));
+        return Err(format!(
+            "unsupported report schema revision: {}",
+            report.schema_revision
+        ));
     }
 
     if report.workloads.is_empty() || report.workloads.len() > WORKLOADS.len() {
@@ -57,6 +63,7 @@ fn validate_identity(report: &PerformanceReport) -> Result<NativeTarget, String>
         || identity.warmup_iterations == 0
         || identity.sample_iterations == 0
         || identity.sample_iterations > MAX_SAMPLE_COUNT
+        || identity.timer_resolution_nanoseconds == 0
     {
         return Err("report identity is incomplete or outside its bounds".to_owned());
     }
@@ -85,16 +92,24 @@ fn validate_workload(
         || workload.expected_output_sha256 != expected_output
         || workload.peer_contract != expected_peer_contract
     {
-        return Err(format!("workload {} does not match the canonical corpus", workload.id));
+        return Err(format!(
+            "workload {} does not match the canonical corpus",
+            workload.id
+        ));
     }
 
-    workload
-        .compilation
-        .validate()
-        .map_err(|error| format!("workload {} has an invalid compiler profile: {error:?}", workload.id))?;
+    workload.compilation.validate().map_err(|error| {
+        format!(
+            "workload {} has an invalid compiler profile: {error:?}",
+            workload.id
+        )
+    })?;
 
     if workload.compilation.context.target != report.identity.target {
-        return Err(format!("workload {} compiler target differs from the report", workload.id));
+        return Err(format!(
+            "workload {} compiler target differs from the report",
+            workload.id
+        ));
     }
 
     let expected_samples = usize::try_from(report.identity.sample_iterations)
@@ -102,14 +117,32 @@ fn validate_workload(
 
     if workload.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
         || workload.bray_execution.scope != super::model::BRAY_EXECUTION_SCOPE
-        || !execution_is_valid(&workload.process_execution, expected_samples, workload.scale)
-        || !execution_is_valid(&workload.bray_execution, expected_samples, workload.scale)
+        || !execution_is_valid(
+            &workload.process_execution,
+            expected_samples,
+            workload.scale,
+            1,
+            report.identity.timer_resolution_nanoseconds,
+        )
+        || !execution_is_valid(
+            &workload.bray_execution,
+            expected_samples,
+            workload.scale,
+            canonical.controlled_inner_iterations.get(),
+            report.identity.timer_resolution_nanoseconds,
+        )
     {
-        return Err(format!("workload {} has invalid execution statistics", workload.id));
+        return Err(format!(
+            "workload {} has invalid execution statistics",
+            workload.id
+        ));
     }
 
     if workload.artifacts.is_empty() || workload.artifacts.len() > 2 {
-        return Err(format!("workload {} has an invalid artifact count", workload.id));
+        return Err(format!(
+            "workload {} has an invalid artifact count",
+            workload.id
+        ));
     }
 
     let mut artifact_kinds = BTreeSet::new();
@@ -128,14 +161,11 @@ fn validate_workload(
     validate_observation(&workload.observations.copied_bytes)?;
 
     if let Some(expected) = canonical.storage
-        && (
-            measured_value(&workload.observations.allocation_count)
-                != Some(expected.allocation_count)
-                || measured_value(&workload.observations.allocated_bytes)
-                    != Some(expected.allocated_bytes)
-                || measured_value(&workload.observations.copied_bytes)
-                    != Some(expected.copied_bytes)
-        )
+        && (measured_value(&workload.observations.allocation_count)
+            != Some(expected.allocation_count)
+            || measured_value(&workload.observations.allocated_bytes)
+                != Some(expected.allocated_bytes)
+            || measured_value(&workload.observations.copied_bytes) != Some(expected.copied_bytes))
     {
         return Err(format!(
             "workload {} does not contain its required storage observations",
@@ -165,7 +195,10 @@ fn validate_workload(
     }
 
     if workload.observations.platform_operations.len() > MAX_PLATFORM_OPERATION_COUNT {
-        return Err(format!("workload {} has too many platform observations", workload.id));
+        return Err(format!(
+            "workload {} has too many platform observations",
+            workload.id
+        ));
     }
 
     let expected_operations = canonical
@@ -198,6 +231,8 @@ fn validate_workload(
         &report.identity.target,
         report.identity.runtime_linkage,
         target.object_format(),
+        canonical.controlled_inner_iterations.get(),
+        report.identity.timer_resolution_nanoseconds,
     )?;
 
     Ok(())
@@ -209,10 +244,16 @@ fn validate_peers(
     expected_target: &str,
     expected_runtime_linkage: RuntimeLinkage,
     object_format: ObjectFormat,
+    controlled_inner_iterations: u64,
+    timer_resolution_nanoseconds: u64,
 ) -> Result<(), String> {
     let languages = workload.peers.keys().copied().collect::<BTreeSet<_>>();
 
-    if languages != [PeerLanguage::Rust, PeerLanguage::Cpp].into_iter().collect() {
+    if languages
+        != [PeerLanguage::Rust, PeerLanguage::Cpp]
+            .into_iter()
+            .collect()
+    {
         return Err(format!(
             "workload {} does not contain both peer languages",
             workload.id
@@ -238,8 +279,20 @@ fn validate_peers(
             || report.production_compile_link_nanoseconds == 0
             || report.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
             || report.controlled_execution.scope != super::model::BRAY_EXECUTION_SCOPE
-            || !execution_is_valid(&report.process_execution, expected_samples, workload.scale)
-            || !execution_is_valid(&report.controlled_execution, expected_samples, workload.scale)
+            || !execution_is_valid(
+                &report.process_execution,
+                expected_samples,
+                workload.scale,
+                1,
+                timer_resolution_nanoseconds,
+            )
+            || !execution_is_valid(
+                &report.controlled_execution,
+                expected_samples,
+                workload.scale,
+                controlled_inner_iterations,
+                timer_resolution_nanoseconds,
+            )
             || report.artifacts.len() != 1
         {
             return Err(format!(
@@ -267,19 +320,26 @@ fn build_arguments_match_runtime_linkage(
 
     match (language, object_format) {
         (PeerLanguage::Rust, ObjectFormat::Coff) => {
-            has(&configuration.production_arguments, "-C target-feature=+crt-static")
-                && has(&configuration.timed_arguments, "-C target-feature=+crt-static")
+            has(
+                &configuration.production_arguments,
+                "-C target-feature=+crt-static",
+            ) && has(
+                &configuration.timed_arguments,
+                "-C target-feature=+crt-static",
+            )
         }
         (PeerLanguage::Cpp, ObjectFormat::Coff) => {
-            has(&configuration.production_arguments, "-fms-runtime-lib=static")
-                && has(&configuration.timed_arguments, "-fms-runtime-lib=static")
+            has(
+                &configuration.production_arguments,
+                "-fms-runtime-lib=static",
+            ) && has(&configuration.timed_arguments, "-fms-runtime-lib=static")
         }
-        (PeerLanguage::Cpp, ObjectFormat::Elf) => {
-            ["-static-libstdc++", "-static-libgcc"].into_iter().all(|expected| {
+        (PeerLanguage::Cpp, ObjectFormat::Elf) => ["-static-libstdc++", "-static-libgcc"]
+            .into_iter()
+            .all(|expected| {
                 has(&configuration.production_arguments, expected)
                     && has(&configuration.timed_arguments, expected)
-            })
-        }
+            }),
         (PeerLanguage::Rust, ObjectFormat::Elf) => true,
         (_, ObjectFormat::MachO | ObjectFormat::WebAssembly | ObjectFormat::Xcoff) => false,
     }
@@ -289,28 +349,29 @@ fn validate_runtime_dependencies(
     artifact: &ArtifactReport,
     object_format: ObjectFormat,
 ) -> Result<(), String> {
-    let has_dynamic_runtime = artifact
-        .dependencies
-        .dynamic_libraries
-        .entries
-        .iter()
-        .any(|library| {
-            let library = library.to_ascii_lowercase();
+    let has_dynamic_runtime =
+        artifact
+            .dependencies
+            .dynamic_libraries
+            .entries
+            .iter()
+            .any(|library| {
+                let library = library.to_ascii_lowercase();
 
-            match object_format {
-                ObjectFormat::Coff => {
-                    library.starts_with("api-ms-win-crt-")
-                        || library.starts_with("msvcp")
-                        || library.starts_with("msvcr")
-                        || library.starts_with("vcruntime")
-                        || library == "ucrtbase.dll"
+                match object_format {
+                    ObjectFormat::Coff => {
+                        library.starts_with("api-ms-win-crt-")
+                            || library.starts_with("msvcp")
+                            || library.starts_with("msvcr")
+                            || library.starts_with("vcruntime")
+                            || library == "ucrtbase.dll"
+                    }
+                    ObjectFormat::Elf => {
+                        library.starts_with("libstdc++.") || library.starts_with("libgcc_s.")
+                    }
+                    ObjectFormat::MachO | ObjectFormat::WebAssembly | ObjectFormat::Xcoff => true,
                 }
-                ObjectFormat::Elf => {
-                    library.starts_with("libstdc++.") || library.starts_with("libgcc_s.")
-                }
-                ObjectFormat::MachO | ObjectFormat::WebAssembly | ObjectFormat::Xcoff => true,
-            }
-        });
+            });
 
     if has_dynamic_runtime {
         return Err(format!(
@@ -344,13 +405,28 @@ fn execution_is_valid(
     execution: &super::model::ExecutionStatistics,
     expected_samples: usize,
     scale: u64,
+    inner_iterations: u64,
+    timer_resolution_nanoseconds: u64,
 ) -> bool {
     !execution.scope.is_empty()
-        && execution.samples_nanoseconds.len() == expected_samples
+        && execution.raw_samples_nanoseconds.len() == expected_samples
+        && execution.samples_picoseconds.len() == expected_samples
+        && execution.inner_iterations == inner_iterations
+        && execution.timer_resolution_nanoseconds == timer_resolution_nanoseconds
+        && execution.minimum_picoseconds > 0
+        && execution.raw_samples_nanoseconds.iter().all(|sample| {
+            inner_iterations == 1
+                || (*sample >= MINIMUM_BATCH_INTERVAL_NANOSECONDS
+                    && u128::from(*sample)
+                        >= u128::from(timer_resolution_nanoseconds)
+                            .saturating_mul(MINIMUM_TIMER_RESOLUTION_MULTIPLE.into()))
+        })
         && super::statistics::summarize(
-            execution.samples_nanoseconds.clone(),
+            execution.raw_samples_nanoseconds.clone(),
             scale,
             &execution.scope,
+            inner_iterations,
+            timer_resolution_nanoseconds,
         )
         .as_ref()
             == Some(execution)
@@ -362,7 +438,10 @@ fn validate_artifact(artifact: &ArtifactReport) -> Result<(), String> {
         || artifact.dependencies.static_inputs.entries.len() > MAX_RETAINED_INPUT_COUNT
         || artifact.dependencies.dynamic_libraries.entries.len() > MAX_DYNAMIC_LIBRARY_COUNT
     {
-        return Err(format!("{:?} artifact is incomplete or outside its bounds", artifact.kind));
+        return Err(format!(
+            "{:?} artifact is incomplete or outside its bounds",
+            artifact.kind
+        ));
     }
 
     if !artifact
@@ -370,28 +449,36 @@ fn validate_artifact(artifact: &ArtifactReport) -> Result<(), String> {
         .entries
         .windows(2)
         .all(|pair| pair[0].name < pair[1].name)
-        || artifact.sections.entries.iter().any(|section| section.name.is_empty())
+        || artifact
+            .sections
+            .entries
+            .iter()
+            .any(|section| section.name.is_empty())
         || !strictly_sorted(&artifact.dependencies.static_inputs.entries)
         || !strictly_sorted(&artifact.dependencies.dynamic_libraries.entries)
     {
-        return Err(format!("{:?} artifact collections are not canonical", artifact.kind));
+        return Err(format!(
+            "{:?} artifact collections are not canonical",
+            artifact.kind
+        ));
     }
 
     if let Some(map) = &artifact.linker_map
         && (map.sha256.len() != 64 || !is_lowercase_hex(&map.sha256))
     {
-        return Err(format!("{:?} artifact linker-map digest is invalid", artifact.kind));
+        return Err(format!(
+            "{:?} artifact linker-map digest is invalid",
+            artifact.kind
+        ));
     }
 
     validate_retained_inputs(&artifact.dependencies.static_inputs)
 }
 
 fn validate_retained_inputs(inputs: &BoundedList<RetainedInput>) -> Result<(), String> {
-    if inputs
-        .entries
-        .iter()
-        .any(|input| input.artifact.is_empty() || input.member.as_ref().is_some_and(String::is_empty))
-    {
+    if inputs.entries.iter().any(|input| {
+        input.artifact.is_empty() || input.member.as_ref().is_some_and(String::is_empty)
+    }) {
         return Err("retained linker inputs must have nonempty identities".to_owned());
     }
 

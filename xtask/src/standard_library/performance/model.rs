@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCHEMA_REVISION: u32 = 5;
+pub(super) const SCHEMA_REVISION: u32 = 6;
 pub(super) const MAX_SAMPLE_COUNT: u32 = 10_000;
 pub(super) const MAX_SECTION_COUNT: usize = 512;
 pub(super) const MAX_RETAINED_INPUT_COUNT: usize = 4_096;
@@ -35,6 +35,7 @@ pub(super) struct ReportIdentity {
     pub runtime_linkage: RuntimeLinkage,
     pub warmup_iterations: u32,
     pub sample_iterations: u32,
+    pub timer_resolution_nanoseconds: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -104,11 +105,14 @@ pub(super) enum WorkloadCategory {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct ExecutionStatistics {
     pub scope: String,
-    pub samples_nanoseconds: Vec<u64>,
-    pub minimum_nanoseconds: u64,
-    pub median_nanoseconds: u64,
-    pub median_absolute_deviation_nanoseconds: u64,
-    pub maximum_nanoseconds: u64,
+    pub inner_iterations: u64,
+    pub timer_resolution_nanoseconds: u64,
+    pub raw_samples_nanoseconds: Vec<u64>,
+    pub samples_picoseconds: Vec<u64>,
+    pub minimum_picoseconds: u64,
+    pub median_picoseconds: u64,
+    pub median_absolute_deviation_picoseconds: u64,
+    pub maximum_picoseconds: u64,
     pub median_units_per_second: u64,
 }
 

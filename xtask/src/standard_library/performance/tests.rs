@@ -3,14 +3,14 @@ use std::collections::BTreeMap;
 use bray_compilation::{
     CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileContext,
     CompilationProfileDescriptorCatalog, CompilationProfileMetric,
-    CompilationProfileMetricDescriptor, CompilationProfileMode, CompilationProfileOperationDescriptor,
-    CompilationProfileOperationStatistics, CompilationProfileReport,
-    CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileMetricDescriptor, CompilationProfileMode,
+    CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
+    CompilationProfileReport, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 use sha2::{Digest as _, Sha256};
 
-use super::comparison::compare;
 use super::command::{parse_options_for_test, validate_output_parts};
+use super::comparison::compare;
 use super::corpus::ExpectedSideEffects;
 use super::model::{
     ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBuildConfiguration,
@@ -29,27 +29,52 @@ fn execution_statistics_use_median_and_median_absolute_deviation() {
         vec![100, 101, 102, 500, 99],
         1_000,
         super::model::BRAY_EXECUTION_SCOPE,
+        2,
+        10,
     )
-        .unwrap_or_else(|| panic!("nonempty samples must produce statistics"));
+    .unwrap_or_else(|| panic!("nonempty samples must produce statistics"));
 
-    assert_eq!(statistics.samples_nanoseconds, [99, 100, 101, 102, 500]);
-    assert_eq!(statistics.median_nanoseconds, 101);
-    assert_eq!(statistics.median_absolute_deviation_nanoseconds, 1);
-    assert_eq!(statistics.minimum_nanoseconds, 99);
-    assert_eq!(statistics.maximum_nanoseconds, 500);
+    assert_eq!(statistics.raw_samples_nanoseconds, [99, 100, 101, 102, 500]);
+
+    assert_eq!(
+        statistics.samples_picoseconds,
+        [49_500, 50_000, 50_500, 51_000, 250_000]
+    );
+
+    assert_eq!(statistics.median_picoseconds, 50_500);
+    assert_eq!(statistics.median_absolute_deviation_picoseconds, 500);
+    assert_eq!(statistics.minimum_picoseconds, 49_500);
+    assert_eq!(statistics.maximum_picoseconds, 250_000);
+}
+
+#[test]
+fn batched_statistics_retain_sub_nanosecond_adjusted_durations() {
+    let statistics = summarize(
+        vec![300_000, 310_000, 320_000],
+        1,
+        super::model::BRAY_EXECUTION_SCOPE,
+        1_000_000,
+        100,
+    )
+    .unwrap_or_else(|| panic!("batched samples must produce statistics"));
+
+    assert_eq!(
+        statistics.raw_samples_nanoseconds,
+        [300_000, 310_000, 320_000]
+    );
+
+    assert_eq!(statistics.samples_picoseconds, [300, 310, 320]);
+    assert_eq!(statistics.median_picoseconds, 310);
+    assert_eq!(statistics.median_units_per_second, 3_225_806_451);
 }
 
 #[test]
 fn command_options_enforce_positive_bounded_samples_and_known_workloads() {
     assert!(parse_options_for_test(&["--output", "report", "--samples", "0"]).is_err());
 
-    assert!(
-        parse_options_for_test(&["--output", "report", "--samples", "10001"]).is_err()
-    );
+    assert!(parse_options_for_test(&["--output", "report", "--samples", "10001"]).is_err());
 
-    assert!(
-        parse_options_for_test(&["--output", "report", "--workload", "unknown"]).is_err()
-    );
+    assert!(parse_options_for_test(&["--output", "report", "--workload", "unknown"]).is_err());
 
     assert!(
         parse_options_for_test(&[
@@ -151,7 +176,11 @@ fn linker_map_inputs_preserve_archive_member_provenance() {
         input.artifact == "C:/toolchain/std.lib" && input.member.as_deref() == Some("buffer.o")
     }));
 
-    assert!(inputs.iter().any(|input| input.artifact == "application.obj"));
+    assert!(
+        inputs
+            .iter()
+            .any(|input| input.artifact == "application.obj")
+    );
 
     let microsoft = retained_inputs_for_test("bray_runtime_common:0120.o C:/work/application.obj");
 
@@ -159,7 +188,11 @@ fn linker_map_inputs_preserve_archive_member_provenance() {
         input.artifact == "bray_runtime_common" && input.member.as_deref() == Some("0120.o")
     }));
 
-    assert!(microsoft.iter().any(|input| input.artifact == "C:/work/application.obj"));
+    assert!(
+        microsoft
+            .iter()
+            .any(|input| input.artifact == "C:/work/application.obj")
+    );
 }
 
 #[test]
@@ -169,7 +202,12 @@ fn retention_provenance_ignores_unselected_archive_load_records() {
         0000 _run_output_context";
 
     assert!(!contains_retained_provenance(map, "bray_platform_process"));
-    assert!(contains_retained_provenance(map, "bray_platform_filesystem"));
+
+    assert!(contains_retained_provenance(
+        map,
+        "bray_platform_filesystem"
+    ));
+
     assert!(contains_retained_provenance(map, "run_output_context"));
 }
 
@@ -245,7 +283,7 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
 
     invalid_statistics.workloads[0]
         .bray_execution
-        .samples_nanoseconds
+        .raw_samples_nanoseconds
         .pop();
 
     assert!(compare(&baseline, &invalid_statistics).is_err());
@@ -339,7 +377,11 @@ fn comparison_attributes_compiler_artifact_retention_and_observation_changes() {
 
     assert_eq!(artifact.bytes.delta, 20);
     assert_eq!(artifact.sections[".text"].delta, 10);
-    assert_eq!(artifact.added_static_inputs, [retained("new.lib", "member.o")]);
+
+    assert_eq!(
+        artifact.added_static_inputs,
+        [retained("new.lib", "member.o")]
+    );
 
     assert!(matches!(
         workload.observations.allocation_count,
@@ -359,62 +401,79 @@ fn retained(artifact: &str, member: &str) -> super::model::RetainedInput {
 
 pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
     let process_execution = summarize(
-        vec![median.saturating_sub(mad), median, median.saturating_add(mad)],
+        vec![
+            median.saturating_sub(mad),
+            median,
+            median.saturating_add(mad),
+        ],
         1,
         super::model::PROCESS_EXECUTION_SCOPE,
+        1,
+        100,
     )
     .unwrap_or_else(|| panic!("fixture samples must produce statistics"));
 
+    let inner_iterations = super::corpus::BATCHED_INNER_ITERATIONS.get();
+
     let bray_execution = summarize(
-        vec![median.saturating_sub(mad), median, median.saturating_add(mad)],
+        vec![
+            median.saturating_sub(mad),
+            median,
+            median.saturating_add(mad),
+        ]
+        .into_iter()
+        .map(|sample| sample.saturating_mul(inner_iterations))
+        .collect(),
         1,
         super::model::BRAY_EXECUTION_SCOPE,
+        inner_iterations,
+        100,
     )
     .unwrap_or_else(|| panic!("fixture Bray samples must produce statistics"));
 
     let peer = || PeerReport {
-            toolchain: "peer compiler".to_owned(),
-            build_configuration: PeerBuildConfiguration {
-                target: "x86_64-pc-windows-msvc".to_owned(),
-                production_arguments: vec![
-                    "release".to_owned(),
-                    "-C target-feature=+crt-static".to_owned(),
-                    "-fms-runtime-lib=static".to_owned(),
-                ],
-                timed_arguments: vec![
-                    "release".to_owned(),
-                    "timed".to_owned(),
-                    "-C target-feature=+crt-static".to_owned(),
-                    "-fms-runtime-lib=static".to_owned(),
-                ],
-                linker: "test-linker".to_owned(),
-                runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
-                post_link_actions: vec!["test-strip".to_owned()],
+        toolchain: "peer compiler".to_owned(),
+        build_configuration: PeerBuildConfiguration {
+            target: "x86_64-pc-windows-msvc".to_owned(),
+            production_arguments: vec![
+                "release".to_owned(),
+                "-C target-feature=+crt-static".to_owned(),
+                "-fms-runtime-lib=static".to_owned(),
+            ],
+            timed_arguments: vec![
+                "release".to_owned(),
+                "timed".to_owned(),
+                "-C target-feature=+crt-static".to_owned(),
+                "-fms-runtime-lib=static".to_owned(),
+            ],
+            linker: "test-linker".to_owned(),
+            runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
+            post_link_actions: vec!["test-strip".to_owned()],
+        },
+        source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
+        production_compile_link_nanoseconds: median,
+        process_execution: process_execution.clone(),
+        controlled_execution: bray_execution.clone(),
+        artifacts: vec![ArtifactReport {
+            kind: ArtifactKind::Executable,
+            path: "peer".to_owned(),
+            bytes: 80,
+            sections: bounded(vec![super::model::SectionSize {
+                name: ".text".to_owned(),
+                bytes: 15,
+            }]),
+            dependencies: ArtifactDependencies {
+                static_inputs: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
+                dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
             },
-            source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
-            production_compile_link_nanoseconds: median,
-            process_execution: process_execution.clone(),
-            controlled_execution: bray_execution.clone(),
-            artifacts: vec![ArtifactReport {
-                kind: ArtifactKind::Executable,
-                path: "peer".to_owned(),
-                bytes: 80,
-                sections: bounded(vec![super::model::SectionSize {
-                    name: ".text".to_owned(),
-                    bytes: 15,
-                }]),
-                dependencies: ArtifactDependencies {
-                    static_inputs: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
-                    dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
-                },
-                linker_map: None,
-            }],
-            observations: WorkloadObservations {
-                allocation_count: unavailable(),
-                allocated_bytes: unavailable(),
-                copied_bytes: unavailable(),
-                platform_operations: BTreeMap::new(),
-            },
+            linker_map: None,
+        }],
+        observations: WorkloadObservations {
+            allocation_count: unavailable(),
+            allocated_bytes: unavailable(),
+            copied_bytes: unavailable(),
+            platform_operations: BTreeMap::new(),
+        },
     };
 
     let peers = [(PeerLanguage::Rust, peer()), (PeerLanguage::Cpp, peer())]
@@ -435,6 +494,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
             warmup_iterations: 2,
             sample_iterations: 3,
+            timer_resolution_nanoseconds: 100,
         },
         workloads: vec![WorkloadReport {
             id: "small_output".to_owned(),

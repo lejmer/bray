@@ -13,24 +13,29 @@ pub(super) fn report_identity(
     root: &Path,
     options: &Options,
     workloads: &[&Workload],
+    timer_resolution_nanoseconds: u64,
 ) -> Result<ReportIdentity, String> {
     let corpus_sha256 = corpus_digest(workloads);
 
-    let mut source_revision =
-        command_text(Command::new("git").current_dir(root).args(["rev-parse", "HEAD"]))?;
-
-    let worktree_status = command_text(
+    let mut source_revision = command_text(
         Command::new("git")
             .current_dir(root)
-            .args(["status", "--porcelain=v1", "--untracked-files=normal"]),
+            .args(["rev-parse", "HEAD"]),
     )?;
+
+    let worktree_status = command_text(Command::new("git").current_dir(root).args([
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=normal",
+    ]))?;
 
     if !worktree_status.is_empty() {
         source_revision.push_str("+modified");
     }
 
-    let llvm = bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
-        .map_err(|error| format!("LLVM compiler driver is unavailable: {error}"))?;
+    let llvm =
+        bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
+            .map_err(|error| format!("LLVM compiler driver is unavailable: {error}"))?;
 
     let llvm_version = command_text(Command::new(llvm).arg("--version"))?;
 
@@ -43,10 +48,15 @@ pub(super) fn report_identity(
         build_configuration: "release".to_owned(),
         compiler_version: env!("CARGO_PKG_VERSION").to_owned(),
         source_revision,
-        llvm_version: llvm_version.lines().next().unwrap_or(&llvm_version).to_owned(),
+        llvm_version: llvm_version
+            .lines()
+            .next()
+            .unwrap_or(&llvm_version)
+            .to_owned(),
         runtime_linkage: super::super::peer::runtime_linkage(options.target)?,
         warmup_iterations: options.warmup,
         sample_iterations: options.samples,
+        timer_resolution_nanoseconds,
     })
 }
 
@@ -88,6 +98,7 @@ fn corpus_digest(workloads: &[&Workload]) -> String {
         digest.update(category_name(workload.category).as_bytes());
         digest.update([0]);
         digest.update(workload.scale.to_le_bytes());
+        digest.update(workload.controlled_inner_iterations.get().to_le_bytes());
         digest.update(workload.units.as_bytes());
         digest.update([0]);
         digest.update(workload.source.as_bytes());
@@ -154,7 +165,9 @@ const fn category_name(category: WorkloadCategory) -> &'static str {
 }
 
 fn command_text(command: &mut Command) -> Result<String, String> {
-    let output = command.output().map_err(|error| format!("could not run tool: {error}"))?;
+    let output = command
+        .output()
+        .map_err(|error| format!("could not run tool: {error}"))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());

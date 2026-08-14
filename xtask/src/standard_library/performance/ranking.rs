@@ -16,30 +16,32 @@ impl CandidateWinners {
     pub(super) fn for_workload(workload: &WorkloadReport) -> Self {
         Self {
             controlled_median: minimum_complete(
-                std::iter::once(Some(workload.bray_execution.median_nanoseconds)).chain(
+                std::iter::once(Some(workload.bray_execution.median_picoseconds)).chain(
                     workload
                         .peers
                         .values()
-                        .map(|peer| Some(peer.controlled_execution.median_nanoseconds)),
+                        .map(|peer| Some(peer.controlled_execution.median_picoseconds)),
                 ),
             ),
             controlled_mad: minimum_complete(
                 std::iter::once(Some(
-                    workload.bray_execution.median_absolute_deviation_nanoseconds,
+                    workload
+                        .bray_execution
+                        .median_absolute_deviation_picoseconds,
                 ))
                 .chain(workload.peers.values().map(|peer| {
                     Some(
                         peer.controlled_execution
-                            .median_absolute_deviation_nanoseconds,
+                            .median_absolute_deviation_picoseconds,
                     )
                 })),
             ),
             process_median: minimum_complete(
-                std::iter::once(Some(workload.process_execution.median_nanoseconds)).chain(
+                std::iter::once(Some(workload.process_execution.median_picoseconds)).chain(
                     workload
                         .peers
                         .values()
-                        .map(|peer| Some(peer.process_execution.median_nanoseconds)),
+                        .map(|peer| Some(peer.process_execution.median_picoseconds)),
                 ),
             ),
             throughput: maximum_complete(

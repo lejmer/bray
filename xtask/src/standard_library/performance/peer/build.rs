@@ -1,3 +1,4 @@
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
@@ -25,6 +26,7 @@ pub(in crate::standard_library::performance) fn build(
     output: &Path,
     target: NativeTarget,
     workload: &str,
+    controlled_inner_iterations: NonZeroU64,
 ) -> Result<Vec<BuiltPeer>, String> {
     let sources = sources(workload)?;
 
@@ -32,8 +34,12 @@ pub(in crate::standard_library::performance) fn build(
 
     for source in sources {
         peers.push(match source.language {
-            PeerLanguage::Rust => build_rust(root, output, target, source)?,
-            PeerLanguage::Cpp => build_cpp(root, output, target, source)?,
+            PeerLanguage::Rust => {
+                build_rust(root, output, target, source, controlled_inner_iterations)?
+            }
+            PeerLanguage::Cpp => {
+                build_cpp(root, output, target, source, controlled_inner_iterations)?
+            }
         });
     }
 
@@ -45,6 +51,7 @@ fn build_rust(
     output: &Path,
     target: NativeTarget,
     source: PeerSource,
+    controlled_inner_iterations: NonZeroU64,
 ) -> Result<BuiltPeer, String> {
     let directory = output.join("rust");
 
@@ -59,8 +66,15 @@ fn build_rust(
     let executable = directory.join(crate::native_toolchain::executable_name("peer"));
     let linker_map = directory.join("peer.map");
     let linker = rust_linker(root, target);
-    let production_arguments = rust_arguments(target, source.selector, &linker, false);
-    let timed_arguments = rust_arguments(target, source.selector, &linker, true);
+    let production_arguments = rust_arguments(target, source.selector, &linker, None);
+
+    let timed_arguments = rust_arguments(
+        target,
+        source.selector,
+        &linker,
+        Some(controlled_inner_iterations),
+    );
+
     let started = Instant::now();
 
     run_rustc(
@@ -70,7 +84,7 @@ fn build_rust(
         target,
         source.selector,
         &linker,
-        false,
+        None,
     )?;
 
     let production_compile_link_nanoseconds = elapsed_nanoseconds(started);
@@ -84,7 +98,7 @@ fn build_rust(
         target,
         source.selector,
         &linker,
-        true,
+        Some(controlled_inner_iterations),
     )?;
 
     Ok(BuiltPeer {
@@ -113,7 +127,7 @@ fn run_rustc(
     target: NativeTarget,
     workload: &str,
     linker: &Path,
-    timed: bool,
+    controlled_inner_iterations: Option<NonZeroU64>,
 ) -> Result<(), String> {
     let mut command = Command::new("rustc");
 
@@ -132,8 +146,13 @@ fn run_rustc(
         command.args(["-C", "target-feature=+crt-static"]);
     }
 
-    if timed {
+    if let Some(inner_iterations) = controlled_inner_iterations {
         command.args(["--cfg", "peer_timing"]);
+
+        command.args([
+            "--cfg",
+            &format!("peer_inner_iterations=\"{}\"", inner_iterations.get()),
+        ]);
     }
 
     append_rust_linker_map(&mut command, target.object_format(), linker_map)?;
@@ -157,7 +176,7 @@ fn rust_arguments(
     target: NativeTarget,
     workload: &str,
     linker: &Path,
-    timed: bool,
+    controlled_inner_iterations: Option<NonZeroU64>,
 ) -> Vec<String> {
     let mut arguments = vec![
         "--edition=2024".to_owned(),
@@ -176,8 +195,13 @@ fn rust_arguments(
         arguments.push("-C target-feature=+crt-static".to_owned());
     }
 
-    if timed {
+    if let Some(inner_iterations) = controlled_inner_iterations {
         arguments.push("--cfg peer_timing".to_owned());
+
+        arguments.push(format!(
+            "--cfg peer_inner_iterations=\"{}\"",
+            inner_iterations.get()
+        ));
     }
 
     arguments
@@ -188,6 +212,7 @@ fn build_cpp(
     output: &Path,
     target: NativeTarget,
     source: PeerSource,
+    controlled_inner_iterations: NonZeroU64,
 ) -> Result<BuiltPeer, String> {
     let directory = output.join("cpp");
 
@@ -199,13 +224,14 @@ fn build_cpp(
     std::fs::write(&source_path, source.contents)
         .map_err(|error| format!("could not write {}: {error}", source_path.display()))?;
 
-    let clang = bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
-        .unwrap_or_else(|_| bray_llvm_toolchain::tool_path(root, "clang"));
+    let clang =
+        bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
+            .unwrap_or_else(|_| bray_llvm_toolchain::tool_path(root, "clang"));
 
     let executable = directory.join(crate::native_toolchain::executable_name("peer"));
     let linker_map = directory.join("peer.map");
-    let production_arguments = cpp_arguments(target, source.selector, false);
-    let timed_arguments = cpp_arguments(target, source.selector, true);
+    let production_arguments = cpp_arguments(target, source.selector, None);
+    let timed_arguments = cpp_arguments(target, source.selector, Some(controlled_inner_iterations));
     let started = Instant::now();
 
     run_cpp(
@@ -215,7 +241,7 @@ fn build_cpp(
         &linker_map,
         target,
         source.selector,
-        false,
+        None,
     )?;
 
     strip_cpp_artifact(root, &executable)?;
@@ -231,7 +257,7 @@ fn build_cpp(
         &timed_linker_map,
         target,
         source.selector,
-        true,
+        Some(controlled_inner_iterations),
     )?;
 
     strip_cpp_artifact(root, &timed_executable)?;
@@ -266,7 +292,7 @@ fn run_cpp(
     linker_map: &Path,
     target: NativeTarget,
     selector: &str,
-    timed: bool,
+    controlled_inner_iterations: Option<NonZeroU64>,
 ) -> Result<(), String> {
     let mut command = Command::new(clang);
 
@@ -286,8 +312,13 @@ fn run_cpp(
         command.args(["-static-libstdc++", "-static-libgcc"]);
     }
 
-    if timed {
+    if let Some(inner_iterations) = controlled_inner_iterations {
         command.arg("-DBRAY_PEER_TIMING");
+
+        command.arg(format!(
+            "-DBRAY_INNER_ITERATIONS={}",
+            inner_iterations.get()
+        ));
     }
 
     append_cpp_linker_map(&mut command, target.object_format(), linker_map)?;
@@ -296,7 +327,11 @@ fn run_cpp(
     crate::command::require_success(command, "building C++ performance peer").map(|_| ())
 }
 
-fn cpp_arguments(target: NativeTarget, selector: &str, timed: bool) -> Vec<String> {
+fn cpp_arguments(
+    target: NativeTarget,
+    selector: &str,
+    controlled_inner_iterations: Option<NonZeroU64>,
+) -> Vec<String> {
     let mut arguments = vec![
         "--driver-mode=g++".to_owned(),
         "-std=c++20".to_owned(),
@@ -319,8 +354,13 @@ fn cpp_arguments(target: NativeTarget, selector: &str, timed: bool) -> Vec<Strin
         arguments.extend(["-static-libstdc++".to_owned(), "-static-libgcc".to_owned()]);
     }
 
-    if timed {
+    if let Some(inner_iterations) = controlled_inner_iterations {
         arguments.push("-DBRAY_PEER_TIMING".to_owned());
+
+        arguments.push(format!(
+            "-DBRAY_INNER_ITERATIONS={}",
+            inner_iterations.get()
+        ));
     }
 
     arguments
@@ -360,13 +400,77 @@ mod tests {
     fn windows_peers_both_embed_the_static_msvc_runtime() {
         let target = NativeTarget::X86_64WindowsMsvc;
         let linker = rust_linker(std::path::Path::new("workspace"), target);
-        let rust = rust_arguments(target, "small_output", &linker, false);
-        let cpp = cpp_arguments(target, "1", false);
+        let rust = rust_arguments(target, "small_output", &linker, None);
+        let cpp = cpp_arguments(target, "1", None);
 
-        assert!(rust.iter().any(|argument| argument == "-C target-feature=+crt-static"));
-        assert!(cpp.iter().any(|argument| argument == "-fms-runtime-lib=static"));
+        assert_eq!(
+            linker.file_name().and_then(std::ffi::OsStr::to_str),
+            Some(if cfg!(windows) {
+                "lld-link.exe"
+            } else {
+                "lld-link"
+            })
+        );
+
+        assert!(
+            rust.iter()
+                .any(|argument| argument == "-C target-feature=+crt-static")
+        );
+
+        assert!(
+            cpp.iter()
+                .any(|argument| argument == "-fms-runtime-lib=static")
+        );
+
         assert!(!rust.iter().any(|argument| argument.contains("-crt-static")));
-        assert!(!cpp.iter().any(|argument| argument.contains("runtime-lib=dll")));
+
+        assert!(
+            !cpp.iter()
+                .any(|argument| argument.contains("runtime-lib=dll"))
+        );
+    }
+
+    #[test]
+    fn production_peer_arguments_exclude_timing_batches() {
+        let target = NativeTarget::X86_64WindowsMsvc;
+        let linker = rust_linker(std::path::Path::new("workspace"), target);
+        let rust = rust_arguments(target, "small_output", &linker, None);
+        let cpp = cpp_arguments(target, "1", None);
+
+        assert!(
+            !rust
+                .iter()
+                .any(|argument| argument.contains("peer_inner_iterations"))
+        );
+
+        assert!(
+            !cpp
+                .iter()
+                .any(|argument| argument.contains("BRAY_INNER_ITERATIONS"))
+        );
+    }
+
+    #[test]
+    fn timed_peer_arguments_record_the_inner_iteration_count() {
+        let target = NativeTarget::X86_64WindowsMsvc;
+        let linker = rust_linker(std::path::Path::new("workspace"), target);
+
+        let inner_iterations = std::num::NonZeroU64::new(50_000_000)
+            .unwrap_or_else(|| panic!("fixture inner iteration count must be nonzero"));
+
+        let rust = rust_arguments(target, "small_output", &linker, Some(inner_iterations));
+
+        let cpp = cpp_arguments(target, "1", Some(inner_iterations));
+
+        assert!(
+            rust.iter()
+                .any(|argument| argument == "--cfg peer_inner_iterations=\"50000000\"")
+        );
+
+        assert!(
+            cpp.iter()
+                .any(|argument| argument == "-DBRAY_INNER_ITERATIONS=50000000")
+        );
     }
 }
 
@@ -417,7 +521,12 @@ fn command_identity(command: &mut Command, tool: &str) -> Result<String, String>
 
     let identity = String::from_utf8_lossy(&output.stdout);
 
-    Ok(identity.lines().next().unwrap_or(&identity).trim().to_owned())
+    Ok(identity
+        .lines()
+        .next()
+        .unwrap_or(&identity)
+        .trim()
+        .to_owned())
 }
 
 fn source_digest(selector: &str, source: &str) -> String {
