@@ -7,7 +7,9 @@ use std::fs::OpenOptions;
 #[cfg(any(
     peer_timing,
     peer_workload = "async_output",
+    peer_workload = "format_large_width",
     peer_workload = "format_numbers",
+    peer_workload = "format_writer",
     peer_workload = "stream_output",
     peer_workload = "file_output"
 ))]
@@ -207,6 +209,74 @@ fn workload() -> bool {
     std::hint::black_box(&bytes);
 
     bytes.len() == 2_986
+}
+
+#[cfg(peer_workload = "format_large_width")]
+fn workload() -> bool {
+    let mut bytes = Vec::with_capacity(133_120);
+
+    for _ in 0..1_024 {
+        let value = std::hint::black_box(42_u32);
+
+        if write!(&mut bytes, "{value:>130}").is_err() {
+            return false;
+        }
+    }
+
+    std::hint::black_box(&bytes);
+
+    bytes.len() == 133_120
+        && bytes.chunks_exact(130).all(|formatted| {
+            formatted[..128].iter().all(|byte| *byte == b' ')
+                && formatted[128..] == *b"42"
+        })
+}
+
+#[cfg(peer_workload = "format_writer")]
+struct ValidatingWriter {
+    length: usize,
+    valid: bool,
+}
+
+#[cfg(peer_workload = "format_writer")]
+impl std::io::Write for ValidatingWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        for byte in bytes {
+            let expected = if self.length % 2 == 0 { b'4' } else { b'2' };
+
+            if *byte != expected {
+                self.valid = false;
+            }
+
+            self.length += 1;
+        }
+
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(peer_workload = "format_writer")]
+fn workload() -> bool {
+    let mut writer = ValidatingWriter {
+        length: 0,
+        valid: true,
+    };
+
+    for _ in 0..1_024 {
+        let value = std::hint::black_box(42_u32);
+
+        if write!(&mut writer, "{value}").is_err() {
+            return false;
+        }
+    }
+
+    std::hint::black_box(&writer);
+
+    writer.valid && writer.length == 2_048
 }
 
 #[cfg(peer_workload = "stream_output")]

@@ -19,6 +19,8 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "monotonic_clock" => ("monotonic_clock", "6"),
         "borrowed_text" => ("borrowed_text", "7"),
         "format_numbers" => ("format_numbers", "8"),
+        "format_large_width" => ("format_large_width", "12"),
+        "format_writer" => ("format_writer", "13"),
         "stream_output" => ("stream_output", "9"),
         "async_output" => ("async_output", "10"),
         "file_output" => ("file_output", "11"),
@@ -81,6 +83,12 @@ pub(in crate::standard_library::performance) fn comparison_contract(
         ),
         "format_numbers" => Some(
             "append the decimal representation of every integer from 0 through 1023 to one growable byte sequence and validate its final length",
+        ),
+        "format_large_width" => Some(
+            "append decimal unsigned integer 42 right-aligned to width 130 exactly 1024 times and validate every output byte",
+        ),
+        "format_writer" => Some(
+            "format decimal unsigned integer 42 directly to a validating byte writer exactly 1024 times and validate every output byte",
         ),
         "stream_output" => Some(
             "complete 1024 standard-output calls that each write one byte and flush before returning",

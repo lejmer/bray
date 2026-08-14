@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 7;
+pub(super) const CORPUS_REVISION: u32 = 8;
 
 pub(super) struct Workload {
     pub id: &'static str,
@@ -49,7 +49,22 @@ pub(super) struct StorageExpectation {
     pub copied_bytes: u64,
 }
 
-pub(super) const WORKLOADS: [Workload; 11] = [
+const FORMAT_SOURCES: &[&str] = &[
+    "standard-library/std/src/std.bray",
+    "standard-library/std/src/memory.bray",
+    "standard-library/std/src/bytes/buffer.bray",
+    "standard-library/std/src/string.bray",
+    "standard-library/std/src/character.bray",
+    "standard-library/std/src/numeric/checked.bray",
+    "standard-library/std/src/numeric/limits.bray",
+    "standard-library/std/src/format/options.bray",
+    "standard-library/std/src/format/argument.bray",
+    "standard-library/std/src/format/sink.bray",
+    "standard-library/std/src/format/integer_width.bray",
+    "standard-library/std/src/format/rendering.bray",
+];
+
+pub(super) const WORKLOADS: [Workload; 13] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -269,20 +284,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     return Ok(unit);
 }
 "#,
-        standard_library_sources: &[
-            "standard-library/std/src/std.bray",
-            "standard-library/std/src/memory.bray",
-            "standard-library/std/src/bytes/buffer.bray",
-            "standard-library/std/src/string.bray",
-            "standard-library/std/src/character.bray",
-            "standard-library/std/src/numeric/checked.bray",
-            "standard-library/std/src/numeric/limits.bray",
-            "standard-library/std/src/format/options.bray",
-            "standard-library/std/src/format/argument.bray",
-            "standard-library/std/src/format/sink.bray",
-            "standard-library/std/src/format/integer_width.bray",
-            "standard-library/std/src/format/rendering.bray",
-        ],
+        standard_library_sources: FORMAT_SOURCES,
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
@@ -291,6 +293,182 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             allocation_count: 1,
             allocated_bytes: 2_986,
             copied_bytes: 2_986,
+        }),
+    },
+    Workload {
+        id: "format_large_width",
+        category: WorkloadCategory::Formatting,
+        scale: 1024,
+        units: "values",
+        source: r#"module std.format;
+
+using std.format;
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+    requires(blocking_execution())
+{
+    let mut sink: ByteSink = try ByteSink(capacity = 133120);
+    let value: u32 = 42;
+    let mut formatted: usize = 0;
+
+    while formatted < 1024
+    {
+        let options: Options = Options(
+            radix = Radix.Decimal,
+            precision = 0,
+            width = 130,
+            alignment = Alignment.Right,
+            sign = Sign.NegativeOnly,
+            escaping = Escaping.Raw,
+        );
+
+        try write(&mut sink, Argument.with_options<u32>(&value, options = options));
+        formatted += 1;
+    }
+
+    let output: &[u8] = bytes(&sink);
+    let length: usize = std.bytes.slice_length(output);
+    let mut index: usize = 0;
+
+    assert(length == 133120);
+
+    while index < length
+    {
+        let offset: usize = index % 130;
+
+        if offset < 128
+        {
+            assert(output[index] == 32);
+        }
+        else if offset == 128
+        {
+            assert(output[index] == 52);
+        }
+        else
+        {
+            assert(output[index] == 50);
+        }
+
+        index += 1;
+    }
+
+    return Ok(unit);
+}
+"#,
+        standard_library_sources: FORMAT_SOURCES,
+        expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
+        platform_operations: &[],
+        retention: NO_RETENTION_CONTRACT,
+        storage: Some(StorageExpectation {
+            allocation_count: 1,
+            allocated_bytes: 133_120,
+            copied_bytes: 2_048,
+        }),
+    },
+    Workload {
+        id: "format_writer",
+        category: WorkloadCategory::Formatting,
+        scale: 1024,
+        units: "values",
+        source: r#"module format_writer;
+
+using std.bytes;
+using std.format;
+using std.format.U32Format;
+using std.io;
+using std.io.WriterFormattingSink;
+
+struct ValidatingWriter
+{
+    mut length: usize;
+    mut valid: bool;
+
+    construct() -> Self
+    {
+        return
+        {
+            length = 0,
+            valid = true,
+        };
+    }
+}
+
+impl ValidatingWriterIo = ValidatingWriter(std.io.Writer)
+{
+    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        let count: usize = std.bytes.slice_length(source);
+        let mut index: usize = 0;
+
+        while index < count
+        {
+            let absolute: usize = self.length + index;
+
+            if absolute % 2 == 0
+            {
+                if source[index] != 52
+                {
+                    self.valid = false;
+                }
+            }
+            else if source[index] != 50
+            {
+                self.valid = false;
+            }
+
+            index += 1;
+        }
+
+        self.length += count;
+        return Ok(count);
+    }
+
+    mut func flush() -> Result<unit, std.io.IoError>
+        requires(blocking_execution())
+    {
+        return Ok(unit);
+    }
+}
+
+func main()
+    requires(blocking_execution())
+{
+    let mut writer: ValidatingWriter = ValidatingWriter();
+    let mut sink: std.io.FormattingSink<ValidatingWriter> =
+        std.io.FormattingSink<ValidatingWriter>(&mut writer);
+    let value: u32 = 42;
+    let mut formatted: usize = 0;
+
+    while formatted < 1024
+    {
+        match consume trusted std.format.write_to<
+            u32,
+            std.io.FormattingSink<ValidatingWriter>,
+            std.io.IoError
+        >(&mut sink, std.format.Argument<u32>(&value))
+        {
+            case Ok(_) {}
+            case Error(_) { assert(false); }
+        }
+
+        formatted += 1;
+    }
+
+    assert(writer.valid);
+    assert(writer.length == 2048);
+}
+"#,
+        standard_library_sources: &[],
+        expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::None,
+        platform_operations: &[],
+        retention: NO_RETENTION_CONTRACT,
+        storage: Some(StorageExpectation {
+            allocation_count: 0,
+            allocated_bytes: 0,
+            copied_bytes: 0,
         }),
     },
     Workload {
@@ -610,11 +788,42 @@ mod tests {
         assert_eq!(formatting.copied_bytes, formatting.allocated_bytes);
     }
 
-    fn storage(identity: &str) -> super::StorageExpectation {
+    #[test]
+    fn large_width_formatting_fills_padding_and_copies_only_digits() {
+        let workload = workload("format_large_width");
+        let storage = storage("format_large_width");
+
+        assert!(workload.source.contains("width = 130"));
+        assert!(workload.source.contains("while index < length"));
+        assert_eq!(storage.allocation_count, 1);
+        assert_eq!(storage.allocated_bytes, 133_120);
+        assert_eq!(storage.copied_bytes, 2_048);
+        assert_eq!(storage.allocated_bytes - storage.copied_bytes, 128 * 1_024);
+    }
+
+    #[test]
+    fn writer_formatting_validates_each_byte_without_dynamic_storage() {
+        let workload = workload("format_writer");
+        let storage = storage("format_writer");
+
+        assert!(workload.source.contains("std.io.FormattingSink<ValidatingWriter>"));
+        assert!(workload.source.contains("std.format.write_to<"));
+        assert!(workload.source.contains("source[index] != 52"));
+        assert_eq!(storage.allocation_count, 0);
+        assert_eq!(storage.allocated_bytes, 0);
+        assert_eq!(storage.copied_bytes, 0);
+    }
+
+    fn workload(identity: &str) -> &super::Workload {
         WORKLOADS
             .iter()
             .find(|workload| workload.id == identity)
-            .and_then(|workload| workload.storage)
+            .unwrap_or_else(|| panic!("{identity} must exist"))
+    }
+
+    fn storage(identity: &str) -> super::StorageExpectation {
+        workload(identity)
+            .storage
             .unwrap_or_else(|| panic!("{identity} must define storage work"))
     }
 }
