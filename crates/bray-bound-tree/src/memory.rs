@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_symbols::TypeId;
+use bray_symbols::{ConstantValueId, TypeId};
 
 use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
 
@@ -39,6 +39,90 @@ pub enum MemoryCopyKind {
     NonOverlapping,
     /// Source and destination ranges may overlap.
     Overlapping,
+}
+
+/// Address space selected for an explicit volatile operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum VolatileAddressSpace {
+    /// Ordinary host-visible storage.
+    Host,
+    /// Target device storage with device-memory semantics.
+    Device,
+}
+
+/// Provenance-losing comparison performed on exposed pointer addresses.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PointerAddressComparison {
+    /// Compare exposed addresses for equality.
+    Equal,
+    /// Compare exposed addresses using unsigned ordering.
+    Less,
+}
+
+/// Compile-time identities forming one exactly checked inline-assembly contract.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InlineAssemblyContract {
+    template: ConstantValueId,
+    constraints: ConstantValueId,
+    clobbers: ConstantValueId,
+    features: ConstantValueId,
+    options: ConstantValueId,
+}
+
+impl InlineAssemblyContract {
+    /// Retains the checked literal identities used to lower one assembly operation.
+    pub const fn new(
+        template: ConstantValueId,
+        constraints: ConstantValueId,
+        clobbers: ConstantValueId,
+        features: ConstantValueId,
+        options: ConstantValueId,
+    ) -> Self {
+        Self {
+            template,
+            constraints,
+            clobbers,
+            features,
+            options,
+        }
+    }
+
+    /// Returns the checked assembly-template literal identity.
+    pub const fn template(self) -> ConstantValueId {
+        self.template
+    }
+
+    /// Returns the checked operand-constraint literal identity.
+    pub const fn constraints(self) -> ConstantValueId {
+        self.constraints
+    }
+
+    /// Returns the checked clobber literal identity.
+    pub const fn clobbers(self) -> ConstantValueId {
+        self.clobbers
+    }
+
+    /// Returns the checked target-feature literal identity.
+    pub const fn features(self) -> ConstantValueId {
+        self.features
+    }
+
+    /// Returns the checked option literal identity.
+    pub const fn options(self) -> ConstantValueId {
+        self.options
+    }
+
+    /// Iterates the complete checked compile-time contract in declaration order.
+    pub fn constant_values(self) -> impl Iterator<Item = ConstantValueId> {
+        [
+            self.template,
+            self.constraints,
+            self.clobbers,
+            self.features,
+            self.options,
+        ]
+        .into_iter()
+    }
 }
 
 /// Target-layout value requested by a compiler-provided memory declaration.
@@ -167,9 +251,83 @@ pub enum CheckedMemoryOperationKind {
         /// Borrowed callback state type.
         state: TypeId,
     },
+    /// Read initialized storage with volatile access semantics.
+    VolatileRead {
+        /// Read value type.
+        pointee: TypeId,
+        /// Address space governing the access.
+        address_space: VolatileAddressSpace,
+        /// Ownership effect selected from the value's copy contract.
+        kind: MemoryReadKind,
+    },
+    /// Write storage with volatile access semantics.
+    VolatileWrite {
+        /// Written value type.
+        pointee: TypeId,
+        /// Address space governing the access.
+        address_space: VolatileAddressSpace,
+    },
+    /// Expose a raw pointer's target address as a provenance-free integer.
+    ExposeAddress {
+        /// Pointed-to value type.
+        pointee: TypeId,
+    },
+    /// Reconstruct a raw pointer from a provenance-free target address.
+    FromExposedAddress {
+        /// Pointed-to value type.
+        pointee: TypeId,
+    },
+    /// Compare two provenance-free pointer addresses.
+    CompareAddress {
+        /// Pointed-to value type.
+        pointee: TypeId,
+        /// Exact comparison performed after exposure.
+        comparison: PointerAddressComparison,
+    },
+    /// Prevent compiler reordering across this operation.
+    CompilerFence,
+    /// Terminate the product catastrophically without source cleanup.
+    CatastrophicAbort,
+    /// Request a debugger trap and continue when the debugger resumes.
+    DebuggerTrap,
+    /// Terminate a path whose reachability violates a trusted contract.
+    UnreachableTermination,
+    /// Emit the selected target's spin-loop hint.
+    SpinLoopHint,
+    /// Test one statically named target instruction feature.
+    TargetFeatureEnabled {
+        /// Checked target-feature literal identity.
+        feature: ConstantValueId,
+    },
+    /// Execute exactly checked trusted target-gated inline assembly.
+    InlineAssembly {
+        /// Typed input, in/out, symbol, memory, or immediate operand.
+        input: TypeId,
+        /// Typed output, absent when the assembly cannot continue normally.
+        output: Option<TypeId>,
+        /// Checked compile-time assembly contract.
+        contract: InlineAssemblyContract,
+    },
 }
 
 impl CheckedMemoryOperationKind {
+    /// Iterates compile-time values that form part of the checked operation contract.
+    pub fn contract_constants(self) -> impl Iterator<Item = ConstantValueId> {
+        let mut values = [None; 5];
+
+        match self {
+            Self::TargetFeatureEnabled { feature } => values[0] = Some(feature),
+            Self::InlineAssembly { contract, .. } => {
+                for (destination, value) in values.iter_mut().zip(contract.constant_values()) {
+                    *destination = Some(value);
+                }
+            }
+            _ => {}
+        }
+
+        values.into_iter().flatten()
+    }
+
     /// Returns the exact number of runtime operands required by this operation.
     pub const fn operand_count(self) -> usize {
         match self {
@@ -188,6 +346,10 @@ impl CheckedMemoryOperationKind {
             | Self::RawBufferRelease { .. }
             | Self::SliceLength
             | Self::CallbackState { .. } => 1,
+            Self::VolatileRead { .. }
+            | Self::ExposeAddress { .. }
+            | Self::FromExposedAddress { .. }
+            | Self::TargetFeatureEnabled { .. } => 1,
             Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
@@ -196,6 +358,7 @@ impl CheckedMemoryOperationKind {
             | Self::ByteSliceCopy
             | Self::RawBufferSetInitializedCount
             | Self::ByteBufferRead => 2,
+            Self::VolatileWrite { .. } | Self::CompareAddress { .. } => 2,
             Self::Copy { .. }
             | Self::RawDeallocate
             | Self::ByteBufferFill => 3,
@@ -203,7 +366,14 @@ impl CheckedMemoryOperationKind {
                 kind: MemoryLayoutQueryKind::Layout,
                 ..
             } => 1,
-            Self::Null { .. } | Self::LayoutQuery { .. } => 0,
+            Self::InlineAssembly { .. } => 6,
+            Self::Null { .. }
+            | Self::LayoutQuery { .. }
+            | Self::CompilerFence
+            | Self::CatastrophicAbort
+            | Self::DebuggerTrap
+            | Self::UnreachableTermination
+            | Self::SpinLoopHint => 0,
         }
     }
 
@@ -221,6 +391,13 @@ impl CheckedMemoryOperationKind {
                 | Self::RawBufferRelocate { .. }
                 | Self::ByteBufferFill
                 | Self::ByteSliceCopy
+                | Self::VolatileWrite { .. }
+                | Self::CompilerFence
+                | Self::CatastrophicAbort
+                | Self::DebuggerTrap
+                | Self::UnreachableTermination
+                | Self::SpinLoopHint
+                | Self::InlineAssembly { output: None, .. }
         )
     }
 }

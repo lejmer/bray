@@ -32,4 +32,4 @@ ABI helpers that call foreign code or expose foreign-owned memory must preserve 
 - [Language index](../index.md)
 - [Targets, layout, ABI, and raw memory index](../targets-layout-abi-and-raw-memory.md)
 - Previous: [Device memory](device-memory.md)
-- Next: [Summary](summary.md)
+- Next: [Target control and inline assembly](target-control-and-inline-assembly.md)

@@ -9,7 +9,7 @@ use super::{ImplementationTemplateSchemaRevision, PackageImplementationConfigura
 
 /// Exact MIR schema revision supported by optional pre-specialized payloads.
 pub const CURRENT_MIR_SCHEMA_REVISION: ImplementationMirSchemaRevision =
-    ImplementationMirSchemaRevision::new(1);
+    ImplementationMirSchemaRevision::new(2);
 
 /// Exact schema used to interpret a pre-specialized MIR payload.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -234,5 +234,15 @@ impl From<InterfaceValidationError> for PreSpecializedMirDecodeError {
 impl From<ExecutableTemplateDecodeError> for PreSpecializedMirDecodeError {
     fn from(error: ExecutableTemplateDecodeError) -> Self {
         Self::Executable(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CURRENT_MIR_SCHEMA_REVISION;
+
+    #[test]
+    fn target_control_operations_use_mir_schema_revision_two() {
+        assert_eq!(CURRENT_MIR_SCHEMA_REVISION.raw(), 2);
     }
 }

@@ -82,6 +82,24 @@ impl Lowerer<'_> {
             result,
         )?;
 
+        if matches!(
+            kind,
+            bray_bound_tree::CheckedMemoryOperationKind::CatastrophicAbort
+                | bray_bound_tree::CheckedMemoryOperationKind::UnreachableTermination
+                | bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly {
+                    output: None,
+                    ..
+                }
+        ) {
+            self.builder.set_terminator(
+                current,
+                Self::retained_source(&source),
+                bray_ir::MirTerminatorKind::Unreachable,
+            )?;
+
+            return Ok(LoweredExpression::terminated(source));
+        }
+
         let value = match commit.result() {
             Some(value) => MirOperand::Value(value),
             None => self.unit_operand(result_type),

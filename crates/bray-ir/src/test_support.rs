@@ -1,4 +1,6 @@
-use bray_symbols::{SemanticValueStore, TypeData, TypeId};
+use bray_symbols::{
+    ConstantValueData, ConstantValueId, ConstantValueKind, SemanticValueStore, TypeData, TypeId,
+};
 
 use crate::MirTargetFacts;
 
@@ -22,6 +24,20 @@ pub(crate) fn test_other_type() -> TypeId {
         Ok(ty) => ty,
         Err(error) => panic!("test type must be valid: {error:?}"),
     }
+}
+
+pub(crate) fn test_constant_value() -> ConstantValueId {
+    let Ok(store) = SemanticValueStore::try_new() else {
+        panic!("test semantic value store must be available");
+    };
+
+    let ty = store
+        .intern_type(TypeData::Error)
+        .unwrap_or_else(|error| panic!("test constant type must be valid: {error:?}"));
+
+    store
+        .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(false)))
+        .unwrap_or_else(|error| panic!("test constant must be valid: {error:?}"))
 }
 
 pub(crate) fn test_target() -> MirTargetFacts {

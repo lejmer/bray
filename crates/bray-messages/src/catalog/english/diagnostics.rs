@@ -820,6 +820,13 @@ const CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
 ];
 
+const CHECKING_INVALID_TARGET_CONTROL_CONTRACT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("the "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
+    MessageTemplatePart::Text(" contract is invalid for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+
 const CHECKING_INVALID_CALLBACK_STATE_CONTEXT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Arg(
         DiagnosticArgName::CallbackStateProblem,
@@ -2422,6 +2429,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingTargetMemoryOperationUnavailable => {
             MessageTemplate::new(CHECKING_TARGET_MEMORY_OPERATION_UNAVAILABLE)
+        }
+        DiagnosticKind::CheckingInvalidTargetControlContract => {
+            MessageTemplate::new(CHECKING_INVALID_TARGET_CONTROL_CONTRACT)
         }
         DiagnosticKind::CheckingInvalidCallbackStateContext => {
             MessageTemplate::new(CHECKING_INVALID_CALLBACK_STATE_CONTEXT)

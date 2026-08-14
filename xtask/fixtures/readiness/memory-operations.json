@@ -203,6 +203,102 @@
       "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::CallbackState" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::CallbackState" }
+    },
+    {
+      "name": "VolatileLoad",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::VolatileLoad" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_volatile_read" }
+    },
+    {
+      "name": "VolatileStore",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::VolatileStore" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_volatile_write" }
+    },
+    {
+      "name": "DeviceVolatileLoad",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::DeviceVolatileLoad" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_volatile_read" }
+    },
+    {
+      "name": "DeviceVolatileStore",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::DeviceVolatileStore" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_volatile_write" }
+    },
+    {
+      "name": "PointerExposeAddress",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::PointerExposeAddress" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_expose_address" }
+    },
+    {
+      "name": "PointerFromExposedAddress",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::PointerFromExposedAddress" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_from_exposed_address" }
+    },
+    {
+      "name": "PointerAddressEqual",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::PointerAddressEqual" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "PointerAddressComparison::Equal" }
+    },
+    {
+      "name": "PointerAddressLess",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::PointerAddressLess" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "PointerAddressComparison::Less" }
+    },
+    {
+      "name": "CompilerFence",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::CompilerFence" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_compiler_fence" }
+    },
+    {
+      "name": "CatastrophicAbort",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::CatastrophicAbort" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirTerminatorKind::Unreachable" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_catastrophic_abort" }
+    },
+    {
+      "name": "DebuggerTrap",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::DebuggerTrap" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_debugger_trap" }
+    },
+    {
+      "name": "UnreachableTermination",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::UnreachableTermination" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirTerminatorKind::Unreachable" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::UnreachableTermination" }
+    },
+    {
+      "name": "SpinLoopHint",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::SpinLoopHint" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_spin_loop_hint" }
+    },
+    {
+      "name": "TargetFeatureEnabled",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::TargetFeatureEnabled" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_target_feature" }
+    },
+    {
+      "name": "InlineAssembly",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::InlineAssembly" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_inline_assembly" }
+    },
+    {
+      "name": "DivergingInlineAssembly",
+      "checker": { "path": "crates/bray-checker/src/memory.rs", "symbol": "ImplementationHook::DivergingInlineAssembly" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirTerminatorKind::Unreachable" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/target.rs", "symbol": "translate_inline_assembly" }
     }
   ],
   "contracts": [

@@ -36,6 +36,8 @@ const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
             | CheckedMemoryOperationKind::ByteSliceCopy
             | CheckedMemoryOperationKind::ByteBufferRead
             | CheckedMemoryOperationKind::CallbackState { .. }
+            | CheckedMemoryOperationKind::VolatileRead { .. }
+            | CheckedMemoryOperationKind::VolatileWrite { .. }
     )
 }
 
@@ -292,7 +294,8 @@ where
 
                 replace_raw_state(state, source, result);
             }
-            CheckedMemoryOperationKind::Read { pointee, kind } => {
+            CheckedMemoryOperationKind::Read { pointee, kind }
+            | CheckedMemoryOperationKind::VolatileRead { pointee, kind, .. } => {
                 let Some(pointer) = arguments
                     .first()
                     .and_then(|argument| self.argument_storage(*argument))
@@ -302,7 +305,8 @@ where
 
                 return apply_raw_read(state, pointer, pointee, kind);
             }
-            CheckedMemoryOperationKind::Write { pointee } => {
+            CheckedMemoryOperationKind::Write { pointee }
+            | CheckedMemoryOperationKind::VolatileWrite { pointee, .. } => {
                 let Some(pointer) = arguments
                     .first()
                     .and_then(|argument| self.argument_storage(*argument))
@@ -369,6 +373,16 @@ where
             | CheckedMemoryOperationKind::RawBufferSetInitializedCount
             | CheckedMemoryOperationKind::RawBufferRelease { .. }
             | CheckedMemoryOperationKind::CallbackState { .. } => {}
+            CheckedMemoryOperationKind::ExposeAddress { .. }
+            | CheckedMemoryOperationKind::FromExposedAddress { .. }
+            | CheckedMemoryOperationKind::CompareAddress { .. }
+            | CheckedMemoryOperationKind::CompilerFence
+            | CheckedMemoryOperationKind::CatastrophicAbort
+            | CheckedMemoryOperationKind::DebuggerTrap
+            | CheckedMemoryOperationKind::UnreachableTermination
+            | CheckedMemoryOperationKind::SpinLoopHint
+            | CheckedMemoryOperationKind::TargetFeatureEnabled { .. }
+            | CheckedMemoryOperationKind::InlineAssembly { .. } => {}
             CheckedMemoryOperationKind::RawBufferReplace { .. }
             | CheckedMemoryOperationKind::RawBufferRelocate { .. } => {}
         }
@@ -536,7 +550,7 @@ where
             span,
         ))
         .with_arg(DiagnosticArg::memory_operation(
-            crate::memory::diagnostic_checked_memory_operation(operation.kind()),
+            crate::memory_diagnostics::diagnostic_checked_memory_operation(operation.kind()),
         ));
 
         for (kind, origins) in origins {

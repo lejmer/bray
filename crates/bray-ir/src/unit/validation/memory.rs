@@ -38,6 +38,13 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::Offset { .. } => memory.result_type() == Some(types[0]),
         CheckedMemoryOperationKind::Read { pointee, .. } => memory.result_type() == Some(pointee),
         CheckedMemoryOperationKind::Write { pointee } => types[1] == pointee,
+        CheckedMemoryOperationKind::VolatileRead { pointee, .. } => {
+            memory.result_type() == Some(pointee)
+        }
+        CheckedMemoryOperationKind::VolatileWrite { pointee, .. } => types[1] == pointee,
+        CheckedMemoryOperationKind::ExposeAddress { .. }
+        | CheckedMemoryOperationKind::FromExposedAddress { .. }
+        | CheckedMemoryOperationKind::CompareAddress { .. } => true,
         CheckedMemoryOperationKind::Copy { .. } => types[0] == types[1],
         CheckedMemoryOperationKind::LayoutQuery { .. } => true,
         CheckedMemoryOperationKind::RawAllocate => types[0] == types[1],
@@ -58,7 +65,16 @@ pub(super) fn validate_memory_operation(
         | CheckedMemoryOperationKind::ByteSliceCopy
         | CheckedMemoryOperationKind::ByteBufferRead
         | CheckedMemoryOperationKind::SliceLength
-        | CheckedMemoryOperationKind::CallbackState { .. } => true,
+        | CheckedMemoryOperationKind::CallbackState { .. }
+        | CheckedMemoryOperationKind::CompilerFence
+        | CheckedMemoryOperationKind::CatastrophicAbort
+        | CheckedMemoryOperationKind::DebuggerTrap
+        | CheckedMemoryOperationKind::UnreachableTermination
+        | CheckedMemoryOperationKind::SpinLoopHint
+        | CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => true,
+        CheckedMemoryOperationKind::InlineAssembly { input, output, .. } => {
+            types[5] == input && memory.result_type() == output
+        }
     };
 
     if !valid {

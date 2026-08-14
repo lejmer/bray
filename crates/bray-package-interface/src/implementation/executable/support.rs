@@ -2,7 +2,7 @@ use crate::decode::map_wire_error;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
 
-pub(super) const FORMAT_VERSION: u32 = 1;
+pub(super) const FORMAT_VERSION: u32 = 2;
 
 pub(super) fn write_bool(encoder: &mut WireEncoder, value: bool) {
     encoder.write_u32(u32::from(value));
@@ -62,7 +62,7 @@ pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceVali
 
 #[cfg(test)]
 mod tests {
-    use super::read_count;
+    use super::{FORMAT_VERSION, read_count};
     use crate::wire::{WireEncoder, WireReader};
     use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
 
@@ -83,5 +83,10 @@ mod tests {
                 maximum: 1,
             })
         );
+    }
+
+    #[test]
+    fn target_control_operations_use_executable_format_two() {
+        assert_eq!(FORMAT_VERSION, 2);
     }
 }

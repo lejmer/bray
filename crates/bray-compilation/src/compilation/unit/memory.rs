@@ -29,6 +29,9 @@ impl Compilation {
                 let selections =
                     self.semantic_selections_with_cancellation(key.clone(), cancellation)?;
 
+                // Literal and selection queries retain independent immutable unit identities.
+                let literals = self.literal_values_with_cancellation(key.clone(), cancellation)?;
+
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -44,7 +47,11 @@ impl Compilation {
 
                 let result = checker_result(
                     DefaultMemoryOperationChecker
-                        .check_memory_operations(unit, selections.result().value()),
+                        .check_memory_operations(
+                            unit,
+                            selections.result().value(),
+                            literals.result().value(),
+                        ),
                 )?;
 
                 let (operations, operation_diagnostics) = result.into_parts();
@@ -52,6 +59,7 @@ impl Compilation {
                 let diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),
                     selections.result().diagnostics(),
+                    literals.result().diagnostics(),
                     &operation_diagnostics,
                 ]);
 

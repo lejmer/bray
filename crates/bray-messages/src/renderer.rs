@@ -799,8 +799,18 @@ mod tests {
             DiagnosticMemoryOperation::PointerRead,
         ));
 
-        let callback = Diagnostic::new(
+        let invalid = Diagnostic::new(
             DiagnosticId::new(1),
+            DiagnosticKind::CheckingInvalidTargetControlContract,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
+        .with_arg(DiagnosticArg::memory_operation(
+            DiagnosticMemoryOperation::InlineAssembly,
+        ));
+
+        let callback = Diagnostic::new(
+            DiagnosticId::new(2),
             DiagnosticKind::CheckingInvalidCallbackStateContext,
             SeverityKind::Error,
         )
@@ -816,6 +826,11 @@ mod tests {
         assert_eq!(
             renderer.render(&unavailable).message(),
             "target 'wasm32-unknown-unknown' does not provide the required pointer read"
+        );
+
+        assert_eq!(
+            renderer.render(&invalid).message(),
+            "the inline assembly contract is invalid for target 'x86_64-unknown-linux-gnu'"
         );
 
         let callback = renderer.render(&callback);

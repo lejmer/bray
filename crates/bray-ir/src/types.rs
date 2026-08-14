@@ -110,7 +110,12 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         | CheckedMemoryOperationKind::Offset { pointee, .. }
         | CheckedMemoryOperationKind::Read { pointee, .. }
         | CheckedMemoryOperationKind::Write { pointee }
-        | CheckedMemoryOperationKind::Copy { pointee, .. } => {
+        | CheckedMemoryOperationKind::Copy { pointee, .. }
+        | CheckedMemoryOperationKind::VolatileRead { pointee, .. }
+        | CheckedMemoryOperationKind::VolatileWrite { pointee, .. }
+        | CheckedMemoryOperationKind::ExposeAddress { pointee }
+        | CheckedMemoryOperationKind::FromExposedAddress { pointee }
+        | CheckedMemoryOperationKind::CompareAddress { pointee, .. } => {
             types.insert(pointee);
         }
         CheckedMemoryOperationKind::Reinterpret { source, target } => {
@@ -121,6 +126,13 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         }
         CheckedMemoryOperationKind::CallbackState { state } => {
             types.insert(state);
+        }
+        CheckedMemoryOperationKind::InlineAssembly { input, output, .. } => {
+            types.insert(input);
+
+            if let Some(output) = output {
+                types.insert(output);
+            }
         }
         CheckedMemoryOperationKind::RawBufferSparePointer { element }
         | CheckedMemoryOperationKind::RawBufferRelease { element }
@@ -141,7 +153,13 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
         | CheckedMemoryOperationKind::ByteBufferFill
         | CheckedMemoryOperationKind::ByteSliceCopy
         | CheckedMemoryOperationKind::ByteBufferRead
-        | CheckedMemoryOperationKind::SliceLength => {}
+        | CheckedMemoryOperationKind::SliceLength
+        | CheckedMemoryOperationKind::CompilerFence
+        | CheckedMemoryOperationKind::CatastrophicAbort
+        | CheckedMemoryOperationKind::DebuggerTrap
+        | CheckedMemoryOperationKind::UnreachableTermination
+        | CheckedMemoryOperationKind::SpinLoopHint
+        | CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => {}
     }
 }
 

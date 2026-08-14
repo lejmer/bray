@@ -1,7 +1,7 @@
 // rust-style: allow(module-too-large, reason = "the executable MIR wire decoder keeps one exhaustive operation and terminator mapping")
 
 use bray_bound_tree::{
-    BoundCallResult, BoundFutureConstruction, CheckedMemoryOperationKind,
+    BoundCallResult, BoundFutureConstruction, CheckedMemoryOperationKind, InlineAssemblyContract,
     ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
     PatternOperation, PatternProjection, SelectedConversion, SelectedImplementationWitness,
 };
@@ -1220,6 +1220,72 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             25 => Ok(Kind::SliceLength),
             26 => Ok(Kind::CallbackState { state: self.ty()? }),
             27 => Ok(Kind::ByteSliceCopy),
+            28 => Ok(Kind::VolatileRead {
+                pointee: self.ty()?,
+                address_space: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::VolatileAddressSpace::Host,
+                    1 => bray_bound_tree::VolatileAddressSpace::Device,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+                kind: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::MemoryReadKind::Copy,
+                    1 => bray_bound_tree::MemoryReadKind::Move,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+            }),
+            29 => Ok(Kind::VolatileWrite {
+                pointee: self.ty()?,
+                address_space: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::VolatileAddressSpace::Host,
+                    1 => bray_bound_tree::VolatileAddressSpace::Device,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+            }),
+            30 => Ok(Kind::ExposeAddress {
+                pointee: self.ty()?,
+            }),
+            31 => Ok(Kind::FromExposedAddress {
+                pointee: self.ty()?,
+            }),
+            32 => Ok(Kind::CompareAddress {
+                pointee: self.ty()?,
+                comparison: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::PointerAddressComparison::Equal,
+                    1 => bray_bound_tree::PointerAddressComparison::Less,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+            }),
+            33 => Ok(Kind::CompilerFence),
+            34 => Ok(Kind::CatastrophicAbort),
+            35 => Ok(Kind::DebuggerTrap),
+            36 => Ok(Kind::UnreachableTermination),
+            37 => Ok(Kind::SpinLoopHint),
+            38 => Ok(Kind::TargetFeatureEnabled {
+                feature: self.constant_value()?,
+            }),
+            39 => {
+                let input = self.ty()?;
+
+                let output = match read_u32(&mut self.reader)? {
+                    0 => None,
+                    1 => Some(self.ty()?),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
+                let contract = InlineAssemblyContract::new(
+                    self.constant_value()?,
+                    self.constant_value()?,
+                    self.constant_value()?,
+                    self.constant_value()?,
+                    self.constant_value()?,
+                );
+
+                Ok(Kind::InlineAssembly {
+                    input,
+                    output,
+                    contract,
+                })
+            }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

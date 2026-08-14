@@ -347,16 +347,21 @@ fn validate_operation_result(
 )]
 mod tests {
     use bray_bound_tree::{
-        CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
-        MemoryOffsetUnit, MemoryReadKind,
+        CheckedMemoryOperationKind, InlineAssemblyContract, MemoryAddressKind, MemoryCopyKind,
+        MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind,
     };
 
-    use crate::test_support::{test_other_type, test_type};
+    use crate::test_support::{test_constant_value, test_other_type, test_type};
 
     #[test]
     fn memory_operation_shapes_cover_every_explicit_family() {
         let ty = test_type();
         let other = test_other_type();
+        let constant = test_constant_value();
+
+        let assembly = InlineAssemblyContract::new(
+            constant, constant, constant, constant, constant,
+        );
 
         let cases = [
             (
@@ -468,6 +473,73 @@ mod tests {
             (CheckedMemoryOperationKind::ByteSliceCopy, 2, false),
             (CheckedMemoryOperationKind::ByteBufferRead, 2, true),
             (CheckedMemoryOperationKind::SliceLength, 1, true),
+            (
+                CheckedMemoryOperationKind::VolatileRead {
+                    pointee: ty,
+                    address_space: bray_bound_tree::VolatileAddressSpace::Host,
+                    kind: MemoryReadKind::Copy,
+                },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::VolatileWrite {
+                    pointee: ty,
+                    address_space: bray_bound_tree::VolatileAddressSpace::Host,
+                },
+                2,
+                false,
+            ),
+            (
+                CheckedMemoryOperationKind::ExposeAddress { pointee: ty },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::FromExposedAddress { pointee: ty },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::CompareAddress {
+                    pointee: ty,
+                    comparison: bray_bound_tree::PointerAddressComparison::Equal,
+                },
+                2,
+                true,
+            ),
+            (CheckedMemoryOperationKind::CompilerFence, 0, false),
+            (CheckedMemoryOperationKind::CatastrophicAbort, 0, false),
+            (CheckedMemoryOperationKind::DebuggerTrap, 0, false),
+            (
+                CheckedMemoryOperationKind::UnreachableTermination,
+                0,
+                false,
+            ),
+            (CheckedMemoryOperationKind::SpinLoopHint, 0, false),
+            (
+                CheckedMemoryOperationKind::TargetFeatureEnabled { feature: constant },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::InlineAssembly {
+                    input: ty,
+                    output: Some(ty),
+                    contract: assembly,
+                },
+                6,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::InlineAssembly {
+                    input: ty,
+                    output: None,
+                    contract: assembly,
+                },
+                6,
+                false,
+            ),
         ];
 
         for (kind, operands, produces_value) in cases {

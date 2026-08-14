@@ -899,6 +899,40 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::CallbackState { state } => {
             ("callback_state", vec![("state", state)])
         }
+        CheckedMemoryOperationKind::VolatileRead { pointee, .. } => {
+            ("volatile_read", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::VolatileWrite { pointee, .. } => {
+            ("volatile_write", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::ExposeAddress { pointee } => {
+            ("expose_address", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::FromExposedAddress { pointee } => {
+            ("from_exposed_address", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::CompareAddress { pointee, .. } => {
+            ("compare_address", vec![("pointee", pointee)])
+        }
+        CheckedMemoryOperationKind::CompilerFence => ("compiler_fence", Vec::new()),
+        CheckedMemoryOperationKind::CatastrophicAbort => ("catastrophic_abort", Vec::new()),
+        CheckedMemoryOperationKind::DebuggerTrap => ("debugger_trap", Vec::new()),
+        CheckedMemoryOperationKind::UnreachableTermination => {
+            ("unreachable_termination", Vec::new())
+        }
+        CheckedMemoryOperationKind::SpinLoopHint => ("spin_loop_hint", Vec::new()),
+        CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => {
+            ("target_feature_enabled", Vec::new())
+        }
+        CheckedMemoryOperationKind::InlineAssembly { input, output, .. } => {
+            let mut types = vec![("input", input)];
+
+            if let Some(output) = output {
+                types.push(("output", output));
+            }
+
+            ("inline_assembly", types)
+        }
     };
 
     parts.attribute("memory_operation", name);

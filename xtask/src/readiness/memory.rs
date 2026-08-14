@@ -22,6 +22,8 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "same-name isolation",
 ];
 const UNAVAILABLE_TARGET_FIXTURE: &str = "xtask/fixtures/readiness/memory-unavailable-target.bray";
+const INVALID_TARGET_CONTROL_FIXTURE: &str =
+    "xtask/fixtures/readiness/target-control-invalid.bray";
 
 #[derive(Deserialize)]
 struct CoverageFixture {
@@ -103,12 +105,12 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
     }
 
     audit_unavailable_target(workspace)?;
+    audit_invalid_target_control(workspace)?;
 
     Ok(())
 }
 
 fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
-    let source = workspace.read_text(UNAVAILABLE_TARGET_FIXTURE)?;
     let baseline = SelectedTarget::baseline();
     let profile = baseline.profile();
     let baseline_facts = profile.facts();
@@ -128,12 +130,47 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
         TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
             .map_err(|error| format!("could not build unavailable memory target: {error}"))?;
 
+    if fixture_reports(
+        workspace,
+        UNAVAILABLE_TARGET_FIXTURE,
+        SelectedTarget::new(profile, baseline.runtime_abi()),
+        DiagnosticKind::CheckingTargetMemoryOperationUnavailable,
+    )? {
+        Ok(())
+    } else {
+        Err("unavailable memory operation did not produce the structured rejection diagnostic"
+            .to_owned())
+    }
+}
+
+fn audit_invalid_target_control(workspace: &RustWorkspace) -> Result<(), String> {
+    if fixture_reports(
+        workspace,
+        INVALID_TARGET_CONTROL_FIXTURE,
+        SelectedTarget::baseline(),
+        DiagnosticKind::CheckingInvalidTargetControlContract,
+    )? {
+        Ok(())
+    } else {
+        Err("invalid target-control contract did not produce the structured rejection diagnostic"
+            .to_owned())
+    }
+}
+
+fn fixture_reports(
+    workspace: &RustWorkspace,
+    source_path: &str,
+    target: SelectedTarget,
+    expected: DiagnosticKind,
+) -> Result<bool, String> {
+    let source = workspace.read_text(source_path)?;
+
     let package = PackageIdentity::try_new("memory.readiness")
         .ok_or_else(|| "memory readiness package identity is invalid".to_owned())?;
 
     let input = SourceInput::virtual_text(
         SourceIdentity::new(0),
-        UNAVAILABLE_TARGET_FIXTURE,
+        source_path,
         SourceVersion::new(0),
         source,
     );
@@ -141,7 +178,7 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
     let options = CompilationOptions::new(
         WorkerBudget::serial(),
         ProductKind::Executable,
-        SelectedTarget::new(profile, baseline.runtime_abi()),
+        target,
     );
 
     let compilation = Compilation::load(CompilationRequest::with_options(
@@ -149,18 +186,12 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
         vec![input],
         options,
     ))
-    .map_err(|error| format!("could not load unavailable memory fixture: {error:?}"))?;
+    .map_err(|error| format!("could not load target-control fixture {source_path}: {error:?}"))?;
 
-    if compilation.check_diagnostics().iter().any(|diagnostic| {
-        diagnostic.kind() == DiagnosticKind::CheckingTargetMemoryOperationUnavailable
-    }) {
-        Ok(())
-    } else {
-        Err(
-            "unavailable memory target did not produce the structured rejection diagnostic"
-                .to_owned(),
-        )
-    }
+    Ok(compilation
+        .check_diagnostics()
+        .iter()
+        .any(|diagnostic| diagnostic.kind() == expected))
 }
 
 fn require_source_anchor(

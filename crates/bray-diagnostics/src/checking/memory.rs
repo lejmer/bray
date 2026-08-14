@@ -35,6 +35,18 @@ pub enum DiagnosticMemoryOperation {
     ByteSliceCopy,
     ByteBufferRead,
     SliceLength,
+    VolatileRead,
+    VolatileWrite,
+    PointerExposeAddress,
+    PointerFromExposedAddress,
+    PointerAddressComparison,
+    CompilerFence,
+    CatastrophicAbort,
+    DebuggerTrap,
+    UnreachableTermination,
+    SpinLoopHint,
+    TargetFeatureCheck,
+    InlineAssembly,
 }
 
 impl DiagnosticMemoryOperation {
@@ -75,6 +87,18 @@ impl DiagnosticMemoryOperation {
             Self::ByteSliceCopy => "byte_slice_copy",
             Self::ByteBufferRead => "byte_buffer_read",
             Self::SliceLength => "slice_length",
+            Self::VolatileRead => "volatile_read",
+            Self::VolatileWrite => "volatile_write",
+            Self::PointerExposeAddress => "pointer_expose_address",
+            Self::PointerFromExposedAddress => "pointer_from_exposed_address",
+            Self::PointerAddressComparison => "pointer_address_comparison",
+            Self::CompilerFence => "compiler_fence",
+            Self::CatastrophicAbort => "catastrophic_abort",
+            Self::DebuggerTrap => "debugger_trap",
+            Self::UnreachableTermination => "unreachable_termination",
+            Self::SpinLoopHint => "spin_loop_hint",
+            Self::TargetFeatureCheck => "target_feature_check",
+            Self::InlineAssembly => "inline_assembly",
         }
     }
 }

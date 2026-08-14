@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod control;
 mod facts;
 mod identity;
 mod layout;
@@ -19,6 +20,7 @@ pub use facts::{
     TargetFacts, TargetForeignAbiFacts, TargetIdentityFacts, TargetOperationFacts,
     TargetScalarFacts, TargetScalarKind,
 };
+pub use control::{InlineAssemblyOptions, TargetControlFacts};
 pub use identity::TargetIdentity;
 pub use layout::{TargetLayoutContract, TargetValueLayout};
 pub use machine::{

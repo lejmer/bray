@@ -1500,6 +1500,85 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(state)?;
             }
             Kind::ByteSliceCopy => self.wire.write_u32(27),
+            Kind::VolatileRead {
+                pointee,
+                address_space,
+                kind,
+            } => {
+                self.wire.write_u32(28);
+                self.ty(pointee)?;
+
+                self.wire.write_u32(match address_space {
+                    bray_bound_tree::VolatileAddressSpace::Host => 0,
+                    bray_bound_tree::VolatileAddressSpace::Device => 1,
+                });
+
+                self.wire.write_u32(match kind {
+                    bray_bound_tree::MemoryReadKind::Copy => 0,
+                    bray_bound_tree::MemoryReadKind::Move => 1,
+                });
+            }
+            Kind::VolatileWrite {
+                pointee,
+                address_space,
+            } => {
+                self.wire.write_u32(29);
+                self.ty(pointee)?;
+
+                self.wire.write_u32(match address_space {
+                    bray_bound_tree::VolatileAddressSpace::Host => 0,
+                    bray_bound_tree::VolatileAddressSpace::Device => 1,
+                });
+            }
+            Kind::ExposeAddress { pointee } => {
+                self.wire.write_u32(30);
+                self.ty(pointee)?;
+            }
+            Kind::FromExposedAddress { pointee } => {
+                self.wire.write_u32(31);
+                self.ty(pointee)?;
+            }
+            Kind::CompareAddress {
+                pointee,
+                comparison,
+            } => {
+                self.wire.write_u32(32);
+                self.ty(pointee)?;
+
+                self.wire.write_u32(match comparison {
+                    bray_bound_tree::PointerAddressComparison::Equal => 0,
+                    bray_bound_tree::PointerAddressComparison::Less => 1,
+                });
+            }
+            Kind::CompilerFence => self.wire.write_u32(33),
+            Kind::CatastrophicAbort => self.wire.write_u32(34),
+            Kind::DebuggerTrap => self.wire.write_u32(35),
+            Kind::UnreachableTermination => self.wire.write_u32(36),
+            Kind::SpinLoopHint => self.wire.write_u32(37),
+            Kind::TargetFeatureEnabled { feature } => {
+                self.wire.write_u32(38);
+                self.constant_value(feature)?;
+            }
+            Kind::InlineAssembly {
+                input,
+                output,
+                contract,
+            } => {
+                self.wire.write_u32(39);
+                self.ty(input)?;
+
+                match output {
+                    Some(output) => {
+                        self.wire.write_u32(1);
+                        self.ty(output)?;
+                    }
+                    None => self.wire.write_u32(0),
+                }
+
+                for value in contract.constant_values() {
+                    self.constant_value(value)?;
+                }
+            }
         }
 
         Ok(())

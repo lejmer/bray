@@ -1,0 +1,190 @@
+catalog compiler_known revision 1;
+
+scope CoreTargetControl at core.target {
+    declaration VolatileLoad {
+        availability RawMemory;
+        implementation VolatileLoad;
+
+        surface {
+            trusted func volatile_load<T>(pos pointer: RawPointer<T>) -> T
+                requires(
+                    trusted core.memory.valid_read(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                )
+                uses(raw_memory);
+        }
+    }
+
+    declaration VolatileStore {
+        availability RawMemory;
+        implementation VolatileStore;
+
+        surface {
+            trusted func volatile_store<T>(
+                pos pointer: RawPointer<T>,
+                pos value: T,
+            ) -> unit
+                requires(
+                    trusted core.memory.valid_write(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                )
+                ensures(
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                )
+                uses(raw_memory, unchecked_init);
+        }
+    }
+
+    declaration DeviceVolatileLoad {
+        availability AddressSpaces;
+        implementation DeviceVolatileLoad;
+
+        surface {
+            trusted func device_volatile_load<T>(pos pointer: RawPointer<T>) -> T
+                requires(
+                    trusted core.memory.valid_read(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                )
+                uses(raw_memory, device_memory);
+        }
+    }
+
+    declaration DeviceVolatileStore {
+        availability AddressSpaces;
+        implementation DeviceVolatileStore;
+
+        surface {
+            trusted func device_volatile_store<T>(
+                pos pointer: RawPointer<T>,
+                pos value: T,
+            ) -> unit
+                requires(
+                    trusted core.memory.valid_write(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                )
+                ensures(
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                )
+                uses(raw_memory, device_memory, unchecked_init);
+        }
+    }
+
+    declaration PointerExposeAddress {
+        availability RawMemory;
+        implementation PointerExposeAddress;
+
+        surface {
+            trusted func expose_address<T>(pos pointer: RawPointer<T>) -> usize
+                uses(intrinsic);
+        }
+    }
+
+    declaration PointerFromExposedAddress {
+        availability RawMemory;
+        implementation PointerFromExposedAddress;
+
+        surface {
+            trusted func from_exposed_address<T>(address: usize) -> RawPointer<T>
+                uses(intrinsic);
+        }
+    }
+
+    declaration PointerAddressEqual {
+        availability RawMemory;
+        implementation PointerAddressEqual;
+
+        surface {
+            trusted func address_equal<T>(
+                pos left: RawPointer<T>,
+                pos right: RawPointer<T>,
+            ) -> bool
+                uses(intrinsic);
+        }
+    }
+
+    declaration PointerAddressLess {
+        availability RawMemory;
+        implementation PointerAddressLess;
+
+        surface {
+            trusted func address_less<T>(
+                pos left: RawPointer<T>,
+                pos right: RawPointer<T>,
+            ) -> bool
+                uses(intrinsic);
+        }
+    }
+
+    declaration CompilerFence {
+        implementation CompilerFence;
+
+        surface { trusted func compiler_fence() -> unit uses(intrinsic); }
+    }
+
+    declaration CatastrophicAbort {
+        implementation CatastrophicAbort;
+
+        surface { trusted func abort() -> never uses(intrinsic); }
+    }
+
+    declaration DebuggerTrap {
+        implementation DebuggerTrap;
+
+        surface { trusted func debugger_trap() -> unit uses(intrinsic); }
+    }
+
+    declaration UnreachableTermination {
+        implementation UnreachableTermination;
+
+        surface { trusted func unreachable() -> never uses(intrinsic); }
+    }
+
+    declaration SpinLoopHint {
+        implementation SpinLoopHint;
+
+        surface { trusted func spin_loop_hint() -> unit uses(intrinsic); }
+    }
+
+    declaration TargetFeatureEnabled {
+        implementation TargetFeatureEnabled;
+
+        surface {
+            trusted func feature_enabled(pos feature: string) -> bool
+                uses(intrinsic);
+        }
+    }
+
+    declaration InlineAssembly {
+        implementation InlineAssembly;
+
+        surface {
+            trusted func assembly<Input, Output>(
+                pos template: string,
+                pos constraints: string,
+                pos clobbers: string,
+                pos features: string,
+                options: u32,
+                pos input: Input,
+            ) -> Output
+                uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init);
+        }
+    }
+
+    declaration DivergingInlineAssembly {
+        implementation DivergingInlineAssembly;
+
+        surface {
+            trusted func diverging_assembly<Input>(
+                pos template: string,
+                pos constraints: string,
+                pos clobbers: string,
+                pos features: string,
+                options: u32,
+                pos input: Input,
+            ) -> never
+                uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init);
+        }
+    }
+}

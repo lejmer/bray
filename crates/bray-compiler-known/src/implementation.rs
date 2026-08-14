@@ -74,6 +74,38 @@ define_catalog_enum! {
         SliceLength => "SliceLength",
         /// Reconstructs a state borrow at a checked foreign-callback entry.
         CallbackState => "CallbackState",
+        /// Reads initialized storage with volatile access semantics.
+        VolatileLoad => "VolatileLoad",
+        /// Writes storage with volatile access semantics.
+        VolatileStore => "VolatileStore",
+        /// Reads initialized device storage with volatile access semantics.
+        DeviceVolatileLoad => "DeviceVolatileLoad",
+        /// Writes device storage with volatile access semantics.
+        DeviceVolatileStore => "DeviceVolatileStore",
+        /// Exposes a raw pointer address as a provenance-free integer.
+        PointerExposeAddress => "PointerExposeAddress",
+        /// Reconstructs a raw pointer from a provenance-free integer address.
+        PointerFromExposedAddress => "PointerFromExposedAddress",
+        /// Compares two provenance-free pointer addresses for equality.
+        PointerAddressEqual => "PointerAddressEqual",
+        /// Orders two provenance-free pointer addresses.
+        PointerAddressLess => "PointerAddressLess",
+        /// Prevents compiler reordering across the operation.
+        CompilerFence => "CompilerFence",
+        /// Terminates the product catastrophically without source cleanup.
+        CatastrophicAbort => "CatastrophicAbort",
+        /// Requests a debugger trap on the selected target.
+        DebuggerTrap => "DebuggerTrap",
+        /// Marks a reached path as impossible and terminates it.
+        UnreachableTermination => "UnreachableTermination",
+        /// Emits the selected target's spin-loop hint.
+        SpinLoopHint => "SpinLoopHint",
+        /// Tests a compiler-known target instruction feature.
+        TargetFeatureEnabled => "TargetFeatureEnabled",
+        /// Executes checked trusted target-gated inline assembly.
+        InlineAssembly => "InlineAssembly",
+        /// Executes checked trusted inline assembly that cannot continue.
+        DivergingInlineAssembly => "DivergingInlineAssembly",
         /// Starts an inactive asynchronous computation as a task.
         FutureStart => "FutureStart",
         /// Joins and observes an independently running task.
@@ -164,6 +196,22 @@ impl ImplementationHook {
         Self::ByteBufferRead,
         Self::SliceLength,
         Self::CallbackState,
+        Self::VolatileLoad,
+        Self::VolatileStore,
+        Self::DeviceVolatileLoad,
+        Self::DeviceVolatileStore,
+        Self::PointerExposeAddress,
+        Self::PointerFromExposedAddress,
+        Self::PointerAddressEqual,
+        Self::PointerAddressLess,
+        Self::CompilerFence,
+        Self::CatastrophicAbort,
+        Self::DebuggerTrap,
+        Self::UnreachableTermination,
+        Self::SpinLoopHint,
+        Self::TargetFeatureEnabled,
+        Self::InlineAssembly,
+        Self::DivergingInlineAssembly,
     ];
 }
 

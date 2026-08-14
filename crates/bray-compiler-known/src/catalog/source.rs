@@ -148,7 +148,7 @@ impl CatalogTokenSpelling {
 }
 
 #[cfg(any(test, feature = "generation"))]
-const SOURCES: [CatalogSource; 16] = [
+const SOURCES: [CatalogSource; 17] = [
     CatalogSource::new(
         CatalogSourceId::new(0),
         CatalogKind::CompilerKnown,
@@ -199,48 +199,54 @@ const SOURCES: [CatalogSource; 16] = [
     ),
     CatalogSource::new(
         CatalogSourceId::new(8),
+        CatalogKind::CompilerKnown,
+        "catalog/core/target-control.braydef",
+        include_str!("../../catalog/core/target-control.braydef"),
+    ),
+    CatalogSource::new(
+        CatalogSourceId::new(9),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/conversion.braydef",
         include_str!("../../catalog/recognized/conversion.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(9),
+        CatalogSourceId::new(10),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/memory.braydef",
         include_str!("../../catalog/recognized/memory.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(10),
+        CatalogSourceId::new(11),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/string.braydef",
         include_str!("../../catalog/recognized/string.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(11),
+        CatalogSourceId::new(12),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/character.braydef",
         include_str!("../../catalog/recognized/character.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(12),
+        CatalogSourceId::new(13),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/run.braydef",
         include_str!("../../catalog/recognized/run.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(13),
+        CatalogSourceId::new(14),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/testing.braydef",
         include_str!("../../catalog/recognized/testing.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(14),
+        CatalogSourceId::new(15),
         CatalogKind::RecognizedStandardLibrary,
         "catalog/recognized/ffi.braydef",
         include_str!("../../catalog/recognized/ffi.braydef"),
     ),
     CatalogSource::new(
-        CatalogSourceId::new(15),
+        CatalogSourceId::new(16),
         CatalogKind::CompilerKnown,
         "catalog/ambient/capabilities.braydef",
         include_str!("../../catalog/ambient/capabilities.braydef"),
@@ -276,7 +282,7 @@ mod tests {
             .map(|path| format!("catalog/{path}"))
             .collect::<Vec<_>>();
 
-        assert_eq!(sources.len(), 16);
+        assert_eq!(sources.len(), 17);
 
         assert_eq!(
             sources

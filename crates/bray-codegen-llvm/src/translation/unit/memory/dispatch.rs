@@ -1,4 +1,4 @@
-use bray_bound_tree::{CheckedMemoryOperationKind, MemoryOffsetUnit};
+use bray_bound_tree::{CheckedMemoryOperationKind, MemoryOffsetUnit, VolatileAddressSpace};
 use bray_codegen::CodegenFailure;
 use bray_ir::{MirMemoryOperation, MirOperation, MirOperationId};
 use inkwell::IntPredicate;
@@ -193,6 +193,52 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::SliceLength => {
                 self.translate_slice_length(memory).map(Some)
             }
+            CheckedMemoryOperationKind::VolatileRead { pointee, .. } => {
+                self.translate_volatile_read(memory, pointee).map(Some)
+            }
+            CheckedMemoryOperationKind::VolatileWrite { .. } => {
+                self.translate_volatile_write(memory)?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::ExposeAddress { .. } => {
+                self.translate_expose_address(memory).map(Some)
+            }
+            CheckedMemoryOperationKind::FromExposedAddress { .. } => {
+                self.translate_from_exposed_address(operation, memory).map(Some)
+            }
+            CheckedMemoryOperationKind::CompareAddress { comparison, .. } => {
+                self.translate_address_comparison(memory, comparison).map(Some)
+            }
+            CheckedMemoryOperationKind::CompilerFence => {
+                self.translate_compiler_fence()?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::CatastrophicAbort => {
+                self.translate_catastrophic_abort()?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::DebuggerTrap => {
+                self.translate_debugger_trap()?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::UnreachableTermination => Ok(None),
+            CheckedMemoryOperationKind::SpinLoopHint => {
+                self.translate_spin_loop_hint()?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::TargetFeatureEnabled { feature } => {
+                self.translate_target_feature(feature).map(Some)
+            }
+            CheckedMemoryOperationKind::InlineAssembly {
+                output, contract, ..
+            } => {
+                self.translate_inline_assembly(operation, memory, contract, output.is_none())
+            }
         }
     }
 
@@ -200,12 +246,23 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         kind: CheckedMemoryOperationKind,
     ) -> Result<(), CodegenFailure> {
-        let operations = self.request.target().profile().facts().operations();
+        let facts = self.request.target().profile().facts();
+        let operations = facts.operations();
+
+        let control = bray_target::TargetControlFacts::for_architecture(
+            self.request.target().profile().machine().architecture(),
+        );
 
         let available = match kind {
             CheckedMemoryOperationKind::LayoutQuery { .. }
             | CheckedMemoryOperationKind::SliceLength
-            | CheckedMemoryOperationKind::CallbackState { .. } => true,
+            | CheckedMemoryOperationKind::CallbackState { .. }
+            | CheckedMemoryOperationKind::CompilerFence
+            | CheckedMemoryOperationKind::CatastrophicAbort
+            | CheckedMemoryOperationKind::DebuggerTrap
+            | CheckedMemoryOperationKind::UnreachableTermination
+            | CheckedMemoryOperationKind::SpinLoopHint
+            | CheckedMemoryOperationKind::TargetFeatureEnabled { .. } => true,
             CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawDeallocate
             | CheckedMemoryOperationKind::Allocate
@@ -222,6 +279,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::RawBufferRelocate { .. } => {
                 operations.allocation() && operations.raw_memory()
             }
+            CheckedMemoryOperationKind::VolatileRead {
+                address_space: VolatileAddressSpace::Device,
+                ..
+            }
+            | CheckedMemoryOperationKind::VolatileWrite {
+                address_space: VolatileAddressSpace::Device,
+                ..
+            } => operations.raw_memory() && facts.address_spaces().device(),
+            CheckedMemoryOperationKind::InlineAssembly { .. } => control.inline_assembly(),
             _ => operations.raw_memory(),
         };
 
@@ -239,7 +305,7 @@ mod tests {
 
     use bray_bound_tree::{
         CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
-        MemoryOffsetUnit, MemoryReadKind,
+        MemoryOffsetUnit, MemoryReadKind, PointerAddressComparison, VolatileAddressSpace,
     };
     use bray_codegen::test_support::{codegen_request_for_unit, codegen_target_with_profile};
     use bray_codegen::{
@@ -303,9 +369,17 @@ mod tests {
 
         let ir = module.print_to_string().to_string();
 
+        assert!(module.verify().is_ok(), "{ir}");
+
         for spelling in [
             "llvm.memcpy",
             "llvm.memmove",
+            "load volatile",
+            "store volatile",
+            "ptrtoint",
+            "inttoptr",
+            "llvm.debugtrap",
+            "pause",
             bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
             bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
         ] {
@@ -613,6 +687,87 @@ mod tests {
             [types.pointer, types.value],
             None,
         );
+
+        let volatile_read = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::VolatileRead {
+                pointee: types.value,
+                address_space: VolatileAddressSpace::Host,
+                kind: MemoryReadKind::Copy,
+            },
+            [MirOperand::Value(address)],
+            [types.pointer],
+            Some(types.value),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("volatile read must produce a value"));
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::VolatileWrite {
+                pointee: types.value,
+                address_space: VolatileAddressSpace::Host,
+            },
+            [
+                MirOperand::Value(address),
+                MirOperand::Value(volatile_read),
+            ],
+            [types.pointer, types.value],
+            None,
+        );
+
+        let exposed = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::ExposeAddress {
+                pointee: types.value,
+            },
+            [MirOperand::Value(address)],
+            [types.pointer],
+            Some(types.usize),
+        )
+        .result()
+        .unwrap_or_else(|| panic!("address exposure must produce a value"));
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::FromExposedAddress {
+                pointee: types.value,
+            },
+            [MirOperand::Value(exposed)],
+            [types.usize],
+            Some(types.pointer),
+        );
+
+        for comparison in [PointerAddressComparison::Equal, PointerAddressComparison::Less] {
+            push_memory(
+                &mut builder,
+                entry,
+                &source,
+                CheckedMemoryOperationKind::CompareAddress {
+                    pointee: types.value,
+                    comparison,
+                },
+                [MirOperand::Value(address), MirOperand::Value(null)],
+                [types.pointer, types.pointer],
+                Some(types.boolean),
+            );
+        }
+
+        for kind in [
+            CheckedMemoryOperationKind::CompilerFence,
+            CheckedMemoryOperationKind::DebuggerTrap,
+            CheckedMemoryOperationKind::SpinLoopHint,
+        ] {
+            push_memory(&mut builder, entry, &source, kind, [], [], None);
+        }
 
         for kind in [MemoryCopyKind::NonOverlapping, MemoryCopyKind::Overlapping] {
             push_memory(
