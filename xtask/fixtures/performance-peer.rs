@@ -194,12 +194,12 @@ fn multiply_modulo(left: u128, right: u128) -> u128 {
 
 #[cfg(peer_workload = "format_numbers")]
 fn workload() -> bool {
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(2_986);
 
     for value in 0_u32..1_024 {
         let value = std::hint::black_box(value);
 
-        if bytes.try_reserve(10).is_err() || write!(&mut bytes, "{value}").is_err() {
+        if write!(&mut bytes, "{value}").is_err() {
             return false;
         }
     }

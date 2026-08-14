@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 6;
+pub(super) const CORPUS_REVISION: u32 = 7;
 
 pub(super) struct Workload {
     pub id: &'static str,
@@ -170,6 +170,7 @@ func parsed_literal() -> bool
 }
 
 func main()
+    requires(blocking_execution())
 {
     let literal: string = "borrowed text";
     let duplicate: string = "borrowed text";
@@ -248,8 +249,9 @@ func main()
 using std.format;
 
 func main() -> Result<unit, std.memory.MemoryLayoutError>
+    requires(blocking_execution())
 {
-    let mut sink: ByteSink = try ByteSink(capacity = 0);
+    let mut sink: ByteSink = try ByteSink(capacity = 2986);
     let mut value: u32 = 0;
 
     while value < 1024
@@ -273,16 +275,23 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             "standard-library/std/src/bytes/buffer.bray",
             "standard-library/std/src/string.bray",
             "standard-library/std/src/character.bray",
+            "standard-library/std/src/numeric/checked.bray",
+            "standard-library/std/src/numeric/limits.bray",
             "standard-library/std/src/format/options.bray",
             "standard-library/std/src/format/argument.bray",
             "standard-library/std/src/format/sink.bray",
+            "standard-library/std/src/format/integer_width.bray",
             "standard-library/std/src/format/rendering.bray",
         ],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[],
         retention: NO_RETENTION_CONTRACT,
-        storage: None,
+        storage: Some(StorageExpectation {
+            allocation_count: 1,
+            allocated_bytes: 2_986,
+            copied_bytes: 2_986,
+        }),
     },
     Workload {
         id: "stream_output",
@@ -590,6 +599,15 @@ mod tests {
         assert_eq!(1_u64 << additional_allocations, 4096 / 64);
         assert_eq!(large.allocated_bytes + 4, (small.allocated_bytes + 4) * 64);
         assert_eq!(large.copied_bytes + 4, (small.copied_bytes + 4) * 64);
+    }
+
+    #[test]
+    fn number_formatting_allocates_exact_final_storage_and_copies_each_byte_once() {
+        let formatting = storage("format_numbers");
+
+        assert_eq!(formatting.allocation_count, 1);
+        assert_eq!(formatting.allocated_bytes, 2_986);
+        assert_eq!(formatting.copied_bytes, formatting.allocated_bytes);
     }
 
     fn storage(identity: &str) -> super::StorageExpectation {

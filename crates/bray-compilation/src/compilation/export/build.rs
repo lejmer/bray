@@ -682,10 +682,12 @@ mod tests {
     use std::sync::Arc;
 
     use bray_compiler_known::CompilerKnownDeclarationKey;
+    use bray_ir::{MirOperationKind, MirProjectionKind};
     use bray_package_interface::{
         InterfaceConstantValueKind, InterfaceLanguageRevision, InterfaceProductIdentity,
-        InterfaceSymbolReference, InterfaceValidationPolicy, PackageInterfaceExportBundle,
-        ValidatedPackageInterface, encode_package_interface,
+        InterfaceSymbolReference, InterfaceValidationLimits, InterfaceValidationPolicy,
+        PackageImplementationArtifact, PackageInterfaceExportBundle, ValidatedPackageInterface,
+        encode_package_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
@@ -695,7 +697,10 @@ mod tests {
     };
     use bray_testing::test_source_inputs;
 
-    use crate::test_support::{package_version, source_function_body_key};
+    use crate::test_support::{
+        package_version, source_function_body_key,
+        source_named_trait_callable_fulfillment_body_key,
+    };
     use crate::{
         Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
         PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
@@ -998,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn standard_formatting_surface_round_trips_without_provider_source() {
+    fn standard_formatting_surface_round_trips_and_specializes_without_provider_source() {
         let provider = standard_library_compilation([
             include_str!("../../../../../standard-library/std/src/std.bray"),
             concat!(
@@ -1008,6 +1013,17 @@ mod tests {
                 "    SizeOverflow;\n",
                 "    UnsupportedAlignment;\n",
                 "}\n",
+                "extern func slice_length<T>(pos values: &[T]) -> usize;\n",
+                "extern func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>;\n",
+                "extern trusted func byte_slice_copy(\n",
+                "    pos source: &[u8],\n",
+                "    destination: RawPointer<u8>,\n",
+                ");\n",
+                "extern trusted func byte_buffer_fill(\n",
+                "    destination: RawPointer<u8>,\n",
+                "    value: u8,\n",
+                "    count: usize,\n",
+                ");\n",
             ),
             concat!(
                 "module std.bytes;\n",
@@ -1036,6 +1052,8 @@ mod tests {
                 "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
                 "extern func append_repeated(pos buffer: &mut Buffer, value: u8, count: usize)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
+                "extern func reserve(pos buffer: &mut Buffer, additional: usize)\n",
+                "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
                 "extern func resize(pos buffer: &mut Buffer, new_length: usize, fill: u8 = 0)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
             ),
@@ -1049,10 +1067,60 @@ mod tests {
                 "extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;\n",
             ),
             include_str!("../../../../../standard-library/std/src/character.bray"),
+            include_str!("../../../../../standard-library/std/src/numeric/checked.bray"),
+            include_str!("../../../../../standard-library/std/src/numeric/limits.bray"),
             include_str!("../../../../../standard-library/std/src/format/options.bray"),
             include_str!("../../../../../standard-library/std/src/format/argument.bray"),
             include_str!("../../../../../standard-library/std/src/format/sink.bray"),
+            include_str!("../../../../../standard-library/std/src/format/integer_width.bray"),
             include_str!("../../../../../standard-library/std/src/format/rendering.bray"),
+            concat!(
+                "trusted module std.io;\n",
+                "union IoErrorKind\n",
+                "{\n",
+                "    BrokenStream;\n",
+                "}\n",
+                "struct IoError\n",
+                "{\n",
+                "    kind: IoErrorKind;\n",
+                "    transferred: usize;\n",
+                "}\n",
+                "trait Writer\n",
+                "{\n",
+                "    mut func write(pos source: &[u8]) -> Result<usize, IoError>\n",
+                "        requires(blocking_execution());\n",
+                "    mut func flush() -> Result<unit, IoError>\n",
+                "        requires(blocking_execution());\n",
+                "}\n",
+                "internal func smaller(pos left: usize, pos right: usize) -> usize\n",
+                "{\n",
+                "    if left < right\n",
+                "    {\n",
+                "        return left;\n",
+                "    }\n",
+                "    return right;\n",
+                "}\n",
+                "internal func advance_write_all(\n",
+                "    pos result: Result<usize, IoError>,\n",
+                "    written: usize,\n",
+                "    remaining: usize,\n",
+                ") -> Result<usize, IoError>\n",
+                "{\n",
+                "    match consume result\n",
+                "    {\n",
+                "        case Ok(count)\n",
+                "        {\n",
+                "            if count == 0 || count > remaining\n",
+                "            {\n",
+                "                return Error({ kind = IoErrorKind.BrokenStream, transferred = written });\n",
+                "            }\n",
+                "            return Ok(written + count);\n",
+                "        }\n",
+                "        case Error(error) { return Error(error); }\n",
+                "    }\n",
+                "}\n",
+            ),
+            include_str!("../../../../../standard-library/std/src/io/formatting.bray"),
         ]);
 
         assert!(
@@ -1085,6 +1153,33 @@ mod tests {
             provider.check_diagnostics()
         );
 
+        let adapter = provider
+            .lowered_unit(source_named_trait_callable_fulfillment_body_key(
+                &provider,
+                "WriterFormattingSink",
+                "write",
+            ))
+            .unwrap_or_else(|error| panic!("writer formatting adapter must lower: {error:?}"));
+
+        let adapter = adapter
+            .value()
+            .as_ref()
+            .and_then(bray_lowering::LoweredUnit::mir)
+            .unwrap_or_else(|| panic!("writer formatting adapter must produce MIR: {adapter:#?}"));
+
+        assert!(adapter.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Borrow { place, .. }
+                if place
+                    .projections()
+                    .iter()
+                    .any(|projection| matches!(projection.kind(), MirProjectionKind::Field(_)))
+                    && matches!(
+                        place.projections().last().map(bray_ir::MirProjection::kind),
+                        Some(MirProjectionKind::Dereference)
+                    )
+        )), "generic writer field borrow must reach the destination value: {adapter:#?}");
+
         let interface = export(&provider);
 
         let runtime_capabilities: BTreeSet<_> = interface
@@ -1108,6 +1203,24 @@ mod tests {
         let artifact = encode_package_interface(interface)
             .unwrap_or_else(|error| panic!("formatting interface must encode: {error:?}"));
 
+        let policy = InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0));
+
+        let validated = ValidatedPackageInterface::try_new(artifact.bytes(), policy)
+            .unwrap_or_else(|error| panic!("formatting interface must validate: {error:?}"));
+
+        let implementation = PackageImplementationArtifact::try_new(
+            &validated,
+            interface.surface(),
+            interface.semantic_facts(),
+            interface.implementation_configuration().clone(),
+            [],
+            interface.executable_templates().iter().cloned(),
+            [],
+            [],
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap_or_else(|error| panic!("formatting implementation must encode: {error:?}"));
+
         let provider_package = PackageIdentity::try_new("std")
             .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
 
@@ -1119,8 +1232,9 @@ mod tests {
             provider_product,
             "std.brayi",
             artifact.shared_bytes(),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-        );
+            policy,
+        )
+        .with_implementation_artifact("std.brayimpl", Arc::new(implementation));
 
         let consumer_package = PackageIdentity::try_new("example.application")
             .unwrap_or_else(|| panic!("consumer package identity must be valid"));
@@ -1132,11 +1246,36 @@ mod tests {
             concat!(
                 "module app;\n",
                 "using std.format;\n",
+                "using std.format.ByteSinkFormatting;\n",
                 "using std.format.StringFormat;\n",
                 "using std.format.I32Format;\n",
+                "using std.format.U32Format;\n",
+                "using std.bytes;\n",
+                "using std.io;\n",
+                "using std.io.WriterFormattingSink;\n",
                 "using std.memory;\n",
+                "struct RecordingWriter\n",
+                "{\n",
+                "    mut written: usize;\n",
+                "}\n",
+                "impl RecordingWriterIo = RecordingWriter(std.io.Writer)\n",
+                "{\n",
+                "    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>\n",
+                "        requires(blocking_execution())\n",
+                "    {\n",
+                "        let length: usize = std.bytes.slice_length(source);\n",
+                "        self.written += length;\n",
+                "        return Ok(length);\n",
+                "    }\n",
+                "    mut func flush() -> Result<unit, std.io.IoError>\n",
+                "        requires(blocking_execution())\n",
+                "    {\n",
+                "        return Ok(unit);\n",
+                "    }\n",
+                "}\n",
                 "func render(pos destination: &mut std.format.ByteSink, pos value: string)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>\n",
+                "    requires(blocking_execution())\n",
                 "{\n",
                 "    return std.format.write(\n",
                 "        destination,\n",
@@ -1145,6 +1284,7 @@ mod tests {
                 "}\n",
                 "func render_integer(pos destination: &mut std.format.ByteSink, pos value: i32)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>\n",
+                "    requires(blocking_execution())\n",
                 "{\n",
                 "    return std.format.write(\n",
                 "        destination,\n",
@@ -1154,6 +1294,21 @@ mod tests {
                 "func resolved_defaults() -> std.format.Options\n",
                 "{\n",
                 "    return std.format.Options.default();\n",
+                "}\n",
+                "public trusted func stream_integer(pos writer: &mut RecordingWriter, pos value: u32)\n",
+                "    -> Result<unit, std.io.IoError>\n",
+                "    requires(blocking_execution())\n",
+                "{\n",
+                "    let mut destination: std.io.FormattingSink<RecordingWriter> =\n",
+                "        std.io.FormattingSink<RecordingWriter>(writer);\n",
+                "    return trusted std.format.write_to<\n",
+                "        u32,\n",
+                "        std.io.FormattingSink<RecordingWriter>,\n",
+                "        std.io.IoError\n",
+                "    >(\n",
+                "        &mut destination,\n",
+                "        std.format.Argument<u32>(&value),\n",
+                "    );\n",
                 "}\n",
             ),
         );
@@ -1189,6 +1344,16 @@ mod tests {
             .package_by_identity(&provider_package)
             .unwrap_or_else(|| panic!("standard-library package must be imported"));
 
+        assert!(
+            consumer
+                .symbol_graph()
+                .unwrap_or_else(|error| panic!("consumer source symbols must build: {error:?}"))
+                .packages()
+                .iter()
+                .all(|package| package.identity() != &provider_package),
+            "provider symbols must come only from the package interface"
+        );
+
         let format_path = ModulePathKey::try_new(["format"])
             .unwrap_or_else(|| panic!("format module path must be valid"));
 
@@ -1196,15 +1361,44 @@ mod tests {
             .module_by_path(package.id(), &format_path)
             .unwrap_or_else(|| panic!("format module must be imported"));
 
+        for name in ["Argument", "ByteSink", "ByteSinkFormatting"] {
+            assert!(
+                matches!(
+                    skeleton.lookup(format.id().into(), name),
+                    MemberLookupResult::Found(_)
+                ),
+                "{name} must be supplied by the imported package interface"
+            );
+        }
+
+        let bytes_path = ModulePathKey::try_new(["bytes"])
+            .unwrap_or_else(|| panic!("bytes module path must be valid"));
+
+        let bytes = skeleton
+            .module_by_path(package.id(), &bytes_path)
+            .unwrap_or_else(|| panic!("bytes module must be imported"));
+
         assert!(matches!(
-            skeleton.lookup(format.id().into(), "ByteSink"),
+            skeleton.lookup(bytes.id().into(), "slice_length"),
             MemberLookupResult::Found(_)
         ));
 
-        assert!(matches!(
-            skeleton.lookup(format.id().into(), "Argument"),
-            MemberLookupResult::Found(_)
-        ));
+        let io_path = ModulePathKey::try_new(["io"])
+            .unwrap_or_else(|| panic!("io module path must be valid"));
+
+        let io = skeleton
+            .module_by_path(package.id(), &io_path)
+            .unwrap_or_else(|| panic!("io module must be imported"));
+
+        for name in ["IoError", "Writer", "WriterFormattingSink"] {
+            assert!(
+                matches!(
+                    skeleton.lookup(io.id().into(), name),
+                    MemberLookupResult::Found(_)
+                ),
+                "{name} must be supplied by the imported package interface"
+            );
+        }
 
         assert!(
             consumer.check_diagnostics().is_empty(),
@@ -1227,6 +1421,19 @@ mod tests {
         assert!(!skeleton.traits().is_empty());
         assert!(!skeleton.structures().is_empty());
         assert!(!skeleton.named_trait_implementations().is_empty());
+
+        let streamed = consumer
+            .lowered_unit(source_function_body_key(&consumer, "stream_integer"))
+            .unwrap_or_else(|error| panic!("imported formatting adapter must lower: {error:?}"));
+
+        assert!(streamed.value().is_some(), "{:#?}", streamed.diagnostics());
+        assert!(streamed.diagnostics().is_empty(), "{:#?}", streamed.diagnostics());
+
+        let imported_instances = consumer
+            .imported_codegen_instance_count_for_test()
+            .unwrap_or_else(|error| panic!("imported formatting reachability must close: {error:?}"));
+
+        assert!(imported_instances > 0);
     }
 
     #[test]

@@ -35,7 +35,8 @@ use bray_target::TargetProfile;
 use super::Compilation;
 use super::binder::CompilationBinderFacts;
 use super::implementation::{
-    TypeValuedMemberResolution, implementation_fulfillments, selected_type_valued_member,
+    TypeValuedMemberResolution, implementation_fulfillments, implementation_instance_requirement,
+    selected_type_valued_member,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -72,44 +73,11 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         &self,
         requirement: ImplementationRequirementKey,
     ) -> CheckerFactResult<Option<ImplementationInstanceId>> {
-        let compilation = self.facts.compilation();
-
-        let headers = compilation
-            .implementation_header_index(self.facts.cancellation())
-            .map_err(checker_fact_error)?;
-
-        let values = self.semantic_values();
-
         for witness in self.implementation_witnesses.iter().copied() {
-            let instance = values.implementation_instance_data(witness).map_err(|_| {
-                CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                )
-            })?;
+            let witness_requirement = implementation_instance_requirement(&self.facts, witness)
+                .map_err(checker_fact_error)?;
 
-            let header = headers.value().header(instance.definition()).ok_or(
-                CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                ),
-            )?;
-
-            let subject = values
-                .substitute_type(header.subject(), instance.substitution())
-                .map_err(|_| {
-                    CheckerFactError::Infrastructure(
-                        CheckerInfrastructureError::SemanticValueUnavailable,
-                    )
-                })?;
-
-            let application = values
-                .substitute_trait_application(header.trait_application(), instance.substitution())
-                .map_err(|_| {
-                    CheckerFactError::Infrastructure(
-                        CheckerInfrastructureError::SemanticValueUnavailable,
-                    )
-                })?;
-
-            if requirement == ImplementationRequirementKey::new(subject, application) {
+            if requirement == witness_requirement {
                 return Ok(Some(witness));
             }
         }

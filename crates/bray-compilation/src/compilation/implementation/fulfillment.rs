@@ -3,6 +3,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ExternalDeclarationIdentity,
     ExternalSymbolKeyData, GenericArgument, GenericOwnerId, GenericSubstitutionData,
+    ImplementationCoherenceFact, ImplementationInstanceId, ImplementationRequirementKey,
     ImplementationSymbolId, SymbolFactRequest, SymbolKeyData, TraitApplicationData,
     TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId,
     TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueFact, TraitTypeMemberSymbolId, TypeId,
@@ -48,6 +49,38 @@ pub(in crate::compilation) fn implementation_requirement(
         subject,
         application,
     ))
+}
+
+pub(in crate::compilation) fn implementation_instance_requirement(
+    facts: &CompilationBinderFacts<'_>,
+    instance: ImplementationInstanceId,
+) -> Result<ImplementationRequirementKey, FactQueryError> {
+    let values = facts.semantic_values();
+
+    let instance = values
+        .implementation_instance_data(instance)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let coherence = facts
+        .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+            instance.definition(),
+        ))
+        .map_err(binder_fact_error)?;
+
+    let application = coherence
+        .value()
+        .trait_application()
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    let subject = values
+        .substitute_type(coherence.value().subject(), instance.substitution())
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let application = values
+        .substitute_trait_application(application, instance.substitution())
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    Ok(ImplementationRequirementKey::new(subject, application))
 }
 
 pub(in crate::compilation) fn selected_type_valued_member(

@@ -271,6 +271,8 @@ bool workload()
     std::vector<char> bytes;
     char formatted[10];
 
+    bytes.reserve(2986);
+
     for (std::uint32_t value = 0; value < 1024; ++value)
     {
         const auto result =

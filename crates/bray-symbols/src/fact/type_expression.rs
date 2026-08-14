@@ -70,9 +70,11 @@ impl ConstantExpressionOccurrence {
     }
 }
 
-/// One generic argument in an unresolved type-expression template.
+/// One generic argument in a type-expression template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum GenericArgumentTemplate {
+    /// An imported or otherwise checked argument is already a semantic value.
+    Resolved(GenericArgument),
     /// A type argument retains its recursively bound type template.
     Type(TypeExpressionTemplate),
     /// A const argument retains its source occurrence and expected type.
@@ -80,9 +82,10 @@ pub enum GenericArgumentTemplate {
 }
 
 impl GenericArgumentTemplate {
-    /// Returns the canonical generic argument if no checking remains.
+    /// Returns the checked generic argument when no checking remains.
     pub const fn resolved_argument(&self) -> Option<GenericArgument> {
         match self {
+            Self::Resolved(argument) => Some(*argument),
             Self::Type(ty) => match ty.resolved_type() {
                 Some(ty) => Some(GenericArgument::Type(ty)),
                 None => None,
@@ -403,6 +406,7 @@ fn push_argument_constants(
 ) {
     for argument in arguments {
         match argument {
+            GenericArgumentTemplate::Resolved(_) => {}
             GenericArgumentTemplate::Type(ty) => ty.push_constant_expressions(occurrences),
             GenericArgumentTemplate::Constant(occurrence) => occurrences.push(*occurrence),
         }

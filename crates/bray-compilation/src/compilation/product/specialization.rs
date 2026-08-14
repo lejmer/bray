@@ -25,7 +25,8 @@ use super::super::CodegenFactError;
 use super::super::Compilation;
 use super::super::binder::binder_fact_error;
 use super::super::implementation::{
-    callable_instance, implementation_fulfillments, selected_callable,
+    callable_instance, implementation_fulfillments, implementation_instance_requirement,
+    selected_callable,
 };
 use super::super::substitution::named_type;
 use super::specialization_identity::encoding::structural_type_identity;
@@ -564,27 +565,9 @@ impl Compilation {
         witness: ImplementationInstanceId,
         cancellation: &CancellationToken,
     ) -> Result<ImplementationRequirementKey, CodegenFactError> {
-        let values = self.semantic_value_store()?;
-        let headers = self.implementation_header_index(cancellation)?;
+        let facts = self.binder_facts(cancellation)?;
 
-        let instance = values
-            .implementation_instance_data(witness)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        let header = headers
-            .value()
-            .header(instance.definition())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let subject = values
-            .substitute_type(header.subject(), instance.substitution())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        let application = values
-            .substitute_trait_application(header.trait_application(), instance.substitution())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-        Ok(ImplementationRequirementKey::new(subject, application))
+        implementation_instance_requirement(&facts, witness).map_err(CodegenFactError::from)
     }
 
     fn concrete_codegen_forwarded_constraint_witnesses(
