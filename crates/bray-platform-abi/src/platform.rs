@@ -1,78 +1,138 @@
 use std::env;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use bray_platform_abi_support::{
-    MemoryRegion, disjoint, native_platform_export, startup_working_directory,
+    MemoryRegion, disjoint, mutually_disjoint, native_platform_export, startup_working_directory,
 };
 use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 
 const CONTEXT_HEADER_BYTES: usize = 72;
 const CONTEXT_ABI_MAJOR: u16 = 1;
 const CONTEXT_ABI_MINOR: u16 = 0;
+const UNINITIALIZED_IDENTITY: u64 = u64::MAX;
 
-native_platform_export! {
-    pub extern "C" fn bray_platform_context_measure(
-        required: *mut u64,
-    ) -> NativePlatformStatus {
-        if MemoryRegion::write(required).is_none() {
-            return NativePlatformStatus::INVALID_INPUT;
+struct ProcessContextOwner {
+    identity: AtomicU64,
+    native_text_width: u8,
+    block: OnceLock<Result<Box<[u8]>, NativePlatformStatus>>,
+}
+
+impl ProcessContextOwner {
+    const fn new() -> Self {
+        Self {
+            identity: AtomicU64::new(UNINITIALIZED_IDENTITY),
+            native_text_width: native_text_width(),
+            block: OnceLock::new(),
+        }
+    }
+
+    fn identity(&self) -> u64 {
+        let identity = self.identity.load(Ordering::Relaxed);
+
+        if identity != UNINITIALIZED_IDENTITY {
+            return identity;
         }
 
-        let context = match process_context() {
-            Ok(context) => context,
-            Err(status) => return status,
-        };
+        let discovered = u64::from(std::process::id());
 
-        let Some(length) = u64::try_from(context.len()).ok() else {
-            return NativePlatformStatus::EXHAUSTED;
-        };
+        match self.identity.compare_exchange(
+            UNINITIALIZED_IDENTITY,
+            discovered,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => discovered,
+            Err(identity) => identity,
+        }
+    }
 
-        unsafe { required.write(length) };
+    fn block(&self) -> Result<&[u8], NativePlatformStatus> {
+        match self.block.get_or_init(build_process_context) {
+            Ok(context) => Ok(context),
+            Err(status) => Err(*status),
+        }
+    }
 
-        NativePlatformStatus::SUCCESS
+    const fn native_text_width(&self) -> u8 {
+        self.native_text_width
+    }
+}
+
+static PROCESS_CONTEXT: ProcessContextOwner = ProcessContextOwner::new();
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_context_identity() -> u64 {
+        PROCESS_CONTEXT.identity()
     }
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_context_copy(
-        destination: *mut u8,
-        capacity: u64,
-        written_or_required: *mut u64,
+    pub extern "C" fn bray_platform_context_native_text_width() -> u32 {
+        u32::from(PROCESS_CONTEXT.native_text_width())
+    }
+}
+
+native_platform_export! {
+    pub extern "C" fn bray_platform_context_working_directory(
+        address: *mut *const std::ffi::c_void,
+        length: *mut u64,
     ) -> NativePlatformStatus {
-        let Ok(capacity) = usize::try_from(capacity) else {
-            return NativePlatformStatus::INVALID_INPUT;
-        };
+        publish_context_text(address, length, || {
+            process_context().map(|context| context_range(context, 16))
+        })
+    }
+}
 
-        let Some(destination_region) = MemoryRegion::read(destination, capacity) else {
-            return NativePlatformStatus::INVALID_INPUT;
-        };
+native_platform_export! {
+    pub extern "C" fn bray_platform_context_argument_count(
+        count: *mut u64,
+    ) -> NativePlatformStatus {
+        publish_value(count, process_context().map(|context| read_u64(context, 32)))
+    }
+}
 
-        let Some(required_region) = MemoryRegion::write(written_or_required) else {
-            return NativePlatformStatus::INVALID_INPUT;
-        };
+native_platform_export! {
+    pub extern "C" fn bray_platform_context_argument(
+        index: u64,
+        address: *mut *const std::ffi::c_void,
+        length: *mut u64,
+    ) -> NativePlatformStatus {
+        publish_context_text(address, length, || {
+            process_context()
+                .and_then(|context| context_indexed_range(context, index, 32, 40, 16))
+        })
+    }
+}
 
-        if !disjoint(&[destination_region, required_region]) {
-            return NativePlatformStatus::INVALID_INPUT;
-        }
+native_platform_export! {
+    pub extern "C" fn bray_platform_context_environment_count(
+        count: *mut u64,
+    ) -> NativePlatformStatus {
+        publish_value(count, process_context().map(|context| read_u64(context, 48)))
+    }
+}
 
-        let context = match process_context() {
-            Ok(context) => context,
-            Err(status) => return status,
-        };
+native_platform_export! {
+    pub extern "C" fn bray_platform_context_environment_entry(
+        index: u64,
+        key_address: *mut *const std::ffi::c_void,
+        key_length: *mut u64,
+        value_address: *mut *const std::ffi::c_void,
+        value_length: *mut u64,
+    ) -> NativePlatformStatus {
+        publish_context_text_pair(
+            key_address,
+            key_length,
+            value_address,
+            value_length,
+            || {
+                let context = process_context()?;
+                let entry = context_indexed_offset(context, index, 48, 56, 32)?;
 
-        let Some(required) = u64::try_from(context.len()).ok() else {
-            return NativePlatformStatus::EXHAUSTED;
-        };
-
-        unsafe { written_or_required.write(required) };
-
-        if capacity < context.len() {
-            return NativePlatformStatus::INSUFFICIENT_BUFFER;
-        }
-
-        unsafe { std::ptr::copy_nonoverlapping(context.as_ptr(), destination, context.len()) };
-
-        NativePlatformStatus::SUCCESS
+                Ok((context_range(context, entry), context_range(context, entry + 16)))
+            },
+        )
     }
 }
 
@@ -117,6 +177,10 @@ native_platform_export! {
             Err(status) => return status,
         };
 
+        if let Err(status) = validate_context_outputs(&[equal_region]) {
+            return status;
+        }
+
         unsafe { equal.write(equal_value) };
 
         NativePlatformStatus::SUCCESS
@@ -124,12 +188,205 @@ native_platform_export! {
 }
 
 fn process_context() -> Result<&'static [u8], NativePlatformStatus> {
-    static CONTEXT: OnceLock<Result<Box<[u8]>, NativePlatformStatus>> = OnceLock::new();
+    PROCESS_CONTEXT.block()
+}
 
-    match CONTEXT.get_or_init(build_process_context) {
-        Ok(context) => Ok(context),
-        Err(status) => Err(*status),
+fn validate_context_outputs(outputs: &[MemoryRegion]) -> Result<(), NativePlatformStatus> {
+    let Some(Ok(context)) = PROCESS_CONTEXT.block.get() else {
+        return Ok(());
+    };
+
+    let Some(context_region) = MemoryRegion::read(context.as_ptr(), context.len()) else {
+        return Err(NativePlatformStatus::OTHER);
+    };
+
+    if !mutually_disjoint(outputs, &[context_region]) {
+        return Err(NativePlatformStatus::INVALID_INPUT);
     }
+
+    Ok(())
+}
+
+#[expect(
+    unsafe_code,
+    reason = "validated native ABI output storage receives one initialized scalar"
+)]
+fn publish_value<T>(
+    destination: *mut T,
+    value: Result<T, NativePlatformStatus>,
+) -> NativePlatformStatus {
+    let Some(destination_region) = MemoryRegion::write(destination) else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
+
+    let value = match value {
+        Ok(value) => value,
+        Err(status) => return status,
+    };
+
+    if let Err(status) = validate_context_outputs(&[destination_region]) {
+        return status;
+    }
+
+    unsafe { destination.write(value) };
+
+    NativePlatformStatus::SUCCESS
+}
+
+#[expect(
+    unsafe_code,
+    reason = "validated native ABI output storage receives one product-lifetime text view"
+)]
+fn publish_context_text(
+    address: *mut *const std::ffi::c_void,
+    length: *mut u64,
+    text: impl FnOnce() -> Result<&'static [u8], NativePlatformStatus>,
+) -> NativePlatformStatus {
+    let Some(address_region) = MemoryRegion::write(address) else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
+
+    let Some(length_region) = MemoryRegion::write(length) else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
+
+    if address_region.overlaps(length_region) {
+        return NativePlatformStatus::INVALID_INPUT;
+    }
+
+    let text = match text() {
+        Ok(text) => text,
+        Err(status) => return status,
+    };
+
+    if let Err(status) = validate_context_outputs(&[address_region, length_region]) {
+        return status;
+    }
+
+    let Some(text_length) = u64::try_from(text.len()).ok() else {
+        return NativePlatformStatus::EXHAUSTED;
+    };
+
+    unsafe {
+        address.write(text.as_ptr().cast());
+        length.write(text_length);
+    }
+
+    NativePlatformStatus::SUCCESS
+}
+
+#[expect(
+    unsafe_code,
+    reason = "validated disjoint native ABI output storage receives product-lifetime text views"
+)]
+fn publish_context_text_pair(
+    key_address: *mut *const std::ffi::c_void,
+    key_length: *mut u64,
+    value_address: *mut *const std::ffi::c_void,
+    value_length: *mut u64,
+    text: impl FnOnce() -> Result<(&'static [u8], &'static [u8]), NativePlatformStatus>,
+) -> NativePlatformStatus {
+    let Some(key_address_region) = MemoryRegion::write(key_address) else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
+
+    let Some(key_length_region) = MemoryRegion::write(key_length) else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
+
+    let Some(value_address_region) = MemoryRegion::write(value_address) else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
+
+    let Some(value_length_region) = MemoryRegion::write(value_length) else {
+        return NativePlatformStatus::INVALID_INPUT;
+    };
+
+    if !disjoint(&[
+        key_address_region,
+        key_length_region,
+        value_address_region,
+        value_length_region,
+    ]) {
+        return NativePlatformStatus::INVALID_INPUT;
+    }
+
+    let (key, value) = match text() {
+        Ok(text) => text,
+        Err(status) => return status,
+    };
+
+    if let Err(status) = validate_context_outputs(&[
+        key_address_region,
+        key_length_region,
+        value_address_region,
+        value_length_region,
+    ]) {
+        return status;
+    }
+
+    let Some(key_length_value) = u64::try_from(key.len()).ok() else {
+        return NativePlatformStatus::EXHAUSTED;
+    };
+
+    let Some(value_length_value) = u64::try_from(value.len()).ok() else {
+        return NativePlatformStatus::EXHAUSTED;
+    };
+
+    unsafe {
+        key_address.write(key.as_ptr().cast());
+        key_length.write(key_length_value);
+        value_address.write(value.as_ptr().cast());
+        value_length.write(value_length_value);
+    }
+
+    NativePlatformStatus::SUCCESS
+}
+
+fn context_indexed_range(
+    context: &'static [u8],
+    index: u64,
+    count_offset: usize,
+    table_offset: usize,
+    entry_size: usize,
+) -> Result<&'static [u8], NativePlatformStatus> {
+    let entry = context_indexed_offset(context, index, count_offset, table_offset, entry_size)?;
+
+    Ok(context_range(context, entry))
+}
+
+fn context_indexed_offset(
+    context: &[u8],
+    index: u64,
+    count_offset: usize,
+    table_offset: usize,
+    entry_size: usize,
+) -> Result<usize, NativePlatformStatus> {
+    if index >= read_u64(context, count_offset) {
+        return Err(NativePlatformStatus::NOT_FOUND);
+    }
+
+    let index = usize::try_from(index).map_err(|_| NativePlatformStatus::INVALID_INPUT)?;
+
+    let table = usize::try_from(read_u64(context, table_offset))
+        .map_err(|_| NativePlatformStatus::EXHAUSTED)?;
+
+    Ok(table + index * entry_size)
+}
+
+fn context_range(context: &'static [u8], descriptor_offset: usize) -> &'static [u8] {
+    let offset = read_u64(context, descriptor_offset) as usize;
+    let length = read_u64(context, descriptor_offset + 8) as usize;
+
+    &context[offset..offset + length]
+}
+
+fn read_u64(context: &[u8], offset: usize) -> u64 {
+    let mut bytes = [0; 8];
+
+    bytes.copy_from_slice(&context[offset..offset + 8]);
+
+    u64::from_le_bytes(bytes)
 }
 
 fn native_text_region(
@@ -226,9 +483,9 @@ fn build_process_context() -> Result<Box<[u8]>, NativePlatformStatus> {
 
     write_u16(&mut block, 0, CONTEXT_ABI_MAJOR);
     write_u16(&mut block, 2, CONTEXT_ABI_MINOR);
-    block[4] = native_text_width();
+    block[4] = PROCESS_CONTEXT.native_text_width();
     block[5] = environment_comparison();
-    write_u64(&mut block, 8, u64::from(std::process::id()));
+    write_u64(&mut block, 8, PROCESS_CONTEXT.identity());
     write_range(&mut block, 16, working_directory_range);
     write_u64(&mut block, 32, length_u64(arguments.len()));
     write_u64(&mut block, 40, length_u64(argument_table));
@@ -303,13 +560,28 @@ const fn environment_comparison() -> u8 {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
-    use std::mem::size_of;
+    use std::mem::{align_of, size_of};
+
     use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 
     use super::{
         CONTEXT_ABI_MAJOR, CONTEXT_ABI_MINOR, CONTEXT_HEADER_BYTES,
-        bray_platform_context_environment_key_equals, native_text, process_context,
+        PROCESS_CONTEXT,
+        bray_platform_context_argument, bray_platform_context_argument_count,
+        bray_platform_context_environment_entry, bray_platform_context_environment_key_equals,
+        bray_platform_context_identity, bray_platform_context_native_text_width,
+        bray_platform_context_working_directory, native_text, process_context,
     };
+
+    fn owned_context_output<T>(context: &[u8]) -> *mut T {
+        let offset = context.as_ptr().align_offset(align_of::<T>());
+
+        assert_ne!(offset, usize::MAX);
+        assert!(size_of::<T>() <= context.len());
+        assert!(offset <= context.len() - size_of::<T>());
+
+        context.as_ptr().wrapping_add(offset).cast_mut().cast()
+    }
 
     #[test]
     fn native_platform_status_has_the_specified_layout() {
@@ -322,14 +594,159 @@ mod tests {
             .unwrap_or_else(|status| panic!("process context must be available: {status:?}"));
 
         let mut total = [0; 8];
+        let mut identity = [0; 8];
 
         total.copy_from_slice(&context[64..72]);
+        identity.copy_from_slice(&context[8..16]);
 
         assert_eq!((CONTEXT_ABI_MAJOR, CONTEXT_ABI_MINOR), (1, 0));
         assert!(context.len() >= CONTEXT_HEADER_BYTES);
         assert_eq!(u16::from_le_bytes([context[0], context[1]]), CONTEXT_ABI_MAJOR);
         assert_eq!(u16::from_le_bytes([context[2], context[3]]), CONTEXT_ABI_MINOR);
+        assert_eq!(context[4], PROCESS_CONTEXT.native_text_width());
+        assert_eq!(u64::from_le_bytes(identity), PROCESS_CONTEXT.identity());
         assert_eq!(u64::from_le_bytes(total), context.len() as u64);
+    }
+
+    #[test]
+    fn scalar_context_roles_publish_immutable_values() {
+        let first_identity = bray_platform_context_identity();
+        let second_identity = bray_platform_context_identity();
+        let width = bray_platform_context_native_text_width();
+        let mut argument_count = 0;
+
+        let count_status = bray_platform_context_argument_count(&raw mut argument_count);
+
+        assert_eq!(count_status, NativePlatformStatus::SUCCESS);
+        assert_eq!(first_identity, second_identity);
+        assert_eq!(first_identity, u64::from(std::process::id()));
+        assert_eq!(width, if cfg!(windows) { 16 } else { 8 });
+        assert!(argument_count > 0);
+    }
+
+    #[test]
+    fn borrowed_context_text_remains_stable_for_the_product_lifetime() {
+        let mut first_address = std::ptr::null();
+        let mut first_length = 0;
+        let mut second_address = std::ptr::null();
+        let mut second_length = 0;
+
+        let first_status = bray_platform_context_working_directory(
+            &raw mut first_address,
+            &raw mut first_length,
+        );
+
+        let second_status = bray_platform_context_working_directory(
+            &raw mut second_address,
+            &raw mut second_length,
+        );
+
+        assert_eq!(first_status, NativePlatformStatus::SUCCESS);
+        assert_eq!(second_status, NativePlatformStatus::SUCCESS);
+        assert_eq!((first_address, first_length), (second_address, second_length));
+        assert!(!first_address.is_null());
+        assert!(first_length > 0);
+
+        let first_status = bray_platform_context_argument(
+            0,
+            &raw mut first_address,
+            &raw mut first_length,
+        );
+
+        let second_status = bray_platform_context_argument(
+            0,
+            &raw mut second_address,
+            &raw mut second_length,
+        );
+
+        assert_eq!(first_status, NativePlatformStatus::SUCCESS);
+        assert_eq!(second_status, NativePlatformStatus::SUCCESS);
+        assert_eq!((first_address, first_length), (second_address, second_length));
+        assert!(!first_address.is_null());
+        assert!(first_length > 0);
+    }
+
+    #[test]
+    fn borrowed_context_text_rejects_overlapping_outputs() {
+        let mut output = 0_u64;
+        let output_pointer = &raw mut output;
+
+        let status = bray_platform_context_working_directory(
+            output_pointer.cast(),
+            output_pointer,
+        );
+
+        assert_eq!(status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(output, 0);
+    }
+
+    #[test]
+    fn context_roles_reject_outputs_within_the_owned_context() {
+        let context = process_context()
+            .unwrap_or_else(|status| panic!("process context must be available: {status:?}"));
+
+        let original = context.to_vec();
+
+        let count_status = bray_platform_context_argument_count(owned_context_output(context));
+
+        let mut length = u64::MAX;
+
+        let text_status = bray_platform_context_working_directory(
+            owned_context_output(context),
+            &raw mut length,
+        );
+
+        let mut key_length = u64::MAX;
+        let mut value_address = std::ptr::null();
+        let mut value_length = u64::MAX;
+
+        let pair_status = bray_platform_context_environment_entry(
+            0,
+            owned_context_output(context),
+            &raw mut key_length,
+            &raw mut value_address,
+            &raw mut value_length,
+        );
+
+        let empty = NativePlatformText::new(std::ptr::null(), 0);
+
+        let comparison_status = bray_platform_context_environment_key_equals(
+            empty,
+            empty,
+            owned_context_output(context),
+        );
+
+        assert_eq!(count_status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(text_status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(pair_status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(comparison_status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(length, u64::MAX);
+        assert_eq!(key_length, u64::MAX);
+        assert!(value_address.is_null());
+        assert_eq!(value_length, u64::MAX);
+        assert_eq!(context, original);
+    }
+
+    #[test]
+    fn indexed_context_roles_reject_absent_entries() {
+        let mut count = 0;
+        let mut address = std::ptr::null();
+        let mut length = 0;
+
+        assert_eq!(
+            bray_platform_context_argument_count(&raw mut count),
+            NativePlatformStatus::SUCCESS
+        );
+
+        let status = bray_platform_context_argument(
+            count,
+            &raw mut address,
+            &raw mut length,
+        );
+
+        assert_eq!(status, NativePlatformStatus::NOT_FOUND);
+        assert!(address.is_null());
+        assert_eq!(length, 0);
     }
 
     #[test]

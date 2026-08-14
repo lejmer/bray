@@ -27,6 +27,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 execution,
                 runtime,
             } => {
+                self.begin_memory_observation()?;
                 self.begin_performance_interval()?;
 
                 if self.host_role_implementation(*runtime)?
@@ -243,6 +244,31 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
     }
 
+    fn begin_memory_observation(&self) -> Result<(), CodegenFailure> {
+        if self.request.options().runtime_observations()
+            != bray_codegen::RuntimeObservationMode::Memory
+        {
+            return Ok(());
+        }
+
+        let function = self
+            .module
+            .get_function(bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL)
+            .unwrap_or_else(|| {
+                self.module.add_function(
+                    bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
+                    self.types.context().void_type().fn_type(&[], false),
+                    None,
+                )
+            });
+
+        llvm(
+            self.builder
+                .build_call(function, &[], "memory.observation.begin"),
+        )?;
+
+        Ok(())
+    }
     fn begin_test_entry_selection(
         &mut self,
         entry: bray_runtime_interface::ExecutableHostEntryId,

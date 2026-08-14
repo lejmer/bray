@@ -8,7 +8,7 @@ impl DiagnosticPlatformServiceRole {
     /// Creates a role only when `id` belongs to the closed platform-service protocol.
     pub const fn try_new(id: u32) -> Option<Self> {
         match id {
-            0x0001..=0x0003
+            0x0001..=0x0008
             | 0x0101
             | 0x0111..=0x0114
             | 0x0121..=0x0124
