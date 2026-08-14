@@ -8,7 +8,7 @@ Bray is currently a greenfield project. Therefore, do not preserve backwards-com
 
 Treat discovered gaps as part of the active PR unless folding them in would turn it into a multi-thousand-line change or a genuinely independent subsystem. 
 
-Do not dismiss a failing validation or readiness check as unrelated. Fix bounded defects in the active work; otherwise link an existing tracking issue or create one before proceeding. Treat fail-fast results as blocking because later checks did not run.
+Do not dismiss a discovered defect as unrelated. Fix bounded defects in the active work; otherwise link an existing tracking issue or create one before proceeding. Treat failures in fail-fast workflows as blocking because later checks did not run.
 
 ## Simplicity and scope
 
