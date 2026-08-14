@@ -31,7 +31,14 @@ observe its synchronization edge before borrowing the value. Normal completion c
 waiters.
 
 A returned error from `get_or_try_init`, panic, or cancellation publishes no value, returns the state to `empty`, and wakes waiters.
-A later call can retry. `Once<Result<T, E>>` caches a failure because the `Result` is then the successfully initialized value.
+The active caller alone receives its returned `E`, propagates its panic, or enters its cancellation outcome. Existing waiters do not
+inherit that outcome. Each awakened waiter rechecks the cell and, unless its own run is cancelled, competes to start a new attempt
+with its own initializer and error type. One eligible caller becomes the next initializer while the others wait again. No priority
+among eligible callers is guaranteed. `Once<Result<T, E>>` caches a failure because the `Result` is then the successfully initialized
+value.
+
+Waiting is cancellation-aware. A waiter that observes cancellation of its own run withdraws without invoking its initializer or
+changing the cell state, then continues that run's cancellation. This outcome is independent of the active attempt's outcome.
 
 Direct or indirect reentry into the same `Once<T>` on its current initialization chain panics before waiting and marks that cell's
 owning attempt as failed. Catching the panic inside the initializer cannot make the attempt publishable. A value later returned by

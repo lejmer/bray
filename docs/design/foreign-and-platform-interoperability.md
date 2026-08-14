@@ -186,9 +186,11 @@ A callable symbol records its exact callable ABI. A data symbol records its poin
 obligations. Converting an untyped address to either form is trusted and rejects representations the selected target cannot express.
 
 Closing consumes the library owner. Lookup failure does not close the library. A library with active symbol borrows cannot be
-closed or transferred. A loaded Bray product also cannot close while an entry, callback, callable, static, or other transitive
-dependency can reach its code or storage. After entry closure and quiescence, close drives exact-thread and product-static cleanup
-before releasing the loaded image. Destruction resolves an otherwise live library according to the foreign-resource rules.
+closed or transferred. A loaded Bray product also cannot enter cleanup while an external entry, callback, callable, owner, or other
+transitive root can reach its code or storage. A static-owned edge inside the active teardown set instead orders consumer cleanup
+before provider cleanup. After entry closure and external-root quiescence, close drives exact-thread and product-static cleanup,
+releases internal provider edges, and then releases the loaded image. Destruction resolves an otherwise live library according to
+the foreign-resource rules.
 
 Dynamic loading is target-conditional through the boolean `target.platform.dynamic_loading` property. The public value and error
 types remain available for generic signatures, while open and lookup operations are unavailable when that property is false. The

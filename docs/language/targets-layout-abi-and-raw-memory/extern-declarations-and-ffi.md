@@ -176,9 +176,9 @@ ABI-zero result, and result-less callbacks return normally after either abnormal
 into foreign code.
 
 Nested foreign entries on one native thread reuse its current product attachment. The outermost matching detach resolves
-thread-static instances on that exact thread after all nested entries, pinned tasks, callbacks, and exact-thread dependencies have
-resolved. Product unload closes new entry and attachment first, then waits for every retained dependency before static cleanup and
-code release.
+thread-static instances on that exact thread after all nested entries, pinned tasks, callbacks, and external exact-thread
+dependencies have resolved. Product unload closes new entry and attachment first, then drains external roots. Static-owned edges in
+the teardown set are released by consumer-before-provider cleanup before code release.
 
 Bray callable values remain capture-free. The standard `std.ffi.CallbackContext<State>` owner supplies stable-address storage when
 a foreign API needs an explicit state pointer. Construction consumes the state value. A capture-free exported ABI callable receives the

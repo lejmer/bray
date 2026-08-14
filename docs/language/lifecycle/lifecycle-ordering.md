@@ -32,8 +32,9 @@ dependency graph. If `A` can require `B` during cleanup, `A` completes finalizat
 before cleanup of `B` begins.
 
 Thread-static cleanup for one attachment completes on its exact native thread before product-static cleanup can resolve any product
-storage required by that attachment. Independent eligible static instances are ordered by their formally defined canonical
-instance identities.
+storage required by that attachment. Independent eligible static instances within one cleanup domain use the formally defined
+static cleanup order key. Dependencies across attachment, consumer-product, and provider-product domains impose domain precedence,
+while independent domains can clean concurrently and have no global execution order.
 
 ## Navigation
 

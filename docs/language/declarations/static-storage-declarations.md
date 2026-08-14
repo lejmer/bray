@@ -187,12 +187,17 @@ A value stored into a product static can depend only on storage rooted in the sa
 the stored dependency. It cannot carry a dependency on lexical storage, a task, a native-thread attachment, an unretained foreign
 entry, or another shorter-lived root.
 
-A dependency on a dynamically loaded provider retains that provider product. Closing or unloading the provider is rejected or
-delayed while any reachable borrow, callable, callback registration, loaded-data view, owner, or dependent static can reach its
-storage or code.
+A dependency on a dynamically loaded provider retains that provider product. An external borrow, callable, callback registration,
+loaded-data view, owner, or static outside the active teardown set prevents the provider from entering cleanup or unloading while it
+can reach provider storage or code.
 
-Dependency retention is transitive. A product cannot close entries, begin static cleanup, shut down required runtime services, or
-unload code while a live dependent can reach the provider.
+A dependent static inside the active teardown set is different. Its retained provider edge participates in cleanup ordering, so the
+consumer static is destroyed and releases the edge before provider cleanup begins. Waiting for that internal edge before cleaning
+the consumer would deadlock and is not a valid shutdown step.
+
+Dependency retention is transitive. Entry closes admission but does not invalidate any dependency. Runtime services and provider
+code remain available until external roots have resolved and every internal consumer cleanup edge has been released in dependency
+order.
 
 ## Exact-thread-rooted dependencies
 
@@ -288,8 +293,31 @@ The compiler records open edges in generic and imported templates. Product forma
 that installs a runtime-selected provider dependency must retain that provider and preserve an acyclic cleanup relation before the
 dependency becomes reachable.
 
-Cleanup uses a deterministic topological order. When independent nodes are simultaneously eligible, their canonical static instance
-identities provide the deterministic tie-breaker.
+One **static cleanup domain** contains the statics directly owned by one product instance or one exact native-thread attachment.
+Product statics and each attachment's thread statics therefore belong to separate domains.
+
+Within one cleanup domain, cleanup uses a deterministic topological order. When independent nodes are simultaneously eligible, the
+least static cleanup order key runs next. The key is the tuple of the instance identity's declaration identity, normalized closed
+substitution, selected implementation witnesses, and target-profile identity, compared in that order. The product or attachment
+identity is not compared because it is constant within the domain.
+
+Substitution entries follow generic-parameter declaration order. Selected-witness entries are sorted by requirement declaration
+identity, and each entry compares its requirement identity, selected implementation identity, and closed implementation
+substitution. Target-profile terms follow target-property path order.
+
+Each key component uses the language-defined stable structural total order. Named identities compare package identity, logical
+module path segments, declaration name, and declaration-kind name in that order. Each textual identity atom compares its exact
+UTF-8 spelling as unsigned bytes. Sequences compare element by element, with a shorter equal prefix first. Normalized type, const,
+witness, and target terms compare their normalized constructor identity first, then arity, then ordered child terms recursively.
+Boolean leaves order `false` before `true`. Integer leaves compare mathematical value. Character and string leaves compare Unicode
+scalar sequences. Floating-point leaves use the IEEE 754 `totalOrder` relation for their declared width. Other fixed byte leaves
+compare lexicographically as unsigned bytes. This order never uses hashes, addresses, demand order, allocation order,
+code-generation order, or emitted symbol spelling.
+
+An edge between domains imposes domain precedence. A thread-static consumer domain completes before a product domain it retains, and
+a consumer-product domain completes before a retained provider-product domain. Independent domains may clean concurrently, so the
+language defines no global execution order between them. Each domain retains its own deterministic node and incident sequence, and
+a host reports concurrent domains as records keyed by exact domain identity rather than by completion arrival order.
 
 A lifecycle dependency cycle is rejected. An address-only dependency cycle with no initialization read, retained owner,
 finalizer, destructor, represented-part cleanup, or other ordering requirement can coexist for the common enclosing lifetime. Its
@@ -298,20 +326,30 @@ another.
 
 ## Entry closure and product cleanup
 
+A teardown operation has a **teardown set** containing the cleanup domains whose product or attachment owners are closing in that
+operation. An external root is a live dependency whose owner is not a static node in that set. A static-owned dependency between two
+domains in the set is an internal cleanup edge, not an external root.
+
+The host fixes the teardown set before closing admission. Starting from the requested product owners and their attachments, it
+repeatedly includes a retained provider domain exactly when every remaining owner that can keep that provider live is a static node
+already in the set. A provider with any owner outside the set stays outside it. Releasing an edge to that provider during consumer
+cleanup does not close the provider unless a later teardown operation independently makes it eligible.
+
 A product with runtime storage follows this order:
 
 1. Materialize demanded product statics and the product host tables needed to own them.
 2. Open source and foreign entry.
 3. Execute roots and allow demand-driven thread-static materialization on attached threads.
-4. Close new source entry, foreign entry, callback entry, and native-thread attachment.
-5. Resolve every in-flight run and every externally retained entry dependency.
-6. Clean each attached thread's thread statics on that exact thread and complete detachment.
-7. Finalize and destroy product statics in lifecycle dependency order.
+4. Close new source entry, foreign entry, callback entry, and native-thread attachment for the teardown set.
+5. Resolve every in-flight run and every external root that can reach a domain in the teardown set.
+6. Clean each eligible attachment domain on its exact thread and complete detachment.
+7. Clean eligible product domains, with each consumer domain completing before a provider domain it retains.
 8. Drain cleanup incidents.
 9. Shut down runtime lanes, platform services, loaders, and host resources that static cleanup could require.
 
-Closing entry does not invalidate a live dependency. Teardown waits until every owner that can reach product storage or code has
-released or transferred that dependency.
+Step 5 never waits for a dependency owned by a static in the teardown set. Steps 6 and 7 destroy that consumer static and release
+its provider edge. A dependency owned outside the teardown set remains external and prevents cleanup of every reached provider
+domain until the external owner releases or transfers it.
 
 The scheduler, cleanup-report sink, required execution lanes, platform substrate, allocator, and provider products remain available
 until all static finalization, destruction, represented-part cleanup, and incident reporting that can use them are complete.
@@ -346,8 +384,9 @@ The static cleanup boundary catches panic and cancellation. A failed or panicked
 boundary then applies the language-defined abandonment fallback so synchronous destruction and represented-part destruction can
 complete exactly once.
 
-Cleanup continues for other eligible nodes in deterministic order. Incidents retain their occurrence order and node identities for
-product reporting.
+Cleanup continues for other eligible nodes in the domain's deterministic order. Incidents retain their domain-local occurrence
+order and node identities. Incidents from independent domains retain their exact domain identities and are never merged according
+to thread completion timing.
 
 An executable or test host maps unresolved cleanup incidents to a product-level failure after cleanup finishes. A shared-library
 unload operation reports cleanup failure through its host contract. No failure permits code or provider storage to unload while a

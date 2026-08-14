@@ -20,8 +20,9 @@ archive contributes demanded realizations to each final consuming product. A loa
 instance and owns storage distinct from its executable, test, static-link, and separately loaded peers.
 
 Foreign ABI entries into a loaded library acquire an entry dependency on that product instance. Unload first closes new entries,
-then waits for in-flight entries and every transitive dependency that can reach product storage or code. It cleans exact-thread and
-product statics before releasing the loaded code and data.
+then waits for in-flight entries and external roots that can reach product storage or code. Static-owned edges inside the teardown
+set order consumer cleanup before provider cleanup and are released by that cleanup. The host cleans exact-thread and product
+statics before releasing the loaded code and data.
 
 ## Executable products
 

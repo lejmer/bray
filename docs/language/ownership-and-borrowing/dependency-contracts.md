@@ -77,8 +77,10 @@ Product-rooted dependencies can escape a callable and cross package or dynamic-l
 the provider product. Exact-thread-rooted dependencies can escape a callable only into an owner that remains on that attachment.
 They pin a retained task while live.
 
-A provider product cannot close or unload while a live transitive dependency can reach its storage, entries, callbacks, callable
-values, or code. A native-thread attachment cannot detach while a live transitive dependency can reach its thread-static storage.
+A provider product cannot close or unload while a live external transitive dependency can reach its storage, entries, callbacks,
+callable values, or code. A dependency owned by a static in the active teardown set instead orders consumer cleanup before provider
+cleanup and is released when the consumer is destroyed. A native-thread attachment cannot detach while a live dependency outside
+its scheduled thread-static cleanup can reach its storage.
 
 Static dependency templates, including generic selected-witness and target-dependent terms, are recorded in compiled interfaces.
 Closed templates contribute lifecycle graph edges for product and thread cleanup.

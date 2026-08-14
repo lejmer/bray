@@ -82,13 +82,14 @@ A conforming compiler, compiled-interface implementation, linker, product host, 
 - open generic templates in compiled interfaces and demand-driven closed realization,
 - stable address identity and static movement restrictions,
 - product-rooted and exact-thread-rooted dependency contracts,
-- entry closure, run quiescence, foreign-thread attach and detach, and provider unload safety,
-- deterministic lifecycle dependency ordering and exactly-once cleanup ownership,
-- product-level reporting of static cleanup incidents.
+- entry closure, external-root quiescence, foreign-thread attach and detach, and provider unload safety,
+- consumer-before-provider cleanup for static-owned dependencies inside a teardown set,
+- the stable total node order within each cleanup domain and explicit concurrency between independent domains,
+- exactly-once cleanup ownership and domain-keyed reporting of static cleanup incidents.
 
 `std.sync.Once<T>` and other synchronization or interior-mutation abstractions remain ordinary standard-library declarations.
 Their names are not recognized by the compiler. Their safe contracts must preserve the static storage, publication,
-synchronization, dependency, reentrancy, panic, cancellation, retry, and cleanup rules they expose.
+synchronization, dependency, reentrancy, active-caller failure ownership, waiter retry, cancellation, and cleanup rules they expose.
 
 ## Target-available compiler-known entries
 
