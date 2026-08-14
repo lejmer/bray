@@ -134,7 +134,6 @@ fn compare_peers(
                 .ok_or_else(|| "candidate peer disappeared during comparison".to_owned())?;
 
             if baseline.toolchain != candidate.toolchain
-                || baseline.build_configuration != candidate.build_configuration
                 || baseline.source_sha256 != candidate.source_sha256
                 || baseline.process_execution.scope != candidate.process_execution.scope
                 || baseline.controlled_execution.scope != candidate.controlled_execution.scope

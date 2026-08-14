@@ -1,16 +1,16 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 7;
-// The fixed workload count is nonzero by construction.
-pub(super) const BATCHED_INNER_ITERATIONS: std::num::NonZeroU64 =
-    std::num::NonZeroU64::new(50_000_000).unwrap();
+pub(super) const CORPUS_REVISION: u32 = 8;
+pub(super) const CALIBRATION_SEED_INNER_ITERATIONS: u64 = 1_000_000;
+pub(super) const CALIBRATION_SAMPLE_COUNT: u32 = 3;
+pub(super) const CALIBRATION_TARGET_NANOSECONDS: u64 = 100_000_000;
 
 pub(super) struct Workload {
     pub id: &'static str,
     pub category: WorkloadCategory,
     pub scale: u64,
     pub units: &'static str,
-    pub controlled_inner_iterations: std::num::NonZeroU64,
+    pub batching: BatchingPolicy,
     pub source: &'static str,
     pub standard_library_sources: &'static [&'static str],
     pub expected_output: ExpectedOutput,
@@ -18,6 +18,12 @@ pub(super) struct Workload {
     pub platform_operations: &'static [&'static str],
     pub retention: RetentionContract,
     pub storage: Option<StorageExpectation>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BatchingPolicy {
+    SingleExecution,
+    Calibrated,
 }
 
 pub(super) struct RetentionContract {
@@ -59,7 +65,7 @@ pub(super) const WORKLOADS: [Workload; 11] = [
         category: WorkloadCategory::Small,
         scale: 1,
         units: "executions",
-        controlled_inner_iterations: BATCHED_INNER_ITERATIONS,
+        batching: BatchingPolicy::Calibrated,
         source: r#"module small_output;
 
 func main() {}
@@ -76,7 +82,7 @@ func main() {}
         category: WorkloadCategory::CoreData,
         scale: 64,
         units: "bytes",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module std.bytes;
 
 using std.bytes;
@@ -116,7 +122,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::CoreData,
         scale: 4096,
         units: "bytes",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module std.bytes;
 
 using std.bytes;
@@ -156,7 +162,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::CoreData,
         scale: 256,
         units: "text pipelines",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module borrowed_text;
 
 using std.bytes;
@@ -251,7 +257,7 @@ func main()
         category: WorkloadCategory::Formatting,
         scale: 1024,
         units: "values",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module std.format;
 
 using std.format;
@@ -298,7 +304,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::Streaming,
         scale: 1024,
         units: "writes",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module stream_output;
 
 using std.io;
@@ -366,7 +372,7 @@ func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Concurrent,
         scale: 128,
         units: "awaits",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module async_output;
 
 using std.io;
@@ -404,7 +410,7 @@ async func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Filesystem,
         scale: 256,
         units: "lookups",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module filesystem_metadata;
 
 using std.fs;
@@ -442,7 +448,7 @@ func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Filesystem,
         scale: 4096,
         units: "bytes",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module file_output;
 
 using std.fs;
@@ -536,7 +542,7 @@ func output_path() -> std.path.Path
         category: WorkloadCategory::Process,
         scale: 1024,
         units: "lookups",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module process_context;
 
 using std.process;
@@ -564,7 +570,7 @@ func main()
         category: WorkloadCategory::Time,
         scale: 1024,
         units: "readings",
-        controlled_inner_iterations: std::num::NonZeroU64::MIN,
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module monotonic_clock;
 
 using std.time;

@@ -1,14 +1,19 @@
 use std::collections::BTreeSet;
+use std::num::NonZeroU64;
+use std::path::Path;
 
 use bray_base::is_lowercase_hex;
 use bray_target::{NativeTarget, ObjectFormat};
 
 use super::command::expected_output_digest;
-use super::corpus::WORKLOADS;
+use super::corpus::{
+    BatchingPolicy, CALIBRATION_SAMPLE_COUNT, CALIBRATION_SEED_INNER_ITERATIONS,
+    CALIBRATION_TARGET_NANOSECONDS, WORKLOADS,
+};
 use super::model::{
     ArtifactReport, BoundedList, MAX_DYNAMIC_LIBRARY_COUNT, MAX_PLATFORM_OPERATION_COUNT,
     MAX_RETAINED_INPUT_COUNT, MAX_SAMPLE_COUNT, MAX_SECTION_COUNT, Observation, PeerLanguage,
-    PerformanceReport, RetainedInput, RuntimeLinkage, SCHEMA_REVISION,
+    PerformanceReport, RetainedInput, RuntimeLinkage, SCHEMA_REVISION, WorkloadBatching,
 };
 
 const MINIMUM_BATCH_INTERVAL_NANOSECONDS: u64 = 10_000_000;
@@ -115,6 +120,15 @@ fn validate_workload(
     let expected_samples = usize::try_from(report.identity.sample_iterations)
         .map_err(|_| "sample count cannot be represented by this host".to_owned())?;
 
+    let controlled_inner_iterations = NonZeroU64::new(workload.bray_execution.inner_iterations)
+        .ok_or_else(|| format!("workload {} has a zero repetition count", workload.id))?;
+
+    validate_batching(
+        canonical.batching,
+        &workload.batching,
+        controlled_inner_iterations,
+    )?;
+
     if workload.process_execution.scope != super::model::PROCESS_EXECUTION_SCOPE
         || workload.bray_execution.scope != super::model::BRAY_EXECUTION_SCOPE
         || !execution_is_valid(
@@ -128,7 +142,7 @@ fn validate_workload(
             &workload.bray_execution,
             expected_samples,
             workload.scale,
-            canonical.controlled_inner_iterations.get(),
+            controlled_inner_iterations.get(),
             report.identity.timer_resolution_nanoseconds,
         )
     {
@@ -230,12 +244,80 @@ fn validate_workload(
         expected_samples,
         &report.identity.target,
         report.identity.runtime_linkage,
-        target.object_format(),
-        canonical.controlled_inner_iterations.get(),
+        target,
+        controlled_inner_iterations,
         report.identity.timer_resolution_nanoseconds,
     )?;
 
     Ok(())
+}
+
+fn validate_batching(
+    policy: BatchingPolicy,
+    batching: &WorkloadBatching,
+    selected_inner_iterations: NonZeroU64,
+) -> Result<(), String> {
+    match (policy, batching) {
+        (BatchingPolicy::SingleExecution, WorkloadBatching::SingleExecution)
+            if selected_inner_iterations == NonZeroU64::MIN =>
+        {
+            Ok(())
+        }
+        (
+            BatchingPolicy::Calibrated,
+            WorkloadBatching::Calibrated {
+                seed_inner_iterations,
+                target_interval_nanoseconds,
+                bray_samples_nanoseconds,
+                rust_samples_nanoseconds,
+                cpp_samples_nanoseconds,
+                selected_inner_iterations: recorded_inner_iterations,
+            },
+        ) => {
+            let expected_sample_count = usize::try_from(CALIBRATION_SAMPLE_COUNT).map_err(|_| {
+                "calibration sample count cannot be represented by this host".to_owned()
+            })?;
+
+            let samples_are_valid = [
+                bray_samples_nanoseconds,
+                rust_samples_nanoseconds,
+                cpp_samples_nanoseconds,
+            ]
+            .into_iter()
+            .all(|samples| {
+                samples.len() == expected_sample_count
+                    && samples.iter().all(|sample| *sample > 0)
+            });
+
+            let seed = NonZeroU64::new(*seed_inner_iterations)
+                .ok_or_else(|| "batch calibration seed must be nonzero".to_owned())?;
+
+            let expected = super::statistics::calibrated_inner_iterations(
+                seed,
+                *target_interval_nanoseconds,
+                [
+                    &bray_samples_nanoseconds[..],
+                    &rust_samples_nanoseconds[..],
+                    &cpp_samples_nanoseconds[..],
+                ],
+            )?;
+
+            if *seed_inner_iterations != CALIBRATION_SEED_INNER_ITERATIONS
+                || *target_interval_nanoseconds != CALIBRATION_TARGET_NANOSECONDS
+                || *target_interval_nanoseconds
+                    < MINIMUM_BATCH_INTERVAL_NANOSECONDS.saturating_mul(10)
+                || !samples_are_valid
+                || *recorded_inner_iterations != expected.get()
+                || selected_inner_iterations != expected
+            {
+                return Err("workload batch calibration does not match its measured contract"
+                    .to_owned());
+            }
+
+            Ok(())
+        }
+        _ => Err("workload batching mode does not match the corpus contract".to_owned()),
+    }
 }
 
 fn validate_peers(
@@ -243,8 +325,8 @@ fn validate_peers(
     expected_samples: usize,
     expected_target: &str,
     expected_runtime_linkage: RuntimeLinkage,
-    object_format: ObjectFormat,
-    controlled_inner_iterations: u64,
+    target: NativeTarget,
+    controlled_inner_iterations: NonZeroU64,
     timer_resolution_nanoseconds: u64,
 ) -> Result<(), String> {
     let languages = workload.peers.keys().copied().collect::<BTreeSet<_>>();
@@ -261,17 +343,27 @@ fn validate_peers(
     }
 
     for (language, report) in &workload.peers {
+        if report.artifacts.len() != 1 {
+            return Err(format!(
+                "workload {} {language:?} peer report has an invalid artifact count",
+                workload.id
+            ));
+        }
+
         if report.toolchain.is_empty()
             || report.build_configuration.target != expected_target
             || report.build_configuration.target.is_empty()
-            || report.build_configuration.production_arguments.is_empty()
-            || report.build_configuration.timed_arguments.is_empty()
+            || report.build_configuration.production.arguments.is_empty()
+            || report.build_configuration.timed.arguments.is_empty()
             || report.build_configuration.linker.is_empty()
             || report.build_configuration.runtime_linkage != expected_runtime_linkage
-            || !build_arguments_match_runtime_linkage(
+            || !super::peer::build_configuration_matches(
                 *language,
+                &workload.id,
+                target,
+                Path::new(&report.artifacts[0].path),
                 &report.build_configuration,
-                object_format,
+                controlled_inner_iterations,
             )
             || report.build_configuration.post_link_actions.is_empty()
             || report.source_sha256.len() != 64
@@ -290,10 +382,9 @@ fn validate_peers(
                 &report.controlled_execution,
                 expected_samples,
                 workload.scale,
-                controlled_inner_iterations,
+                controlled_inner_iterations.get(),
                 timer_resolution_nanoseconds,
             )
-            || report.artifacts.len() != 1
         {
             return Err(format!(
                 "workload {} {language:?} peer report is invalid",
@@ -302,47 +393,11 @@ fn validate_peers(
         }
 
         validate_artifact(&report.artifacts[0])?;
-        validate_runtime_dependencies(&report.artifacts[0], object_format)?;
+        validate_runtime_dependencies(&report.artifacts[0], target.object_format())?;
         validate_unavailable_peer_observations(&report.observations)?;
     }
 
     Ok(())
-}
-
-fn build_arguments_match_runtime_linkage(
-    language: PeerLanguage,
-    configuration: &super::model::PeerBuildConfiguration,
-    object_format: ObjectFormat,
-) -> bool {
-    let has = |arguments: &[String], expected: &str| {
-        arguments.iter().any(|argument| argument == expected)
-    };
-
-    match (language, object_format) {
-        (PeerLanguage::Rust, ObjectFormat::Coff) => {
-            has(
-                &configuration.production_arguments,
-                "-C target-feature=+crt-static",
-            ) && has(
-                &configuration.timed_arguments,
-                "-C target-feature=+crt-static",
-            )
-        }
-        (PeerLanguage::Cpp, ObjectFormat::Coff) => {
-            has(
-                &configuration.production_arguments,
-                "-fms-runtime-lib=static",
-            ) && has(&configuration.timed_arguments, "-fms-runtime-lib=static")
-        }
-        (PeerLanguage::Cpp, ObjectFormat::Elf) => ["-static-libstdc++", "-static-libgcc"]
-            .into_iter()
-            .all(|expected| {
-                has(&configuration.production_arguments, expected)
-                    && has(&configuration.timed_arguments, expected)
-            }),
-        (PeerLanguage::Rust, ObjectFormat::Elf) => true,
-        (_, ObjectFormat::MachO | ObjectFormat::WebAssembly | ObjectFormat::Xcoff) => false,
-    }
 }
 
 fn validate_runtime_dependencies(

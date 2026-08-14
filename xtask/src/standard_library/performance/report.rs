@@ -441,6 +441,7 @@ fn workload_details(html: &mut BoundedHtml, workload: &super::model::WorkloadRep
     );
 
     measurement_detail(html, "Bray", &workload.bray_execution);
+    super::presentation::batching_detail(html, &workload.batching);
 
     let _ = write!(
         html,
@@ -524,18 +525,50 @@ fn peer_configuration(
     let _ = write!(
         html,
         "<h4>Build configuration</h4><dl><dt>Target</dt><dd><code>{}</code></dd>\
+        <dt>Compiler</dt><dd><code>{}</code></dd>\
         <dt>Linker</dt><dd><code>{}</code></dd><dt>Runtime linkage</dt><dd>{}</dd></dl>",
         escape(&configuration.target),
+        escape(&configuration.compiler),
         escape(&configuration.linker),
         runtime_linkage(configuration.runtime_linkage),
     );
 
-    html.push_str("<h5>Production compiler arguments</h5><ul>");
-    escaped_list(html, &configuration.production_arguments);
-    html.push_str("</ul><h5>Timed compiler arguments</h5><ul>");
-    escaped_list(html, &configuration.timed_arguments);
-    html.push_str("</ul><h5>Post-link actions</h5><ul>");
+    compiler_configuration(html, "Production", &configuration.production);
+    compiler_configuration(html, "Timed", &configuration.timed);
+
+    html.push_str("<h5>Post-link actions</h5><ul>");
     escaped_list(html, &configuration.post_link_actions);
+    html.push_str("</ul>");
+}
+
+fn compiler_configuration(
+    html: &mut BoundedHtml,
+    label: &str,
+    configuration: &super::model::PeerCompilerConfiguration,
+) {
+    let batching = match configuration.batching {
+        super::model::PeerBatching::SingleExecution => "single execution".to_owned(),
+        super::model::PeerBatching::Repeated { inner_iterations } => {
+            format!("{} inner iterations", grouped(inner_iterations))
+        }
+    };
+
+    let _ = write!(
+        html,
+        "<h5>{label} compiler invocation</h5><p>Batching: {batching}</p><ul>"
+    );
+
+    escaped_list(html, &configuration.arguments);
+
+    for (name, value) in &configuration.environment {
+        let _ = write!(
+            html,
+            "<li><code>{}={}</code></li>",
+            escape(name),
+            escape(value)
+        );
+    }
+
     html.push_str("</ul>");
 }
 

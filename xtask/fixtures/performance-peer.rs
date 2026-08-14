@@ -26,13 +26,16 @@ const OBSERVATION_PATH: &str = "BRAY_PERFORMANCE_OBSERVATION_PATH";
 
 fn main() {
     #[cfg(peer_timing)]
+    let inner_iterations = inner_iterations();
+
+    #[cfg(peer_timing)]
     let started = Instant::now();
 
     #[cfg(peer_timing)]
     let valid = {
         let mut valid = true;
 
-        for _ in 0..inner_iterations() {
+        for _ in 0..inner_iterations {
             valid &= std::hint::black_box(workload());
         }
 
@@ -49,18 +52,11 @@ fn main() {
 }
 
 #[cfg(peer_timing)]
-const fn inner_iterations() -> u64 {
-    #[cfg(peer_inner_iterations = "50000000")]
-    return 50_000_000;
-
-    #[cfg(peer_inner_iterations = "1")]
-    return 1;
-
-    #[cfg(not(any(
-        peer_inner_iterations = "1",
-        peer_inner_iterations = "50000000"
-    )))]
-    compile_error!("unsupported performance inner iteration count");
+fn inner_iterations() -> u64 {
+    match env!("BRAY_PERFORMANCE_INNER_ITERATIONS").parse() {
+        Ok(value) if value > 0 => value,
+        _ => std::process::abort(),
+    }
 }
 
 #[cfg(peer_workload = "small_output")]

@@ -11,11 +11,14 @@ use sha2::{Digest as _, Sha256};
 
 use super::command::{parse_options_for_test, validate_output_parts};
 use super::comparison::compare;
-use super::corpus::ExpectedSideEffects;
+use super::corpus::{
+    CALIBRATION_SAMPLE_COUNT, CALIBRATION_SEED_INNER_ITERATIONS,
+    CALIBRATION_TARGET_NANOSECONDS, ExpectedSideEffects,
+};
 use super::model::{
-    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBuildConfiguration,
-    PeerLanguage, PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION,
-    WorkloadCategory, WorkloadObservations, WorkloadReport,
+    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBatching, PeerLanguage,
+    PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION,
+    WorkloadBatching, WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
     bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,
@@ -266,6 +269,48 @@ fn comparison_rejects_non_equivalent_corpora_and_suppresses_noisy_claims() {
         super::model::ChangeAssessment::Indeterminate
     );
 
+    let mut recalibrated = report("corpus", 102, 4);
+    let recalibrated_count = 50_000_000;
+
+    recalibrated.workloads[0].batching = WorkloadBatching::Calibrated {
+        seed_inner_iterations: CALIBRATION_SEED_INNER_ITERATIONS,
+        target_interval_nanoseconds: CALIBRATION_TARGET_NANOSECONDS,
+        bray_samples_nanoseconds: vec![2_000_000; 3],
+        rust_samples_nanoseconds: vec![2_000_000; 3],
+        cpp_samples_nanoseconds: vec![2_000_000; 3],
+        selected_inner_iterations: recalibrated_count,
+    };
+
+    let recalibrated_execution = summarize(
+        vec![98, 102, 106]
+            .into_iter()
+            .map(|sample| sample * recalibrated_count)
+            .collect(),
+        1,
+        super::model::BRAY_EXECUTION_SCOPE,
+        recalibrated_count,
+        100,
+    )
+    .unwrap_or_else(|| panic!("recalibrated fixture must produce statistics"));
+
+    recalibrated.workloads[0].bray_execution = recalibrated_execution.clone();
+
+    for (language, peer) in &mut recalibrated.workloads[0].peers {
+        peer.controlled_execution = recalibrated_execution.clone();
+
+        peer.build_configuration = super::peer::fixture_build_configuration(
+            *language,
+            "small_output",
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+            std::path::Path::new(&peer.artifacts[0].path),
+            std::num::NonZeroU64::new(recalibrated_count)
+                .unwrap_or_else(|| panic!("recalibrated fixture count must be nonzero")),
+        );
+    }
+
+    compare(&baseline, &recalibrated)
+        .unwrap_or_else(|error| panic!("different valid batch counts must compare: {error}"));
+
     let different = report("other", 102, 4);
 
     assert!(compare(&baseline, &different).is_err());
@@ -300,10 +345,52 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
         .get_mut(&PeerLanguage::Rust)
         .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
         .build_configuration
-        .production_arguments
+        .production
+        .arguments
         .push("different flag".to_owned());
 
     assert!(compare(&baseline, &different_peer_configuration).is_err());
+
+    let mut batched_production = report("corpus", 102, 4);
+
+    batched_production.workloads[0]
+        .peers
+        .get_mut(&PeerLanguage::Rust)
+        .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
+        .build_configuration
+        .production
+        .batching = PeerBatching::Repeated {
+        inner_iterations: 100_000_000,
+    };
+
+    assert!(compare(&baseline, &batched_production).is_err());
+
+    let mut mismatched_timed_batch = report("corpus", 102, 4);
+
+    mismatched_timed_batch.workloads[0]
+        .peers
+        .get_mut(&PeerLanguage::Cpp)
+        .unwrap_or_else(|| panic!("C++ fixture peer must exist"))
+        .build_configuration
+        .timed
+        .arguments
+        .retain(|argument| argument != "-DBRAY_INNER_ITERATIONS=100000000ULL");
+
+    assert!(compare(&baseline, &mismatched_timed_batch).is_err());
+
+    let mut inconsistent_calibration = report("corpus", 102, 4);
+
+    let WorkloadBatching::Calibrated {
+        selected_inner_iterations,
+        ..
+    } = &mut inconsistent_calibration.workloads[0].batching
+    else {
+        panic!("fixture workload must use calibrated batching")
+    };
+
+    *selected_inner_iterations = 50_000_000;
+
+    assert!(compare(&baseline, &inconsistent_calibration).is_err());
 
     let mut dynamic_dependency = report("corpus", 102, 4);
 
@@ -400,6 +487,9 @@ fn retained(artifact: &str, member: &str) -> super::model::RetainedInput {
 }
 
 pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
+    let calibration_sample_count = usize::try_from(CALIBRATION_SAMPLE_COUNT)
+        .unwrap_or_else(|_| panic!("fixture calibration count must fit usize"));
+
     let process_execution = summarize(
         vec![
             median.saturating_sub(mad),
@@ -413,7 +503,7 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
     )
     .unwrap_or_else(|| panic!("fixture samples must produce statistics"));
 
-    let inner_iterations = super::corpus::BATCHED_INNER_ITERATIONS.get();
+    let inner_iterations = 100_000_000;
 
     let bray_execution = summarize(
         vec![
@@ -431,52 +521,56 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
     )
     .unwrap_or_else(|| panic!("fixture Bray samples must produce statistics"));
 
-    let peer = || PeerReport {
-        toolchain: "peer compiler".to_owned(),
-        build_configuration: PeerBuildConfiguration {
-            target: "x86_64-pc-windows-msvc".to_owned(),
-            production_arguments: vec![
-                "release".to_owned(),
-                "-C target-feature=+crt-static".to_owned(),
-                "-fms-runtime-lib=static".to_owned(),
-            ],
-            timed_arguments: vec![
-                "release".to_owned(),
-                "timed".to_owned(),
-                "-C target-feature=+crt-static".to_owned(),
-                "-fms-runtime-lib=static".to_owned(),
-            ],
-            linker: "test-linker".to_owned(),
-            runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
-            post_link_actions: vec!["test-strip".to_owned()],
-        },
-        source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
-        production_compile_link_nanoseconds: median,
-        process_execution: process_execution.clone(),
-        controlled_execution: bray_execution.clone(),
-        artifacts: vec![ArtifactReport {
-            kind: ArtifactKind::Executable,
-            path: "peer".to_owned(),
-            bytes: 80,
-            sections: bounded(vec![super::model::SectionSize {
-                name: ".text".to_owned(),
-                bytes: 15,
-            }]),
-            dependencies: ArtifactDependencies {
-                static_inputs: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
-                dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
+    let peer = |language| {
+        let path = std::path::Path::new(match language {
+                PeerLanguage::Rust => "rust",
+                PeerLanguage::Cpp => "cpp",
+            })
+            .join(crate::native_toolchain::executable_name("peer"))
+            .display()
+            .to_string();
+
+        PeerReport {
+            toolchain: "peer compiler".to_owned(),
+            build_configuration: super::peer::fixture_build_configuration(
+                language,
+                "small_output",
+                bray_target::NativeTarget::X86_64WindowsMsvc,
+                std::path::Path::new(&path),
+                std::num::NonZeroU64::new(inner_iterations)
+                    .unwrap_or_else(|| panic!("fixture repetition count must be nonzero")),
+            ),
+            source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
+            production_compile_link_nanoseconds: median,
+            process_execution: process_execution.clone(),
+            controlled_execution: bray_execution.clone(),
+            artifacts: vec![ArtifactReport {
+                kind: ArtifactKind::Executable,
+                path,
+                bytes: 80,
+                sections: bounded(vec![super::model::SectionSize {
+                    name: ".text".to_owned(),
+                    bytes: 15,
+                }]),
+                dependencies: ArtifactDependencies {
+                    static_inputs: bounded(vec![retained("peer-runtime.lib", "startup.o")]),
+                    dynamic_libraries: bounded(vec!["system.dll".to_owned()]),
+                },
+                linker_map: None,
+            }],
+            observations: WorkloadObservations {
+                allocation_count: unavailable(),
+                allocated_bytes: unavailable(),
+                copied_bytes: unavailable(),
+                platform_operations: BTreeMap::new(),
             },
-            linker_map: None,
-        }],
-        observations: WorkloadObservations {
-            allocation_count: unavailable(),
-            allocated_bytes: unavailable(),
-            copied_bytes: unavailable(),
-            platform_operations: BTreeMap::new(),
-        },
+        }
     };
 
-    let peers = [(PeerLanguage::Rust, peer()), (PeerLanguage::Cpp, peer())]
+    let peers = [
+        (PeerLanguage::Rust, peer(PeerLanguage::Rust)),
+        (PeerLanguage::Cpp, peer(PeerLanguage::Cpp)),
+    ]
         .into_iter()
         .collect();
 
@@ -503,6 +597,14 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
             scale: 1,
             units: "executions".to_owned(),
             expected_output_sha256: bray_base::lowercase_hex(&Sha256::digest([])),
+            batching: WorkloadBatching::Calibrated {
+                seed_inner_iterations: CALIBRATION_SEED_INNER_ITERATIONS,
+                target_interval_nanoseconds: CALIBRATION_TARGET_NANOSECONDS,
+                bray_samples_nanoseconds: vec![1_000_000; calibration_sample_count],
+                rust_samples_nanoseconds: vec![1_000_000; calibration_sample_count],
+                cpp_samples_nanoseconds: vec![1_000_000; calibration_sample_count],
+                selected_inner_iterations: inner_iterations,
+            },
             compilation: profile(median),
             process_execution,
             bray_execution,

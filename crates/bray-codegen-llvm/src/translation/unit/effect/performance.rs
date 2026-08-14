@@ -59,8 +59,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_unconditional_branch(body))?;
         self.builder.position_at_end(body);
 
-        self.retain_performance_iteration()?;
-
         self.performance_loop = Some(PerformanceLoop {
             header,
             iteration,
@@ -76,6 +74,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         status: inkwell::values::IntValue<'context>,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
         let Some(performance_loop) = self.performance_loop.take() else {
+            retain_performance_value(self.types.context(), &self.builder, status)?;
+
             self.observe_performance_interval(
                 bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
                 "performance.interval.end",
@@ -83,6 +83,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             return Ok(status);
         };
+
+        retain_performance_value(self.types.context(), &self.builder, status)?;
 
         let iteration = performance_loop.iteration.as_basic_value().into_int_value();
 
@@ -144,26 +146,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(aggregate_status)
     }
 
-    fn retain_performance_iteration(&self) -> Result<(), CodegenFailure> {
-        let side_effect = self
-            .module
-            .get_function("llvm.sideeffect")
-            .unwrap_or_else(|| {
-                self.module.add_function(
-                    "llvm.sideeffect",
-                    self.types.context().void_type().fn_type(&[], false),
-                    None,
-                )
-            });
-
-        llvm(
-            self.builder
-                .build_call(side_effect, &[], "performance.iteration.side_effect"),
-        )?;
-
-        Ok(())
-    }
-
     fn observe_performance_interval(&self, symbol: &str, name: &str) -> Result<(), CodegenFailure> {
         if !matches!(
             self.request.options().runtime_observations(),
@@ -183,5 +165,79 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_call(function, &[], name))?;
 
         Ok(())
+    }
+}
+
+fn retain_performance_value<'context>(
+    context: &'context inkwell::context::Context,
+    builder: &inkwell::builder::Builder<'context>,
+    status: inkwell::values::IntValue<'context>,
+) -> Result<(), CodegenFailure> {
+    let function_type = context
+        .void_type()
+        .fn_type(&[status.get_type().into()], false);
+
+    let barrier = context.create_inline_asm(
+        function_type,
+        String::new(),
+        "r,~{memory}".to_owned(),
+        true,
+        false,
+        None,
+        false,
+    );
+
+    llvm(builder.build_indirect_call(
+        function_type,
+        barrier,
+        &[status.into()],
+        "performance.iteration.value_barrier",
+    ))?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use inkwell::context::Context;
+
+    use super::retain_performance_value;
+
+    #[test]
+    fn performance_barrier_consumes_each_root_status() {
+        let context = Context::create();
+        let module = context.create_module("performance_barrier");
+        let builder = context.create_builder();
+        let integer = context.i64_type();
+        let function_type = context.void_type().fn_type(&[integer.into()], false);
+        let function = module.add_function("root", function_type, None);
+        let entry = context.append_basic_block(function, "entry");
+
+        builder.position_at_end(entry);
+
+        let status = function
+            .get_first_param()
+            .unwrap_or_else(|| panic!("barrier fixture must have a status parameter"))
+            .into_int_value();
+
+        retain_performance_value(&context, &builder, status)
+            .unwrap_or_else(|error| panic!("performance barrier must generate: {error:?}"));
+
+        builder
+            .build_return(None)
+            .unwrap_or_else(|error| panic!("barrier fixture return must generate: {error}"));
+
+        module
+            .verify()
+            .unwrap_or_else(|error| panic!("performance barrier module must verify: {error}"));
+
+        let ir = module.print_to_string().to_string();
+
+        let barrier = ir
+            .lines()
+            .find(|line| line.contains("asm sideeffect") && line.contains("~{memory}"))
+            .unwrap_or_else(|| panic!("performance barrier must remain in generated LLVM"));
+
+        assert!(barrier.contains("i64 %0"));
     }
 }

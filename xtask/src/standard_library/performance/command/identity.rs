@@ -5,7 +5,10 @@ use bray_base::lowercase_hex;
 use bray_target::NativeTarget;
 use sha2::{Digest as _, Sha256};
 
-use super::super::corpus::{CORPUS_REVISION, ExpectedOutput, ExpectedSideEffects, Workload};
+use super::super::corpus::{
+    BatchingPolicy, CALIBRATION_SAMPLE_COUNT, CALIBRATION_SEED_INNER_ITERATIONS,
+    CALIBRATION_TARGET_NANOSECONDS, CORPUS_REVISION, ExpectedOutput, ExpectedSideEffects, Workload,
+};
 use super::super::model::{ReportIdentity, WorkloadCategory};
 use super::options::Options;
 
@@ -98,7 +101,17 @@ fn corpus_digest(workloads: &[&Workload]) -> String {
         digest.update(category_name(workload.category).as_bytes());
         digest.update([0]);
         digest.update(workload.scale.to_le_bytes());
-        digest.update(workload.controlled_inner_iterations.get().to_le_bytes());
+
+        match workload.batching {
+            BatchingPolicy::SingleExecution => digest.update([0]),
+            BatchingPolicy::Calibrated => {
+                digest.update([1]);
+                digest.update(CALIBRATION_SEED_INNER_ITERATIONS.to_le_bytes());
+                digest.update(CALIBRATION_SAMPLE_COUNT.to_le_bytes());
+                digest.update(CALIBRATION_TARGET_NANOSECONDS.to_le_bytes());
+            }
+        }
+
         digest.update(workload.units.as_bytes());
         digest.update([0]);
         digest.update(workload.source.as_bytes());

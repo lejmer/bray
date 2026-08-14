@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCHEMA_REVISION: u32 = 6;
+pub(super) const SCHEMA_REVISION: u32 = 7;
 pub(super) const MAX_SAMPLE_COUNT: u32 = 10_000;
 pub(super) const MAX_SECTION_COUNT: usize = 512;
 pub(super) const MAX_RETAINED_INPUT_COUNT: usize = 4_096;
@@ -46,6 +46,7 @@ pub(super) struct WorkloadReport {
     pub scale: u64,
     pub units: String,
     pub expected_output_sha256: String,
+    pub batching: WorkloadBatching,
     pub compilation: bray_compilation::CompilationProfileReport,
     pub process_execution: ExecutionStatistics,
     pub bray_execution: ExecutionStatistics,
@@ -76,8 +77,9 @@ pub(super) struct PeerReport {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub(super) struct PeerBuildConfiguration {
     pub target: String,
-    pub production_arguments: Vec<String>,
-    pub timed_arguments: Vec<String>,
+    pub compiler: String,
+    pub production: PeerCompilerConfiguration,
+    pub timed: PeerCompilerConfiguration,
     pub linker: String,
     pub runtime_linkage: RuntimeLinkage,
     pub post_link_actions: Vec<String>,
@@ -114,6 +116,34 @@ pub(super) struct ExecutionStatistics {
     pub median_absolute_deviation_picoseconds: u64,
     pub maximum_picoseconds: u64,
     pub median_units_per_second: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(super) struct PeerCompilerConfiguration {
+    pub arguments: Vec<String>,
+    pub environment: BTreeMap<String, String>,
+    pub batching: PeerBatching,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub(super) enum PeerBatching {
+    SingleExecution,
+    Repeated { inner_iterations: u64 },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub(super) enum WorkloadBatching {
+    SingleExecution,
+    Calibrated {
+        seed_inner_iterations: u64,
+        target_interval_nanoseconds: u64,
+        bray_samples_nanoseconds: Vec<u64>,
+        rust_samples_nanoseconds: Vec<u64>,
+        cpp_samples_nanoseconds: Vec<u64>,
+        selected_inner_iterations: u64,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

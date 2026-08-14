@@ -1,4 +1,46 @@
+use std::num::NonZeroU64;
+
 use super::model::ExecutionStatistics;
+
+pub(super) fn calibrated_inner_iterations<'a>(
+    seed_inner_iterations: NonZeroU64,
+    target_interval_nanoseconds: u64,
+    implementation_samples: impl IntoIterator<Item = &'a [u64]>,
+) -> Result<NonZeroU64, String> {
+    let fastest_typical_interval = implementation_samples
+        .into_iter()
+        .map(calibration_median)
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .min()
+        .ok_or_else(|| "batch calibration requires implementation intervals".to_owned())?;
+
+    let numerator = u128::from(seed_inner_iterations.get())
+        .checked_mul(u128::from(target_interval_nanoseconds))
+        .ok_or_else(|| "batch calibration count overflowed".to_owned())?;
+
+    let selected = numerator
+        .div_ceil(u128::from(fastest_typical_interval))
+        .max(1);
+
+    let selected = u64::try_from(selected)
+        .map_err(|_| "batch calibration count exceeds u64".to_owned())?;
+
+    NonZeroU64::new(selected)
+        .ok_or_else(|| "batch calibration selected a zero repetition count".to_owned())
+}
+
+fn calibration_median(samples: &[u64]) -> Result<u64, String> {
+    if samples.is_empty() || samples.contains(&0) {
+        return Err("batch calibration requires positive controlled intervals".to_owned());
+    }
+
+    let mut samples = samples.to_vec();
+
+    samples.sort_unstable();
+
+    Ok(median(&samples))
+}
 
 pub(super) fn summarize(
     mut raw_samples_nanoseconds: Vec<u64>,
@@ -87,5 +129,57 @@ pub(super) fn median(sorted: &[u64]) -> u64 {
         sorted[middle]
     } else {
         sorted[middle - 1].midpoint(sorted[middle])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+
+    use super::calibrated_inner_iterations;
+
+    #[test]
+    fn calibration_uses_the_fastest_median_and_ignores_one_short_outlier() {
+        let selected = calibrated_inner_iterations(
+            NonZeroU64::new(1_000_000)
+                .unwrap_or_else(|| panic!("fixture calibration seed must be nonzero")),
+            100_000_000,
+            [
+                [1, 1_000_000, 1_000_000].as_slice(),
+                [2_000_000, 2_000_000, 4_000_000].as_slice(),
+                [3_000_000, 3_000_000, 3_000_000].as_slice(),
+            ],
+        )
+        .unwrap_or_else(|error| panic!("fixture calibration must succeed: {error}"));
+
+        assert_eq!(selected.get(), 100_000_000);
+    }
+
+    #[test]
+    fn calibration_rejects_missing_zero_and_unrepresentable_observations() {
+        let seed = NonZeroU64::MIN;
+
+        assert!(
+            calibrated_inner_iterations(
+                seed,
+                100_000_000,
+                std::iter::empty::<&[u64]>(),
+            )
+            .is_err()
+        );
+
+        assert!(calibrated_inner_iterations(seed, 100_000_000, [&[][..]]).is_err());
+
+        assert!(calibrated_inner_iterations(seed, 100_000_000, [&[0][..]]).is_err());
+
+        assert!(
+            calibrated_inner_iterations(
+                NonZeroU64::new(u64::MAX)
+                    .unwrap_or_else(|| panic!("maximum u64 must be nonzero")),
+                u64::MAX,
+                [&[1][..]],
+            )
+            .is_err()
+        );
     }
 }
