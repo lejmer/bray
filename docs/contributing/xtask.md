@@ -207,6 +207,13 @@ Bray, Rust, and C++ do not receive a fixed warm-cache or scheduling advantage. E
 output digest and side-effect contract. The HTML report states the shared semantic contract for each row. Missing peer sources,
 failed peer builds, mismatched output, or incomplete peer reports fail the run instead of producing an incomplete comparison.
 
+Workloads that would finish too close to the host timer resolution repeat inside one controlled interval. Before warmups and
+measured samples, the command times three seed intervals for Bray, Rust, and C++. It chooses a shared repetition count from the
+fastest language median so every implementation targets at least 100 ms. The report retains the seed count, all calibration
+intervals, the target interval, the selected repetition count, the timer resolution, the raw measured intervals, and the adjusted
+picosecond duration for one workload execution. The timed Bray, Rust, and C++ artifacts use that same selected count. Production
+executable size, process duration, and compilation duration continue to measure ordinary single-execution artifacts.
+
 All three production executables use static application and language runtimes. On Windows this means the static MSVC runtime for
 Bray, Rust, and C++. Target operating-system libraries may remain dynamic. The report records the policy and exact compiler flags,
 then validates the produced dependency lists to reject application-runtime DLLs. Linux peers embed their language runtimes while

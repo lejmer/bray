@@ -81,7 +81,13 @@ pub(super) fn prepare(root: &Path, target: NativeTarget) -> Result<PreparedToolc
 
     progress::phase("Assembling performance toolchain");
 
-    crate::native_toolchain::assemble(root, target, &runtime, &toolchain)?;
+    crate::native_toolchain::assemble_in_publication(
+        root,
+        target,
+        &runtime,
+        publication.work(),
+        &toolchain,
+    )?;
 
     progress::phase("Preparing performance observations");
 

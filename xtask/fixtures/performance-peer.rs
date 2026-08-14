@@ -17,20 +17,46 @@ use std::sync::Arc;
 #[cfg(any(peer_timing, peer_workload = "monotonic_clock"))]
 use std::time::Instant;
 
+#[cfg(peer_timing)]
 const OBSERVATION_HEADER: &[u8] = b"BRAYPO01";
+#[cfg(peer_timing)]
 const CONTROLLED_DURATION_RECORD: u8 = 3;
+#[cfg(peer_timing)]
 const OBSERVATION_PATH: &str = "BRAY_PERFORMANCE_OBSERVATION_PATH";
 
 fn main() {
     #[cfg(peer_timing)]
+    let inner_iterations = inner_iterations();
+
+    #[cfg(peer_timing)]
     let started = Instant::now();
 
+    #[cfg(peer_timing)]
+    let valid = {
+        let mut valid = true;
+
+        for _ in 0..inner_iterations {
+            valid &= std::hint::black_box(workload());
+        }
+
+        valid
+    };
+
+    #[cfg(not(peer_timing))]
     let valid = workload();
 
     #[cfg(peer_timing)]
     write_duration(started.elapsed().as_nanos());
 
     assert!(valid);
+}
+
+#[cfg(peer_timing)]
+fn inner_iterations() -> u64 {
+    match env!("BRAY_PERFORMANCE_INNER_ITERATIONS").parse() {
+        Ok(value) if value > 0 => value,
+        _ => std::process::abort(),
+    }
 }
 
 #[cfg(peer_workload = "small_output")]

@@ -1,5 +1,6 @@
 mod execution;
 mod identity;
+mod measurement;
 mod options;
 mod output;
 mod progress;
