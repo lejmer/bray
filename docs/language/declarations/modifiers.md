@@ -14,6 +14,8 @@ Common declaration modifiers include:
 - `consume`,
 - `mut`.
 
+`thread` is a declaration-form keyword that precedes `static`. It is not an independently reusable modifier.
+
 Modifier validity depends on the declaration form and declaration context.
 
 `public` and `internal` are visibility modifiers.
@@ -27,7 +29,8 @@ compiled Bray. The selected ABI determines whether the call is foreign.
 
 `async` marks a callable or lifecycle declaration as asynchronous where that declaration form permits asynchronous execution.
 
-`static`, `consume`, and `mut` participate in method receiver selection when used on callable member declarations.
+`static` introduces product storage at module level. In callable member declarations it selects a static function with no receiver.
+`consume` and `mut` participate in method receiver selection.
 
 `mut` before a parameter name marks a local owned parameter binding as mutable.
 

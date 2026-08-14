@@ -70,6 +70,10 @@ Declaration identity is the stable semantic identity introduced by the declarati
 
 For module-level declarations, identity includes the package identity, logical module path, declaration name, and declaration kind.
 
+A static declaration has that declaration identity independently of its realized storage instances. The canonical identity of one
+closed product-static or thread-static instance additionally includes its normalized substitution, selected witnesses, target
+profile, owning product, and exact native-thread attachment where applicable.
+
 For type members, identity includes the declaring type and member name.
 
 For trait members, identity includes the declaring trait application surface and member name.

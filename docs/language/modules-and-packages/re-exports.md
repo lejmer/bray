@@ -26,6 +26,9 @@ another declaration or export in that surface.
 
 An export does not create a new declaration identity.
 
+Re-exporting a static preserves its open instance template and canonical static instance identity. It does not materialize storage,
+duplicate an instance, change the owning product or attachment, or add an initialization event.
+
 An export does not rename the declaration.
 
 An export does not execute code, initialize a module, activate implementations, or change overload participation.

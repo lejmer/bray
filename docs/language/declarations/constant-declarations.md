@@ -90,12 +90,21 @@ A compile-time constant expression can use:
 - constants already visible in the current scope,
 - const parameters visible in the current generic context,
 - [target properties](../targets-layout-abi-and-raw-memory/target-profiles-and-properties.md) visible for the selected target profile,
-- tuple, array, nullable, product, and union variant construction whose components are constant expressions and whose type has no runtime construction, finalization, or destructor obligation,
+- tuple, array, nullable, product, and union variant construction whose components are constant expressions and whose selected
+  construction is valid for the constant-evaluation destination,
 - unary and binary expressions whose operands are constant expressions and whose selected operation is compiler-known and valid in constant-initializer context,
 - calls to const callables whose arguments are constant expressions and whose callable contract is valid in constant-initializer context,
 - field access, tuple projection, and array element access over constant expressions when the selected sub-value is itself valid as a constant.
 
 A compile-time constant expression is evaluated by the compiler using ordinary Bray expression semantics in a restricted constant-evaluation context.
+
+A constant declaration destination requires a freely materializable constant value and therefore rejects unique runtime identity,
+runtime-owned resource state, finalization obligations, destructor side effects, and mutable storage identity.
+
+A static initializer destination materializes one owned runtime storage instance. It can therefore construct a type with stable
+runtime identity or lifecycle behavior when the selected const construction creates a complete representational state without
+executing runtime work, acquiring a runtime resource, or performing cleanup. The resulting lifecycle obligations attach to the
+static owner rather than to constant evaluation.
 
 Constant evaluation is not a macro system, source rewriting system, or separate compile-time language.
 
@@ -104,6 +113,11 @@ Normal expression typing, overload selection, result propagation, panic rules, o
 A compile-time constant expression cannot read runtime storage, borrow runtime storage, assign, mutate, move from a runtime access
 path, allocate storage, perform I/O, start tasks, await, suspend, catch or raise panics as runtime behavior, use runtime dynamic
 dispatch, depend on address identity, or call a non-const callable.
+
+A static-initializer destination has one narrow address-formation exception. It can form a shared borrow of another demanded static
+instance without observing that instance's value. The borrow records the exact product or exact-thread dependency and the required
+target relocation. A product-static initializer cannot address thread-static storage. A thread-static initializer can address a
+product static or another static from the same exact attachment. Finite address-only cycles follow the static lifecycle rules.
 
 Control-flow expressions are valid in constant-evaluation context only when their selected path can be evaluated without runtime storage, runtime effects, or runtime dispatch.
 
@@ -150,4 +164,4 @@ A constant initializer cannot reference the constant being declared, directly or
 - [Language index](../index.md)
 - [Declarations index](../declarations.md)
 - Previous: [Declaration bodies and requirements](declaration-bodies-and-requirements.md)
-- Next: [Predicate declarations](predicate-declarations.md)
+- Next: [Static storage declarations](static-storage-declarations.md)

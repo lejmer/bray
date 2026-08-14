@@ -16,6 +16,7 @@ The declaration-owned expression categories are:
 - struct field default expressions,
 - union payload field default expressions,
 - constant initializers,
+- static constant-initializer templates,
 - defaulted trait constant initializers,
 - trait implementation constant-valued member initializers,
 - predicate declaration and predicate member bodies,
@@ -47,6 +48,7 @@ Later evaluation remains category-specific:
 
 - runtime defaults are evaluated only when the corresponding argument or field is omitted,
 - constant definitions are evaluated for concrete constant instances,
+- static initializer templates are evaluated when their concrete storage instances are materialized during product formation,
 - predicate definitions are applied during contract and static-constraint reasoning,
 - executable callable and lifecycle bodies are evaluated only through their ordinary invocation rules.
 
@@ -116,6 +118,21 @@ A trait constant default is a constant definition template. Its concrete selecte
 trait application, implementation, and required substitutions are known.
 
 Constant initializers are never evaluated as runtime defaults.
+
+## Static initializer templates and instances
+
+A static initializer is checked as a constant-expression template with its static declaration.
+
+A non-generic static has one closed template substitution for each target profile and owning product that demands it. A generic
+static can have multiple closed substitutions. Selected implementation witnesses and, for thread statics, the exact native-thread
+attachment complete the instance identity.
+
+Product formation evaluates each demanded closed initializer template and materializes one initialized storage instance. A
+thread-static template is materialized on its exact thread when that attached thread first demands the instance. Neither operation
+executes a module body or arbitrary runtime initialization code.
+
+Compiled interfaces retain reachable open static templates so a consuming product can realize imported and source-defined statics
+under the same rules.
 
 ## Predicates, constraints, and contracts
 

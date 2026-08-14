@@ -78,9 +78,16 @@ Availability is checked during name resolution, type checking, trait and impleme
 
 A generic declaration that uses a target-conditional declaration must be valid for the selected target profile wherever the generic body is checked or instantiated.
 
+A closed static instance is target-specific. Its canonical identity includes the selected target-profile identity, and its
+initializer, type, constraints, selected witnesses, layout, and storage representation are checked for that profile. A demanded
+thread-static instance additionally requires `target.platform.native_threads`.
+
 A target-gated module contribution can prove target availability for declarations inside that contribution.
 
 If a public declaration's signature, contract, layout, ABI, constant value, implementation participation, overload participation, or availability depends on target properties, compiled interface metadata records the relevant target-property dependencies.
+
+Reachable generic static templates record the target-property dependencies that affect instance identity, availability,
+materialization, dependency roots, or cleanup.
 
 Compiled interface metadata for a target-dependent public surface is valid only for target profiles whose recorded target properties match for the purposes of that public surface.
 

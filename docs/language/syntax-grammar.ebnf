@@ -37,6 +37,7 @@ module-path =
 
 module-level-declaration =
       constant-declaration
+    | static-declaration
     | function-declaration
     | callable-contract-declaration
     | type-declaration
@@ -176,7 +177,8 @@ grouped-access-expression =
 
 access-postfix-operation =
       member-access-operation
-    | element-index-operation ;
+    | element-index-operation
+    | generic-argument-list ;
 
 member-access-operation =
     "." member-selector ;
@@ -233,7 +235,7 @@ postfix-operation =
     | trait-qualified-member-operation ;
 
 call-operation =
-    [ generic-argument-list ] argument-list ;
+    argument-list ;
 
 slice-index-operation =
     "[" slice-selector "]" ;
@@ -865,6 +867,14 @@ constant-declaration =
     constant-modifiers "const" typed-identifier "=" constant-expression ";" ;
 
 constant-modifiers =
+    [ visibility-modifier ] ;
+
+static-declaration =
+    static-declaration-modifiers [ "thread" ] "static" identifier
+    [ generic-parameter-list ] ":" type-expression { with-clause }
+    "=" constant-expression ";" ;
+
+static-declaration-modifiers =
     [ visibility-modifier ] ;
 
 generic-parameter-list =

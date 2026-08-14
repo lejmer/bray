@@ -186,7 +186,9 @@ A callable symbol records its exact callable ABI. A data symbol records its poin
 obligations. Converting an untyped address to either form is trusted and rejects representations the selected target cannot express.
 
 Closing consumes the library owner. Lookup failure does not close the library. A library with active symbol borrows cannot be
-closed or transferred. Destruction resolves an otherwise live library according to the foreign-resource rules.
+closed or transferred. A loaded Bray product also cannot close while an entry, callback, callable, static, or other transitive
+dependency can reach its code or storage. After entry closure and quiescence, close drives exact-thread and product-static cleanup
+before releasing the loaded image. Destruction resolves an otherwise live library according to the foreign-resource rules.
 
 Dynamic loading is target-conditional through the boolean `target.platform.dynamic_loading` property. The public value and error
 types remain available for generic signatures, while open and lookup operations are unavailable when that property is false. The
@@ -238,12 +240,17 @@ precondition before Bray entry. A trampoline never dereferences retired storage 
 A generated callback trampoline performs these steps in order:
 
 1. Enter one invocation against the still-live context under the registration's synchronization contract.
-2. Reuse an existing Bray runtime-thread scope or initialize the foreign caller thread for the duration of the callback.
+2. Acquire the provider-product entry dependency and reuse or establish the foreign caller's exact native-thread attachment.
 3. Establish a synchronous callback root through the selected private runtime ABI.
 4. Reconstruct the explicit state borrow and ABI parameters without duplicating ownership.
 5. Invoke the static Bray adapter under its declared execution, effect, trust, and reentrancy requirements.
 6. Convert the normal result to the exact foreign ABI representation.
-7. Resolve callback-root lifecycle state and leave the in-flight invocation before returning to foreign code.
+7. Resolve callback-root lifecycle state, leave the in-flight invocation, and complete the matching outer detach before returning
+   to foreign code.
+
+Nested entry reuses one attachment. The outer detach waits for exact-thread dependencies and pinned work, cleans thread statics on
+the same native thread, and only then releases the attachment. Product unload closes new entry and attachment before waiting for
+quiescence.
 
 Thread initialization is a private platform/runtime mechanism and does not depend on the public `std.thread.Thread<T>` abstraction.
 It establishes only the execution facts declared by the callback boundary. A callback requiring main-thread, blocking, compute, or

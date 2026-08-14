@@ -5,6 +5,7 @@ A module body contains declarations that belong to that module.
 The module-level declaration forms are:
 
 - constant declarations,
+- static declarations,
 - function declarations, including extern callable declarations,
 - named callable contract declarations,
 - type declarations,

@@ -27,6 +27,14 @@ If evaluation exits before construction completes, already-initialized parts, te
 
 Partial-value lifecycle behavior is defined by [Partial values and replacement](partial-values-and-replacement.md).
 
+Static values use the same value-level lifecycle order. Static instances add owner-level ordering from the static lifecycle
+dependency graph. If `A` can require `B` during cleanup, `A` completes finalization, destruction, and represented-part destruction
+before cleanup of `B` begins.
+
+Thread-static cleanup for one attachment completes on its exact native thread before product-static cleanup can resolve any product
+storage required by that attachment. Independent eligible static instances are ordered by their formally defined canonical
+instance identities.
+
 ## Navigation
 
 - [Language index](../index.md)

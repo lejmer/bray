@@ -34,6 +34,13 @@ are rejected when they cannot completely resolve a possible payload and terminal
 The executable root performs the same ownership and lifecycle checks before product shutdown. Root return does not detach an
 unresolved child run.
 
+After all root and foreign runs are quiescent, the product host resolves static owners. This is a terminal lifecycle boundary rather
+than an ordinary source scope. It catches static cleanup panic or cancellation and records failed or panicked finalization as an
+owned cleanup incident before applying the abnormal abandonment fallback. Synchronous destruction and represented-part destruction
+then complete exactly once, and cleanup continues for independent static nodes.
+
+The same rule applies to thread-static owners at native-thread detachment. Cleanup remains on the exact attached thread.
+
 ## Navigation
 
 - [Language index](../index.md)

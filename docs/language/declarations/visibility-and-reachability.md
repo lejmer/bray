@@ -33,6 +33,9 @@ Type visibility rules are defined in [Type declarations](../types/type-declarati
 
 Trait visibility rules are defined in [Traits](../types/traits.md#trait-visibility).
 
+Static visibility controls whether the declaration and its open instance template are reachable. Reaching one static declaration
+through more than one public or re-exported path does not create more than one closed instance.
+
 Declarations in an internal module require internal-use acknowledgement to reach from outside the module's intended scope even when the declaration itself is public.
 
 The effective reachability of a type-associated member is capped by the owning type, the member's declaring module, and the
