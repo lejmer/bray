@@ -5,10 +5,20 @@ use bray_base::{NonEmptySharedStr, shared_slice};
 /// One closed platform-service role understood by the compiler and native provider.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum PlatformServiceRole {
-    /// Measures the immutable process-context block.
-    ContextMeasure,
-    /// Copies the immutable process-context block into caller-owned storage.
-    ContextCopy,
+    /// Reads the immutable process identity.
+    ContextIdentity,
+    /// Reads the target-native text width.
+    ContextNativeTextWidth,
+    /// Borrows the startup working directory.
+    ContextWorkingDirectory,
+    /// Reads the startup argument count.
+    ContextArgumentCount,
+    /// Borrows one startup argument.
+    ContextArgument,
+    /// Reads the startup environment-entry count.
+    ContextEnvironmentCount,
+    /// Borrows one startup environment entry.
+    ContextEnvironmentEntry,
     /// Compares environment keys using the target's process-environment rules.
     ContextEnvironmentKeyEquals,
     /// Reads bytes from standard input.
@@ -121,9 +131,14 @@ impl PlatformServiceRole {
     /// Returns the stable numeric role identity.
     pub const fn id(self) -> u32 {
         match self {
-            Self::ContextMeasure => 0x0001,
-            Self::ContextCopy => 0x0002,
-            Self::ContextEnvironmentKeyEquals => 0x0003,
+            Self::ContextIdentity => 0x0001,
+            Self::ContextNativeTextWidth => 0x0002,
+            Self::ContextWorkingDirectory => 0x0003,
+            Self::ContextArgumentCount => 0x0004,
+            Self::ContextArgument => 0x0005,
+            Self::ContextEnvironmentCount => 0x0006,
+            Self::ContextEnvironmentEntry => 0x0007,
+            Self::ContextEnvironmentKeyEquals => 0x0008,
             Self::StandardInputRead => 0x0101,
             Self::StandardOutputWrite => 0x0111,
             Self::StandardOutputFlush => 0x0112,
@@ -182,8 +197,13 @@ impl PlatformServiceRole {
     /// Returns the canonical role name used by product metadata.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ContextMeasure => "platform.context.measure",
-            Self::ContextCopy => "platform.context.copy",
+            Self::ContextIdentity => "platform.context.identity",
+            Self::ContextNativeTextWidth => "platform.context.native_text_width",
+            Self::ContextWorkingDirectory => "platform.context.working_directory",
+            Self::ContextArgumentCount => "platform.context.argument_count",
+            Self::ContextArgument => "platform.context.argument",
+            Self::ContextEnvironmentCount => "platform.context.environment_count",
+            Self::ContextEnvironmentEntry => "platform.context.environment_entry",
             Self::ContextEnvironmentKeyEquals => "platform.context.environment_key_equals",
             Self::StandardInputRead => "platform.standard_input.read",
             Self::StandardOutputWrite => "platform.standard_output.write",
@@ -243,8 +263,13 @@ impl PlatformServiceRole {
     /// Returns the role with an exact canonical metadata name.
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
-            "platform.context.measure" => Some(Self::ContextMeasure),
-            "platform.context.copy" => Some(Self::ContextCopy),
+            "platform.context.identity" => Some(Self::ContextIdentity),
+            "platform.context.native_text_width" => Some(Self::ContextNativeTextWidth),
+            "platform.context.working_directory" => Some(Self::ContextWorkingDirectory),
+            "platform.context.argument_count" => Some(Self::ContextArgumentCount),
+            "platform.context.argument" => Some(Self::ContextArgument),
+            "platform.context.environment_count" => Some(Self::ContextEnvironmentCount),
+            "platform.context.environment_entry" => Some(Self::ContextEnvironmentEntry),
             "platform.context.environment_key_equals" => Some(Self::ContextEnvironmentKeyEquals),
             "platform.standard_input.read" => Some(Self::StandardInputRead),
             "platform.standard_output.write" => Some(Self::StandardOutputWrite),
@@ -311,8 +336,17 @@ impl PlatformServiceRole {
             TemporalResolutionPointer, TemporalValue, TemporalValuePointer, U32, U64,
         };
 
-        const CONTEXT_MEASURE: &[PlatformAbiType] = &[PointerU64];
-        const CONTEXT_COPY: &[PlatformAbiType] = &[PointerU8, U64, PointerU64];
+        const CONTEXT_COUNT: &[PlatformAbiType] = &[PointerU64];
+        const CONTEXT_TEXT: &[PlatformAbiType] = &[RawAddressPointer, PointerU64];
+        const CONTEXT_ARGUMENT: &[PlatformAbiType] = &[U64, RawAddressPointer, PointerU64];
+
+        const CONTEXT_ENVIRONMENT_ENTRY: &[PlatformAbiType] = &[
+            U64,
+            RawAddressPointer,
+            PointerU64,
+            RawAddressPointer,
+            PointerU64,
+        ];
 
         const CONTEXT_ENVIRONMENT_KEY_EQUALS: &[PlatformAbiType] =
             &[NativeText, NativeText, PointerU32];
@@ -404,8 +438,11 @@ impl PlatformServiceRole {
         const CHILD_REAP: &[PlatformAbiType] = &[U64, ExitStatusPointer];
 
         let parameters = match self {
-            Self::ContextMeasure => CONTEXT_MEASURE,
-            Self::ContextCopy => CONTEXT_COPY,
+            Self::ContextIdentity | Self::ContextNativeTextWidth => NO_PARAMETERS,
+            Self::ContextWorkingDirectory => CONTEXT_TEXT,
+            Self::ContextArgumentCount | Self::ContextEnvironmentCount => CONTEXT_COUNT,
+            Self::ContextArgument => CONTEXT_ARGUMENT,
+            Self::ContextEnvironmentEntry => CONTEXT_ENVIRONMENT_ENTRY,
             Self::ContextEnvironmentKeyEquals => CONTEXT_ENVIRONMENT_KEY_EQUALS,
             Self::StandardInputRead
             | Self::StandardOutputWrite
@@ -458,7 +495,13 @@ impl PlatformServiceRole {
             Self::DynamicLibraryClose => STREAM_HANDLE,
         };
 
-        PlatformServiceSignature::new(parameters, Status)
+        let result = match self {
+            Self::ContextIdentity => U64,
+            Self::ContextNativeTextWidth => U32,
+            _ => Status,
+        };
+
+        PlatformServiceSignature::new(parameters, result)
     }
 }
 
@@ -606,6 +649,17 @@ mod tests {
         );
 
         assert_eq!(role.signature().result(), PlatformAbiType::Status);
+    }
+
+    #[test]
+    fn immutable_context_scalars_return_directly() {
+        let identity = PlatformServiceRole::ContextIdentity.signature();
+        let width = PlatformServiceRole::ContextNativeTextWidth.signature();
+
+        assert!(identity.parameters().is_empty());
+        assert_eq!(identity.result(), PlatformAbiType::U64);
+        assert!(width.parameters().is_empty());
+        assert_eq!(width.result(), PlatformAbiType::U32);
     }
 
     #[test]

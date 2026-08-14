@@ -62,7 +62,8 @@ impl Compilation {
 
         if matches!(
             configuration,
-            crate::BuildConfiguration::ObservedRelease | crate::BuildConfiguration::TimedRelease
+            crate::BuildConfiguration::ObservedRelease
+                | crate::BuildConfiguration::TimedRelease { .. }
         ) {
             required_capabilities.push(RuntimeCapability::MemoryOperations);
         }

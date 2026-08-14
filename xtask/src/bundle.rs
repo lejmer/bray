@@ -263,7 +263,7 @@ impl fmt::Display for DirectoryPublicationError {
     }
 }
 
-fn rename_directory(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(crate) fn rename_directory(source: &Path, destination: &Path) -> std::io::Result<()> {
     retry_permission_denied(
         || fs::rename(source, destination),
         PUBLICATION_RENAME_RETRIES,

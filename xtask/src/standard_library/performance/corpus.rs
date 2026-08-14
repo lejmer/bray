@@ -1,12 +1,18 @@
+// rust-style: allow(module-too-large, reason = "performance workloads form one flat contract catalog")
+
 use super::model::WorkloadCategory;
 
 pub(super) const CORPUS_REVISION: u32 = 8;
+pub(super) const CALIBRATION_SEED_INNER_ITERATIONS: u64 = 1_000_000;
+pub(super) const CALIBRATION_SAMPLE_COUNT: u32 = 3;
+pub(super) const CALIBRATION_TARGET_NANOSECONDS: u64 = 100_000_000;
 
 pub(super) struct Workload {
     pub id: &'static str,
     pub category: WorkloadCategory,
     pub scale: u64,
     pub units: &'static str,
+    pub batching: BatchingPolicy,
     pub source: &'static str,
     pub standard_library_sources: &'static [&'static str],
     pub expected_output: ExpectedOutput,
@@ -14,6 +20,12 @@ pub(super) struct Workload {
     pub platform_operations: &'static [&'static str],
     pub retention: RetentionContract,
     pub storage: Option<StorageExpectation>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BatchingPolicy {
+    SingleExecution,
+    Calibrated,
 }
 
 pub(super) struct RetentionContract {
@@ -70,6 +82,7 @@ pub(super) const WORKLOADS: [Workload; 13] = [
         category: WorkloadCategory::Small,
         scale: 1,
         units: "executions",
+        batching: BatchingPolicy::Calibrated,
         source: r#"module small_output;
 
 func main() {}
@@ -86,6 +99,7 @@ func main() {}
         category: WorkloadCategory::CoreData,
         scale: 64,
         units: "bytes",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module std.bytes;
 
 using std.bytes;
@@ -125,6 +139,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::CoreData,
         scale: 4096,
         units: "bytes",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module std.bytes;
 
 using std.bytes;
@@ -164,6 +179,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::CoreData,
         scale: 256,
         units: "text pipelines",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module borrowed_text;
 
 using std.bytes;
@@ -259,6 +275,7 @@ func main()
         category: WorkloadCategory::Formatting,
         scale: 1024,
         units: "values",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module std.format;
 
 using std.format;
@@ -300,6 +317,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::Formatting,
         scale: 1024,
         units: "values",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module std.format;
 
 using std.format;
@@ -371,6 +389,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         category: WorkloadCategory::Formatting,
         scale: 1024,
         units: "values",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module format_writer;
 
 using std.bytes;
@@ -476,6 +495,7 @@ func main()
         category: WorkloadCategory::Streaming,
         scale: 1024,
         units: "writes",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module stream_output;
 
 using std.io;
@@ -543,6 +563,7 @@ func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Concurrent,
         scale: 128,
         units: "awaits",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module async_output;
 
 using std.io;
@@ -580,6 +601,7 @@ async func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Filesystem,
         scale: 256,
         units: "lookups",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module filesystem_metadata;
 
 using std.fs;
@@ -605,8 +627,7 @@ func main() -> Result<unit, std.io.IoError>
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[
-            "platform.context.measure",
-            "platform.context.copy",
+            "platform.context.working_directory",
             "platform.path.metadata",
         ],
         retention: NO_RETENTION_CONTRACT,
@@ -617,6 +638,7 @@ func main() -> Result<unit, std.io.IoError>
         category: WorkloadCategory::Filesystem,
         scale: 4096,
         units: "bytes",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module file_output;
 
 using std.fs;
@@ -669,8 +691,7 @@ func output_path() -> std.path.Path
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::AbsentPath("bray-performance-file-output"),
         platform_operations: &[
-            "platform.context.measure",
-            "platform.context.copy",
+            "platform.context.native_text_width",
             "platform.file.open",
             "platform.file.write",
             "platform.file.flush",
@@ -679,8 +700,7 @@ func output_path() -> std.path.Path
         ],
         retention: RetentionContract {
             required_symbols: &[
-                "bray_platform_context_measure",
-                "bray_platform_context_copy",
+                "bray_platform_context_native_text_width",
                 "bray_platform_file_open",
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
@@ -710,6 +730,7 @@ func output_path() -> std.path.Path
         category: WorkloadCategory::Process,
         scale: 1024,
         units: "lookups",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module process_context;
 
 using std.process;
@@ -728,15 +749,39 @@ func main()
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
-        platform_operations: &["platform.context.measure", "platform.context.copy"],
-        retention: NO_RETENTION_CONTRACT,
-        storage: None,
+        platform_operations: &["platform.context.identity"],
+        retention: RetentionContract {
+            required_symbols: &["bray_platform_context_identity"],
+            forbidden_symbols: &[
+                "bray_platform_context_argument",
+                "bray_platform_context_argument_count",
+                "bray_platform_context_environment_entry",
+                "bray_platform_context_environment_count",
+                "bray_platform_context_environment_key_equals",
+                "bray_platform_context_native_text_width",
+                "bray_platform_context_working_directory",
+            ],
+            required_provenance: &["bray_platform_core"],
+            forbidden_provenance: &[
+                "bray_platform_process",
+                "bray_platform_standard_streams",
+                "bray_platform_filesystem",
+                "bray_runtime_test_host",
+                "run_output_context",
+            ],
+        },
+        storage: Some(StorageExpectation {
+            allocation_count: 0,
+            allocated_bytes: 0,
+            copied_bytes: 0,
+        }),
     },
     Workload {
         id: "monotonic_clock",
         category: WorkloadCategory::Time,
         scale: 1024,
         units: "readings",
+        batching: BatchingPolicy::SingleExecution,
         source: r#"module monotonic_clock;
 
 using std.time;

@@ -238,8 +238,7 @@ fn require_observation_symbols(linker_map: &Path, kind: ObservationKind) -> Resu
             bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
         ],
         ObservationKind::Memory => &[
-            bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
-            bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL,
+            bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
         ],
     };
 
@@ -265,8 +264,9 @@ fn linked_symbols(linker_map: &Path) -> Result<String, String> {
         .map_err(|error| format!("could not read linker map {}: {error}", linker_map.display()))
 }
 
-const fn observation_symbols() -> [&'static str; 4] {
+const fn observation_symbols() -> [&'static str; 5] {
     [
+        bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
         bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
         bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL,
         bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
@@ -279,7 +279,8 @@ mod tests {
     use std::fs;
 
     use super::{
-        ALLOCATION_RECORD, CONTROLLED_DURATION_RECORD, COPY_RECORD, RecordedExecution, read,
+        ALLOCATION_RECORD, CONTROLLED_DURATION_RECORD, COPY_RECORD, ObservationKind,
+        RecordedExecution, read, require_observation_symbols,
     };
 
     #[test]
@@ -363,6 +364,44 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn initialized_memory_session_can_record_zero_events() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+
+        let path = directory.path().join("observations.bin");
+
+        fs::write(&path, bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER)
+            .unwrap_or_else(|error| panic!("observation fixture must write: {error}"));
+
+        assert_eq!(
+            read(&path).unwrap_or_else(|error| panic!("observation must parse: {error}")),
+            RecordedExecution {
+                duration_nanoseconds: None,
+                storage: super::empty_storage(),
+            }
+        );
+    }
+
+    #[test]
+    fn memory_observation_requires_session_root_not_event_hooks() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+
+        let path = directory.path().join("application.map");
+
+        fs::write(&path, bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL)
+            .unwrap_or_else(|error| panic!("linker map fixture must write: {error}"));
+
+        require_observation_symbols(&path, ObservationKind::Memory)
+            .unwrap_or_else(|error| panic!("memory observation root must validate: {error}"));
+
+        fs::write(&path, bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL)
+            .unwrap_or_else(|error| panic!("linker map fixture must write: {error}"));
+
+        assert!(require_observation_symbols(&path, ObservationKind::Memory).is_err());
     }
 
     fn record(kind: u8, value: u64) -> Vec<u8> {

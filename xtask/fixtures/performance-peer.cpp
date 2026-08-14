@@ -1,6 +1,10 @@
 #include <cstddef>
 #include <cstdint>
 
+#if !defined(BRAY_INNER_ITERATIONS)
+#define BRAY_INNER_ITERATIONS 1
+#endif
+
 #if defined(BRAY_PEER_TIMING) || BRAY_WORKLOAD == 6
 #include <chrono>
 #endif
@@ -66,7 +70,8 @@ namespace {
 constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
-#if (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) || BRAY_WORKLOAD == 12
+#if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) \
+    || BRAY_WORKLOAD == 12
 template <typename Value>
 void retain_work(Value const& value)
 {
@@ -658,7 +663,16 @@ int main()
     const auto started = std::chrono::steady_clock::now();
 #endif
 
+#if defined(BRAY_PEER_TIMING)
+    bool valid = true;
+    for (std::uint64_t iteration = 0; iteration < BRAY_INNER_ITERATIONS; ++iteration)
+    {
+        valid = workload() && valid;
+        retain_work(valid);
+    }
+#else
     const bool valid = workload();
+#endif
 
 #if defined(BRAY_PEER_TIMING)
     write_duration(std::chrono::duration_cast<std::chrono::nanoseconds>(

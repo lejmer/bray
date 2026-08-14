@@ -340,7 +340,7 @@ fn output_name(
 }
 
 fn bray_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    crate::path::slash_separated(path)
 }
 
 fn target_module_audit(target: NativeTarget) -> String {

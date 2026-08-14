@@ -46,7 +46,7 @@ pub(super) fn inspect(
 
     Ok(ArtifactReport {
         kind,
-        path: artifact.to_string_lossy().replace('\\', "/"),
+        path: crate::path::slash_separated(artifact),
         bytes: metadata.len(),
         sections: bounded(parse_sections(&inspection), MAX_SECTION_COUNT),
         dependencies: ArtifactDependencies {
