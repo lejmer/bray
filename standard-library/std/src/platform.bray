@@ -2,10 +2,6 @@ trusted internal module std.platform;
 
 using std.memory;
 
-const ARGUMENT_ENTRY_BYTES: usize = 16;
-
-const ENVIRONMENT_ENTRY_BYTES: usize = 32;
-
 @layout(c)
 internal struct PlatformStatus
 {

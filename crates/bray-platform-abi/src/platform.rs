@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use bray_platform_abi_support::{
-    MemoryRegion, disjoint, native_platform_export, startup_working_directory,
+    MemoryRegion, disjoint, mutually_disjoint, native_platform_export, startup_working_directory,
 };
 use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 
@@ -177,6 +177,10 @@ native_platform_export! {
             Err(status) => return status,
         };
 
+        if let Err(status) = validate_context_outputs(&[equal_region]) {
+            return status;
+        }
+
         unsafe { equal.write(equal_value) };
 
         NativePlatformStatus::SUCCESS
@@ -187,6 +191,22 @@ fn process_context() -> Result<&'static [u8], NativePlatformStatus> {
     PROCESS_CONTEXT.block()
 }
 
+fn validate_context_outputs(outputs: &[MemoryRegion]) -> Result<(), NativePlatformStatus> {
+    let Some(Ok(context)) = PROCESS_CONTEXT.block.get() else {
+        return Ok(());
+    };
+
+    let Some(context_region) = MemoryRegion::read(context.as_ptr(), context.len()) else {
+        return Err(NativePlatformStatus::OTHER);
+    };
+
+    if !mutually_disjoint(outputs, &[context_region]) {
+        return Err(NativePlatformStatus::INVALID_INPUT);
+    }
+
+    Ok(())
+}
+
 #[expect(
     unsafe_code,
     reason = "validated native ABI output storage receives one initialized scalar"
@@ -195,14 +215,18 @@ fn publish_value<T>(
     destination: *mut T,
     value: Result<T, NativePlatformStatus>,
 ) -> NativePlatformStatus {
-    if MemoryRegion::write(destination).is_none() {
+    let Some(destination_region) = MemoryRegion::write(destination) else {
         return NativePlatformStatus::INVALID_INPUT;
-    }
+    };
 
     let value = match value {
         Ok(value) => value,
         Err(status) => return status,
     };
+
+    if let Err(status) = validate_context_outputs(&[destination_region]) {
+        return status;
+    }
 
     unsafe { destination.write(value) };
 
@@ -234,6 +258,10 @@ fn publish_context_text(
         Ok(text) => text,
         Err(status) => return status,
     };
+
+    if let Err(status) = validate_context_outputs(&[address_region, length_region]) {
+        return status;
+    }
 
     let Some(text_length) = u64::try_from(text.len()).ok() else {
         return NativePlatformStatus::EXHAUSTED;
@@ -287,6 +315,15 @@ fn publish_context_text_pair(
         Ok(text) => text,
         Err(status) => return status,
     };
+
+    if let Err(status) = validate_context_outputs(&[
+        key_address_region,
+        key_length_region,
+        value_address_region,
+        value_length_region,
+    ]) {
+        return status;
+    }
 
     let Some(key_length_value) = u64::try_from(key.len()).ok() else {
         return NativePlatformStatus::EXHAUSTED;
@@ -523,17 +560,28 @@ const fn environment_comparison() -> u8 {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
-    use std::mem::size_of;
+    use std::mem::{align_of, size_of};
+
     use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 
     use super::{
         CONTEXT_ABI_MAJOR, CONTEXT_ABI_MINOR, CONTEXT_HEADER_BYTES,
         PROCESS_CONTEXT,
         bray_platform_context_argument, bray_platform_context_argument_count,
-        bray_platform_context_environment_key_equals, bray_platform_context_identity,
-        bray_platform_context_native_text_width, bray_platform_context_working_directory,
-        native_text, process_context,
+        bray_platform_context_environment_entry, bray_platform_context_environment_key_equals,
+        bray_platform_context_identity, bray_platform_context_native_text_width,
+        bray_platform_context_working_directory, native_text, process_context,
     };
+
+    fn owned_context_output<T>(context: &[u8]) -> *mut T {
+        let offset = context.as_ptr().align_offset(align_of::<T>());
+
+        assert_ne!(offset, usize::MAX);
+        assert!(size_of::<T>() <= context.len());
+        assert!(offset <= context.len() - size_of::<T>());
+
+        context.as_ptr().wrapping_add(offset).cast_mut().cast()
+    }
 
     #[test]
     fn native_platform_status_has_the_specified_layout() {
@@ -630,6 +678,53 @@ mod tests {
 
         assert_eq!(status, NativePlatformStatus::INVALID_INPUT);
         assert_eq!(output, 0);
+    }
+
+    #[test]
+    fn context_roles_reject_outputs_within_the_owned_context() {
+        let context = process_context()
+            .unwrap_or_else(|status| panic!("process context must be available: {status:?}"));
+
+        let original = context.to_vec();
+
+        let count_status = bray_platform_context_argument_count(owned_context_output(context));
+
+        let mut length = u64::MAX;
+
+        let text_status = bray_platform_context_working_directory(
+            owned_context_output(context),
+            &raw mut length,
+        );
+
+        let mut key_length = u64::MAX;
+        let mut value_address = std::ptr::null();
+        let mut value_length = u64::MAX;
+
+        let pair_status = bray_platform_context_environment_entry(
+            0,
+            owned_context_output(context),
+            &raw mut key_length,
+            &raw mut value_address,
+            &raw mut value_length,
+        );
+
+        let empty = NativePlatformText::new(std::ptr::null(), 0);
+
+        let comparison_status = bray_platform_context_environment_key_equals(
+            empty,
+            empty,
+            owned_context_output(context),
+        );
+
+        assert_eq!(count_status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(text_status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(pair_status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(comparison_status, NativePlatformStatus::INVALID_INPUT);
+        assert_eq!(length, u64::MAX);
+        assert_eq!(key_length, u64::MAX);
+        assert!(value_address.is_null());
+        assert_eq!(value_length, u64::MAX);
+        assert_eq!(context, original);
     }
 
     #[test]

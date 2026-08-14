@@ -543,7 +543,11 @@ func main()
             required_symbols: &["bray_platform_context_identity"],
             forbidden_symbols: &[
                 "bray_platform_context_argument",
+                "bray_platform_context_argument_count",
                 "bray_platform_context_environment_entry",
+                "bray_platform_context_environment_count",
+                "bray_platform_context_environment_key_equals",
+                "bray_platform_context_native_text_width",
                 "bray_platform_context_working_directory",
             ],
             required_provenance: &["bray_platform_core"],
