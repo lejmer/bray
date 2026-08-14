@@ -20,6 +20,12 @@ struct ObservationState {
 }
 
 native_export! {
+    pub extern "C-unwind" fn bray_runtime_memory_observation_begin_v1() {
+        drop(state());
+    }
+}
+
+native_export! {
     pub extern "C-unwind" fn bray_runtime_memory_allocation_observation_v1(bytes: usize) {
         record(ALLOCATION_RECORD, as_u64(bytes));
     }

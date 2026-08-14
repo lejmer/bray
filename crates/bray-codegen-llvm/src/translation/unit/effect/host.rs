@@ -27,7 +27,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 execution,
                 runtime,
             } => {
-                self.observe_performance_interval(
+                self.observe_runtime_event(
+                    bray_codegen::RuntimeObservationMode::Memory,
+                    bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
+                    "memory.observation.begin",
+                )?;
+
+                self.observe_runtime_event(
+                    bray_codegen::RuntimeObservationMode::PerformanceInterval,
                     bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
                     "performance.interval.begin",
                 )?;
@@ -209,7 +216,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *entry_failure,
                 )?;
 
-                self.observe_performance_interval(
+                self.observe_runtime_event(
+                    bray_codegen::RuntimeObservationMode::PerformanceInterval,
                     bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
                     "performance.interval.end",
                 )?;
@@ -249,14 +257,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
     }
 
-    fn observe_performance_interval(
+    fn observe_runtime_event(
         &self,
+        mode: bray_codegen::RuntimeObservationMode,
         symbol: &str,
         name: &str,
     ) -> Result<(), CodegenFailure> {
-        if self.request.options().runtime_observations()
-            != bray_codegen::RuntimeObservationMode::PerformanceInterval
-        {
+        if self.request.options().runtime_observations() != mode {
             return Ok(());
         }
 
