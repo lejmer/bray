@@ -10,6 +10,7 @@ mod native_archive;
 mod native_product;
 mod native_toolchain;
 mod package_interface;
+mod path;
 mod readiness;
 mod runtime_artifact;
 mod source_format;

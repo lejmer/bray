@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -16,6 +17,8 @@ const TOOLCHAIN_DIRECTORY: &str = "toolchains/llvm";
 const ACTIVE_DIRECTORY: &str = "active";
 const DOWNLOAD_DIRECTORY: &str = "downloads";
 const MARKER_FILE: &str = "bray-llvm-toolchain.json";
+const BRAY_LLVM_PREFIX: &str = "BRAY_LLVM_PREFIX";
+const LLVM_SYS_PREFIX: &str = "LLVM_SYS_221_PREFIX";
 
 /// Runs one LLVM toolchain provisioning command.
 pub fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
@@ -115,9 +118,23 @@ fn toolchain_directory() -> Result<PathBuf, ToolchainError> {
 
 /// Returns a tool path inside the provisioned LLVM installation.
 pub fn tool_path(root: &Path, name: &str) -> PathBuf {
-    root.join("target")
-        .join(TOOLCHAIN_DIRECTORY)
-        .join(ACTIVE_DIRECTORY)
+    let configured = std::env::var_os(BRAY_LLVM_PREFIX)
+        .or_else(|| std::env::var_os(LLVM_SYS_PREFIX));
+
+    tool_path_with_prefix(root, name, configured.as_deref())
+}
+
+fn tool_path_with_prefix(root: &Path, name: &str, configured: Option<&OsStr>) -> PathBuf {
+    let prefix = match configured.map(Path::new) {
+        Some(prefix) if prefix.is_absolute() => prefix.to_path_buf(),
+        Some(prefix) => root.join(prefix),
+        None => root
+            .join("target")
+            .join(TOOLCHAIN_DIRECTORY)
+            .join(ACTIVE_DIRECTORY),
+    };
+
+    prefix
         .join("bin")
         .join(if cfg!(windows) {
             format!("{name}.exe")
@@ -679,11 +696,49 @@ impl fmt::Display for ToolchainError {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
     use super::{
         ToolchainError, cleanup_after_failure, manifest, parse_rustc_host, validate_marker,
-        write_marker,
+        tool_path_with_prefix, write_marker,
     };
+
+    #[test]
+    fn tool_paths_use_default_relative_and_absolute_installation_prefixes() {
+        let root = Path::new("workspace");
+
+        let executable = if cfg!(windows) {
+            "lld-link.exe"
+        } else {
+            "lld-link"
+        };
+
+        assert_eq!(
+            tool_path_with_prefix(root, "lld-link", None),
+            root.join("target/toolchains/llvm/active/bin")
+                .join(executable)
+        );
+
+        assert_eq!(
+            tool_path_with_prefix(
+                root,
+                "lld-link",
+                Some(std::ffi::OsStr::new("configured/llvm")),
+            ),
+            root.join("configured/llvm/bin").join(executable)
+        );
+
+        let absolute = if cfg!(windows) {
+            Path::new(r"C:\llvm")
+        } else {
+            Path::new("/llvm")
+        };
+
+        assert_eq!(
+            tool_path_with_prefix(root, "lld-link", Some(absolute.as_os_str())),
+            absolute.join("bin").join(executable)
+        );
+    }
 
     #[test]
     fn manifest_covers_supported_release_hosts() {

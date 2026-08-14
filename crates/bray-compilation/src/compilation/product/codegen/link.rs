@@ -52,7 +52,7 @@ impl Compilation {
             crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
             crate::BuildConfiguration::Release
             | crate::BuildConfiguration::ObservedRelease
-            | crate::BuildConfiguration::TimedRelease => {
+            | crate::BuildConfiguration::TimedRelease { .. } => {
                 DebugLinkPolicy::None
             }
         };
@@ -67,7 +67,7 @@ impl Compilation {
                     crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
                     crate::BuildConfiguration::Release
                     | crate::BuildConfiguration::ObservedRelease
-                    | crate::BuildConfiguration::TimedRelease => DebugLinkPolicy::None,
+                    | crate::BuildConfiguration::TimedRelease { .. } => DebugLinkPolicy::None,
                 },
                 None,
             ),

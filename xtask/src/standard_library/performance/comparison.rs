@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::model::{
     ArtifactComparison, ArtifactKind, ChangeAssessment, ComparisonReport, MetricComparison,
-    Observation, ObservationComparison, ObservationComparisonReport, PerformanceReport,
-    PeerComparison, SCHEMA_REVISION, WorkloadComparison,
+    Observation, ObservationComparison, ObservationComparisonReport, PeerComparison,
+    PerformanceReport, SCHEMA_REVISION, WorkloadComparison,
 };
 
 pub(super) fn compare(
@@ -31,14 +31,12 @@ pub(super) fn compare(
             || baseline_workload.peer_contract != candidate_workload.peer_contract
             || baseline_workload.scale != candidate_workload.scale
             || baseline_workload.units != candidate_workload.units
-            || baseline_workload.expected_output_sha256
-                != candidate_workload.expected_output_sha256
+            || baseline_workload.expected_output_sha256 != candidate_workload.expected_output_sha256
             || baseline_workload.compilation.schema_revision
                 != candidate_workload.compilation.schema_revision
             || baseline_workload.process_execution.scope
                 != candidate_workload.process_execution.scope
-            || baseline_workload.bray_execution.scope
-                != candidate_workload.bray_execution.scope
+            || baseline_workload.bray_execution.scope != candidate_workload.bray_execution.scope
         {
             return Err(format!(
                 "workload {} does not have equivalent inputs and output",
@@ -47,25 +45,25 @@ pub(super) fn compare(
         }
 
         let process_execution = noisy_metric(
-            baseline_workload.process_execution.median_nanoseconds,
-            candidate_workload.process_execution.median_nanoseconds,
+            baseline_workload.process_execution.median_picoseconds,
+            candidate_workload.process_execution.median_picoseconds,
             baseline_workload
                 .process_execution
-                .median_absolute_deviation_nanoseconds,
+                .median_absolute_deviation_picoseconds,
             candidate_workload
                 .process_execution
-                .median_absolute_deviation_nanoseconds,
+                .median_absolute_deviation_picoseconds,
         );
 
         let bray_execution = noisy_metric(
-            baseline_workload.bray_execution.median_nanoseconds,
-            candidate_workload.bray_execution.median_nanoseconds,
+            baseline_workload.bray_execution.median_picoseconds,
+            candidate_workload.bray_execution.median_picoseconds,
             baseline_workload
                 .bray_execution
-                .median_absolute_deviation_nanoseconds,
+                .median_absolute_deviation_picoseconds,
             candidate_workload
                 .bray_execution
-                .median_absolute_deviation_nanoseconds,
+                .median_absolute_deviation_picoseconds,
         );
 
         workloads.push(WorkloadComparison {
@@ -136,7 +134,6 @@ fn compare_peers(
                 .ok_or_else(|| "candidate peer disappeared during comparison".to_owned())?;
 
             if baseline.toolchain != candidate.toolchain
-                || baseline.build_configuration != candidate.build_configuration
                 || baseline.source_sha256 != candidate.source_sha256
                 || baseline.process_execution.scope != candidate.process_execution.scope
                 || baseline.controlled_execution.scope != candidate.controlled_execution.scope
@@ -153,16 +150,24 @@ fn compare_peers(
                     candidate.production_compile_link_nanoseconds,
                 ),
                 process_execution: noisy_metric(
-                    baseline.process_execution.median_nanoseconds,
-                    candidate.process_execution.median_nanoseconds,
-                    baseline.process_execution.median_absolute_deviation_nanoseconds,
-                    candidate.process_execution.median_absolute_deviation_nanoseconds,
+                    baseline.process_execution.median_picoseconds,
+                    candidate.process_execution.median_picoseconds,
+                    baseline
+                        .process_execution
+                        .median_absolute_deviation_picoseconds,
+                    candidate
+                        .process_execution
+                        .median_absolute_deviation_picoseconds,
                 ),
                 controlled_execution: noisy_metric(
-                    baseline.controlled_execution.median_nanoseconds,
-                    candidate.controlled_execution.median_nanoseconds,
-                    baseline.controlled_execution.median_absolute_deviation_nanoseconds,
-                    candidate.controlled_execution.median_absolute_deviation_nanoseconds,
+                    baseline.controlled_execution.median_picoseconds,
+                    candidate.controlled_execution.median_picoseconds,
+                    baseline
+                        .controlled_execution
+                        .median_absolute_deviation_picoseconds,
+                    candidate
+                        .controlled_execution
+                        .median_absolute_deviation_picoseconds,
                 ),
                 artifacts: compare_artifact_sets(
                     &baseline.artifacts,
@@ -371,9 +376,7 @@ fn artifact<'a>(
     kind: ArtifactKind,
     owner: &str,
 ) -> Result<&'a super::model::ArtifactReport, String> {
-    let mut matching = artifacts
-        .iter()
-        .filter(|artifact| artifact.kind == kind);
+    let mut matching = artifacts.iter().filter(|artifact| artifact.kind == kind);
 
     let artifact = matching
         .next()
@@ -477,7 +480,12 @@ fn missing_observation() -> Observation {
     }
 }
 
-fn noisy_metric(baseline: u64, candidate: u64, baseline_mad: u64, candidate_mad: u64) -> MetricComparison {
+fn noisy_metric(
+    baseline: u64,
+    candidate: u64,
+    baseline_mad: u64,
+    candidate_mad: u64,
+) -> MetricComparison {
     let noise = baseline_mad.saturating_add(candidate_mad).saturating_mul(3);
 
     let assessment = if baseline.abs_diff(candidate) <= noise {

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Read;
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Instant;
 
 use bray_compilation::{
@@ -16,13 +16,19 @@ use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 
 use super::super::comparison::compare;
-use super::super::corpus::{ExpectedSideEffects, WORKLOADS, Workload};
+use super::super::corpus::{
+    BatchingPolicy, CALIBRATION_SEED_INNER_ITERATIONS, WORKLOADS, Workload,
+};
 use super::super::model::{
     ArtifactKind, Observation, PeerLanguage, PeerReport, PerformanceReport, SCHEMA_REVISION,
-    WorkloadReport,
+    WorkloadBatching, WorkloadReport,
 };
 use super::super::{report, retention, statistics};
 use super::identity::{expected_output_digest, report_identity};
+use super::measurement::{
+    ImplementationExecution, ImplementationKey, ImplementationTarget, calibrate_inner_iterations,
+    execute_interleaved,
+};
 use super::options::Options;
 use super::progress;
 
@@ -68,12 +74,11 @@ fn execute(mut options: Options) -> Result<(), String> {
 
     let selected = WORKLOADS
         .iter()
-        .filter(|workload| {
-            options.workloads.is_empty() || options.workloads.contains(workload.id)
-        })
+        .filter(|workload| options.workloads.is_empty() || options.workloads.contains(workload.id))
         .collect::<Vec<_>>();
 
-    let identity = report_identity(&root, &options, &selected)?;
+    let timer_resolution_nanoseconds = statistics::timer_resolution_nanoseconds()?;
+    let identity = report_identity(&root, &options, &selected, timer_resolution_nanoseconds)?;
     let mut workloads = Vec::with_capacity(selected.len());
 
     progress::plan(selected.len(), options.warmup, options.samples);
@@ -87,6 +92,7 @@ fn execute(mut options: Options) -> Result<(), String> {
             prepared.toolchain(),
             prepared.runtime(),
             prepared.observation_runtime(),
+            timer_resolution_nanoseconds,
         )?);
     }
 
@@ -161,6 +167,7 @@ fn run_workload(
     toolchain: &Path,
     runtime: &Path,
     observation_runtime: &Path,
+    timer_resolution_nanoseconds: u64,
 ) -> Result<WorkloadReport, String> {
     let output = options.output.join("workloads").join(workload.id);
 
@@ -262,56 +269,43 @@ fn run_workload(
         .profile_report()
         .ok_or_else(|| format!("workload {} produced no compiler profile", workload.id))?;
 
-    let executable = resolve_published_artifact(
-        &output,
-        &product,
-        EmittedArtifactKind::Executable,
-        0,
-    )
-    .map_err(|error| format!("could not resolve workload {} executable: {error:?}", workload.id))?;
+    let executable =
+        resolve_published_artifact(&output, &product, EmittedArtifactKind::Executable, 0).map_err(
+            |error| {
+                format!(
+                    "could not resolve workload {} executable: {error:?}",
+                    workload.id
+                )
+            },
+        )?;
 
-    let object = resolve_published_artifact(
-        &output,
-        &product,
-        EmittedArtifactKind::RelocatableObject,
-        0,
-    )
-    .ok();
+    let object =
+        resolve_published_artifact(&output, &product, EmittedArtifactKind::RelocatableObject, 0)
+            .ok();
 
     super::super::observation::require_production_symbols_absent(&map)?;
 
     let output_digest = expected_output_digest(workload.expected_output)?;
-    let timing_output = output.join("timing");
 
-    progress::workload_phase("Building timing artifact");
-
-    let (timed_executable, timing_map) = emit_observed_executable(
+    let controlled = prepare_controlled_artifacts(
         &compilation,
         product.clone(),
         options.target,
         observation_runtime,
-        &timing_output,
-        bray_compilation::BuildConfiguration::TimedRelease,
-        workload.id,
-    )?;
-
-    progress::workload_phase("Preparing Rust and C++ peers");
-
-    let peer_build = super::super::peer::build(
-        &crate::workspace::root()?,
-        &output.join("peers"),
-        options.target,
-        workload.id,
+        &output,
+        workload,
+        &executable,
+        &output_digest,
     )?;
 
     let mut implementations = vec![ImplementationTarget {
         key: ImplementationKey::Bray,
         executable: &executable,
-        timed_executable: &timed_executable,
-        timing_map: Some(&timing_map),
+        timed_executable: &controlled.timed_executable,
+        timing_map: Some(&controlled.timing_map),
     }];
 
-    implementations.extend(peer_build.iter().map(|peer| ImplementationTarget {
+    implementations.extend(controlled.peers.iter().map(|peer| ImplementationTarget {
         key: ImplementationKey::Peer(peer.language),
         executable: &peer.executable,
         timed_executable: &peer.timed_executable,
@@ -327,6 +321,8 @@ fn run_workload(
         options.samples,
         workload,
         &output_digest,
+        timer_resolution_nanoseconds,
+        controlled.inner_iterations,
     )?;
 
     let bray = execution
@@ -362,7 +358,7 @@ fn run_workload(
 
     observations.platform_operations = unavailable_platform_observations(workload);
 
-    let peers = peer_reports(peer_build, execution)?;
+    let peers = peer_reports(controlled.peers, execution)?;
 
     progress::workload_phase("Inspecting artifacts");
 
@@ -389,6 +385,7 @@ fn run_workload(
         scale: workload.scale,
         units: workload.units.to_owned(),
         expected_output_sha256: output_digest,
+        batching: controlled.batching,
         compilation: profile,
         process_execution: bray.process,
         bray_execution: bray.controlled,
@@ -400,6 +397,128 @@ fn run_workload(
     progress::workload_phase("Complete");
 
     Ok(report)
+}
+
+struct ControlledArtifacts {
+    inner_iterations: NonZeroU64,
+    batching: WorkloadBatching,
+    timed_executable: PathBuf,
+    timing_map: PathBuf,
+    peers: Vec<super::super::peer::BuiltPeer>,
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "controlled artifacts require the compilation and shared measurement contract"
+)]
+fn prepare_controlled_artifacts(
+    compilation: &bray_compilation::Compilation,
+    product: ProductIdentity,
+    target: bray_target::NativeTarget,
+    observation_runtime: &Path,
+    output: &Path,
+    workload: &Workload,
+    production_executable: &Path,
+    output_digest: &str,
+) -> Result<ControlledArtifacts, String> {
+    let seed_inner_iterations = match workload.batching {
+        BatchingPolicy::SingleExecution => NonZeroU64::MIN,
+        BatchingPolicy::Calibrated => NonZeroU64::new(CALIBRATION_SEED_INNER_ITERATIONS)
+            .ok_or_else(|| "calibration seed must be nonzero".to_owned())?,
+    };
+
+    let initial_output = match workload.batching {
+        BatchingPolicy::SingleExecution => output.join("timing"),
+        BatchingPolicy::Calibrated => output.join("calibration"),
+    };
+
+    progress::workload_phase("Building timing artifact");
+
+    let (initial_executable, initial_map) = emit_observed_executable(
+        compilation,
+        product.clone(),
+        target,
+        observation_runtime,
+        &initial_output,
+        bray_compilation::BuildConfiguration::TimedRelease {
+            inner_iterations: seed_inner_iterations,
+        },
+        workload.id,
+    )?;
+
+    progress::workload_phase("Preparing Rust and C++ peers");
+
+    let root = crate::workspace::root()?;
+
+    let mut peers = super::super::peer::build(
+        &root,
+        &output.join("peers"),
+        target,
+        workload.id,
+        seed_inner_iterations,
+    )?;
+
+    if workload.batching == BatchingPolicy::SingleExecution {
+        return Ok(ControlledArtifacts {
+            inner_iterations: NonZeroU64::MIN,
+            batching: WorkloadBatching::SingleExecution,
+            timed_executable: initial_executable,
+            timing_map: initial_map,
+            peers,
+        });
+    }
+
+    progress::workload_phase("Calibrating controlled workload");
+
+    let mut calibration_targets = vec![ImplementationTarget {
+        key: ImplementationKey::Bray,
+        executable: production_executable,
+        timed_executable: &initial_executable,
+        timing_map: Some(&initial_map),
+    }];
+
+    calibration_targets.extend(peers.iter().map(|peer| ImplementationTarget {
+        key: ImplementationKey::Peer(peer.language),
+        executable: &peer.executable,
+        timed_executable: &peer.timed_executable,
+        timing_map: None,
+    }));
+
+    let (inner_iterations, batching) = calibrate_inner_iterations(
+        &calibration_targets,
+        output,
+        workload,
+        output_digest,
+        seed_inner_iterations,
+    )?;
+
+    progress::workload_phase("Building calibrated timing artifacts");
+
+    let (timed_executable, timing_map) = emit_observed_executable(
+        compilation,
+        product,
+        target,
+        observation_runtime,
+        &output.join("timing"),
+        bray_compilation::BuildConfiguration::TimedRelease { inner_iterations },
+        workload.id,
+    )?;
+
+    super::super::peer::rebuild_timed(
+        &root,
+        target,
+        workload.id,
+        inner_iterations,
+        &mut peers,
+    )?;
+
+    Ok(ControlledArtifacts {
+        inner_iterations,
+        batching,
+        timed_executable,
+        timing_map,
+        peers,
+    })
 }
 
 fn peer_reports(
@@ -451,8 +570,12 @@ fn emit_observed_executable(
 
     let map = output.join("application.map");
 
-    let map_output = bray_linker::SystemLinkerMapOutput::try_new(map.clone())
-        .ok_or_else(|| format!("invalid observed workload linker-map path: {}", map.display()))?;
+    let map_output = bray_linker::SystemLinkerMapOutput::try_new(map.clone()).ok_or_else(|| {
+        format!(
+            "invalid observed workload linker-map path: {}",
+            map.display()
+        )
+    })?;
 
     crate::native_product::emit_executable_with_configuration(
         compilation,
@@ -465,198 +588,20 @@ fn emit_observed_executable(
         configuration,
     )?;
 
-    let executable = resolve_published_artifact(
-        output,
-        &product,
-        EmittedArtifactKind::Executable,
-        0,
-    )
-    .map_err(|error| {
-        format!("could not resolve observed workload {workload} executable: {error:?}")
-    })?;
+    let executable =
+        resolve_published_artifact(output, &product, EmittedArtifactKind::Executable, 0).map_err(
+            |error| format!("could not resolve observed workload {workload} executable: {error:?}"),
+        )?;
 
     Ok((executable, map))
 }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
-enum ImplementationKey {
-    Bray,
-    Peer(PeerLanguage),
-}
-
-struct ImplementationTarget<'a> {
-    key: ImplementationKey,
-    executable: &'a Path,
-    timed_executable: &'a Path,
-    timing_map: Option<&'a Path>,
-}
-
-struct ImplementationSamples {
-    process: Vec<u64>,
-    controlled: Vec<u64>,
-}
-
-struct ImplementationExecution {
-    process: super::super::model::ExecutionStatistics,
-    controlled: super::super::model::ExecutionStatistics,
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the interleaved run keeps its sample policy and validation contract explicit"
-)]
-fn execute_interleaved(
-    implementations: &[ImplementationTarget<'_>],
-    working_directory: &Path,
-    warmup: u32,
-    samples: u32,
-    workload: &Workload,
-    expected_output_sha256: &str,
-) -> Result<BTreeMap<ImplementationKey, ImplementationExecution>, String> {
-    let sample_capacity = usize::try_from(samples)
-        .map_err(|_| "sample count cannot be represented by this host".to_owned())?;
-
-    if implementations.is_empty() {
-        return Err("performance execution requires at least one implementation".to_owned());
-    }
-
-    for implementation in implementations {
-        if let Some(map) = implementation.timing_map {
-            super::super::observation::validate_timing_artifact(map)?;
-        }
-    }
-
-    let mut measured = implementations
-        .iter()
-        .map(|implementation| {
-            (
-                implementation.key,
-                ImplementationSamples {
-                    process: Vec::with_capacity(sample_capacity),
-                    controlled: Vec::with_capacity(sample_capacity),
-                },
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    for iteration in 0..warmup.saturating_add(samples) {
-        let start = rotation_start(iteration, implementations.len(), 0);
-
-        for offset in 0..implementations.len() {
-            let implementation = &implementations[(start + offset) % implementations.len()];
-
-            let elapsed = execute_process_sample(
-                implementation.executable,
-                working_directory,
-                expected_output_sha256,
-                workload.expected_side_effects,
-            )?;
-
-            if iteration >= warmup {
-                measured
-                    .get_mut(&implementation.key)
-                    .ok_or_else(|| "interleaved process sample lost its implementation".to_owned())?
-                    .process
-                    .push(elapsed);
-            }
-        }
-
-        let timing_start = rotation_start(iteration, implementations.len(), 1);
-
-        for offset in 0..implementations.len() {
-            let implementation =
-                &implementations[(timing_start + offset) % implementations.len()];
-
-            let elapsed = super::super::observation::execute_timing_sample(
-                implementation.timed_executable,
-                working_directory,
-                working_directory,
-                iteration,
-                expected_output_sha256,
-                workload.expected_side_effects,
-            )?;
-
-            if iteration >= warmup {
-                measured
-                    .get_mut(&implementation.key)
-                    .ok_or_else(|| "interleaved timing sample lost its implementation".to_owned())?
-                    .controlled
-                    .push(elapsed);
-            }
-        }
-    }
-
-    measured
-        .into_iter()
-        .map(|(key, samples)| {
-            let process = statistics::summarize(
-                samples.process,
-                workload.scale,
-                super::super::model::PROCESS_EXECUTION_SCOPE,
-            )
-            .ok_or_else(|| "at least one process execution sample is required".to_owned())?;
-
-            let controlled = statistics::summarize(
-                samples.controlled,
-                workload.scale,
-                super::super::model::BRAY_EXECUTION_SCOPE,
-            )
-            .ok_or_else(|| "at least one controlled execution sample is required".to_owned())?;
-
-            Ok((
-                key,
-                ImplementationExecution {
-                    process,
-                    controlled,
-                },
-            ))
-        })
-        .collect()
-}
-
-fn rotation_start(iteration: u32, implementations: usize, phase_offset: usize) -> usize {
-    usize::try_from(iteration)
-        .unwrap_or(usize::MAX)
-        .wrapping_add(phase_offset)
-        .wrapping_rem(implementations)
-}
-
-fn execute_process_sample(
-    executable: &Path,
-    working_directory: &Path,
-    expected_output_sha256: &str,
-    expected_side_effects: ExpectedSideEffects,
-) -> Result<u64, String> {
-    let started = Instant::now();
-
-    let output = Command::new(executable)
-        .current_dir(working_directory)
-        .output()
-        .map_err(|error| format!("could not execute {}: {error}", executable.display()))?;
-
-    let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
-
-    if !output.status.success() {
-        return Err(format!(
-            "{} exited unsuccessfully: {}",
-            executable.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-
-    super::super::validate_output(
-        &output,
-        expected_output_sha256,
-        expected_side_effects,
-        working_directory,
-    )?;
-
-    Ok(elapsed)
-}
-
 fn unavailable_platform_observations(workload: &Workload) -> BTreeMap<String, Observation> {
     let reason = "the selected production runtime does not expose benchmark observation hooks";
-    let unavailable = || Observation::Unavailable { reason: reason.to_owned() };
+
+    let unavailable = || Observation::Unavailable {
+        reason: reason.to_owned(),
+    };
 
     workload
         .platform_operations
@@ -680,7 +625,8 @@ fn unavailable_storage_observations() -> super::super::model::WorkloadObservatio
 
 fn unavailable_peer_observations() -> super::super::model::WorkloadObservations {
     let unavailable = || Observation::Unavailable {
-        reason: "the selected language runtime does not expose matching observation hooks".to_owned(),
+        reason: "the selected language runtime does not expose matching observation hooks"
+            .to_owned(),
     };
 
     super::super::model::WorkloadObservations {
@@ -692,18 +638,30 @@ fn unavailable_peer_observations() -> super::super::model::WorkloadObservations 
 }
 
 fn audit_retention_contract(workload: &Workload, map: &Path) -> Result<(), String> {
-    let contents = fs::read_to_string(map)
-        .map_err(|error| format!("could not read workload linker map {}: {error}", map.display()))?;
+    let contents = fs::read_to_string(map).map_err(|error| {
+        format!(
+            "could not read workload linker map {}: {error}",
+            map.display()
+        )
+    })?;
 
     for symbol in workload.retention.required_symbols {
         if !crate::link_map::contains_symbol(&contents, symbol) {
-            return Err(retention_error(workload, "did not retain required symbol", symbol));
+            return Err(retention_error(
+                workload,
+                "did not retain required symbol",
+                symbol,
+            ));
         }
     }
 
     for symbol in workload.retention.forbidden_symbols {
         if crate::link_map::contains_symbol(&contents, symbol) {
-            return Err(retention_error(workload, "retained forbidden symbol", symbol));
+            return Err(retention_error(
+                workload,
+                "retained forbidden symbol",
+                symbol,
+            ));
         }
     }
 
@@ -739,24 +697,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::super::options::Options;
-    use super::{execute, rotation_start};
-
-    #[test]
-    fn process_and_controlled_rounds_rotate_language_priority() {
-        assert_eq!(
-            (0..6)
-                .map(|iteration| rotation_start(iteration, 3, 0))
-                .collect::<Vec<_>>(),
-            [0, 1, 2, 0, 1, 2]
-        );
-
-        assert_eq!(
-            (0..6)
-                .map(|iteration| rotation_start(iteration, 3, 1))
-                .collect::<Vec<_>>(),
-            [1, 2, 0, 1, 2, 0]
-        );
-    }
+    use super::execute;
 
     #[test]
     #[ignore = "requires the pinned LLVM toolchain and native process execution"]
