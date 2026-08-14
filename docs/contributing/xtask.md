@@ -194,20 +194,31 @@ workload with compiler summary profiling, performs warmups followed by seven mea
 writes bounded self-contained `candidate.html` and structured `candidate.json` reports. Each workload carries a fixed expected-output contract.
 The command writes phase and workload progress to standard error while keeping the `candidate.json` path as its only standard
 output line.
+The first run prepares a target-specific runtime and standard-library toolchain under Cargo's target directory. Later runs reuse
+that toolchain when the compiler, Cargo lockfile, runtime, platform providers, standard library, and selected target are unchanged.
+Changing report options such as `--warmup`, `--samples`, `--workload`, or `--output` does not rebuild it.
 Agreement between repeated samples alone is not considered validation. Use `--warmup`, `--samples`, or `--target` to make an
 explicit equivalent run configuration.
 
-Matched workloads also build maintained Rust and C++ peers directly through `rustc` and `clang++`. The report records each exact
+Every workload also builds maintained Rust and C++ peers directly through `rustc` and `clang++`. The report records each exact
 toolchain, optimization configuration, source digest, compile and link duration, process duration, language-controlled duration,
 artifact size, sections, and dependencies. Process and language-controlled rounds rotate their starting language independently so
 Bray, Rust, and C++ do not receive a fixed warm-cache or scheduling advantage. Every execution must produce the same validated
-output digest. The HTML report states the shared semantic contract for each matched row.
+output digest and side-effect contract. The HTML report states the shared semantic contract for each row. Missing peer sources,
+failed peer builds, mismatched output, or incomplete peer reports fail the run instead of producing an incomplete comparison.
 
-Peer comparisons currently cover the empty program, two growable byte-sequence scales, filesystem metadata, process context, and
-monotonic clock workloads. Text hashing and escaping, Bray formatting options, stream locking, structured asynchronous output, and
-partial file-write behavior do not have faithful standard-library peers. Those rows remain in the report with an explicit reason
-instead of presenting a misleading benchmark. Rust and C++ memory-work observations remain unavailable until equally attributed
-measurement support exists for all three languages.
+Workloads that would finish too close to the host timer resolution repeat inside one controlled interval. Before warmups and
+measured samples, the command times three seed intervals for Bray, Rust, and C++. It chooses a shared repetition count from the
+fastest language median so every implementation targets at least 100 ms. The report retains the seed count, all calibration
+intervals, the target interval, the selected repetition count, the timer resolution, the raw measured intervals, and the adjusted
+picosecond duration for one workload execution. The timed Bray, Rust, and C++ artifacts use that same selected count. Production
+executable size, process duration, and compilation duration continue to measure ordinary single-execution artifacts.
+
+All three production executables use static application and language runtimes. On Windows this means the static MSVC runtime for
+Bray, Rust, and C++. Target operating-system libraries may remain dynamic. The report records the policy and exact compiler flags,
+then validates the produced dependency lists to reject application-runtime DLLs. Linux peers embed their language runtimes while
+using target system libraries. Mach-O comparison is rejected until the C++ peer can provide the same runtime model. Rust and C++
+memory-work observations remain unavailable until equally attributed measurement support exists for all three languages.
 
 The corpus covers a minimal executable plus scale-sensitive byte growth, borrowed and explicitly owned text pipelines, formatting,
 stream output, asynchronous execution, filesystem metadata, file output, process context, and clock access. The text pipeline covers

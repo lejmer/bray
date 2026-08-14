@@ -5,8 +5,9 @@ use bray_package_interface::{
     InterfaceSemanticFactKind,
 };
 use bray_symbols::{
-    CallableContractTemplate, CallableSignatureTemplate, GenericDeclarationTemplate,
-    GenericOwnerId, ImportedSymbolFactAddress, UnevaluatedDefaultTemplate,
+    CallableContractTemplate, CallableSignatureTemplate, GenericArgumentTemplate,
+    GenericDeclarationTemplate, GenericOwnerId, ImportedSymbolFactAddress,
+    TraitApplicationTemplate, UnevaluatedDefaultTemplate,
 };
 
 use crate::compilation::binder::CompilationBinderFacts;
@@ -214,6 +215,46 @@ pub(in crate::compilation) fn imported_implementation(
     // The adapter owns an Arc-backed header independently of the exact fact result.
     Ok(DiagnosticResult::new(
         implementation.clone(),
+        result.diagnostics().clone(),
+    ))
+}
+
+pub(super) fn imported_implemented_trait_application(
+    context: &CompilationBinderFacts<'_>,
+    address: ImportedSymbolFactAddress,
+) -> BinderFactResult<DiagnosticResult<Option<TraitApplicationTemplate>>> {
+    let result = imported_facts(context, address, InterfaceSemanticFactKind::Implementation)?;
+
+    let [ImportedSemanticFact::Implementation(implementation)] = result.value().as_ref() else {
+        return Err(BinderFactError::DependencyUnavailable);
+    };
+
+    let Some(application) = implementation.trait_application() else {
+        return Ok(DiagnosticResult::new(None, result.diagnostics().clone()));
+    };
+
+    let application = context
+        .semantic_values
+        .trait_application_data(application)
+        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+    let substitution = context
+        .semantic_values
+        .generic_substitution_data(application.substitution())
+        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+
+    let template = TraitApplicationTemplate::new(
+        application.definition(),
+        substitution.bindings().iter().map(|binding| binding.parameter()),
+        substitution
+            .bindings()
+            .iter()
+            .map(|binding| GenericArgumentTemplate::Resolved(binding.argument())),
+    );
+
+    // The reconstructed fact owns imported diagnostics beyond the shared interface query.
+    Ok(DiagnosticResult::new(
+        Some(template),
         result.diagnostics().clone(),
     ))
 }

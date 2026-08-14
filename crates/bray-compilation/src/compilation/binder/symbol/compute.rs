@@ -236,6 +236,10 @@ impl CompilationSymbolFactBinding<ImplementedTraitApplicationFact> for Compilati
     ) -> BinderFactResult<SymbolFactResult<ImplementedTraitApplicationFact>> {
         let symbol = request.symbol();
 
+        if let Some(address) = context.imported_fact_address(symbol)? {
+            return super::imported::imported_implemented_trait_application(context, address);
+        }
+
         if let ImplementationSymbolId::Inherent(id) = request.owner() {
             context
                 .symbols

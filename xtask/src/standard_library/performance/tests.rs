@@ -3,19 +3,22 @@ use std::collections::BTreeMap;
 use bray_compilation::{
     CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileContext,
     CompilationProfileDescriptorCatalog, CompilationProfileMetric,
-    CompilationProfileMetricDescriptor, CompilationProfileMode, CompilationProfileOperationDescriptor,
-    CompilationProfileOperationStatistics, CompilationProfileReport,
-    CompilationProfileTimeBreakdown, CompilationProfileUnit,
+    CompilationProfileMetricDescriptor, CompilationProfileMode,
+    CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
+    CompilationProfileReport, CompilationProfileTimeBreakdown, CompilationProfileUnit,
 };
 use sha2::{Digest as _, Sha256};
 
-use super::comparison::compare;
 use super::command::{parse_options_for_test, validate_output_parts};
-use super::corpus::ExpectedSideEffects;
+use super::comparison::compare;
+use super::corpus::{
+    CALIBRATION_SAMPLE_COUNT, CALIBRATION_SEED_INNER_ITERATIONS,
+    CALIBRATION_TARGET_NANOSECONDS, ExpectedSideEffects,
+};
 use super::model::{
-    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBuildConfiguration,
-    PeerLanguage, PeerOutcome, PeerReport, PerformanceReport, ReportIdentity, SCHEMA_REVISION,
-    WorkloadCategory, WorkloadObservations, WorkloadReport,
+    ArtifactDependencies, ArtifactKind, ArtifactReport, Observation, PeerBatching, PeerLanguage,
+    PeerReport, PerformanceReport, ReportIdentity, RuntimeLinkage, SCHEMA_REVISION,
+    WorkloadBatching, WorkloadCategory, WorkloadObservations, WorkloadReport,
 };
 use super::retention::{
     bounded_retained_inputs_for_test, contains_retained_provenance, retained_inputs_for_test,
@@ -29,27 +32,52 @@ fn execution_statistics_use_median_and_median_absolute_deviation() {
         vec![100, 101, 102, 500, 99],
         1_000,
         super::model::BRAY_EXECUTION_SCOPE,
+        2,
+        10,
     )
-        .unwrap_or_else(|| panic!("nonempty samples must produce statistics"));
+    .unwrap_or_else(|| panic!("nonempty samples must produce statistics"));
 
-    assert_eq!(statistics.samples_nanoseconds, [99, 100, 101, 102, 500]);
-    assert_eq!(statistics.median_nanoseconds, 101);
-    assert_eq!(statistics.median_absolute_deviation_nanoseconds, 1);
-    assert_eq!(statistics.minimum_nanoseconds, 99);
-    assert_eq!(statistics.maximum_nanoseconds, 500);
+    assert_eq!(statistics.raw_samples_nanoseconds, [99, 100, 101, 102, 500]);
+
+    assert_eq!(
+        statistics.samples_picoseconds,
+        [49_500, 50_000, 50_500, 51_000, 250_000]
+    );
+
+    assert_eq!(statistics.median_picoseconds, 50_500);
+    assert_eq!(statistics.median_absolute_deviation_picoseconds, 500);
+    assert_eq!(statistics.minimum_picoseconds, 49_500);
+    assert_eq!(statistics.maximum_picoseconds, 250_000);
+}
+
+#[test]
+fn batched_statistics_retain_sub_nanosecond_adjusted_durations() {
+    let statistics = summarize(
+        vec![300_000, 310_000, 320_000],
+        1,
+        super::model::BRAY_EXECUTION_SCOPE,
+        1_000_000,
+        100,
+    )
+    .unwrap_or_else(|| panic!("batched samples must produce statistics"));
+
+    assert_eq!(
+        statistics.raw_samples_nanoseconds,
+        [300_000, 310_000, 320_000]
+    );
+
+    assert_eq!(statistics.samples_picoseconds, [300, 310, 320]);
+    assert_eq!(statistics.median_picoseconds, 310);
+    assert_eq!(statistics.median_units_per_second, 3_225_806_451);
 }
 
 #[test]
 fn command_options_enforce_positive_bounded_samples_and_known_workloads() {
     assert!(parse_options_for_test(&["--output", "report", "--samples", "0"]).is_err());
 
-    assert!(
-        parse_options_for_test(&["--output", "report", "--samples", "10001"]).is_err()
-    );
+    assert!(parse_options_for_test(&["--output", "report", "--samples", "10001"]).is_err());
 
-    assert!(
-        parse_options_for_test(&["--output", "report", "--workload", "unknown"]).is_err()
-    );
+    assert!(parse_options_for_test(&["--output", "report", "--workload", "unknown"]).is_err());
 
     assert!(
         parse_options_for_test(&[
@@ -151,7 +179,11 @@ fn linker_map_inputs_preserve_archive_member_provenance() {
         input.artifact == "C:/toolchain/std.lib" && input.member.as_deref() == Some("buffer.o")
     }));
 
-    assert!(inputs.iter().any(|input| input.artifact == "application.obj"));
+    assert!(
+        inputs
+            .iter()
+            .any(|input| input.artifact == "application.obj")
+    );
 
     let microsoft = retained_inputs_for_test("bray_runtime_common:0120.o C:/work/application.obj");
 
@@ -159,7 +191,11 @@ fn linker_map_inputs_preserve_archive_member_provenance() {
         input.artifact == "bray_runtime_common" && input.member.as_deref() == Some("0120.o")
     }));
 
-    assert!(microsoft.iter().any(|input| input.artifact == "C:/work/application.obj"));
+    assert!(
+        microsoft
+            .iter()
+            .any(|input| input.artifact == "C:/work/application.obj")
+    );
 }
 
 #[test]
@@ -169,7 +205,12 @@ fn retention_provenance_ignores_unselected_archive_load_records() {
         0000 _run_output_context";
 
     assert!(!contains_retained_provenance(map, "bray_platform_process"));
-    assert!(contains_retained_provenance(map, "bray_platform_filesystem"));
+
+    assert!(contains_retained_provenance(
+        map,
+        "bray_platform_filesystem"
+    ));
+
     assert!(contains_retained_provenance(map, "run_output_context"));
 }
 
@@ -228,6 +269,48 @@ fn comparison_rejects_non_equivalent_corpora_and_suppresses_noisy_claims() {
         super::model::ChangeAssessment::Indeterminate
     );
 
+    let mut recalibrated = report("corpus", 102, 4);
+    let recalibrated_count = 50_000_000;
+
+    recalibrated.workloads[0].batching = WorkloadBatching::Calibrated {
+        seed_inner_iterations: CALIBRATION_SEED_INNER_ITERATIONS,
+        target_interval_nanoseconds: CALIBRATION_TARGET_NANOSECONDS,
+        bray_samples_nanoseconds: vec![2_000_000; 3],
+        rust_samples_nanoseconds: vec![2_000_000; 3],
+        cpp_samples_nanoseconds: vec![2_000_000; 3],
+        selected_inner_iterations: recalibrated_count,
+    };
+
+    let recalibrated_execution = summarize(
+        vec![98, 102, 106]
+            .into_iter()
+            .map(|sample| sample * recalibrated_count)
+            .collect(),
+        1,
+        super::model::BRAY_EXECUTION_SCOPE,
+        recalibrated_count,
+        100,
+    )
+    .unwrap_or_else(|| panic!("recalibrated fixture must produce statistics"));
+
+    recalibrated.workloads[0].bray_execution = recalibrated_execution.clone();
+
+    for (language, peer) in &mut recalibrated.workloads[0].peers {
+        peer.controlled_execution = recalibrated_execution.clone();
+
+        peer.build_configuration = super::peer::fixture_build_configuration(
+            *language,
+            "small_output",
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+            std::path::Path::new(&peer.artifacts[0].path),
+            std::num::NonZeroU64::new(recalibrated_count)
+                .unwrap_or_else(|| panic!("recalibrated fixture count must be nonzero")),
+        );
+    }
+
+    compare(&baseline, &recalibrated)
+        .unwrap_or_else(|error| panic!("different valid batch counts must compare: {error}"));
+
     let different = report("other", 102, 4);
 
     assert!(compare(&baseline, &different).is_err());
@@ -245,7 +328,7 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
 
     invalid_statistics.workloads[0]
         .bray_execution
-        .samples_nanoseconds
+        .raw_samples_nanoseconds
         .pop();
 
     assert!(compare(&baseline, &invalid_statistics).is_err());
@@ -257,15 +340,73 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
 
     let mut different_peer_configuration = report("corpus", 102, 4);
 
-    if let PeerOutcome::Measured { report } = different_peer_configuration.workloads[0]
+    different_peer_configuration.workloads[0]
         .peers
         .get_mut(&PeerLanguage::Rust)
         .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
-    {
-        report.build_configuration.production_arguments.push("different flag".to_owned());
-    }
+        .build_configuration
+        .production
+        .arguments
+        .push("different flag".to_owned());
 
     assert!(compare(&baseline, &different_peer_configuration).is_err());
+
+    let mut batched_production = report("corpus", 102, 4);
+
+    batched_production.workloads[0]
+        .peers
+        .get_mut(&PeerLanguage::Rust)
+        .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
+        .build_configuration
+        .production
+        .batching = PeerBatching::Repeated {
+        inner_iterations: 100_000_000,
+    };
+
+    assert!(compare(&baseline, &batched_production).is_err());
+
+    let mut mismatched_timed_batch = report("corpus", 102, 4);
+
+    mismatched_timed_batch.workloads[0]
+        .peers
+        .get_mut(&PeerLanguage::Cpp)
+        .unwrap_or_else(|| panic!("C++ fixture peer must exist"))
+        .build_configuration
+        .timed
+        .arguments
+        .retain(|argument| argument != "-DBRAY_INNER_ITERATIONS=100000000ULL");
+
+    assert!(compare(&baseline, &mismatched_timed_batch).is_err());
+
+    let mut inconsistent_calibration = report("corpus", 102, 4);
+
+    let WorkloadBatching::Calibrated {
+        selected_inner_iterations,
+        ..
+    } = &mut inconsistent_calibration.workloads[0].batching
+    else {
+        panic!("fixture workload must use calibrated batching")
+    };
+
+    *selected_inner_iterations = 50_000_000;
+
+    assert!(compare(&baseline, &inconsistent_calibration).is_err());
+
+    let mut dynamic_dependency = report("corpus", 102, 4);
+
+    let dynamic_libraries = &mut dynamic_dependency.workloads[0]
+        .peers
+        .get_mut(&PeerLanguage::Rust)
+        .unwrap_or_else(|| panic!("Rust fixture peer must exist"))
+        .artifacts[0]
+        .dependencies
+        .dynamic_libraries
+        .entries;
+
+    dynamic_libraries.clear();
+    dynamic_libraries.push("VCRUNTIME140.dll".to_owned());
+
+    assert!(compare(&baseline, &dynamic_dependency).is_err());
 }
 
 #[test]
@@ -323,7 +464,11 @@ fn comparison_attributes_compiler_artifact_retention_and_observation_changes() {
 
     assert_eq!(artifact.bytes.delta, 20);
     assert_eq!(artifact.sections[".text"].delta, 10);
-    assert_eq!(artifact.added_static_inputs, [retained("new.lib", "member.o")]);
+
+    assert_eq!(
+        artifact.added_static_inputs,
+        [retained("new.lib", "member.o")]
+    );
 
     assert!(matches!(
         workload.observations.allocation_count,
@@ -342,38 +487,66 @@ fn retained(artifact: &str, member: &str) -> super::model::RetainedInput {
 }
 
 pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
+    let calibration_sample_count = usize::try_from(CALIBRATION_SAMPLE_COUNT)
+        .unwrap_or_else(|_| panic!("fixture calibration count must fit usize"));
+
     let process_execution = summarize(
-        vec![median.saturating_sub(mad), median, median.saturating_add(mad)],
+        vec![
+            median.saturating_sub(mad),
+            median,
+            median.saturating_add(mad),
+        ],
         1,
         super::model::PROCESS_EXECUTION_SCOPE,
+        1,
+        100,
     )
     .unwrap_or_else(|| panic!("fixture samples must produce statistics"));
 
+    let inner_iterations = 100_000_000;
+
     let bray_execution = summarize(
-        vec![median.saturating_sub(mad), median, median.saturating_add(mad)],
+        vec![
+            median.saturating_sub(mad),
+            median,
+            median.saturating_add(mad),
+        ]
+        .into_iter()
+        .map(|sample| sample.saturating_mul(inner_iterations))
+        .collect(),
         1,
         super::model::BRAY_EXECUTION_SCOPE,
+        inner_iterations,
+        100,
     )
     .unwrap_or_else(|| panic!("fixture Bray samples must produce statistics"));
 
-    let peer = || PeerOutcome::Measured {
-        report: PeerReport {
+    let peer = |language| {
+        let path = std::path::Path::new(match language {
+                PeerLanguage::Rust => "rust",
+                PeerLanguage::Cpp => "cpp",
+            })
+            .join(crate::native_toolchain::executable_name("peer"))
+            .display()
+            .to_string();
+
+        PeerReport {
             toolchain: "peer compiler".to_owned(),
-            build_configuration: PeerBuildConfiguration {
-                target: "test-target".to_owned(),
-                production_arguments: vec!["release".to_owned()],
-                timed_arguments: vec!["release".to_owned(), "timed".to_owned()],
-                linker: "test-linker".to_owned(),
-                runtime_linkage: "test-runtime".to_owned(),
-                post_link_actions: vec!["test-strip".to_owned()],
-            },
+            build_configuration: super::peer::fixture_build_configuration(
+                language,
+                "small_output",
+                bray_target::NativeTarget::X86_64WindowsMsvc,
+                std::path::Path::new(&path),
+                std::num::NonZeroU64::new(inner_iterations)
+                    .unwrap_or_else(|| panic!("fixture repetition count must be nonzero")),
+            ),
             source_sha256: bray_base::lowercase_hex(&Sha256::digest("peer source")),
             production_compile_link_nanoseconds: median,
             process_execution: process_execution.clone(),
             controlled_execution: bray_execution.clone(),
             artifacts: vec![ArtifactReport {
                 kind: ArtifactKind::Executable,
-                path: "peer".to_owned(),
+                path,
                 bytes: 80,
                 sections: bounded(vec![super::model::SectionSize {
                     name: ".text".to_owned(),
@@ -391,10 +564,13 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
                 copied_bytes: unavailable(),
                 platform_operations: BTreeMap::new(),
             },
-        },
+        }
     };
 
-    let peers = [(PeerLanguage::Rust, peer()), (PeerLanguage::Cpp, peer())]
+    let peers = [
+        (PeerLanguage::Rust, peer(PeerLanguage::Rust)),
+        (PeerLanguage::Cpp, peer(PeerLanguage::Cpp)),
+    ]
         .into_iter()
         .collect();
 
@@ -403,22 +579,32 @@ pub(super) fn report(corpus: &str, median: u64, mad: u64) -> PerformanceReport {
         identity: ReportIdentity {
             corpus_revision: 1,
             corpus_sha256: bray_base::lowercase_hex(&Sha256::digest(corpus.as_bytes())),
-            target: "test-target".to_owned(),
+            target: "x86_64-pc-windows-msvc".to_owned(),
             host: "test-host".to_owned(),
             build_configuration: "release".to_owned(),
             compiler_version: "compiler".to_owned(),
             source_revision: "revision".to_owned(),
             llvm_version: "llvm".to_owned(),
+            runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
             warmup_iterations: 2,
             sample_iterations: 3,
+            timer_resolution_nanoseconds: 100,
         },
         workloads: vec![WorkloadReport {
             id: "small_output".to_owned(),
-            peer_contract: Some("start and complete an empty program once".to_owned()),
+            peer_contract: "start and complete an empty program once".to_owned(),
             category: WorkloadCategory::Small,
             scale: 1,
             units: "executions".to_owned(),
             expected_output_sha256: bray_base::lowercase_hex(&Sha256::digest([])),
+            batching: WorkloadBatching::Calibrated {
+                seed_inner_iterations: CALIBRATION_SEED_INNER_ITERATIONS,
+                target_interval_nanoseconds: CALIBRATION_TARGET_NANOSECONDS,
+                bray_samples_nanoseconds: vec![1_000_000; calibration_sample_count],
+                rust_samples_nanoseconds: vec![1_000_000; calibration_sample_count],
+                cpp_samples_nanoseconds: vec![1_000_000; calibration_sample_count],
+                selected_inner_iterations: inner_iterations,
+            },
             compilation: profile(median),
             process_execution,
             bray_execution,
@@ -467,7 +653,7 @@ fn profile(elapsed_nanoseconds: u64) -> CompilationProfileReport {
         context: CompilationProfileContext {
             package: "test".to_owned(),
             product: "application".to_owned(),
-            target: "test-target".to_owned(),
+            target: "x86_64-pc-windows-msvc".to_owned(),
         },
         trace_event_limit: None,
         elapsed_nanoseconds,

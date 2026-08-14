@@ -157,6 +157,7 @@ impl Lowerer<'_> {
             };
 
         let mut projections = place.projections().to_vec();
+        let mut place_type = place.ty();
 
         let parameter_borrow = self
             .input
@@ -185,9 +186,12 @@ impl Lowerer<'_> {
                 0,
                 MirProjection::new(MirProjectionKind::Dereference, parameter_type, reached_type),
             );
+
+            place_type = reached_type;
         }
 
-        let place = MirPlace::new(place.storage(), projections, target);
+        place_type = self.append_reached_dereference(place_type, target, &mut projections)?;
+        let place = MirPlace::new(place.storage(), projections, place_type);
 
         let commit = self.builder.push_operation(
             current,
@@ -371,7 +375,7 @@ impl Lowerer<'_> {
                 }
             };
 
-        let mut lowered = Vec::with_capacity(projections.len() + 1);
+        let mut lowered = Vec::with_capacity(projections.len() + 2);
 
         let mut source_type = self.append_entry_dereference(
             identity,
@@ -389,6 +393,8 @@ impl Lowerer<'_> {
             lowered.push(MirProjection::new(kind, source_type, result_type));
             source_type = result_type;
         }
+
+        source_type = self.append_reached_dereference(source_type, reached_type, &mut lowered)?;
 
         Ok(LoweredPlace::Continuing {
             block: current,
@@ -534,7 +540,7 @@ impl Lowerer<'_> {
         )?;
 
         let mut lowered =
-            Vec::with_capacity(projections.len() + usize::from(project_borrowed_root));
+            Vec::with_capacity(projections.len() + usize::from(project_borrowed_root) + 1);
 
         let mut source_type = if project_borrowed_root {
             self.append_entry_dereference(
@@ -556,6 +562,10 @@ impl Lowerer<'_> {
 
             lowered.push(MirProjection::new(kind, source_type, result_type));
             source_type = result_type;
+        }
+
+        if project_borrowed_root {
+            source_type = self.append_reached_dereference(source_type, reached_type, &mut lowered)?;
         }
 
         Ok(MirPlace::new(root.storage(), lowered, source_type))
@@ -603,6 +613,39 @@ impl Lowerer<'_> {
         ));
 
         Ok(*target)
+    }
+
+    fn append_reached_dereference(
+        &self,
+        source_type: TypeId,
+        reached_type: TypeId,
+        projections: &mut Vec<MirProjection>,
+    ) -> Result<TypeId, LoweringError> {
+        if source_type == reached_type {
+            return Ok(source_type);
+        }
+
+        let data = self
+            .input
+            .semantic_values()
+            .type_data(source_type)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        let TypeData::Borrow { target, .. } = data.as_ref() else {
+            return Ok(source_type);
+        };
+
+        if *target != reached_type {
+            return Ok(source_type);
+        }
+
+        projections.push(MirProjection::new(
+            MirProjectionKind::Dereference,
+            source_type,
+            reached_type,
+        ));
+
+        Ok(reached_type)
     }
 
     fn projection_result_type(

@@ -346,6 +346,48 @@ pub(crate) fn source_trait_callable_fulfillment_body_key(
     source_symbol_body_key(compilation, symbols, member.id().into())
 }
 
+pub(crate) fn source_named_trait_callable_fulfillment_body_key(
+    compilation: &Compilation,
+    implementation_name: &str,
+    member_name: &str,
+) -> BoundUnitKey {
+    let symbols = compilation
+        .symbol_graph()
+        .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+    let implementation = symbols
+        .named_trait_implementations()
+        .iter()
+        .find(|implementation| {
+            implementation.origin() == SymbolOrigin::Source
+                && symbols
+                    .member_name(implementation.id().into())
+                    .is_some_and(|name| name.as_str() == implementation_name)
+        })
+        .unwrap_or_else(|| {
+            panic!("source named trait implementation {implementation_name} must exist")
+        });
+
+    let member = symbols
+        .trait_callable_fulfillments()
+        .iter()
+        .find(|member| {
+            member.origin() == SymbolOrigin::Source
+                && symbols.containing_symbol(member.id().into())
+                    == Some(implementation.id().into())
+                && symbols
+                    .member_name(member.id().into())
+                    .is_some_and(|name| name.as_str() == member_name)
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "source trait callable fulfillment {implementation_name}.{member_name} must exist"
+            )
+        });
+
+    source_symbol_body_key(compilation, symbols, member.id().into())
+}
+
 pub(crate) fn source_type_callable_member_body_key(
     compilation: &Compilation,
     name: &str,

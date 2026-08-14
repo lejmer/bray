@@ -336,6 +336,7 @@ fn resolve_arguments(
 
     for template in templates {
         let argument = match template {
+            GenericArgumentTemplate::Resolved(argument) => *argument,
             GenericArgumentTemplate::Type(template) => {
                 let Some(ty) = resolve_type_expression_template(values, template, constants)?
                 else {

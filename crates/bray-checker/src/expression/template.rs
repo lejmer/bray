@@ -429,6 +429,9 @@ where
 
     for argument in arguments {
         match argument {
+            bray_symbols::GenericArgumentTemplate::Resolved(argument) => {
+                resolved.push(*argument);
+            }
             bray_symbols::GenericArgumentTemplate::Type(ty) => {
                 let TemplateResolution::Resolved(ty) =
                     resolve_type_template(request, ty, diagnostics)?

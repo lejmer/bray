@@ -131,6 +131,7 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) host_root: Option<BasicValueEnum<'context>>,
     pub(super) host_result: Option<BasicValueEnum<'context>>,
     pub(super) host_status: Option<inkwell::values::IntValue<'context>>,
+    pub(super) performance_loop: Option<PerformanceLoop<'context>>,
     pub(super) host_selection_continuation: Option<BasicBlock<'context>>,
     pub(super) host_selection_shutdown: Option<BasicBlock<'context>>,
     pub(super) host_selection_statuses:
@@ -138,6 +139,13 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) frame_context: Option<StructType<'context>>,
     pub(super) frame_dispatch: Option<BasicBlock<'context>>,
     pub(super) frame_progress: Option<BasicValueEnum<'context>>,
+}
+
+pub(super) struct PerformanceLoop<'context> {
+    pub(super) header: BasicBlock<'context>,
+    pub(super) iteration: PhiValue<'context>,
+    pub(super) status: PhiValue<'context>,
+    pub(super) inner_iterations: std::num::NonZeroU64,
 }
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -229,6 +237,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             host_root: None,
             host_result: None,
             host_status: None,
+            performance_loop: None,
             host_selection_continuation: None,
             host_selection_shutdown: None,
             host_selection_statuses: Vec::new(),
@@ -286,6 +295,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             host_root: None,
             host_result: None,
             host_status: None,
+            performance_loop: None,
             host_selection_continuation: None,
             host_selection_shutdown: None,
             host_selection_statuses: Vec::new(),

@@ -299,7 +299,19 @@ fn template_internal_dependency(
                     return Some(definition.into_any());
                 }
 
+                if let Some(internal) = arguments.iter().find_map(|argument| {
+                    resolved_template_argument_internal_dependency(
+                        argument,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                }) {
+                    return Some(internal);
+                }
+
                 pending.extend(arguments.iter().filter_map(|argument| match argument {
+                    GenericArgumentTemplate::Resolved(_) => None,
                     GenericArgumentTemplate::Type(ty) => Some(ty),
                     GenericArgumentTemplate::Constant(_) => None,
                 }));
@@ -317,10 +329,22 @@ fn template_internal_dependency(
                     return Some(application.definition().into());
                 }
 
+                if let Some(internal) = application.arguments().iter().find_map(|argument| {
+                    resolved_template_argument_internal_dependency(
+                        argument,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                }) {
+                    return Some(internal);
+                }
+
                 pending.push(subject);
 
                 pending.extend(application.arguments().iter().filter_map(
                     |argument| match argument {
+                        GenericArgumentTemplate::Resolved(_) => None,
                         GenericArgumentTemplate::Type(ty) => Some(ty),
                         GenericArgumentTemplate::Constant(_) => None,
                     },
@@ -348,8 +372,20 @@ fn template_internal_dependency(
                     return Some(application.definition().into());
                 }
 
+                if let Some(internal) = application.arguments().iter().find_map(|argument| {
+                    resolved_template_argument_internal_dependency(
+                        argument,
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )
+                }) {
+                    return Some(internal);
+                }
+
                 pending.extend(application.arguments().iter().filter_map(
                     |argument| match argument {
+                        GenericArgumentTemplate::Resolved(_) => None,
                         GenericArgumentTemplate::Type(ty) => Some(ty),
                         GenericArgumentTemplate::Constant(_) => None,
                     },
@@ -359,6 +395,19 @@ fn template_internal_dependency(
     }
 
     None
+}
+
+fn resolved_template_argument_internal_dependency(
+    argument: &GenericArgumentTemplate,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> Option<AnySymbolId> {
+    let GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(ty)) = argument else {
+        return None;
+    };
+
+    resolved_type_internal_dependency(*ty, semantic_values, symbols, declarations)
 }
 
 pub(super) fn resolved_type_internal_dependency(

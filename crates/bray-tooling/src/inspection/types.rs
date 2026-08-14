@@ -313,6 +313,7 @@ impl<'model> TypeFormatter<'model> {
         arguments
             .iter()
             .map(|argument| match argument {
+                GenericArgumentTemplate::Resolved(argument) => self.argument(*argument, depth + 1),
                 GenericArgumentTemplate::Type(ty) => self.template(ty, depth + 1),
                 GenericArgumentTemplate::Constant(_) => Ok(String::from("<const>")),
             })

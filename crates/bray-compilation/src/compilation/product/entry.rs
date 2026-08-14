@@ -449,19 +449,15 @@ fn result_of_unit(
             arguments,
             ..
         } if named_role(*definition, available) == Some(RepresentationRole::Result) => {
-            let [
-                GenericArgumentTemplate::Type(result),
-                GenericArgumentTemplate::Type(error),
-            ] = arguments.as_ref()
-            else {
+            let [result, error] = arguments.as_ref() else {
                 return (false, None);
             };
 
-            if !is_unit(result, semantic_values, available) {
+            if !generic_type_argument_is_unit(result, semantic_values, available) {
                 return (false, None);
             }
 
-            (true, error.resolved_type())
+            (true, generic_type_argument_resolved_type(error))
         }
         TypeExpressionTemplate::Resolved(ty) => {
             let Ok(data) = semantic_values.type_data(*ty) else {
@@ -498,6 +494,30 @@ fn result_of_unit(
             }
         }
         _ => (false, None),
+    }
+}
+
+fn generic_type_argument_is_unit(
+    argument: &GenericArgumentTemplate,
+    semantic_values: &SemanticValueStore,
+    available: &AvailableCompilerKnownSymbols,
+) -> bool {
+    match argument {
+        GenericArgumentTemplate::Resolved(GenericArgument::Type(ty)) => {
+            resolved_is_unit(*ty, semantic_values, available)
+        }
+        GenericArgumentTemplate::Type(ty) => is_unit(ty, semantic_values, available),
+        GenericArgumentTemplate::Resolved(GenericArgument::Constant(_))
+        | GenericArgumentTemplate::Constant(_) => false,
+    }
+}
+
+fn generic_type_argument_resolved_type(argument: &GenericArgumentTemplate) -> Option<TypeId> {
+    match argument {
+        GenericArgumentTemplate::Resolved(GenericArgument::Type(ty)) => Some(*ty),
+        GenericArgumentTemplate::Type(ty) => ty.resolved_type(),
+        GenericArgumentTemplate::Resolved(GenericArgument::Constant(_))
+        | GenericArgumentTemplate::Constant(_) => None,
     }
 }
 

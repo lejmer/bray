@@ -126,6 +126,7 @@ fn build_standard_streams(manifest: &Path) {
     standard_streams
         .cpp(true)
         .cpp_link_stdlib(None)
+        .static_crt(true)
         .std("c++17")
         .include(standard_stream.join("include"))
         .files([

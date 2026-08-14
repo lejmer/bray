@@ -6,6 +6,8 @@ mod html;
 mod model;
 mod observation;
 mod peer;
+mod presentation;
+mod ranking;
 mod report;
 mod retention;
 mod statistics;

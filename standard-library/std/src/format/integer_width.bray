@@ -1,0 +1,169 @@
+module std.format;
+
+internal func native_digit_byte(pos value: u64, pos uppercase: bool) -> u8
+{
+    return match value
+    {
+        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 { yield 48 + std.truncate_to<u8>(value); }
+        case 10 | 11 | 12 | 13 | 14 { yield digit_offset(uppercase) + std.truncate_to<u8>(value - 10); }
+        case _ { yield digit_offset(uppercase) + 5; }
+    };
+}
+
+internal func signed_native_digit_byte(pos value: i64, pos uppercase: bool) -> u8
+{
+    return match value
+    {
+        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14
+        {
+            yield native_digit_byte(std.truncate_to<u64>(value), uppercase);
+        }
+        case _ { yield native_digit_byte(15, uppercase); }
+    };
+}
+
+internal func normalized_signed_native_integer(pos value: i64) -> i64
+{
+    if value > 0
+    {
+        return -value;
+    }
+
+    return value;
+}
+
+internal func unsigned_native_digit_count(pos value: u64, pos radix: u64) -> usize
+{
+    let mut remaining: u64 = value;
+    let mut count: usize = 1;
+
+    while remaining >= radix
+    {
+        remaining /= radix;
+        count += 1;
+    }
+
+    return count;
+}
+
+internal func signed_native_digit_count(pos value: i64, pos radix: i64) -> usize
+{
+    let mut remaining: i64 = value;
+    let mut count: usize = 1;
+
+    while remaining <= -radix
+    {
+        remaining /= radix;
+        count += 1;
+    }
+
+    return count;
+}
+
+internal func write_unsigned_native_digits<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: u64,
+    pos radix: u64,
+    pos uppercase: bool,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let mut digits: [u8; 64] = [0; 64];
+    let mut start: usize = 64;
+    let mut remaining: u64 = value;
+
+    while remaining >= radix
+    {
+        start -= 1;
+        digits[start] = native_digit_byte(remaining % radix, uppercase);
+        remaining /= radix;
+    }
+
+    start -= 1;
+    digits[start] = native_digit_byte(remaining, uppercase);
+
+    return destination.write(&digits[start.. 64]);
+}
+
+internal func write_signed_native_digits<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: i64,
+    pos radix: i64,
+    pos uppercase: bool,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let mut digits: [u8; 64] = [0; 64];
+    let mut start: usize = 64;
+    let mut remaining: i64 = value;
+
+    while remaining <= -radix
+    {
+        start -= 1;
+        digits[start] = signed_native_digit_byte(-(remaining % radix), uppercase);
+        remaining /= radix;
+    }
+
+    start -= 1;
+    digits[start] = signed_native_digit_byte(-remaining, uppercase);
+
+    return destination.write(&digits[start.. 64]);
+}
+
+internal func write_unsigned_native_integer<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: u64,
+    pos options: &Options,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let radix: u64 = radix_value(options) as u64;
+    let natural_digits: usize = unsigned_native_digit_count(value, radix);
+    let digits: usize = maximum(natural_digits, minimum_digits(options));
+    let content_length: usize = integer_content_length(sign_length(false, options), digits);
+    let padding: usize = padding_count(options.width, content_length);
+    let left: usize = left_padding(padding, options);
+
+    try destination.prepare(additional = content_length + padding);
+    try write_padding<Destination, Failure>(&mut destination, left);
+    try write_requested_sign<Destination, Failure>(&mut destination, negative = false, options = options);
+    try write_leading_zeroes<Destination, Failure>(&mut destination, digits - natural_digits);
+    try write_unsigned_native_digits<Destination, Failure>(&mut destination, value, radix, uppercase_digits(options));
+
+    return write_padding<Destination, Failure>(destination, padding - left);
+}
+
+internal func write_signed_native_integer<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: i64,
+    pos options: &Options,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let negative: bool = value < 0;
+    let radix: i64 = radix_value(options) as i64;
+    let normalized: i64 = normalized_signed_native_integer(value);
+    let natural_digits: usize = signed_native_digit_count(normalized, radix);
+    let digits: usize = maximum(natural_digits, minimum_digits(options));
+    let content_length: usize = integer_content_length(sign_length(negative, options), digits);
+    let padding: usize = padding_count(options.width, content_length);
+    let left: usize = left_padding(padding, options);
+
+    try destination.prepare(additional = content_length + padding);
+    try write_padding<Destination, Failure>(&mut destination, left);
+    try write_requested_sign<Destination, Failure>(&mut destination, negative = negative, options = options);
+    try write_leading_zeroes<Destination, Failure>(&mut destination, digits - natural_digits);
+
+    try write_signed_native_digits<Destination, Failure>(
+        &mut destination,
+        normalized,
+        radix,
+        uppercase_digits(options),
+    );
+
+    return write_padding<Destination, Failure>(destination, padding - left);
+}

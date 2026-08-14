@@ -27,10 +27,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 execution,
                 runtime,
             } => {
-                self.observe_performance_interval(
-                    bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
-                    "performance.interval.begin",
-                )?;
+                self.begin_memory_observation()?;
+                self.begin_performance_interval()?;
 
                 if self.host_role_implementation(*runtime)?
                     == RuntimeRoleImplementation::CompilerLowering
@@ -209,10 +207,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *entry_failure,
                 )?;
 
-                self.observe_performance_interval(
-                    bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
-                    "performance.interval.end",
-                )?;
+                let status = self.finish_performance_interval_iteration(status)?;
 
                 self.host_status = Some(match self.host_status.take() {
                     Some(current) => llvm(self.builder.build_or(current, status, "host.status"))?,
@@ -249,27 +244,31 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
     }
 
-    fn observe_performance_interval(
-        &self,
-        symbol: &str,
-        name: &str,
-    ) -> Result<(), CodegenFailure> {
+    fn begin_memory_observation(&self) -> Result<(), CodegenFailure> {
         if self.request.options().runtime_observations()
-            != bray_codegen::RuntimeObservationMode::PerformanceInterval
+            != bray_codegen::RuntimeObservationMode::Memory
         {
             return Ok(());
         }
 
-        let function = self.module.get_function(symbol).unwrap_or_else(|| {
-            self.module
-                .add_function(symbol, self.types.context().void_type().fn_type(&[], false), None)
-        });
+        let function = self
+            .module
+            .get_function(bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL)
+            .unwrap_or_else(|| {
+                self.module.add_function(
+                    bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
+                    self.types.context().void_type().fn_type(&[], false),
+                    None,
+                )
+            });
 
-        llvm(self.builder.build_call(function, &[], name))?;
+        llvm(
+            self.builder
+                .build_call(function, &[], "memory.observation.begin"),
+        )?;
 
         Ok(())
     }
-
     fn begin_test_entry_selection(
         &mut self,
         entry: bray_runtime_interface::ExecutableHostEntryId,

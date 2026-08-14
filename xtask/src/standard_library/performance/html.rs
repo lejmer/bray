@@ -98,6 +98,8 @@ table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nu
 th, td { border-bottom: 1px solid color-mix(in srgb, CanvasText 20%, transparent); padding: .6rem; text-align: right; white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 .table-scroll { overflow-x: auto; }
+.bray-row > * { font-weight: 700; }
+.metric-best { background: color-mix(in srgb, #3da35d 18%, Canvas); box-shadow: inset 0 0 0 1px color-mix(in srgb, #3da35d 45%, Canvas); }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; }
 dt { font-weight: 650; }
 dd { margin: 0; overflow-wrap: anywhere; }

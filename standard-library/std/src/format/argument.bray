@@ -26,16 +26,34 @@ struct Argument<Value>
     }
 }
 
-trait Format
+/// Formats a value into a selected destination and preserves its failure type.
+trait Format<Destination, Failure>
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>;
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution());
 }
 
+/// Formats an argument into a destination without constructing an intermediate buffer.
+func write_to<Value, Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: Argument<Value>,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>, Value: Format<Destination, Failure>)
+    requires(blocking_execution())
+{
+    let formatted: &Value = value.value;
+    let formatting_options: Options = value.options;
+
+    return formatted.format(destination, &formatting_options);
+}
+
+/// Formats an argument into an owned byte sink.
 func write<Value>(
     pos destination: &mut ByteSink,
     pos value: Argument<Value>,
 ) -> Result<unit, std.memory.MemoryLayoutError>
-    with(Value: Format)
+    with(Value: Format<ByteSink, std.memory.MemoryLayoutError>)
+    requires(blocking_execution())
 {
     let formatted: &Value = value.value;
     let formatting_options: Options = value.options;

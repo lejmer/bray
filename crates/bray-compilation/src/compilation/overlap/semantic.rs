@@ -190,6 +190,24 @@ impl<'values> SemanticUnifier<'values> {
                 for (left, right) in left_arguments.iter().zip(right_arguments.iter()) {
                     match (left, right) {
                         (
+                            GenericArgumentTemplate::Resolved(left),
+                            GenericArgumentTemplate::Resolved(right),
+                        ) if left != right => return Ok(false),
+                        (
+                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(left)),
+                            GenericArgumentTemplate::Type(right),
+                        ) if !self.type_templates_may_overlap(
+                            &TypeExpressionTemplate::Resolved(*left),
+                            right,
+                        )? => return Ok(false),
+                        (
+                            GenericArgumentTemplate::Type(left),
+                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(right)),
+                        ) if !self.type_templates_may_overlap(
+                            left,
+                            &TypeExpressionTemplate::Resolved(*right),
+                        )? => return Ok(false),
+                        (
                             GenericArgumentTemplate::Type(left),
                             GenericArgumentTemplate::Type(right),
                         ) if !self.type_templates_may_overlap(left, right)? => return Ok(false),
@@ -200,6 +218,22 @@ impl<'values> SemanticUnifier<'values> {
                         | (
                             GenericArgumentTemplate::Constant(_),
                             GenericArgumentTemplate::Type(_),
+                        )
+                        | (
+                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(_)),
+                            GenericArgumentTemplate::Constant(_),
+                        )
+                        | (
+                            GenericArgumentTemplate::Constant(_),
+                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(_)),
+                        )
+                        | (
+                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Constant(_)),
+                            GenericArgumentTemplate::Type(_),
+                        )
+                        | (
+                            GenericArgumentTemplate::Type(_),
+                            GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Constant(_)),
                         ) => return Ok(false),
                         _ => {}
                     }
