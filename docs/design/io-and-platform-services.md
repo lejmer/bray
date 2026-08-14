@@ -372,8 +372,8 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 
 | ID | Role | Parameters | Results | Status set | Mode and effects |
 | ---: | --- | --- | --- | --- | --- |
-| `0x0001` | `platform.context.identity` | none | `out<u64> identity` | `context` | `nonblocking`. No ownership change |
-| `0x0002` | `platform.context.native_text_width` | none | `out<u32> width` | `context` | `nonblocking`. No ownership change |
+| `0x0001` | `platform.context.identity` | none | `u64 identity` | none | `nonblocking`. Returns an infallible product-lifetime scalar |
+| `0x0002` | `platform.context.native_text_width` | none | `u32 width` | none | `nonblocking`. Returns an infallible product-lifetime scalar |
 | `0x0003` | `platform.context.working_directory` | none | `out<raw_address> address`, `out<u64> length` | `context` | `nonblocking`. Returns a product-lifetime borrowed view |
 | `0x0004` | `platform.context.argument_count` | none | `out<u64> count` | `context` | `nonblocking`. No ownership change |
 | `0x0005` | `platform.context.argument` | `u64 index` | `out<raw_address> address`, `out<u64> length` | `context_indexed` | `nonblocking`. Returns a product-lifetime borrowed view |

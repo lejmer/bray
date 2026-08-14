@@ -35,11 +35,11 @@ internal struct NativeTextPair
 }
 
 @abi(c)
-extern trusted internal func context_identity(pos identity: RawPointer<u64>) -> PlatformStatus
+extern trusted internal func context_identity() -> u64
     uses(foreign_call);
 
 @abi(c)
-extern trusted internal func context_native_text_width(pos width: RawPointer<u32>) -> PlatformStatus
+extern trusted internal func context_native_text_width() -> u32
     uses(foreign_call);
 
 @abi(c)
@@ -113,24 +113,15 @@ extern trusted internal func entropy_fill(
 trusted internal func process_identity() -> u64
     uses(foreign_call)
 {
-    let mut identity: u64 = 0;
-    let status: PlatformStatus = trusted context_identity(std.memory.address_of_mut<u64>(&mut identity));
-
-    if !successful_status(status)
-    {
-        panic("the platform process identity is unavailable");
-    }
-
-    return identity;
+    return trusted context_identity();
 }
 
 trusted internal func native_text_width() -> usize
     uses(foreign_call)
 {
-    let mut width: u32 = 0;
-    let status: PlatformStatus = trusted context_native_text_width(std.memory.address_of_mut<u32>(&mut width));
+    let width: u32 = trusted context_native_text_width();
 
-    if !successful_status(status) || (width != 8 && width != 16)
+    if width != 8 && width != 16
     {
         panic("the platform native text width is unavailable");
     }

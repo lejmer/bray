@@ -1,5 +1,6 @@
 use std::env;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use bray_platform_abi_support::{
     MemoryRegion, disjoint, native_platform_export, startup_working_directory,
@@ -9,9 +10,10 @@ use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 const CONTEXT_HEADER_BYTES: usize = 72;
 const CONTEXT_ABI_MAJOR: u16 = 1;
 const CONTEXT_ABI_MINOR: u16 = 0;
+const UNINITIALIZED_IDENTITY: u64 = u64::MAX;
 
 struct ProcessContextOwner {
-    identity: OnceLock<u64>,
+    identity: AtomicU64,
     native_text_width: u8,
     block: OnceLock<Result<Box<[u8]>, NativePlatformStatus>>,
 }
@@ -19,16 +21,30 @@ struct ProcessContextOwner {
 impl ProcessContextOwner {
     const fn new() -> Self {
         Self {
-            identity: OnceLock::new(),
+            identity: AtomicU64::new(UNINITIALIZED_IDENTITY),
             native_text_width: native_text_width(),
             block: OnceLock::new(),
         }
     }
 
     fn identity(&self) -> u64 {
-        *self
-            .identity
-            .get_or_init(|| u64::from(std::process::id()))
+        let identity = self.identity.load(Ordering::Relaxed);
+
+        if identity != UNINITIALIZED_IDENTITY {
+            return identity;
+        }
+
+        let discovered = u64::from(std::process::id());
+
+        match self.identity.compare_exchange(
+            UNINITIALIZED_IDENTITY,
+            discovered,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => discovered,
+            Err(identity) => identity,
+        }
     }
 
     fn block(&self) -> Result<&[u8], NativePlatformStatus> {
@@ -46,16 +62,14 @@ impl ProcessContextOwner {
 static PROCESS_CONTEXT: ProcessContextOwner = ProcessContextOwner::new();
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_context_identity(identity: *mut u64) -> NativePlatformStatus {
-        publish_value(identity, Ok(PROCESS_CONTEXT.identity()))
+    pub extern "C" fn bray_platform_context_identity() -> u64 {
+        PROCESS_CONTEXT.identity()
     }
 }
 
 native_platform_export! {
-    pub extern "C" fn bray_platform_context_native_text_width(
-        width: *mut u32,
-    ) -> NativePlatformStatus {
-        publish_value(width, Ok(u32::from(PROCESS_CONTEXT.native_text_width())))
+    pub extern "C" fn bray_platform_context_native_text_width() -> u32 {
+        u32::from(PROCESS_CONTEXT.native_text_width())
     }
 }
 
@@ -548,19 +562,13 @@ mod tests {
 
     #[test]
     fn scalar_context_roles_publish_immutable_values() {
-        let mut first_identity = 0;
-        let mut second_identity = 0;
-        let mut width = 0;
+        let first_identity = bray_platform_context_identity();
+        let second_identity = bray_platform_context_identity();
+        let width = bray_platform_context_native_text_width();
         let mut argument_count = 0;
 
-        let first_status = bray_platform_context_identity(&raw mut first_identity);
-        let second_status = bray_platform_context_identity(&raw mut second_identity);
-        let width_status = bray_platform_context_native_text_width(&raw mut width);
         let count_status = bray_platform_context_argument_count(&raw mut argument_count);
 
-        assert_eq!(first_status, NativePlatformStatus::SUCCESS);
-        assert_eq!(second_status, NativePlatformStatus::SUCCESS);
-        assert_eq!(width_status, NativePlatformStatus::SUCCESS);
         assert_eq!(count_status, NativePlatformStatus::SUCCESS);
         assert_eq!(first_identity, second_identity);
         assert_eq!(first_identity, u64::from(std::process::id()));

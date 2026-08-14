@@ -336,8 +336,7 @@ impl PlatformServiceRole {
             TemporalResolutionPointer, TemporalValue, TemporalValuePointer, U32, U64,
         };
 
-        const CONTEXT_IDENTITY: &[PlatformAbiType] = &[PointerU64];
-        const CONTEXT_NATIVE_TEXT_WIDTH: &[PlatformAbiType] = &[PointerU32];
+        const CONTEXT_COUNT: &[PlatformAbiType] = &[PointerU64];
         const CONTEXT_TEXT: &[PlatformAbiType] = &[RawAddressPointer, PointerU64];
         const CONTEXT_ARGUMENT: &[PlatformAbiType] = &[U64, RawAddressPointer, PointerU64];
 
@@ -439,10 +438,9 @@ impl PlatformServiceRole {
         const CHILD_REAP: &[PlatformAbiType] = &[U64, ExitStatusPointer];
 
         let parameters = match self {
-            Self::ContextIdentity => CONTEXT_IDENTITY,
-            Self::ContextNativeTextWidth => CONTEXT_NATIVE_TEXT_WIDTH,
+            Self::ContextIdentity | Self::ContextNativeTextWidth => NO_PARAMETERS,
             Self::ContextWorkingDirectory => CONTEXT_TEXT,
-            Self::ContextArgumentCount | Self::ContextEnvironmentCount => CONTEXT_IDENTITY,
+            Self::ContextArgumentCount | Self::ContextEnvironmentCount => CONTEXT_COUNT,
             Self::ContextArgument => CONTEXT_ARGUMENT,
             Self::ContextEnvironmentEntry => CONTEXT_ENVIRONMENT_ENTRY,
             Self::ContextEnvironmentKeyEquals => CONTEXT_ENVIRONMENT_KEY_EQUALS,
@@ -497,7 +495,13 @@ impl PlatformServiceRole {
             Self::DynamicLibraryClose => STREAM_HANDLE,
         };
 
-        PlatformServiceSignature::new(parameters, Status)
+        let result = match self {
+            Self::ContextIdentity => U64,
+            Self::ContextNativeTextWidth => U32,
+            _ => Status,
+        };
+
+        PlatformServiceSignature::new(parameters, result)
     }
 }
 
@@ -645,6 +649,17 @@ mod tests {
         );
 
         assert_eq!(role.signature().result(), PlatformAbiType::Status);
+    }
+
+    #[test]
+    fn immutable_context_scalars_return_directly() {
+        let identity = PlatformServiceRole::ContextIdentity.signature();
+        let width = PlatformServiceRole::ContextNativeTextWidth.signature();
+
+        assert!(identity.parameters().is_empty());
+        assert_eq!(identity.result(), PlatformAbiType::U64);
+        assert!(width.parameters().is_empty());
+        assert_eq!(width.result(), PlatformAbiType::U32);
     }
 
     #[test]
