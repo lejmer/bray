@@ -119,9 +119,14 @@ fn format_english_platform_service_role(
     role: bray_diagnostics::DiagnosticPlatformServiceRole,
 ) -> &'static str {
     match role.id() {
-        0x0001 => "process context measurement service",
-        0x0002 => "process context copy service",
-        0x0003 => "environment key comparison service",
+        0x0001 => "process identity service",
+        0x0002 => "native text width service",
+        0x0003 => "startup working directory service",
+        0x0004 => "startup argument count service",
+        0x0005 => "startup argument service",
+        0x0006 => "startup environment count service",
+        0x0007 => "startup environment entry service",
+        0x0008 => "environment key comparison service",
         0x0101 => "standard input read operation",
         0x0111 => "standard output write operation",
         0x0112 => "standard output flush operation",

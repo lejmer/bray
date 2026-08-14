@@ -27,12 +27,32 @@
       ],
       "platform_services": [
         {
-          "role": "platform.context.measure",
-          "declaration": "std.platform.context_measure"
+          "role": "platform.context.identity",
+          "declaration": "std.platform.context_identity"
         },
         {
-          "role": "platform.context.copy",
-          "declaration": "std.platform.context_copy"
+          "role": "platform.context.native_text_width",
+          "declaration": "std.platform.context_native_text_width"
+        },
+        {
+          "role": "platform.context.working_directory",
+          "declaration": "std.platform.context_working_directory"
+        },
+        {
+          "role": "platform.context.argument_count",
+          "declaration": "std.platform.context_argument_count"
+        },
+        {
+          "role": "platform.context.argument",
+          "declaration": "std.platform.context_argument"
+        },
+        {
+          "role": "platform.context.environment_count",
+          "declaration": "std.platform.context_environment_count"
+        },
+        {
+          "role": "platform.context.environment_entry",
+          "declaration": "std.platform.context_environment_entry"
         },
         {
           "role": "platform.context.environment_key_equals",

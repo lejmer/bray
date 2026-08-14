@@ -315,7 +315,7 @@ returns.
 
 ### Process Context Block
 
-The process-context roles expose one immutable product-lifetime block using context ABI version `1.0`. Its 72-byte header uses
+The platform provider owns one immutable product-lifetime block using context ABI version `1.0`. Its 72-byte header uses
 little-endian integers at these byte offsets. Process-root standard streams are separate resources and are not encoded in the block:
 
 | Offset | Field |
@@ -338,8 +338,11 @@ Each argument table entry is a 16-byte payload offset and length pair. Each envi
 value offset, and value length tuple. Every range is within the complete block and ranges cannot overlap either table. Arguments
 retain source order and environment entries use lexicographic unsigned target-native key-code-unit order.
 
-The platform host fixes the block before the executable root starts. `platform.context.measure` and `platform.context.copy` observe
-the same bytes for the product lifetime. A provider cannot use these roles to expose later host-global mutations.
+The platform host fixes and validates the block before returning its first borrowed context view. Typed context roles return scalar
+values or product-lifetime borrowed native-text views into that block. A provider cannot use these roles to expose later host-global
+mutations.
+The standard library copies a borrowed view only when constructing an owned argument, environment entry, or path value. Process
+identity and context counts require no allocation or copying.
 
 `platform.context.environment_key_equals` compares two call-only native-text values using the target process environment's key
 comparison rules. It writes `1` for equality and `0` otherwise. This role does not query mutable host environment state.
@@ -355,7 +358,7 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 | Set | Mask | Categories |
 | --- | ---: | --- |
 | `context` | `0x1003` | `Success`, `Unsupported`, `Other` |
-| `context_buffer` | `0x1403` | `Success`, `Unsupported`, `InsufficientBuffer`, `Other` |
+| `context_indexed` | `0x100b` | `Success`, `Unsupported`, `NotFound`, `Other` |
 | `stream` | `0x1363` | `Success`, `Unsupported`, `InvalidInput`, `Interrupted`, `BrokenStream`, `TimedOut`, `Other` |
 | `filesystem` | `0x10ff` | `Success`, `Unsupported`, `PermissionDenied`, `NotFound`, `AlreadyExists`, `InvalidInput`, `Interrupted`, `Exhausted`, `Other` |
 | `filesystem_buffer` | `0x14ff` | `filesystem` plus `InsufficientBuffer` |
@@ -369,9 +372,14 @@ The catalog uses these exact status sets. Each hexadecimal value is the `u64` ma
 
 | ID | Role | Parameters | Results | Status set | Mode and effects |
 | ---: | --- | --- | --- | --- | --- |
-| `0x0001` | `platform.context.measure` | none | `out<u64> required` | `context` | `nonblocking`. No ownership change |
-| `0x0002` | `platform.context.copy` | `mut_bytes(call) destination` | `out<u64> written_or_required` | `context_buffer` | `nonblocking`. `InsufficientBuffer` commits only required length |
-| `0x0003` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal` | `context` | `nonblocking`. No ownership change |
+| `0x0001` | `platform.context.identity` | none | `out<u64> identity` | `context` | `nonblocking`. No ownership change |
+| `0x0002` | `platform.context.native_text_width` | none | `out<u32> width` | `context` | `nonblocking`. No ownership change |
+| `0x0003` | `platform.context.working_directory` | none | `out<raw_address> address`, `out<u64> length` | `context` | `nonblocking`. Returns a product-lifetime borrowed view |
+| `0x0004` | `platform.context.argument_count` | none | `out<u64> count` | `context` | `nonblocking`. No ownership change |
+| `0x0005` | `platform.context.argument` | `u64 index` | `out<raw_address> address`, `out<u64> length` | `context_indexed` | `nonblocking`. Returns a product-lifetime borrowed view |
+| `0x0006` | `platform.context.environment_count` | none | `out<u64> count` | `context` | `nonblocking`. No ownership change |
+| `0x0007` | `platform.context.environment_entry` | `u64 index` | two `out<raw_address, u64>` views | `context_indexed` | `nonblocking`. Returns product-lifetime borrowed key and value views |
+| `0x0008` | `platform.context.environment_key_equals` | `native_text left`, `native_text right` | `out<u32> equal` | `context` | `nonblocking`. No ownership change |
 
 #### Resource-specific streams
 

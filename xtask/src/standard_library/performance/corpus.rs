@@ -1,6 +1,6 @@
 use super::model::WorkloadCategory;
 
-pub(super) const CORPUS_REVISION: u32 = 6;
+pub(super) const CORPUS_REVISION: u32 = 7;
 
 pub(super) struct Workload {
     pub id: &'static str,
@@ -418,8 +418,7 @@ func main() -> Result<unit, std.io.IoError>
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
         platform_operations: &[
-            "platform.context.measure",
-            "platform.context.copy",
+            "platform.context.working_directory",
             "platform.path.metadata",
         ],
         retention: NO_RETENTION_CONTRACT,
@@ -482,8 +481,7 @@ func output_path() -> std.path.Path
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::AbsentPath("bray-performance-file-output"),
         platform_operations: &[
-            "platform.context.measure",
-            "platform.context.copy",
+            "platform.context.native_text_width",
             "platform.file.open",
             "platform.file.write",
             "platform.file.flush",
@@ -492,8 +490,7 @@ func output_path() -> std.path.Path
         ],
         retention: RetentionContract {
             required_symbols: &[
-                "bray_platform_context_measure",
-                "bray_platform_context_copy",
+                "bray_platform_context_native_text_width",
                 "bray_platform_file_open",
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
@@ -541,9 +538,28 @@ func main()
         standard_library_sources: &[],
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
-        platform_operations: &["platform.context.measure", "platform.context.copy"],
-        retention: NO_RETENTION_CONTRACT,
-        storage: None,
+        platform_operations: &["platform.context.identity"],
+        retention: RetentionContract {
+            required_symbols: &["bray_platform_context_identity"],
+            forbidden_symbols: &[
+                "bray_platform_context_argument",
+                "bray_platform_context_environment_entry",
+                "bray_platform_context_working_directory",
+            ],
+            required_provenance: &["bray_platform_core"],
+            forbidden_provenance: &[
+                "bray_platform_process",
+                "bray_platform_standard_streams",
+                "bray_platform_filesystem",
+                "bray_runtime_test_host",
+                "run_output_context",
+            ],
+        },
+        storage: Some(StorageExpectation {
+            allocation_count: 0,
+            allocated_bytes: 0,
+            copied_bytes: 0,
+        }),
     },
     Workload {
         id: "monotonic_clock",

@@ -85,11 +85,30 @@ pub const PERFORMANCE_OBSERVATION_HEADER: [u8; 8] = *b"BRAYPO01";
 /// Maximum number of performance events retained by one observed run.
 pub const MAX_PERFORMANCE_OBSERVATION_RECORDS: u64 = 1_000_000;
 
-/// Stable symbol measuring the immutable process-context block.
-pub const PLATFORM_CONTEXT_MEASURE_SYMBOL: &str = "bray_platform_context_measure";
+/// Stable symbol reading the immutable process identity.
+pub const PLATFORM_CONTEXT_IDENTITY_SYMBOL: &str = "bray_platform_context_identity";
 
-/// Stable symbol copying the immutable process-context block.
-pub const PLATFORM_CONTEXT_COPY_SYMBOL: &str = "bray_platform_context_copy";
+/// Stable symbol reading the process native-text width.
+pub const PLATFORM_CONTEXT_NATIVE_TEXT_WIDTH_SYMBOL: &str =
+    "bray_platform_context_native_text_width";
+
+/// Stable symbol borrowing the startup working directory.
+pub const PLATFORM_CONTEXT_WORKING_DIRECTORY_SYMBOL: &str =
+    "bray_platform_context_working_directory";
+
+/// Stable symbol reading the startup argument count.
+pub const PLATFORM_CONTEXT_ARGUMENT_COUNT_SYMBOL: &str = "bray_platform_context_argument_count";
+
+/// Stable symbol borrowing one startup argument.
+pub const PLATFORM_CONTEXT_ARGUMENT_SYMBOL: &str = "bray_platform_context_argument";
+
+/// Stable symbol reading the startup environment-entry count.
+pub const PLATFORM_CONTEXT_ENVIRONMENT_COUNT_SYMBOL: &str =
+    "bray_platform_context_environment_count";
+
+/// Stable symbol borrowing one startup environment entry.
+pub const PLATFORM_CONTEXT_ENVIRONMENT_ENTRY_SYMBOL: &str =
+    "bray_platform_context_environment_entry";
 
 /// Stable symbol comparing environment keys with target-native rules.
 pub const PLATFORM_CONTEXT_ENVIRONMENT_KEY_EQUALS_SYMBOL: &str =
