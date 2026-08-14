@@ -1,51 +1,52 @@
 module std.format;
 
 using std.character;
+using std.numeric;
 using std.string;
 
-internal func write_text(
-    pos destination: &mut ByteSink,
-    pos value: &string,
-) -> Result<unit, std.memory.MemoryLayoutError>
-{
-    return std.bytes.append(&mut destination.buffer, bytes = std.string.utf8(value));
-}
-
-internal func write_padding(
-    pos destination: &mut ByteSink,
+internal func write_padding<Destination, Failure>(
+    pos destination: &mut Destination,
     pos count: usize,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
-    return std.bytes.append_repeated(&mut destination.buffer, value = 32, count = count);
+    return destination.write_repeated(value = 32, count = count);
 }
 
-internal func write_leading_zeroes(
-    pos destination: &mut ByteSink,
+internal func write_leading_zeroes<Destination, Failure>(
+    pos destination: &mut Destination,
     pos count: usize,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
-    return std.bytes.append_repeated(&mut destination.buffer, value = 48, count = count);
+    return destination.write_repeated(value = 48, count = count);
 }
 
-internal func write_aligned(
-    pos destination: &mut ByteSink,
+internal func write_aligned<Destination, Failure>(
+    pos destination: &mut Destination,
     pos content: &[u8],
     pos options: &Options,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
     let length: usize = std.bytes.slice_length(content);
 
+    try destination.prepare(additional = maximum(length, options.width));
+
     if options.width <= length
     {
-        return std.bytes.append(&mut destination.buffer, bytes = content);
+        return destination.write(content);
     }
 
     let padding: usize = options.width - length;
     let left: usize = left_padding(padding, options);
 
-    try write_padding(&mut destination, count = left);
-    try std.bytes.append(&mut destination.buffer, bytes = content);
-    try write_padding(&mut destination, count = padding - left);
+    try write_padding<Destination, Failure>(&mut destination, count = left);
+    try destination.write(content);
+    try write_padding<Destination, Failure>(&mut destination, count = padding - left);
 
     return Ok(unit);
 }
@@ -128,6 +129,15 @@ internal func sign_length(pos negative: bool, pos options: &Options) -> usize
     }
 }
 
+internal func integer_content_length(pos sign: usize, pos digits: usize) -> usize
+{
+    match std.numeric.checked_add<usize>(sign, digits)
+    {
+        case ?length { return length; }
+        case none { return std.numeric.USIZE_MAX; }
+    }
+}
+
 internal func maximum(pos left: usize, pos right: usize) -> usize
 {
     if left >= right
@@ -160,22 +170,30 @@ internal func normalized_signed_integer(pos value: i128) -> i128
 
 internal func unsigned_digit_count(pos value: u128, pos radix: u128) -> usize
 {
-    if value < radix
+    let mut remaining: u128 = value;
+    let mut count: usize = 1;
+
+    while remaining >= radix
     {
-        return 1;
+        remaining /= radix;
+        count += 1;
     }
 
-    return 1 + unsigned_digit_count(value / radix, radix);
+    return count;
 }
 
 internal func signed_digit_count(pos value: i128, pos radix: i128) -> usize
 {
-    if value > -radix
+    let mut remaining: i128 = value;
+    let mut count: usize = 1;
+
+    while remaining <= -radix
     {
-        return 1;
+        remaining /= radix;
+        count += 1;
     }
 
-    return 1 + signed_digit_count(value / radix, radix);
+    return count;
 }
 
 internal func left_padding(pos padding: usize, pos options: &Options) -> usize
@@ -188,112 +206,118 @@ internal func left_padding(pos padding: usize, pos options: &Options) -> usize
     }
 }
 
-internal func write_unsigned_digits(
-    pos destination: &mut ByteSink,
+internal func write_unsigned_digits<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: u128,
     pos radix: u128,
     pos uppercase: bool,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
-    let mut divisor: u128 = 1;
+    let mut digits: [u8; 128] = [0; 128];
+    let mut start: usize = 128;
+    let mut remaining: u128 = value;
 
-    while value / divisor >= radix
+    while remaining >= radix
     {
-        divisor *= radix;
+        start -= 1;
+        digits[start] = digit_byte(remaining % radix, uppercase);
+        remaining /= radix;
     }
 
-    while divisor > 0
-    {
-        let digit: u8 = digit_byte((value / divisor) % radix, uppercase);
+    start -= 1;
+    digits[start] = digit_byte(remaining, uppercase);
 
-        try std.bytes.push(&mut destination.buffer, value = digit);
-
-        divisor /= radix;
-    }
-
-    return Ok(unit);
+    return destination.write(&digits[start.. 128]);
 }
 
-internal func write_signed_digits(
-    pos destination: &mut ByteSink,
+internal func write_signed_digits<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: i128,
     pos radix: i128,
     pos uppercase: bool,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
-    if value > -radix
+    let mut digits: [u8; 128] = [0; 128];
+    let mut start: usize = 128;
+    let mut remaining: i128 = value;
+
+    while remaining <= -radix
     {
-        return std.bytes.push(&mut destination.buffer, value = signed_digit_byte(-value, uppercase));
+        start -= 1;
+        digits[start] = signed_digit_byte(-(remaining % radix), uppercase);
+        remaining /= radix;
     }
 
-    let mut divisor: i128 = -radix;
+    start -= 1;
+    digits[start] = signed_digit_byte(-remaining, uppercase);
 
-    while value / divisor >= radix
-    {
-        divisor *= radix;
-    }
-
-    while divisor < -1
-    {
-        let digit: u8 = signed_digit_byte((value / divisor) % radix, uppercase);
-
-        try std.bytes.push(&mut destination.buffer, value = digit);
-
-        divisor /= radix;
-    }
-
-    return std.bytes.push(&mut destination.buffer, value = signed_digit_byte(-(value % radix), uppercase));
+    return destination.write(&digits[start.. 128]);
 }
 
-internal func write_requested_sign(
-    pos destination: &mut ByteSink,
+internal func write_requested_sign<Destination, Failure>(
+    pos destination: &mut Destination,
     pos negative: bool,
     pos options: &Options,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
+    let minus: [u8; 1] = [45];
+    let plus: [u8; 1] = [43];
+    let space: [u8; 1] = [32];
+
     if negative
     {
-        return std.bytes.push(&mut destination.buffer, value = 45);
+        return destination.write(&minus[..]);
     }
 
     match options.sign
     {
         case NegativeOnly {}
-        case Always { try std.bytes.push(&mut destination.buffer, value = 43); }
-        case Space { try std.bytes.push(&mut destination.buffer, value = 32); }
+        case Always { return destination.write(&plus[..]); }
+        case Space { return destination.write(&space[..]); }
     }
 
     return Ok(unit);
 }
 
-internal func write_unsigned_integer(
-    pos destination: &mut ByteSink,
+internal func write_unsigned_integer<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: u128,
     pos options: &Options,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
     let radix: u128 = radix_value(options) as u128;
     let natural_digits: usize = unsigned_digit_count(value, radix);
     let digits: usize = maximum(natural_digits, minimum_digits(options));
-    let content_length: usize = sign_length(false, options) + digits;
+    let content_length: usize = integer_content_length(sign_length(false, options), digits);
     let padding: usize = padding_count(options.width, content_length);
 
     let left: usize = left_padding(padding, options);
 
-    try write_padding(&mut destination, left);
-    try write_requested_sign(&mut destination, negative = false, options = options);
-    try write_leading_zeroes(&mut destination, digits - natural_digits);
+    try destination.prepare(additional = content_length + padding);
+    try write_padding<Destination, Failure>(&mut destination, left);
+    try write_requested_sign<Destination, Failure>(&mut destination, negative = false, options = options);
+    try write_leading_zeroes<Destination, Failure>(&mut destination, digits - natural_digits);
 
-    try write_unsigned_digits(&mut destination, value, radix, uppercase_digits(options));
+    try write_unsigned_digits<Destination, Failure>(&mut destination, value, radix, uppercase_digits(options));
 
-    return write_padding(destination, padding - left);
+    return write_padding<Destination, Failure>(destination, padding - left);
 }
 
-internal func write_signed_integer(
-    pos destination: &mut ByteSink,
+internal func write_signed_integer<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: i128,
     pos options: &Options,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
     let negative: bool = value < 0;
     let radix: i128 = radix_value(options) as i128;
@@ -301,25 +325,31 @@ internal func write_signed_integer(
 
     let natural_digits: usize = signed_digit_count(normalized, radix);
     let digits: usize = maximum(natural_digits, minimum_digits(options));
-    let content_length: usize = sign_length(negative, options) + digits;
+    let content_length: usize = integer_content_length(sign_length(negative, options), digits);
     let padding: usize = padding_count(options.width, content_length);
 
     let left: usize = left_padding(padding, options);
 
-    try write_padding(&mut destination, left);
-    try write_requested_sign(&mut destination, negative = negative, options = options);
-    try write_leading_zeroes(&mut destination, digits - natural_digits);
+    try destination.prepare(additional = content_length + padding);
+    try write_padding<Destination, Failure>(&mut destination, left);
+    try write_requested_sign<Destination, Failure>(&mut destination, negative = negative, options = options);
+    try write_leading_zeroes<Destination, Failure>(&mut destination, digits - natural_digits);
 
-    try write_signed_digits(&mut destination, normalized, radix, uppercase_digits(options));
+    try write_signed_digits<Destination, Failure>(&mut destination, normalized, radix, uppercase_digits(options));
 
-    return write_padding(destination, padding - left);
+    return write_padding<Destination, Failure>(destination, padding - left);
 }
 
-internal func write_escape(pos destination: &mut ByteSink, pos value: u8) -> Result<unit, std.memory.MemoryLayoutError>
+internal func write_escape<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: u8,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
-    try std.bytes.push(&mut destination.buffer, value = 92);
+    let escaped: [u8; 2] = [92, value];
 
-    return std.bytes.push(&mut destination.buffer, value = value);
+    return destination.write(&escaped[..]);
 }
 
 internal func escape_code(pos value: u8) -> u8
@@ -361,16 +391,21 @@ internal func escaped_string_length(pos value: &string) -> usize
     return length;
 }
 
-internal func write_escaped_string(
-    pos destination: &mut ByteSink,
+internal func write_escaped_string<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: &string,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
-    try std.bytes.push(&mut destination.buffer, value = 34);
+    let quote: [u8; 1] = [34];
+
+    try destination.write(&quote[..]);
 
     let content: &[u8] = std.string.utf8(value);
     let count: usize = std.bytes.slice_length(content);
     let mut index: usize = 0;
+    let mut segment_start: usize = 0;
 
     while index < count
     {
@@ -379,24 +414,37 @@ internal func write_escaped_string(
 
         if escaped == 0
         {
-            try std.bytes.push(&mut destination.buffer, value = byte);
+            index += 1;
         }
         else
         {
-            try write_escape(&mut destination, escaped);
-        }
+            if segment_start < index
+            {
+                try destination.write(&content[segment_start.. index]);
+            }
 
-        index += 1;
+            try write_escape<Destination, Failure>(&mut destination, escaped);
+
+            index += 1;
+            segment_start = index;
+        }
     }
 
-    return std.bytes.push(&mut destination.buffer, value = 34);
+    if segment_start < count
+    {
+        try destination.write(&content[segment_start.. count]);
+    }
+
+    return destination.write(&quote[..]);
 }
 
-internal func write_string_value(
-    pos destination: &mut ByteSink,
+internal func write_string_value<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: &string,
     pos options: &Options,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
     match options.escaping
     {
@@ -404,7 +452,7 @@ internal func write_string_value(
         {
             let content: &[u8] = std.string.utf8(value);
 
-            return write_aligned(destination, content, options);
+            return write_aligned<Destination, Failure>(destination, content, options);
         }
         case Quoted
         {
@@ -412,34 +460,33 @@ internal func write_string_value(
             let padding: usize = padding_count(options.width, length);
             let left: usize = left_padding(padding, options);
 
-            try write_padding(&mut destination, count = left);
-            try write_escaped_string(&mut destination, value);
-            try write_padding(&mut destination, count = padding - left);
+            try destination.prepare(additional = length + padding);
+            try write_padding<Destination, Failure>(&mut destination, count = left);
+            try write_escaped_string<Destination, Failure>(&mut destination, value);
+            try write_padding<Destination, Failure>(&mut destination, count = padding - left);
 
             return Ok(unit);
         }
     }
 }
 
-internal func write_boolean_value(
-    pos destination: &mut ByteSink,
+internal func write_boolean_value<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: bool,
     pos options: &Options,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
-    let content: &[u8] = std.string.utf8(boolean_text(value));
+    let true_bytes: [u8; 4] = [116, 114, 117, 101];
+    let false_bytes: [u8; 5] = [102, 97, 108, 115, 101];
 
-    return write_aligned(destination, content, options);
-}
-
-internal func boolean_text(pos value: bool) -> &string
-{
     if value
     {
-        return &"true";
+        return write_aligned<Destination, Failure>(destination, &true_bytes[..], options);
     }
 
-    return &"false";
+    return write_aligned<Destination, Failure>(destination, &false_bytes[..], options);
 }
 
 internal func character_is_escaped(pos scalar: u32) -> bool
@@ -464,29 +511,34 @@ internal func character_escape_byte(pos scalar: u32) -> u8
     };
 }
 
-internal func write_raw_character(
-    pos destination: &mut ByteSink,
+internal func write_raw_character<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: char,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
     let length: usize = std.character.utf8_length(value = value);
+    let mut encoded: [u8; 4] = [0; 4];
     let mut index: usize = 0;
 
     while index < length
     {
-        try std.bytes.push(&mut destination.buffer, value = std.character.utf8_byte(value = value, index = index));
+        encoded[index] = std.character.utf8_byte(value = value, index = index);
 
         index += 1;
     }
 
-    return Ok(unit);
+    return destination.write(&encoded[0.. length]);
 }
 
-internal func write_character_value(
-    pos destination: &mut ByteSink,
+internal func write_character_value<Destination, Failure>(
+    pos destination: &mut Destination,
     pos value: char,
     pos options: &Options,
-) -> Result<unit, std.memory.MemoryLayoutError>
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
 {
     let scalar: u32 = std.character.scalar_value(value = value);
     let mut quoted: bool = false;
@@ -515,150 +567,184 @@ internal func write_character_value(
     let padding: usize = padding_count(options.width, rendered_length);
     let left: usize = left_padding(padding, options);
 
-    try write_padding(&mut destination, count = left);
+    try destination.prepare(additional = rendered_length + padding);
+    try write_padding<Destination, Failure>(&mut destination, count = left);
 
     if quoted
     {
-        try std.bytes.push(&mut destination.buffer, value = 39);
+        let quote: [u8; 1] = [39];
+
+        try destination.write(&quote[..]);
     }
 
     if escaped
     {
-        try std.bytes.push(&mut destination.buffer, value = 92);
-        try std.bytes.push(&mut destination.buffer, value = character_escape_byte(scalar));
+        try write_escape<Destination, Failure>(&mut destination, character_escape_byte(scalar));
     }
     else
     {
-        try write_raw_character(&mut destination, value);
+        try write_raw_character<Destination, Failure>(&mut destination, value);
     }
 
     if quoted
     {
-        try std.bytes.push(&mut destination.buffer, value = 39);
+        let quote: [u8; 1] = [39];
+
+        try destination.write(&quote[..]);
     }
 
-    try write_padding(&mut destination, count = padding - left);
+    try write_padding<Destination, Failure>(&mut destination, count = padding - left);
 
     return Ok(unit);
 }
 
-impl StringFormat = string(Format)
+impl StringFormat = string(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_string_value(destination, &self, options);
+        return write_string_value<Destination, Failure>(destination, &self, options);
     }
 }
 
-impl BooleanFormat = bool(Format)
+impl BooleanFormat = bool(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_boolean_value(destination, self, options);
+        return write_boolean_value<Destination, Failure>(destination, self, options);
     }
 }
 
-impl CharacterFormat = char(Format)
+impl CharacterFormat = char(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_character_value(destination, self, options);
+        return write_character_value<Destination, Failure>(destination, self, options);
     }
 }
 
-impl U8Format = u8(Format)
+impl U8Format = u8(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_unsigned_integer(destination, self as u128, options);
+        return write_unsigned_native_integer<Destination, Failure>(destination, self as u64, options);
     }
 }
 
-impl U16Format = u16(Format)
+impl U16Format = u16(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_unsigned_integer(destination, self as u128, options);
+        return write_unsigned_native_integer<Destination, Failure>(destination, self as u64, options);
     }
 }
 
-impl U32Format = u32(Format)
+impl U32Format = u32(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_unsigned_integer(destination, self as u128, options);
+        return write_unsigned_native_integer<Destination, Failure>(destination, self as u64, options);
     }
 }
 
-impl U64Format = u64(Format)
+impl U64Format = u64(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_unsigned_integer(destination, self as u128, options);
+        return write_unsigned_native_integer<Destination, Failure>(destination, self, options);
     }
 }
 
-impl U128Format = u128(Format)
+impl U128Format = u128(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_unsigned_integer(destination, self, options);
+        return write_unsigned_integer<Destination, Failure>(destination, self, options);
     }
 }
 
-impl UsizeFormat = usize(Format)
+impl UsizeFormat = usize(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_unsigned_integer(destination, self as u128, options);
+        return write_unsigned_native_integer<Destination, Failure>(destination, self as u64, options);
     }
 }
 
-impl I8Format = i8(Format)
+impl I8Format = i8(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_signed_integer(destination, self as i128, options);
+        return write_signed_native_integer<Destination, Failure>(destination, self as i64, options);
     }
 }
 
-impl I16Format = i16(Format)
+impl I16Format = i16(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_signed_integer(destination, self as i128, options);
+        return write_signed_native_integer<Destination, Failure>(destination, self as i64, options);
     }
 }
 
-impl I32Format = i32(Format)
+impl I32Format = i32(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_signed_integer(destination, self as i128, options);
+        return write_signed_native_integer<Destination, Failure>(destination, self as i64, options);
     }
 }
 
-impl I64Format = i64(Format)
+impl I64Format = i64(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_signed_integer(destination, self as i128, options);
+        return write_signed_native_integer<Destination, Failure>(destination, self, options);
     }
 }
 
-impl I128Format = i128(Format)
+impl I128Format = i128(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_signed_integer(destination, self, options);
+        return write_signed_integer<Destination, Failure>(destination, self, options);
     }
 }
 
-impl IsizeFormat = isize(Format)
+impl IsizeFormat = isize(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
 {
-    func format(pos destination: &mut ByteSink, pos options: &Options) -> Result<unit, std.memory.MemoryLayoutError>
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
     {
-        return write_signed_integer(destination, self as i128, options);
+        return write_signed_native_integer<Destination, Failure>(destination, self as i64, options);
     }
 }
 

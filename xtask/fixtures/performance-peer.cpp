@@ -17,7 +17,8 @@
 #include <fstream>
 #endif
 
-#if BRAY_WORKLOAD == 2 || BRAY_WORKLOAD == 3 || BRAY_WORKLOAD == 7 || BRAY_WORKLOAD == 8
+#if BRAY_WORKLOAD == 2 || BRAY_WORKLOAD == 3 || BRAY_WORKLOAD == 7 || BRAY_WORKLOAD == 8 \
+    || BRAY_WORKLOAD == 12
 #include <vector>
 #endif
 
@@ -27,7 +28,7 @@
 #include <string_view>
 #endif
 
-#if BRAY_WORKLOAD == 8
+#if BRAY_WORKLOAD == 8 || BRAY_WORKLOAD == 12 || BRAY_WORKLOAD == 13
 #include <charconv>
 #endif
 
@@ -69,7 +70,8 @@ namespace {
 constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
-#if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8)
+#if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) \
+    || BRAY_WORKLOAD == 12
 template <typename Value>
 void retain_work(Value const& value)
 {
@@ -86,7 +88,7 @@ char const* opaque_pointer(char const* value)
 }
 #endif
 
-#if BRAY_WORKLOAD == 8
+#if BRAY_WORKLOAD == 8 || BRAY_WORKLOAD == 12 || BRAY_WORKLOAD == 13
 std::uint32_t opaque_integer(std::uint32_t value)
 {
     __asm__ volatile("" : "+r"(value) : : "memory");
@@ -275,6 +277,8 @@ bool workload()
     std::vector<char> bytes;
     char formatted[10];
 
+    bytes.reserve(2986);
+
     for (std::uint32_t value = 0; value < 1024; ++value)
     {
         const auto result =
@@ -288,6 +292,91 @@ bool workload()
 
     retain_work(bytes);
     return bytes.size() == 2986;
+}
+#elif BRAY_WORKLOAD == 12
+bool workload()
+{
+    std::vector<char> bytes;
+    char formatted[10];
+
+    bytes.reserve(133120);
+
+    for (std::size_t index = 0; index < 1024; ++index)
+    {
+        const auto result =
+            std::to_chars(formatted, formatted + sizeof(formatted), opaque_integer(42));
+
+        if (result.ec != std::errc{})
+            return false;
+
+        bytes.insert(bytes.end(), 128, ' ');
+        bytes.insert(bytes.end(), formatted, result.ptr);
+    }
+
+    retain_work(bytes);
+
+    if (bytes.size() != 133120)
+        return false;
+
+    for (std::size_t index = 0; index < bytes.size(); ++index)
+    {
+        const std::size_t offset = index % 130;
+        const char expected = offset < 128 ? ' ' : offset == 128 ? '4' : '2';
+
+        if (bytes[index] != expected)
+            return false;
+    }
+
+    return true;
+}
+#elif BRAY_WORKLOAD == 13
+class ValidatingWriter
+{
+public:
+    bool write(char const* bytes, std::size_t count)
+    {
+        for (std::size_t index = 0; index < count; ++index)
+        {
+            const char expected = length_ % 2 == 0 ? '4' : '2';
+
+            if (bytes[index] != expected)
+                valid_ = false;
+
+            ++length_;
+        }
+
+        return true;
+    }
+
+    bool valid() const
+    {
+        return valid_ && length_ == 2048;
+    }
+
+private:
+    std::size_t length_ = 0;
+    bool valid_ = true;
+};
+
+template <typename Writer>
+bool write_value(Writer& writer, std::uint32_t value)
+{
+    char formatted[10];
+    const auto result = std::to_chars(formatted, formatted + sizeof(formatted), value);
+
+    return result.ec == std::errc{}
+        && writer.write(formatted, static_cast<std::size_t>(result.ptr - formatted));
+}
+
+bool workload()
+{
+    ValidatingWriter writer;
+
+    for (std::size_t index = 0; index < 1024; ++index)
+        if (!write_value(writer, opaque_integer(42)))
+            return false;
+
+    return writer.valid();
 }
 #elif BRAY_WORKLOAD == 9 || BRAY_WORKLOAD == 10
 bool write_standard_output()

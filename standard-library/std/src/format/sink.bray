@@ -4,6 +4,24 @@ using std.bytes;
 using std.memory;
 using std.string;
 
+/// Receives formatted bytes through bulk operations with a typed failure.
+///
+/// Calls require blocking execution so the same static contract can adapt standard I/O writers.
+trait Sink<Failure>
+{
+    /// Makes room for at least the requested additional output when storage is owned or bounded.
+    mut func prepare(additional: usize) -> Result<unit, Failure>
+        requires(blocking_execution());
+
+    /// Writes one contiguous byte slice.
+    mut func write(pos source: &[u8]) -> Result<unit, Failure>
+        requires(blocking_execution());
+
+    /// Writes one byte repeatedly without requiring a caller-owned temporary buffer.
+    mut func write_repeated(value: u8, count: usize) -> Result<unit, Failure>
+        requires(blocking_execution());
+}
+
 struct ByteSink
 {
     internal mut buffer: std.bytes.Buffer;
@@ -21,6 +39,27 @@ struct ByteSink
     }
 }
 
+impl ByteSinkFormatting = ByteSink(Sink<std.memory.MemoryLayoutError>)
+{
+    mut func prepare(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+        requires(blocking_execution())
+    {
+        return trusted std.bytes.reserve(&mut self.buffer, additional = additional);
+    }
+
+    mut func write(pos source: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
+        requires(blocking_execution())
+    {
+        return std.bytes.append(&mut self.buffer, bytes = source);
+    }
+
+    mut func write_repeated(value: u8, count: usize) -> Result<unit, std.memory.MemoryLayoutError>
+        requires(blocking_execution())
+    {
+        return std.bytes.append_repeated(&mut self.buffer, value = value, count = count);
+    }
+}
+
 func bytes(pos sink: &ByteSink) -> &[u8]
 {
     return std.bytes.as_slice(&sink.buffer);
@@ -29,6 +68,169 @@ func bytes(pos sink: &ByteSink) -> &[u8]
 func into_bytes(pos sink: ByteSink) -> std.bytes.Buffer
 {
     return sink.buffer;
+}
+
+/// Describes a counting destination failure.
+union CountingSinkError
+{
+    /// The formatted length cannot be represented by `usize`.
+    SizeOverflow;
+}
+
+/// Counts formatted bytes without storing them.
+struct CountingSink
+{
+    internal mut length: usize;
+
+    construct() -> Self
+    {
+        return
+        {
+            length = 0,
+        };
+    }
+}
+
+impl CountingSinkFormatting = CountingSink(Sink<CountingSinkError>)
+{
+    mut func prepare(additional: usize) -> Result<unit, CountingSinkError>
+        requires(blocking_execution())
+    {
+        let _: usize = try checked_count(length = self.length, additional = additional);
+
+        return Ok(unit);
+    }
+
+    mut func write(pos source: &[u8]) -> Result<unit, CountingSinkError>
+        requires(blocking_execution())
+    {
+        let count: usize = std.bytes.slice_length(source);
+
+        self.length = try checked_count(length = self.length, additional = count);
+
+        return Ok(unit);
+    }
+
+    mut func write_repeated(value: u8, count: usize) -> Result<unit, CountingSinkError>
+        requires(blocking_execution())
+    {
+        self.length = try checked_count(length = self.length, additional = count);
+
+        return Ok(unit);
+    }
+}
+
+internal func checked_count(length: usize, additional: usize) -> Result<usize, CountingSinkError>
+{
+    let maximum_length: usize = ~0;
+
+    if additional > maximum_length - length
+    {
+        return Error(CountingSinkError.SizeOverflow);
+    }
+
+    return Ok(length + additional);
+}
+
+/// Returns the number of bytes accepted by a counting destination.
+func formatted_length(pos sink: &CountingSink) -> usize
+{
+    return sink.length;
+}
+
+/// Describes a borrowed fixed destination failure.
+union FixedSinkError
+{
+    /// The remaining destination cannot hold the requested output.
+    CapacityExceeded;
+}
+
+/// Writes formatted bytes into caller-provided storage without allocating.
+struct FixedSink
+{
+    internal mut destination: &mut [u8];
+    internal capacity: usize;
+    internal mut length: usize;
+
+    construct(pos destination: &mut [u8]) -> Self
+    {
+        let capacity: usize = internal std.memory.slice_length<u8>(&destination);
+
+        return
+        {
+            destination = destination,
+            capacity = capacity,
+            length = 0,
+        };
+    }
+}
+
+impl FixedSinkFormatting = FixedSink(Sink<FixedSinkError>)
+{
+    mut func prepare(additional: usize) -> Result<unit, FixedSinkError>
+        requires(blocking_execution())
+    {
+        return ensure_fixed_capacity(length = self.length, capacity = self.capacity, count = additional);
+    }
+
+    mut func write(pos source: &[u8]) -> Result<unit, FixedSinkError>
+        requires(blocking_execution())
+    {
+        let count: usize = std.bytes.slice_length(source);
+
+        try ensure_fixed_capacity(length = self.length, capacity = self.capacity, count = count);
+
+        let next_length: usize = self.length + count;
+        let available: &mut [u8] = &mut self.destination[self.length.. next_length];
+        let pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(available);
+
+        trusted internal std.memory.byte_slice_copy(source = source, destination = pointer);
+
+        self.length = next_length;
+
+        return Ok(unit);
+    }
+
+    mut func write_repeated(value: u8, count: usize) -> Result<unit, FixedSinkError>
+        requires(blocking_execution())
+    {
+        try ensure_fixed_capacity(length = self.length, capacity = self.capacity, count = count);
+
+        let next_length: usize = self.length + count;
+        let available: &mut [u8] = &mut self.destination[self.length.. next_length];
+        let pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(available);
+
+        trusted internal std.memory.byte_buffer_fill(destination = pointer, value = value, count = count);
+
+        self.length = next_length;
+
+        return Ok(unit);
+    }
+}
+
+internal func ensure_fixed_capacity(
+    pos length: usize,
+    pos capacity: usize,
+    pos count: usize,
+) -> Result<unit, FixedSinkError>
+{
+    if length > capacity
+    {
+        return Error(FixedSinkError.CapacityExceeded);
+    }
+
+    if count > capacity - length
+    {
+        return Error(FixedSinkError.CapacityExceeded);
+    }
+
+    return Ok(unit);
+}
+
+/// Finishes a fixed destination and returns its initialized length.
+func finish_fixed(pos sink: FixedSink) -> usize
+{
+    return sink.length;
 }
 
 struct TextSink
@@ -45,6 +247,27 @@ struct TextSink
         };
 
         return Ok(result);
+    }
+}
+
+impl TextSinkFormatting = TextSink(Sink<std.memory.MemoryLayoutError>)
+{
+    mut func prepare(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+        requires(blocking_execution())
+    {
+        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).prepare(additional = additional);
+    }
+
+    mut func write(pos source: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
+        requires(blocking_execution())
+    {
+        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write(source);
+    }
+
+    mut func write_repeated(value: u8, count: usize) -> Result<unit, std.memory.MemoryLayoutError>
+        requires(blocking_execution())
+    {
+        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write_repeated(value = value, count = count);
     }
 }
 

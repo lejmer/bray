@@ -671,6 +671,38 @@ impl Compilation {
 
         Ok(ConcreteCodegenReachability::new(graph, realizations))
     }
+
+    #[cfg(test)]
+    pub(in crate::compilation) fn imported_codegen_instance_count_for_test(
+        &self,
+    ) -> Result<usize, NativeProductFactError> {
+        let target = self
+            .selected_target()
+            .target()
+            .codegen_target()
+            .map_err(NativeProductFactError::InvalidCodegenTarget)?;
+
+        let semantic = self.product_semantic_facts()?;
+
+        let roots = self.product_root_instances(
+            semantic.value(),
+            None,
+            &target,
+            &self.state.cancellation,
+        )?;
+
+        let reachability =
+            self.codegen_reachability(roots, None, &target, &self.state.cancellation)?;
+
+        Ok(reachability
+            .graph()
+            .instances()
+            .iter()
+            .filter(|instance| {
+                matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+            })
+            .count())
+    }
 }
 
 fn bound_template(

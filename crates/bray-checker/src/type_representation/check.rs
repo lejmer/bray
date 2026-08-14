@@ -477,10 +477,13 @@ where
                     .and_then(|index| arguments.get(index))
             })
             .filter_map(|argument| match argument {
-                GenericArgumentTemplate::Type(ty) => Some(ty),
-                GenericArgumentTemplate::Constant(_) => None,
+                GenericArgumentTemplate::Resolved(GenericArgument::Type(ty)) => {
+                    Some(self.check_type(*ty, origin))
+                }
+                GenericArgumentTemplate::Resolved(GenericArgument::Constant(_))
+                | GenericArgumentTemplate::Constant(_) => None,
+                GenericArgumentTemplate::Type(ty) => Some(self.check_template(ty, origin)),
             })
-            .map(|argument| self.check_template(argument, origin))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(apply_copy_dependencies(

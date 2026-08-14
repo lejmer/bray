@@ -16,7 +16,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 70;
+const API_TEST_COUNT: usize = 79;
 const API_FILTERED_TEST_COUNT: usize = 3;
 
 pub(super) fn test() -> Result<(), BuildError> {
@@ -569,12 +569,8 @@ fn product_artifact(
     product: &str,
     artifact: Artifact,
 ) -> Result<PathBuf, BuildError> {
-    let directory = workspace
-        .join("build")
-        .join(target_name(target))
-        .join("release")
-        .join(PACKAGE_IDENTITY)
-        .join(product);
+    let destination = native_product_destination(workspace, target)?;
+    let directory = destination.directory();
 
     match artifact {
         Artifact::Catalog => Ok(directory.join(format!("{product}.braytests"))),
@@ -587,9 +583,25 @@ fn product_artifact(
                 BuildError::conformance("native artifacts", "invalid product identity")
             })?;
 
-            super::artifact::resolve_executable(&directory, &product, "native artifacts")
+            super::artifact::resolve_executable(destination, &product, "native artifacts")
         }
     }
+}
+
+fn native_product_destination(
+    workspace: &Path,
+    target: NativeTarget,
+) -> Result<bray_emitter::ManagedFilesystemDestination, BuildError> {
+    let directory = bray_emitter::ManagedOutputDirectory::try_new(format!(
+        "{}/release/{PACKAGE_IDENTITY}",
+        target_name(target)
+    ))
+    .ok_or_else(|| BuildError::conformance("native artifacts", "invalid output directory"))?;
+
+    Ok(bray_emitter::ManagedFilesystemDestination::new(
+        workspace.join("build"),
+        directory,
+    ))
 }
 
 fn read_artifact(path: &Path) -> Result<Vec<u8>, BuildError> {
@@ -866,4 +878,30 @@ struct NativeStream {
     truncated: bool,
     discarded_byte_count: u64,
     failure: Option<serde_json::Value>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use bray_target::NativeTarget;
+
+    #[test]
+    fn native_product_destination_matches_project_build_output() {
+        let destination = super::native_product_destination(
+            Path::new("workspace"),
+            NativeTarget::X86_64WindowsMsvc,
+        )
+        .unwrap_or_else(|error| panic!("native product destination must build: {error:?}"));
+
+        assert_eq!(destination.root(), Path::new("workspace/build"));
+
+        assert_eq!(
+            destination
+                .relative_directory()
+                .unwrap_or_else(|| panic!("native product destination must be namespaced"))
+                .as_str(),
+            "x86-64-windows/release/std"
+        );
+    }
 }
