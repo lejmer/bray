@@ -145,6 +145,16 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
 
             types.extend(contract.operands().map(bray_bound_tree::InlineAssemblyOperand::ty));
         }
+        CheckedMemoryOperationKind::AtomicInitialize { value }
+        | CheckedMemoryOperationKind::AtomicLoad { value, .. }
+        | CheckedMemoryOperationKind::AtomicStore { value, .. }
+        | CheckedMemoryOperationKind::AtomicExchange { value, .. }
+        | CheckedMemoryOperationKind::AtomicCompareExchange { value, .. }
+        | CheckedMemoryOperationKind::AtomicFetch { value, .. }
+        | CheckedMemoryOperationKind::AtomicWait { value, .. }
+        | CheckedMemoryOperationKind::AtomicNotify { value, .. } => {
+            types.insert(value);
+        }
         CheckedMemoryOperationKind::RawBufferSparePointer { element }
         | CheckedMemoryOperationKind::RawBufferRelease { element }
         | CheckedMemoryOperationKind::RawBufferReplace { element }

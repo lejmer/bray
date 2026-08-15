@@ -1,0 +1,176 @@
+catalog compiler_known revision 1;
+
+scope CoreAtomic at core.atomic {
+    declaration Atomic {
+        availability Atomics;
+        representation Atomic;
+
+        surface { struct Atomic<T> with(true) {} }
+    }
+
+    declaration AtomicInitialize {
+        availability Atomics;
+        implementation AtomicInitialize;
+
+        surface { func initialize<T>(pos value: T) -> Atomic<T>; }
+    }
+
+    declaration AtomicLoad {
+        availability Atomics;
+        implementation AtomicLoad;
+
+        surface {
+            func load<T, const ORDER: usize>(pos storage: &Atomic<T>) -> T;
+        }
+    }
+
+    declaration AtomicStore {
+        availability Atomics;
+        implementation AtomicStore;
+
+        surface {
+            func store<T, const ORDER: usize>(
+                pos storage: &Atomic<T>,
+                pos value: T,
+            ) -> unit;
+        }
+    }
+
+    declaration AtomicExchange {
+        availability Atomics;
+        implementation AtomicExchange;
+
+        surface {
+            func exchange<T, const ORDER: usize>(
+                pos storage: &Atomic<T>,
+                pos value: T,
+            ) -> T;
+        }
+    }
+
+    declaration AtomicCompareExchange {
+        availability Atomics;
+        implementation AtomicCompareExchange;
+
+        surface {
+            func compare_exchange<T, const SUCCESS: usize, const FAILURE: usize>(
+                pos storage: &Atomic<T>,
+                pos expected: T,
+                pos desired: T,
+            ) -> (T, bool);
+        }
+    }
+
+    declaration AtomicCompareExchangeWeak {
+        availability Atomics;
+        implementation AtomicCompareExchangeWeak;
+
+        surface {
+            func compare_exchange_weak<T, const SUCCESS: usize, const FAILURE: usize>(
+                pos storage: &Atomic<T>,
+                pos expected: T,
+                pos desired: T,
+            ) -> (T, bool);
+        }
+    }
+
+    declaration AtomicFetchAdd {
+        availability Atomics;
+        implementation AtomicFetchAdd;
+
+        surface {
+            func fetch_add<T, const ORDER: usize>(
+                pos storage: &Atomic<T>,
+                pos value: T,
+            ) -> T;
+        }
+    }
+
+    declaration AtomicFetchSub {
+        availability Atomics;
+        implementation AtomicFetchSub;
+
+        surface {
+            func fetch_sub<T, const ORDER: usize>(
+                pos storage: &Atomic<T>,
+                pos value: T,
+            ) -> T;
+        }
+    }
+
+    declaration AtomicFetchAnd {
+        availability Atomics;
+        implementation AtomicFetchAnd;
+
+        surface {
+            func fetch_and<T, const ORDER: usize>(
+                pos storage: &Atomic<T>,
+                pos value: T,
+            ) -> T;
+        }
+    }
+
+    declaration AtomicFetchOr {
+        availability Atomics;
+        implementation AtomicFetchOr;
+
+        surface {
+            func fetch_or<T, const ORDER: usize>(
+                pos storage: &Atomic<T>,
+                pos value: T,
+            ) -> T;
+        }
+    }
+
+    declaration AtomicFetchXor {
+        availability Atomics;
+        implementation AtomicFetchXor;
+
+        surface {
+            func fetch_xor<T, const ORDER: usize>(
+                pos storage: &Atomic<T>,
+                pos value: T,
+            ) -> T;
+        }
+    }
+
+    declaration AtomicFence {
+        availability Atomics;
+        implementation AtomicFence;
+
+        surface { func fence<const ORDER: usize>() -> unit; }
+    }
+
+    declaration AtomicCompilerFence {
+        availability Atomics;
+        implementation AtomicCompilerFence;
+
+        surface { func compiler_fence<const ORDER: usize>() -> unit; }
+    }
+
+    declaration AtomicWait {
+        availability Atomics;
+        implementation AtomicWait;
+
+        surface {
+            func wait<T, const ORDER: usize>(
+                pos storage: &Atomic<T>,
+                pos expected: T,
+            ) -> unit;
+        }
+    }
+
+    declaration AtomicNotifyOne {
+        availability Atomics;
+        implementation AtomicNotifyOne;
+
+        surface { func notify_one<T>(pos storage: &Atomic<T>) -> unit; }
+    }
+
+    declaration AtomicNotifyAll {
+        availability Atomics;
+        implementation AtomicNotifyAll;
+
+        surface { func notify_all<T>(pos storage: &Atomic<T>) -> unit; }
+    }
+}

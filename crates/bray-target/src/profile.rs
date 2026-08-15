@@ -26,6 +26,8 @@ pub enum TargetProfileBuildError {
     ComplexScalarMissingComponent,
     /// A scalar alignment exceeds the target storage maximum.
     ScalarAlignmentAboveStorageMaximum,
+    /// An atomic representation alignment exceeds the target storage maximum.
+    AtomicAlignmentAboveStorageMaximum,
     /// A callable ABI accepts a scalar unavailable on the target.
     AbiAcceptsUnavailableScalar,
     /// A C scalar maps to a Bray scalar unavailable on the target.
@@ -54,6 +56,9 @@ impl std::fmt::Display for TargetProfileBuildError {
             }
             Self::ScalarAlignmentAboveStorageMaximum => {
                 formatter.write_str("a scalar alignment exceeds the storage maximum")
+            }
+            Self::AtomicAlignmentAboveStorageMaximum => {
+                formatter.write_str("an atomic alignment exceeds the storage maximum")
             }
             Self::AbiAcceptsUnavailableScalar => {
                 formatter.write_str("a callable ABI accepts an unavailable scalar")
@@ -113,6 +118,20 @@ impl TargetProfile {
             .any(|kind| scalars.alignment(kind).get() > alignments.max_storage().get())
         {
             return Err(TargetProfileBuildError::ScalarAlignmentAboveStorageMaximum);
+        }
+
+        if crate::TargetAtomicRepresentation::ALL
+            .into_iter()
+            .any(|representation| {
+                facts
+                    .atomics()
+                    .representation(representation)
+                    .required_alignment()
+                    .get()
+                    > alignments.max_storage().get()
+            })
+        {
+            return Err(TargetProfileBuildError::AtomicAlignmentAboveStorageMaximum);
         }
 
         let abis = facts.abis();

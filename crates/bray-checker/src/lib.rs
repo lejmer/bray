@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod analysis;
+mod atomic;
 mod asynchronous;
 mod behavior;
 mod constant;
@@ -32,6 +33,7 @@ mod unit;
 mod test_support;
 
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
+pub use atomic::atomic_target_representation;
 pub use constant::{
     ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
     ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,

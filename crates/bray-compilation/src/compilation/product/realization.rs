@@ -43,7 +43,9 @@ use bray_symbols::{
     SymbolFactRequest, SymbolKey, SymbolKeyData, TypeAssociatedLifecycleSlot, TypeData, TypeId,
     UnionPayloadDefaultValue, UnionPayloadFieldDefaultFact, UnionPayloadFieldTypeFact,
 };
-use bray_target::{TargetLayoutContract, TargetScalarKind, TargetValueLayout};
+use bray_target::{
+    TargetAtomicRepresentation, TargetLayoutContract, TargetScalarKind, TargetValueLayout,
+};
 
 use super::super::CodegenFactError;
 use super::super::Compilation;
@@ -3051,6 +3053,66 @@ impl Compilation {
             return Ok(Some(pointer_mapping(ty, pointee, target, address_space)));
         }
 
+        if role == RepresentationRole::Atomic {
+            let values = self.semantic_value_store()?;
+
+            let substitution = values
+                .generic_substitution_data(substitution)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let [binding] = substitution.bindings() else {
+                return Err(CodegenFactError::UnresolvedType(ty));
+            };
+
+            let GenericArgument::Type(value) = binding.argument() else {
+                return Err(CodegenFactError::UnresolvedType(ty));
+            };
+
+            self.codegen_type(value, target, cancellation, mappings, pending)?;
+
+            let representation = atomic_representation_for_type(self, value, target, cancellation)?
+                .ok_or(CodegenFactError::UnsupportedType(value))?;
+
+            let storage_type = match atomic_storage_role(representation) {
+                Some(role) => self.codegen_representation_type(role)?,
+                None => value,
+            };
+
+            self.codegen_type(storage_type, target, cancellation, mappings, pending)?;
+
+            let storage_mapping = mappings
+                .get(&storage_type)
+                .ok_or(CodegenFactError::UnresolvedType(storage_type))?;
+
+            let storage_layout = storage_mapping
+                .layout()
+                .ok_or(CodegenFactError::UnsizedTypeByValue(storage_type))?;
+
+            let facts = target
+                .profile()
+                .facts()
+                .atomics()
+                .representation(representation);
+
+            if !facts.operations().any() {
+                return Err(CodegenFactError::UnsupportedType(value));
+            }
+
+            return Ok(Some(
+                CodegenTypeMapping::new(
+                    ty,
+                    TargetValueLayout::new(
+                        storage_layout.size(),
+                        facts.required_alignment(),
+                        storage_layout.contract(),
+                    ),
+                    // The wrapper and backing storage deliberately share one backend kind.
+                    storage_mapping.kind().clone(),
+                )
+                .with_backend_type(storage_type),
+            ));
+        }
+
         if let Some(scalar) = super::super::representation::target_scalar(role) {
             return scalar_mapping(
                 self,
@@ -3111,6 +3173,7 @@ impl Compilation {
             | RepresentationRole::NoneValue => Err(CodegenFactError::UnresolvedType(ty)),
             RepresentationRole::Unit
             | RepresentationRole::Never
+            | RepresentationRole::Atomic
             | RepresentationRole::RawPointer
             | RepresentationRole::DevicePointer
             | RepresentationRole::ScalarBool
@@ -3553,6 +3616,60 @@ impl Compilation {
         self.semantic_value_store()?
             .substitute_type(ty, substitution)
             .map_err(|_| FactQueryError::InfrastructureFailure)
+    }
+
+    pub(in crate::compilation) fn plain_storage_atomic_representation(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<TargetAtomicRepresentation>, FactQueryError> {
+        let Ok(target) = self.selected_target().target().codegen_target() else {
+            return Ok(None);
+        };
+
+        let mut mappings = BTreeMap::new();
+        let mut pending = BTreeSet::new();
+
+        match self.codegen_type(ty, &target, cancellation, &mut mappings, &mut pending) {
+            Ok(()) => {}
+            Err(CodegenFactError::Query(error)) => return Err(error),
+            Err(_) => return Ok(None),
+        }
+
+        let size = mappings
+            .get(&ty)
+            .and_then(CodegenTypeMapping::layout)
+            .filter(|_| atomic_storage_is_padding_free(ty, &mappings))
+            .map(TargetValueLayout::size);
+
+        Ok(size.and_then(TargetAtomicRepresentation::for_storage_size))
+    }
+
+    pub(in crate::compilation) fn atomic_representation_for_type(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<TargetAtomicRepresentation>, FactQueryError> {
+        let Ok(target) = self.selected_target().target().codegen_target() else {
+            return Ok(None);
+        };
+
+        match atomic_representation_for_type(self, ty, &target, cancellation) {
+            Ok(Some(representation))
+                if target
+                    .profile()
+                    .facts()
+                    .atomics()
+                    .representation(representation)
+                    .operations()
+                    .any() =>
+            {
+                Ok(Some(representation))
+            }
+            Ok(_) => Ok(None),
+            Err(CodegenFactError::Query(error)) => Err(error),
+            Err(_) => Ok(None),
+        }
     }
 
     fn codegen_signature_types(
@@ -4251,6 +4368,130 @@ impl Compilation {
                 element,
             )
             .ok_or(FactQueryError::InfrastructureFailure)
+    }
+}
+
+fn atomic_storage_is_padding_free(
+    ty: TypeId,
+    mappings: &BTreeMap<TypeId, CodegenTypeMapping>,
+) -> bool {
+    let Some(mapping) = mappings.get(&ty) else {
+        return false;
+    };
+
+    let Some(layout) = mapping.layout() else {
+        return false;
+    };
+
+    match mapping.kind() {
+        CodegenTypeKind::Aggregate(fields) => {
+            let mut end = 0_u64;
+
+            for field in fields.iter() {
+                let Some(field_layout) = mappings
+                    .get(&field.ty())
+                    .and_then(CodegenTypeMapping::layout)
+                else {
+                    return false;
+                };
+
+                if field.offset_bytes() != end
+                    || !atomic_storage_is_padding_free(field.ty(), mappings)
+                {
+                    return false;
+                }
+
+                let Some(field_end) = end.checked_add(field_layout.size()) else {
+                    return false;
+                };
+
+                end = field_end;
+            }
+
+            end == layout.size()
+        }
+        CodegenTypeKind::Array { element, length } => {
+            let Some(element_layout) = mappings
+                .get(element)
+                .and_then(CodegenTypeMapping::layout)
+            else {
+                return false;
+            };
+
+            atomic_storage_is_padding_free(*element, mappings)
+                && element_layout
+                    .size()
+                    .checked_mul(*length)
+                    .is_some_and(|size| size == layout.size())
+        }
+        CodegenTypeKind::Union { .. }
+        | CodegenTypeKind::UnsizedSlice { .. }
+        | CodegenTypeKind::UnsizedTraitView => false,
+        CodegenTypeKind::Unit
+        | CodegenTypeKind::Boolean
+        | CodegenTypeKind::SignedInteger(_)
+        | CodegenTypeKind::UnsignedInteger(_)
+        | CodegenTypeKind::Float(_)
+        | CodegenTypeKind::Pointer { .. }
+        | CodegenTypeKind::Callable(_) => true,
+    }
+}
+
+fn atomic_representation_for_type(
+    compilation: &Compilation,
+    ty: TypeId,
+    target: &CodegenTarget,
+    cancellation: &CancellationToken,
+) -> Result<Option<TargetAtomicRepresentation>, CodegenFactError> {
+    let values = compilation.semantic_value_store()?;
+
+    let data = values
+        .type_data(ty)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let TypeData::Named { definition, .. } = data.as_ref() else {
+        return Ok(None);
+    };
+
+    let role = super::super::foreign::compiler_known_representation(compilation, *definition);
+
+    if let Some(representation) = role.and_then(|role| {
+        bray_checker::atomic_target_representation(
+            role,
+            target.profile().machine().pointer_width_bits().get(),
+        )
+    }) {
+        return Ok(Some(representation));
+    }
+
+    let representation = compilation
+        .declared_type_representation_with_cancellation(*definition, cancellation)?;
+
+    let representation = representation.value();
+
+    if representation.is_recovered()
+        || !representation.has_finite_size()
+        || (!representation.is_plain_storage()
+            && representation.layout() != DeclaredLayoutMode::Transparent)
+    {
+        return Ok(None);
+    }
+
+    compilation
+        .plain_storage_atomic_representation(ty, cancellation)
+        .map_err(CodegenFactError::from)
+}
+
+const fn atomic_storage_role(
+    representation: TargetAtomicRepresentation,
+) -> Option<RepresentationRole> {
+    match representation {
+        TargetAtomicRepresentation::U8 => Some(RepresentationRole::ScalarU8),
+        TargetAtomicRepresentation::U16 => Some(RepresentationRole::ScalarU16),
+        TargetAtomicRepresentation::U32 => Some(RepresentationRole::ScalarU32),
+        TargetAtomicRepresentation::U64 => Some(RepresentationRole::ScalarU64),
+        TargetAtomicRepresentation::U128 => Some(RepresentationRole::ScalarU128),
+        TargetAtomicRepresentation::Pointer => None,
     }
 }
 

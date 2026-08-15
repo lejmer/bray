@@ -1,0 +1,145 @@
+module application;
+
+@copy
+@layout(transparent)
+struct Counter
+{
+    value: u32;
+}
+
+@copy
+@layout(stable)
+struct Pair
+{
+    low: u16;
+    high: u16;
+}
+
+func main() -> i32
+{
+    let counter = core.atomic.initialize<u32>(1);
+
+    core.atomic.store<u32, 2>(&counter, 2);
+
+    let exchanged = core.atomic.exchange<u32, 3>(&counter, 3);
+    let strong = core.atomic.compare_exchange<u32, 4, 1>(&counter, 3, 5);
+    let weak = core.atomic.compare_exchange_weak<u32, 1, 0>(&counter, 5, 7);
+
+    core.atomic.fetch_add<u32, 0>(&counter, 3);
+    core.atomic.fetch_sub<u32, 1>(&counter, 1);
+    core.atomic.fetch_and<u32, 2>(&counter, 15);
+    core.atomic.fetch_or<u32, 3>(&counter, 16);
+    core.atomic.fetch_xor<u32, 4>(&counter, 3);
+
+    core.atomic.fence<1>();
+    core.atomic.compiler_fence<2>();
+    core.atomic.wait<u32, 1>(&counter, 0);
+    core.atomic.notify_one<u32>(&counter);
+    core.atomic.notify_all<u32>(&counter);
+
+    let flag = core.atomic.initialize<bool>(false);
+
+    core.atomic.store<bool, 4>(&flag, true);
+    let flag_previous = core.atomic.exchange<bool, 3>(&flag, false);
+    let flag_exchange = core.atomic.compare_exchange<bool, 4, 1>(&flag, false, true);
+    core.atomic.wait<bool, 1>(&flag, false);
+
+    let sized = core.atomic.initialize<usize>(4);
+    let sized_previous = core.atomic.fetch_add<usize, 3>(&sized, 3);
+
+    let first: u32 = 17;
+    let second: u32 = 19;
+    let first_pointer: RawPointer<u32> = core.memory.address_of<u32>(&first);
+    let second_pointer: RawPointer<u32> = core.memory.address_of<u32>(&second);
+    let pointer = core.atomic.initialize<RawPointer<u32>>(first_pointer);
+    let loaded_pointer = core.atomic.load<RawPointer<u32>, 1>(&pointer);
+    let exchanged_pointer = core.atomic.exchange<RawPointer<u32>, 3>(&pointer, second_pointer);
+
+    let pointer_exchange = core.atomic.compare_exchange<RawPointer<u32>, 4, 1>(
+        &pointer,
+        second_pointer,
+        loaded_pointer
+    );
+
+    let pointer_restore = core.atomic.compare_exchange<RawPointer<u32>, 4, 1>(
+        &pointer,
+        loaded_pointer,
+        exchanged_pointer
+    );
+
+    let wrapped = core.atomic.initialize<Counter>(
+        Counter
+        {
+            value = 11
+        }
+    );
+
+    let wrapped_previous = core.atomic.fetch_add<Counter, 0>(
+        &wrapped,
+        Counter
+        {
+            value = 2
+        }
+    );
+
+    let wrapped_value = core.atomic.load<Counter, 1>(&wrapped);
+
+    let pair = core.atomic.initialize<Pair>(
+        Pair
+        {
+            low = 1,
+            high = 2
+        }
+    );
+
+    let pair_previous = core.atomic.exchange<Pair, 3>(
+        &pair,
+        Pair
+        {
+            low = 3,
+            high = 4
+        }
+    );
+
+    let pair_exchange = core.atomic.compare_exchange<Pair, 4, 1>(
+        &pair,
+        Pair
+        {
+            low = 3,
+            high = 4
+        },
+        Pair
+        {
+            low = 5,
+            high = 6
+        }
+    );
+
+    core.atomic.wait<Pair, 1>(
+        &pair,
+        Pair
+        {
+            low = 0,
+            high = 0
+        }
+    );
+
+    core.atomic.notify_all<Pair>(&pair);
+
+    let exchanged_pair = pair_exchange.0;
+
+    let valid = exchanged == 2 && strong.0 == 3 && strong.1 && weak.0 == 5 && flag_previous && flag_exchange.0 ==
+        false && flag_exchange.1 && core.atomic.load<bool, 4>(&flag) && sized_previous == 4 && core.atomic.load<
+        usize,
+        1
+    >(&sized) == 7 && pointer_exchange.1 && pointer_restore.1 && wrapped_previous.value == 11 && wrapped_value.value ==
+        13 && pair_previous.low == 1 && pair_previous.high == 2 && exchanged_pair.low == 3 && exchanged_pair.high ==
+        4 && pair_exchange.1;
+
+    if valid
+    {
+        return 42;
+    }
+
+    return 1;
+}

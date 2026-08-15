@@ -467,7 +467,7 @@ mod tests {
 
         assert_dependency(&enabled, dependency, TargetFactKind::ScalarU64);
 
-        let disabled = compilation("@target(target.atomic.U64) module app;");
+        let disabled = compilation("@target(target.atomic.U128) module app;");
         let disabled_gate = module_gate(&disabled);
 
         assert!(
@@ -482,12 +482,12 @@ mod tests {
             panic!("target gate must retain one exact target dependency");
         };
 
-        assert_dependency(&disabled, dependency, TargetFactKind::AtomicU64);
+        assert_dependency(&disabled, dependency, TargetFactKind::AtomicU128);
     }
 
     #[test]
     fn target_gates_use_ordinary_constant_boolean_operators() {
-        let negated = compilation("@target(!target.atomic.U64) module app;");
+        let negated = compilation("@target(!target.atomic.U128) module app;");
         let gate = module_gate(&negated);
 
         assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());
@@ -497,9 +497,9 @@ mod tests {
             panic!("target gate must retain one exact target dependency");
         };
 
-        assert_dependency(&negated, dependency, TargetFactKind::AtomicU64);
+        assert_dependency(&negated, dependency, TargetFactKind::AtomicU128);
 
-        let composed = compilation("@target(target.scalar.U64 && !target.atomic.U64) module app;");
+        let composed = compilation("@target(target.scalar.U64 && !target.atomic.U128) module app;");
         let gate = module_gate(&composed);
 
         assert!(gate.diagnostics().is_empty(), "{:?}", gate.diagnostics());

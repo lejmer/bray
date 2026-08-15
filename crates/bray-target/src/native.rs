@@ -1,7 +1,8 @@
-use std::num::{NonZeroU16, NonZeroU32};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use crate::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetCAbiFacts, TargetFacts, TargetIdentity,
+    Endianness, ObjectFormat, TargetArchitecture, TargetAtomicFacts, TargetAtomicOperationFacts,
+    TargetAtomicRepresentationFacts, TargetCAbiFacts, TargetFacts, TargetIdentity,
     TargetMachineProperties, TargetOperationFacts, TargetProfile, TargetScalarKind,
 };
 
@@ -101,6 +102,7 @@ impl NativeTarget {
         let facts = TargetFacts::try_portable(vendor, system, environment, abi, self.c_abi_facts())
             .map(|facts| {
                 facts
+                    .with_atomics(native_atomic_facts())
                     .with_operations(TargetOperationFacts::new(true, true))
                     .with_dynamic_loading(true)
             })
@@ -184,13 +186,50 @@ impl NativeTarget {
     }
 }
 
+fn native_atomic_facts() -> TargetAtomicFacts {
+    TargetAtomicFacts::new(
+        lock_free_integer(1),
+        lock_free_integer(2),
+        lock_free_integer(4),
+        lock_free_integer(8),
+        unavailable_atomic(16),
+        lock_free_pointer(8),
+    )
+}
+
+fn lock_free_integer(alignment: u64) -> TargetAtomicRepresentationFacts {
+    atomic_representation(TargetAtomicOperationFacts::integer(), alignment, true)
+}
+
+fn lock_free_pointer(alignment: u64) -> TargetAtomicRepresentationFacts {
+    atomic_representation(TargetAtomicOperationFacts::pointer(), alignment, true)
+}
+
+fn unavailable_atomic(alignment: u64) -> TargetAtomicRepresentationFacts {
+    let alignment = NonZeroU64::new(alignment).unwrap_or(NonZeroU64::MIN);
+
+    TargetAtomicRepresentationFacts::unavailable(alignment)
+}
+
+fn atomic_representation(
+    operations: TargetAtomicOperationFacts,
+    alignment: u64,
+    wait_notify: bool,
+) -> TargetAtomicRepresentationFacts {
+    let alignment = NonZeroU64::new(alignment).unwrap_or(NonZeroU64::MIN);
+
+    TargetAtomicRepresentationFacts::try_new(operations, alignment, true, wait_notify, true)
+        .unwrap_or_else(|| panic!("native atomic representation facts must be valid"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
     use super::NativeTarget;
     use crate::{
-        Endianness, ObjectFormat, TargetArchitecture, TargetCScalarKind, TargetScalarKind,
+        Endianness, ObjectFormat, TargetArchitecture, TargetAtomicRepresentation,
+        TargetCScalarKind, TargetScalarKind,
     };
 
     #[test]
@@ -222,6 +261,46 @@ mod tests {
             assert!(profile.facts().operations().raw_memory());
             assert!(profile.facts().operations().allocation());
             assert!(profile.facts().dynamic_loading());
+
+            let atomics = profile.facts().atomics();
+
+            assert!(atomics.u8());
+            assert!(atomics.u16());
+            assert!(atomics.u32());
+            assert!(atomics.u64());
+            assert!(!atomics.u128());
+            assert!(atomics.pointer());
+
+            for (representation, alignment, available) in [
+                (TargetAtomicRepresentation::U8, 1, true),
+                (TargetAtomicRepresentation::U16, 2, true),
+                (TargetAtomicRepresentation::U32, 4, true),
+                (TargetAtomicRepresentation::U64, 8, true),
+                (TargetAtomicRepresentation::U128, 16, false),
+                (TargetAtomicRepresentation::Pointer, 8, true),
+            ] {
+                let representation = atomics.representation(representation);
+
+                assert_eq!(representation.required_alignment().get(), alignment);
+                assert_eq!(representation.always_lock_free(), available);
+                assert_eq!(representation.wait_notify(), available);
+                assert_eq!(representation.cross_process(), available);
+            }
+
+            assert_eq!(
+                profile.fact(crate::TargetFactKind::AtomicU64Alignment),
+                crate::TargetFactValue::Usize(8)
+            );
+
+            assert_eq!(
+                profile.fact(crate::TargetFactKind::AtomicU64AlwaysLockFree),
+                crate::TargetFactValue::Boolean(true)
+            );
+
+            assert_eq!(
+                profile.fact(crate::TargetFactKind::AtomicU128WaitNotify),
+                crate::TargetFactValue::Boolean(false)
+            );
 
             assert!(matches!(
                 profile.machine().architecture(),

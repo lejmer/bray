@@ -77,6 +77,54 @@ pub enum TargetFactKind {
     AtomicU128,
     /// `target.atomic.POINTER`.
     AtomicPointer,
+    /// `target.atomic.U8_ALIGNMENT`.
+    AtomicU8Alignment,
+    /// `target.atomic.U8_ALWAYS_LOCK_FREE`.
+    AtomicU8AlwaysLockFree,
+    /// `target.atomic.U8_WAIT_NOTIFY`.
+    AtomicU8WaitNotify,
+    /// `target.atomic.U8_CROSS_PROCESS`.
+    AtomicU8CrossProcess,
+    /// `target.atomic.U16_ALIGNMENT`.
+    AtomicU16Alignment,
+    /// `target.atomic.U16_ALWAYS_LOCK_FREE`.
+    AtomicU16AlwaysLockFree,
+    /// `target.atomic.U16_WAIT_NOTIFY`.
+    AtomicU16WaitNotify,
+    /// `target.atomic.U16_CROSS_PROCESS`.
+    AtomicU16CrossProcess,
+    /// `target.atomic.U32_ALIGNMENT`.
+    AtomicU32Alignment,
+    /// `target.atomic.U32_ALWAYS_LOCK_FREE`.
+    AtomicU32AlwaysLockFree,
+    /// `target.atomic.U32_WAIT_NOTIFY`.
+    AtomicU32WaitNotify,
+    /// `target.atomic.U32_CROSS_PROCESS`.
+    AtomicU32CrossProcess,
+    /// `target.atomic.U64_ALIGNMENT`.
+    AtomicU64Alignment,
+    /// `target.atomic.U64_ALWAYS_LOCK_FREE`.
+    AtomicU64AlwaysLockFree,
+    /// `target.atomic.U64_WAIT_NOTIFY`.
+    AtomicU64WaitNotify,
+    /// `target.atomic.U64_CROSS_PROCESS`.
+    AtomicU64CrossProcess,
+    /// `target.atomic.U128_ALIGNMENT`.
+    AtomicU128Alignment,
+    /// `target.atomic.U128_ALWAYS_LOCK_FREE`.
+    AtomicU128AlwaysLockFree,
+    /// `target.atomic.U128_WAIT_NOTIFY`.
+    AtomicU128WaitNotify,
+    /// `target.atomic.U128_CROSS_PROCESS`.
+    AtomicU128CrossProcess,
+    /// `target.atomic.POINTER_ALIGNMENT`.
+    AtomicPointerAlignment,
+    /// `target.atomic.POINTER_ALWAYS_LOCK_FREE`.
+    AtomicPointerAlwaysLockFree,
+    /// `target.atomic.POINTER_WAIT_NOTIFY`.
+    AtomicPointerWaitNotify,
+    /// `target.atomic.POINTER_CROSS_PROCESS`.
+    AtomicPointerCrossProcess,
     /// `target.abi.C`.
     AbiC,
     /// `target.abi.SYSTEM`.
@@ -170,6 +218,30 @@ impl TargetFactKind {
         Self::AtomicU64,
         Self::AtomicU128,
         Self::AtomicPointer,
+        Self::AtomicU8Alignment,
+        Self::AtomicU8AlwaysLockFree,
+        Self::AtomicU8WaitNotify,
+        Self::AtomicU8CrossProcess,
+        Self::AtomicU16Alignment,
+        Self::AtomicU16AlwaysLockFree,
+        Self::AtomicU16WaitNotify,
+        Self::AtomicU16CrossProcess,
+        Self::AtomicU32Alignment,
+        Self::AtomicU32AlwaysLockFree,
+        Self::AtomicU32WaitNotify,
+        Self::AtomicU32CrossProcess,
+        Self::AtomicU64Alignment,
+        Self::AtomicU64AlwaysLockFree,
+        Self::AtomicU64WaitNotify,
+        Self::AtomicU64CrossProcess,
+        Self::AtomicU128Alignment,
+        Self::AtomicU128AlwaysLockFree,
+        Self::AtomicU128WaitNotify,
+        Self::AtomicU128CrossProcess,
+        Self::AtomicPointerAlignment,
+        Self::AtomicPointerAlwaysLockFree,
+        Self::AtomicPointerWaitNotify,
+        Self::AtomicPointerCrossProcess,
         Self::AbiC,
         Self::AbiSystem,
         Self::CChar,
@@ -238,6 +310,30 @@ impl TargetFactKind {
             Self::AtomicU64 => "target.atomic.U64",
             Self::AtomicU128 => "target.atomic.U128",
             Self::AtomicPointer => "target.atomic.POINTER",
+            Self::AtomicU8Alignment => "target.atomic.U8_ALIGNMENT",
+            Self::AtomicU8AlwaysLockFree => "target.atomic.U8_ALWAYS_LOCK_FREE",
+            Self::AtomicU8WaitNotify => "target.atomic.U8_WAIT_NOTIFY",
+            Self::AtomicU8CrossProcess => "target.atomic.U8_CROSS_PROCESS",
+            Self::AtomicU16Alignment => "target.atomic.U16_ALIGNMENT",
+            Self::AtomicU16AlwaysLockFree => "target.atomic.U16_ALWAYS_LOCK_FREE",
+            Self::AtomicU16WaitNotify => "target.atomic.U16_WAIT_NOTIFY",
+            Self::AtomicU16CrossProcess => "target.atomic.U16_CROSS_PROCESS",
+            Self::AtomicU32Alignment => "target.atomic.U32_ALIGNMENT",
+            Self::AtomicU32AlwaysLockFree => "target.atomic.U32_ALWAYS_LOCK_FREE",
+            Self::AtomicU32WaitNotify => "target.atomic.U32_WAIT_NOTIFY",
+            Self::AtomicU32CrossProcess => "target.atomic.U32_CROSS_PROCESS",
+            Self::AtomicU64Alignment => "target.atomic.U64_ALIGNMENT",
+            Self::AtomicU64AlwaysLockFree => "target.atomic.U64_ALWAYS_LOCK_FREE",
+            Self::AtomicU64WaitNotify => "target.atomic.U64_WAIT_NOTIFY",
+            Self::AtomicU64CrossProcess => "target.atomic.U64_CROSS_PROCESS",
+            Self::AtomicU128Alignment => "target.atomic.U128_ALIGNMENT",
+            Self::AtomicU128AlwaysLockFree => "target.atomic.U128_ALWAYS_LOCK_FREE",
+            Self::AtomicU128WaitNotify => "target.atomic.U128_WAIT_NOTIFY",
+            Self::AtomicU128CrossProcess => "target.atomic.U128_CROSS_PROCESS",
+            Self::AtomicPointerAlignment => "target.atomic.POINTER_ALIGNMENT",
+            Self::AtomicPointerAlwaysLockFree => "target.atomic.POINTER_ALWAYS_LOCK_FREE",
+            Self::AtomicPointerWaitNotify => "target.atomic.POINTER_WAIT_NOTIFY",
+            Self::AtomicPointerCrossProcess => "target.atomic.POINTER_CROSS_PROCESS",
             Self::AbiC => "target.abi.C",
             Self::AbiSystem => "target.abi.SYSTEM",
             Self::CChar => "target.c.CHAR",

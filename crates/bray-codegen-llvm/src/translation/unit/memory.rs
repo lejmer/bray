@@ -1,4 +1,5 @@
 mod allocation;
+mod atomic;
 mod buffer;
 mod copy;
 mod dispatch;

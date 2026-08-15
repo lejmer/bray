@@ -86,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn target_control_operations_use_executable_format_one() {
+    fn atomic_operations_use_executable_format_one() {
         assert_eq!(FORMAT_VERSION, 1);
     }
 }

@@ -10,6 +10,10 @@ pub(super) fn validate_memory_operation(
     operation: MirOperationId,
     memory: &MirMemoryOperation,
 ) -> Result<(), MirUnitBuildError> {
+    if !memory.kind().has_valid_atomic_ordering() {
+        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+    }
+
     let expected = memory.kind().operand_count();
 
     if memory.operands().len() != expected || memory.operand_types().len() != expected {
@@ -94,6 +98,20 @@ pub(super) fn validate_memory_operation(
                     })
                     .count()
                     == memory.inline_assembly_symbols().len()
+        }
+        CheckedMemoryOperationKind::AtomicInitialize { .. }
+        | CheckedMemoryOperationKind::AtomicNotify { .. } => true,
+        CheckedMemoryOperationKind::AtomicLoad { value, .. } => {
+            memory.result_type() == Some(value)
+        }
+        CheckedMemoryOperationKind::AtomicStore { value, .. }
+        | CheckedMemoryOperationKind::AtomicWait { value, .. } => types[1] == value,
+        CheckedMemoryOperationKind::AtomicExchange { value, .. }
+        | CheckedMemoryOperationKind::AtomicFetch { value, .. } => {
+            types[1] == value && memory.result_type() == Some(value)
+        }
+        CheckedMemoryOperationKind::AtomicCompareExchange { value, .. } => {
+            types[1] == value && types[2] == value
         }
     };
 

@@ -262,6 +262,13 @@ where
         self.context.declared_type_representation(subject)
     }
 
+    pub(crate) fn plain_storage_atomic_representation(
+        self,
+        ty: bray_symbols::TypeId,
+    ) -> CheckerFactResult<Option<bray_target::TargetAtomicRepresentation>> {
+        self.context.plain_storage_atomic_representation(ty)
+    }
+
     pub(crate) fn declared_type_has_lifecycle(
         self,
         subject: bray_symbols::NamedTypeSymbolId,

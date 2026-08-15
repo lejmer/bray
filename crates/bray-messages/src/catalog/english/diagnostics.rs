@@ -827,6 +827,11 @@ const CHECKING_INVALID_TARGET_CONTROL_CONTRACT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 
+const CHECKING_INVALID_ATOMIC_MEMORY_ORDER: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("compile-time memory ordering is invalid for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::MemoryOperation),
+];
+
 const CHECKING_INVALID_CALLBACK_STATE_CONTEXT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Arg(
         DiagnosticArgName::CallbackStateProblem,
@@ -2432,6 +2437,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingInvalidTargetControlContract => {
             MessageTemplate::new(CHECKING_INVALID_TARGET_CONTROL_CONTRACT)
+        }
+        DiagnosticKind::CheckingInvalidAtomicMemoryOrder => {
+            MessageTemplate::new(CHECKING_INVALID_ATOMIC_MEMORY_ORDER)
         }
         DiagnosticKind::CheckingInvalidCallbackStateContext => {
             MessageTemplate::new(CHECKING_INVALID_CALLBACK_STATE_CONTEXT)

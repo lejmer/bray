@@ -466,10 +466,7 @@ impl ImportedSemanticFacts {
 
     /// Returns canonical assembly elements for a tuple or the language unit type.
     pub(crate) fn assembly_value_element_types(&self, ty: TypeId) -> Option<Vec<TypeId>> {
-        let slot = self.types.iter().position(|candidate| *candidate == ty)?;
-        let ty = self.interface_facts.types().get(slot)?;
-
-        let elements = match ty {
+        let elements = match self.interface_type(ty)? {
             crate::InterfaceType::Tuple(elements) => elements,
             crate::InterfaceType::Named {
                 definition: crate::InterfaceSymbolReference::CompilerKnown(reference),
@@ -482,9 +479,52 @@ impl ImportedSemanticFacts {
             _ => return None,
         };
 
-        elements
+        self.resolve_interface_types(elements)
+    }
+
+    /// Returns the exact element types when `ty` is a structural tuple.
+    pub(crate) fn tuple_element_types(&self, ty: TypeId) -> Option<Vec<TypeId>> {
+        let crate::InterfaceType::Tuple(elements) = self.interface_type(ty)? else {
+            return None;
+        };
+
+        self.resolve_interface_types(elements)
+    }
+
+    /// Returns whether `ty` names one exact compiler-known declaration.
+    pub(crate) fn is_compiler_known_type(
+        &self,
+        ty: TypeId,
+        expected: &CompilerKnownDeclarationKey,
+    ) -> bool {
+        let Some(crate::InterfaceType::Named {
+            definition: crate::InterfaceSymbolReference::CompilerKnown(reference),
+            ..
+        }) = self.interface_type(ty)
+        else {
+            return false;
+        };
+
+        matches!(
+            reference.key().data(),
+            SymbolKeyData::CompilerKnownDeclaration { key, .. }
+                if key == expected
+        )
+    }
+
+    fn interface_type(&self, ty: TypeId) -> Option<&crate::InterfaceType> {
+        let slot = self.types.iter().position(|candidate| *candidate == ty)?;
+
+        self.interface_facts.types().get(slot)
+    }
+
+    fn resolve_interface_types(
+        &self,
+        types: &[crate::InterfaceTypeId],
+    ) -> Option<Vec<TypeId>> {
+        types
             .iter()
-            .map(|element| self.types.get(element.to_index()?).copied())
+            .map(|ty| self.types.get(ty.to_index()?).copied())
             .collect()
     }
 

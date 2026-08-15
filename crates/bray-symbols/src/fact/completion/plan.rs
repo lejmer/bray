@@ -363,8 +363,11 @@ mod tests {
     fn completion_rejects_symbols_outside_the_graph() {
         let graph = graph(&["module app; func main() {}"]);
 
-        let unknown =
-            AnySymbolId::Function(crate::FunctionSymbolId::from_symbol_id(SymbolId::new(99)));
+        let Some(unknown) = SymbolId::try_from_index(graph.next_symbol_index()) else {
+            panic!("test symbol graph must leave one representable symbol ID unused");
+        };
+
+        let unknown = AnySymbolId::Function(crate::FunctionSymbolId::from_symbol_id(unknown));
 
         assert_eq!(
             graph.completion_plan(

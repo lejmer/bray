@@ -841,6 +841,58 @@ mod tests {
         "}\n",
     );
 
+    const ATOMIC_GENERIC_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func entry()\n",
+        "{\n",
+        "    main();\n",
+        "}\n",
+        "\n",
+        "func initialize<T>(pos value: T) -> core.atomic.Atomic<T>\n",
+        "{\n",
+        "    return core.atomic.initialize<T>(value);\n",
+        "}\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    let storage = initialize<u32>(1);\n",
+        "}\n",
+    );
+
+    const ATOMIC_LIBRARY_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "public func initialize<T>(pos value: T) -> core.atomic.Atomic<T>\n",
+        "{\n",
+        "    return core.atomic.initialize<T>(value);\n",
+        "}\n",
+    );
+
+    const ATOMIC_FENCE_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "@copy\n",
+        "public union FenceOrder\n",
+        "{\n",
+        "    Acquire;\n",
+        "    Release;\n",
+        "    AcquireRelease;\n",
+        "    SequentiallyConsistent;\n",
+        "}\n",
+        "\n",
+        "public func fence(order: FenceOrder)\n",
+        "{\n",
+        "    match order\n",
+        "    {\n",
+        "        case FenceOrder.Acquire { core.atomic.fence<1>(); }\n",
+        "        case FenceOrder.Release { core.atomic.fence<2>(); }\n",
+        "        case FenceOrder.AcquireRelease { core.atomic.fence<3>(); }\n",
+        "        case FenceOrder.SequentiallyConsistent { core.atomic.fence<4>(); }\n",
+        "    }\n",
+        "}\n",
+    );
+
     const STRUCTURAL_ASSEMBLY_SOURCE: &str = concat!(
         "module app;\n",
         "\n",
@@ -2286,6 +2338,70 @@ mod tests {
                 .iter()
                 .any(|argument| matches!(argument, CodegenGenericArgument::Constant(_)))
         }));
+    }
+
+    #[test]
+    fn supported_atomic_generic_specializations_reach_codegen() {
+        let compilation = crate::test_support::compilation(ATOMIC_GENERIC_SOURCE);
+        let specializations = concrete_generic_specializations(&compilation);
+
+        assert!(specializations.iter().any(|specialization| {
+            matches!(specialization, CodegenSpecialization::Generic(arguments) if !arguments.is_empty())
+        }));
+    }
+
+    #[test]
+    fn library_atomic_roots_exclude_open_generic_wrappers() {
+        let compilation = crate::test_support::compilation_with_product(
+            ATOMIC_LIBRARY_SOURCE,
+            ProductKind::Library,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantic_facts()
+            .unwrap_or_else(|error| panic!("test product facts must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
+
+        assert!(roots.is_empty());
+    }
+
+    #[test]
+    fn atomic_fence_wrapper_emits_valid_native_units() {
+        let (backend, compilation) =
+            codegen_compilation_for_product(ATOMIC_FENCE_SOURCE, ProductKind::Library);
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("atomic fence facts must resolve: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &facts)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
     }
 
     #[test]

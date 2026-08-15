@@ -730,7 +730,9 @@ fn validate_foreign_type(
 ) -> Result<(), FactQueryError> {
     cancellation.check()?;
 
-    if foreign_type_is_supported(compilation, template, abi, cancellation)? {
+    if foreign_type_is_supported(compilation, template, abi, cancellation)?
+        && foreign_aggregate_alignment_is_supported(compilation, template, cancellation)?
+    {
         return Ok(());
     }
 
@@ -748,6 +750,43 @@ fn validate_foreign_type(
     diagnostics.add(diagnostic);
 
     Ok(())
+}
+
+fn foreign_aggregate_alignment_is_supported(
+    compilation: &Compilation,
+    template: &TypeExpressionTemplate,
+    cancellation: &CancellationToken,
+) -> Result<bool, FactQueryError> {
+    let definition = match template {
+        TypeExpressionTemplate::Resolved(ty) => {
+            let data = compilation
+                .semantic_value_store()?
+                .type_data(*ty)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let TypeData::Named { definition, .. } = data.as_ref() else {
+                return Ok(true);
+            };
+
+            *definition
+        }
+        TypeExpressionTemplate::Named { definition, .. } => *definition,
+        TypeExpressionTemplate::Callable(_)
+        | TypeExpressionTemplate::Tuple(_)
+        | TypeExpressionTemplate::Array { .. }
+        | TypeExpressionTemplate::Slice(_)
+        | TypeExpressionTemplate::Nullable(_)
+        | TypeExpressionTemplate::Borrow { .. }
+        | TypeExpressionTemplate::TraitView(_)
+        | TypeExpressionTemplate::OwnedIndirection { .. }
+        | TypeExpressionTemplate::TypeValuedMemberProjection { .. } => return Ok(true),
+    };
+
+    if compiler_known_representation(compilation, definition).is_some() {
+        return Ok(true);
+    }
+
+    Ok(target_abi_value(compilation, template, cancellation)?.is_some())
 }
 
 fn foreign_type_is_supported(

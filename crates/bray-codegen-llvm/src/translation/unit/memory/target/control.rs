@@ -130,15 +130,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         order: MemoryOrder,
         compiler_only: bool,
     ) -> Result<(), CodegenFailure> {
-        let order = match order {
-            MemoryOrder::Acquire => inkwell::AtomicOrdering::Acquire,
-            MemoryOrder::Release => inkwell::AtomicOrdering::Release,
-            MemoryOrder::AcquireRelease => inkwell::AtomicOrdering::AcquireRelease,
-            MemoryOrder::SequentiallyConsistent => {
-                inkwell::AtomicOrdering::SequentiallyConsistent
-            }
-            MemoryOrder::Relaxed => return Err(CodegenFailure::GeneratedModuleInvariant),
-        };
+        if order == MemoryOrder::Relaxed {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        let order = llvm_memory_order(order);
 
         llvm(
             self.builder
@@ -216,5 +212,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .bool_type()
             .const_int(u64::from(control.supports_feature(feature)), false)
             .into())
+    }
+}
+
+pub(in crate::translation::unit::memory) const fn llvm_memory_order(
+    order: MemoryOrder,
+) -> inkwell::AtomicOrdering {
+    match order {
+        MemoryOrder::Relaxed => inkwell::AtomicOrdering::Monotonic,
+        MemoryOrder::Acquire => inkwell::AtomicOrdering::Acquire,
+        MemoryOrder::Release => inkwell::AtomicOrdering::Release,
+        MemoryOrder::AcquireRelease => inkwell::AtomicOrdering::AcquireRelease,
+        MemoryOrder::SequentiallyConsistent => inkwell::AtomicOrdering::SequentiallyConsistent,
     }
 }

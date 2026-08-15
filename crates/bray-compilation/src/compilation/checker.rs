@@ -30,7 +30,7 @@ use bray_symbols::{
     TraitApplicationId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId,
     UnionVariantSymbol, UnionVariantSymbolId,
 };
-use bray_target::TargetProfile;
+use bray_target::{TargetAtomicRepresentation, TargetProfile};
 
 use super::Compilation;
 use super::binder::CompilationBinderFacts;
@@ -557,6 +557,16 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .compilation()
             .declared_type_representation_with_cancellation(subject, self.facts.cancellation())
             .map(|result| (*result).clone())
+            .map_err(checker_fact_error)
+    }
+
+    fn plain_storage_atomic_representation(
+        &self,
+        ty: TypeId,
+    ) -> CheckerFactResult<Option<TargetAtomicRepresentation>> {
+        self.facts
+            .compilation()
+            .plain_storage_atomic_representation(ty, self.facts.cancellation())
             .map_err(checker_fact_error)
     }
 

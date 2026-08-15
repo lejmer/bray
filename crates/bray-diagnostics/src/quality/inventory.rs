@@ -993,6 +993,10 @@ impl DiagnosticKind {
                 &[TargetTriple, MemoryOperation],
                 primary_components!(&[TargetTriple, MemoryOperation]),
             ),
+            Self::CheckingInvalidAtomicMemoryOrder => Self::quality_source(
+                &[MemoryOperation],
+                primary_components!(&[MemoryOperation]),
+            ),
             Self::CheckingInvalidCallbackStateContext => Self::quality_source(
                 &[CallbackStateProblem],
                 note_components!(

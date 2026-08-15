@@ -3,8 +3,8 @@ use std::num::NonZeroU64;
 
 use bray_binder::SymbolFactProvider;
 use bray_symbols::{
-    GenericSubstitutionId, NamedTypeSymbolId, StructFieldTypeFact, SymbolFactRequest, TypeData,
-    TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeFact,
+    GenericArgument, GenericSubstitutionId, NamedTypeSymbolId, StructFieldTypeFact,
+    SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeFact,
 };
 
 use super::super::Compilation;
@@ -15,7 +15,7 @@ pub(super) fn aggregate_alignment(
     definition: NamedTypeSymbolId,
     substitution: GenericSubstitutionId,
     cancellation: &CancellationToken,
-) -> Result<NonZeroU64, FactQueryError> {
+) -> Result<Option<NonZeroU64>, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
     let ty = values
@@ -33,11 +33,11 @@ fn alignment_of_type(
     ty: TypeId,
     cancellation: &CancellationToken,
     pending: &mut BTreeSet<TypeId>,
-) -> Result<NonZeroU64, FactQueryError> {
+) -> Result<Option<NonZeroU64>, FactQueryError> {
     cancellation.check()?;
 
     if !pending.insert(ty) {
-        return Ok(NonZeroU64::MIN);
+        return Ok(Some(NonZeroU64::MIN));
     }
 
     let values = compilation.semantic_value_store()?;
@@ -69,11 +69,11 @@ fn alignment_of_type(
         | TypeData::Borrow { .. }
         | TypeData::TraitView(_)
         | TypeData::OwnedIndirection { .. }
-        | TypeData::Callable(_) => pointer_alignment(compilation),
+        | TypeData::Callable(_) => Some(pointer_alignment(compilation)),
         TypeData::Error
         | TypeData::TypeParameter(_)
         | TypeData::ContextualSelf(_)
-        | TypeData::TypeValuedMemberProjection { .. } => NonZeroU64::MIN,
+        | TypeData::TypeValuedMemberProjection { .. } => Some(NonZeroU64::MIN),
     };
 
     pending.remove(&ty);
@@ -87,9 +87,13 @@ fn named_alignment(
     substitution: GenericSubstitutionId,
     cancellation: &CancellationToken,
     pending: &mut BTreeSet<TypeId>,
-) -> Result<NonZeroU64, FactQueryError> {
+) -> Result<Option<NonZeroU64>, FactQueryError> {
     if let Some(role) = super::validation::compiler_known_representation(compilation, definition) {
-        return Ok(representation_alignment(compilation, role));
+        if role == bray_compiler_known::RepresentationRole::Atomic {
+            return atomic_alignment(compilation, substitution, cancellation);
+        }
+
+        return Ok(Some(representation_alignment(compilation, role)));
     }
 
     let facts = compilation.binder_facts(cancellation)?;
@@ -111,13 +115,18 @@ fn named_alignment(
                     .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(*field))
                     .map_err(super::super::binder::binder_fact_error)?;
 
-                alignments.push(resolve_member_alignment(
+                let Some(alignment) = resolve_member_alignment(
                     compilation,
                     field.value(),
                     substitution,
                     cancellation,
                     pending,
-                )?);
+                )?
+                else {
+                    return Ok(None);
+                };
+
+                alignments.push(alignment);
             }
 
             alignments.into_iter().max().unwrap_or(NonZeroU64::MIN)
@@ -128,12 +137,18 @@ fn named_alignment(
                 .map_err(super::super::binder::binder_fact_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let mut alignment = representation
-                .value()
-                .union_tag_type()
-                .map(|tag| alignment_of_type(compilation, tag, cancellation, pending))
-                .transpose()?
-                .unwrap_or(NonZeroU64::MIN);
+            let mut alignment = match representation.value().union_tag_type() {
+                Some(tag) => {
+                    let Some(alignment) =
+                        alignment_of_type(compilation, tag, cancellation, pending)?
+                    else {
+                        return Ok(None);
+                    };
+
+                    alignment
+                }
+                None => NonZeroU64::MIN,
+            };
 
             for variant in union.variants() {
                 let variant = facts
@@ -146,13 +161,18 @@ fn named_alignment(
                         .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(*field))
                         .map_err(super::super::binder::binder_fact_error)?;
 
-                    alignment = alignment.max(resolve_member_alignment(
+                    let Some(member_alignment) = resolve_member_alignment(
                         compilation,
                         field.value(),
                         substitution,
                         cancellation,
                         pending,
-                    )?);
+                    )?
+                    else {
+                        return Ok(None);
+                    };
+
+                    alignment = alignment.max(member_alignment);
                 }
             }
 
@@ -168,7 +188,43 @@ fn named_alignment(
         alignment = alignment.max(requested);
     }
 
-    Ok(alignment)
+    Ok(Some(alignment))
+}
+
+fn atomic_alignment(
+    compilation: &Compilation,
+    substitution: GenericSubstitutionId,
+    cancellation: &CancellationToken,
+) -> Result<Option<NonZeroU64>, FactQueryError> {
+    let values = compilation.semantic_value_store()?;
+
+    let substitution = values
+        .generic_substitution_data(substitution)
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let [binding] = substitution.bindings() else {
+        return Err(FactQueryError::InfrastructureFailure);
+    };
+
+    let GenericArgument::Type(value) = binding.argument() else {
+        return Err(FactQueryError::InfrastructureFailure);
+    };
+
+    let Some(representation) = compilation.atomic_representation_for_type(value, cancellation)?
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(
+        compilation
+            .selected_target()
+            .target()
+            .profile()
+            .facts()
+            .atomics()
+            .representation(representation)
+            .required_alignment(),
+    ))
 }
 
 fn resolve_member_alignment(
@@ -177,7 +233,7 @@ fn resolve_member_alignment(
     substitution: GenericSubstitutionId,
     cancellation: &CancellationToken,
     pending: &mut BTreeSet<TypeId>,
-) -> Result<NonZeroU64, FactQueryError> {
+) -> Result<Option<NonZeroU64>, FactQueryError> {
     let checked = compilation
         .checked_constant_terms_for_templates_with_cancellation([template], cancellation)?;
 
@@ -188,7 +244,7 @@ fn resolve_member_alignment(
     )
     .map_err(FactQueryError::CheckerInfrastructure)?
     else {
-        return Ok(NonZeroU64::MIN);
+        return Ok(Some(NonZeroU64::MIN));
     };
 
     let ty = compilation
@@ -204,14 +260,18 @@ fn maximum_alignment(
     types: &[TypeId],
     cancellation: &CancellationToken,
     pending: &mut BTreeSet<TypeId>,
-) -> Result<NonZeroU64, FactQueryError> {
+) -> Result<Option<NonZeroU64>, FactQueryError> {
     let mut maximum = NonZeroU64::MIN;
 
     for ty in types {
-        maximum = maximum.max(alignment_of_type(compilation, *ty, cancellation, pending)?);
+        let Some(alignment) = alignment_of_type(compilation, *ty, cancellation, pending)? else {
+            return Ok(None);
+        };
+
+        maximum = maximum.max(alignment);
     }
 
-    Ok(maximum)
+    Ok(Some(maximum))
 }
 
 fn representation_alignment(
@@ -240,6 +300,7 @@ fn representation_alignment(
         | RepresentationRole::ConversionError
         | RepresentationRole::Future
         | RepresentationRole::Task => pointer_alignment(compilation),
+        RepresentationRole::Atomic => unreachable!("atomic roles return above"),
         RepresentationRole::Unit
         | RepresentationRole::Never
         | RepresentationRole::BooleanTrue
@@ -284,12 +345,63 @@ fn pointer_alignment(compilation: &Compilation) -> NonZeroU64 {
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::NamedTypeSymbolId;
+    use bray_symbols::{NamedTypeSymbolId, SymbolOrigin};
 
     use super::aggregate_alignment;
     use crate::CancellationToken;
     use crate::compilation::substitution::empty_substitution;
-    use crate::test_support::{compilation_with_dependencies, encoded_semantic_dependency};
+    use crate::test_support::{
+        compilation, compilation_with_dependencies, encoded_semantic_dependency,
+    };
+
+    #[test]
+    fn foreign_aggregate_atomic_members_use_target_required_alignment() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "@layout(c)\n",
+            "struct SharedState\n",
+            "{\n",
+            "    value: core.atomic.Atomic<u64>;\n",
+            "}\n",
+        ));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"));
+
+        let definition = symbols
+            .structures()
+            .iter()
+            .find(|structure| structure.origin() == SymbolOrigin::Source)
+            .map(|structure| NamedTypeSymbolId::Struct(structure.id()))
+            .unwrap_or_else(|| panic!("test source must declare SharedState"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
+
+        let substitution = empty_substitution(values, definition.into_any())
+            .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
+
+        let alignment = aggregate_alignment(
+            &compilation,
+            definition,
+            substitution,
+            &CancellationToken::new(),
+        )
+        .unwrap_or_else(|error| panic!("atomic aggregate alignment must resolve: {error:?}"));
+
+        let expected = compilation
+            .selected_target()
+            .target()
+            .profile()
+            .facts()
+            .atomics()
+            .representation(bray_target::TargetAtomicRepresentation::U64)
+            .required_alignment();
+
+        assert_eq!(alignment, Some(expected));
+    }
 
     #[test]
     fn imported_aggregate_alignment_uses_dependency_symbols() {
@@ -325,6 +437,6 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("imported aggregate alignment must resolve: {error:?}"));
 
-        assert_eq!(alignment, std::num::NonZeroU64::MIN);
+        assert_eq!(alignment, Some(std::num::NonZeroU64::MIN));
     }
 }

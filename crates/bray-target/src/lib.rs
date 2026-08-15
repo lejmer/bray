@@ -16,9 +16,10 @@ pub mod test_support;
 
 pub use facts::{
     TargetAbiFacts, TargetAbiScalarFacts, TargetAddressSpaceFacts, TargetAlignmentFacts,
-    TargetAtomicFacts, TargetCAbiFacts, TargetCScalarKind, TargetFactKind, TargetFactValue,
-    TargetFacts, TargetForeignAbiFacts, TargetIdentityFacts, TargetOperationFacts,
-    TargetScalarFacts, TargetScalarKind,
+    TargetAtomicFacts, TargetAtomicOperationFacts, TargetAtomicRepresentation,
+    TargetAtomicRepresentationFacts, TargetCAbiFacts, TargetCScalarKind, TargetFactKind,
+    TargetFactValue, TargetFacts, TargetForeignAbiFacts, TargetIdentityFacts,
+    TargetOperationFacts, TargetScalarFacts, TargetScalarKind,
 };
 pub use control::{InlineAssemblyOptions, TargetControlFacts};
 pub use identity::TargetIdentity;

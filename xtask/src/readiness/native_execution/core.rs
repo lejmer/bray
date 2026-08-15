@@ -19,6 +19,7 @@ const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/async-i32.bray"
 const ASYNC_ERROR_FIXTURE: &str = "xtask/fixtures/native-execution/async-result-error.bray";
 const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
 const MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/memory-operations.bray";
+const ATOMIC_FIXTURE: &str = "xtask/fixtures/native-execution/atomic-operations.bray";
 const MEMORY_LAYOUT_FIXTURE: &str = "xtask/fixtures/native-execution/memory-layout.bray";
 const STANDARD_MEMORY_FIXTURE: &str = "xtask/fixtures/native-execution/standard-memory.bray";
 const STANDARD_TEXT_FIXTURE: &str = "standard-library/std/src/string.bray";
@@ -128,6 +129,7 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     audit_startup(root, target, &runtime)?;
     audit_entry_result(root, target, &runtime)?;
     audit_memory_operations(root, target, &runtime)?;
+    audit_atomic_operations(root, target, &runtime)?;
     audit_memory_layout(root, target, &runtime)?;
 
     if target == NativeTarget::X86_64LinuxGnu {
@@ -191,6 +193,44 @@ fn audit_memory_operations(
             bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL,
             bray_runtime_abi::MEMORY_DEALLOCATION_SYMBOL,
         ],
+    )
+}
+
+fn audit_atomic_operations(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+) -> Result<(), String> {
+    let first = native_output("bray-native-atomic-first-")?;
+    let second = native_output("bray-native-atomic-second-")?;
+
+    build_fixture(root, target, runtime, ATOMIC_FIXTURE, first.path())?;
+    build_fixture(root, target, runtime, ATOMIC_FIXTURE, second.path())?;
+
+    let first_executable = executable_path(first.path(), "command.line")?;
+    let second_executable = executable_path(second.path(), "command.line")?;
+    let first_objects = object_files(first.path(), target)?;
+    let second_objects = object_files(second.path(), target)?;
+
+    require_equal_files(
+        &first_executable,
+        &second_executable,
+        "atomic executable",
+    )?;
+
+    require_equal_artifacts(&first_objects, &second_objects)?;
+
+    let report = inspect_objects(root, &first_objects)?;
+
+    reject_evidence(
+        &report,
+        &["__atomic", "pthread_mutex", "WaitForSingleObject"],
+    )?;
+
+    execute_product(
+        &first_executable,
+        42,
+        "executing compiler-provided atomic operations",
     )
 }
 
@@ -627,6 +667,18 @@ fn require_evidence(report: &str, required: &[&str]) -> Result<(), String> {
         if !report.contains(required) {
             return Err(format!(
                 "native object inspection is missing required evidence: {required}"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn reject_evidence(report: &str, forbidden: &[&str]) -> Result<(), String> {
+    for forbidden in forbidden {
+        if report.contains(forbidden) {
+            return Err(format!(
+                "native object inspection contains forbidden evidence: {forbidden}"
             ));
         }
     }

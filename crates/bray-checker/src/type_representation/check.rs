@@ -876,7 +876,10 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
             recursive_cycles: Vec::new(),
             recovered: false,
         },
-        RepresentationRole::Future | RepresentationRole::Task | RepresentationRole::PanicReport => {
+        RepresentationRole::Atomic
+        | RepresentationRole::Future
+        | RepresentationRole::Task
+        | RepresentationRole::PanicReport => {
             MemberRepresentation {
                 finite: true,
                 plain: false,

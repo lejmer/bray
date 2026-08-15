@@ -242,7 +242,7 @@ mod tests {
     use super::CURRENT_MIR_SCHEMA_REVISION;
 
     #[test]
-    fn target_control_operations_use_mir_schema_revision_one() {
+    fn atomic_operations_use_mir_schema_revision_one() {
         assert_eq!(CURRENT_MIR_SCHEMA_REVISION.raw(), 1);
     }
 }

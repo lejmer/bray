@@ -1177,6 +1177,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
+        validate_decoded_atomic_result(kind, result_type, self.facts)?;
+
         Ok(
             MirMemoryOperation::new(kind, operands, operand_types, result_type)
                 .with_inline_assembly_symbols(self.callable_references()?),
@@ -1354,8 +1356,54 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     contract,
                 })
             }
+            40 => Ok(Kind::AtomicInitialize { value: self.ty()? }),
+            41 => decoded_atomic_kind(Kind::AtomicLoad {
+                value: self.ty()?,
+                order: self.atomic_order()?,
+            }),
+            42 => decoded_atomic_kind(Kind::AtomicStore {
+                value: self.ty()?,
+                order: self.atomic_order()?,
+            }),
+            43 => decoded_atomic_kind(Kind::AtomicExchange {
+                value: self.ty()?,
+                order: self.atomic_order()?,
+            }),
+            44 => decoded_atomic_kind(Kind::AtomicCompareExchange {
+                value: self.ty()?,
+                weak: read_bool(&mut self.reader)?,
+                success: self.atomic_order()?,
+                failure: self.atomic_order()?,
+            }),
+            45 => decoded_atomic_kind(Kind::AtomicFetch {
+                value: self.ty()?,
+                kind: match read_u32(&mut self.reader)? {
+                    0 => bray_bound_tree::AtomicFetchKind::Add,
+                    1 => bray_bound_tree::AtomicFetchKind::Subtract,
+                    2 => bray_bound_tree::AtomicFetchKind::And,
+                    3 => bray_bound_tree::AtomicFetchKind::Or,
+                    4 => bray_bound_tree::AtomicFetchKind::Xor,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+                order: self.atomic_order()?,
+            }),
+            46 => decoded_atomic_kind(Kind::AtomicWait {
+                value: self.ty()?,
+                order: self.atomic_order()?,
+            }),
+            47 => Ok(Kind::AtomicNotify {
+                value: self.ty()?,
+                all: read_bool(&mut self.reader)?,
+            }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
+    }
+
+    fn atomic_order(
+        &mut self,
+    ) -> Result<bray_bound_tree::MemoryOrder, ExecutableTemplateDecodeError> {
+        bray_bound_tree::MemoryOrder::from_u64(u64::from(read_u32(&mut self.reader)?))
+            .ok_or(ExecutableTemplateDecodeError::Malformed)
     }
 
     fn text_operation(&mut self) -> Result<MirTextOperation, ExecutableTemplateDecodeError> {
@@ -2155,6 +2203,51 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     }
 }
 
+fn decoded_atomic_kind(
+    kind: CheckedMemoryOperationKind,
+) -> Result<CheckedMemoryOperationKind, ExecutableTemplateDecodeError> {
+    kind.has_valid_atomic_ordering()
+        .then_some(kind)
+        .ok_or(ExecutableTemplateDecodeError::Malformed)
+}
+
+fn validate_decoded_atomic_result(
+    kind: CheckedMemoryOperationKind,
+    result: Option<bray_symbols::TypeId>,
+    facts: &ImportedSemanticFacts,
+) -> Result<(), ExecutableTemplateDecodeError> {
+    let CheckedMemoryOperationKind::AtomicCompareExchange { value, .. } = kind else {
+        return Ok(());
+    };
+
+    let result = result.ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+    let elements = facts
+        .tuple_element_types(result)
+        .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+    let boolean = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool")
+        .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+    atomic_compare_exchange_result_elements_valid(value, &elements, |ty| {
+        facts.is_compiler_known_type(ty, &boolean)
+    })
+    .then_some(())
+    .ok_or(ExecutableTemplateDecodeError::Malformed)
+}
+
+fn atomic_compare_exchange_result_elements_valid(
+    value: bray_symbols::TypeId,
+    elements: &[bray_symbols::TypeId],
+    is_boolean: impl FnOnce(bray_symbols::TypeId) -> bool,
+) -> bool {
+    let [actual, boolean] = elements else {
+        return false;
+    };
+
+    *actual == value && is_boolean(*boolean)
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "package validation joins every decoded assembly contract field"
@@ -2210,7 +2303,8 @@ fn decoded_inline_assembly_value_types(
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        InlineAssemblyOperand, InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS,
+        CheckedMemoryOperationKind, InlineAssemblyOperand, InlineAssemblyOperandKind,
+        MAX_INLINE_ASSEMBLY_OPERANDS, MemoryOrder,
     };
     use bray_symbols::{
         ConstantValueData, ConstantValueKind, IntegerConstant, SemanticValueStore, TypeData,
@@ -2220,9 +2314,102 @@ mod tests {
 
     use super::{
         AssemblyConstantPayload, AssemblyConstantRole, ExecutableTemplateDecodeError,
-        assembly_constant_payload, assembly_options_valid, decoded_inline_assembly_contract,
-        decoded_inline_assembly_types, decoded_inline_assembly_value_types,
+        assembly_constant_payload, assembly_options_valid,
+        atomic_compare_exchange_result_elements_valid, decoded_atomic_kind,
+        decoded_inline_assembly_contract, decoded_inline_assembly_types,
+        decoded_inline_assembly_value_types,
     };
+
+    #[test]
+    fn malformed_atomic_orderings_are_rejected_before_mir() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let value = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test atomic type must intern: {error:?}"));
+
+        for kind in [
+            CheckedMemoryOperationKind::AtomicLoad {
+                value,
+                order: MemoryOrder::Release,
+            },
+            CheckedMemoryOperationKind::AtomicStore {
+                value,
+                order: MemoryOrder::Acquire,
+            },
+            CheckedMemoryOperationKind::AtomicCompareExchange {
+                value,
+                weak: false,
+                success: MemoryOrder::Relaxed,
+                failure: MemoryOrder::Acquire,
+            },
+            CheckedMemoryOperationKind::AtomicWait {
+                value,
+                order: MemoryOrder::AcquireRelease,
+            },
+        ] {
+            assert_eq!(
+                decoded_atomic_kind(kind),
+                Err(ExecutableTemplateDecodeError::Malformed)
+            );
+        }
+
+        assert_eq!(
+            decoded_atomic_kind(CheckedMemoryOperationKind::AtomicLoad {
+                value,
+                order: MemoryOrder::Acquire,
+            }),
+            Ok(CheckedMemoryOperationKind::AtomicLoad {
+                value,
+                order: MemoryOrder::Acquire,
+            })
+        );
+    }
+
+    #[test]
+    fn imported_atomic_compare_exchange_requires_exact_value_boolean_result_tuple() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let value = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test atomic value type must intern: {error:?}"));
+
+        let boolean = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test Boolean marker type must intern: {error:?}"));
+
+        let other = values
+            .intern_type(TypeData::tuple([value]))
+            .unwrap_or_else(|error| panic!("test mismatched type must intern: {error:?}"));
+
+        let is_boolean = |candidate| candidate == boolean;
+
+        assert!(atomic_compare_exchange_result_elements_valid(
+            value,
+            &[value, boolean],
+            is_boolean,
+        ));
+
+        assert!(!atomic_compare_exchange_result_elements_valid(
+            value,
+            &[other, boolean],
+            is_boolean,
+        ));
+
+        assert!(!atomic_compare_exchange_result_elements_valid(
+            value,
+            &[value, other],
+            is_boolean,
+        ));
+
+        assert!(!atomic_compare_exchange_result_elements_valid(
+            value,
+            &[value],
+            is_boolean,
+        ));
+    }
 
     #[test]
     fn malformed_package_assembly_constant_roles_are_rejected_before_mir() {
