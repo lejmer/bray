@@ -19,14 +19,20 @@ use crate::{
     CheckerSemanticFactProvider, CheckerUnitView,
 };
 use crate::target_control_contract::{
-    clobbers_valid, feature_name_valid, parse_constraint, separated_ranges, separated_values,
-    template_valid,
+    clobbers_valid, feature_name_valid, parse_constraint, separated_values,
 };
 
 pub(crate) enum TargetControlCheck {
     NotApplicable,
     Invalid,
     Valid(CheckedMemoryOperationKind),
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AssemblyContinuation {
+    Continuing,
+    Diverging,
+    Branching,
 }
 
 pub(crate) fn classify_operation<C>(
@@ -186,13 +192,20 @@ where
         ImplementationHook::InlineAssembly
         | ImplementationHook::DivergingInlineAssembly
         | ImplementationHook::BranchingInlineAssembly => {
-            let (inputs, output, labels) = match (hook, types) {
+            let (inputs, output, labels, continuation) = match (hook, types) {
                 (ImplementationHook::InlineAssembly, [inputs, output]) => {
-                    (*inputs, Some(*output), None)
+                    (*inputs, Some(*output), None, AssemblyContinuation::Continuing)
                 }
-                (ImplementationHook::DivergingInlineAssembly, [inputs]) => (*inputs, None, None),
+                (ImplementationHook::DivergingInlineAssembly, [inputs]) => {
+                    (*inputs, None, None, AssemblyContinuation::Diverging)
+                }
                 (ImplementationHook::BranchingInlineAssembly, [inputs, output, labels]) => {
-                    (*inputs, Some(*output), Some(*labels))
+                    (
+                        *inputs,
+                        Some(*output),
+                        Some(*labels),
+                        AssemblyContinuation::Branching,
+                    )
                 }
                 _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
             };
@@ -205,6 +218,7 @@ where
                 inputs,
                 output,
                 labels,
+                continuation,
             )? {
                 Some(contract) => TargetControlCheck::Valid(
                     CheckedMemoryOperationKind::InlineAssembly {
@@ -229,6 +243,7 @@ fn assembly_contract<C>(
     inputs_type: TypeId,
     output_type: Option<TypeId>,
     labels_type: Option<TypeId>,
+    continuation: AssemblyContinuation,
 ) -> Result<Option<InlineAssemblyContract>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext
@@ -278,7 +293,7 @@ where
         return Ok(None);
     };
 
-    let Some(constraint_ranges) = separated_ranges(&constraints) else {
+    let Some(constraint_ranges) = InlineAssemblyContract::constraint_ranges(&constraints) else {
         return Ok(None);
     };
 
@@ -305,19 +320,20 @@ where
     };
 
     let valid = control.inline_assembly()
-        && template_valid(
-            &template,
-            llvm_operand_count(&operands, usize::from(operand_count)),
-        )
         && clobbers_valid(control, &clobbers, options)
         && features.iter().all(|feature| feature_name_valid(feature))
         && features
             .iter()
             .all(|feature| control.supports_feature(feature))
         && (!options.intel_dialect() || control.intel_assembly_dialect())
+        && (continuation != AssemblyContinuation::Diverging || !options.pure())
         && !options.may_unwind();
 
-    Ok(valid.then_some(InlineAssemblyContract::new(
+    if !valid {
+        return Ok(None);
+    }
+
+    Ok(InlineAssemblyContract::try_new(
         template_value,
         constraints_value,
         clobbers_value,
@@ -325,7 +341,9 @@ where
         options_value,
         operands,
         operand_count,
-    )))
+        &template,
+        &constraints,
+    ))
 }
 
 #[expect(
@@ -404,7 +422,7 @@ where
         };
 
         let has_output = matches!(
-            parsed.kind,
+            parsed.kind(),
             InlineAssemblyOperandKind::Output
                 | InlineAssemblyOperandKind::LateOutput
                 | InlineAssemblyOperandKind::InOut
@@ -417,7 +435,7 @@ where
 
         saw_pure_input |= !has_output;
 
-        let (input, output, ty, constant, symbol) = match parsed.kind {
+        let (input, output, ty, constant, symbol) = match parsed.kind() {
             InlineAssemblyOperandKind::Input
             | InlineAssemblyOperandKind::Immediate
             | InlineAssemblyOperandKind::Symbol
@@ -426,7 +444,7 @@ where
                     return Ok(None);
                 };
 
-                let constant = if parsed.kind == InlineAssemblyOperandKind::Immediate {
+                let constant = if parsed.kind() == InlineAssemblyOperandKind::Immediate {
                     let Some(expressions) = input_expressions.as_ref() else {
                         return Ok(None);
                     };
@@ -436,7 +454,7 @@ where
                     None
                 };
 
-                let symbol = if parsed.kind == InlineAssemblyOperandKind::Symbol {
+                let symbol = if parsed.kind() == InlineAssemblyOperandKind::Symbol {
                     let Some(expressions) = input_expressions.as_ref() else {
                         return Ok(None);
                     };
@@ -481,11 +499,18 @@ where
             }
         };
 
-        if !operand_type_valid(request, parsed.kind, parsed.class, ty, constant, pointer_width)? {
+        if !operand_type_valid(
+            request,
+            parsed.kind(),
+            parsed.class(),
+            ty,
+            constant,
+            pointer_width,
+        )? {
             return Ok(None);
         }
 
-        if parsed.kind == InlineAssemblyOperandKind::Symbol && symbol.is_none() {
+        if parsed.kind() == InlineAssemblyOperandKind::Symbol && symbol.is_none() {
             return Ok(None);
         }
 
@@ -499,14 +524,14 @@ where
 
         let runtime_input = input.and_then(|_| {
             (!matches!(
-                parsed.kind,
+                parsed.kind(),
                 InlineAssemblyOperandKind::Immediate | InlineAssemblyOperandKind::Symbol
             ))
             .then_some(runtime_input_index)
         });
 
         descriptors[descriptor_index] = Some(InlineAssemblyOperand::new(
-            parsed.kind,
+            parsed.kind(),
             ty,
             input.and_then(|value| u16::try_from(value).ok()),
             runtime_input.and_then(|value| u16::try_from(value).ok()),
@@ -520,7 +545,7 @@ where
         input_index += usize::from(input.is_some());
         runtime_input_index += usize::from(runtime_input.is_some());
         output_index += usize::from(output.is_some());
-        label_index += usize::from(parsed.kind == InlineAssemblyOperandKind::Label);
+        label_index += usize::from(parsed.kind() == InlineAssemblyOperandKind::Label);
     }
 
     if input_index != inputs.len() || output_index != outputs.len() || label_index != labels.len() {
@@ -532,22 +557,6 @@ where
     };
 
     Ok(Some((descriptors, count)))
-}
-
-fn llvm_operand_count(
-    operands: &[Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
-    count: usize,
-) -> usize {
-    operands
-        .iter()
-        .take(count)
-        .flatten()
-        .map(|operand| {
-            usize::from(operand.output().is_some())
-                + usize::from(operand.input().is_some())
-                + usize::from(operand.kind() == InlineAssemblyOperandKind::Label)
-        })
-        .sum()
 }
 
 fn literal_string<C>(
@@ -737,6 +746,11 @@ where
 
     Ok(match data.as_ref() {
         TypeData::Tuple(elements) => Some(elements.to_vec()),
+        _ if crate::representation::type_representation(request, ty)?
+            == Some(RepresentationRole::Unit) =>
+        {
+            Some(Vec::new())
+        }
         _ => None,
     })
 }
@@ -837,9 +851,7 @@ mod tests {
 
     use bray_target::InlineAssemblyOptions;
 
-    use super::{
-        clobbers_valid, parse_constraint, register_type_valid, separated_values, template_valid,
-    };
+    use super::{clobbers_valid, parse_constraint, register_type_valid, separated_values};
 
     #[test]
     fn constraints_are_target_checked_and_structurally_classified() {
@@ -847,51 +859,54 @@ mod tests {
         use bray_bound_tree::InlineAssemblyOperandKind as Kind;
 
         assert_eq!(
-            parse_constraint(control, "+{rax}").map(|constraint| constraint.kind),
+            parse_constraint(control, "+{rax}").map(|constraint| constraint.kind()),
             Some(Kind::InOut)
         );
 
         assert_eq!(
-            parse_constraint(control, "+&reg").map(|constraint| constraint.kind),
+            parse_constraint(control, "+&reg").map(|constraint| constraint.kind()),
             Some(Kind::EarlyInOut)
         );
 
         assert_eq!(
-            parse_constraint(control, "=&reg").map(|constraint| constraint.kind),
+            parse_constraint(control, "=&reg").map(|constraint| constraint.kind()),
             Some(Kind::Output)
         );
 
         assert_eq!(
-            parse_constraint(control, "=reg").map(|constraint| constraint.kind),
+            parse_constraint(control, "=reg").map(|constraint| constraint.kind()),
             Some(Kind::LateOutput)
         );
 
         assert_eq!(
-            parse_constraint(control, "reg").map(|constraint| constraint.kind),
+            parse_constraint(control, "reg").map(|constraint| constraint.kind()),
             Some(Kind::Input)
         );
 
         assert_eq!(
-            parse_constraint(control, "i").map(|constraint| constraint.kind),
+            parse_constraint(control, "i").map(|constraint| constraint.kind()),
             Some(Kind::Immediate)
         );
 
         assert_eq!(
-            parse_constraint(control, "s").map(|constraint| constraint.kind),
+            parse_constraint(control, "s").map(|constraint| constraint.kind()),
             Some(Kind::Symbol)
         );
 
         assert_eq!(
-            parse_constraint(control, "m").map(|constraint| constraint.kind),
+            parse_constraint(control, "m").map(|constraint| constraint.kind()),
             Some(Kind::Memory)
         );
 
         assert_eq!(
-            parse_constraint(control, "label").map(|constraint| constraint.kind),
+            parse_constraint(control, "label").map(|constraint| constraint.kind()),
             Some(Kind::Label)
         );
 
         assert!(parse_constraint(control, "={x0}").is_none());
+        assert!(parse_constraint(control, "rax").is_none());
+        assert!(parse_constraint(control, "{reg}").is_none());
+        assert!(parse_constraint(control, "{rax}").is_some());
         assert!(parse_constraint(control, "&reg").is_none());
     }
 
@@ -924,14 +939,6 @@ mod tests {
         assert!(!clobbers_valid(control, &["memory"], pure));
         assert!(!clobbers_valid(control, &["x0"], impure));
         assert!(!clobbers_valid(control, &["abi:unknown"], impure));
-    }
-
-    #[test]
-    fn templates_reference_only_declared_operands() {
-        assert!(template_valid("add $0, ${1}", 2));
-        assert!(template_valid("literal $$0", 0));
-        assert!(!template_valid("add $2, $0", 2));
-        assert!(!template_valid("add ${0", 1));
     }
 
     #[test]

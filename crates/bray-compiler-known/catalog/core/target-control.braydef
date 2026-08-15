@@ -1,6 +1,44 @@
 catalog compiler_known revision 1;
 
 scope CoreTargetControl at core.target {
+    declaration DeviceValidRead {
+        availability AddressSpaces;
+
+        surface {
+            trusted predicate device_valid_read<T>(
+                pointer: DevicePointer<T>,
+                count: usize,
+            );
+        }
+    }
+
+    declaration DeviceValidWrite {
+        availability AddressSpaces;
+
+        surface {
+            trusted predicate device_valid_write<T>(
+                pointer: DevicePointer<T>,
+                count: usize,
+            );
+        }
+    }
+
+    declaration DeviceInitializedAs {
+        availability AddressSpaces;
+
+        surface {
+            trusted predicate device_initialized_as<T>(pointer: DevicePointer<T>);
+        }
+    }
+
+    declaration DeviceAlignedFor {
+        availability AddressSpaces;
+
+        surface {
+            trusted predicate device_aligned_for<T>(pointer: DevicePointer<T>);
+        }
+    }
+
     declaration VolatileLoad {
         availability RawMemory;
         implementation VolatileLoad;
@@ -43,9 +81,9 @@ scope CoreTargetControl at core.target {
         surface {
             trusted func device_volatile_load<T>(pos pointer: DevicePointer<T>) -> T
                 requires(
-                    trusted core.memory.valid_read(pointer = pointer, count = 1),
-                    trusted core.memory.aligned_for<T>(pointer = pointer),
-                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                    trusted core.target.device_valid_read(pointer = pointer, count = 1),
+                    trusted core.target.device_aligned_for<T>(pointer = pointer),
+                    trusted core.target.device_initialized_as<T>(pointer = pointer),
                 )
                 uses(raw_memory, device_memory);
         }
@@ -61,11 +99,11 @@ scope CoreTargetControl at core.target {
                 pos value: T,
             ) -> unit
                 requires(
-                    trusted core.memory.valid_write(pointer = pointer, count = 1),
-                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.target.device_valid_write(pointer = pointer, count = 1),
+                    trusted core.target.device_aligned_for<T>(pointer = pointer),
                 )
                 ensures(
-                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                    trusted core.target.device_initialized_as<T>(pointer = pointer),
                 )
                 uses(raw_memory, device_memory, unchecked_init);
         }

@@ -91,7 +91,12 @@ impl TargetControlFacts {
     /// Returns whether the named register or register class is available.
     pub fn supports_register(self, register: &str) -> bool {
         register_classes(self.architecture).contains(&register)
-            || clobber_registers(self.architecture).contains(&register)
+            || self.supports_physical_register(register)
+    }
+
+    /// Returns whether the name identifies one exact physical register on this architecture.
+    pub fn supports_physical_register(self, register: &str) -> bool {
+        clobber_registers(self.architecture).contains(&register)
     }
 
     /// Returns whether the named portable clobber has meaning on this target.
@@ -258,6 +263,8 @@ mod tests {
         assert!(x86.supports_feature("sse2"));
         assert!(x86.supports_register("reg"));
         assert!(x86.supports_register("rax"));
+        assert!(!x86.supports_physical_register("reg"));
+        assert!(x86.supports_physical_register("rax"));
         assert!(x86.supports_clobber("dirflag"));
         assert_eq!(x86.register_constraint("reg"), Some("r"));
         assert!(x86.supports_clobber_abi("system"));

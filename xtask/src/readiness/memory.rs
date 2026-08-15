@@ -39,6 +39,10 @@ const INVALID_TARGET_CONTROL_FIXTURES: &[(&str, bray_target::NativeTarget)] = &[
         "xtask/fixtures/readiness/target-control-invalid-dialect.bray",
         bray_target::NativeTarget::Aarch64LinuxGnu,
     ),
+    (
+        "xtask/fixtures/readiness/target-control-invalid-diverging-pure.bray",
+        bray_target::NativeTarget::X86_64LinuxGnu,
+    ),
 ];
 
 #[derive(Deserialize)]

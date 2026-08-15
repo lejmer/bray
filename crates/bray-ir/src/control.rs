@@ -557,7 +557,7 @@ mod tests {
             5,
         ));
 
-        let contract = InlineAssemblyContract::new(
+        let contract = InlineAssemblyContract::try_new(
             constant,
             constant,
             constant,
@@ -565,7 +565,10 @@ mod tests {
             constant,
             operands,
             1,
-        );
+            "",
+            "label",
+        )
+        .unwrap_or_else(|| panic!("test assembly contract must validate"));
 
         let terminator = MirTerminatorKind::InlineAssembly(MirInlineAssemblyTerminator::new(
             contract,

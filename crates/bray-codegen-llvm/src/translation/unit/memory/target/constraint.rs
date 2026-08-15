@@ -1,4 +1,6 @@
-use bray_bound_tree::{InlineAssemblyOperand, InlineAssemblyOperandKind};
+use bray_bound_tree::{
+    InlineAssemblyConstraint, InlineAssemblyOperand, InlineAssemblyOperandKind,
+};
 use bray_codegen::CodegenFailure;
 use bray_target::TargetControlFacts;
 
@@ -25,11 +27,14 @@ pub(super) fn assembly_constraints(
             InlineAssemblyOperandKind::LateOutput | InlineAssemblyOperandKind::InOut => "=",
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),
         };
+
         append_constraint(&mut normalized, modifier);
+
         append_constraint_class(
             &mut normalized,
             control,
             operand_constraint(constraints, *descriptor)?,
+            descriptor.kind(),
         )?;
     }
 
@@ -37,9 +42,15 @@ pub(super) fn assembly_constraints(
         if let Some(output) = descriptor.output() {
             append_constraint(&mut normalized, &output.to_string());
         } else {
-            let class = operand_constraint(constraints, *descriptor)?;
+            let constraint = operand_constraint(constraints, *descriptor)?;
             append_constraint(&mut normalized, "");
-            append_constraint_class(&mut normalized, control, class)?;
+
+            append_constraint_class(
+                &mut normalized,
+                control,
+                constraint,
+                descriptor.kind(),
+            )?;
         }
     }
 
@@ -63,27 +74,28 @@ pub(super) fn output_descriptors(
         .collect::<Vec<_>>();
 
     outputs.sort_by_key(|operand| operand.output());
+
     outputs
 }
 
 fn operand_constraint(
     constraints: &str,
     operand: InlineAssemblyOperand,
-) -> Result<&str, CodegenFailure> {
+) -> Result<InlineAssemblyConstraint<'_>, CodegenFailure> {
     let (start, length) = operand.constraint_range();
+
     let start = usize::from(start);
+
     let end = start
         .checked_add(usize::from(length))
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
     let constraint = constraints
         .get(start..end)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    Ok(constraint
-        .strip_prefix("+&")
-        .or_else(|| constraint.strip_prefix("=&"))
-        .or_else(|| constraint.strip_prefix(['+', '=']))
-        .unwrap_or(constraint))
+    InlineAssemblyConstraint::try_parse(constraint)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)
 }
 
 fn append_constraint(constraints: &mut String, constraint: &str) {
@@ -97,9 +109,24 @@ fn append_constraint(constraints: &mut String, constraint: &str) {
 fn append_constraint_class(
     constraints: &mut String,
     control: TargetControlFacts,
-    class: &str,
+    constraint: InlineAssemblyConstraint<'_>,
+    kind: InlineAssemblyOperandKind,
 ) -> Result<(), CodegenFailure> {
-    if class.starts_with('{') || matches!(class, "r" | "i" | "s" | "m") {
+    if kind == InlineAssemblyOperandKind::Memory {
+        constraints.push('*');
+    }
+
+    let class = constraint.class();
+
+    if constraint.explicit() {
+        if !control.supports_physical_register(class) {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        constraints.push('{');
+        constraints.push_str(class);
+        constraints.push('}');
+    } else if matches!(class, "r" | "i" | "s" | "m") {
         constraints.push_str(class);
     } else {
         constraints.push_str(

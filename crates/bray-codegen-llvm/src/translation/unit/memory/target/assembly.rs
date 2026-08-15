@@ -9,11 +9,13 @@ use bray_ir::{
 use bray_symbols::{ConstantValueId, ConstantValueKind};
 use bray_target::{InlineAssemblyOptions, TargetControlFacts};
 use inkwell::InlineAsmDialect;
+use inkwell::attributes::AttributeLoc;
 use inkwell::basic_block::BasicBlock;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum};
 
 use crate::callbr::{CallBrError, build_callbr};
+use crate::mapping::type_attribute;
 
 use super::super::super::core::UnitTranslator;
 use super::super::super::support::{extract_value, insert_value, llvm};
@@ -86,11 +88,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .get(parameter)
             .copied()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
         let normal = self.block(assembly.normal())?;
+
         let fallthrough = self
             .types
             .context()
             .append_basic_block(self.function, "target.inline_assembly.fallthrough");
+
         let alternates = assembly
             .alternates()
             .iter()
@@ -106,7 +111,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 AssemblySite::Terminator(block),
                 Some((fallthrough, &alternates)),
             )?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .unwrap_or(self.types.map(assembly.output_type())?.const_zero());
 
         llvm(self.builder.build_unconditional_branch(normal))?;
         phi.add_incoming(&[(&output, fallthrough)]);
@@ -151,6 +156,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mut parameter_types = Vec::new();
         let mut arguments = Vec::new();
+        let mut parameter_attributes = Vec::new();
         let mut symbol_index = 0_usize;
 
         for descriptor in descriptors.iter().copied() {
@@ -165,32 +171,56 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .get(symbol_index)
                     .copied()
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
                 let mapping = self
                     .request
                     .mappings()
                     .callable(self.instance.key(), site.call_site(symbol_index))
                     .filter(|mapping| mapping.reference() == reference)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
                 let instance = mapping
                     .instance()
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
                 let symbol = self
                     .request
                     .mappings()
                     .instance_symbol(instance)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
                 let function = self
                     .module
                     .get_function(symbol.name().as_str())
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 symbol_index += 1;
+
                 function.as_global_value().as_pointer_value().into()
             } else if let Some(input) = descriptor.runtime_input() {
                 self.structural_operand(input_value, input_type, input)?
             } else {
                 continue;
             };
+
+            let parameter = u32::try_from(arguments.len())
+                .map_err(|_| CodegenFailure::ResourceExhausted)?;
+
+            if descriptor.kind() == InlineAssemblyOperandKind::Memory {
+                let target = match self
+                    .type_mapping(descriptor.ty())
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+                    .kind()
+                {
+                    CodegenTypeKind::Pointer { target, .. } => *target,
+                    _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+                };
+
+                parameter_attributes.push((
+                    parameter,
+                    type_attribute("elementtype", target, &mut self.types)?,
+                ));
+            }
 
             parameter_types.push(BasicMetadataTypeEnum::from(argument.get_type()));
             arguments.push(BasicMetadataValueEnum::from(argument));
@@ -201,6 +231,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let outputs = output_descriptors(&descriptors);
+
         let function_type = match outputs.as_slice() {
             [] => self.types.context().void_type().fn_type(&parameter_types, false),
             [output] => self
@@ -224,11 +255,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .intel_dialect()
             .then_some(InlineAsmDialect::Intel);
 
+        let side_effects = output_type.is_none() || !options.pure();
+
         let assembly = self.types.context().create_inline_asm(
             function_type,
             template,
             constraints,
-            !options.pure(),
+            side_effects,
             options.aligned_stack(),
             dialect,
             options.may_unwind(),
@@ -239,6 +272,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let fallthrough = destinations.map(|(default, _)| default);
+
         let raw_output = match destinations {
             Some((default, alternates)) => build_callbr(
                 &self.builder,
@@ -247,6 +281,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 default,
                 alternates,
                 &arguments,
+                &parameter_attributes,
                 "target.inline_assembly",
             )
             .map_err(|error| match error {
@@ -260,14 +295,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 | CallBrError::UnexpectedResultType
                 | CallBrError::UnsetPosition => CodegenFailure::GeneratedModuleInvariant,
             })?,
-            None => llvm(self.builder.build_indirect_call(
-                function_type,
-                assembly,
-                &arguments,
-                "target.inline_assembly",
-            ))?
-            .try_as_basic_value()
-            .basic(),
+            None => {
+                let call = llvm(self.builder.build_indirect_call(
+                    function_type,
+                    assembly,
+                    &arguments,
+                    "target.inline_assembly",
+                ))?;
+
+                for &(index, attribute) in &parameter_attributes {
+                    call.add_attribute(AttributeLoc::Param(index), attribute);
+                }
+
+                call.try_as_basic_value().basic()
+            }
         };
 
         if let Some(fallthrough) = fallthrough {
@@ -275,9 +316,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let Some(raw_output) = raw_output else {
-            return output_type
-                .map(|output| self.types.map(output).map(|ty| ty.const_zero()))
-                .transpose();
+            return match output_type {
+                Some(output) => Ok(Some(self.types.map(output)?.const_zero())),
+                None => Ok(None),
+            };
         };
 
         let output_type = output_type.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -313,6 +355,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         outputs: &[InlineAssemblyOperand],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let mapped = self.types.map(output_type)?;
+
         let mapping = self
             .type_mapping(output_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -335,6 +378,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             };
 
             let destination = self.aggregate_element(fields, ordinal)?;
+
             let destination = usize::try_from(destination)
                 .map_err(|_| CodegenFailure::ResourceExhausted)?;
 
@@ -436,15 +480,18 @@ mod tests {
     fn structural_operands_derive_complete_llvm_constraint_order() {
         let values = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
         let ty = values
             .intern_type(TypeData::Error)
             .unwrap_or_else(|error| panic!("test assembly type must intern: {error:?}"));
+
         let constant = values
             .intern_constant_value(ConstantValueData::new(
                 ty,
                 ConstantValueKind::Boolean(false),
             ))
             .unwrap_or_else(|error| panic!("test assembly constant must intern: {error:?}"));
+
         let operands = [
             InlineAssemblyOperand::new(
                 InlineAssemblyOperandKind::InOut,
@@ -546,6 +593,7 @@ mod tests {
                 5,
             ),
         ];
+
         let control = TargetControlFacts::for_architecture(TargetArchitecture::X86_64);
 
         assert_eq!(
@@ -554,7 +602,54 @@ mod tests {
                 "+reg,+&reg,=&reg,=reg,reg,i,s,m,label",
                 &operands,
             ),
-            Ok(String::from("=r,=&r,=&r,=r,0,1,r,i,s,m,!i"))
+            Ok(String::from("=r,=&r,=&r,=r,0,1,r,i,s,*m,!i"))
+        );
+
+        let explicit = [
+            InlineAssemblyOperand::new(
+                InlineAssemblyOperandKind::InOut,
+                ty,
+                Some(0),
+                Some(0),
+                Some(0),
+                None,
+                None,
+                0,
+                6,
+            ),
+            InlineAssemblyOperand::new(
+                InlineAssemblyOperandKind::Input,
+                ty,
+                Some(1),
+                Some(1),
+                None,
+                None,
+                None,
+                7,
+                5,
+            ),
+        ];
+
+        assert_eq!(
+            assembly_constraints(control, "+{rax},{rax}", &explicit),
+            Ok(String::from("={rax},0,{rax}"))
+        );
+
+        let input = &explicit[1..];
+
+        assert_eq!(
+            assembly_constraints(control, "rax", input),
+            Err(bray_codegen::CodegenFailure::GeneratedModuleInvariant)
+        );
+
+        assert_eq!(
+            assembly_constraints(control, "{reg}", input),
+            Err(bray_codegen::CodegenFailure::GeneratedModuleInvariant)
+        );
+
+        assert_eq!(
+            assembly_constraints(control, "{bogus}", input),
+            Err(bray_codegen::CodegenFailure::GeneratedModuleInvariant)
         );
     }
 
@@ -610,6 +705,7 @@ mod tests {
         let builder = context.create_builder();
         let integer = context.i32_type();
         let function_type = integer.fn_type(&[integer.into()], false);
+
         let assembly = context.create_inline_asm(
             function_type,
             String::new(),
@@ -619,6 +715,7 @@ mod tests {
             None,
             false,
         );
+
         let function = module.add_function("test", function_type, None);
         let entry = context.append_basic_block(function, "entry");
         let fallthrough = context.append_basic_block(function, "fallthrough");
@@ -630,6 +727,7 @@ mod tests {
         let input = function
             .get_first_param()
             .unwrap_or_else(|| panic!("test function must have an input"));
+
         let output = build_callbr(
             &builder,
             function_type,
@@ -637,6 +735,7 @@ mod tests {
             fallthrough,
             &[alternate],
             &[input.into()],
+            &[],
             "assembly",
         )
         .unwrap_or_else(|error| panic!("callbr must build: {error:?}"))
@@ -659,6 +758,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("fallthrough must reach normal continuation: {error}"));
 
         builder.position_at_end(alternate);
+
         builder
             .build_unreachable()
             .unwrap_or_else(|error| panic!("alternate test block must terminate: {error}"));
@@ -680,11 +780,13 @@ mod tests {
             .unwrap_or_else(|error| panic!("normal continuation must return: {error}"));
 
         let ir = module.print_to_string().to_string();
+
         let entry_ir = ir
             .split("entry:")
             .nth(1)
             .and_then(|body| body.split("fallthrough:").next())
             .unwrap_or_else(|| panic!("entry block must be rendered: {ir}"));
+
         let fallthrough_ir = ir
             .split("fallthrough:")
             .nth(1)

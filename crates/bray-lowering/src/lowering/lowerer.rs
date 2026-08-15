@@ -566,7 +566,7 @@ mod tests {
             ))
             .unwrap_or_else(|error| panic!("test target-control constant must intern: {error:?}"));
 
-        let contract = InlineAssemblyContract::new(
+        let contract = InlineAssemblyContract::try_new(
             constant,
             constant,
             constant,
@@ -574,7 +574,10 @@ mod tests {
             constant,
             [None; bray_bound_tree::MAX_INLINE_ASSEMBLY_OPERANDS],
             0,
-        );
+            "",
+            "",
+        )
+        .unwrap_or_else(|| panic!("test target-control contract must validate"));
 
         let fence = CheckedMemoryOperationKind::Fence {
             compiler_only: false,

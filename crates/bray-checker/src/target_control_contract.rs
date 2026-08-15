@@ -1,58 +1,5 @@
-use bray_bound_tree::InlineAssemblyOperandKind;
+use bray_bound_tree::{InlineAssemblyConstraint, InlineAssemblyOperandKind};
 use bray_target::{InlineAssemblyOptions, TargetControlFacts};
-
-pub(crate) fn template_valid(template: &str, operand_count: usize) -> bool {
-    if template.contains('\0') {
-        return false;
-    }
-
-    let bytes = template.as_bytes();
-    let mut index = 0;
-
-    while index < bytes.len() {
-        if bytes[index] != b'$' {
-            index += 1;
-            continue;
-        }
-
-        index += 1;
-
-        if index < bytes.len() && bytes[index] == b'$' {
-            index += 1;
-            continue;
-        }
-
-        let braced = index < bytes.len() && bytes[index] == b'{';
-        index += usize::from(braced);
-        let start = index;
-
-        while index < bytes.len() && bytes[index].is_ascii_digit() {
-            index += 1;
-        }
-
-        if start == index {
-            return false;
-        }
-
-        let Ok(ordinal) = template[start..index].parse::<usize>() else {
-            return false;
-        };
-
-        if ordinal >= operand_count {
-            return false;
-        }
-
-        if braced {
-            if index >= bytes.len() || bytes[index] != b'}' {
-                return false;
-            }
-
-            index += 1;
-        }
-    }
-
-    true
-}
 
 pub(crate) fn clobbers_valid(
     control: TargetControlFacts,
@@ -68,90 +15,31 @@ pub(crate) fn clobbers_valid(
     }) && !(options.pure() && clobbers.contains(&"memory"))
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct AssemblyConstraint<'constraint> {
-    pub(crate) kind: InlineAssemblyOperandKind,
-    pub(crate) class: &'constraint str,
-}
-
 pub(crate) fn parse_constraint(
     control: TargetControlFacts,
     constraint: &str,
-) -> Option<AssemblyConstraint<'_>> {
-    let (kind, class) = if constraint == "label" {
-        (InlineAssemblyOperandKind::Label, "label")
-    } else if let Some(class) = constraint.strip_prefix("+&") {
-        (InlineAssemblyOperandKind::EarlyInOut, class)
-    } else if let Some(class) = constraint.strip_prefix('+') {
-        (InlineAssemblyOperandKind::InOut, class)
-    } else if let Some(class) = constraint.strip_prefix("=&") {
-        (InlineAssemblyOperandKind::Output, class)
-    } else if let Some(class) = constraint.strip_prefix('=') {
-        (InlineAssemblyOperandKind::LateOutput, class)
-    } else if constraint == "i" {
-        (InlineAssemblyOperandKind::Immediate, constraint)
-    } else if constraint == "s" {
-        (InlineAssemblyOperandKind::Symbol, constraint)
-    } else if constraint == "m" {
-        (InlineAssemblyOperandKind::Memory, constraint)
-    } else {
-        (InlineAssemblyOperandKind::Input, constraint)
-    };
+) -> Option<InlineAssemblyConstraint<'_>> {
+    let parsed = InlineAssemblyConstraint::try_parse(constraint)?;
 
-    if kind == InlineAssemblyOperandKind::Label {
-        return Some(AssemblyConstraint { kind, class });
-    }
-
-    if class.is_empty() || class.starts_with(['=', '+', '&', '*', '%']) {
-        return None;
-    }
-
-    let explicit = class.starts_with('{') || class.ends_with('}');
-
-    let class = if explicit {
-        class.strip_prefix('{')?.strip_suffix('}')?
-    } else {
-        class
-    };
-
-    let valid = match kind {
-        InlineAssemblyOperandKind::Immediate => class == "i",
-        InlineAssemblyOperandKind::Symbol => class == "s",
-        InlineAssemblyOperandKind::Memory => class == "m",
+    let valid = match parsed.kind() {
+        InlineAssemblyOperandKind::Immediate => parsed.class() == "i",
+        InlineAssemblyOperandKind::Symbol => parsed.class() == "s",
+        InlineAssemblyOperandKind::Memory => parsed.class() == "m",
         InlineAssemblyOperandKind::Input
         | InlineAssemblyOperandKind::Output
         | InlineAssemblyOperandKind::LateOutput
         | InlineAssemblyOperandKind::InOut
         | InlineAssemblyOperandKind::EarlyInOut => {
-            class == "r" || control.supports_register(class)
+            if parsed.explicit() {
+                control.supports_physical_register(parsed.class())
+            } else {
+                parsed.class() == "r" || control.register_constraint(parsed.class()).is_some()
+            }
         }
-        InlineAssemblyOperandKind::Label => false,
+        InlineAssemblyOperandKind::Label => true,
     };
 
-    valid.then_some(AssemblyConstraint { kind, class })
-}
-
-pub(crate) fn separated_ranges(value: &str) -> Option<Vec<(usize, usize)>> {
-    if value.is_empty() {
-        return Some(Vec::new());
-    }
-
-    let mut ranges = Vec::new();
-    let mut offset = 0_usize;
-
-    for part in value.split(',') {
-        let trimmed = part.trim();
-
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        let leading = part.len() - part.trim_start().len();
-        ranges.push((offset + leading, trimmed.len()));
-        offset += part.len() + 1;
-    }
-
-    Some(ranges)
+    valid.then_some(parsed)
 }
 
 pub(crate) fn separated_values(value: &str) -> Option<Vec<&str>> {

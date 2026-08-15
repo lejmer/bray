@@ -154,6 +154,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         address_space: VolatileAddressSpace,
     ) -> Result<inkwell::values::PointerValue<'context>, CodegenFailure> {
         let pointer = self.memory_pointer(operand)?;
+
         let role = match address_space {
             VolatileAddressSpace::Host => bray_codegen::TargetAddressSpaceKind::Default,
             VolatileAddressSpace::Device => bray_codegen::TargetAddressSpaceKind::Device,

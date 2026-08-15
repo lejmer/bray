@@ -1,9 +1,10 @@
 use std::ffi::CString;
 
 use inkwell::basic_block::BasicBlock;
+use inkwell::attributes::Attribute;
 use inkwell::builder::Builder;
 use inkwell::context::ContextRef;
-use inkwell::llvm_sys::core::LLVMBuildCallBr;
+use inkwell::llvm_sys::core::{LLVMAddCallSiteAttribute, LLVMBuildCallBr};
 use inkwell::types::{AsTypeRef, BasicMetadataTypeEnum, FunctionType};
 use inkwell::values::{
     AsValueRef, BasicMetadataValueEnum, BasicValueEnum, InstructionOpcode, PointerValue,
@@ -24,7 +25,7 @@ pub(crate) enum CallBrError {
 
 #[expect(
     unsafe_code,
-    reason = "LLVM exposes callbr only through its C API and Inkwell 0.9.0 has no builder wrapper"
+    reason = "Inkwell 0.9.0 exposes neither callbr construction nor callbr as an attributed call site"
 )]
 pub(crate) fn build_callbr<'context>(
     builder: &Builder<'context>,
@@ -33,6 +34,7 @@ pub(crate) fn build_callbr<'context>(
     default_destination: BasicBlock<'context>,
     indirect_destinations: &[BasicBlock<'context>],
     arguments: &[BasicMetadataValueEnum<'context>],
+    parameter_attributes: &[(u32, Attribute)],
     name: &str,
 ) -> Result<Option<BasicValueEnum<'context>>, CallBrError> {
     let (insertion_block, destination_count, argument_count) = validate_callbr(
@@ -42,6 +44,7 @@ pub(crate) fn build_callbr<'context>(
         default_destination,
         indirect_destinations,
         arguments,
+        parameter_attributes,
     )?;
 
     let name = if function_type.get_return_type().is_some() {
@@ -63,9 +66,10 @@ pub(crate) fn build_callbr<'context>(
         .collect::<Vec<_>>();
 
     // SAFETY: All handles share the validated insertion function and Inkwell context. The
-    // destination and argument arrays remain borrowed for the duration of this single call.
+    // destination and argument arrays remain borrowed for this call, and every attribute index
+    // was validated against that argument array before being attached to the new instruction.
     let built_instruction = unsafe {
-        LLVMBuildCallBr(
+        let instruction = LLVMBuildCallBr(
             builder.as_mut_ptr(),
             function_type.as_type_ref(),
             function_pointer.as_value_ref(),
@@ -77,7 +81,13 @@ pub(crate) fn build_callbr<'context>(
             std::ptr::null_mut(),
             0,
             name.as_ptr(),
-        )
+        );
+
+        for &(index, attribute) in parameter_attributes {
+            LLVMAddCallSiteAttribute(instruction, index + 1, attribute.as_mut_ptr());
+        }
+
+        instruction
     };
 
     let instruction = insertion_block
@@ -112,6 +122,7 @@ fn validate_callbr<'context>(
     default_destination: BasicBlock<'context>,
     indirect_destinations: &[BasicBlock<'context>],
     arguments: &[BasicMetadataValueEnum<'context>],
+    parameter_attributes: &[(u32, Attribute)],
 ) -> Result<(BasicBlock<'context>, u32, u32), CallBrError> {
     let insertion_block = builder
         .get_insert_block()
@@ -156,6 +167,13 @@ fn validate_callbr<'context>(
         return Err(CallBrError::ContextMismatch);
     }
 
+    if parameter_attributes
+        .iter()
+        .any(|(index, _)| usize::try_from(*index).map_or(true, |index| index >= arguments.len()))
+    {
+        return Err(CallBrError::InvalidArguments);
+    }
+
     let destination_count = u32::try_from(indirect_destinations.len())
         .map_err(|_| CallBrError::ResourceExhausted)?;
 
@@ -197,7 +215,9 @@ fn argument_context(argument: BasicMetadataValueEnum<'_>) -> Option<ContextRef<'
 
 #[cfg(test)]
 mod tests {
+    use inkwell::attributes::Attribute;
     use inkwell::context::Context;
+    use inkwell::types::AnyType;
     use inkwell::values::{BasicValueEnum, InstructionOpcode};
 
     use super::{CallBrError, build_callbr};
@@ -232,6 +252,7 @@ mod tests {
                 assembly,
                 default,
                 &[default],
+                &[],
                 &[],
                 "assembly"
             ),
@@ -275,6 +296,7 @@ mod tests {
             default,
             &[alternate],
             &[input.into()],
+            &[],
             "assembly",
         )
         .unwrap_or_else(|error| panic!("callbr must build: {error:?}"))
@@ -287,6 +309,71 @@ mod tests {
                 .get_last_instruction()
                 .map(|instruction| instruction.get_opcode()),
             Some(InstructionOpcode::CallBr)
+        );
+    }
+
+    #[test]
+    fn callbr_attaches_device_element_types_to_indirect_memory_parameters() {
+        let context = Context::create();
+        let module = context.create_module("callbr.memory.test");
+        let builder = context.create_builder();
+        let pointer = context.ptr_type(inkwell::AddressSpace::from(1_u16));
+        let function_type = context.void_type().fn_type(&[pointer.into()], false);
+        let function = module.add_function("test", function_type, None);
+        let entry = context.append_basic_block(function, "entry");
+        let default = context.append_basic_block(function, "default");
+        let alternate = context.append_basic_block(function, "alternate");
+
+        let assembly = context.create_inline_asm(
+            function_type,
+            String::new(),
+            "*m,!i".to_owned(),
+            true,
+            false,
+            None,
+            false,
+        );
+
+        let input = function
+            .get_first_param()
+            .unwrap_or_else(|| panic!("test function must have an input"));
+
+        let kind = Attribute::get_named_enum_kind_id("elementtype");
+        let attribute = context.create_type_attribute(kind, context.i16_type().as_any_type_enum());
+
+        builder.position_at_end(entry);
+
+        build_callbr(
+            &builder,
+            function_type,
+            assembly,
+            default,
+            &[alternate],
+            &[input.into()],
+            &[(0, attribute)],
+            "assembly",
+        )
+        .unwrap_or_else(|error| panic!("memory callbr must build: {error:?}"));
+
+        builder.position_at_end(default);
+
+        builder
+            .build_unreachable()
+            .unwrap_or_else(|error| panic!("default block must terminate: {error:?}"));
+
+        builder.position_at_end(alternate);
+
+        builder
+            .build_unreachable()
+            .unwrap_or_else(|error| panic!("alternate block must terminate: {error:?}"));
+
+        assert!(module.verify().is_ok());
+
+        assert!(
+            module
+                .print_to_string()
+                .to_string()
+                .contains("ptr addrspace(1) elementtype(i16)")
         );
     }
 }

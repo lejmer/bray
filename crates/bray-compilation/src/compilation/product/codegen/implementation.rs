@@ -766,7 +766,9 @@ mod tests {
         NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, ProductIdentity, ProductKind,
         SymbolOrigin, TraitApplicationData, TypeData,
     };
-    use bray_target::NativeTarget;
+    use bray_target::{
+        NativeTarget, TargetAddressSpaceFacts, TargetFacts, TargetProfile,
+    };
     use bray_testing::TemporaryFile;
 
     use super::NativeProductFactError;
@@ -904,6 +906,86 @@ mod tests {
         "    );\n",
         "\n",
         "    return output.0;\n",
+        "}\n",
+    );
+
+    const MEMORY_ASSEMBLY_SOURCE: &str = concat!(
+        "trusted module memory_assembly;\n",
+        "\n",
+        "public trusted func assemble_memory(pos pointer: RawPointer<u8>)\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    trusted core.target.assembly<(RawPointer<u8>,), unit>(\n",
+        "        template = \"incb $0\",\n",
+        "        constraints = \"m\",\n",
+        "        clobbers = \"memory\",\n",
+        "        features = \"\",\n",
+        "        options = 0,\n",
+        "        inputs = (pointer,),\n",
+        "    );\n",
+        "}\n",
+    );
+
+    const VOID_BRANCHING_ASSEMBLY_SOURCE: &str = concat!(
+        "trusted module void_branching_assembly;\n",
+        "\n",
+        "func alternate() -> never\n",
+        "{\n",
+        "    loop {}\n",
+        "}\n",
+        "\n",
+        "public trusted func branch_void(pos pointer: RawPointer<u8>)\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    trusted core.target.branching_assembly<\n",
+        "        (RawPointer<u8>,),\n",
+        "        unit,\n",
+        "        (func() -> never,),\n",
+        "    >(\n",
+        "        template = \"\",\n",
+        "        constraints = \"m,label\",\n",
+        "        clobbers = \"\",\n",
+        "        features = \"\",\n",
+        "        options = 0,\n",
+        "        inputs = (pointer,),\n",
+        "        labels = (alternate,),\n",
+        "    );\n",
+        "}\n",
+    );
+
+    const DIVERGING_ASSEMBLY_SOURCE: &str = concat!(
+        "trusted module diverging_assembly;\n",
+        "\n",
+        "public trusted func diverge() -> never\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    trusted core.target.diverging_assembly<(i32,)>(\n",
+        "        template = \"ud2\",\n",
+        "        constraints = \"reg\",\n",
+        "        clobbers = \"\",\n",
+        "        features = \"\",\n",
+        "        options = 0,\n",
+        "        inputs = (0,),\n",
+        "    );\n",
+        "}\n",
+    );
+
+    const DEVICE_VOLATILE_CONTRACT_SOURCE: &str = concat!(
+        "trusted module device_contract;\n",
+        "\n",
+        "trusted func device_roundtrip(pos pointer: DevicePointer<u8>, pos value: u8) -> u8\n",
+        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
+        "{\n",
+        "    trusted core.target.device_volatile_store<u8>(pointer, value);\n",
+        "    trusted core.target.assembly<(DevicePointer<u8>,), unit>(\n",
+        "        template = \"\",\n",
+        "        constraints = \"m\",\n",
+        "        clobbers = \"memory\",\n",
+        "        features = \"\",\n",
+        "        options = 0,\n",
+        "        inputs = (pointer,),\n",
+        "    );\n",
+        "    return trusted core.target.device_volatile_load<u8>(pointer);\n",
         "}\n",
     );
 
@@ -1584,6 +1666,133 @@ mod tests {
                 None,
             )
             .unwrap_or_else(|error| panic!("structural assembly must realize: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &facts)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn indirect_memory_assembly_emits_valid_native_units() {
+        let (backend, compilation) = codegen_compilation_for_product(
+            MEMORY_ASSEMBLY_SOURCE,
+            ProductKind::Library,
+        );
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("memory assembly must realize: {error:?}"));
+
+        let artifacts =
+            generated_artifacts_of_kind(&backend, &facts, BackendArtifactKind::BackendIr);
+
+        assert!(artifacts.iter().any(|artifact| {
+            std::str::from_utf8(artifact)
+                .is_ok_and(|artifact| artifact.contains("ptr elementtype(i8)"))
+        }));
+    }
+
+    #[test]
+    fn void_branching_assembly_emits_valid_native_units() {
+        assert_source_emits_valid_native_units(
+            VOID_BRANCHING_ASSEMBLY_SOURCE,
+            crate::BuildConfiguration::Development,
+        );
+    }
+
+    #[test]
+    fn impure_diverging_assembly_survives_optimized_native_codegen() {
+        let (backend, compilation) = codegen_compilation_for_product(
+            DIVERGING_ASSEMBLY_SOURCE,
+            ProductKind::Library,
+        );
+
+        let facts = compilation
+            .native_product_facts(
+                test_product_identity(),
+                crate::BuildConfiguration::Release,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("diverging assembly must realize: {error:?}"));
+
+        let artifacts =
+            generated_artifacts_of_kind(&backend, &facts, BackendArtifactKind::BackendIr);
+
+        assert!(artifacts.iter().any(|artifact| {
+            std::str::from_utf8(artifact)
+                .is_ok_and(|artifact| artifact.contains("asm sideeffect \"ud2\""))
+        }));
+    }
+
+    #[test]
+    fn device_volatile_contracts_accept_device_pointer_storage_facts() {
+        let native = NativeTarget::X86_64LinuxGnu.profile();
+        let baseline = native.facts();
+
+        let address_spaces = TargetAddressSpaceFacts::try_new(true, true)
+            .unwrap_or_else(|| panic!("test target must expose host and device address spaces"));
+
+        let facts = TargetFacts::new(
+            baseline.identity().clone(),
+            baseline.scalars(),
+            baseline.atomics(),
+            baseline.abis(),
+            baseline.c_abi(),
+            address_spaces,
+            baseline.alignments(),
+            baseline.operations(),
+        );
+
+        let profile = TargetProfile::try_new(
+            native.identity().clone(),
+            native.machine().clone(),
+            facts,
+        )
+        .unwrap_or_else(|error| panic!("device-capable target profile must validate: {error:?}"));
+
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(
+                DEVICE_VOLATILE_CONTRACT_SOURCE,
+                0,
+            )],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::new(profile, RuntimeAbiVersion::new(1, 0)),
+            ),
+        );
+
+        let compilation = crate::Compilation::load(request)
+            .unwrap_or_else(|error| panic!("device contract compilation must load: {error:?}"));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    fn assert_source_emits_valid_native_units(
+        source: &str,
+        configuration: crate::BuildConfiguration,
+    ) {
+        let (backend, compilation) =
+            codegen_compilation_for_product(source, ProductKind::Library);
+
+        let facts = compilation
+            .native_product_facts(test_product_identity(), configuration, None, [], None)
+            .unwrap_or_else(|error| panic!("target-control source must realize: {error:?}"));
 
         assert!(
             generated_artifacts(&backend, &facts)

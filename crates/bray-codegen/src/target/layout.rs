@@ -37,6 +37,7 @@ impl TargetScalarLayout {
                 u32::from(width.get())
             }
         };
+
         let storage_width_bits = u32::from(size_bytes.get()) * 8;
 
         if storage_width_bits < value_width_bits {
@@ -227,6 +228,7 @@ mod tests {
     fn data_layouts_require_unique_roles_and_a_default_address_space() {
         let byte = NonZeroU16::new(1).unwrap_or(NonZeroU16::MIN);
         let aggregate = NonZeroU32::new(8).unwrap_or(NonZeroU32::MIN);
+
         let Ok(scalar) = TargetScalarLayout::try_new(TargetScalarKind::Boolean, byte, byte) else {
             panic!("test scalar layout must be valid");
         };

@@ -1,0 +1,14 @@
+trusted module target_control_invalid_diverging_pure;
+
+trusted func invalid_diverging_assembly() -> never
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    trusted core.target.diverging_assembly<(i32, )>(
+        template = "ud2",
+        constraints = "reg",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (0,),
+    );
+}

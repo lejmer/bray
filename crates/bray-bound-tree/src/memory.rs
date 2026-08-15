@@ -129,6 +129,100 @@ pub enum InlineAssemblyOperandKind {
     Label,
 }
 
+/// One structurally parsed assembly constraint with its exact operand role.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InlineAssemblyConstraint<'constraint> {
+    kind: InlineAssemblyOperandKind,
+    class: &'constraint str,
+    explicit: bool,
+}
+
+impl<'constraint> InlineAssemblyConstraint<'constraint> {
+    /// Parses one complete structural constraint independently of target availability.
+    pub fn try_parse(constraint: &'constraint str) -> Option<Self> {
+        let (kind, class) = if constraint == "label" {
+            (InlineAssemblyOperandKind::Label, constraint)
+        } else if let Some(class) = constraint.strip_prefix("+&") {
+            (InlineAssemblyOperandKind::EarlyInOut, class)
+        } else if let Some(class) = constraint.strip_prefix('+') {
+            (InlineAssemblyOperandKind::InOut, class)
+        } else if let Some(class) = constraint.strip_prefix("=&") {
+            (InlineAssemblyOperandKind::Output, class)
+        } else if let Some(class) = constraint.strip_prefix('=') {
+            (InlineAssemblyOperandKind::LateOutput, class)
+        } else if constraint == "i" {
+            (InlineAssemblyOperandKind::Immediate, constraint)
+        } else if constraint == "s" {
+            (InlineAssemblyOperandKind::Symbol, constraint)
+        } else if constraint == "m" {
+            (InlineAssemblyOperandKind::Memory, constraint)
+        } else {
+            (InlineAssemblyOperandKind::Input, constraint)
+        };
+
+        if kind == InlineAssemblyOperandKind::Label {
+            return Some(Self {
+                kind,
+                class,
+                explicit: false,
+            });
+        }
+
+        if class.is_empty()
+            || class.starts_with(['=', '+', '&', '*', '%'])
+            || class.contains('\0')
+        {
+            return None;
+        }
+
+        let explicit = class.starts_with('{') || class.ends_with('}');
+
+        let class = if explicit {
+            class.strip_prefix('{')?.strip_suffix('}')?
+        } else {
+            class
+        };
+
+        if class.is_empty() || class.contains(['{', '}']) {
+            return None;
+        }
+
+        if matches!(
+            kind,
+            InlineAssemblyOperandKind::Input
+                | InlineAssemblyOperandKind::Output
+                | InlineAssemblyOperandKind::LateOutput
+                | InlineAssemblyOperandKind::InOut
+                | InlineAssemblyOperandKind::EarlyInOut
+        ) && !explicit
+            && matches!(class, "m" | "i" | "s" | "label")
+        {
+            return None;
+        }
+
+        Some(Self {
+            kind,
+            class,
+            explicit,
+        })
+    }
+
+    /// Returns the exact operand role encoded by the constraint.
+    pub const fn kind(self) -> InlineAssemblyOperandKind {
+        self.kind
+    }
+
+    /// Returns the normalized register or reserved constraint class.
+    pub const fn class(self) -> &'constraint str {
+        self.class
+    }
+
+    /// Returns whether the class names one exact physical register.
+    pub const fn explicit(self) -> bool {
+        self.explicit
+    }
+}
+
 /// One exact callable symbol retained for assembly relocation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InlineAssemblySymbol {
@@ -265,8 +359,12 @@ pub struct InlineAssemblyContract {
 }
 
 impl InlineAssemblyContract {
-    /// Retains the checked literal identities used to lower one assembly operation.
-    pub const fn new(
+    /// Retains one complete structurally validated assembly contract.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "assembly validation joins the literal identities and structural descriptors"
+    )]
+    pub fn try_new(
         template: ConstantValueId,
         constraints: ConstantValueId,
         clobbers: ConstantValueId,
@@ -274,8 +372,10 @@ impl InlineAssemblyContract {
         options: ConstantValueId,
         operands: [Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
         operand_count: u8,
-    ) -> Self {
-        Self {
+        template_text: &str,
+        constraint_text: &str,
+    ) -> Option<Self> {
+        let contract = Self {
             template,
             constraints,
             clobbers,
@@ -283,7 +383,35 @@ impl InlineAssemblyContract {
             options,
             operands,
             operand_count,
+        };
+
+        contract
+            .structurally_valid(template_text, constraint_text)
+            .then_some(contract)
+    }
+
+    /// Splits a constraint list into its exact nonempty, trimmed byte ranges.
+    pub fn constraint_ranges(value: &str) -> Option<Vec<(usize, usize)>> {
+        if value.is_empty() {
+            return Some(Vec::new());
         }
+
+        let mut ranges = Vec::new();
+        let mut offset = 0_usize;
+
+        for part in value.split(',') {
+            let trimmed = part.trim();
+
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let leading = part.len() - part.trim_start().len();
+            ranges.push((offset + leading, trimmed.len()));
+            offset += part.len() + 1;
+        }
+
+        Some(ranges)
     }
 
     /// Returns the checked assembly-template literal identity.
@@ -351,6 +479,239 @@ impl InlineAssemblyContract {
 
         values.into_iter().take(count).flatten()
     }
+
+    /// Validates descriptor types against their selected structural operand types.
+    pub fn operand_types_valid(
+        self,
+        inputs: &[TypeId],
+        outputs: &[TypeId],
+        labels: &[TypeId],
+    ) -> bool {
+        if !self.value_types_valid(inputs, outputs) {
+            return false;
+        }
+
+        let mut label_index = 0_usize;
+
+        let valid = self.operands().all(|operand| {
+            let label_valid = if operand.kind() == InlineAssemblyOperandKind::Label {
+                let valid = labels.get(label_index).copied() == Some(operand.ty());
+                label_index += 1;
+
+                valid
+            } else {
+                true
+            };
+
+            label_valid
+        });
+
+        valid && label_index == labels.len()
+    }
+
+    /// Validates input and output descriptor types against selected structural value types.
+    pub fn value_types_valid(self, inputs: &[TypeId], outputs: &[TypeId]) -> bool {
+        self.operands().all(|operand| {
+            let input_valid = operand.runtime_input().is_none_or(|ordinal| {
+                inputs.get(usize::from(ordinal)).copied() == Some(operand.ty())
+            });
+
+            let output_valid = operand.output().is_none_or(|ordinal| {
+                outputs.get(usize::from(ordinal)).copied() == Some(operand.ty())
+            });
+
+            input_valid && output_valid
+        }) && self
+            .operands()
+            .filter_map(InlineAssemblyOperand::runtime_input)
+            .count()
+            == inputs.len()
+            && self
+                .operands()
+                .filter_map(InlineAssemblyOperand::output)
+                .count()
+                == outputs.len()
+    }
+
+    fn structurally_valid(self, template: &str, constraints: &str) -> bool {
+        let count = usize::from(self.operand_count);
+
+        if count > MAX_INLINE_ASSEMBLY_OPERANDS
+            || self.operands[..count].contains(&None)
+            || self.operands[count..].iter().any(Option::is_some)
+        {
+            return false;
+        }
+
+        let Some(ranges) = Self::constraint_ranges(constraints) else {
+            return false;
+        };
+
+        if ranges.len() != count {
+            return false;
+        }
+
+        let operands = self.operands().collect::<Vec<_>>();
+
+        let ranges_valid = operands.iter().zip(ranges).all(|(operand, range)| {
+            let Ok(start) = u16::try_from(range.0) else {
+                return false;
+            };
+
+            let Ok(length) = u16::try_from(range.1) else {
+                return false;
+            };
+
+            operand_fields_valid(*operand)
+                && operand.constraint_range() == (start, length)
+                && constraint_kind_valid(
+                    operand.kind(),
+                    &constraints[range.0..range.0 + range.1],
+                )
+        });
+
+        ranges_valid
+            && dense_ordinals(operands.iter().filter_map(|operand| operand.input()))
+            && dense_ordinals(
+                operands
+                    .iter()
+                    .filter_map(|operand| operand.runtime_input()),
+            )
+            && dense_ordinals(operands.iter().filter_map(|operand| operand.output()))
+            && outputs_precede_inputs(&operands)
+            && template_valid(template, llvm_operand_count(&operands))
+    }
+}
+
+fn operand_fields_valid(operand: InlineAssemblyOperand) -> bool {
+    let input = operand.input().is_some();
+    let runtime = operand.runtime_input().is_some();
+    let output = operand.output().is_some();
+    let constant = operand.constant().is_some();
+
+    match operand.kind() {
+        InlineAssemblyOperandKind::Input | InlineAssemblyOperandKind::Memory => {
+            input && runtime && !output && !constant && operand.symbol().is_none()
+        }
+        InlineAssemblyOperandKind::LateOutput | InlineAssemblyOperandKind::Output => {
+            !input && !runtime && output && !constant && operand.symbol().is_none()
+        }
+        InlineAssemblyOperandKind::InOut | InlineAssemblyOperandKind::EarlyInOut => {
+            input && runtime && output && !constant && operand.symbol().is_none()
+        }
+        InlineAssemblyOperandKind::Immediate => {
+            input && !runtime && !output && constant && operand.symbol().is_none()
+        }
+        InlineAssemblyOperandKind::Symbol => input && !runtime && !output && !constant,
+        InlineAssemblyOperandKind::Label => {
+            !input && !runtime && !output && !constant && operand.symbol().is_none()
+        }
+    }
+}
+
+fn constraint_kind_valid(kind: InlineAssemblyOperandKind, constraint: &str) -> bool {
+    InlineAssemblyConstraint::try_parse(constraint)
+        .is_some_and(|constraint| constraint.kind() == kind)
+}
+
+fn dense_ordinals(ordinals: impl Iterator<Item = u16>) -> bool {
+    let mut seen = 0_u64;
+    let mut count = 0_u32;
+
+    for ordinal in ordinals {
+        let Some(bit) = 1_u64.checked_shl(u32::from(ordinal)) else {
+            return false;
+        };
+
+        if seen & bit != 0 {
+            return false;
+        }
+
+        seen |= bit;
+        count += 1;
+    }
+
+    seen == 1_u64.checked_shl(count).unwrap_or(0).wrapping_sub(1)
+}
+
+fn outputs_precede_inputs(operands: &[InlineAssemblyOperand]) -> bool {
+    let mut saw_pure_input = false;
+
+    for operand in operands {
+        let has_output = operand.output().is_some();
+
+        if saw_pure_input && has_output {
+            return false;
+        }
+
+        saw_pure_input |= !has_output;
+    }
+
+    true
+}
+
+fn llvm_operand_count(operands: &[InlineAssemblyOperand]) -> usize {
+    operands
+        .iter()
+        .map(|operand| {
+            usize::from(operand.output().is_some())
+                + usize::from(operand.input().is_some())
+                + usize::from(operand.kind() == InlineAssemblyOperandKind::Label)
+        })
+        .sum()
+}
+
+fn template_valid(template: &str, operand_count: usize) -> bool {
+    if template.contains('\0') {
+        return false;
+    }
+
+    let bytes = template.as_bytes();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'$' {
+            index += 1;
+            continue;
+        }
+
+        index += 1;
+
+        if index < bytes.len() && bytes[index] == b'$' {
+            index += 1;
+            continue;
+        }
+
+        let braced = index < bytes.len() && bytes[index] == b'{';
+        index += usize::from(braced);
+        let start = index;
+
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+
+        if start == index {
+            return false;
+        }
+
+        let Ok(ordinal) = template[start..index].parse::<usize>() else {
+            return false;
+        };
+
+        if ordinal >= operand_count {
+            return false;
+        }
+
+        if braced {
+            if index >= bytes.len() || bytes[index] != b'}' {
+                return false;
+            }
+
+            index += 1;
+        }
+    }
+
+    true
 }
 
 /// Target-layout value requested by a compiler-provided memory declaration.
@@ -859,8 +1220,9 @@ impl CheckedMemoryOperations {
 mod tests {
     use super::{
         CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
-        CheckedMemoryOperationsBuildError, InlineAssemblyContract, InlineAssemblyOperand,
-        InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS, MemoryReadKind,
+        CheckedMemoryOperationsBuildError, InlineAssemblyConstraint, InlineAssemblyContract,
+        InlineAssemblyOperand, InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS,
+        MemoryReadKind,
     };
     use crate::test_support::error_type;
     use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
@@ -915,9 +1277,10 @@ mod tests {
             1,
         ));
 
-        let contract = InlineAssemblyContract::new(
-            first, first, first, first, first, operands, 2,
-        );
+        let contract = InlineAssemblyContract::try_new(
+            first, first, first, first, first, operands, 2, "", "i,i",
+        )
+        .unwrap_or_else(|| panic!("test assembly contract must validate"));
 
         let operation = CheckedMemoryOperationKind::InlineAssembly {
             inputs: ty,
@@ -928,6 +1291,122 @@ mod tests {
 
         assert_eq!(contract.constant_values().collect::<Vec<_>>(), [first, second]);
         assert_eq!(operation.contract_constants().collect::<Vec<_>>(), [first, second]);
+    }
+
+    #[test]
+    fn inline_assembly_contract_validation_rejects_malformed_external_shapes() {
+        assert_eq!(
+            InlineAssemblyConstraint::try_parse("m").map(InlineAssemblyConstraint::kind),
+            Some(InlineAssemblyOperandKind::Memory),
+        );
+
+        assert_eq!(
+            InlineAssemblyConstraint::try_parse("{rax}").map(InlineAssemblyConstraint::class),
+            Some("rax"),
+        );
+
+        assert_eq!(
+            InlineAssemblyConstraint::try_parse("+{rax}")
+                .map(InlineAssemblyConstraint::explicit),
+            Some(true),
+        );
+
+        assert!(InlineAssemblyConstraint::try_parse("=m").is_none());
+        assert!(InlineAssemblyConstraint::try_parse("{rax").is_none());
+
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let ty = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test assembly type must intern: {error:?}"));
+
+        let constant = values
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Boolean(false),
+            ))
+            .unwrap_or_else(|error| panic!("test assembly constant must intern: {error:?}"));
+
+        let mut operands = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
+
+        operands[0] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Input,
+            ty,
+            Some(0),
+            Some(0),
+            None,
+            None,
+            None,
+            0,
+            3,
+        ));
+
+        let valid = |operands, count, template, constraints| {
+            InlineAssemblyContract::try_new(
+                constant,
+                constant,
+                constant,
+                constant,
+                constant,
+                operands,
+                count,
+                template,
+                constraints,
+            )
+        };
+
+        assert!(valid(operands, 1, "use $0", "reg").is_some());
+        assert!(valid(operands, 1, "use $1", "reg").is_none());
+
+        let mut reserved_register = operands;
+
+        reserved_register[0] = Some(InlineAssemblyOperand::new(
+            InlineAssemblyOperandKind::Input,
+            ty,
+            Some(0),
+            Some(0),
+            None,
+            None,
+            None,
+            0,
+            1,
+        ));
+
+        assert!(valid(reserved_register, 1, "", "m").is_none());
+
+        let contract = valid(operands, 1, "", "reg")
+            .unwrap_or_else(|| panic!("valid assembly contract must be available"));
+
+        let other = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("different assembly type must intern: {error:?}"));
+
+        assert!(contract.operand_types_valid(&[ty], &[], &[]));
+        assert!(!contract.operand_types_valid(&[other], &[], &[]));
+
+        let mut sparse = operands;
+        sparse[0] = None;
+        sparse[1] = operands[0];
+        assert!(valid(sparse, 2, "", "reg,reg").is_none());
+
+        let mut duplicate_runtime = operands;
+
+        duplicate_runtime[1] = operands[0].map(|operand| {
+            InlineAssemblyOperand::new(
+                operand.kind(),
+                operand.ty(),
+                Some(1),
+                Some(0),
+                None,
+                None,
+                None,
+                4,
+                3,
+            )
+        });
+
+        assert!(valid(duplicate_runtime, 2, "", "reg,reg").is_none());
     }
 
     #[test]

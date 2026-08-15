@@ -15,6 +15,7 @@ impl CodegenTarget {
     /// Returns the complete backend-neutral contract for one native toolchain target.
     pub fn for_native(target: NativeTarget) -> Self {
         let profile = target.profile();
+
         let contract = TargetContract::new(
             data_layout(&profile),
             target_abi(),
@@ -196,6 +197,7 @@ mod tests {
                     .map(|convention| convention.as_str()),
                 Some("c")
             );
+
             assert_eq!(
                 target
                     .abi()
@@ -203,6 +205,7 @@ mod tests {
                     .map(|convention| convention.as_str()),
                 Some("c")
             );
+
             assert_eq!(
                 target
                     .abi()

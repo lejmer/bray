@@ -359,7 +359,7 @@ mod tests {
         let other = test_other_type();
         let constant = test_constant_value();
 
-        let assembly = InlineAssemblyContract::new(
+        let assembly = InlineAssemblyContract::try_new(
             constant,
             constant,
             constant,
@@ -367,7 +367,10 @@ mod tests {
             constant,
             [None; bray_bound_tree::MAX_INLINE_ASSEMBLY_OPERANDS],
             0,
-        );
+            "",
+            "",
+        )
+        .unwrap_or_else(|| panic!("test assembly contract must validate"));
 
         let cases = [
             (

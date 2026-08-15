@@ -54,9 +54,9 @@ pub use literal::{
 };
 pub use memory::{
     CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
-    CheckedMemoryOperationsBuildError, InlineAssemblyContract, InlineAssemblyOperand,
-    InlineAssemblyOperandKind, InlineAssemblySymbol, MAX_INLINE_ASSEMBLY_OPERANDS,
-    MemoryAddressKind, MemoryCopyKind,
+    CheckedMemoryOperationsBuildError, InlineAssemblyConstraint, InlineAssemblyContract,
+    InlineAssemblyOperand, InlineAssemblyOperandKind, InlineAssemblySymbol,
+    MAX_INLINE_ASSEMBLY_OPERANDS, MemoryAddressKind, MemoryCopyKind,
     MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus,
     MemoryOrder, MemoryReadKind, PointerAddressComparison, VolatileAddressSpace,
 };
