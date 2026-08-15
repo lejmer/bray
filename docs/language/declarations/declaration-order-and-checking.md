@@ -38,6 +38,10 @@ A declaration that exports public interface metadata exposes its public declarat
 parameters, parameter surfaces, runtime default providers, result types, constant definition or value surfaces, predicate definitions,
 constraints, contracts, trusted obligations, effects, layout contracts, ABI contracts, and lifecycle obligations.
 
+For a reachable static declaration, that surface also includes the open static-instance template, selected-witness and
+target-property requirements, dependency roots, lifecycle dependency template, and external retention requirements. Source graph
+and declaration checking order do not affect the identity or materialization order of closed static instances.
+
 ## Navigation
 
 - [Language index](../index.md)

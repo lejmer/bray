@@ -18,6 +18,13 @@ dependency sets permit the destination, and must conservatively pin the whole ta
 affinity. No different task type is required. A migratable task has no live affinity requirement and can run on any selected worker
 satisfying its execution requirements.
 
+A borrow or capability derived from thread-static storage records the exact native-thread attachment rather than only a compatible
+lane class. A task retaining that dependency is pinned to that exact thread and keeps the attachment open until the dependency is
+resolved.
+
+A product-static dependency can cross a run boundary only when the destination preserves provider ownership and the reached value's
+sharing and synchronization contract permits concurrent use.
+
 There is no detached capability category. Work can outlive its creating block only by moving its `Task<T>`,
 `std.thread.Thread<T>`, or `std.process.Process<T>` owner to another statically valid owner. The owner and all dependencies remain
 source-visible obligations.

@@ -244,6 +244,22 @@ If pattern name resolution is ambiguous, the pattern is rejected.
 
 ---
 
+## Static name expressions
+
+A name expression can resolve to a visible product-static or thread-static declaration.
+
+The expression produces an access path to the demanded closed static instance. Generic arguments and selected implementation
+witnesses are resolved before the instance is selected.
+
+A product-static path carries its owning product dependency. A thread-static path additionally requires the current exact
+native-thread attachment. The path can be observed or shared-borrowed but cannot be moved from, consumed, assigned as a whole, or
+directly mutably borrowed.
+
+Static access does not execute a module body or arbitrary initializer. The complete rules are defined by
+[Static storage declarations](../declarations/static-storage-declarations.md).
+
+---
+
 ## Name resolution and shadowing
 
 Name resolution is deterministic.

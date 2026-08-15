@@ -67,6 +67,30 @@ The compiler-provided inherent async member entries are:
 - `Task<T>.join()`,
 - `Task<T>.cancel()`.
 
+## Static-storage conformance requirements
+
+Product-static and thread-static declarations are language declaration forms. They are not compiler-known declarations and do not
+reserve any standard-library type name.
+
+A conforming compiler, compiled-interface implementation, linker, product host, and standard library preserve:
+
+- constant materialization with no execution on import,
+- arbitrary valid closed type and const substitutions,
+- the canonical static instance identity defined by the declaration rules,
+- selected implementation witnesses and target-profile identity,
+- one owning product instance and one exact native-thread attachment where applicable,
+- open generic templates in compiled interfaces and demand-driven closed realization,
+- stable address identity and static movement restrictions,
+- product-rooted and exact-thread-rooted dependency contracts,
+- entry closure, external-root quiescence, foreign-thread attach and detach, and provider unload safety,
+- consumer-before-provider cleanup for static-owned dependencies inside a teardown set,
+- the stable total node order within each cleanup domain and explicit concurrency between independent domains,
+- exactly-once cleanup ownership and domain-keyed reporting of static cleanup incidents.
+
+`std.sync.Once<T>` and other synchronization or interior-mutation abstractions remain ordinary standard-library declarations.
+Their names are not recognized by the compiler. Their safe contracts must preserve the static storage, publication,
+synchronization, dependency, reentrancy, active-caller failure ownership, waiter retry, cancellation, and cleanup rules they expose.
+
 ## Target-available compiler-known entries
 
 The target-available compiler-known entries are:

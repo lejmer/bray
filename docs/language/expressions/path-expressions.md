@@ -35,6 +35,7 @@ The result of a path expression can be:
 - a callable declaration,
 - a callable value,
 - a union variant constructor,
+- a product-static or thread-static access path,
 - a no-payload union variant value,
 - a static function,
 - a method candidate,
@@ -63,6 +64,9 @@ can coexist with an otherwise conflicting ordinary name.
 They do not execute code.
 
 They do not initialize modules.
+
+Selecting a static declaration through a package or module path demands the closed static instance and produces its access path. A
+re-exported path preserves the declaration and instance identity rather than creating another storage location.
 
 They do not introduce unqualified names.
 

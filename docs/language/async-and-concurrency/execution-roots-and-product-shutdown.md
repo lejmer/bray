@@ -147,11 +147,25 @@ the root lexical cleanup plan:
 
 The product host does not rediscover source owners, inspect standard-library type names, or perform a second source lifecycle pass.
 It observes the already-final root terminal record, takes ownership of any `Completed(T)` payload, maps or reports the outcome, and
-resolves that payload under the product contract. It then drains the mandatory cleanup-report sink, shuts down runtime
-infrastructure after no source run can use it, resolves host-owned process resources, and returns control to the embedding
-environment.
+resolves that payload under the product contract.
+
+After root terminal observation, the host closes new source entries, foreign entries, callbacks, and native-thread attachments for
+the active [teardown set](../declarations/static-storage-declarations.md#entry-closure-and-product-cleanup). It waits for every
+in-flight entry and external root that can reach a domain in that set. A dependency
+owned by a static scheduled for cleanup is an internal lifecycle edge, not an external root. Each eligible attached native thread
+then cleans its thread-static domain on that exact thread and detaches. The host cleans product-static domains after their consumer
+domains and before any retained provider domain.
+
+The mandatory cleanup-report sink, scheduler, required execution lanes, allocator, platform services, loader, and retained provider
+products remain available throughout static cleanup. The host drains static cleanup incidents, shuts down runtime infrastructure,
+resolves host-owned process resources, and returns control to the embedding environment only afterward.
 
 The root run ends at terminal publication. Product shutdown follows terminal observation and is not part of the root run.
+
+Entry closure does not invalidate live product or exact-thread dependencies. A root outside the teardown set blocks every reached
+provider from cleanup and unload. A consumer static inside the set releases its provider edge during dependency-ordered cleanup, so
+the host does not wait for that edge before cleaning the consumer. A dynamically loaded product unloads only after external roots
+have resolved and every scheduled consumer domain has released its internal edge.
 
 The host does not silently detach source-owned work during shutdown. A long-lived child can outlive an inner lexical block only by
 moving its owning value to a valid enclosing source owner. It cannot outlive the executable root unless an external process has

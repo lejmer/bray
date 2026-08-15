@@ -38,10 +38,14 @@ Child processes do not share the Bray memory model merely because they share an 
 output protocols create value-transfer and terminal-observation edges. Shared memory, inherited handles, or memory-mapped storage
 create cross-process visibility only through the explicit synchronization contract of the standard-library type that owns them.
 
-The executable root run begins after product initialization. Its generated root frame observes every root-scope owned child and
+The executable root run begins after product-static materialization. Its generated root frame observes every root-scope owned child and
 completes root lexical lifecycle cleanup before publishing the final terminal record. The root run ends at that publication.
-Host-side outcome mapping, cleanup-sink draining, runtime-infrastructure shutdown, and process-scoped host resource destruction
-follow the root completion edge and therefore cannot race source execution.
+Host-side outcome mapping, entry closure, run quiescence, exact-thread static cleanup, product-static cleanup, cleanup-sink draining,
+runtime-infrastructure shutdown, and process-scoped host resource destruction follow the root completion edge and therefore cannot
+race source execution.
+
+Synchronization used by an explicit runtime initialization state machine determines when a contained static value is published.
+Constant materialization alone does not create an inter-run publication edge for later interior mutation.
 
 ## Navigation
 

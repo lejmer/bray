@@ -17,6 +17,10 @@ A dependency contract can include:
 - finalization or destruction obligations that must remain attached to the value,
 - conditions whose validity depends on the same storage, capability, or ownership state.
 
+The non-lexical storage roots include exact product instances and exact native-thread attachments. A product-static borrow records
+the product and static instance that must remain available. A thread-static borrow also records the attachment on which the storage
+exists and can be used.
+
 It can also contain an open run-transfer requirement. Such a requirement states that an owned subject and every dependency it can
 carry must remain valid if ownership or access moves to a distinct task, native thread, or synchronized shared owner. It identifies
 the destination run class and rejects creating-run borrows, incompatible thread affinity, unsynchronized shared mutation, and
@@ -68,6 +72,18 @@ execution contract and guaranteed normal-completion postcondition template. Cont
 every reachable producer.
 
 Moving a value moves its dependency contract with the value.
+
+Product-rooted dependencies can escape a callable and cross package or dynamic-library boundaries only when the destination retains
+the provider product. Exact-thread-rooted dependencies can escape a callable only into an owner that remains on that attachment.
+They pin a retained task while live.
+
+A provider product cannot close or unload while a live external transitive dependency can reach its storage, entries, callbacks,
+callable values, or code. A dependency owned by a static in the active teardown set instead orders consumer cleanup before provider
+cleanup and is released when the consumer is destroyed. A native-thread attachment cannot detach while a live dependency outside
+its scheduled thread-static cleanup can reach its storage.
+
+Static dependency templates, including generic selected-witness and target-dependent terms, are recorded in compiled interfaces.
+Closed templates contribute lifecycle graph edges for product and thread cleanup.
 
 Destroying, finalizing, cancelling, joining, assigning `none`, or otherwise resolving a value resolves or invalidates the dependency contract carried by that value according to the operation's contract.
 

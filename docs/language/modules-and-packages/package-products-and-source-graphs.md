@@ -18,6 +18,9 @@ Product identity, selected source inputs, selected dependencies, and target cons
 
 A product is not a module and does not create a declaration container or lookup scope.
 
+A runtime **product instance** is one activation of a formed executable, test, or loadable library product. Product-static storage
+identity and cleanup ownership use that activation identity, not package identity alone.
+
 A source declaration can contribute to more than one product when it is present in each product's selected source graph and is valid
 under each product's product kind and target constraints.
 
@@ -42,6 +45,9 @@ The same source input cannot appear more than once in the same product source gr
 
 Source graph construction is deterministic. The same package identity, product kind, selected source graph, selected dependency
 graph, and target profile produce the same compiler input.
+
+Closed static instance identity is independent of source graph ordering. The selected source and dependency graphs determine which
+declarations and imported templates can be demanded, while the final product instance owns the realized storage.
 
 ## Navigation
 

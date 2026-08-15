@@ -22,6 +22,9 @@ Lifecycle declarations participate in ownership, borrowing, mutation authority, 
 
 Lifecycle rules apply to product types, union types, implementation-eligible type forms with lifecycle behavior, and compiler-known types whose language-defined contract includes lifecycle behavior.
 
+They also apply when a product host or exact native-thread attachment resolves a static owner. Every materialized static instance
+has one cleanup owner and one deterministic position in its instantiated lifecycle dependency graph.
+
 ## Navigation
 
 - [Language index](../index.md)

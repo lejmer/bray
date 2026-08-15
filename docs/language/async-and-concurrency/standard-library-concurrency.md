@@ -11,6 +11,44 @@ General stream, path, filesystem, process-context, raw child-process, clock, and
 [I/O and platform services](../io-and-platform-services.md). This chapter defines the additional concurrency, typed child-process,
 and structured ownership contracts built over that surface.
 
+## One-time initialization
+
+`std.sync.Once<T>` is a non-copyable synchronized owner with no public primary construction. Its public declarations are:
+
+```bray
+impl Once<T>
+{
+    static const func empty() -> Self;
+    func get_or_init(pos initializer: func() -> T) -> &T;
+    func get_or_try_init<E>(pos initializer: func() -> Result<T, E>) -> Result<&T, E>;
+}
+```
+
+`empty()` is valid in static-initializer constant evaluation and creates the `empty` state without executing runtime code.
+
+The first successful initializer publishes exactly one completely initialized `T`. Concurrent callers wait for that attempt and
+observe its synchronization edge before borrowing the value. Normal completion changes the state to `initialized` and wakes all
+waiters.
+
+A returned error from `get_or_try_init`, panic, or cancellation publishes no value, returns the state to `empty`, and wakes waiters.
+The active caller alone receives its returned `E`, propagates its panic, or enters its cancellation outcome. Existing waiters do not
+inherit that outcome. Each awakened waiter rechecks the cell and, unless its own run is cancelled, competes to start a new attempt
+with its own initializer and error type. One eligible caller becomes the next initializer while the others wait again. No priority
+among eligible callers is guaranteed. `Once<Result<T, E>>` caches a failure because the `Result` is then the successfully initialized
+value.
+
+Waiting is cancellation-aware. A waiter that observes cancellation of its own run withdraws without invoking its initializer or
+changing the cell state, then continues that run's cancellation. This outcome is independent of the active attempt's outcome.
+
+Direct or indirect reentry into the same `Once<T>` on its current initialization chain panics before waiting and marks that cell's
+owning attempt as failed. Catching the panic inside the initializer cannot make the attempt publishable. A value later returned by
+that initializer is lifecycle-resolved, the cell returns to `empty`, and the outer accessor propagates the reentry panic. This rule
+prevents a reentrant initialization cycle from becoming an indefinite self-wait.
+
+The returned borrow depends on the `Once<T>` owner. When the owner is a product static, that dependency is product-rooted. When it
+is a thread static, it also carries the exact native-thread attachment root. Destroying an initialized `Once<T>` lifecycle-resolves
+the contained `T` exactly once. Destroying an empty or rolled-back value destroys no `T`.
+
 ## Run and task utilities
 
 `std.run` provides the universal logical-run surface:

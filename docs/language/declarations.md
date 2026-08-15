@@ -19,6 +19,7 @@ Declarations introduce named program entities, members, module contributions, co
 - [Declaration-owned expressions](declarations/declaration-owned-expressions.md)
 - [Declaration bodies and requirements](declarations/declaration-bodies-and-requirements.md)
 - [Constant declarations](declarations/constant-declarations.md)
+- [Static storage declarations](declarations/static-storage-declarations.md)
 - [Predicate declarations](declarations/predicate-declarations.md)
 - [Overload declarations](declarations/overload-declarations.md)
 - [Declaration order and checking](declarations/declaration-order-and-checking.md)

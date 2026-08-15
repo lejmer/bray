@@ -13,6 +13,7 @@ Modules and packages define package identity, product source graphs, module iden
 - [Conditional module contributions](modules-and-packages/conditional-module-contributions.md)
 - [Library and executable products](modules-and-packages/library-and-executable-products.md)
 - [Test products and entries](modules-and-packages/test-products-and-entries.md)
+- [Static ownership by product kind](declarations/static-storage-declarations.md#product-ownership-forms)
 - [Target constraints and gates](modules-and-packages/target-constraints-and-gates.md)
 - [Module declarations](modules-and-packages/module-declarations.md)
 - [Split modules](modules-and-packages/split-modules.md)

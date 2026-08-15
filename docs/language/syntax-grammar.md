@@ -95,6 +95,7 @@ Module-level declarations can appear directly after a source-unit module declara
 ```ebnf
 module-level-declaration =
       constant-declaration
+    | static-declaration
     | function-declaration
     | callable-contract-declaration
     | type-declaration
@@ -301,7 +302,8 @@ grouped-access-expression =
 
 access-postfix-operation =
       member-access-operation
-    | element-index-operation ;
+    | element-index-operation
+    | generic-argument-list ;
 
 member-access-operation =
     "." member-selector ;
@@ -358,7 +360,7 @@ postfix-operation =
     | trait-qualified-member-operation ;
 
 call-operation =
-    [ generic-argument-list ] argument-list ;
+    argument-list ;
 
 slice-index-operation =
     "[" slice-selector "]" ;
@@ -445,6 +447,10 @@ The parser accepts omitted operands for `yield`, `return`, and `break`. Semantic
 valid target contexts.
 
 The block after a `with` header belongs to the `with-expression`. It is not parsed as part of the initializer expression.
+
+A generic argument list in an access path applies the preceding generic declaration. This form selects closed generic types,
+callables, and static instances. A following argument list calls a selected callable. Applying generic arguments to a non-generic
+declaration is a semantic error.
 
 ### Argument lists
 
@@ -1266,6 +1272,38 @@ The initializer is checked as a constant expression.
 Visibility modifiers are valid only in declaration contexts that support declaration visibility.
 
 Constant-valued trait members use the same declaration shape, with their own member-specific initializer rules.
+
+---
+
+## Static declarations
+
+Static declarations introduce address-bearing product or native-thread storage.
+
+```ebnf
+static-declaration =
+    static-declaration-modifiers [ "thread" ] "static" identifier
+    [ generic-parameter-list ] ":" type-expression { with-clause }
+    "=" constant-expression ";" ;
+
+static-declaration-modifiers =
+    [ visibility-modifier ] ;
+```
+
+`static` declares product storage. `thread static` declares storage for each attached native thread.
+
+`thread` is contextual in this declaration position and remains an identifier elsewhere, including in the module path
+`std.thread`.
+
+Generic parameters, when present, are written after the declaration name. Header `with(...)` clauses establish static constraints
+for the declaration.
+
+The type annotation and initializer are required. The initializer is checked as a constant expression template.
+
+Visibility modifiers are valid because static declarations are module-level declarations. The modifier order is visibility,
+optional `thread`, then `static`.
+
+The complete storage, specialization, access, dependency, and cleanup rules are defined in
+[Static storage declarations](declarations/static-storage-declarations.md).
 
 ---
 

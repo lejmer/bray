@@ -15,6 +15,15 @@ A library product has no runtime entry point.
 
 An `@entrypoint` directive in a library product source graph is rejected.
 
+A compiled library interface carries reachable open static-instance templates but owns no live static storage. A static-library
+archive contributes demanded realizations to each final consuming product. A loaded shared-library product forms its own product
+instance and owns storage distinct from its executable, test, static-link, and separately loaded peers.
+
+Foreign ABI entries into a loaded library acquire an entry dependency on that product instance. Unload first closes new entries,
+then waits for in-flight entries and external roots that can reach product storage or code. Static-owned edges inside the teardown
+set order consumer cleanup before provider cleanup and are released by that cleanup. The host cleans exact-thread and product
+statics before releasing the loaded code and data.
+
 ## Executable products
 
 An executable product has exactly one resolved entry point.
@@ -83,6 +92,9 @@ The host process and its initial operating-system thread do not produce source-v
 
 The complete root-run, main-thread, terminal-observation, and product-shutdown rules are defined by
 [Execution roots and product shutdown](../async-and-concurrency/execution-roots-and-product-shutdown.md).
+
+Executable product statics are materialized before entry and cleaned after root terminal observation, entry closure, and run
+quiescence. Their required runtime and platform services remain available through static cleanup.
 
 `@entrypoint` does not change a function's name, module, visibility, callable type, ABI, contract, overload participation, or
 export behavior.

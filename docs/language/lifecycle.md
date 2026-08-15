@@ -10,6 +10,7 @@ Lifecycle rules define construction, finalization, destruction, scoped use, life
 - [Lifecycle declarations](lifecycle/lifecycle-declarations.md)
 - [Lifecycle selection](lifecycle/lifecycle-selection.md)
 - [Lifecycle ordering](lifecycle/lifecycle-ordering.md)
+- [Static storage cleanup](declarations/static-storage-declarations.md#static-lifecycle-state)
 - [Construction](lifecycle/construction.md)
 - [Finalization](lifecycle/finalization.md)
 - [Destruction](lifecycle/destruction.md)

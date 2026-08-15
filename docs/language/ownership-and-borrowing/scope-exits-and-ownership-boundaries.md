@@ -32,6 +32,12 @@ If the destination could outlive required storage or a required scoped capabilit
 
 If a dependency contract cannot be represented in the destination's declared semantic contract, the transfer is rejected.
 
+Storing into a product static requires every carried dependency to be rooted in the same product or in a retained provider proven
+to outlive that storage. An exact-thread-rooted dependency cannot be stored in product-static storage.
+
+Storing into a thread static requires every carried dependency to be rooted in the same exact attachment, its owning product, or a
+retained provider proven to outlive the attachment.
+
 Function, method, constructor, lifecycle, lambda, async, and implementation bodies are checked against their inferred dependency contracts.
 
 At each normal exit, the result value's dependency contract must be derived from parameters, receiver state, owned input values, async or task state available to that body, or other storage and capabilities that outlive the returned value.

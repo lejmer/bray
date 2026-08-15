@@ -7,6 +7,8 @@ An access path is a source-level route to storage or to a subpart of storage.
 Examples of access paths include:
 
 - local bindings,
+- product-static instances,
+- thread-static instances on the current exact native-thread attachment,
 - field access paths,
 - tuple element projections,
 - array element projections,
@@ -45,6 +47,13 @@ Two access paths are disjoint when the compiler proves that they cannot reach ov
 Disjointness can be proven through distinct product fields, tuple elements, active union payload fields, array elements, slice ranges, and type-form projections whose rules guarantee non-overlap.
 
 If overlap cannot be proven statically, the access paths are treated as potentially overlapping.
+
+A static access path has no source-owned movement or whole-storage mutation authority. It can be observed and shared-borrowed while
+its dependency root remains available. Interior mutation can project capabilities only through an operation whose contract
+establishes synchronization, atomicity, single assignment, or scoped exclusivity.
+
+A product-static path is rooted in its owning product instance. A thread-static path is rooted in both its owning product and the
+current exact native-thread attachment. These roots participate in every projection from the path.
 
 Disjointness participates in borrow checking, mutation authority, movement, initialization, destruction, finalization, and condition refinement.
 

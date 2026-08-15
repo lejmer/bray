@@ -14,6 +14,9 @@ struct ArrayBuffer<T, const N: usize>
 {
     items: [T; N];
 }
+
+static EMPTY_BUFFER<T, const N: usize>: ArrayBuffer<T, N>
+    with(T: Copyable) = ArrayBuffer<T, N>.empty();
 ```
 
 Generic parameter lists can contain:
@@ -48,6 +51,9 @@ Generic implementation parameters are inferred from otherwise unresolved generic
 Generic type rules are defined in [Generic types](../types/generic-types.md).
 
 Generic function rules are defined in [Generic functions](../callables/generic-functions.md).
+
+Generic static declarations define open instance templates. Each demanded closed substitution selects one address-bearing instance
+according to [Static storage declarations](static-storage-declarations.md).
 
 ## Navigation
 

@@ -169,15 +169,26 @@ struct CallbackPair
 A lambda can satisfy an ABI-qualified callable type only when the lambda expression explicitly carries the same `@abi(...)` directive and the selected ABI permits the required callable representation.
 
 An exported foreign callable address names a compiler-generated trampoline rather than the Bray body directly. The trampoline
-attaches an otherwise foreign thread to the runtime for the invocation, establishes a synchronous Bray run, and contains panic or
-cancellation at that boundary. Normal completion returns the body's ABI result. A panic is reported through the runtime panic sink
-before the trampoline returns the ABI-zero result. Cancellation also returns the ABI-zero result, and result-less callbacks return
-normally after either abnormal outcome. Neither panic nor cancellation unwinds into foreign code.
+acquires an entry dependency on the provider product, attaches an otherwise foreign thread to that product, establishes a
+synchronous Bray run, and contains panic or cancellation at that boundary. Normal completion returns the body's ABI result. A
+panic is reported through the runtime panic sink before the trampoline returns the ABI-zero result. Cancellation also returns the
+ABI-zero result, and result-less callbacks return normally after either abnormal outcome. Neither panic nor cancellation unwinds
+into foreign code.
+
+Nested foreign entries on one native thread reuse its current product attachment. The outermost matching detach resolves
+thread-static instances on that exact thread after all nested entries, pinned tasks, callbacks, and external exact-thread
+dependencies have resolved. Product unload closes new entry and attachment first, then drains external roots. Static-owned edges in
+the teardown set are released by consumer-before-provider cleanup before code release.
 
 Bray callable values remain capture-free. The standard `std.ffi.CallbackContext<State>` owner supplies stable-address storage when
-a foreign API needs an explicit state pointer. Construction consumes the state value. A static exported ABI callable receives the
+a foreign API needs an explicit state pointer. Construction consumes the state value. A capture-free exported ABI callable receives the
 opaque context as its first parameter and uses the trusted recognized `std.ffi.callback_state<State>(context)` operation to borrow
 the live state.
+
+A Bray source static and a foreign ABI data symbol are distinct declaration forms. Exporting or re-exporting a Bray static through
+module paths does not publish its address as an ABI data symbol. A foreign data declaration must define explicit target symbol,
+ownership, mutability, thread-local, and provider-retention behavior, and accessing it does not automatically create a safe Bray
+borrow.
 
 The compiler accepts that operation only when the context expression is the matching live parameter of the exported entry and the
 state type is the one owned by the registered context. The resulting borrow cannot escape the invocation or outlive the context

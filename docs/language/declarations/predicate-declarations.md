@@ -48,5 +48,5 @@ Trait implementation predicate members define predicate fulfillments for the imp
 
 - [Language index](../index.md)
 - [Declarations index](../declarations.md)
-- Previous: [Constant declarations](constant-declarations.md)
+- Previous: [Static storage declarations](static-storage-declarations.md)
 - Next: [Overload declarations](overload-declarations.md)
