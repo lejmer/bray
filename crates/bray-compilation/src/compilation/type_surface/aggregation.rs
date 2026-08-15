@@ -1,4 +1,4 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_declarations::DeclarationId;
 use bray_symbols::{
     AnySymbolId, InherentImplementationSymbol, MemberEntry, MemberValidity, MemberVisibility,
@@ -6,7 +6,7 @@ use bray_symbols::{
 };
 
 use super::query::NamedTypeRecord;
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 use crate::fact::FactQueryError;
 
 type LifecycleMemberInput = (AnySymbolId, TypeAssociatedLifecycleSlot);
@@ -20,7 +20,7 @@ enum MemberOrderKey {
 }
 
 pub(super) fn collect_named_type_members(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     record: NamedTypeRecord<'_>,
 ) -> Result<CollectedMembers, FactQueryError> {
     let mut members = Vec::new();
@@ -58,7 +58,12 @@ pub(super) fn collect_named_type_members(
                     .map(AnySymbolId::from),
             );
 
-            collect_constructors(facts, record.constructors(), &mut members, &mut lifecycle)?;
+            collect_constructors(
+                binding_context,
+                record.constructors(),
+                &mut members,
+                &mut lifecycle,
+            )?;
 
             collect_lifecycle(
                 record.finalizers(),
@@ -91,15 +96,15 @@ pub(super) fn collect_named_type_members(
         NamedTypeRecord::Union(record) => collect!(record, variants),
     }
 
-    let members = sort_symbols(facts, members)?;
-    let members = member_inputs(facts, members)?;
-    let lifecycle = sort_lifecycle(facts, lifecycle)?;
+    let members = sort_symbols(binding_context, members)?;
+    let members = member_inputs(binding_context, members)?;
+    let lifecycle = sort_lifecycle(binding_context, lifecycle)?;
 
     Ok((members, lifecycle))
 }
 
 pub(super) fn collect_implementation_members(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     record: &InherentImplementationSymbol,
 ) -> Result<CollectedMembers, FactQueryError> {
     let mut members = Vec::new();
@@ -125,7 +130,12 @@ pub(super) fn collect_implementation_members(
             .map(AnySymbolId::from),
     );
 
-    collect_constructors(facts, record.constructors(), &mut members, &mut lifecycle)?;
+    collect_constructors(
+        binding_context,
+        record.constructors(),
+        &mut members,
+        &mut lifecycle,
+    )?;
 
     collect_lifecycle(
         record.finalizers(),
@@ -152,13 +162,13 @@ pub(super) fn collect_implementation_members(
     );
 
     Ok((
-        member_inputs(facts, sort_symbols(facts, members)?)?,
-        sort_lifecycle(facts, lifecycle)?,
+        member_inputs(binding_context, sort_symbols(binding_context, members)?)?,
+        sort_lifecycle(binding_context, lifecycle)?,
     ))
 }
 
 fn collect_constructors(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     constructors: &[bray_symbols::ConstructorSymbolId],
     members: &mut Vec<AnySymbolId>,
     lifecycle: &mut Vec<LifecycleMemberInput>,
@@ -168,7 +178,7 @@ fn collect_constructors(
 
         members.push(id);
 
-        if member_entry(facts, id)?.is_none() {
+        if member_entry(binding_context, id)?.is_none() {
             lifecycle.push((id, TypeAssociatedLifecycleSlot::PrimaryConstructor));
         }
     }
@@ -193,31 +203,31 @@ fn collect_lifecycle<I>(
 }
 
 fn member_inputs(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     members: Vec<AnySymbolId>,
 ) -> Result<Vec<MemberInput>, FactQueryError> {
     members
         .into_iter()
-        .map(|member| Ok((member, member_entry(facts, member)?)))
+        .map(|member| Ok((member, member_entry(binding_context, member)?)))
         .collect()
 }
 
 pub(super) fn member_entry(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     member: AnySymbolId,
 ) -> Result<Option<MemberEntry<AnySymbolId>>, FactQueryError> {
-    if let Some(entry) = facts.symbols().member_entry(member) {
+    if let Some(entry) = binding_context.symbols().member_entry(member) {
         // The surface owns lookup metadata independently of the source symbol graph.
         return Ok(Some(entry.clone()));
     }
 
-    if facts.symbols().symbol_key(member).is_some() {
+    if binding_context.symbols().symbol_key(member).is_some() {
         return Ok(None);
     }
 
-    let imported = facts
+    let imported = binding_context
         .imported_symbols()
-        .map_err(crate::compilation::binder::binder_fact_error)?;
+        .map_err(crate::compilation::binder::binding_query_error)?;
 
     let Some(imported) = imported else {
         return Ok(None);
@@ -238,31 +248,33 @@ pub(super) fn member_entry(
 }
 
 pub(super) fn sort_symbols<I>(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbols: Vec<I>,
 ) -> Result<Vec<I>, FactQueryError>
 where
     I: Copy + Into<AnySymbolId>,
 {
-    sort_symbols_by(facts, symbols, |key| match key.source_declaration_id() {
-        Some(declaration) => MemberOrderKey::Source(declaration),
-        // Sorting owns stable Arc-backed keys beyond provider borrows.
-        None => MemberOrderKey::Stable(key.clone()),
+    sort_symbols_by(binding_context, symbols, |key| {
+        match key.source_declaration_id() {
+            Some(declaration) => MemberOrderKey::Source(declaration),
+            // Sorting owns stable Arc-backed keys beyond provider borrows.
+            None => MemberOrderKey::Stable(key.clone()),
+        }
     })
 }
 
 pub(super) fn sort_symbols_by_key<I>(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbols: Vec<I>,
 ) -> Result<Vec<I>, FactQueryError>
 where
     I: Copy + Into<AnySymbolId>,
 {
-    sort_symbols_by(facts, symbols, Clone::clone)
+    sort_symbols_by(binding_context, symbols, Clone::clone)
 }
 
 fn sort_symbols_by<I, K>(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbols: Vec<I>,
     order: impl Fn(&SymbolKey) -> K,
 ) -> Result<Vec<I>, FactQueryError>
@@ -270,16 +282,16 @@ where
     I: Copy + Into<AnySymbolId>,
     K: Ord,
 {
-    let imported = facts
+    let imported = binding_context
         .imported_symbols()
-        .map_err(crate::compilation::binder::binder_fact_error)?;
+        .map_err(crate::compilation::binder::binding_query_error)?;
 
     let mut keyed = symbols
         .into_iter()
         .map(|symbol| {
             let erased = symbol.into();
 
-            let key = facts
+            let key = binding_context
                 .symbols()
                 .symbol_key(erased)
                 .or_else(|| imported.and_then(|symbols| symbols.symbol_key(erased)))
@@ -295,12 +307,12 @@ where
 }
 
 fn sort_lifecycle(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     lifecycle: Vec<LifecycleMemberInput>,
 ) -> Result<Vec<LifecycleMemberInput>, FactQueryError> {
     let ids = lifecycle.iter().map(|(id, _)| *id).collect::<Vec<_>>();
 
-    let order = sort_symbols(facts, ids)?
+    let order = sort_symbols(binding_context, ids)?
         .into_iter()
         .enumerate()
         .map(|(ordinal, id)| (id, ordinal))

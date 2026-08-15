@@ -92,7 +92,7 @@ A representation role is a closed Rust enum value that tells semantic and loweri
 representation behavior. Examples can include scalar Boolean, signed integer, raw pointer, or task handle roles.
 
 An embedded declaration surface marked `internal` is a compiler-internal semantic identity. It can carry a representation role and
-participate in compiler facts, but it does not enter the compiler-known environment's ordinary source lookup surface. This supports
+participate in compiler catalog properties, but it does not enter the compiler-known environment's ordinary source lookup surface. This supports
 keyword-spelled and otherwise syntax-selected language identities without creating a second identifier spelling for user code.
 
 The catalog names a role. Rust defines and implements it.
@@ -161,7 +161,7 @@ Later consumers interpret typed metadata without adding reverse dependencies:
 - `bray-binder` binds catalog declaration-owned syntax through ordinary semantic rules,
 - `bray-checker` interprets checker-owned representation and behavior roles,
 - `bray-lowering` maps implementation hooks to lowering behavior,
-- `bray-compilation` evaluates target availability and coordinates lazy facts.
+- `bray-compilation` evaluates target availability and coordinates lazy catalog properties.
 
 ### Module Shape
 
@@ -542,7 +542,7 @@ It should not repeatedly look up string spellings or catalog keys throughout che
 Representation role spellings map exhaustively to a Rust enum owned by `bray-compiler-known`.
 
 Representation roles describe semantic identity and protected representation. They do not contain target layout values. Target
-layout remains a lazy compilation fact derived from the selected target profile and the declaration's role.
+layout remains a lazy compilation catalog property derived from the selected target profile and the declaration's role.
 
 Unknown role spellings are catalog validation errors. Duplicate use of a unique role is rejected unless the role contract explicitly
 permits several declarations.
@@ -594,7 +594,7 @@ The catalog does not contain an arbitrary boolean expression evaluator. Rust imp
 target properties. `Always` is the default when the field is absent.
 
 The global catalog retains every declaration. A target-specific catalog view filters or marks entries through a lazy compilation
-fact. Target selection must not mutate the process-wide catalog.
+catalog property. Target selection must not mutate the process-wide catalog.
 
 ### Expression Operation Roles
 
@@ -695,7 +695,7 @@ The production compiler links deterministic generated Rust tables and exposes th
 deserialize a catalog blob during compiler startup.
 
 The catalog is target-independent and can be shared by all compilations in the process. A target-specific available-surface view is
-a separate compilation-owned lazy fact.
+a separate compilation-owned lazy catalog property.
 
 Generated tables include stable typed indexes so publication requires no mutable global construction. If a derived runtime view
 genuinely requires allocation, it may use one-time immutable initialization, but catalog parsing and validation remain build-time
@@ -773,11 +773,11 @@ The provider:
 2. Assigns compilation-local typed symbol IDs from authoritative catalog descriptor order.
 3. Creates ordinary kind-specific symbol records with `CompilerKnown` or `CompilerProvided` origin.
 4. Publishes stable catalog-key-to-symbol-ID indexes.
-5. Supplies lazy declaration-surface facts backed by catalog descriptors.
-6. Evaluates target availability through compilation-owned facts.
+5. Supplies lazy declaration-surface catalog properties backed by catalog descriptors.
+6. Evaluates target availability through compilation-owned catalog properties.
 
 A compiler-known struct produces the same `StructSymbol` API as a source struct. A compiler-provided function produces the same
-`FunctionSymbol` API as a source function. Origin-specific storage remains behind symbol fact providers.
+`FunctionSymbol` API as a source function. Origin-specific storage remains behind symbol catalog property providers.
 
 Stable catalog keys are retained as origin identities but are not substitutes for typed symbol IDs in ordinary semantic APIs.
 
@@ -851,7 +851,7 @@ check verifies freshness only and must not duplicate catalog parsing or generati
 - validate exhaustive consistency between descriptor role metadata and typed implementation-hook and representation-role indexes,
 - validate portable, complete, and individual-capability target views without mutating the process-wide catalog,
 - build one declaration-surface completion plan that reaches every ambient, module-owned, and nested compiler-known declaration,
-- force every planned catalog-owned semantic fact through the ordinary symbol-completion API,
+- force every planned catalog-owned semantic catalog property through the ordinary symbol-completion API,
 - require serial and parallel completion to produce identical diagnostics,
 - validate recognized standard-library fixtures where available,
 - exit unsuccessfully when any invariant fails.
@@ -871,7 +871,7 @@ structural validation, or startup allocation merely to recover trusted compiler 
 constructors and static tables rather than a parallel serialized schema.
 
 The consumer boundary remains `CompilerKnownCatalog`, so generation details do not leak into symbol, binder, checker, or lowering
-APIs. Runtime laziness remains appropriate for target-dependent availability and semantic facts that genuinely depend on a
+APIs. Runtime laziness remains appropriate for target-dependent availability and semantic catalog properties that genuinely depend on a
 compilation. It is not used to defer parsing or validating the compiler's own catalog sources.
 
 ---
@@ -887,7 +887,7 @@ The catalog must satisfy these invariants:
 - scope contribution merging is deterministic,
 - validation errors have deterministic ordering,
 - target filtering does not mutate shared descriptors,
-- no lazy request publishes a partially completed catalog or symbol fact,
+- no lazy request publishes a partially completed catalog or symbol catalog property,
 - concurrent requests observe equivalent immutable values.
 
 Catalog text, validated descriptors, and process-wide indexes can be shared through immutable references or `Arc`. Compilation-local

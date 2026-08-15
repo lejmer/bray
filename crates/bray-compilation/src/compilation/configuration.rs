@@ -14,7 +14,7 @@ impl super::Compilation {
         let codegen_target = selected_target.codegen_target()?;
 
         // The target profile and panic ABI are immutable identity values owned by the bundle.
-        let mir_target = bray_ir::MirTargetFacts::new(
+        let mir_target = bray_ir::MirTargetContract::new(
             selected_target.profile().clone(),
             selected_target.runtime_abi(),
         );

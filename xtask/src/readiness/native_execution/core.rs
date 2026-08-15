@@ -61,12 +61,10 @@ impl BuiltFixture {
 
         build(output.path())?;
 
-        let executable_name = TargetOutputName::for_native(
-            target.object_format(),
-            TargetOutputKind::Executable,
-        )
-        .file_name(PRODUCT_NAME)
-        .ok_or_else(|| format!("{prefix} fixture executable name is invalid"))?;
+        let executable_name =
+            TargetOutputName::for_native(target.object_format(), TargetOutputKind::Executable)
+                .file_name(PRODUCT_NAME)
+                .ok_or_else(|| format!("{prefix} fixture executable name is invalid"))?;
 
         let expected_executable = output.path().join(executable_name);
 
@@ -144,7 +142,9 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
         audit_text_cursor(root, target, &runtime)
     })?;
 
-    crate::progress::run("Checking native startup", || audit_startup(root, target, &runtime))?;
+    crate::progress::run("Checking native startup", || {
+        audit_startup(root, target, &runtime)
+    })?;
 
     crate::progress::run("Checking native entry results", || {
         audit_entry_result(root, target, &runtime)
@@ -246,11 +246,7 @@ fn audit_atomic_operations(
     let first_objects = object_files(first.path(), target)?;
     let second_objects = object_files(second.path(), target)?;
 
-    require_equal_files(
-        &first_executable,
-        &second_executable,
-        "atomic executable",
-    )?;
+    require_equal_files(&first_executable, &second_executable, "atomic executable")?;
 
     require_equal_artifacts(&first_objects, &second_objects)?;
 
@@ -296,10 +292,8 @@ fn audit_memory_layout(root: &Path, target: NativeTarget, runtime: &Path) -> Res
 }
 
 fn audit_text_cursor(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let output = BuiltFixture::build_standard_library(
-        "bray-native-text-cursor-",
-        target,
-        |output| {
+    let output =
+        BuiltFixture::build_standard_library("bray-native-text-cursor-", target, |output| {
             build_standard_library_fixtures(
                 root,
                 target,
@@ -307,8 +301,7 @@ fn audit_text_cursor(root: &Path, target: NativeTarget, runtime: &Path) -> Resul
                 output,
                 &[STANDARD_TEXT_FIXTURE, TEXT_CURSOR_FIXTURE],
             )
-        },
-    )?;
+        })?;
 
     execute_product(
         output.executable(),
@@ -364,17 +357,13 @@ fn audit_startup(root: &Path, target: NativeTarget, runtime: &Path) -> Result<()
 }
 
 fn audit_primitive_abi(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
-    let first = BuiltFixture::build_command_line(
-        "bray-native-abi-first-",
-        target,
-        |output| build_fixture(root, target, runtime, ABI_FIXTURE, output),
-    )?;
+    let first = BuiltFixture::build_command_line("bray-native-abi-first-", target, |output| {
+        build_fixture(root, target, runtime, ABI_FIXTURE, output)
+    })?;
 
-    let second = BuiltFixture::build_command_line(
-        "bray-native-abi-second-",
-        target,
-        |output| build_fixture(root, target, runtime, ABI_FIXTURE, output),
-    )?;
+    let second = BuiltFixture::build_command_line("bray-native-abi-second-", target, |output| {
+        build_fixture(root, target, runtime, ABI_FIXTURE, output)
+    })?;
 
     require_equal_files(
         first.executable(),
@@ -438,17 +427,13 @@ fn audit_repeatable_fixture(
     name: &str,
     required_object_evidence: &[&str],
 ) -> Result<(), String> {
-    let first = BuiltFixture::build_command_line(
-        &format!("{prefix}first-"),
-        target,
-        |output| build_fixture(root, target, runtime, fixture, output),
-    )?;
+    let first = BuiltFixture::build_command_line(&format!("{prefix}first-"), target, |output| {
+        build_fixture(root, target, runtime, fixture, output)
+    })?;
 
-    let second = BuiltFixture::build_command_line(
-        &format!("{prefix}second-"),
-        target,
-        |output| build_fixture(root, target, runtime, fixture, output),
-    )?;
+    let second = BuiltFixture::build_command_line(&format!("{prefix}second-"), target, |output| {
+        build_fixture(root, target, runtime, fixture, output)
+    })?;
 
     require_equal_files(
         first.executable(),
@@ -484,17 +469,15 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
             Some("native readiness panic"),
         ),
     ] {
-        let first = BuiltFixture::build_command_line(
-            "bray-native-host-first-",
-            target,
-            |output| build_fixture(root, target, runtime, fixture, output),
-        )?;
+        let first =
+            BuiltFixture::build_command_line("bray-native-host-first-", target, |output| {
+                build_fixture(root, target, runtime, fixture, output)
+            })?;
 
-        let second = BuiltFixture::build_command_line(
-            "bray-native-host-second-",
-            target,
-            |output| build_fixture(root, target, runtime, fixture, output),
-        )?;
+        let second =
+            BuiltFixture::build_command_line("bray-native-host-second-", target, |output| {
+                build_fixture(root, target, runtime, fixture, output)
+            })?;
 
         require_equal_files(first.executable(), second.executable(), name)?;
 

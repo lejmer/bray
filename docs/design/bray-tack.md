@@ -34,7 +34,7 @@ deterministic before compiler work begins.
 - `bray fmt` resolves the selected formatter configuration and routes explicit files, standard input (`-`), or the sorted
   root-package source graph to `brayfmt`.
 - `bray inspect project` renders the immutable graph. Other inspection kinds select exactly one
-  manifest product and delegate to existing compiler fact inspection.
+  manifest product and delegate to existing compiler query inspection.
 - `bray language-server` runs `bray-lsp` for the selected workspace and target and forwards the
   protocol streams without interpreting framed messages.
 - `bray vendor install <name> <git-repository>` explicitly clones one repository beneath
@@ -114,7 +114,7 @@ Building hello_world/application [debug]
    ✓ Finished application.exe   build/native/debug/hello_world  2/2 units  247 ms
 ```
 
-JSON output carries the same workflow facts as structured data rather than terminal-rendered
+JSON output carries the same workflow records as structured data rather than terminal-rendered
 strings. Package completion order remains deterministic even when compiler work becomes more
 parallel internally.
 
@@ -151,7 +151,7 @@ interpret language-server protocol messages.
 
 ## Toolchain Artifacts
 
-Commands that request compiler facts select one immutable toolchain root. An explicit
+Commands that request compiler queries select one immutable toolchain root. An explicit
 `--toolchain-root <directory>` takes precedence over `BRAY_TOOLCHAIN_ROOT`. Otherwise, an installed
 `bray` beneath `<toolchain>/bin` selects `<toolchain>`. A development executable outside a `bin`
 directory selects its containing directory, so development workflows should normally supply the
@@ -178,7 +178,7 @@ toolchain source.
 
 Every compiler request receives the selected standard-library root. The compilation resolver reads
 and validates its manifest, target-selected interface and implementation, native artifacts, digests, target identity, and runtime
-ABI only when the requested facts demand them. Executable and test builds also receive the exact runtime metadata path for their
+ABI only when the requested outputs demand them. Executable and test builds also receive the exact runtime metadata path for their
 selected target. The compiler's existing runtime loader validates metadata, archive digest, capabilities, target, panic ABI, and
 native link requirements before emission.
 
@@ -205,6 +205,6 @@ Bray Tack selects targets only by workspace-local manifest name and passes the d
 target identity to the compiler. It does not infer a target from the host or substitute another
 manifest target.
 
-A command requiring compiler target facts proceeds only when the toolchain provides the declared
+A command requiring compiler target properties proceeds only when the toolchain provides the declared
 target capability. Otherwise it reports that target capability as unavailable without changing
 the project graph or falling back to ambient configuration.

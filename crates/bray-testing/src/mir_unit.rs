@@ -1,5 +1,5 @@
 use bray_ir::{
-    MirBlockKind, MirSourceAnchor, MirTargetFacts, MirTerminatorKind, MirUnit, MirUnitBuilder,
+    MirBlockKind, MirSourceAnchor, MirTargetContract, MirTerminatorKind, MirUnit, MirUnitBuilder,
     MirUnitKind,
 };
 use bray_runtime_interface::{
@@ -20,7 +20,7 @@ pub fn test_mir_unit(unit: u32) -> MirUnit {
 }
 
 /// Builds one valid single-block MIR unit for a caller-selected target profile.
-pub fn test_mir_unit_for_target(unit: u32, target: MirTargetFacts) -> MirUnit {
+pub fn test_mir_unit_for_target(unit: u32, target: MirTargetContract) -> MirUnit {
     test_mir_unit_with_declaration_and_target(unit, 0, target)
 }
 
@@ -32,7 +32,7 @@ pub fn test_mir_unit_with_declaration(unit: u32, declaration: u32) -> MirUnit {
 fn test_mir_unit_with_declaration_and_target(
     unit: u32,
     declaration: u32,
-    target: MirTargetFacts,
+    target: MirTargetContract,
 ) -> MirUnit {
     let bound = test_bound_unit_with_declaration(unit, declaration);
     let source = MirSourceAnchor::from(bound.key().source());
@@ -54,9 +54,9 @@ fn test_mir_unit_with_declaration_and_target(
     unit
 }
 
-/// Returns deterministic target facts for MIR tests.
-pub fn test_mir_target() -> MirTargetFacts {
-    MirTargetFacts::new(
+/// Returns deterministic target properties for MIR tests.
+pub fn test_mir_target() -> MirTargetContract {
+    MirTargetContract::new(
         bray_target::test_support::test_target_profile(),
         RuntimeAbiVersion::new(1, 0),
     )

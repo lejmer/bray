@@ -23,7 +23,10 @@ pub(crate) fn require_success(mut command: Command, operation: &str) -> Result<O
 }
 
 pub(crate) fn output_with_streamed_stderr(command: &mut Command) -> std::io::Result<Output> {
-    let mut child = command.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
     let child_stderr = child
         .stderr
@@ -48,7 +51,10 @@ fn stream_and_capture(source: impl Read) -> std::io::Result<Vec<u8>> {
     copy_and_capture(source, std::io::stderr().lock())
 }
 
-fn copy_and_capture(mut source: impl Read, mut destination: impl Write) -> std::io::Result<Vec<u8>> {
+fn copy_and_capture(
+    mut source: impl Read,
+    mut destination: impl Write,
+) -> std::io::Result<Vec<u8>> {
     let mut captured = Vec::new();
     let mut buffer = [0_u8; 8 * 1024];
 

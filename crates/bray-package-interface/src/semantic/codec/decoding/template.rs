@@ -12,7 +12,7 @@ use crate::semantic::model::{
     InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary, InterfaceConstantTermId,
     InterfaceDeclarationTemplate, InterfaceDependencyContractId, InterfaceImplementationReference,
-    InterfaceSemanticFacts, InterfaceTemplateReference, InterfaceTypeId,
+    InterfaceSemantics, InterfaceTemplateReference, InterfaceTypeId,
 };
 use crate::wire::WireReader;
 use crate::{
@@ -55,7 +55,7 @@ pub(super) fn decode_templates(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
+    semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let tables = decode_template_tables(section, context)?;
 
@@ -69,8 +69,8 @@ pub(super) fn decode_templates(
         .declaration_templates
         .decode_all(context, decode_declaration_template)?;
 
-    facts.checked_templates = templates.into();
-    facts.declaration_templates = declarations.into();
+    semantics.checked_templates = templates.into();
+    semantics.declaration_templates = declarations.into();
 
     Ok(())
 }
@@ -374,12 +374,12 @@ mod tests {
         StructSymbolId, SymbolId, SymbolKind, SymbolOrdinal, SynthesizedSymbolRole,
     };
 
-    use super::super::decode_semantic_facts;
+    use super::super::decode_semantics;
     use super::super::test_support::{
         interface_surface, key_by_kind as symbol_key, local_by_kind as symbol_reference,
         owned_section_views, owned_sections, record_range,
     };
-    use crate::semantic::codec::encode_semantic_facts;
+    use crate::semantic::codec::encode_semantics;
     use crate::test_support::{module_key as test_module_key, named_key};
     use crate::{
         InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateId,
@@ -389,17 +389,17 @@ mod tests {
         InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDeclarationTemplate,
         InterfaceDependencyContract, InterfaceImplementationReference,
         InterfacePredicateDefinition, InterfacePredicateDefinitionState, InterfaceSectionTag,
-        InterfaceSemanticFacts, InterfaceSupportEntity, InterfaceSupportImplementation,
+        InterfaceSemantics, InterfaceSupportEntity, InterfaceSupportImplementation,
         InterfaceSymbolReference, InterfaceSymbolResolver, InterfaceTemplateReference,
         InterfaceType, InterfaceTypeId, InterfaceValidationError, InterfaceValidationLimits,
     };
 
     #[test]
     fn every_declaration_template_kind_round_trips_with_private_support() {
-        let (surface, facts) = template_fixture();
+        let (surface, semantics) = template_fixture();
 
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantic_facts(&facts, &surface, limits);
+        let sections = encode_semantics(&semantics, &surface, limits);
 
         let Ok(sections) = sections else {
             panic!("valid checked templates must encode");
@@ -407,21 +407,21 @@ mod tests {
 
         let owned = owned_sections(&sections);
         let views = owned_section_views(&owned);
-        let decoded = decode_semantic_facts(&views, &surface, limits);
+        let decoded = decode_semantics(&views, &surface, limits);
 
-        assert_eq!(decoded, Ok(facts));
+        assert_eq!(decoded, Ok(semantics));
     }
 
     #[test]
     fn declaration_templates_intern_to_ordinary_checked_templates() {
-        let (surface, facts) = template_fixture();
+        let (surface, semantics) = template_fixture();
 
         let resolver = resolver(&surface);
 
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
 
-        let imported = facts
+        let imported = semantics
             .intern(&store, &resolver)
             .unwrap_or_else(|error| panic!("template interning failed: {error:?}"));
 
@@ -441,10 +441,10 @@ mod tests {
 
     #[test]
     fn every_checked_template_operation_round_trips() {
-        let (surface, facts) = operation_fixture();
+        let (surface, semantics) = operation_fixture();
 
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantic_facts(&facts, &surface, limits);
+        let sections = encode_semantics(&semantics, &surface, limits);
 
         let Ok(sections) = sections else {
             panic!("valid checked-template operations must encode");
@@ -453,18 +453,18 @@ mod tests {
         let owned = owned_sections(&sections);
 
         assert_eq!(
-            decode_semantic_facts(&owned_section_views(&owned), &surface, limits),
-            Ok(facts)
+            decode_semantics(&owned_section_views(&owned), &surface, limits),
+            Ok(semantics)
         );
 
-        let (_, facts) = operation_fixture();
+        let (_, semantics) = operation_fixture();
 
         let resolver = resolver(&surface);
 
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
 
-        let imported = facts
+        let imported = semantics
             .intern(&store, &resolver)
             .unwrap_or_else(|error| panic!("operation interning failed: {error:?}"));
 
@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn template_validation_rejects_forward_nodes_and_wrong_support_categories() {
-        let (surface, facts) = template_fixture();
+        let (surface, semantics) = template_fixture();
 
         let behavior = InterfaceCheckedTemplateBehavior::new(
             [],
@@ -518,7 +518,7 @@ mod tests {
             behavior,
         );
 
-        let forward_reference = facts.clone().with_templates(
+        let forward_reference = semantics.clone().with_templates(
             [invalid],
             [InterfaceDeclarationTemplate::new(
                 symbol_reference(&surface, SymbolKind::CallableParameterDefaultProvider),
@@ -532,7 +532,7 @@ mod tests {
         );
 
         assert_eq!(
-            encode_semantic_facts(
+            encode_semantics(
                 &forward_reference,
                 &surface,
                 InterfaceValidationLimits::default()
@@ -540,7 +540,7 @@ mod tests {
             Err(InterfaceValidationError::Malformed)
         );
 
-        let mut entities = facts.support_entities().to_vec();
+        let mut entities = semantics.support_entities().to_vec();
 
         let InterfaceSupportEntity::CheckedTemplate(template) = entities[2] else {
             panic!("fixture template support entity must be present");
@@ -549,13 +549,13 @@ mod tests {
         entities[2] = InterfaceSupportEntity::Declaration(helper_key());
         entities[0] = InterfaceSupportEntity::CheckedTemplate(template);
 
-        let templates = facts.checked_templates().to_vec();
-        let declarations = facts.declaration_templates().to_vec();
+        let templates = semantics.checked_templates().to_vec();
+        let declarations = semantics.declaration_templates().to_vec();
 
-        let wrong_support_category = facts.with_templates(templates, declarations, entities);
+        let wrong_support_category = semantics.with_templates(templates, declarations, entities);
 
         assert_eq!(
-            encode_semantic_facts(
+            encode_semantics(
                 &wrong_support_category,
                 &surface,
                 InterfaceValidationLimits::default()
@@ -566,11 +566,11 @@ mod tests {
 
     #[test]
     fn template_validation_rejects_missing_and_uninitialized_temporaries() {
-        let (surface, facts) = operation_fixture();
+        let (surface, semantics) = operation_fixture();
 
-        let template = facts.checked_templates()[0].clone();
+        let template = semantics.checked_templates()[0].clone();
 
-        let invalid_facts = |node_index, operation| {
+        let invalid_semantics = |node_index, operation| {
             let mut nodes = template.nodes().to_vec();
 
             nodes[node_index] =
@@ -585,30 +585,30 @@ mod tests {
                 template.behavior().clone(),
             );
 
-            facts.clone().with_templates(
+            semantics.clone().with_templates(
                 [invalid_template],
-                facts.declaration_templates().iter().cloned(),
-                facts.support_entities().iter().cloned(),
+                semantics.declaration_templates().iter().cloned(),
+                semantics.support_entities().iter().cloned(),
             )
         };
 
-        let missing = invalid_facts(
+        let missing = invalid_semantics(
             10,
             InterfaceCheckedTemplateOperation::Temporary(CheckedTemplateTemporaryId::new(1)),
         );
 
         assert_eq!(
-            encode_semantic_facts(&missing, &surface, InterfaceValidationLimits::default()),
+            encode_semantics(&missing, &surface, InterfaceValidationLimits::default()),
             Err(InterfaceValidationError::Malformed)
         );
 
-        let uninitialized = invalid_facts(
+        let uninitialized = invalid_semantics(
             4,
             InterfaceCheckedTemplateOperation::Temporary(CheckedTemplateTemporaryId::new(0)),
         );
 
         assert_eq!(
-            encode_semantic_facts(
+            encode_semantics(
                 &uninitialized,
                 &surface,
                 InterfaceValidationLimits::default()
@@ -619,9 +619,9 @@ mod tests {
 
     #[test]
     fn template_validation_rejects_decreasing_temporary_initializers() {
-        let (surface, facts) = operation_fixture();
+        let (surface, semantics) = operation_fixture();
 
-        let template = &facts.checked_templates()[0];
+        let template = &semantics.checked_templates()[0];
 
         let invalid_template = InterfaceCheckedTemplate::new(
             template.kind(),
@@ -643,24 +643,24 @@ mod tests {
             template.behavior().clone(),
         );
 
-        let invalid = facts.clone().with_templates(
+        let invalid = semantics.clone().with_templates(
             [invalid_template],
-            facts.declaration_templates().iter().cloned(),
-            facts.support_entities().iter().cloned(),
+            semantics.declaration_templates().iter().cloned(),
+            semantics.support_entities().iter().cloned(),
         );
 
         assert_eq!(
-            encode_semantic_facts(&invalid, &surface, InterfaceValidationLimits::default()),
+            encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()),
             Err(InterfaceValidationError::Malformed)
         );
     }
 
     #[test]
     fn template_decode_rejects_unknown_kinds_and_graph_limit_excess() {
-        let (surface, facts) = template_fixture();
+        let (surface, semantics) = template_fixture();
 
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantic_facts(&facts, &surface, limits);
+        let sections = encode_semantics(&semantics, &surface, limits);
 
         let Ok(sections) = sections else {
             panic!("valid checked templates must encode");
@@ -681,14 +681,14 @@ mod tests {
         templates[kind_start..kind_start + 4].copy_from_slice(&u32::MAX.to_le_bytes());
 
         assert_eq!(
-            decode_semantic_facts(&owned_section_views(&owned), &surface, limits),
+            decode_semantics(&owned_section_views(&owned), &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
 
         let constrained = limits.with_template_graph_size(1);
 
         assert!(matches!(
-            encode_semantic_facts(&facts, &surface, constrained),
+            encode_semantics(&semantics, &surface, constrained),
             Err(InterfaceValidationError::ResourceLimitExceeded {
                 limit: crate::InterfaceLimit::TemplateGraphSize,
                 ..
@@ -698,10 +698,10 @@ mod tests {
 
     #[test]
     fn template_validation_rejects_invalid_owners_and_input_identities() {
-        let (surface, facts) = template_fixture();
+        let (surface, semantics) = template_fixture();
 
         let limits = InterfaceValidationLimits::default();
-        let mut declarations = facts.declaration_templates().to_vec();
+        let mut declarations = semantics.declaration_templates().to_vec();
 
         let runtime = declarations
             .iter_mut()
@@ -717,18 +717,18 @@ mod tests {
 
         declarations.sort();
 
-        let invalid_owner = facts.clone().with_templates(
-            facts.checked_templates().iter().cloned(),
+        let invalid_owner = semantics.clone().with_templates(
+            semantics.checked_templates().iter().cloned(),
             declarations,
-            facts.support_entities().iter().cloned(),
+            semantics.support_entities().iter().cloned(),
         );
 
         assert_eq!(
-            encode_semantic_facts(&invalid_owner, &surface, limits),
+            encode_semantics(&invalid_owner, &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
 
-        let mut templates = facts.checked_templates().to_vec();
+        let mut templates = semantics.checked_templates().to_vec();
         let template = templates[0].clone();
         let input = template.inputs()[0].clone();
 
@@ -741,18 +741,18 @@ mod tests {
             template.behavior().clone(),
         );
 
-        let duplicate_input = facts.clone().with_templates(
+        let duplicate_input = semantics.clone().with_templates(
             templates,
-            facts.declaration_templates().iter().cloned(),
-            facts.support_entities().iter().cloned(),
+            semantics.declaration_templates().iter().cloned(),
+            semantics.support_entities().iter().cloned(),
         );
 
         assert_eq!(
-            encode_semantic_facts(&duplicate_input, &surface, limits),
+            encode_semantics(&duplicate_input, &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
 
-        let mut templates = facts.checked_templates().to_vec();
+        let mut templates = semantics.checked_templates().to_vec();
         let template = templates[0].clone();
 
         templates[0] = InterfaceCheckedTemplate::new(
@@ -770,23 +770,23 @@ mod tests {
             template.behavior().clone(),
         );
 
-        let wrong_generic_category = facts.clone().with_templates(
+        let wrong_generic_category = semantics.clone().with_templates(
             templates,
-            facts.declaration_templates().iter().cloned(),
-            facts.support_entities().iter().cloned(),
+            semantics.declaration_templates().iter().cloned(),
+            semantics.support_entities().iter().cloned(),
         );
 
         assert_eq!(
-            encode_semantic_facts(&wrong_generic_category, &surface, limits),
+            encode_semantics(&wrong_generic_category, &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
     }
 
     #[test]
     fn template_validation_rejects_calls_to_noncallable_declarations() {
-        let (surface, facts) = operation_fixture();
+        let (surface, semantics) = operation_fixture();
 
-        let mut templates = facts.checked_templates().to_vec();
+        let mut templates = semantics.checked_templates().to_vec();
         let template = templates[0].clone();
         let mut nodes = template.nodes().to_vec();
 
@@ -812,25 +812,25 @@ mod tests {
             template.behavior().clone(),
         );
 
-        let invalid = facts.clone().with_templates(
+        let invalid = semantics.clone().with_templates(
             templates,
-            facts.declaration_templates().iter().cloned(),
-            facts.support_entities().iter().cloned(),
+            semantics.declaration_templates().iter().cloned(),
+            semantics.support_entities().iter().cloned(),
         );
 
         assert_eq!(
-            encode_semantic_facts(&invalid, &surface, InterfaceValidationLimits::default()),
+            encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()),
             Err(InterfaceValidationError::Malformed)
         );
     }
 
     #[test]
     fn template_validation_rejects_borrow_kind_and_target_mismatches() {
-        let (surface, facts) = operation_fixture();
+        let (surface, semantics) = operation_fixture();
 
-        let template = facts.checked_templates()[0].clone();
+        let template = semantics.checked_templates()[0].clone();
 
-        let invalid_facts = |node_index, node| {
+        let invalid_semantics = |node_index, node| {
             let mut nodes = template.nodes().to_vec();
             nodes[node_index] = node;
 
@@ -843,14 +843,14 @@ mod tests {
                 template.behavior().clone(),
             );
 
-            facts.clone().with_templates(
+            semantics.clone().with_templates(
                 [invalid_template],
-                facts.declaration_templates().iter().cloned(),
-                facts.support_entities().iter().cloned(),
+                semantics.declaration_templates().iter().cloned(),
+                semantics.support_entities().iter().cloned(),
             )
         };
 
-        let kind_mismatch = invalid_facts(
+        let kind_mismatch = invalid_semantics(
             13,
             InterfaceCheckedTemplateNode::new(
                 InterfaceCheckedTemplateOperation::Borrow {
@@ -862,7 +862,7 @@ mod tests {
         );
 
         assert_eq!(
-            encode_semantic_facts(
+            encode_semantics(
                 &kind_mismatch,
                 &surface,
                 InterfaceValidationLimits::default()
@@ -870,7 +870,7 @@ mod tests {
             Err(InterfaceValidationError::Malformed)
         );
 
-        let target_mismatch = invalid_facts(
+        let target_mismatch = invalid_semantics(
             14,
             InterfaceCheckedTemplateNode::new(
                 InterfaceCheckedTemplateOperation::Borrow {
@@ -882,7 +882,7 @@ mod tests {
         );
 
         assert_eq!(
-            encode_semantic_facts(
+            encode_semantics(
                 &target_mismatch,
                 &surface,
                 InterfaceValidationLimits::default()
@@ -893,12 +893,12 @@ mod tests {
 
     #[test]
     fn support_validation_rejects_foreign_and_exported_keys() {
-        let (surface, facts) = template_fixture();
+        let (surface, semantics) = template_fixture();
 
         let limits = InterfaceValidationLimits::default();
-        let templates = facts.checked_templates().to_vec();
-        let declarations = facts.declaration_templates().to_vec();
-        let mut entities = facts.support_entities().to_vec();
+        let templates = semantics.checked_templates().to_vec();
+        let declarations = semantics.declaration_templates().to_vec();
+        let mut entities = semantics.support_entities().to_vec();
 
         let foreign_package = PackageIdentity::try_new("foreign.templates")
             .unwrap_or_else(|| panic!("foreign test package identity must be valid"));
@@ -911,34 +911,35 @@ mod tests {
             "helper",
         ));
 
-        let foreign_support =
-            facts
-                .clone()
-                .with_templates(templates.clone(), declarations.clone(), entities.clone());
+        let foreign_support = semantics.clone().with_templates(
+            templates.clone(),
+            declarations.clone(),
+            entities.clone(),
+        );
 
         assert_eq!(
-            encode_semantic_facts(&foreign_support, &surface, limits),
+            encode_semantics(&foreign_support, &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
 
         entities[0] =
             InterfaceSupportEntity::Declaration(symbol_key(&surface, SymbolKind::Function));
 
-        let exported_alias = facts.with_templates(templates, declarations, entities);
+        let exported_alias = semantics.with_templates(templates, declarations, entities);
 
         assert_eq!(
-            encode_semantic_facts(&exported_alias, &surface, limits),
+            encode_semantics(&exported_alias, &surface, limits),
             Err(InterfaceValidationError::Malformed)
         );
     }
 
     #[test]
     fn template_decode_rejects_impossible_table_counts_before_reserving() {
-        let (surface, facts) = operation_fixture();
+        let (surface, semantics) = operation_fixture();
 
         let limits = InterfaceValidationLimits::default();
 
-        let sections = encode_semantic_facts(&facts, &surface, limits)
+        let sections = encode_semantics(&semantics, &surface, limits)
             .unwrap_or_else(|error| panic!("valid checked templates must encode: {error:?}"));
 
         let mut owned = owned_sections(&sections);
@@ -951,19 +952,19 @@ mod tests {
         templates[4..8].copy_from_slice(&10_000_000_u32.to_le_bytes());
         *record_count = 10_000_001;
 
-        let decoded = decode_semantic_facts(&owned_section_views(&owned), &surface, limits);
+        let decoded = decode_semantics(&owned_section_views(&owned), &surface, limits);
 
         assert_eq!(decoded, Err(InterfaceValidationError::Truncated));
     }
 
-    fn template_fixture() -> (crate::PackageInterfaceSurface, InterfaceSemanticFacts) {
+    fn template_fixture() -> (crate::PackageInterfaceSurface, InterfaceSemantics) {
         let surface = template_surface();
-        let facts = template_facts(&surface);
+        let semantics = template_semantics(&surface);
 
-        (surface, facts)
+        (surface, semantics)
     }
 
-    fn template_facts(surface: &crate::PackageInterfaceSurface) -> InterfaceSemanticFacts {
+    fn template_semantics(surface: &crate::PackageInterfaceSurface) -> InterfaceSemantics {
         let kinds = [
             CheckedTemplateKind::RuntimeDefault,
             CheckedTemplateKind::ConstantDefinition,
@@ -1065,7 +1066,7 @@ mod tests {
         .into_iter()
         .chain(template_entities);
 
-        InterfaceSemanticFacts::new()
+        InterfaceSemantics::new()
             .with_values(
                 [InterfaceDependencyContract::new([])],
                 [InterfaceType::TypeParameter(generic_type.clone())],
@@ -1084,14 +1085,14 @@ mod tests {
             .with_templates(templates, declarations, support)
     }
 
-    fn operation_fixture() -> (crate::PackageInterfaceSurface, InterfaceSemanticFacts) {
+    fn operation_fixture() -> (crate::PackageInterfaceSurface, InterfaceSemantics) {
         let surface = template_surface();
-        let facts = operation_facts(&surface);
+        let semantics = operation_semantics(&surface);
 
-        (surface, facts)
+        (surface, semantics)
     }
 
-    fn operation_facts(surface: &crate::PackageInterfaceSurface) -> InterfaceSemanticFacts {
+    fn operation_semantics(surface: &crate::PackageInterfaceSurface) -> InterfaceSemantics {
         let declaration = InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(0));
 
         let callable =
@@ -1263,7 +1264,7 @@ mod tests {
             InterfaceSupportEntity::CheckedTemplate(InterfaceCheckedTemplateId::new(0)),
         ];
 
-        InterfaceSemanticFacts::new()
+        InterfaceSemantics::new()
             .with_applications(
                 [crate::InterfaceGenericSubstitution::new(
                     symbol_reference(surface, SymbolKind::Function),

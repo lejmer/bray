@@ -174,15 +174,15 @@ enum CandidateCheck {
 }
 
 #[derive(Clone, Copy)]
-struct CandidateContext<'facts, 'request, C>
+struct CandidateContext<'input, 'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
     request: CheckerUnitView<'request, C>,
-    types: &'facts CheckedExpressionTypes,
+    types: &'input CheckedExpressionTypes,
     expression: BoundExpressionId,
     kind: SelectionKind,
-    actual_types: &'facts [ExpressionTypeResult],
+    actual_types: &'input [ExpressionTypeResult],
 }
 
 fn check_candidate<C>(

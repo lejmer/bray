@@ -25,12 +25,11 @@ pub use bray_bound_tree::{
     PatternPredicate, PatternProjection, SelectedConversion,
 };
 pub use control::{
-    MirCleanupEdge, MirCleanupPhase, MirEdge, MirPatternPredicate, MirRunResultEdges,
-    MirInlineAssemblyTerminator, MirSuspensionKind, MirSwitchCase, MirTerminator,
-    MirTerminatorKind,
+    MirCleanupEdge, MirCleanupPhase, MirEdge, MirInlineAssemblyTerminator, MirPatternPredicate,
+    MirRunResultEdges, MirSuspensionKind, MirSwitchCase, MirTerminator, MirTerminatorKind,
 };
 pub use frame::{
-    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameStateFacts,
+    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameState,
 };
 pub use helper::MirHelperReference;
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
@@ -47,7 +46,7 @@ pub use reference::{
 };
 pub use source::{MirSourceAnchor, MirSourceOrigin};
 pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};
-pub use target::MirTargetFacts;
+pub use target::MirTargetContract;
 pub use unit::{
     MirExecutableTemplateId, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole,
     MirImportedExecutableKey, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitKey, MirUnitKind,

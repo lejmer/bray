@@ -7,7 +7,7 @@ use bray_symbols::{
     ImplementationInstanceId, SymbolKey, TypeId,
 };
 
-use crate::CheckerFactResult;
+use crate::CheckerQueryResult;
 
 use super::{ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantReferenceResolution};
 
@@ -94,19 +94,19 @@ impl ConstantCallRequest {
 pub enum ConstantCallResolution {
     /// The callable evaluated and owns the accompanying nested diagnostics.
     Evaluated(DiagnosticResult<EvaluatedConstantCall>),
-    /// The compilation fact graph found a recursive constant-call cycle.
+    /// The compilation query graph found a recursive constant-call cycle.
     Cycle,
     /// The selected callable cannot execute in constant context.
     Ineligible(DiagnosticBag),
 }
 
-/// Resolves selected constant calls through the caller's demand-driven fact graph.
+/// Resolves selected constant calls through the caller's demand-driven query graph.
 pub trait ConstantCallResolver: Sync {
     /// Returns whether the selected callable may execute in a constant context.
-    fn is_constant_callable(&self, callable: CallableInstanceData) -> CheckerFactResult<bool>;
+    fn is_constant_callable(&self, callable: CallableInstanceData) -> CheckerQueryResult<bool>;
 
-    /// Evaluates one exact call without forcing unrelated semantic facts.
-    fn resolve(&self, request: &ConstantCallRequest) -> CheckerFactResult<ConstantCallResolution>;
+    /// Evaluates one exact call without evaluating unrelated semantic queries.
+    fn resolve(&self, request: &ConstantCallRequest) -> CheckerQueryResult<ConstantCallResolution>;
 }
 
 /// Resolves stable references used by an imported const-callable body template.
@@ -119,5 +119,5 @@ pub trait ConstantTemplateResolver: ConstantCallResolver {
         &self,
         instance: ConstantInstanceKey,
         limits: ConstantEvaluationLimits,
-    ) -> CheckerFactResult<DiagnosticResult<ConstantReferenceResolution>>;
+    ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>>;
 }

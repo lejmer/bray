@@ -18,7 +18,7 @@ pub enum LoweringError {
     MissingExpressionType(BoundExpressionId),
     /// Direct await reached lowering without a protected current frame.
     AwaitOutsideProtectedFrame(BoundExpressionId),
-    /// Checked async facts omitted a direct-await suspension decision.
+    /// Checked async analysis omitted a direct-await suspension decision.
     MissingSuspensionPoint(BoundExpressionId),
     /// A checked future or task operation has an incompatible call shape.
     InvalidTaskOperation(BoundExpressionId),
@@ -54,7 +54,7 @@ pub enum LoweringError {
     MissingRepresentation(RepresentationRole),
     /// A checked semantic value could not be read or interned.
     SemanticValueUnavailable,
-    /// Checked async facts could not form one coherent frame descriptor.
+    /// Checked async analysis could not form one coherent frame descriptor.
     InvalidFrameDescriptor,
     /// The MIR builder or validator rejected the lowered unit.
     Mir(MirUnitBuildError),

@@ -1,5 +1,5 @@
 use crate::record::ImportedSymbolBacking;
-use crate::{AnySymbolId, ImportedSymbolFactKey, SymbolKey, SymbolOrigin};
+use crate::{AnySymbolId, ImportedSemanticKey, SymbolKey, SymbolOrigin};
 
 macro_rules! define_default_provider_record {
     ($record:ident, $id:ident, $subject:ident) => {
@@ -74,9 +74,9 @@ macro_rules! define_default_provider_record {
                 self.subject
             }
 
-            /// Returns the imported semantic-fact key, when available.
-            pub fn imported_fact_key(&self) -> Option<ImportedSymbolFactKey<crate::$id>> {
-                self.imported.map(ImportedSymbolBacking::fact_key)
+            /// Returns the imported semantic key, when available.
+            pub fn imported_semantic_key(&self) -> Option<ImportedSemanticKey<crate::$id>> {
+                self.imported.map(ImportedSymbolBacking::semantic_key)
             }
         }
     };

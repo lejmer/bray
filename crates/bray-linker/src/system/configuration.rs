@@ -146,10 +146,9 @@ impl SystemLinkerMapOutput {
 
                 vec!["-Xlinker".into(), "-Map".into(), "-Xlinker".into(), output]
             }
-            SystemLinkerFamily::MicrosoftCompiler => vec![
-                "-Xlinker".into(),
-                format!("/map:{}", path.display()).into(),
-            ],
+            SystemLinkerFamily::MicrosoftCompiler => {
+                vec!["-Xlinker".into(), format!("/map:{}", path.display()).into()]
+            }
             SystemLinkerFamily::AppleCompiler => vec![
                 "-Xlinker".into(),
                 "-map".into(),

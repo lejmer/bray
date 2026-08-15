@@ -29,15 +29,15 @@ mod unit;
 mod view;
 
 pub use asynchronous::{
-    AsyncFactsBuildError, AsyncScopeExitPlan, AsyncSuspensionKind, AsyncSuspensionPoint,
-    AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsyncFacts,
+    AsyncAnalysisBuildError, AsyncScopeExitPlan, AsyncSuspensionKind, AsyncSuspensionPoint,
+    AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsync,
 };
 pub use behavior::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,
     TrustedCapabilityUse,
 };
 pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
-pub use control::{CheckedControlFlowFacts, ControlCompletion, ControlCompletionKind};
+pub use control::{CheckedControlFlow, ControlCompletion, ControlCompletionKind};
 pub use declared_type::{
     DeclaredValueTypeConstraint, DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence,
     DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
@@ -85,13 +85,12 @@ pub use origin::{
     BoundNodeOrdinal, BoundNodeOrigin, BoundSynthesisRole, SynthesizedBoundNodeOrigin,
 };
 pub use pattern::{
-    CheckedPatternFacts, MatchCoverageEntry, PatternBindingTypeEntry, PatternCheckEntry,
+    CheckedPatterns, MatchCoverageEntry, PatternBindingTypeEntry, PatternCheckEntry,
     PatternLiteralPredicate, PatternOperation, PatternPredicate, PatternProjection,
     PatternRefutability,
 };
 pub use refinement::{
-    CheckedRefinementFacts, RefinementFact, RefinementFactKind, RefinementFactsBuildError,
-    RefinementOccurrence,
+    CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence, RefinementSetBuildError,
 };
 pub use selection::{
     CheckedSemanticSelections, ConstructionDefaultProvider, ConstructionInputId,
@@ -105,13 +104,12 @@ pub use selection::{
 };
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
-    LivenessFacts, LivenessFactsBuildError, PlannedBorrowCapability, StorageAccess,
-    StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
-    StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
-    StorageExitDecision, StorageFlowFacts, StorageFlowFactsBuildError, StorageIdentity,
-    StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePlan,
-    StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageRelationship,
-    StorageSuspensionState,
+    Liveness, LivenessBuildError, PlannedBorrowCapability, StorageAccess, StorageAccessId,
+    StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot, StorageAlternative,
+    StorageAlternativeId, StorageBinding, StorageBindingTarget, StorageExitDecision, StorageFlow,
+    StorageFlowBuildError, StorageIdentity, StorageIdentityId, StorageOperationDecision,
+    StorageOperationStatus, StoragePlan, StoragePlanBuildError, StoragePlanBuilder,
+    StorageProjection, StorageRelationship, StorageSuspensionState,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

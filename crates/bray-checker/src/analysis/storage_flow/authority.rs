@@ -3,21 +3,21 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableParameterMode, CallableSignatureFact, ReceiverMode, SymbolFactRequest, TypeData,
+    CallableParameterMode, CallableSignatureQuery, ReceiverMode, SymbolQueryRequest, TypeData,
     TypeExpressionTemplate,
 };
 
 use crate::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerUnitView, SemanticUnitContext,
+    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView, SemanticUnitContext,
 };
 
 pub(super) fn mutable_storage<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-) -> CheckerFactResult<(BTreeSet<StorageIdentityId>, DiagnosticBag)>
+) -> CheckerQueryResult<(BTreeSet<StorageIdentityId>, DiagnosticBag)>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     if matches!(
         request.semantic_context(),
@@ -42,16 +42,16 @@ where
         return Ok((BTreeSet::new(), DiagnosticBag::new()));
     };
 
-    let signature =
-        request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))?;
+    let signature = request
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))?;
 
     let mut mutable = BTreeSet::new();
 
     let modes = parameter_modes(request, signature.value().callable_type())?;
 
     if modes.len() != signature.value().parameters().len() {
-        return Err(CheckerFactError::Infrastructure(
-            CheckerInfrastructureError::InvalidStorageFlowFacts,
+        return Err(CheckerQueryError::Infrastructure(
+            CheckerInfrastructureError::InvalidStorageFlow,
         ));
     }
 
@@ -78,14 +78,14 @@ where
         );
     }
 
-    // The storage fact owns diagnostics independently of the shared symbol fact.
+    // The storage analysis owns diagnostics independently of the shared symbol query result.
     Ok((mutable, signature.diagnostics().clone()))
 }
 
 fn parameter_modes<C>(
     request: CheckerUnitView<'_, C>,
     callable: &TypeExpressionTemplate,
-) -> CheckerFactResult<Vec<CallableParameterMode>>
+) -> CheckerQueryResult<Vec<CallableParameterMode>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -97,14 +97,14 @@ where
             .collect()),
         TypeExpressionTemplate::Resolved(ty) => {
             let data = request.semantic_values().type_data(*ty).map_err(|_| {
-                CheckerFactError::Infrastructure(
+                CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 )
             })?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(CheckerFactError::Infrastructure(
-                    CheckerInfrastructureError::InvalidStorageFlowFacts,
+                return Err(CheckerQueryError::Infrastructure(
+                    CheckerInfrastructureError::InvalidStorageFlow,
                 ));
             };
 
@@ -122,8 +122,8 @@ where
         | TypeExpressionTemplate::Nullable(_)
         | TypeExpressionTemplate::Borrow { .. }
         | TypeExpressionTemplate::OwnedIndirection { .. }
-        | TypeExpressionTemplate::TraitView(_) => Err(CheckerFactError::Infrastructure(
-            CheckerInfrastructureError::InvalidStorageFlowFacts,
+        | TypeExpressionTemplate::TraitView(_) => Err(CheckerQueryError::Infrastructure(
+            CheckerInfrastructureError::InvalidStorageFlow,
         )),
     }
 }

@@ -14,7 +14,7 @@ use bray_syntax::{
 use super::super::block::BlockBindingOperations;
 use super::super::{BindingError, BindingResult};
 use super::support::{classify_assignment_operator, classify_operator};
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind};
 use crate::lookup::{NameAccess, PathBindingContext};
 
@@ -57,7 +57,7 @@ impl ExpressionBinder {
         syntax: Option<&ExpressionSyntax>,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         binder.check_cancellation()?;
 
@@ -86,7 +86,7 @@ impl ExpressionBinder {
         operator_kind: SyntaxKind,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let mut operands = Vec::new();
 
@@ -133,7 +133,7 @@ impl ExpressionBinder {
         kind: BoundStructuredExpressionKind,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let loop_target = matches!(
             kind,
@@ -202,7 +202,7 @@ impl ExpressionBinder {
         operand: BoundExpressionId,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let (children, blocks) = self.bind_semantic_children(binder, scope, syntax, true)?;
 
@@ -244,7 +244,7 @@ impl ExpressionBinder {
         captures_yield: bool,
     ) -> BindingResult<(Vec<BoundExpressionId>, Vec<bray_bound_tree::BoundBlockId>)>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let mut operands = Vec::new();
         let mut blocks = Vec::new();
@@ -323,7 +323,7 @@ impl ExpressionBinder {
         recovery_origin: &PrimaryExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let mut result = None;
         let mut first = true;
@@ -381,7 +381,7 @@ impl ExpressionBinder {
         expression: BoundExpression,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         binder
             .unit_mut()
@@ -397,7 +397,7 @@ impl ExpressionBinder {
         syntax: Option<&impl SourceSyntaxNode>,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let origin = syntax.map_or_else(
             || bray_bound_tree::BoundNodeOrigin::source(binder.unit().key().source()),
@@ -412,7 +412,7 @@ impl ExpressionBinder {
 
     fn push_missing_error<C>(&self, binder: &mut Binder<'_, C>) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let origin = bray_bound_tree::BoundNodeOrigin::source(binder.unit().key().source());
 
@@ -449,7 +449,7 @@ fn slice_bounds(
 
 impl<C> BlockBindingOperations<C> for ExpressionBinder
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     fn bind_expression(
         &mut self,
@@ -493,7 +493,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::fact::test_support::TestFixture;
+    use crate::query::test_support::TestFixture;
     use bray_bound_tree::{
         BoundAssignmentOperator, BoundControlTransferKind, BoundExpression, BoundLiteralKind,
         BoundOperator, BoundStructuredExpressionKind, BoundWalkControl, BoundWalkEvent,
@@ -560,12 +560,14 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let root_scope = binder.unit().root_scope();
-        let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
+
+        let path_context =
+            crate::binding::test_support::internal_path_context(&binding_context, root_scope);
 
         let block = match binder.bind_callable_body_block(
             root_scope,
@@ -789,12 +791,14 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let root_scope = binder.unit().root_scope();
-        let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
+
+        let path_context =
+            crate::binding::test_support::internal_path_context(&binding_context, root_scope);
 
         let block = match binder.bind_callable_body_block(
             root_scope,
@@ -844,12 +848,14 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let root_scope = binder.unit().root_scope();
-        let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
+
+        let path_context =
+            crate::binding::test_support::internal_path_context(&binding_context, root_scope);
 
         let block = match binder.bind_callable_body_block(
             root_scope,
@@ -934,12 +940,14 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, syntax) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let root_scope = binder.unit().root_scope();
-        let path_context = crate::binding::test_support::internal_path_context(&facts, root_scope);
+
+        let path_context =
+            crate::binding::test_support::internal_path_context(&binding_context, root_scope);
 
         let block = match binder.bind_callable_body_block(
             root_scope,

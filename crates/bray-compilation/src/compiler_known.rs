@@ -81,7 +81,7 @@ fn check_compiler_known_catalog_with(
 
     let graph = compilation
         .symbol_graph()
-        .map_err(CompilerKnownCatalogCheckError::Fact)?;
+        .map_err(CompilerKnownCatalogCheckError::Query)?;
 
     let mut audit =
         CompilerKnownCatalogAudit::new(graph).map_err(CompilerKnownCatalogCheckError::Audit)?;
@@ -92,7 +92,7 @@ fn check_compiler_known_catalog_with(
     let cancellation = CancellationToken::new();
 
     let diagnostics = compilation
-        .force_complete_symbol(
+        .complete_symbol(
             root,
             SymbolCompletionLevel::DeclarationSurface,
             &cancellation,
@@ -142,8 +142,8 @@ pub enum CompilerKnownCatalogCheckError {
     DeclarationDiagnostics,
     /// The private catalog-validation compilation could not be loaded.
     CompilationLoad(CompilationLoadError),
-    /// A compiler fact required by catalog validation failed.
-    Fact(FactQueryError),
+    /// A compiler query required by catalog validation failed.
+    Query(FactQueryError),
     /// The compiler-known semantic audit found an inconsistent identity or role.
     Audit(CompilerKnownCatalogAuditError),
     /// Recursive semantic completion failed.
@@ -171,7 +171,7 @@ impl std::fmt::Display for CompilerKnownCatalogCheckError {
                     "compiler-known validation compilation failed: {error}"
                 )
             }
-            Self::Fact(error) => write!(formatter, "compiler-known fact failed: {error}"),
+            Self::Query(error) => write!(formatter, "compiler-known query failed: {error}"),
             Self::Audit(error) => write!(formatter, "compiler-known audit failed: {error}"),
             Self::Completion(error) => {
                 write!(formatter, "compiler-known completion failed: {error}")
@@ -196,7 +196,7 @@ impl std::error::Error for CompilerKnownCatalogCheckError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::CompilationLoad(error) => Some(error),
-            Self::Fact(error) => Some(error),
+            Self::Query(error) => Some(error),
             Self::Audit(error) => Some(error),
             Self::Completion(error) => Some(error),
             Self::WorkerBudget(error) => Some(error),
@@ -227,7 +227,7 @@ mod tests {
         assert!(audit.representation_roles() > 0);
         assert!(audit.implementation_roles() > 0);
         assert!(audit.completion_units() >= audit.declarations());
-        assert!(audit.completion_facts() > 0);
+        assert!(audit.completion_queries() > 0);
         assert_eq!(audit.target_profiles(), AvailabilityRule::ALL.len() + 1);
     }
 

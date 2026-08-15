@@ -18,9 +18,9 @@ use crate::{
     InterfaceConstantValueKind, InterfaceDeclarationTemplate, InterfaceDependencyContract,
     InterfaceGenericSubstitution, InterfaceGenericSubstitutionId, InterfaceImplementationRecord,
     InterfaceLanguageRevision, InterfacePredicateDefinition, InterfacePredicateDefinitionState,
-    InterfacePredicateSummary, InterfaceProductIdentity, InterfaceProductKind,
-    InterfaceSemanticFacts, InterfaceStorageMember, InterfaceStorageShape, InterfaceSupportEntity,
-    InterfaceSymbolReference, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfacePredicateSummary, InterfaceProductIdentity, InterfaceProductKind, InterfaceSemantics,
+    InterfaceStorageMember, InterfaceStorageShape, InterfaceSupportEntity,
+    InterfaceSymbolReference, InterfaceTargetPropertyDependency, InterfaceTraitApplication,
     InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation,
     PackageInterfaceExportBundle, PackageInterfaceIdentity, PackageInterfaceSurface,
     SymbolRelationshipKind, build_package_interface_surface, encode_package_interface,
@@ -44,7 +44,7 @@ pub struct EncodedSemanticTestInterface {
     pub bytes: Vec<u8>,
 }
 
-/// Builds one valid interface containing representative exported semantic facts.
+/// Builds one valid interface containing representative exported semantics.
 pub fn encoded_semantic_test_interface() -> EncodedSemanticTestInterface {
     let bundle = package_interface_export_bundle();
     let package = bundle.surface().identity().package().clone();
@@ -158,7 +158,7 @@ fn package_interface_export_bundle_for(
         "extension",
     );
 
-    let target_fact = named_key(module.clone(), SymbolKind::Constant, "pointer_width");
+    let target_record = named_key(module.clone(), SymbolKind::Constant, "pointer_width");
 
     let opaque_predicate = named_key(module.clone(), SymbolKind::Predicate, "trusted_boundary");
 
@@ -217,7 +217,7 @@ fn package_interface_export_bundle_for(
             implementation.clone(),
             inherent_implementation.clone(),
             inherent_callable.clone(),
-            target_fact,
+            target_record,
             opaque_predicate,
             required_predicate,
             defined_predicate,
@@ -258,7 +258,7 @@ fn package_interface_export_bundle_for(
     let inherent_implementation = local_by_key(&surface, &inherent_implementation);
     let inherent_callable = local_by_key(&surface, &inherent_callable);
 
-    let facts = template_facts(
+    let semantics = template_semantics(
         &surface,
         template_owner,
         direct_callable,
@@ -268,7 +268,7 @@ fn package_interface_export_bundle_for(
 
     PackageInterfaceExportBundle::try_new(
         surface,
-        facts,
+        semantics,
         InterfaceLanguageRevision::new(0),
         implementation_configuration(),
     )
@@ -278,7 +278,7 @@ fn package_interface_export_bundle_for(
 /// Builds the representative implementation target configuration used by artifact tests.
 pub fn implementation_configuration() -> crate::PackageImplementationConfiguration {
     let target = bray_target::NativeTarget::X86_64LinuxGnu.profile();
-    let target = bray_ir::MirTargetFacts::new(target, RuntimeAbiVersion::new(1, 0));
+    let target = bray_ir::MirTargetContract::new(target, RuntimeAbiVersion::new(1, 0));
 
     let panic_abi = PanicAbiIdentity::try_new("bray.panic.unwind")
         .unwrap_or_else(|| panic!("test panic ABI identity must be valid"));
@@ -385,13 +385,13 @@ pub fn package_version() -> PackageVersion {
     PackageVersion::try_new("1.0.0").unwrap_or_else(|| panic!("test package version must be valid"))
 }
 
-fn template_facts(
+fn template_semantics(
     surface: &PackageInterfaceSurface,
     owner: InterfaceSymbolId,
     direct_callable: InterfaceSymbolReference,
     inherent_implementation: InterfaceSymbolReference,
     inherent_callable: InterfaceSymbolReference,
-) -> InterfaceSemanticFacts {
+) -> InterfaceSemantics {
     let owner = InterfaceSymbolReference::Local(owner);
 
     let generic_type = local_by_kind(surface, SymbolKind::GenericTypeParameter);
@@ -400,7 +400,7 @@ fn template_facts(
     let structure = local_by_kind(surface, SymbolKind::Struct);
     let trait_definition = local_by_kind(surface, SymbolKind::Trait);
     let implementation = local_by_kind(surface, SymbolKind::NamedTraitImplementation);
-    let target_fact = local_by_kind(surface, SymbolKind::Constant);
+    let target_record = local_by_kind(surface, SymbolKind::Constant);
     let opaque_predicate = local_by_kind(surface, SymbolKind::Predicate);
     let required_predicate = local_by_kind(surface, SymbolKind::TraitPredicateMember);
     let defined_predicate = local_by_kind(surface, SymbolKind::TraitPredicateFulfillment);
@@ -448,7 +448,7 @@ fn template_facts(
         ))
     });
 
-    InterfaceSemanticFacts::new()
+    InterfaceSemantics::new()
         .with_applications(
             [
                 InterfaceGenericSubstitution::new(structure.clone(), []),
@@ -607,24 +607,24 @@ fn template_facts(
         )
         .with_target_dependencies(
             [
-                InterfaceTargetFactDependency::new(
+                InterfaceTargetPropertyDependency::new(
                     structure,
-                    target_fact.clone(),
+                    target_record.clone(),
                     InterfaceConstantValueId::new(0),
                 ),
-                InterfaceTargetFactDependency::new(
+                InterfaceTargetPropertyDependency::new(
                     trait_definition,
-                    target_fact.clone(),
+                    target_record.clone(),
                     InterfaceConstantValueId::new(0),
                 ),
-                InterfaceTargetFactDependency::new(
+                InterfaceTargetPropertyDependency::new(
                     implementation,
-                    target_fact.clone(),
+                    target_record.clone(),
                     InterfaceConstantValueId::new(0),
                 ),
-                InterfaceTargetFactDependency::new(
-                    target_fact.clone(),
-                    target_fact,
+                InterfaceTargetPropertyDependency::new(
+                    target_record.clone(),
+                    target_record,
                     InterfaceConstantValueId::new(0),
                 ),
             ],

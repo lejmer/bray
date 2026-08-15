@@ -204,7 +204,7 @@ fn expected_host(
 #[cfg(test)]
 mod tests {
     use bray_ir::{
-        MirBlockKind, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId, MirSourceAnchor,
+        MirBlockKind, MirFrameDescriptor, MirFrameState, MirFrameStateId, MirSourceAnchor,
         MirTerminatorKind, MirUnitBuilder, MirUnitKind,
     };
     use bray_runtime_interface::{
@@ -354,7 +354,7 @@ mod tests {
         frame: ProtectedAsyncFrameId,
         entry: bray_ir::MirBlockId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
         match MirFrameDescriptor::try_new(
             frame,

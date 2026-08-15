@@ -16,8 +16,8 @@ pub enum CandidateAbsence {
     UnresolvedReference,
     /// Every declaration reached through an overload arm was unusable.
     EmptyOverload,
-    /// Required declaration facts are not available from the symbol's origin.
-    UnavailableDeclarationFacts,
+    /// Required declaration semantics are not available from the symbol's origin.
+    UnavailableDeclarationSemantics,
 }
 
 /// Participation state known before type compatibility and target checks.
@@ -259,9 +259,9 @@ impl CallableValueCandidateTemplate {
 /// One binder-enumerated callable candidate surface.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableCandidateTemplate {
-    /// A callable declaration with exact signature facts.
+    /// A callable declaration with an exact signature.
     Declaration(CallableDeclarationCandidateTemplate),
-    /// A compile-time predicate with exact signature facts.
+    /// A compile-time predicate with an exact signature.
     Predicate(PredicateCandidateTemplate),
     /// A value retained for callable classification by the type-selection fixed point.
     Value(CallableValueCandidateTemplate),
@@ -445,14 +445,14 @@ mod tests {
 
         let absent = CallableCandidateTemplates::absent(
             expression,
-            CandidateAbsence::UnavailableDeclarationFacts,
+            CandidateAbsence::UnavailableDeclarationSemantics,
         );
 
         assert_eq!(absent.candidates(), None);
 
         assert_eq!(
             absent.absence(),
-            Some(CandidateAbsence::UnavailableDeclarationFacts)
+            Some(CandidateAbsence::UnavailableDeclarationSemantics)
         );
 
         let operation = ExpressionCandidateSet::Operation(OperationCandidateSource::new(

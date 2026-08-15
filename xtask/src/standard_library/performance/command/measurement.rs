@@ -8,8 +8,8 @@ use super::super::corpus::{
     CALIBRATION_SAMPLE_COUNT, CALIBRATION_TARGET_NANOSECONDS, ExpectedSideEffects, Workload,
 };
 use super::super::model::{
-    ExecutionStatistics, PeerLanguage, WorkloadBatching, BRAY_EXECUTION_SCOPE,
-    PROCESS_EXECUTION_SCOPE,
+    BRAY_EXECUTION_SCOPE, ExecutionStatistics, PROCESS_EXECUTION_SCOPE, PeerLanguage,
+    WorkloadBatching,
 };
 use super::super::statistics;
 
@@ -50,12 +50,7 @@ pub(super) fn calibrate_inner_iterations(
 
     let mut samples = implementations
         .iter()
-        .map(|implementation| {
-            (
-                implementation.key,
-                Vec::with_capacity(sample_capacity),
-            )
-        })
+        .map(|implementation| (implementation.key, Vec::with_capacity(sample_capacity)))
         .collect::<BTreeMap<_, _>>();
 
     validate_timing_artifacts(implementations)?;

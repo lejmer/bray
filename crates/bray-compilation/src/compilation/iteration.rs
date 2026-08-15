@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundExpressionId, BoundIterationSource, BoundUnit, BoundUnitKey, IterationSourceMode,
     SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
@@ -16,14 +16,14 @@ use bray_symbols::{
 };
 
 use super::Compilation;
-use super::binder::CompilationBinderFacts;
+use super::binder::CompilationBindingContext;
 use super::checker::{CompilationCheckerContext, checker_result};
 use super::implementation::{
     TypeValuedMemberResolution, callable_instance, implementation_fulfillments,
     implementation_requirement, selected_callable, selected_type_valued_member,
 };
 use super::unit::semantic_unit_context_for;
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, IterationSourceFactKey};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, IterationSourceQueryKey};
 
 #[derive(Clone, Copy)]
 struct IterationInput {
@@ -59,7 +59,7 @@ impl Compilation {
         expression: BoundExpressionId,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Option<SelectedIterationSource>>>, FactQueryError> {
-        let key = IterationSourceFactKey::new(unit, expression);
+        let key = IterationSourceQueryKey::new(unit, expression);
         let cell = self.state.iteration_sources.cell(key.clone())?;
 
         let result = cell.get_or_compute(
@@ -77,7 +77,7 @@ impl Compilation {
 
     fn compute_iteration_source(
         &self,
-        key: &IterationSourceFactKey,
+        key: &IterationSourceQueryKey,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<SelectedIterationSource>>, FactQueryError> {
         let bound = self.bound_unit_with_cancellation(key.unit().clone(), cancellation)?;
@@ -102,7 +102,7 @@ impl Compilation {
             return Ok(DiagnosticResult::new(None, diagnostics));
         }
 
-        let facts = self.binder_facts_for(key.unit(), cancellation)?;
+        let binding_context = self.binding_context_for(key.unit(), cancellation)?;
 
         let protocol = self
             .available_compiler_known_symbols()
@@ -110,7 +110,9 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let source_type = source_type.ty();
-        let subject_type = iteration_subject_type(facts.semantic_values(), source_type, mode)?;
+
+        let subject_type =
+            iteration_subject_type(binding_context.semantic_values(), source_type, mode)?;
 
         let input = IterationInput {
             expression: key.expression(),
@@ -122,7 +124,7 @@ impl Compilation {
         };
 
         let (candidates, is_deferred) =
-            self.iteration_candidates(&facts, input, cancellation, &mut diagnostics)?;
+            self.iteration_candidates(&binding_context, input, cancellation, &mut diagnostics)?;
 
         if is_deferred {
             return Ok(DiagnosticResult::new(None, diagnostics));
@@ -145,8 +147,10 @@ impl Compilation {
 
         let selected = match selection {
             CandidateSelection::Selected(selection) => {
-                let exact_count =
-                    iteration_exact_count(facts.semantic_values(), selection.source_type())?;
+                let exact_count = iteration_exact_count(
+                    binding_context.semantic_values(),
+                    selection.source_type(),
+                )?;
 
                 Some(match exact_count {
                     Some(exact_count) => selection.with_exact_count(exact_count),
@@ -161,13 +165,13 @@ impl Compilation {
 
     fn iteration_candidates(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         input: IterationInput,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<(Vec<IterationSourceCandidate>, bool), FactQueryError> {
         let iterable_requirement = implementation_requirement(
-            facts.semantic_values(),
+            binding_context.semantic_values(),
             input.subject_type,
             input.protocol.iterable_trait(),
             [],
@@ -202,10 +206,10 @@ impl Compilation {
             }
 
             let iterable_fulfillments =
-                implementation_fulfillments(facts, iterable.implementation())?;
+                implementation_fulfillments(binding_context, iterable.implementation())?;
 
             let cursor_type = match selected_type_valued_member(
-                facts,
+                binding_context,
                 iterable.substitution(),
                 iterable_fulfillments.types,
                 input.protocol.iterable_cursor(),
@@ -221,7 +225,7 @@ impl Compilation {
             };
 
             let element_type = match selected_type_valued_member(
-                facts,
+                binding_context,
                 iterable.substitution(),
                 iterable_fulfillments.types,
                 input.protocol.iterable_element(),
@@ -237,7 +241,7 @@ impl Compilation {
             };
 
             let Some(iterate) = selected_callable(
-                facts,
+                binding_context,
                 iterable_fulfillments.callables,
                 input.protocol.iterable_iterate(),
             ) else {
@@ -245,7 +249,7 @@ impl Compilation {
             };
 
             let iterator_requirement = implementation_requirement(
-                facts.semantic_values(),
+                binding_context.semantic_values(),
                 cursor_type,
                 input.protocol.iterator_trait(),
                 [],
@@ -276,10 +280,10 @@ impl Compilation {
                 }
 
                 let iterator_fulfillments =
-                    implementation_fulfillments(facts, iterator.implementation())?;
+                    implementation_fulfillments(binding_context, iterator.implementation())?;
 
                 let iterator_element = match selected_type_valued_member(
-                    facts,
+                    binding_context,
                     iterator.substitution(),
                     iterator_fulfillments.types,
                     input.protocol.iterator_element(),
@@ -299,7 +303,7 @@ impl Compilation {
                 }
 
                 let Some(next) = selected_callable(
-                    facts,
+                    binding_context,
                     iterator_fulfillments.callables,
                     input.protocol.iterator_next(),
                 ) else {
@@ -307,7 +311,7 @@ impl Compilation {
                 };
 
                 candidates.push(iteration_candidate(
-                    facts,
+                    binding_context,
                     input,
                     cursor_type,
                     element_type,
@@ -379,14 +383,14 @@ fn iteration_source(
 }
 
 fn iteration_candidate(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     input: IterationInput,
     cursor_type: TypeId,
     element_type: TypeId,
     iterable: ProtocolCandidate<'_>,
     iterator: ProtocolCandidate<'_>,
 ) -> Result<IterationSourceCandidate, FactQueryError> {
-    let values = facts.semantic_values();
+    let values = binding_context.semantic_values();
 
     let iterable_witness = values
         .intern_implementation_instance(ImplementationInstanceData::new(
@@ -491,7 +495,7 @@ fn select_iteration(
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::{BinderFactContext, SymbolFactProvider};
+    use bray_binder::{BindingQueryContext, SymbolQueryProvider};
     use bray_bound_tree::{
         AnyBoundNodeId, BoundExpression, BoundStructuredExpressionKind, BoundWalkControl,
         BoundWalkEvent, BoundWalkOutcome, IterationSourceMode, SemanticSelection,
@@ -500,8 +504,8 @@ mod tests {
     use bray_compiler_known::RepresentationRole;
     use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticSelectionKind};
     use bray_symbols::{
-        BorrowKind, ImplementationCoherenceFact, ImplementationSymbolId, NamedTypeSymbolId,
-        SemanticValueStore, StructSymbolId, SymbolFactRequest, SymbolKind, SymbolOrigin, TypeData,
+        BorrowKind, ImplementationCoherenceQuery, ImplementationSymbolId, NamedTypeSymbolId,
+        SemanticValueStore, StructSymbolId, SymbolKind, SymbolOrigin, SymbolQueryRequest, TypeData,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -676,12 +680,12 @@ mod tests {
 
         let cancellation = CancellationToken::new();
 
-        let facts = match compilation.binder_facts_for(&key, &cancellation) {
-            Ok(facts) => facts,
-            Err(error) => panic!("binder facts must be available: {error:?}"),
+        let binding_context = match compilation.binding_context_for(&key, &cancellation) {
+            Ok(binding_context) => binding_context,
+            Err(error) => panic!("binder context must be available: {error:?}"),
         };
 
-        let structures = facts
+        let structures = binding_context
             .symbols()
             .structures()
             .iter()
@@ -692,35 +696,36 @@ mod tests {
             panic!("test source must declare Items and ItemsCursor");
         };
 
-        let source_type = named_type(&facts, items.id());
-        let cursor_type = named_type(&facts, cursor.id());
+        let source_type = named_type(&binding_context, items.id());
+        let cursor_type = named_type(&binding_context, cursor.id());
 
-        let boolean = facts
+        let boolean = binding_context
             .symbols()
             .compiler_known_provider()
             .role_registry()
             .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarBool)
             .unwrap_or_else(|| panic!("compiler-known bool must be available"));
 
-        let element_type = named_type(&facts, boolean);
+        let element_type = named_type(&binding_context, boolean);
 
-        let subject_type = iteration_subject_type(facts.semantic_values(), source_type, mode)
-            .unwrap_or_else(|error| panic!("iteration subject must be available: {error:?}"));
+        let subject_type =
+            iteration_subject_type(binding_context.semantic_values(), source_type, mode)
+                .unwrap_or_else(|error| panic!("iteration subject must be available: {error:?}"));
 
         let protocol = compilation
             .available_compiler_known_symbols()
             .iteration_protocol()
             .unwrap_or_else(|| panic!("iteration protocol must be available"));
 
-        let implementation = facts
+        let implementation = binding_context
             .symbols()
             .unnamed_trait_implementations()
             .iter()
             .find(|implementation| implementation.origin() == SymbolOrigin::Source)
             .unwrap_or_else(|| panic!("test source must declare an Iterable implementation"));
 
-        let coherence = facts
-            .symbol_fact(SymbolFactRequest::<ImplementationCoherenceFact>::new(
+        let coherence = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
                 ImplementationSymbolId::UnnamedTrait(implementation.id()),
             ))
             .unwrap_or_else(|error| panic!("implementation coherence must publish: {error:?}"));
@@ -738,7 +743,7 @@ mod tests {
             .trait_application()
             .unwrap_or_else(|| panic!("Iterable implementation must retain its trait"));
 
-        let application = facts
+        let application = binding_context
             .semantic_values()
             .trait_application_data(application)
             .unwrap_or_else(|error| panic!("Iterable application must be available: {error:?}"));
@@ -749,7 +754,7 @@ mod tests {
 
         let candidates = compilation
             .iteration_candidates(
-                &facts,
+                &binding_context,
                 IterationInput {
                     expression: iteration,
                     source,
@@ -797,12 +802,12 @@ mod tests {
         assert_eq!(selected.iterable_requirement().subject(), subject_type);
         assert_eq!(selected.iterator_requirement().subject(), cursor_type);
 
-        let iterable_witness = facts
+        let iterable_witness = binding_context
             .semantic_values()
             .implementation_instance_data(selected.iterable_witness())
             .unwrap_or_else(|error| panic!("Iterable witness must be available: {error:?}"));
 
-        let iterator_witness = facts
+        let iterator_witness = binding_context
             .semantic_values()
             .implementation_instance_data(selected.iterator_witness())
             .unwrap_or_else(|error| panic!("Iterator witness must be available: {error:?}"));
@@ -873,11 +878,11 @@ mod tests {
             .unwrap_or_else(|| panic!("iteration binding reference must have a final type"));
 
         assert_eq!(
-            facts
+            binding_context
                 .semantic_values()
                 .type_data(actual)
                 .unwrap_or_else(|error| panic!("actual type must be available: {error:?}")),
-            facts
+            binding_context
                 .semantic_values()
                 .type_data(element_type)
                 .unwrap_or_else(|error| panic!("element type must be available: {error:?}")),
@@ -964,13 +969,13 @@ mod tests {
     }
 
     fn named_type(
-        facts: &super::CompilationBinderFacts<'_>,
+        binding_context: &super::CompilationBindingContext<'_>,
         definition: StructSymbolId,
     ) -> bray_symbols::TypeId {
-        let substitution = empty_substitution(facts.semantic_values(), definition.into())
+        let substitution = empty_substitution(binding_context.semantic_values(), definition.into())
             .unwrap_or_else(|error| panic!("type substitution must be interned: {error:?}"));
 
-        facts
+        binding_context
             .semantic_values()
             .intern_type(TypeData::Named {
                 definition: NamedTypeSymbolId::Struct(definition),

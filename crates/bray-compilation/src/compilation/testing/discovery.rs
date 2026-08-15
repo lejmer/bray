@@ -82,9 +82,9 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        let semantic = self.product_semantic_facts_with_cancellation(cancellation)?;
+        let semantic = self.product_semantics_with_cancellation(cancellation)?;
         let symbols = self.symbol_graph()?;
-        let binder = self.binder_facts(cancellation)?;
+        let binder = self.binding_context(cancellation)?;
         let semantic_values = self.semantic_value_store()?;
         let mut entries = Vec::new();
 

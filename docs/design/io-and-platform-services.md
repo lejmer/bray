@@ -23,7 +23,7 @@ The design must provide:
 - synchronous and asynchronous composition without blocking cooperative runtime lanes,
 - exact target and ABI compatibility checks before linking,
 - demand-driven selection of only the platform roles required by reachable code,
-- deterministic compiler facts and diagnostics regardless of parallel scheduling,
+- deterministic compiler service contracts and diagnostics regardless of parallel scheduling,
 - and a narrow mechanism ABI that can be implemented by direct system bindings, Bray artifacts, or native shims.
 
 The design does not require one operating system, object format, runtime implementation language, or code-generation backend.
@@ -152,8 +152,8 @@ Each role has:
 - ownership and borrowing behavior,
 - blocking and suspension behavior,
 - lifecycle and error behavior,
-- required target facts and trusted capabilities,
-- and synchronization, visibility, cancellation, and callback-root facts where relevant.
+- required target properties and trusted capabilities,
+- and synchronization, visibility, cancellation, and callback-root service contracts where relevant.
 
 The minimum role families are:
 
@@ -522,7 +522,7 @@ or data type. A failed close still consumes the native owner, matching the best-
 close of an indeterminate loader state.
 
 The `dynamic_loading` capability requires all four roles and makes `target.platform.dynamic_loading` true. A target without the
-complete catalog exposes none of the operations and sets the fact to false.
+complete catalog exposes none of the operations and sets the service contract to false.
 
 Cancellation is a request, not a terminal result. Once requested, the provider eventually makes `operation.complete` terminal.
 Normal completion wins a race that became terminal before cancellation was accepted. Otherwise accepted cancellation completes with
@@ -619,9 +619,9 @@ without linking the async runtime.
 No platform operation may call arbitrary Bray source without a role contract that establishes a valid callback execution root,
 panic boundary, ownership transfer, and synchronization edge.
 
-## Target Facts And Availability
+## Target Properties And Availability
 
-The selected target profile exposes these boolean facts under `target.platform`:
+The selected target profile exposes these boolean service contracts under `target.platform`:
 
 ```text
 target.platform.process_context
@@ -634,11 +634,11 @@ target.platform.entropy
 target.platform.time_zones
 ```
 
-These facts describe language-level availability. A true fact requires the selected target support artifacts to provide every
-mandatory role for that service. A false fact makes the corresponding service operations unavailable during normal
+These service contracts describe language-level availability. A true service contract requires the selected target support artifacts to provide every
+mandatory role for that service. A false service contract makes the corresponding service operations unavailable during normal
 target-conditional declaration checking.
 
-Target facts do not select a provider or encode an artifact path. Exact provider identity, role bindings, ABI version, native
+Target properties do not select a provider or encode an artifact path. Exact provider identity, role bindings, ABI version, native
 dependencies, and artifact digests remain build and link inputs.
 
 ## Artifacts And Linking
@@ -677,11 +677,11 @@ deterministically, validates the selected provider, and publishes typed link-pla
 leaves ensure that unused service families do not contribute implementation members or the async runtime to the product. The linker
 consumes the validated plan and does not reinterpret one universal stream operation at runtime.
 
-## Demand-Driven Compiler Facts
+## Demand-Driven Compiler Queries
 
-Platform service facts follow the compiler's ordinary lazy architecture:
+Platform service contracts follow the compiler's ordinary lazy architecture:
 
-1. Binding a public declaration requests its imported `std` declaration fact.
+1. Binding a public declaration requests its imported `std` declaration service contract.
 2. Consumer checking requests the public contract and target availability without exposing private role identities.
 3. Building trusted standard-library source requests private role contracts only for bindings whose bodies are checked.
 4. Lowering publishes the required operation or external call without choosing an artifact by filesystem search.

@@ -16,7 +16,7 @@ use super::super::{BindingError, BindingResult};
 use super::ExpressionBinder;
 use super::core::UnresolvedNameBinding;
 use super::support::{ReferenceResolution, classify_reference_result, structured_kind};
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::Binder;
 use crate::lookup::{NameAccess, ResolvedValueName};
 
@@ -28,7 +28,7 @@ impl ExpressionBinder {
         syntax: &TypeExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let Some(path) = syntax.path() else {
             return self.push_error(binder, Some(syntax));
@@ -66,7 +66,7 @@ impl ExpressionBinder {
         syntax: &PrimaryExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         if let Some(access) = syntax.access_expression() {
             let head = self.bind_access(binder, scope, &access)?;
@@ -118,7 +118,7 @@ impl ExpressionBinder {
         recovery_origin: &PrimaryExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         if matches!(
             root.kind(),
@@ -266,7 +266,7 @@ impl ExpressionBinder {
         syntax: &AccessExpressionSyntax,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         self.bind_access_with_access(binder, scope, syntax, self.path_context.access())
     }
@@ -279,7 +279,7 @@ impl ExpressionBinder {
         access: NameAccess,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let root_token = syntax.identifier_token().or_else(|| syntax.self_token());
 
@@ -402,7 +402,7 @@ impl ExpressionBinder {
         access: NameAccess,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let name = token
             .text(syntax.source().text())
@@ -499,7 +499,7 @@ impl ExpressionBinder {
         target: bray_bound_tree::BoundReferenceTarget,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let ty = binder.value_type(target);
 

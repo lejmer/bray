@@ -156,7 +156,7 @@ mod tests {
     use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
 
     #[test]
-    fn expression_type_facts_are_send_and_sync() {
+    fn expression_types_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<ExpressionTypeResult>();

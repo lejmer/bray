@@ -21,7 +21,7 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "root frame descriptor",
     "main thread lane",
     "structured shutdown inputs",
-    "typed fact boundary",
+    "typed input boundary",
 ];
 
 const FORBIDDEN_DEPENDENCIES: &[&str] = &[
@@ -61,7 +61,7 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
 
     require_executable_rows(&fixture.contracts, workspace)?;
 
-    require_typed_fact_boundary(workspace)
+    require_typed_linker_input_boundary(workspace)
 }
 
 fn require_executable_rows(rows: &[CoverageRow], workspace: &RustWorkspace) -> Result<(), String> {
@@ -78,7 +78,7 @@ fn require_executable_rows(rows: &[CoverageRow], workspace: &RustWorkspace) -> R
     )
 }
 
-fn require_typed_fact_boundary(workspace: &RustWorkspace) -> Result<(), String> {
+fn require_typed_linker_input_boundary(workspace: &RustWorkspace) -> Result<(), String> {
     let manifest = workspace.read_text("crates/bray-linker/Cargo.toml")?;
 
     for forbidden in FORBIDDEN_DEPENDENCIES {

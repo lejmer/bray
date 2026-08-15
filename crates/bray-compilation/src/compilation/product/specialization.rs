@@ -3,27 +3,27 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_codegen::{
     CodegenImplementationWitness, CodegenInstanceKey, CodegenReachability, CodegenSpecialization,
     CodegenTarget, DemandedCallableInstance, IntrinsicCall,
 };
 use bray_ir::{
-    MirGeneratedLifecycleKey, MirGeneratedLifecycleRole, MirHelperReference, MirTargetFacts,
+    MirGeneratedLifecycleKey, MirGeneratedLifecycleRole, MirHelperReference, MirTargetContract,
     MirUnitKey,
 };
 use bray_symbols::{
-    CallableInstanceData, CallableSignatureFact, CheckedConstraintKind, ConstantTermData,
-    ConstantValueData, ConstantValueKind, ExactSymbolId, GenericArgument, GenericConstraintsFact,
+    CallableInstanceData, CallableSignatureQuery, CheckedConstraintKind, ConstantTermData,
+    ConstantValueData, ConstantValueKind, ExactSymbolId, GenericArgument, GenericConstraintsQuery,
     GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
     ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
-    NamedTypeSymbolId, ProofOutcome, StructSymbolId, SymbolFactRequest, TargetSizedIntegerType,
+    NamedTypeSymbolId, ProofOutcome, StructSymbolId, SymbolQueryRequest, TargetSizedIntegerType,
     TraitCallableMemberSymbolId,
 };
 
-use super::super::CodegenFactError;
+use super::super::CodegenPreparationError;
 use super::super::Compilation;
-use super::super::binder::binder_fact_error;
+use super::super::binder::binding_query_error;
 use super::super::implementation::{
     callable_instance, implementation_fulfillments, implementation_instance_requirement,
     selected_callable,
@@ -234,7 +234,7 @@ impl Compilation {
         owner: &ConcreteCodegenInstance,
         reference: &bray_ir::MirAnonymousCallableReference,
         callable_type: bray_symbols::TypeId,
-    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         Ok(ConcreteCodegenInstance::anonymous_callable(
             owner,
             reference,
@@ -246,7 +246,7 @@ impl Compilation {
         &self,
         owner: &ConcreteCodegenInstance,
         unit: bray_bound_tree::BoundUnitKey,
-    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         Ok(ConcreteCodegenInstance::bound_helper(owner, unit))
     }
 
@@ -254,22 +254,24 @@ impl Compilation {
         &self,
         reference: MirHelperReference,
         target: &CodegenTarget,
-    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         let role = MirGeneratedLifecycleRole::from_reference(&reference)
-            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
 
         let ty = reference
             .lifecycle_type()
-            .ok_or_else(|| CodegenFactError::MissingHelperInstance(reference.clone()))?;
+            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
 
-        let facts = self.binder_facts(&self.state.cancellation)?;
-        let identity = structural_type_identity(self.semantic_value_store()?, &facts, ty)?;
+        let binding_context = self.binding_context(&self.state.cancellation)?;
+
+        let identity =
+            structural_type_identity(self.semantic_value_store()?, &binding_context, ty)?;
 
         let key = CodegenInstanceKey::new(
             MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, identity)),
             CodegenSpecialization::NonGeneric,
             [],
-            MirTargetFacts::new(
+            MirTargetContract::new(
                 target.profile().clone(),
                 self.selected_target().target().runtime_abi(),
             ),
@@ -285,7 +287,7 @@ impl Compilation {
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         cancellation.check()?;
 
         let substitution = self.realize_codegen_substitution(callable.substitution())?;
@@ -300,7 +302,7 @@ impl Compilation {
             template,
             specialization.clone(),
             witnesses.iter().map(|(identity, _)| identity.clone()),
-            MirTargetFacts::new(
+            MirTargetContract::new(
                 target.profile().clone(),
                 self.selected_target().target().runtime_abi(),
             ),
@@ -314,7 +316,7 @@ impl Compilation {
         &self,
         definition: bray_symbols::CallableDefinitionId,
         cancellation: &CancellationToken,
-    ) -> Result<MirUnitKey, CodegenFactError> {
+    ) -> Result<MirUnitKey, CodegenPreparationError> {
         if let Some(body) = self.callable_body_key(definition)? {
             return Ok(MirUnitKey::Bound(body));
         }
@@ -322,18 +324,18 @@ impl Compilation {
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
         let Some(address) = skeleton.value().as_ref().and_then(|skeleton| {
-            skeleton.imported_fact_address(definition.callable_symbol().into_any())
+            skeleton.imported_semantic_address(definition.callable_symbol().into_any())
         }) else {
             return Ok(MirUnitKey::ExternalCallable(definition));
         };
 
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let signature = facts
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        let signature = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 definition.callable_symbol(),
             ))
-            .map_err(binder_fact_error)?;
+            .map_err(binding_query_error)?;
 
         if !signature.value().has_body() {
             return Ok(MirUnitKey::ExternalCallable(definition));
@@ -353,7 +355,7 @@ impl Compilation {
             ));
         }
 
-        Err(CodegenFactError::Diagnostics(
+        Err(CodegenPreparationError::Diagnostics(
             signature.diagnostics().merged(template.diagnostics()),
         ))
     }
@@ -364,7 +366,7 @@ impl Compilation {
         demand: &DemandedCallableInstance,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenCallee, CodegenFactError> {
+    ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
         if demand.trait_dispatch().is_some() {
             return self.concrete_codegen_generic_callee(owner, demand, target, cancellation);
         }
@@ -412,7 +414,7 @@ impl Compilation {
         demand: &DemandedCallableInstance,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenCallee, CodegenFactError> {
+    ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
         cancellation.check()?;
 
         let dispatch = demand
@@ -429,13 +431,13 @@ impl Compilation {
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let values = self.semantic_value_store()?;
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let constraints = facts
-            .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(
+        let constraints = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(
                 dispatch.owner(),
             ))
-            .map_err(binder_fact_error)?;
+            .map_err(binding_query_error)?;
 
         let constraint = constraints
             .value()
@@ -469,7 +471,7 @@ impl Compilation {
                 .intrinsic()
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            let context = super::super::checker::CompilationCheckerContext::new(facts);
+            let context = super::super::checker::CompilationCheckerContext::new(binding_context);
 
             let outcome =
                 bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
@@ -504,9 +506,10 @@ impl Compilation {
             .implementation_instance_data(witness)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let fulfillments = implementation_fulfillments(&facts, implementation.definition())?;
+        let fulfillments =
+            implementation_fulfillments(&binding_context, implementation.definition())?;
 
-        let fulfillment = selected_callable(&facts, fulfillments.callables, member)
+        let fulfillment = selected_callable(&binding_context, fulfillments.callables, member)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let application = values
@@ -537,7 +540,7 @@ impl Compilation {
         owner: &ConcreteCodegenInstance,
         requirement: ImplementationRequirementKey,
         cancellation: &CancellationToken,
-    ) -> Result<Option<ImplementationInstanceId>, CodegenFactError> {
+    ) -> Result<Option<ImplementationInstanceId>, CodegenPreparationError> {
         self.concrete_codegen_matching_witness(
             owner.implementation_witnesses().iter().copied(),
             requirement,
@@ -550,7 +553,7 @@ impl Compilation {
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         requirement: ImplementationRequirementKey,
         cancellation: &CancellationToken,
-    ) -> Result<Option<ImplementationInstanceId>, CodegenFactError> {
+    ) -> Result<Option<ImplementationInstanceId>, CodegenPreparationError> {
         for witness in witnesses {
             if requirement == self.concrete_codegen_witness_requirement(witness, cancellation)? {
                 return Ok(Some(witness));
@@ -564,10 +567,11 @@ impl Compilation {
         &self,
         witness: ImplementationInstanceId,
         cancellation: &CancellationToken,
-    ) -> Result<ImplementationRequirementKey, CodegenFactError> {
-        let facts = self.binder_facts(cancellation)?;
+    ) -> Result<ImplementationRequirementKey, CodegenPreparationError> {
+        let binding_context = self.binding_context(cancellation)?;
 
-        implementation_instance_requirement(&facts, witness).map_err(CodegenFactError::from)
+        implementation_instance_requirement(&binding_context, witness)
+            .map_err(CodegenPreparationError::from)
     }
 
     fn concrete_codegen_forwarded_constraint_witnesses(
@@ -576,7 +580,7 @@ impl Compilation {
         callable: &CallableInstanceData,
         direct_witnesses: &[ImplementationInstanceId],
         cancellation: &CancellationToken,
-    ) -> Result<Vec<ImplementationInstanceId>, CodegenFactError> {
+    ) -> Result<Vec<ImplementationInstanceId>, CodegenPreparationError> {
         let Some(generic_owner) =
             GenericOwnerId::try_new(callable.definition().callable_symbol().into_any())
         else {
@@ -610,7 +614,7 @@ impl Compilation {
         &self,
         implementation: ImplementationInstanceId,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<ImplementationInstanceId>, CodegenFactError> {
+    ) -> Result<Vec<ImplementationInstanceId>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         let instance = values
@@ -644,7 +648,7 @@ impl Compilation {
         available: impl IntoIterator<Item = ImplementationInstanceId>,
         requirement: ImplementationRequirementKey,
         cancellation: &CancellationToken,
-    ) -> Result<ImplementationInstanceId, CodegenFactError> {
+    ) -> Result<ImplementationInstanceId, CodegenPreparationError> {
         if let Some(witness) =
             self.concrete_codegen_matching_witness(available, requirement, cancellation)?
         {
@@ -655,7 +659,7 @@ impl Compilation {
             self.implementation_selection_result_with_cancellation(requirement, cancellation)?;
 
         if selection.diagnostics().has_errors() {
-            return Err(CodegenFactError::Diagnostics(
+            return Err(CodegenPreparationError::Diagnostics(
                 selection.diagnostics().clone(),
             ));
         }
@@ -672,21 +676,21 @@ impl Compilation {
         owner: GenericOwnerId,
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<ImplementationRequirementKey>, CodegenFactError> {
+    ) -> Result<Vec<ImplementationRequirementKey>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let constraints = facts
-            .symbol_fact(SymbolFactRequest::<GenericConstraintsFact>::new(owner))
-            .map_err(binder_fact_error)?;
+        let constraints = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(owner))
+            .map_err(binding_query_error)?;
 
         if constraints.diagnostics().has_errors() {
-            return Err(CodegenFactError::Diagnostics(
+            return Err(CodegenPreparationError::Diagnostics(
                 constraints.diagnostics().clone(),
             ));
         }
 
-        let context = super::super::checker::CompilationCheckerContext::new(facts);
+        let context = super::super::checker::CompilationCheckerContext::new(binding_context);
         let mut requirements = Vec::new();
 
         for constraint in constraints.value().constraints() {
@@ -728,12 +732,12 @@ impl Compilation {
         &self,
         witnesses: &[ImplementationInstanceId],
         owner_substitution: GenericSubstitutionId,
-    ) -> Result<Vec<ImplementationInstanceId>, CodegenFactError> {
+    ) -> Result<Vec<ImplementationInstanceId>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         witnesses
             .iter()
-            .map(|witness| -> Result<_, CodegenFactError> {
+            .map(|witness| -> Result<_, CodegenPreparationError> {
                 let data = values
                     .implementation_instance_data(*witness)
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -760,7 +764,7 @@ impl Compilation {
         callable: &CallableInstanceData,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenInstance, CodegenFactError> {
+    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         let substitution = match owner.substitution() {
@@ -781,7 +785,7 @@ impl Compilation {
     fn realize_codegen_substitution(
         &self,
         substitution: GenericSubstitutionId,
-    ) -> Result<GenericSubstitutionId, CodegenFactError> {
+    ) -> Result<GenericSubstitutionId, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         let data = values
@@ -797,7 +801,7 @@ impl Compilation {
                     .realize_codegen_constant_argument(term)
                     .map(GenericArgument::Constant),
             })
-            .collect::<Result<Vec<_>, CodegenFactError>>()?;
+            .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
 
         let realized = GenericSubstitutionData::try_new(
             data.owner(),
@@ -820,7 +824,7 @@ impl Compilation {
     pub(super) fn realize_codegen_constant_argument(
         &self,
         term: bray_symbols::ConstantTermId,
-    ) -> Result<bray_symbols::ConstantTermId, CodegenFactError> {
+    ) -> Result<bray_symbols::ConstantTermId, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         let data = values
@@ -859,10 +863,12 @@ impl Compilation {
         &self,
         witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<(CodegenImplementationWitness, ImplementationInstanceId)>, CodegenFactError>
-    {
+    ) -> Result<
+        Vec<(CodegenImplementationWitness, ImplementationInstanceId)>,
+        CodegenPreparationError,
+    > {
         let values = self.semantic_value_store()?;
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
         let mut concrete = BTreeMap::new();
 
         for witness in witnesses {
@@ -875,7 +881,7 @@ impl Compilation {
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
             let definition =
-                self.portable_codegen_symbol_key(&facts, data.definition().into_any())?;
+                self.portable_codegen_symbol_key(&binding_context, data.definition().into_any())?;
 
             let specialization = self.codegen_specialization(data.substitution())?;
 

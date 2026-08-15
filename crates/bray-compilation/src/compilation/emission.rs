@@ -8,7 +8,7 @@ use bray_codegen::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_emitter::{BackendContributionMergeError, BackendContributionSet, EmissionPlan};
 
-use super::{CodegenFactError, Compilation};
+use super::{CodegenPreparationError, Compilation};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -69,7 +69,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<BackendContributionSet>, EmissionCodegenError> {
         let requests = plan.backend_requests();
 
-        let facts = CodegenFactLookup::try_new(units, mappings)
+        let inputs = CodegenUnitLookup::try_new(units, mappings)
             .map_err(|kind| EmissionCodegenError::new(kind, DiagnosticBag::new()))?;
 
         let outcomes = self
@@ -78,13 +78,13 @@ impl Compilation {
             .map_indexed(requests.len(), |index| {
                 let request = &requests[index];
 
-                let Some(unit) = facts.unit(request.unit()) else {
+                let Some(unit) = inputs.unit(request.unit()) else {
                     return Err(EmissionCodegenErrorKind::MissingUnit(
                         request.unit().clone(),
                     ));
                 };
 
-                let Some(mappings) = facts.mappings(request.unit()) else {
+                let Some(mappings) = inputs.mappings(request.unit()) else {
                     return Err(EmissionCodegenErrorKind::MissingMappings(
                         request.unit().clone(),
                     ));
@@ -125,7 +125,7 @@ impl EmissionCodegenError {
     pub(super) fn new(kind: EmissionCodegenErrorKind, diagnostics: DiagnosticBag) -> Self {
         let diagnostics = match &kind {
             EmissionCodegenErrorKind::Request { error, .. } => match error.as_ref() {
-                CodegenFactError::Diagnostics(produced) => diagnostics.merged(produced),
+                CodegenPreparationError::Diagnostics(produced) => diagnostics.merged(produced),
                 _ => diagnostics,
             },
             _ => diagnostics,
@@ -148,20 +148,20 @@ impl EmissionCodegenError {
 /// Structured reason planned backend contributions could not be obtained.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EmissionCodegenErrorKind {
-    /// The supplied facts contain the same code generation unit more than once.
+    /// The supplied inputs contain the same code generation unit more than once.
     DuplicateUnit(CodegenUnitKey),
-    /// The supplied facts contain mappings for the same code generation unit more than once.
+    /// The supplied inputs contain mappings for the same code generation unit more than once.
     DuplicateMappings(CodegenUnitKey),
-    /// The plan names a code generation unit absent from the supplied facts.
+    /// The plan names a code generation unit absent from the supplied inputs.
     MissingUnit(CodegenUnitKey),
     /// The plan names a code generation unit without realization mappings.
     MissingMappings(CodegenUnitKey),
-    /// One exact code generation fact request could not be formed or evaluated.
+    /// One exact code generation input request could not be formed or evaluated.
     Request {
-        /// Unit whose fact request failed.
+        /// Unit whose input request failed.
         unit: CodegenUnitKey,
         /// Exact request failure.
-        error: Box<CodegenFactError>,
+        error: Box<CodegenPreparationError>,
     },
     /// A backend reported failure for one planned code generation unit.
     Generation {
@@ -178,21 +178,21 @@ pub enum EmissionCodegenErrorKind {
     InvalidContributions(BackendContributionMergeError),
 }
 
-struct CodegenFactLookup<'facts> {
-    entries: BTreeMap<&'facts CodegenUnitKey, CodegenFactEntry<'facts>>,
+struct CodegenUnitLookup<'inputs> {
+    entries: BTreeMap<&'inputs CodegenUnitKey, CodegenUnitEntry<'inputs>>,
 }
 
-impl<'facts> CodegenFactLookup<'facts> {
+impl<'inputs> CodegenUnitLookup<'inputs> {
     fn try_new(
-        units: &'facts [CodegenUnit],
-        mappings: &'facts [CodegenMappings],
+        units: &'inputs [CodegenUnit],
+        mappings: &'inputs [CodegenMappings],
     ) -> Result<Self, EmissionCodegenErrorKind> {
         let mut entries = BTreeMap::new();
 
         for unit in units {
             let entry = entries
                 .entry(unit.key())
-                .or_insert_with(CodegenFactEntry::default);
+                .or_insert_with(CodegenUnitEntry::default);
 
             if entry.unit.is_some() {
                 // The error must retain the structural unit identity after the lookup is discarded.
@@ -205,7 +205,7 @@ impl<'facts> CodegenFactLookup<'facts> {
         for mappings in mappings {
             let entry = entries
                 .entry(mappings.unit())
-                .or_insert_with(CodegenFactEntry::default);
+                .or_insert_with(CodegenUnitEntry::default);
 
             if entry.mappings.is_some() {
                 // The error must retain the structural unit identity after the lookup is discarded.
@@ -220,19 +220,19 @@ impl<'facts> CodegenFactLookup<'facts> {
         Ok(Self { entries })
     }
 
-    fn unit(&self, key: &CodegenUnitKey) -> Option<&'facts CodegenUnit> {
+    fn unit(&self, key: &CodegenUnitKey) -> Option<&'inputs CodegenUnit> {
         self.entries.get(key).and_then(|entry| entry.unit)
     }
 
-    fn mappings(&self, key: &CodegenUnitKey) -> Option<&'facts CodegenMappings> {
+    fn mappings(&self, key: &CodegenUnitKey) -> Option<&'inputs CodegenMappings> {
         self.entries.get(key).and_then(|entry| entry.mappings)
     }
 }
 
 #[derive(Default)]
-struct CodegenFactEntry<'facts> {
-    unit: Option<&'facts CodegenUnit>,
-    mappings: Option<&'facts CodegenMappings>,
+struct CodegenUnitEntry<'inputs> {
+    unit: Option<&'inputs CodegenUnit>,
+    mappings: Option<&'inputs CodegenMappings>,
 }
 
 fn complete_sets<'outcome>(
@@ -315,7 +315,7 @@ mod tests {
     use bray_symbols::{ProductIdentity, ProductKind};
     use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
 
-    use super::{CodegenFactLookup, Compilation, EmissionCodegenErrorKind};
+    use super::{CodegenUnitLookup, Compilation, EmissionCodegenErrorKind};
     use crate::test_support::{package_identity, source_input};
     use crate::{CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget};
 
@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn codegen_fact_lookup_rejects_duplicate_units_and_mappings() {
+    fn codegen_unit_lookup_rejects_duplicate_units_and_mappings() {
         let fixture = codegen_request_for_seed_and_backend(1, backend_identity());
 
         let units = [
@@ -407,7 +407,7 @@ mod tests {
             fixture.request().unit().clone(),
         ];
 
-        let duplicate_units = CodegenFactLookup::try_new(&units, &[]);
+        let duplicate_units = CodegenUnitLookup::try_new(&units, &[]);
 
         assert!(matches!(
             duplicate_units,
@@ -420,7 +420,7 @@ mod tests {
             fixture.request().mappings().clone(),
         ];
 
-        let duplicate_mappings = CodegenFactLookup::try_new(&[], &mappings);
+        let duplicate_mappings = CodegenUnitLookup::try_new(&[], &mappings);
 
         assert!(matches!(
             duplicate_mappings,

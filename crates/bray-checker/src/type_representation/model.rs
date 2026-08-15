@@ -20,7 +20,7 @@ pub enum DeclaredStorageMemberIdentity {
     UnionPayloadField(UnionPayloadFieldSymbolId),
 }
 
-use crate::{CheckerFactResult, CheckerInfrastructureError, CheckerSource};
+use crate::{CheckerInfrastructureError, CheckerQueryResult, CheckerSource};
 
 /// A resolved integer type and the representation used to validate tag values.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -296,13 +296,13 @@ pub trait TypeRepresentationContext: Sync {
     fn type_definition(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeDefinition>>;
+    ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeDefinition>>;
 
     /// Returns an imported representation contract when the subject is dependency-owned.
     fn imported_type_representation(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<Option<bray_symbols::DeclaredTypeRepresentation>>>;
+    ) -> CheckerQueryResult<DiagnosticResult<Option<bray_symbols::DeclaredTypeRepresentation>>>;
 
     /// Resolves one directive expression to its exact source text.
     fn source(&self, syntax: SyntaxAnchor)
@@ -312,26 +312,26 @@ pub trait TypeRepresentationContext: Sync {
     fn unsigned_integer(
         &self,
         expression: DeclarationExpressionTemplate,
-    ) -> CheckerFactResult<DiagnosticResult<Option<u64>>>;
+    ) -> CheckerQueryResult<DiagnosticResult<Option<u64>>>;
 
     /// Evaluates one union tag expression using its selected integer type.
     fn integer_constant(
         &self,
         expression: DeclarationExpressionTemplate,
         expected: Option<RepresentationIntegerType>,
-    ) -> CheckerFactResult<DiagnosticResult<Option<IntegerConstant>>>;
+    ) -> CheckerQueryResult<DiagnosticResult<Option<IntegerConstant>>>;
 
     /// Resolves one directive expression as a built-in integer type.
     fn integer_type(
         &self,
         expression: DeclarationExpressionTemplate,
-    ) -> CheckerFactResult<Option<RepresentationIntegerType>>;
+    ) -> CheckerQueryResult<Option<RepresentationIntegerType>>;
 
     /// Resolves one fixed-width integer representation role.
     fn integer_type_for_role(
         &self,
         role: RepresentationRole,
-    ) -> CheckerFactResult<RepresentationIntegerType>;
+    ) -> CheckerQueryResult<RepresentationIntegerType>;
 
     /// Returns the cancellation source for this request.
     fn cancellation(&self) -> &dyn Cancellation;

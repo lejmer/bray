@@ -96,7 +96,7 @@ impl BoundCallableTarget {
     }
 }
 
-/// Checked facts for constructing one lazy async computation.
+/// Checked state for constructing one lazy async computation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct BoundFutureConstruction {
     completion_type: TypeId,
@@ -104,7 +104,7 @@ pub struct BoundFutureConstruction {
 }
 
 impl BoundFutureConstruction {
-    /// Creates the result facts for invocation of an async callable.
+    /// Creates the result state for invocation of an async callable.
     pub const fn new(completion_type: TypeId, future_type: TypeId) -> Self {
         Self {
             completion_type,
@@ -360,7 +360,7 @@ mod tests {
     use crate::{BoundExpressionId, BoundUnitId};
 
     #[test]
-    fn resolved_async_calls_retain_lazy_future_and_exact_callable_facts() {
+    fn resolved_async_calls_retain_lazy_future_and_exact_callable_semantics() {
         let values = crate::test_support::semantic_values();
         let completion_type = crate::test_support::error_type_in(&values);
 

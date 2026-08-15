@@ -62,7 +62,6 @@ pub use policy::{
 };
 pub use system::{
     SystemLinkerConfiguration, SystemLinkerConfigurationBuildError, SystemLinkerDriver,
-    SystemLinkerDriverBuildError, SystemLinkerFamily,
-    SystemLinkerMapOutput,
+    SystemLinkerDriverBuildError, SystemLinkerFamily, SystemLinkerMapOutput,
 };
 pub use target::{LinkModel, LinkTarget, LinkTargetBuildError, LinkerTargetIdentity};

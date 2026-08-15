@@ -1,11 +1,11 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_symbols::{
     AnySymbolId, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext,
     SemanticValueStore, TypeData, TypeId,
 };
 
-use super::binder::CompilationBinderFacts;
+use super::binder::CompilationBindingContext;
 use crate::fact::FactQueryError;
 
 pub(super) fn empty_substitution(
@@ -60,15 +60,15 @@ pub(super) fn generic_parameter_argument(
 }
 
 pub(super) fn contextual_self_type(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     context: SelfTypeContext,
 ) -> Result<TypeId, FactQueryError> {
     let definition = NamedTypeSymbolId::try_from_any(context.symbol())
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    facts
+    binding_context
         .semantic_values()
-        .intern_open_named_type(facts.symbols(), definition)
+        .intern_open_named_type(binding_context.symbols(), definition)
         .map_err(|_| FactQueryError::InfrastructureFailure)
         .and_then(|ty| ty.ok_or(FactQueryError::InfrastructureFailure))
 }

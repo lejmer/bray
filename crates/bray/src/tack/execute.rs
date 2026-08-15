@@ -7,9 +7,8 @@ use std::process::ExitCode;
 
 use bray_diagnostics::{
     DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticIoErrorKind,
-    DiagnosticProjectCommandFailure,
-    DiagnosticProjectOperation, DiagnosticProjectSelectionProblem, DiagnosticToolProtocolFailure,
-    DiagnosticToolStream,
+    DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticProjectSelectionProblem,
+    DiagnosticToolProtocolFailure, DiagnosticToolStream,
 };
 use bray_project::ProjectGraph;
 use bray_test_protocol::{MAXIMUM_TEST_BATCH_REQUEST_BYTES, TestBatchRequest};
@@ -1304,8 +1303,7 @@ mod tests {
             );
 
             let result = bray_driver::run_result(
-                std::iter::once(OsString::from("brayc"))
-                    .chain(request.arguments().iter().cloned()),
+                std::iter::once(OsString::from("brayc")).chain(request.arguments().iter().cloned()),
             );
 
             let mut stdout = Vec::new();
@@ -1576,12 +1574,30 @@ mod tests {
         let requests = executor.requests();
 
         let [library, api] = requests.as_slice() else {
-            panic!("standard library source check must compile its library before API: {requests:#?}");
+            panic!(
+                "standard library source check must compile its library before API: {requests:#?}"
+            );
         };
 
-        assert!(has_argument_pair(&library.arguments, "--product", "library"));
-        assert!(library.arguments.iter().any(|argument| argument == "--emit-interface"));
-        assert!(library.arguments.iter().any(|argument| argument == "--standard-library-source"));
+        assert!(has_argument_pair(
+            &library.arguments,
+            "--product",
+            "library"
+        ));
+
+        assert!(
+            library
+                .arguments
+                .iter()
+                .any(|argument| argument == "--emit-interface")
+        );
+
+        assert!(
+            library
+                .arguments
+                .iter()
+                .any(|argument| argument == "--standard-library-source")
+        );
 
         assert!(has_argument_pair(
             &library.arguments,
@@ -1597,9 +1613,23 @@ mod tests {
             "std/library"
         ));
 
-        assert!(api.arguments.iter().any(|argument| argument == "--dependency-interface"));
-        assert!(api.arguments.iter().any(|argument| argument == "--standard-library-source"));
-        assert!(!api.arguments.iter().any(|argument| argument == "--standard-library-root"));
+        assert!(
+            api.arguments
+                .iter()
+                .any(|argument| argument == "--dependency-interface")
+        );
+
+        assert!(
+            api.arguments
+                .iter()
+                .any(|argument| argument == "--standard-library-source")
+        );
+
+        assert!(
+            !api.arguments
+                .iter()
+                .any(|argument| argument == "--standard-library-root")
+        );
     }
 
     #[test]
@@ -1633,10 +1663,17 @@ mod tests {
         let requests = executor.requests();
 
         let [library, api] = requests.as_slice() else {
-            panic!("standard library source build must compile its library before API: {requests:#?}");
+            panic!(
+                "standard library source build must compile its library before API: {requests:#?}"
+            );
         };
 
-        assert!(!library.arguments.iter().any(|argument| argument == "--standard-library-root"));
+        assert!(
+            !library
+                .arguments
+                .iter()
+                .any(|argument| argument == "--standard-library-root")
+        );
 
         let standard_library = std::path::absolute(&toolchain)
             .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
@@ -1665,7 +1702,11 @@ mod tests {
             "std/library"
         ));
 
-        assert!(api.arguments.iter().any(|argument| argument == "--standard-library-source"));
+        assert!(
+            api.arguments
+                .iter()
+                .any(|argument| argument == "--standard-library-source")
+        );
     }
 
     #[test]
@@ -2226,9 +2267,7 @@ mod tests {
         std::fs::create_dir_all(&directory)
             .unwrap_or_else(|error| panic!("test batch directory must be created: {error:?}"));
 
-        let identity = "a".repeat(
-            bray_test_protocol::MAXIMUM_TEST_BATCH_PLAN_IDENTITY_BYTES + 1,
-        );
+        let identity = "a".repeat(bray_test_protocol::MAXIMUM_TEST_BATCH_PLAN_IDENTITY_BYTES + 1);
 
         let document = format!(
             "{{\"plans\":[{{\"identity\":\"{identity}\",\"filters\":[],\"maximum_concurrency\":1,\"timeout_milliseconds\":null}}]}}"

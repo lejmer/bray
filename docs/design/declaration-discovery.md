@@ -30,7 +30,7 @@ Discovery should record the recoverable surface it can see and emit diagnostics 
 
 ## Phase Boundary
 
-Declaration discovery records syntax-backed declaration facts.
+Declaration discovery records syntax-backed declarations.
 
 It owns the early catalog of:
 
@@ -137,7 +137,7 @@ Syntax references should not expose green internals or store typed syntax wrappe
 Declaration records and module part records use `SyntaxAnchor`, a compact source-backed reference containing `source_id`,
 `syntax_kind`, `full_range`, and `is_recovered`.
 
-Surface facts are syntax-backed and intentionally pre-semantic.
+Surface records are syntax-backed and intentionally pre-semantic.
 `DeclarationSurface` records:
 
 - declaration visibility as the visibility token kind when present,
@@ -248,7 +248,7 @@ Discovery should run in two stages.
 2. Table merge borrows immutable chunks and constructs a new immutable `DeclarationTable`.
 
 The public operations return `DeclarationChunkResult` and `DeclarationTableResult` so each boundary carries its diagnostics with
-the fact that produced them. Merge borrows cached chunk results and publishes independently owned table records. It does not
+the source record that produced them. Merge borrows cached chunk results and publishes independently owned table records. It does not
 consume or mutate cached chunks.
 
 Source-unit discovery may use mutable local builders internally.

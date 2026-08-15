@@ -1,6 +1,6 @@
 use crate::semantic::codec::common::SemanticDecodeContext;
-use crate::semantic::codec::decoding::{contract, declaration, facts, surface, value};
-use crate::semantic::model::InterfaceSemanticFactKind;
+use crate::semantic::codec::decoding::{bundle, contract, declaration, surface, value};
+use crate::semantic::model::InterfaceSemanticRecordKind;
 use crate::{InterfaceSectionTag, InterfaceValidationError, ValidatedInterfaceSection};
 
 pub(super) struct SelectedTables<'bytes> {
@@ -15,19 +15,19 @@ pub(super) struct SelectedTables<'bytes> {
 impl<'bytes> SelectedTables<'bytes> {
     pub(super) fn read(
         sections: &'bytes [ValidatedInterfaceSection<'bytes>],
-        kind: InterfaceSemanticFactKind,
+        kind: InterfaceSemanticRecordKind,
         context: &mut SemanticDecodeContext,
     ) -> Result<Self, InterfaceValidationError> {
-        let types = facts::required_section(sections, InterfaceSectionTag::SemanticTypes)?;
-        let constants = facts::required_section(sections, InterfaceSectionTag::Constants)?;
-        let contracts = facts::required_section(sections, InterfaceSectionTag::Contracts)?;
+        let types = bundle::required_section(sections, InterfaceSectionTag::SemanticTypes)?;
+        let constants = bundle::required_section(sections, InterfaceSectionTag::Constants)?;
+        let contracts = bundle::required_section(sections, InterfaceSectionTag::Contracts)?;
 
         let types = value::decode_type_tables(types, context)?;
         let constants = value::decode_constant_tables(constants, context)?;
         let contracts = contract::decode_contract_tables(contracts, context)?;
 
-        let implementations = if kind == InterfaceSemanticFactKind::Implementation {
-            let section = facts::required_section(sections, InterfaceSectionTag::Implementations)?;
+        let implementations = if kind == InterfaceSemanticRecordKind::Implementation {
+            let section = bundle::required_section(sections, InterfaceSectionTag::Implementations)?;
 
             Some(surface::decode_implementation_tables(section, context)?)
         } else {
@@ -36,12 +36,12 @@ impl<'bytes> SelectedTables<'bytes> {
 
         let targets = if matches!(
             kind,
-            InterfaceSemanticFactKind::Implementation
-                | InterfaceSemanticFactKind::TargetFact
-                | InterfaceSemanticFactKind::Runtime
+            InterfaceSemanticRecordKind::Implementation
+                | InterfaceSemanticRecordKind::TargetProperty
+                | InterfaceSemanticRecordKind::Runtime
         ) {
             let section =
-                facts::required_section(sections, InterfaceSectionTag::TargetDependencies)?;
+                bundle::required_section(sections, InterfaceSectionTag::TargetDependencies)?;
 
             Some(surface::decode_target_tables(section, context)?)
         } else {
@@ -50,11 +50,12 @@ impl<'bytes> SelectedTables<'bytes> {
 
         let declarations = if matches!(
             kind,
-            InterfaceSemanticFactKind::CallableSignature
-                | InterfaceSemanticFactKind::GenericDeclaration
-                | InterfaceSemanticFactKind::DeclaredType
+            InterfaceSemanticRecordKind::CallableSignature
+                | InterfaceSemanticRecordKind::GenericDeclaration
+                | InterfaceSemanticRecordKind::DeclaredType
         ) {
-            let section = facts::required_section(sections, InterfaceSectionTag::DeclarationFacts)?;
+            let section =
+                bundle::required_section(sections, InterfaceSectionTag::DeclarationSemantics)?;
 
             Some(declaration::decode_declaration_tables(section, context)?)
         } else {

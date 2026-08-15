@@ -24,7 +24,7 @@ impl Compilation {
         let updated_state = Arc::get_mut(&mut updated.state)
             .unwrap_or_else(|| panic!("new compilation state must be uniquely owned"));
 
-        reuse_published_facts(&self.state, updated_state);
+        reuse_resolved_querys(&self.state, updated_state);
 
         Ok(updated)
     }
@@ -77,9 +77,9 @@ impl Compilation {
     }
 }
 
-fn reuse_published_facts(
-    previous: &super::facts::CompilationState,
-    updated: &mut super::facts::CompilationState,
+fn reuse_resolved_querys(
+    previous: &super::state::CompilationState,
+    updated: &mut super::state::CompilationState,
 ) {
     updated.sources = shared_sources(&previous.sources, &updated.sources);
 
@@ -142,8 +142,8 @@ fn reuse_published_facts(
 }
 
 fn fork_semantic_values(
-    previous: &super::facts::CompilationState,
-    updated: &mut super::facts::CompilationState,
+    previous: &super::state::CompilationState,
+    updated: &mut super::state::CompilationState,
 ) {
     let Some(Ok(previous_store)) = previous.semantic_values.get() else {
         return;
@@ -170,8 +170,8 @@ fn shared_sources(previous: &SourceStore, updated: &SourceStore) -> SourceStore 
 }
 
 fn reuse_fixed_cells(
-    previous: &super::facts::CompilationState,
-    updated: &mut super::facts::CompilationState,
+    previous: &super::state::CompilationState,
+    updated: &mut super::state::CompilationState,
     reusable: &BTreeSet<CompilationFactKey>,
 ) {
     macro_rules! reuse {
@@ -266,8 +266,8 @@ fn reuse_fixed_cells(
 }
 
 fn reuse_mapped_cells(
-    previous: &super::facts::CompilationState,
-    updated: &mut super::facts::CompilationState,
+    previous: &super::state::CompilationState,
+    updated: &mut super::state::CompilationState,
     reusable: &BTreeSet<CompilationFactKey>,
 ) {
     macro_rules! reuse {
@@ -297,8 +297,8 @@ fn reuse_mapped_cells(
         CompilationFactKey::ForeignCallableContract(*key)
     });
 
-    reuse!(imported_semantic_facts, |key| {
-        CompilationFactKey::ImportedSemanticFact(*key)
+    reuse!(imported_semantics, |key| {
+        CompilationFactKey::ImportedSemanticRecord(*key)
     });
 
     reuse!(imported_constant_callable_bodies, |key| {
@@ -361,8 +361,8 @@ fn reuse_mapped_cells(
         CompilationFactKey::CodegenArtifact(key.clone())
     });
 
-    updated.symbol_facts = previous.symbol_facts.updated(reusable);
-    updated.discovery_symbol_facts = previous.discovery_symbol_facts.updated(reusable);
+    updated.symbol_semantics = previous.symbol_semantics.updated(reusable);
+    updated.discovery_symbol_semantics = previous.discovery_symbol_semantics.updated(reusable);
 
     reuse!(bound_units, |key| CompilationFactKey::BoundUnit(
         key.clone()
@@ -407,12 +407,12 @@ fn reuse_mapped_cells(
 
     reuse!(liveness, |key| CompilationFactKey::Liveness(key.clone()));
 
-    reuse!(refinement_facts, |key| {
-        CompilationFactKey::RefinementFacts(key.clone())
+    reuse!(refinements, |key| {
+        CompilationFactKey::Refinements(key.clone())
     });
 
-    reuse!(storage_flow_facts, |key| {
-        CompilationFactKey::StorageFlowFacts(key.clone())
+    reuse!(storage_flow, |key| {
+        CompilationFactKey::StorageFlow(key.clone())
     });
 
     reuse!(dependency_contracts, |key| {
@@ -423,8 +423,8 @@ fn reuse_mapped_cells(
         CompilationFactKey::MemoryOperations(key.clone())
     });
 
-    reuse!(async_facts, |key| {
-        CompilationFactKey::AsyncFacts(key.clone())
+    reuse!(async_analysis, |key| {
+        CompilationFactKey::AsyncAnalysis(key.clone())
     });
 
     reuse!(body_behavior_contributions, |key| {
@@ -504,7 +504,7 @@ mod tests {
     use crate::{SelectedTarget, SemanticAnalysisLimits, WorkerBudget};
 
     #[test]
-    fn variable_width_source_edits_reuse_only_unaffected_source_facts() {
+    fn variable_width_source_edits_reuse_only_unaffected_source_results() {
         let previous = compilation([
             source(10, 0, "module app.changed;\n\nconst value: i32 = 1;\n"),
             source(11, 0, "module app.stable;\n\nfunc stable()\n{\n}\n"),
@@ -582,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    fn updated_snapshots_do_not_eagerly_demand_semantic_facts() {
+    fn updated_snapshots_do_not_eagerly_demand_semantics() {
         let previous = compilation([
             source(10, 0, "module app.changed;\n\nconst value: i32 = 1;\n"),
             source(11, 0, "module app.stable;\n\nfunc stable()\n{\n}\n"),
@@ -726,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_budget_changes_reuse_semantic_facts_with_forked_values() {
+    fn worker_budget_changes_reuse_semantics_with_forked_values() {
         let source_text = "module app;\n\nfunc stable()\n{\n}\n";
         let previous = compilation([source(10, 0, source_text)]);
         let stable_unit = source_callable_body_key(&previous);
@@ -763,7 +763,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_limit_fields_invalidate_only_their_dependent_facts() {
+    fn semantic_limit_fields_invalidate_only_their_dependent_results() {
         let source_text = concat!(
             "module app;\n",
             "\n",
@@ -881,7 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn target_changes_invalidate_target_facts_without_invalidating_syntax() {
+    fn target_changes_invalidate_target_properties_without_invalidating_syntax() {
         let previous = compilation([source(10, 0, "module app;\n")]);
 
         previous.source_unit_syntax(SourceId::new(0));
@@ -923,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn product_changes_invalidate_product_facts_without_invalidating_other_inputs() {
+    fn product_changes_invalidate_product_semantics_without_invalidating_other_inputs() {
         let previous = compilation([source(10, 0, "module app;\n")]);
 
         previous.source_unit_syntax(SourceId::new(0));

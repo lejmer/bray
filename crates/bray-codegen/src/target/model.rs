@@ -19,7 +19,7 @@ pub struct TargetContract {
 }
 
 impl TargetContract {
-    /// Composes independently validated layout, ABI, symbol, and compatibility facts.
+    /// Composes independently validated layout, ABI, symbol, and compatibility contracts.
     pub const fn new(
         data_layout: TargetDataLayout,
         abi: TargetAbi,
@@ -109,7 +109,7 @@ impl CodegenTarget {
         })
     }
 
-    /// Returns the stable target identity used by codegen facts and artifacts.
+    /// Returns the stable target identity used by codegen inputs and artifacts.
     pub const fn identity(&self) -> &TargetIdentity {
         self.profile.identity()
     }
@@ -124,12 +124,12 @@ impl CodegenTarget {
         self.triple.as_str()
     }
 
-    /// Returns validated pointer, alignment, platform, and byte-order facts.
+    /// Returns validated pointer, alignment, platform, and byte-order properties.
     pub const fn machine(&self) -> &TargetMachineProperties {
         self.profile.machine()
     }
 
-    /// Returns validated scalar, aggregate, and address-space layout facts.
+    /// Returns validated scalar, aggregate, and address-space layout rules.
     pub const fn data_layout(&self) -> &TargetDataLayout {
         &self.contract.data_layout
     }
@@ -177,7 +177,7 @@ impl CodegenTarget {
             .map(NonEmptySharedStr::as_str)
     }
 
-    pub(crate) fn matches_mir_target(&self, target: &bray_ir::MirTargetFacts) -> bool {
+    pub(crate) fn matches_mir_target(&self, target: &bray_ir::MirTargetContract) -> bool {
         target.identity() == self.identity() && target.machine() == self.machine()
     }
 }

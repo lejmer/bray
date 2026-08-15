@@ -1,9 +1,7 @@
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
-use bray_diagnostics::{
-    DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticId, DiagnosticKind,
-};
+use bray_diagnostics::{DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticId, DiagnosticKind};
 
 use super::ProjectLoadError;
 

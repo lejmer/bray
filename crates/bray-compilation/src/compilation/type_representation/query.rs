@@ -1,29 +1,31 @@
 use std::sync::Arc;
 
-use bray_binder::{BinderFactContext, SymbolFactProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_checker::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome, CheckerSource,
-    DeclaredStorageMember, DeclaredTypeDefinition, DeclaredUnionVariant, RepresentationIntegerType,
-    TypeRepresentationContext, check_declared_type_representation,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
+    CheckerSource, DeclaredStorageMember, DeclaredTypeDefinition, DeclaredUnionVariant,
+    RepresentationIntegerType, TypeRepresentationContext, check_declared_type_representation,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_package_interface::{ImportedSemanticFact, InterfaceSemanticFactKind};
+use bray_package_interface::{ImportedSemanticRecord, InterfaceSemanticRecordKind};
 use bray_source::SourceSpan;
 use bray_symbols::{
     ConstantExpressionExpectedType, ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey,
     DeclarationExpressionTemplate, DeclaredTypeRepresentation, IntegerConstant, NamedTypeSymbolId,
-    StructFieldTypeFact, StructSymbolId, SymbolFactRequest, SymbolProvider, TypeId,
-    UnionPayloadFieldTypeFact,
+    StructFieldTypeQuery, StructSymbolId, SymbolProvider, SymbolQueryRequest, TypeId,
+    UnionPayloadFieldTypeQuery,
 };
 
 use super::super::Compilation;
-use super::super::binder::{self, CompilationBinderFacts};
-use super::super::checker::checker_fact_error;
+use super::super::binder::{self, CompilationBindingContext};
+use super::super::checker::checker_query_error;
 use super::super::substitution::named_type;
 use super::support::{checked_integer, checked_integer_constant, integer_role, symbol_span};
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticFactKey};
+use crate::fact::{
+    CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey,
+};
 
 impl Compilation {
     /// Returns the checked source-level representation contract of one named type.
@@ -76,7 +78,7 @@ impl Compilation {
         subject: NamedTypeSymbolId,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<DeclaredTypeDefinition>, FactQueryError> {
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
         let surface =
             self.type_associated_surface_result_with_cancellation(subject, cancellation)?;
@@ -89,18 +91,25 @@ impl Compilation {
 
         let definition = match subject {
             NamedTypeSymbolId::Struct(id) => {
-                let record = SymbolProvider::<StructSymbolId>::symbol(facts.symbols(), id)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let record =
+                    SymbolProvider::<StructSymbolId>::symbol(binding_context.symbols(), id)
+                        .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 let fields = record
                     .fields()
                     .iter()
-                    .map(|field| self.struct_field_definition(&facts, *field, &mut diagnostics))
+                    .map(|field| {
+                        self.struct_field_definition(&binding_context, *field, &mut diagnostics)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 DeclaredTypeDefinition::structure(
                     subject,
-                    symbol_span(facts.symbols(), subject.into_any(), record.syntax_anchor())?,
+                    symbol_span(
+                        binding_context.symbols(),
+                        subject.into_any(),
+                        record.syntax_anchor(),
+                    )?,
                     fields,
                     directives.value().clone(),
                     !surface.value().lifecycle_members().is_empty(),
@@ -109,19 +118,22 @@ impl Compilation {
                 )
             }
             NamedTypeSymbolId::Union(id) => {
-                let record = facts
+                let record = binding_context
                     .symbols()
                     .union(id)
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                let span =
-                    symbol_span(facts.symbols(), subject.into_any(), record.syntax_anchor())?;
+                let span = symbol_span(
+                    binding_context.symbols(),
+                    subject.into_any(),
+                    record.syntax_anchor(),
+                )?;
 
                 let variants = record
                     .variants()
                     .iter()
                     .map(|variant| {
-                        self.union_variant_definition(&facts, *variant, &mut diagnostics)
+                        self.union_variant_definition(&binding_context, *variant, &mut diagnostics)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -142,41 +154,49 @@ impl Compilation {
 
     fn struct_field_definition(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         field: bray_symbols::StructFieldSymbolId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<DeclaredStorageMember, FactQueryError> {
-        let record = facts
+        let record = binding_context
             .symbols()
             .struct_field(field)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let ty = facts
-            .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(field))
-            .map_err(binder::binder_fact_error)?;
+        let ty = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(field))
+            .map_err(binder::binding_query_error)?;
 
         diagnostics.add_range(ty.diagnostics().iter().cloned());
 
         Ok(DeclaredStorageMember::struct_field(
             field,
             ty.value().clone(),
-            symbol_span(facts.symbols(), field.into(), record.syntax_anchor())?,
+            symbol_span(
+                binding_context.symbols(),
+                field.into(),
+                record.syntax_anchor(),
+            )?,
             record.is_recovered(),
         ))
     }
 
     fn union_variant_definition(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         variant: bray_symbols::UnionVariantSymbolId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<DeclaredUnionVariant, FactQueryError> {
-        let record = facts
+        let record = binding_context
             .symbols()
             .union_variant(variant)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let span = symbol_span(facts.symbols(), variant.into(), record.syntax_anchor())?;
+        let span = symbol_span(
+            binding_context.symbols(),
+            variant.into(),
+            record.syntax_anchor(),
+        )?;
 
         let directives = self.declaration_directives(variant.into())?;
 
@@ -185,7 +205,7 @@ impl Compilation {
         let payload = record
             .payload_fields()
             .iter()
-            .map(|field| self.union_payload_definition(facts, *field, diagnostics))
+            .map(|field| self.union_payload_definition(binding_context, *field, diagnostics))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(DeclaredUnionVariant::new(
@@ -199,25 +219,29 @@ impl Compilation {
 
     fn union_payload_definition(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         field: bray_symbols::UnionPayloadFieldSymbolId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<DeclaredStorageMember, FactQueryError> {
-        let record = facts
+        let record = binding_context
             .symbols()
             .union_payload_field(field)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let ty = facts
-            .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(field))
-            .map_err(binder::binder_fact_error)?;
+        let ty = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(field))
+            .map_err(binder::binding_query_error)?;
 
         diagnostics.add_range(ty.diagnostics().iter().cloned());
 
         Ok(DeclaredStorageMember::union_payload_field(
             field,
             ty.value().clone(),
-            symbol_span(facts.symbols(), field.into(), record.syntax_anchor())?,
+            symbol_span(
+                binding_context.symbols(),
+                field.into(),
+                record.syntax_anchor(),
+            )?,
             record.is_recovered(),
         ))
     }
@@ -246,20 +270,20 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn type_definition(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeDefinition>> {
+    ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeDefinition>> {
         self.compilation
             .declared_type_definition(subject, self.cancellation)
-            .map_err(checker_fact_error)
+            .map_err(checker_query_error)
     }
 
     fn imported_type_representation(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<Option<DeclaredTypeRepresentation>>> {
+    ) -> CheckerQueryResult<DiagnosticResult<Option<DeclaredTypeRepresentation>>> {
         let symbols = self
             .compilation
             .symbol_graph()
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         if symbols.symbol_key(subject.into_any()).is_some() {
             return Ok(DiagnosticResult::without_diagnostics(None));
@@ -268,35 +292,35 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         let imported = self
             .compilation
             .imported_symbol_skeleton_result_with_cancellation(self.cancellation)
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let Some(address) = imported
             .value()
             .as_ref()
-            .and_then(|symbols| symbols.imported_fact_address(subject.into_any()))
+            .and_then(|symbols| symbols.imported_semantic_address(subject.into_any()))
         else {
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
 
         let result = self
             .compilation
-            .imported_semantic_fact_result_with_cancellation(
-                ImportedSemanticFactKey::new(
+            .imported_semantics_with_cancellation(
+                ImportedSemanticRecordKey::new(
                     address.interface(),
                     address.symbol(),
-                    InterfaceSemanticFactKind::TypeRepresentation,
+                    InterfaceSemanticRecordKind::TypeRepresentation,
                 ),
                 self.cancellation,
             )
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let representation = match result.value().as_ref() {
-            [ImportedSemanticFact::TypeRepresentation(representation)] => {
+            [ImportedSemanticRecord::TypeRepresentation(representation)] => {
                 Some(representation.clone())
             }
             [] => None,
             _ => {
-                return Err(CheckerFactError::Infrastructure(
+                return Err(CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 ));
             }
@@ -330,10 +354,10 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn unsigned_integer(
         &self,
         expression: DeclarationExpressionTemplate,
-    ) -> CheckerFactResult<DiagnosticResult<Option<u64>>> {
+    ) -> CheckerQueryResult<DiagnosticResult<Option<u64>>> {
         let ty = self
             .representation_type(RepresentationRole::ScalarUsize)
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let occurrence = ConstantExpressionOccurrence::new(
             ConstantExpressionOccurrenceKey::new(expression.owner(), expression.syntax()),
@@ -343,15 +367,15 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         let checked = self
             .compilation
             .embedded_constant_term_with_cancellation(occurrence, self.cancellation)
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let value = checked_integer(
             self.compilation
                 .semantic_value_store()
-                .map_err(checker_fact_error)?,
+                .map_err(checker_query_error)?,
             *checked.value(),
         )
-        .map_err(checker_fact_error)?;
+        .map_err(checker_query_error)?;
 
         Ok(DiagnosticResult::new(value, checked.diagnostics().clone()))
     }
@@ -359,10 +383,10 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn integer_type(
         &self,
         expression: DeclarationExpressionTemplate,
-    ) -> CheckerFactResult<Option<RepresentationIntegerType>> {
+    ) -> CheckerQueryResult<Option<RepresentationIntegerType>> {
         let source = self
             .source(expression.syntax())
-            .map_err(CheckerFactError::Infrastructure)?;
+            .map_err(CheckerQueryError::Infrastructure)?;
 
         let Some(role) = integer_role(source.text()) else {
             return Ok(None);
@@ -375,7 +399,7 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         &self,
         expression: DeclarationExpressionTemplate,
         expected: Option<RepresentationIntegerType>,
-    ) -> CheckerFactResult<DiagnosticResult<Option<IntegerConstant>>> {
+    ) -> CheckerQueryResult<DiagnosticResult<Option<IntegerConstant>>> {
         let expected = match expected {
             Some(expected) => expected,
             None => self.integer_type_for_role(RepresentationRole::ScalarU128)?,
@@ -389,15 +413,15 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
         let checked = self
             .compilation
             .embedded_constant_term_with_cancellation(occurrence, self.cancellation)
-            .map_err(checker_fact_error)?;
+            .map_err(checker_query_error)?;
 
         let value = checked_integer_constant(
             self.compilation
                 .semantic_value_store()
-                .map_err(checker_fact_error)?,
+                .map_err(checker_query_error)?,
             *checked.value(),
         )
-        .map_err(checker_fact_error)?;
+        .map_err(checker_query_error)?;
 
         Ok(DiagnosticResult::new(value, checked.diagnostics().clone()))
     }
@@ -405,12 +429,14 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
     fn integer_type_for_role(
         &self,
         role: RepresentationRole,
-    ) -> CheckerFactResult<RepresentationIntegerType> {
-        let ty = self.representation_type(role).map_err(checker_fact_error)?;
+    ) -> CheckerQueryResult<RepresentationIntegerType> {
+        let ty = self
+            .representation_type(role)
+            .map_err(checker_query_error)?;
 
         let representation =
             role.integer_representation()
-                .ok_or(CheckerFactError::Infrastructure(
+                .ok_or(CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 ))?;
 
@@ -466,7 +492,7 @@ mod tests {
     };
 
     #[test]
-    fn valid_product_contracts_publish_source_level_representation_facts() {
+    fn valid_product_contracts_publish_source_level_representation_contracts() {
         let compilation = compilation(concat!(
             "module app;\n",
             "\n",
@@ -1191,7 +1217,7 @@ mod tests {
     }
 
     #[test]
-    fn imported_types_use_package_interface_representation_facts() {
+    fn imported_types_use_package_interface_representation_contracts() {
         let interface = bray_package_interface::test_support::encoded_semantic_test_interface();
 
         let request =

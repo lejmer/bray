@@ -10,7 +10,10 @@ mod tests {
 
     #[test]
     fn symbol_matching_accepts_mach_o_prefix_without_partial_names() {
-        assert!(contains_symbol("0000 _bray_platform_file_write", "bray_platform_file_write"));
+        assert!(contains_symbol(
+            "0000 _bray_platform_file_write",
+            "bray_platform_file_write"
+        ));
 
         assert!(!contains_symbol(
             "0000 bray_platform_file_write_extra",

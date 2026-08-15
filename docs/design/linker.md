@@ -51,7 +51,7 @@ The linker does not:
 ### Link Plan
 
 A `LinkPlan` is the complete immutable typed description of one native link or archive operation. `bray-linker` owns its contracts
-and validation builder. `bray-emitter` constructs it from emitted artifacts and validated compilation facts.
+and validation builder. `bray-emitter` constructs it from emitted artifacts and validated compilation inputs.
 
 ### Link Input
 
@@ -202,7 +202,7 @@ Executable and shared-library plans explicitly identify their product kind, entr
 objects, and platform options.
 
 An executable or test plan that requires runtime services also identifies the selected runtime artifact, its exact selected
-components, runtime ABI version, root entry stub, required lane facts, reactor and event features, and target/panic compatibility.
+components, runtime ABI version, root entry stub, required lane properties, reactor and event features, and target/panic compatibility.
 The linker validates those typed inputs against runtime artifact metadata. It does not choose a runtime or infer requirements from
 unresolved symbols.
 
@@ -292,7 +292,7 @@ cannot be guaranteed, a completed result is discarded after cancellation and nev
 Link failure leaves no published new final artifact. Staging cleanup is coordinated with the emitter.
 
 Failure does not invalidate completed MIR, codegen artifacts, package-interface artifacts, or emission plans. A later request can
-reuse those pure facts with corrected toolchain or destination state.
+reuse those pure inputs with corrected toolchain or destination state.
 
 ---
 
@@ -322,7 +322,7 @@ External linker and archiver invocations acquire a permit from one explicit nonz
 observes compiler-operation cancellation, and permit release follows child-process termination and reaping.
 
 Linking begins only after all required inputs are complete. It does not block unrelated MIR, codegen, interface, or emission tasks
-whose fact dependencies are ready.
+whose query dependencies are ready.
 
 ---
 

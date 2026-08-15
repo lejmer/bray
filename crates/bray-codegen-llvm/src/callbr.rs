@@ -1,7 +1,7 @@
 use std::ffi::CString;
 
-use inkwell::basic_block::BasicBlock;
 use inkwell::attributes::Attribute;
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::ContextRef;
 use inkwell::llvm_sys::core::{LLVMAddCallSiteAttribute, LLVMBuildCallBr};
@@ -174,8 +174,8 @@ fn validate_callbr<'context>(
         return Err(CallBrError::InvalidArguments);
     }
 
-    let destination_count = u32::try_from(indirect_destinations.len())
-        .map_err(|_| CallBrError::ResourceExhausted)?;
+    let destination_count =
+        u32::try_from(indirect_destinations.len()).map_err(|_| CallBrError::ResourceExhausted)?;
 
     let argument_count =
         u32::try_from(arguments.len()).map_err(|_| CallBrError::ResourceExhausted)?;
@@ -183,9 +183,7 @@ fn validate_callbr<'context>(
     Ok((insertion_block, destination_count, argument_count))
 }
 
-fn argument_type(
-    argument: BasicMetadataValueEnum<'_>,
-) -> Option<BasicMetadataTypeEnum<'_>> {
+fn argument_type(argument: BasicMetadataValueEnum<'_>) -> Option<BasicMetadataTypeEnum<'_>> {
     match argument {
         BasicMetadataValueEnum::ArrayValue(value) => Some(value.get_type().into()),
         BasicMetadataValueEnum::IntValue(value) => Some(value.get_type().into()),
@@ -206,9 +204,7 @@ fn argument_context(argument: BasicMetadataValueEnum<'_>) -> Option<ContextRef<'
         BasicMetadataValueEnum::PointerValue(value) => Some(value.get_type().get_context()),
         BasicMetadataValueEnum::StructValue(value) => Some(value.get_type().get_context()),
         BasicMetadataValueEnum::VectorValue(value) => Some(value.get_type().get_context()),
-        BasicMetadataValueEnum::ScalableVectorValue(value) => {
-            Some(value.get_type().get_context())
-        }
+        BasicMetadataValueEnum::ScalableVectorValue(value) => Some(value.get_type().get_context()),
         BasicMetadataValueEnum::MetadataValue(_) => None,
     }
 }

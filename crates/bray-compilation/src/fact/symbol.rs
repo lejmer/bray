@@ -1,23 +1,26 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use bray_symbols::{SymbolFactContract, SymbolFactRequest, SymbolFactResult};
+use bray_symbols::{SymbolQueryContract, SymbolQueryRequest};
 
 use super::{
-    CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime, SymbolFactKey,
+    CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime, SymbolQueryKey,
 };
 
-pub(crate) struct SymbolFactCache<C>
+pub(crate) struct SymbolQueryCache<C>
 where
-    C: SymbolFactContract,
+    C: SymbolQueryContract,
 {
-    cells: FactCellMap<C::Owner, Arc<SymbolFactResult<C>>>,
+    cells: FactCellMap<
+        C::Owner,
+        Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>,
+    >,
     marker: PhantomData<fn() -> C>,
 }
 
-impl<C> SymbolFactCache<C>
+impl<C> SymbolQueryCache<C>
 where
-    C: SymbolFactContract,
+    C: SymbolQueryContract,
 {
     pub(crate) fn new() -> Self {
         Self {
@@ -32,7 +35,7 @@ where
     ) -> Self {
         Self {
             cells: self.cells.updated(reusable, |owner| {
-                CompilationFactKey::from(SymbolFactKey::new(C::erase_owner(*owner), C::KIND))
+                CompilationFactKey::from(SymbolQueryKey::new(C::erase_owner(*owner), C::KIND))
             }),
             marker: PhantomData,
         }
@@ -42,17 +45,23 @@ where
         &self,
         runtime: &FactRuntime,
         cancellation: &CancellationToken,
-        request: SymbolFactRequest<C>,
-        compute: impl FnOnce() -> Result<SymbolFactResult<C>, FactQueryError> + Send,
-    ) -> Result<Arc<SymbolFactResult<C>>, FactQueryError> {
-        let key = CompilationFactKey::from(SymbolFactKey::new(request.symbol(), request.kind()));
+        request: SymbolQueryRequest<C>,
+        compute: impl FnOnce() -> Result<
+            bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>,
+            FactQueryError,
+        > + Send,
+    ) -> Result<
+        Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>,
+        FactQueryError,
+    > {
+        let key = CompilationFactKey::from(SymbolQueryKey::new(request.symbol(), request.kind()));
 
         let cell = self.cells.cell(request.owner())?;
 
         let published =
             cell.get_or_compute(runtime, key, cancellation, || compute().map(Arc::new))?;
 
-        // The returned fact must outlive the short-lived cache-cell borrow.
+        // The returned value must outlive the short-lived cache-cell borrow.
         Ok(Arc::clone(published))
     }
 }
@@ -63,22 +72,22 @@ mod tests {
 
     use bray_diagnostics::DiagnosticResult;
     use bray_symbols::{
-        CallableSignatureFact, CallableSignatureTemplate, CallableSymbolId, FunctionSymbolId,
-        SemanticValueStore, SymbolFactRequest, SymbolId, TypeData, TypeExpressionTemplate,
+        CallableSignatureQuery, CallableSignatureTemplate, CallableSymbolId, FunctionSymbolId,
+        SemanticValueStore, SymbolId, SymbolQueryRequest, TypeData, TypeExpressionTemplate,
     };
 
-    use super::SymbolFactCache;
+    use super::SymbolQueryCache;
     use crate::fact::{CancellationToken, FactRuntime};
 
     #[test]
-    fn repeated_symbol_fact_requests_publish_once() {
+    fn repeated_resolve_symbol_query_requests_publish_once() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
-        let cache = SymbolFactCache::<CallableSignatureFact>::new();
+        let cache = SymbolQueryCache::<CallableSignatureQuery>::new();
         let computations = AtomicUsize::new(0);
 
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(4));
-        let request = SymbolFactRequest::new(CallableSymbolId::from(function));
+        let request = SymbolQueryRequest::new(CallableSymbolId::from(function));
         let signature = signature();
 
         let first = cache.get_or_compute(&runtime, &cancellation, request, || {
@@ -94,7 +103,7 @@ mod tests {
         });
 
         let (Ok(first), Ok(second)) = (first, second) else {
-            panic!("symbol facts should publish");
+            panic!("symbol query results should publish");
         };
 
         assert!(std::sync::Arc::ptr_eq(&first, &second));

@@ -34,9 +34,7 @@ impl PreparedToolchain {
     fn from_root(root: PathBuf) -> Self {
         Self {
             runtime: root.join("runtime").join("bray-runtime.brayrt"),
-            observation_runtime: root
-                .join("observation-runtime")
-                .join("bray-runtime.brayrt"),
+            observation_runtime: root.join("observation-runtime").join("bray-runtime.brayrt"),
             toolchain: root.join("toolchain"),
         }
     }
@@ -70,8 +68,8 @@ pub(super) fn prepare(root: &Path, target: NativeTarget) -> Result<PreparedToolc
         return Ok(PreparedToolchain::from_root(cache));
     }
 
-    let publication = DirectoryPublication::begin(&cache, "p-")
-        .map_err(|error| error.to_string())?;
+    let publication =
+        DirectoryPublication::begin(&cache, "p-").map_err(|error| error.to_string())?;
 
     progress::phase("Preparing performance runtime");
 
@@ -96,8 +94,9 @@ pub(super) fn prepare(root: &Path, target: NativeTarget) -> Result<PreparedToolc
         &publication.contents().join("observation-runtime"),
     )?;
 
-    fs::write(publication.contents().join(CACHE_INPUT_FILE_NAME), &input)
-        .map_err(|error| format!("could not write performance toolchain cache identity: {error}"))?;
+    fs::write(publication.contents().join(CACHE_INPUT_FILE_NAME), &input).map_err(|error| {
+        format!("could not write performance toolchain cache identity: {error}")
+    })?;
 
     let root = publication.publish().map_err(|error| error.to_string())?;
 
@@ -177,9 +176,9 @@ fn hash_directory(digest: &mut Sha256, root: &Path, relative: &Path) -> Result<(
             continue;
         }
 
-        let file_type = entry.file_type().map_err(|error| {
-            format!("could not inspect {}: {error}", entry.path().display())
-        })?;
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("could not inspect {}: {error}", entry.path().display()))?;
 
         if file_type.is_dir() {
             hash_directory(digest, root, &entry_relative)?;
@@ -251,8 +250,13 @@ mod tests {
 
         let prepared = PreparedToolchain::from_root(directory.path().to_path_buf());
 
-        fs::create_dir_all(prepared.runtime().parent().unwrap_or_else(|| directory.path()))
-            .unwrap_or_else(|error| panic!("runtime directory must be created: {error}"));
+        fs::create_dir_all(
+            prepared
+                .runtime()
+                .parent()
+                .unwrap_or_else(|| directory.path()),
+        )
+        .unwrap_or_else(|error| panic!("runtime directory must be created: {error}"));
 
         fs::write(prepared.runtime(), b"runtime")
             .unwrap_or_else(|error| panic!("runtime metadata must be written: {error}"));

@@ -44,15 +44,15 @@ impl InlineAssemblyOptions {
     }
 }
 
-/// Target instruction, register, feature, and inline-assembly facts.
+/// Target instruction, register, feature, and inline-assembly properties.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TargetControlFacts {
+pub struct TargetControlSupport {
     architecture: TargetArchitecture,
     native_target: Option<NativeTarget>,
 }
 
-impl TargetControlFacts {
-    /// Returns the complete target-control facts for one machine architecture.
+impl TargetControlSupport {
+    /// Returns the complete target-control properties for one machine architecture.
     pub const fn for_architecture(architecture: TargetArchitecture) -> Self {
         Self {
             architecture,
@@ -60,7 +60,7 @@ impl TargetControlFacts {
         }
     }
 
-    /// Returns the complete target-control facts for one exact target profile.
+    /// Returns the complete target-control properties for one exact target profile.
     pub fn for_profile(profile: &TargetProfile) -> Self {
         Self {
             architecture: profile.machine().architecture(),
@@ -75,12 +75,18 @@ impl TargetControlFacts {
 
     /// Returns whether trusted inline assembly is available.
     pub const fn inline_assembly(self) -> bool {
-        !matches!(self.architecture, TargetArchitecture::Wasm32 | TargetArchitecture::Wasm64)
+        !matches!(
+            self.architecture,
+            TargetArchitecture::Wasm32 | TargetArchitecture::Wasm64
+        )
     }
 
     /// Returns whether LLVM's Intel assembly dialect is valid for this target.
     pub const fn intel_assembly_dialect(self) -> bool {
-        matches!(self.architecture, TargetArchitecture::X86 | TargetArchitecture::X86_64)
+        matches!(
+            self.architecture,
+            TargetArchitecture::X86 | TargetArchitecture::X86_64
+        )
     }
 
     /// Returns whether a target instruction feature is guaranteed by the profile.
@@ -166,22 +172,21 @@ impl TargetControlFacts {
 
         Some(match self.native_target? {
             NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs => &[
-                "rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11", "xmm0",
-                "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8",
-                "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
+                "rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11", "xmm0", "xmm1",
+                "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11",
+                "xmm12", "xmm13", "xmm14", "xmm15",
             ],
             NativeTarget::X86_64WindowsMsvc => &[
-                "rax", "rcx", "rdx", "r8", "r9", "r10", "r11", "xmm0", "xmm1", "xmm2",
-                "xmm3", "xmm4", "xmm5",
+                "rax", "rcx", "rdx", "r8", "r9", "r10", "r11", "xmm0", "xmm1", "xmm2", "xmm3",
+                "xmm4", "xmm5",
             ],
             NativeTarget::Aarch64LinuxGnu
             | NativeTarget::Aarch64WindowsMsvc
             | NativeTarget::Aarch64MacOs => &[
-                "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10",
-                "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x30", "v0", "v1",
-                "v2", "v3", "v4", "v5", "v6", "v7", "v16", "v17", "v18", "v19",
-                "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29",
-                "v30", "v31",
+                "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
+                "x13", "x14", "x15", "x16", "x17", "x30", "v0", "v1", "v2", "v3", "v4", "v5", "v6",
+                "v7", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26",
+                "v27", "v28", "v29", "v30", "v31",
             ],
         })
     }
@@ -215,33 +220,29 @@ const fn clobber_registers(architecture: TargetArchitecture) -> &'static [&'stat
     match architecture {
         TargetArchitecture::X86 => &["eax", "ebx", "ecx", "edx", "esi", "edi"],
         TargetArchitecture::X86_64 => &[
-            "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
-            "r13", "r14", "r15", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5",
-            "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13",
-            "xmm14", "xmm15",
+            "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13",
+            "r14", "r15", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8",
+            "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
         ],
         TargetArchitecture::Arm => &[
-            "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11",
-            "r12", "lr",
+            "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "lr",
         ],
         TargetArchitecture::Aarch64 => &[
-            "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11",
-            "x12", "x13", "x14", "x15", "x16", "x17", "x19", "x20", "x21",
-            "x22", "x23", "x24", "x25", "x26", "x27", "x28", "x29", "x30", "v0", "v1",
-            "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12",
-            "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22",
-            "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31",
+            "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
+            "x14", "x15", "x16", "x17", "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26",
+            "x27", "x28", "x29", "x30", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9",
+            "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21",
+            "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31",
         ],
         TargetArchitecture::Riscv32 | TargetArchitecture::Riscv64 => &[
-            "x1", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
-            "x14", "x15", "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
-            "x24", "x25", "x26", "x27", "x28", "x29", "x30", "x31",
+            "x1", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
+            "x15", "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26",
+            "x27", "x28", "x29", "x30", "x31",
         ],
         TargetArchitecture::PowerPc64 => &[
-            "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10",
-            "r11", "r12", "r13", "r14", "r15", "r16", "r17", "r18", "r19", "r20",
-            "r21", "r22", "r23", "r24", "r25", "r26", "r27", "r28", "r29", "r30",
-            "r31",
+            "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "r13",
+            "r14", "r15", "r16", "r17", "r18", "r19", "r20", "r21", "r22", "r23", "r24", "r25",
+            "r26", "r27", "r28", "r29", "r30", "r31",
         ],
         TargetArchitecture::Wasm32 | TargetArchitecture::Wasm64 => &[],
     }
@@ -249,14 +250,14 @@ const fn clobber_registers(architecture: TargetArchitecture) -> &'static [&'stat
 
 #[cfg(test)]
 mod tests {
-    use super::{InlineAssemblyOptions, TargetControlFacts};
+    use super::{InlineAssemblyOptions, TargetControlSupport};
     use crate::{NativeTarget, TargetArchitecture};
 
     #[test]
-    fn profiles_publish_exact_architecture_control_facts() {
+    fn profiles_publish_exact_architecture_control_properties() {
         let x86_profile = NativeTarget::X86_64WindowsMsvc.profile();
-        let x86 = TargetControlFacts::for_profile(&x86_profile);
-        let wasm = TargetControlFacts::for_architecture(TargetArchitecture::Wasm32);
+        let x86 = TargetControlSupport::for_profile(&x86_profile);
+        let wasm = TargetControlSupport::for_architecture(TargetArchitecture::Wasm32);
 
         assert!(x86.inline_assembly());
         assert!(x86.intel_assembly_dialect());
@@ -273,22 +274,24 @@ mod tests {
             x86.abi_clobbers("C"),
             Some(
                 [
-                    "rax", "rcx", "rdx", "r8", "r9", "r10", "r11", "xmm0", "xmm1",
-                    "xmm2", "xmm3", "xmm4", "xmm5",
+                    "rax", "rcx", "rdx", "r8", "r9", "r10", "r11", "xmm0", "xmm1", "xmm2", "xmm3",
+                    "xmm4", "xmm5",
                 ]
                 .as_slice()
             )
         );
 
         let system_v_profile = NativeTarget::X86_64LinuxGnu.profile();
-        let system_v = TargetControlFacts::for_profile(&system_v_profile);
+        let system_v = TargetControlSupport::for_profile(&system_v_profile);
 
         assert!(system_v
             .abi_clobbers("C")
             .is_some_and(|registers| registers.contains(&"rsi") && registers.contains(&"xmm15")));
 
-        assert!(!TargetControlFacts::for_architecture(TargetArchitecture::X86_64)
-            .supports_clobber_abi("C"));
+        assert!(
+            !TargetControlSupport::for_architecture(TargetArchitecture::X86_64)
+                .supports_clobber_abi("C")
+        );
 
         assert!(!wasm.inline_assembly());
         assert!(!wasm.intel_assembly_dialect());

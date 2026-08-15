@@ -83,7 +83,7 @@ impl<'request> CodegenRequest<'request> {
         })
     }
 
-    /// Returns exact backend-neutral realization facts for this unit.
+    /// Returns exact backend-neutral realization mappings for this unit.
     pub const fn mappings(self) -> &'request CodegenMappings {
         self.mappings
     }
@@ -142,9 +142,9 @@ pub enum CodegenRequestBuildError {
     DebugInformationMismatch,
     /// Requested debug information lacks one or more MIR source mappings.
     DebugMappingCoverageMismatch,
-    /// MIR lowering facts do not match the selected codegen target.
+    /// MIR lowering inputs do not match the selected codegen target.
     TargetMismatch,
-    /// Executable-host runtime facts do not match target code generation.
+    /// Executable-host runtime inputs do not match target code generation.
     RuntimeContractMismatch,
 }
 

@@ -3,19 +3,19 @@ use std::collections::BTreeSet;
 use bray_bound_tree::{BoundPattern, BoundPatternId, BoundPatternKind, BoundPatternTarget};
 use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::{
-    AnySymbolId, ConstantTermData, ConstantValueKind, NamedTypeSymbolId, StructFieldTypeFact,
-    TypeData, UnionPayloadFieldTypeFact,
+    AnySymbolId, ConstantTermData, ConstantValueKind, NamedTypeSymbolId, StructFieldTypeQuery,
+    TypeData, UnionPayloadFieldTypeQuery,
 };
 
 use super::check::{PatternChecker, available_dependency};
 use crate::constant::integer_to_usize;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider};
 
 impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeFact>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     pub(super) fn pattern_is_compatible(
@@ -235,7 +235,7 @@ where
                 return Ok(integer_to_usize(integer));
             }
             ConstantTermData::Parameter(_)
-            | ConstantTermData::TargetFact(_)
+            | ConstantTermData::TargetProperty(_)
             | ConstantTermData::Unary { .. }
             | ConstantTermData::Binary { .. }
             | ConstantTermData::Conversion { .. }

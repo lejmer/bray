@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabelKind, DiagnosticNote,
@@ -8,8 +8,8 @@ use bray_diagnostics::{
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
-    AnySymbolId, DeclarationDirectivesFact, DirectiveArgumentName, DirectiveKind,
-    DirectiveTemplate, ProductKind, ProductSemanticFacts, ProductTestEntry, SymbolFactRequest,
+    AnySymbolId, DeclarationDirectivesQuery, DirectiveArgumentName, DirectiveKind,
+    DirectiveTemplate, ProductKind, ProductSemantics, ProductTestEntry, SymbolQueryRequest,
     TestExecutionConstraint,
 };
 
@@ -17,7 +17,7 @@ use super::dependency::validate_public_expression_dependencies;
 use super::entry::{ProductEntryKind, select_executable_entrypoint, validate_entry};
 use super::visibility::{symbol_is_publicly_reachable, validate_public_surface};
 use crate::compilation::Compilation;
-use crate::compilation::binder::binder_fact_error;
+use crate::compilation::binder::binding_query_error;
 use crate::compilation::diagnostics::{diagnostic_product_kind, labeled_source_diagnostic};
 use crate::compilation::directive::{
     bare_directive_argument_name, directive_source_text, first_directive,
@@ -34,31 +34,29 @@ fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
 
 impl Compilation {
     /// Returns semantic roots and public declarations for the selected product.
-    pub fn product_semantic_facts(
-        &self,
-    ) -> Result<&DiagnosticResult<ProductSemanticFacts>, FactQueryError> {
-        self.product_semantic_facts_with_cancellation(&self.state.cancellation)
+    pub fn product_semantics(&self) -> Result<&DiagnosticResult<ProductSemantics>, FactQueryError> {
+        self.product_semantics_with_cancellation(&self.state.cancellation)
     }
 
-    pub(in crate::compilation) fn product_semantic_facts_with_cancellation(
+    pub(in crate::compilation) fn product_semantics_with_cancellation(
         &self,
         cancellation: &CancellationToken,
-    ) -> Result<&DiagnosticResult<ProductSemanticFacts>, FactQueryError> {
-        self.query_fact_with_cancellation(
+    ) -> Result<&DiagnosticResult<ProductSemantics>, FactQueryError> {
+        self.query_with_cancellation(
             CompilationFactKey::ProductSemantics,
             &self.state.product_semantics,
             cancellation,
-            |cancellation| self.compute_product_semantic_facts(cancellation),
+            |cancellation| self.compute_product_semantics(cancellation),
         )
     }
 
-    fn compute_product_semantic_facts(
+    fn compute_product_semantics(
         &self,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<ProductSemanticFacts>, FactQueryError> {
+    ) -> Result<DiagnosticResult<ProductSemantics>, FactQueryError> {
         let source_graph = self.product_source_graph()?;
         let symbols = self.symbol_graph()?;
-        let binder = self.binder_facts(cancellation)?;
+        let binder = self.binding_context(cancellation)?;
         let semantic_values = self.semantic_value_store()?;
         let available = self.available_compiler_known_symbols();
         let kind = source_graph.product_kind();
@@ -93,10 +91,10 @@ impl Compilation {
 
         for function in functions.iter().copied() {
             let directives = binder
-                .symbol_fact(SymbolFactRequest::<DeclarationDirectivesFact>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<DeclarationDirectivesQuery>::new(
                     function.into(),
                 ))
-                .map_err(binder_fact_error)?;
+                .map_err(binding_query_error)?;
 
             diagnostics.add_range(directives.diagnostics().iter().cloned());
 
@@ -255,7 +253,7 @@ impl Compilation {
             &mut diagnostics,
         )?;
 
-        let facts = ProductSemanticFacts::new(
+        let semantics = ProductSemantics::new(
             kind,
             entrypoint,
             test_entries,
@@ -264,7 +262,7 @@ impl Compilation {
             is_recovered,
         );
 
-        Ok(DiagnosticResult::new(facts, diagnostics))
+        Ok(DiagnosticResult::new(semantics, diagnostics))
     }
 
     fn test_execution_constraint(
@@ -340,8 +338,8 @@ mod tests {
             ProductKind::Executable,
         );
 
-        let first = product_facts(&compilation);
-        let second = product_facts(&compilation);
+        let first = product_semantics(&compilation);
+        let second = product_semantics(&compilation);
         let symbols = symbol_graph(&compilation);
 
         let entrypoint = first
@@ -373,11 +371,11 @@ func main()
             ProductKind::Executable,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
-        assert!(facts.diagnostics().is_empty());
-        assert!(facts.value().entrypoint().is_some());
-        assert!(!facts.value().requires_async_runtime());
+        assert!(semantics.diagnostics().is_empty());
+        assert!(semantics.value().entrypoint().is_some());
+        assert!(!semantics.value().requires_async_runtime());
     }
 
     #[test]
@@ -407,17 +405,17 @@ func main()
         );
 
         assert_eq!(
-            diagnostic_kinds(product_facts(&missing).diagnostics()),
+            diagnostic_kinds(product_semantics(&missing).diagnostics()),
             [DiagnosticKind::CheckingMissingEntrypoint]
         );
 
         assert_goal_state_diagnostic_kind(
-            product_facts(&missing).diagnostics(),
+            product_semantics(&missing).diagnostics(),
             DiagnosticKind::CheckingMissingEntrypoint,
         );
 
         assert_eq!(
-            diagnostic_kinds(product_facts(&duplicate).diagnostics()),
+            diagnostic_kinds(product_semantics(&duplicate).diagnostics()),
             [
                 DiagnosticKind::CheckingDuplicateEntrypoint,
                 DiagnosticKind::CheckingDuplicateEntrypoint,
@@ -425,11 +423,11 @@ func main()
         );
 
         assert_goal_state_diagnostic_kind(
-            product_facts(&duplicate).diagnostics(),
+            product_semantics(&duplicate).diagnostics(),
             DiagnosticKind::CheckingDuplicateEntrypoint,
         );
 
-        let duplicate_diagnostics = product_facts(&duplicate)
+        let duplicate_diagnostics = product_semantics(&duplicate)
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingDuplicateEntrypoint)
             .collect::<Vec<_>>();
@@ -469,16 +467,16 @@ func main()
             let compilation = compilation_with_product(source, kind);
 
             assert!(
-                diagnostic_kinds(product_facts(&compilation).diagnostics())
+                diagnostic_kinds(product_semantics(&compilation).diagnostics())
                     .contains(&DiagnosticKind::CheckingEntrypointNotAllowed)
             );
 
             assert_goal_state_diagnostic_kind(
-                product_facts(&compilation).diagnostics(),
+                product_semantics(&compilation).diagnostics(),
                 DiagnosticKind::CheckingEntrypointNotAllowed,
             );
 
-            let diagnostic = product_facts(&compilation)
+            let diagnostic = product_semantics(&compilation)
                 .diagnostics()
                 .by_kind(DiagnosticKind::CheckingEntrypointNotAllowed)
                 .next()
@@ -513,11 +511,11 @@ func main()
             ProductKind::Test,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
-        assert!(facts.diagnostics().is_empty());
-        assert_eq!(facts.value().test_entries().len(), 1);
-        assert!(facts.value().requires_async_runtime());
+        assert!(semantics.diagnostics().is_empty());
+        assert_eq!(semantics.value().test_entries().len(), 1);
+        assert!(semantics.value().requires_async_runtime());
     }
 
     #[test]
@@ -527,13 +525,18 @@ func main()
             ProductKind::Test,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
-        assert!(facts.diagnostics().is_empty(), "{:?}", facts.diagnostics());
-        assert_eq!(facts.value().test_entries().len(), 1);
+        assert!(
+            semantics.diagnostics().is_empty(),
+            "{:?}",
+            semantics.diagnostics()
+        );
+
+        assert_eq!(semantics.value().test_entries().len(), 1);
 
         assert_eq!(
-            facts.value().test_entries()[0].constraint(),
+            semantics.value().test_entries()[0].constraint(),
             bray_symbols::TestExecutionConstraint::Serial
         );
     }
@@ -545,20 +548,20 @@ func main()
             ProductKind::Test,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
         assert_eq!(
-            diagnostic_kinds(facts.diagnostics()),
+            diagnostic_kinds(semantics.diagnostics()),
             [DiagnosticKind::CheckingInvalidTestEntryDirective]
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingInvalidTestEntryDirective,
         );
 
-        assert!(facts.value().test_entries().is_empty());
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().test_entries().is_empty());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -585,27 +588,27 @@ func main()
             ProductKind::Test,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
         assert_eq!(
-            diagnostic_kinds(facts.diagnostics()),
+            diagnostic_kinds(semantics.diagnostics()),
             [
                 DiagnosticKind::CheckingDuplicateTestIdentity,
                 DiagnosticKind::CheckingDuplicateTestIdentity,
             ]
         );
 
-        assert_eq!(facts.value().test_entries().len(), 1);
-        assert!(facts.value().is_recovered());
+        assert_eq!(semantics.value().test_entries().len(), 1);
+        assert!(semantics.value().is_recovered());
 
-        bray_testing::assert_goal_state_diagnostics(facts.diagnostics());
+        bray_testing::assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingDuplicateTestIdentity,
         );
 
-        let duplicate_diagnostics = facts
+        let duplicate_diagnostics = semantics
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingDuplicateTestIdentity)
             .collect::<Vec<_>>();
@@ -641,19 +644,19 @@ func main()
             ProductKind::Test,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
         assert!(
-            diagnostic_kinds(facts.diagnostics())
+            diagnostic_kinds(semantics.diagnostics())
                 .contains(&DiagnosticKind::CheckingInvalidTestResult)
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingInvalidTestResult,
         );
 
-        let diagnostic = facts
+        let diagnostic = semantics
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingInvalidTestResult)
             .next()
@@ -664,8 +667,8 @@ func main()
             &[DiagnosticArg::actual_type(DiagnosticType::I32)]
         );
 
-        assert!(facts.value().test_entries().is_empty());
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().test_entries().is_empty());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -682,23 +685,23 @@ func main()
             ProductKind::Executable,
         );
 
-        let facts = product_facts(&compilation);
-        assert_goal_state_diagnostics(facts.diagnostics());
+        let semantics = product_semantics(&compilation);
+        assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingEntryCannotBeGeneric,
         );
 
-        let generic = facts
+        let generic = semantics
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingEntryCannotBeGeneric)
             .next()
             .unwrap_or_else(|| panic!("generic entry diagnostic must be produced"));
 
         assert_eq!(generic.args(), &[DiagnosticArg::actual_count(1)]);
-        assert!(facts.value().entrypoint().is_none());
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().entrypoint().is_none());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -715,23 +718,23 @@ func main()
             ProductKind::Executable,
         );
 
-        let facts = product_facts(&compilation);
-        assert_goal_state_diagnostics(facts.diagnostics());
+        let semantics = product_semantics(&compilation);
+        assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingEntryCannotTakeParameters,
         );
 
-        let parameters = facts
+        let parameters = semantics
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingEntryCannotTakeParameters)
             .next()
             .unwrap_or_else(|| panic!("entry parameter diagnostic must be produced"));
 
         assert_eq!(parameters.args(), &[DiagnosticArg::actual_count(1)]);
-        assert!(facts.value().entrypoint().is_none());
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().entrypoint().is_none());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -749,15 +752,15 @@ func main()
             ProductKind::Executable,
         );
 
-        let facts = product_facts(&compilation);
-        assert_goal_state_diagnostics(facts.diagnostics());
+        let semantics = product_semantics(&compilation);
+        assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingInvalidEntrypointResult,
         );
 
-        let result = facts
+        let result = semantics
             .diagnostics()
             .by_kind(DiagnosticKind::CheckingInvalidEntrypointResult)
             .next()
@@ -768,8 +771,8 @@ func main()
             &[DiagnosticArg::actual_type(DiagnosticType::Boolean)]
         );
 
-        assert!(facts.value().entrypoint().is_none());
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().entrypoint().is_none());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -786,16 +789,16 @@ func main()
             ProductKind::Executable,
         );
 
-        let facts = product_facts(&compilation);
-        assert_goal_state_diagnostics(facts.diagnostics());
+        let semantics = product_semantics(&compilation);
+        assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingEntryCannotBeConstant,
         );
 
-        assert!(facts.value().entrypoint().is_none());
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().entrypoint().is_none());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -815,16 +818,16 @@ func main()
             ProductKind::Executable,
         );
 
-        let facts = product_facts(&compilation);
-        assert_goal_state_diagnostics(facts.diagnostics());
+        let semantics = product_semantics(&compilation);
+        assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingEntryCannotRequireTrust,
         );
 
-        assert!(facts.value().entrypoint().is_none());
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().entrypoint().is_none());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -841,10 +844,10 @@ func main()
             ProductKind::Executable,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
-        assert!(facts.diagnostics().is_empty());
-        assert!(facts.value().entrypoint().is_some());
+        assert!(semantics.diagnostics().is_empty());
+        assert!(semantics.value().entrypoint().is_some());
     }
 
     #[test]
@@ -869,8 +872,8 @@ func main()
             ProductKind::Library,
         );
 
-        let facts = product_facts(&compilation);
-        let kinds = diagnostic_kinds(facts.diagnostics());
+        let semantics = product_semantics(&compilation);
+        let kinds = diagnostic_kinds(semantics.diagnostics());
 
         assert_eq!(
             kinds
@@ -883,18 +886,18 @@ func main()
         );
 
         assert_goal_state_diagnostic_kind(
-            facts.diagnostics(),
+            semantics.diagnostics(),
             DiagnosticKind::CheckingExportDependsOnInternalDeclaration,
         );
 
         assert!(
-            facts
+            semantics
                 .diagnostics()
                 .by_kind(DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
                 .all(|diagnostic| diagnostic.related_locations().len() == 1)
         );
 
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -915,10 +918,10 @@ func main()
             ProductKind::Library,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
         assert!(
-            diagnostic_kinds(facts.diagnostics())
+            diagnostic_kinds(semantics.diagnostics())
                 .contains(&DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
         );
     }
@@ -941,10 +944,10 @@ func main()
             ProductKind::Library,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
         assert!(
-            diagnostic_kinds(facts.diagnostics())
+            diagnostic_kinds(semantics.diagnostics())
                 .contains(&DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
         );
     }
@@ -973,10 +976,10 @@ func main()
             ProductKind::Library,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
         assert_eq!(
-            diagnostic_kinds(facts.diagnostics())
+            diagnostic_kinds(semantics.diagnostics())
                 .iter()
                 .filter(|kind| {
                     **kind == DiagnosticKind::CheckingExportDependsOnInternalDeclaration
@@ -985,7 +988,7 @@ func main()
             2
         );
 
-        assert!(facts.value().is_recovered());
+        assert!(semantics.value().is_recovered());
     }
 
     #[test]
@@ -1010,10 +1013,10 @@ func main()
             ProductKind::Library,
         );
 
-        let facts = product_facts(&compilation);
+        let semantics = product_semantics(&compilation);
 
         assert!(
-            diagnostic_kinds(facts.diagnostics())
+            diagnostic_kinds(semantics.diagnostics())
                 .contains(&DiagnosticKind::CheckingExportDependsOnInternalDeclaration)
         );
     }
@@ -1058,12 +1061,12 @@ func main()
         ));
     }
 
-    fn product_facts(
+    fn product_semantics(
         compilation: &crate::Compilation,
-    ) -> &bray_diagnostics::DiagnosticResult<bray_symbols::ProductSemanticFacts> {
+    ) -> &bray_diagnostics::DiagnosticResult<bray_symbols::ProductSemantics> {
         compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("product semantic facts must build: {error:?}"))
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("product semantics must build: {error:?}"))
     }
 
     fn symbol_graph(compilation: &crate::Compilation) -> &bray_symbols::SymbolGraph {

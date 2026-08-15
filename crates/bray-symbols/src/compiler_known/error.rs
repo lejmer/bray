@@ -2,7 +2,7 @@ use bray_compiler_known::{
     CatalogDeclarationKind, CompilerKnownDeclarationId, CompilerKnownIterationRole,
     CompilerKnownScopeId,
 };
-use bray_target::TargetFactKind;
+use bray_target::TargetPropertyKind;
 
 use crate::SymbolKind;
 use crate::allocator::SymbolIdCapacityError;
@@ -77,10 +77,10 @@ pub enum CompilerKnownSymbolBuildError {
         /// The absent component role.
         role: CompilerKnownIterationRole,
     },
-    /// A language-defined target fact is absent or has an incompatible declaration kind.
-    MissingTargetFact {
-        /// The target fact that could not be materialized.
-        fact: TargetFactKind,
+    /// A language-defined target property is absent or has an incompatible declaration kind.
+    MissingTargetProperty {
+        /// The target property that could not be materialized.
+        property: TargetPropertyKind,
     },
     /// Compiler-known declaration ownership contains a cycle.
     DeclarationOwnerCycle {
@@ -162,11 +162,11 @@ impl std::fmt::Display for CompilerKnownSymbolBuildError {
                     "compiler-known iteration role {role:?} is missing"
                 )
             }
-            Self::MissingTargetFact { fact } => {
+            Self::MissingTargetProperty { property } => {
                 write!(
                     formatter,
-                    "compiler-known target fact {} is missing or invalid",
-                    fact.as_str()
+                    "compiler-known target property {} is missing or invalid",
+                    property.as_str()
                 )
             }
             Self::DeclarationOwnerCycle { declaration } => write!(

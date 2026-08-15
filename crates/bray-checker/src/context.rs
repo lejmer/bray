@@ -9,8 +9,8 @@ use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
     GenericConstraintObligationKey, ImplementationRequirementKey, ImplementationSelection,
     MemberLookupResult, NamedTypeSymbolId, ProofOutcome, SemanticValueStore, StructSymbol,
-    StructSymbolId, SymbolFactContract, SymbolFactKind, SymbolFactRequest, SymbolFactResult,
-    SymbolGraph, SymbolKey, SymbolName, TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
+    StructSymbolId, SymbolGraph, SymbolKey, SymbolName, SymbolQueryContract, SymbolQueryKind,
+    SymbolQueryRequest, TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
     UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId,
     UnionVariantSymbol, UnionVariantSymbolId,
 };
@@ -40,12 +40,12 @@ pub enum CheckerInfrastructureError {
         /// The invalid source span.
         span: SourceSpan,
     },
-    /// A required semantic fact could not be supplied.
-    SemanticFactUnavailable {
-        /// The exact symbol that owns the fact.
+    /// A required semantic query could not be supplied.
+    SemanticQueryUnavailable {
+        /// The exact symbol that owns the query.
         symbol: AnySymbolId,
-        /// The unavailable fact category.
-        kind: SymbolFactKind,
+        /// The unavailable query category.
+        kind: SymbolQueryKind,
     },
     /// Canonical semantic value construction or lookup failed.
     SemanticValueUnavailable,
@@ -70,7 +70,7 @@ pub enum CheckerInfrastructureError {
     /// Storage-planning inputs or constructed records violate the requested unit contract.
     InvalidStoragePlan,
     /// Liveness inputs or durable decisions violate the requested unit contract.
-    InvalidLivenessFacts,
+    InvalidLiveness,
     /// Refinement inputs do not describe the requested bound unit.
     InvalidRefinementInput,
     /// Refinement resource counts cannot be represented by the diagnostic protocol.
@@ -78,7 +78,7 @@ pub enum CheckerInfrastructureError {
     /// Host allocation failed while constructing refinement analysis storage.
     RefinementStorageUnavailable,
     /// Storage-flow inputs or durable decisions violate the requested unit contract.
-    InvalidStorageFlowFacts,
+    InvalidStorageFlow,
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.
@@ -92,21 +92,21 @@ pub enum CheckerInfrastructureError {
 
 /// A failure while requesting a checker dependency.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum CheckerFactError {
+pub enum CheckerQueryError {
     /// Cancellation was observed while obtaining the dependency.
     Cancelled,
     /// Compiler infrastructure could not supply the dependency.
     Infrastructure(CheckerInfrastructureError),
 }
 
-impl From<CheckerInfrastructureError> for CheckerFactError {
+impl From<CheckerInfrastructureError> for CheckerQueryError {
     fn from(error: CheckerInfrastructureError) -> Self {
         Self::Infrastructure(error)
     }
 }
 
 /// The result of requesting one checker dependency.
-pub type CheckerFactResult<T> = Result<T, CheckerFactError>;
+pub type CheckerQueryResult<T> = Result<T, CheckerQueryError>;
 
 /// One recognized implementation hook and its availability for the selected target.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -177,14 +177,14 @@ pub trait CheckerRequestContext: Sync {
     /// Returns whether semantic context exactly describes the supplied bound unit.
     fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool;
 
-    /// Returns the canonical semantic values used by bound structure and facts.
+    /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;
 
     /// Returns the compilation-wide symbol graph.
     fn symbols(&self) -> &SymbolGraph;
 
     /// Returns the stable semantic key of a source or imported declaration.
-    fn symbol_key(&self, symbol: AnySymbolId) -> CheckerFactResult<Option<&SymbolKey>> {
+    fn symbol_key(&self, symbol: AnySymbolId) -> CheckerQueryResult<Option<&SymbolKey>> {
         Ok(self.symbols().symbol_key(symbol))
     }
 
@@ -193,22 +193,22 @@ pub trait CheckerRequestContext: Sync {
         &self,
         owner: AnySymbolId,
         name: &str,
-    ) -> CheckerFactResult<MemberLookupResult<AnySymbolId>> {
+    ) -> CheckerQueryResult<MemberLookupResult<AnySymbolId>> {
         Ok(self.symbols().lookup_member(owner, name))
     }
 
     /// Returns the ordinary name of a source or imported declaration member.
-    fn member_name(&self, member: AnySymbolId) -> CheckerFactResult<Option<&SymbolName>> {
+    fn member_name(&self, member: AnySymbolId) -> CheckerQueryResult<Option<&SymbolName>> {
         Ok(self.symbols().member_name(member))
     }
 
     /// Returns a source or imported structure declaration.
-    fn structure(&self, id: StructSymbolId) -> CheckerFactResult<Option<&StructSymbol>> {
+    fn structure(&self, id: StructSymbolId) -> CheckerQueryResult<Option<&StructSymbol>> {
         Ok(self.symbols().structure(id))
     }
 
     /// Returns a source or imported union declaration.
-    fn union(&self, id: UnionSymbolId) -> CheckerFactResult<Option<&UnionSymbol>> {
+    fn union(&self, id: UnionSymbolId) -> CheckerQueryResult<Option<&UnionSymbol>> {
         Ok(self.symbols().union(id))
     }
 
@@ -216,7 +216,7 @@ pub trait CheckerRequestContext: Sync {
     fn union_variant(
         &self,
         id: UnionVariantSymbolId,
-    ) -> CheckerFactResult<Option<&UnionVariantSymbol>> {
+    ) -> CheckerQueryResult<Option<&UnionVariantSymbol>> {
         Ok(self.symbols().union_variant(id))
     }
 
@@ -224,7 +224,7 @@ pub trait CheckerRequestContext: Sync {
     fn union_payload_field(
         &self,
         id: UnionPayloadFieldSymbolId,
-    ) -> CheckerFactResult<Option<&UnionPayloadFieldSymbol>> {
+    ) -> CheckerQueryResult<Option<&UnionPayloadFieldSymbol>> {
         Ok(self.symbols().union_payload_field(id))
     }
 
@@ -235,7 +235,7 @@ pub trait CheckerRequestContext: Sync {
     fn implementation_hook(
         &self,
         symbol: AnySymbolId,
-    ) -> CheckerFactResult<Option<ImplementationHookResolution>> {
+    ) -> CheckerQueryResult<Option<ImplementationHookResolution>> {
         let available = self.available_compiler_known_symbols();
 
         if let Some(hook) = available
@@ -256,7 +256,7 @@ pub trait CheckerRequestContext: Sync {
     fn recognized_standard_library_implementation_hook(
         &self,
         _symbol: AnySymbolId,
-    ) -> CheckerFactResult<Option<ImplementationHookResolution>> {
+    ) -> CheckerQueryResult<Option<ImplementationHookResolution>> {
         Ok(None)
     }
 
@@ -267,19 +267,19 @@ pub trait CheckerRequestContext: Sync {
     fn checked_constant_expression(
         &self,
         occurrence: bray_symbols::ConstantExpressionOccurrence,
-    ) -> CheckerFactResult<DiagnosticResult<bray_symbols::ConstantTermId>>;
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>>;
 
     /// Proves the static constraints for one exact generic declaration instance.
     fn generic_constraints(
         &self,
         obligation: GenericConstraintObligationKey,
-    ) -> CheckerFactResult<DiagnosticResult<ProofOutcome>>;
+    ) -> CheckerQueryResult<DiagnosticResult<ProofOutcome>>;
 
     /// Selects the implementation satisfying one exact subject and trait application.
     fn implementation_selection(
         &self,
         _requirement: ImplementationRequirementKey,
-    ) -> CheckerFactResult<DiagnosticResult<ImplementationSelection>> {
+    ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>> {
         Ok(DiagnosticResult::without_diagnostics(
             ImplementationSelection::Unavailable,
         ))
@@ -291,7 +291,7 @@ pub trait CheckerRequestContext: Sync {
         _subject: TypeId,
         _application: TraitApplicationId,
         _member: TraitTypeMemberSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<Option<TypeId>>> {
+    ) -> CheckerQueryResult<DiagnosticResult<Option<TypeId>>> {
         Ok(DiagnosticResult::without_diagnostics(None))
     }
 
@@ -299,13 +299,13 @@ pub trait CheckerRequestContext: Sync {
     fn declared_type_representation(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<DeclaredTypeRepresentation>>;
+    ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeRepresentation>>;
 
     /// Returns the target atomic representation selected for one concrete plain-storage type.
     fn plain_storage_atomic_representation(
         &self,
         _ty: TypeId,
-    ) -> CheckerFactResult<Option<bray_target::TargetAtomicRepresentation>> {
+    ) -> CheckerQueryResult<Option<bray_target::TargetAtomicRepresentation>> {
         Ok(None)
     }
 
@@ -313,14 +313,14 @@ pub trait CheckerRequestContext: Sync {
     fn declared_type_has_lifecycle(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerFactResult<DiagnosticResult<bool>>;
+    ) -> CheckerQueryResult<DiagnosticResult<bool>>;
 
     /// Returns whether the enclosing static context establishes a copy contract for an open type.
     fn statically_establishes_copyability(
         &self,
         context: &SemanticUnitContext,
         ty: TypeId,
-    ) -> CheckerFactResult<bool>;
+    ) -> CheckerQueryResult<bool>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
     fn source(
@@ -338,31 +338,33 @@ pub trait CheckerRequestContext: Sync {
     fn cancellation(&self) -> &dyn Cancellation;
 }
 
-/// Origin-neutral typed access to one family of symbol-owned semantic facts.
-pub trait CheckerSemanticFactProvider<C>: CheckerRequestContext
+/// Origin-neutral typed access to one family of symbol-owned semantic queries.
+pub trait CheckerSemanticQueryProvider<C>: CheckerRequestContext
 where
-    C: SymbolFactContract,
+    C: SymbolQueryContract,
 {
-    /// Returns the requested immutable semantic fact and its owned diagnostics.
-    fn symbol_fact(
+    /// Returns the requested immutable semantic value and its owned diagnostics.
+    fn resolve_symbol_query(
         &self,
-        request: SymbolFactRequest<C>,
-    ) -> CheckerFactResult<Arc<SymbolFactResult<C>>>;
+        request: SymbolQueryRequest<C>,
+    ) -> CheckerQueryResult<
+        Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>,
+    >;
 }
 
 #[cfg(test)]
 mod tests {
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
-    use bray_symbols::CallableSignatureFact;
+    use bray_symbols::CallableSignatureQuery;
 
-    use super::{CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource};
+    use super::{CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource};
 
     #[test]
     fn request_context_contracts_are_shareable() {
         fn assert_sync<T: Sync + ?Sized>() {}
 
         assert_sync::<dyn CheckerRequestContext>();
-        assert_sync::<dyn CheckerSemanticFactProvider<CallableSignatureFact>>();
+        assert_sync::<dyn CheckerSemanticQueryProvider<CallableSignatureQuery>>();
     }
 
     #[test]

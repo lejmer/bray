@@ -7,7 +7,7 @@ use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::DiagnosticKind;
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_symbols::{PackageIdentity, ProductKind};
-use bray_target::{TargetFacts, TargetOperationFacts, TargetProfile};
+use bray_target::{TargetOperationSupport, TargetProfile, TargetProperties};
 use serde::Deserialize;
 
 use super::workspace::{RustWorkspace, is_fixture_anchor, require_unique_names};
@@ -135,22 +135,25 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
 fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
     let baseline = SelectedTarget::baseline();
     let profile = baseline.profile();
-    let baseline_facts = profile.facts();
+    let baseline_properties = profile.properties();
 
-    let facts = TargetFacts::new(
-        baseline_facts.identity().clone(),
-        baseline_facts.scalars(),
-        baseline_facts.atomics(),
-        baseline_facts.abis(),
-        baseline_facts.c_abi(),
-        baseline_facts.address_spaces(),
-        baseline_facts.alignments(),
-        TargetOperationFacts::new(false, false),
+    let properties = TargetProperties::new(
+        baseline_properties.identity().clone(),
+        baseline_properties.scalars(),
+        baseline_properties.atomics(),
+        baseline_properties.abis(),
+        baseline_properties.c_abi(),
+        baseline_properties.address_spaces(),
+        baseline_properties.alignments(),
+        TargetOperationSupport::new(false, false),
     );
 
-    let profile =
-        TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
-            .map_err(|error| format!("could not build unavailable memory target: {error}"))?;
+    let profile = TargetProfile::try_new(
+        profile.identity().clone(),
+        profile.machine().clone(),
+        properties,
+    )
+    .map_err(|error| format!("could not build unavailable memory target: {error}"))?;
 
     if fixture_reports(
         workspace,
@@ -160,8 +163,10 @@ fn audit_unavailable_target(workspace: &RustWorkspace) -> Result<(), String> {
     )? {
         Ok(())
     } else {
-        Err("unavailable memory operation did not produce the structured rejection diagnostic"
-            .to_owned())
+        Err(
+            "unavailable memory operation did not produce the structured rejection diagnostic"
+                .to_owned(),
+        )
     }
 }
 
@@ -200,11 +205,7 @@ fn fixture_reports(
         source,
     );
 
-    let options = CompilationOptions::new(
-        WorkerBudget::serial(),
-        ProductKind::Executable,
-        target,
-    );
+    let options = CompilationOptions::new(WorkerBudget::serial(), ProductKind::Executable, target);
 
     let compilation = Compilation::load(CompilationRequest::with_options(
         package,

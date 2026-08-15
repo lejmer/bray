@@ -2,20 +2,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BorrowCapabilityOrigin, BoundBlockId, BoundBlockItem, BoundCallableBodyKind, BoundExpressionId,
-    BoundPatternId, BoundReferenceTarget, CheckedExpressionTypes, CheckedPatternFacts,
+    BoundPatternId, BoundReferenceTarget, CheckedExpressionTypes, CheckedPatterns,
     CheckedSemanticSelections, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
     ExpressionTypeResult, PlannedBorrowCapability, SelectedIterationSource, SemanticSelection,
     StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageBinding,
     StorageBindingTarget, StorageIdentity, StoragePlan, StoragePlanBuilder,
 };
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableSignatureFact, CallableSymbolId, PredicateDefinitionSymbolId,
-    ReceiverMode, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, BorrowKind, CallableSignatureQuery, CallableSymbolId, PredicateDefinitionSymbolId,
+    ReceiverMode, SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
-    CheckerFactError, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
-    CheckerSemanticFactProvider, CheckerUnitRoot, CheckerUnitView, SemanticUnitContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitRoot, CheckerUnitView, SemanticUnitContext,
     resolve_type_expression_template,
 };
 
@@ -29,11 +29,11 @@ pub(crate) fn plan_storage<C>(
     request: CheckerUnitView<'_, C>,
     declared_types: &DeclaredValueTypeTemplates,
     types: &CheckedExpressionTypes,
-    patterns: &CheckedPatternFacts,
+    patterns: &CheckedPatterns,
     selections: &CheckedSemanticSelections,
 ) -> CheckerOutcome<StoragePlan>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;
@@ -64,8 +64,8 @@ where
         selections,
         match receiver_entry(request) {
             Ok(receiver) => receiver,
-            Err(CheckerFactError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerFactError::Infrastructure(error)) => {
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Infrastructure(error)) => {
                 return CheckerOutcome::InfrastructureFailure(error);
             }
         },
@@ -88,7 +88,7 @@ where
     pub(super) request: CheckerUnitView<'view, C>,
     pub(super) declared_types: &'view DeclaredValueTypeTemplates,
     pub(super) types: &'view CheckedExpressionTypes,
-    pub(super) patterns: &'view CheckedPatternFacts,
+    pub(super) patterns: &'view CheckedPatterns,
     pub(super) selections: &'view CheckedSemanticSelections,
     pub(super) iterations: BTreeMap<BoundExpressionId, &'view SelectedIterationSource>,
     pub(super) builder: Option<StoragePlanBuilder>,
@@ -124,11 +124,11 @@ impl From<CheckerInfrastructureError> for PlanError {
     }
 }
 
-impl From<CheckerFactError> for PlanError {
-    fn from(error: CheckerFactError) -> Self {
+impl From<CheckerQueryError> for PlanError {
+    fn from(error: CheckerQueryError) -> Self {
         match error {
-            CheckerFactError::Cancelled => Self::Cancelled,
-            CheckerFactError::Infrastructure(error) => Self::Infrastructure(error),
+            CheckerQueryError::Cancelled => Self::Cancelled,
+            CheckerQueryError::Infrastructure(error) => Self::Infrastructure(error),
         }
     }
 }
@@ -141,7 +141,7 @@ where
         request: CheckerUnitView<'view, C>,
         declared_types: &'view DeclaredValueTypeTemplates,
         types: &'view CheckedExpressionTypes,
-        patterns: &'view CheckedPatternFacts,
+        patterns: &'view CheckedPatterns,
         selections: &'view CheckedSemanticSelections,
         receiver_entry: Option<(
             bray_symbols::ReceiverParameterSymbolId,
@@ -677,17 +677,17 @@ fn receiver_entry<C>(
         bray_symbols::ReceiverParameterSymbolId,
         Option<(BorrowKind, TypeId)>,
     )>,
-    CheckerFactError,
+    CheckerQueryError,
 >
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let Some(callable) = request.containing_callable() else {
         return Ok(None);
     };
 
-    let signature =
-        request.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))?;
+    let signature = request
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))?;
 
     Ok(signature.value().receiver().map(|receiver| {
         let borrow = match receiver.mode() {

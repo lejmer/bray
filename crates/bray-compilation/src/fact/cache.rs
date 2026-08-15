@@ -706,7 +706,7 @@ mod tests {
     }
 
     #[test]
-    fn independent_facts_compute_concurrently() {
+    fn independent_queries_compute_concurrently() {
         let runtime = runtime(2);
         let cancellation = CancellationToken::new();
 
@@ -864,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_cells_reject_reuse_for_another_fact_key() {
+    fn cache_cells_reject_reuse_for_another_semantic_key() {
         let runtime = FactRuntime::default();
         let cancellation = CancellationToken::new();
         let cell = FactCell::new();

@@ -172,10 +172,7 @@ fn rust_configuration(
 
     append_rust_linker_map(&mut arguments, target.object_format(), linker_map)?;
 
-    arguments.extend([
-        "-o".to_owned(),
-        crate::path::slash_separated(executable),
-    ]);
+    arguments.extend(["-o".to_owned(), crate::path::slash_separated(executable)]);
 
     Ok(PeerCompilerConfiguration {
         arguments,
@@ -633,10 +630,7 @@ mod tests {
         let inner_iterations = std::num::NonZeroU64::new(50_000_000)
             .unwrap_or_else(|| panic!("fixture inner iteration count must be nonzero"));
 
-        for (language, directory) in [
-            (PeerLanguage::Rust, "rust"),
-            (PeerLanguage::Cpp, "cpp"),
-        ] {
+        for (language, directory) in [(PeerLanguage::Rust, "rust"), (PeerLanguage::Cpp, "cpp")] {
             let native_path = format!(r"C:\work\peers\{directory}\peer.exe");
             let report_path = format!("C:/work/peers/{directory}/peer.exe");
 
@@ -801,7 +795,8 @@ mod tests {
         );
 
         assert_eq!(
-            rust.environment.get(super::RUST_INNER_ITERATIONS_ENVIRONMENT),
+            rust.environment
+                .get(super::RUST_INNER_ITERATIONS_ENVIRONMENT),
             Some(&"50000000".to_owned())
         );
 
@@ -847,18 +842,15 @@ fn append_cpp_linker_map(
     map: &Path,
 ) -> Result<(), String> {
     match format {
-        ObjectFormat::Coff => arguments.push(format!(
-            "-Wl,/MAP:{}",
-            crate::path::slash_separated(map)
-        )),
-        ObjectFormat::Elf => arguments.push(format!(
-            "-Wl,-Map,{}",
-            crate::path::slash_separated(map)
-        )),
-        ObjectFormat::MachO => arguments.push(format!(
-            "-Wl,-map,{}",
-            crate::path::slash_separated(map)
-        )),
+        ObjectFormat::Coff => {
+            arguments.push(format!("-Wl,/MAP:{}", crate::path::slash_separated(map)))
+        }
+        ObjectFormat::Elf => {
+            arguments.push(format!("-Wl,-Map,{}", crate::path::slash_separated(map)))
+        }
+        ObjectFormat::MachO => {
+            arguments.push(format!("-Wl,-map,{}", crate::path::slash_separated(map)))
+        }
         ObjectFormat::WebAssembly | ObjectFormat::Xcoff => {
             return Err("performance peers do not support the selected object format".to_owned());
         }

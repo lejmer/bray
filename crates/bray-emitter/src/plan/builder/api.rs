@@ -19,7 +19,7 @@ pub struct EmissionPlanner {
 }
 
 impl EmissionPlanner {
-    /// Creates a planner from validated target and producer facts.
+    /// Creates a planner from validated target and producer inputs.
     pub const fn new(
         target: TargetOutputDescription,
         backend: Option<EmissionBackend>,
@@ -40,25 +40,25 @@ impl EmissionPlanner {
         PlanBuilder::new(self, request, self.package_interface.clone()).build()
     }
 
-    /// Returns the selected target output facts.
+    /// Returns the selected target output inputs.
     pub const fn target(&self) -> &TargetOutputDescription {
         &self.target
     }
 
-    /// Returns the selected backend facts when code generation is available.
+    /// Returns the selected backend inputs when code generation is available.
     pub const fn backend(&self) -> Option<&EmissionBackend> {
         self.backend.as_ref()
     }
 }
 
-/// A request or selected-fact conflict that prevents emission planning.
+/// A request or selected-input conflict that prevents emission planning.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EmissionPlanningError {
-    /// The request and selected target facts name different targets.
+    /// The request and selected target properties name different targets.
     TargetMismatch {
         /// Target selected by the host request.
         requested: TargetIdentity,
-        /// Target covered by the planning facts.
+        /// Target covered by the planning inputs.
         selected: TargetIdentity,
     },
     /// The artifact category cannot be emitted for the selected product category.
@@ -114,7 +114,7 @@ pub enum EmissionPlanningError {
     MissingLinkableArtifact,
     /// A serialization choice requires an artifact category that was not requested.
     MissingSerializationArtifact(BackendArtifactKind),
-    /// Target output facts contain no name for a published artifact category.
+    /// Target output inputs contain no name for a published artifact category.
     MissingOutputName(ArtifactKind),
     /// The product name cannot be used as one generated filename component.
     InvalidProductName,

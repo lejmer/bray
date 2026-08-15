@@ -11,36 +11,35 @@ use bray_symbols::{InterfaceSupportEntityId, SymbolKey};
 
 use crate::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateOperation,
-    InterfaceCheckedTemplateTemporary, InterfaceImplementationReference, InterfaceSemanticFacts,
+    InterfaceCheckedTemplateTemporary, InterfaceImplementationReference, InterfaceSemantics,
     InterfaceSupportEntity, InterfaceTemplateReference,
 };
 
 use super::common::resolve_symbol_key;
 use super::{
-    ImportedDeclarationTemplateFact, InterfaceSemanticInternError, InterfaceSymbolResolver,
-    InternState,
+    ImportedDeclarationTemplate, InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
 
 impl InternState {
     pub(super) fn convert_declaration_templates(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<ImportedDeclarationTemplateFact>, InterfaceSemanticInternError> {
-        let templates = facts
+    ) -> Result<Vec<ImportedDeclarationTemplate>, InterfaceSemanticInternError> {
+        let templates = semantics
             .checked_templates
             .iter()
             .map(|template| {
-                self.convert_template(template, facts, symbols)
+                self.convert_template(template, semantics, symbols)
                     .map(Arc::new)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        facts
+        semantics
             .declaration_templates
             .iter()
             .map(|declaration| {
-                let entity = support_entity(facts, declaration.entity())?;
+                let entity = support_entity(semantics, declaration.entity())?;
 
                 let InterfaceSupportEntity::CheckedTemplate(template) = entity else {
                     return Err(InterfaceSemanticInternError::InvalidSupportEntity(
@@ -69,7 +68,7 @@ impl InternState {
                     ));
                 }
 
-                Ok(ImportedDeclarationTemplateFact {
+                Ok(ImportedDeclarationTemplate {
                     owner,
                     kind: declaration.kind(),
                     ordinal: declaration.ordinal(),
@@ -83,10 +82,10 @@ impl InternState {
     pub(super) fn convert_template(
         &self,
         template: &InterfaceCheckedTemplate,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<bray_bound_tree::CheckedTemplate, InterfaceSemanticInternError> {
-        let behavior = convert_behavior(self, template, facts, symbols)?;
+        let behavior = convert_behavior(self, template, semantics, symbols)?;
         let mut builder = CheckedTemplateBuilder::new(template.kind(), behavior);
 
         for input in template.inputs() {
@@ -104,13 +103,10 @@ impl InternState {
         let mut temporaries = template.temporaries().iter().peekable();
 
         for (node_index, node) in template.nodes().iter().enumerate() {
-            while temporaries
-                .peek()
-                .is_some_and(|temporary| {
-                    usize::try_from(temporary.initializer().raw())
-                        .is_ok_and(|initializer| initializer < node_index)
-                })
-            {
+            while temporaries.peek().is_some_and(|temporary| {
+                usize::try_from(temporary.initializer().raw())
+                    .is_ok_and(|initializer| initializer < node_index)
+            }) {
                 let Some(temporary) = temporaries.next() else {
                     break;
                 };
@@ -118,7 +114,7 @@ impl InternState {
                 push_temporary(self, &mut builder, temporary)?;
             }
 
-            let operation = convert_operation(self, node.operation(), facts, symbols)?;
+            let operation = convert_operation(self, node.operation(), semantics, symbols)?;
 
             let ty = self
                 .type_id(node.ty())
@@ -183,7 +179,7 @@ fn convert_input_kind(
 fn convert_operation(
     state: &InternState,
     operation: &InterfaceCheckedTemplateOperation,
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     symbols: &impl InterfaceSymbolResolver,
 ) -> Result<CheckedTemplateOperation, InterfaceSemanticInternError> {
     match operation {
@@ -219,7 +215,7 @@ fn convert_operation(
             })
         }
         InterfaceCheckedTemplateOperation::Declaration(reference) => Ok(
-            CheckedTemplateOperation::Declaration(template_key(facts, reference, symbols)?),
+            CheckedTemplateOperation::Declaration(template_key(semantics, reference, symbols)?),
         ),
         InterfaceCheckedTemplateOperation::Call {
             callable,
@@ -235,7 +231,7 @@ fn convert_operation(
                 .as_ref()
                 .map(
                     |(reference, substitution)| -> Result<_, InterfaceSemanticInternError> {
-                        let declaration = implementation_key(facts, reference, symbols)?;
+                        let declaration = implementation_key(semantics, reference, symbols)?;
 
                         let substitution = state
                             .substitution_id(*substitution)
@@ -247,7 +243,7 @@ fn convert_operation(
                 .transpose()?;
 
             Ok(CheckedTemplateOperation::call(
-                template_key(facts, callable, symbols)?,
+                template_key(semantics, callable, symbols)?,
                 substitution,
                 arguments.iter().copied(),
                 implementation,
@@ -272,7 +268,7 @@ fn convert_operation(
         InterfaceCheckedTemplateOperation::Project { subject, member } => {
             Ok(CheckedTemplateOperation::Project {
                 subject: *subject,
-                member: template_key(facts, member, symbols)?,
+                member: template_key(semantics, member, symbols)?,
             })
         }
         InterfaceCheckedTemplateOperation::Conditional {
@@ -300,7 +296,7 @@ fn convert_operation(
 fn convert_behavior(
     state: &InternState,
     template: &InterfaceCheckedTemplate,
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     symbols: &impl InterfaceSymbolResolver,
 ) -> Result<CheckedTemplateBehavior, InterfaceSemanticInternError> {
     let behavior = template.behavior();
@@ -346,25 +342,25 @@ fn convert_behavior(
             .witnesses()
             .iter()
             .map(|reference| {
-                implementation_key(facts, reference, symbols).map(CheckedTemplateWitness::new)
+                implementation_key(semantics, reference, symbols).map(CheckedTemplateWitness::new)
             })
             .collect::<Result<Vec<_>, _>>()?,
     ))
 }
 
 fn template_key(
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     reference: &InterfaceTemplateReference,
     symbols: &impl InterfaceSymbolResolver,
 ) -> Result<SymbolKey, InterfaceSemanticInternError> {
     match reference {
         InterfaceTemplateReference::Symbol(reference) => resolve_symbol_key(symbols, reference),
-        InterfaceTemplateReference::Support(entity) => support_declaration_key(facts, *entity),
+        InterfaceTemplateReference::Support(entity) => support_declaration_key(semantics, *entity),
     }
 }
 
 fn implementation_key(
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     reference: &InterfaceImplementationReference,
     symbols: &impl InterfaceSymbolResolver,
 ) -> Result<SymbolKey, InterfaceSemanticInternError> {
@@ -373,7 +369,7 @@ fn implementation_key(
             resolve_symbol_key(symbols, reference)
         }
         InterfaceImplementationReference::Support(entity) => {
-            let entity_data = support_entity(facts, *entity)?;
+            let entity_data = support_entity(semantics, *entity)?;
 
             // External keys are Arc-backed and checked templates own stable keys.
             match entity_data {
@@ -390,11 +386,11 @@ fn implementation_key(
 }
 
 fn support_declaration_key(
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     entity: InterfaceSupportEntityId,
 ) -> Result<SymbolKey, InterfaceSemanticInternError> {
     // External keys are Arc-backed and checked templates own stable keys.
-    match support_entity(facts, entity)? {
+    match support_entity(semantics, entity)? {
         InterfaceSupportEntity::Declaration(key) => Ok(key.clone().into()),
         InterfaceSupportEntity::Implementation(implementation) => {
             Ok(implementation.declaration().clone().into())
@@ -406,11 +402,11 @@ fn support_declaration_key(
 }
 
 fn support_entity(
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     entity: InterfaceSupportEntityId,
 ) -> Result<&InterfaceSupportEntity, InterfaceSemanticInternError> {
     entity
         .to_index()
-        .and_then(|index| facts.support_entities.get(index))
+        .and_then(|index| semantics.support_entities.get(index))
         .ok_or(InterfaceSemanticInternError::InvalidSupportEntity(entity))
 }

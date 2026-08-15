@@ -41,9 +41,9 @@
       "test": "digest_mismatches_fail_before_any_bytes_are_published"
     },
     {
-      "name": "reused pure facts",
+      "name": "reused pure inputs",
       "production": "package_interface_export_bundle()",
-      "test": "package_interface_emission_reuses_pure_facts_across_publications"
+      "test": "package_interface_emission_reuses_pure_inputs_across_publications"
     },
     {
       "name": "planning cancellation",
@@ -68,7 +68,7 @@
     {
       "name": "publication cancellation",
       "production": "fn copy_content(",
-      "test": "cancellation_during_staged_validation_preserves_the_destination"
+      "test": "cancellation_discards_private_generation_without_partial_records"
     },
     {
       "name": "external process cancellation",

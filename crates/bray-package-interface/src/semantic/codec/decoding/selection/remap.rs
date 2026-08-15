@@ -8,13 +8,13 @@ use crate::semantic::model::{
     InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind,
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemanticFacts,
-    InterfaceType, InterfaceTypeId,
+    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemantics, InterfaceType,
+    InterfaceTypeId,
 };
 
 pub(super) fn remap_selected_records(
     records: SelectedRecords,
-) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
     let maps = RecordMaps::new(&records)?;
 
     let substitutions = records
@@ -201,7 +201,7 @@ pub(super) fn remap_selected_records(
 
     let runtime_requirements = records.runtime_requirements.into_values();
 
-    Ok(InterfaceSemanticFacts::new()
+    Ok(InterfaceSemantics::new()
         .with_applications(
             substitutions,
             trait_applications,
@@ -386,7 +386,7 @@ fn remap_constant_term(
         }
         InterfaceConstantTerm::IntegerLiteral { .. }
         | InterfaceConstantTerm::Parameter(_)
-        | InterfaceConstantTerm::TargetFact(_) => {}
+        | InterfaceConstantTerm::TargetProperty(_) => {}
     }
 
     Ok(())

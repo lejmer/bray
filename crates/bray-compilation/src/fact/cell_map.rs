@@ -88,7 +88,7 @@ where
     pub(crate) fn updated(
         &self,
         reusable: &std::collections::BTreeSet<CompilationFactKey>,
-        fact_key: impl Fn(&K) -> CompilationFactKey,
+        semantic_key: impl Fn(&K) -> CompilationFactKey,
     ) -> Self
     where
         K: Clone,
@@ -103,9 +103,9 @@ where
             .cells
             .iter()
             .filter(|(key, entry)| {
-                let fact_key = fact_key(key);
+                let semantic_key = semantic_key(key);
 
-                reusable.contains(&fact_key) && entry.cell.is_ready_for(&fact_key)
+                reusable.contains(&semantic_key) && entry.cell.is_ready_for(&semantic_key)
             })
             .map(|(key, entry)| (key.clone(), entry.last_access, Arc::clone(&entry.cell)))
             .collect::<Vec<_>>();

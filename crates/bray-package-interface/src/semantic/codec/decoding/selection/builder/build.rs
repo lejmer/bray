@@ -8,38 +8,40 @@ use super::tables::SelectedTables;
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::semantic::codec::decoding::selection::model::SelectedRecords;
 use crate::semantic::codec::decoding::selection::remap::remap_selected_records;
-use crate::semantic::codec::decoding::{contract, declaration, directory, facts, surface, value};
+use crate::semantic::codec::decoding::{bundle, contract, declaration, directory, surface, value};
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemanticFactEntry,
-    InterfaceSemanticFactKind, InterfaceSemanticFacts, InterfaceType,
+    InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemanticRecord,
+    InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceType,
 };
 use crate::{
     InterfaceSectionTag, InterfaceSymbolReference, InterfaceValidationError,
     InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
-pub(in crate::semantic::codec::decoding) fn decode_selected_fact_graph(
+pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
     sections: &[ValidatedInterfaceSection<'_>],
     surface: &PackageInterfaceSurface,
     owner: InterfaceSymbolId,
-    kind: InterfaceSemanticFactKind,
+    kind: InterfaceSemanticRecordKind,
     limits: InterfaceValidationLimits,
-) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
     let mut context = SemanticDecodeContext::new(limits);
 
-    let directory = facts::required_section(sections, InterfaceSectionTag::SymbolFactDirectory)?;
-    let directory = directory::decode_fact_directory(directory, limits, &mut context)?;
+    let directory =
+        bundle::required_section(sections, InterfaceSectionTag::SemanticRecordDirectory)?;
 
-    if kind == InterfaceSemanticFactKind::CallableParameterDefault {
+    let directory = directory::decode_semantic_directory(directory, limits, &mut context)?;
+
+    if kind == InterfaceSemanticRecordKind::CallableParameterDefault {
         return crate::semantic::codec::decoding::selection::declaration::decode_callable_parameter_default(
             sections, surface, owner, limits, context, &directory,
         );
     }
 
-    if kind == InterfaceSemanticFactKind::PredicateDefinition {
+    if kind == InterfaceSemanticRecordKind::PredicateDefinition {
         return crate::semantic::codec::decoding::selection::declaration::decode_predicate_definition(
             sections, surface, owner, limits, context, &directory,
         );
@@ -48,13 +50,13 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_fact_graph(
     let tables = SelectedTables::read(sections, kind, &mut context)?;
     let mut builder = SelectionBuilder::new(tables, context, owner);
 
-    builder.include_requested_facts(&directory, kind)?;
+    builder.include_requested_semantics(&directory, kind)?;
 
-    let facts = remap_selected_records(builder.records)?;
+    let semantics = remap_selected_records(builder.records)?;
 
-    facts.validate(surface, limits)?;
+    semantics.validate(surface, limits)?;
 
-    Ok(facts)
+    Ok(semantics)
 }
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
@@ -102,41 +104,41 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
     }
 
-    fn include_requested_facts(
+    fn include_requested_semantics(
         &mut self,
-        directory: &[InterfaceSemanticFactEntry],
-        kind: InterfaceSemanticFactKind,
+        directory: &[InterfaceSemanticRecord],
+        kind: InterfaceSemanticRecordKind,
     ) -> Result<(), InterfaceValidationError> {
         if matches!(
             kind,
-            InterfaceSemanticFactKind::GenericConstraint
-                | InterfaceSemanticFactKind::GenericDeclaration
-                | InterfaceSemanticFactKind::Implementation
+            InterfaceSemanticRecordKind::GenericConstraint
+                | InterfaceSemanticRecordKind::GenericDeclaration
+                | InterfaceSemanticRecordKind::Implementation
         ) {
             for index in self.record_indexes(
                 directory,
-                InterfaceSemanticFactKind::GenericConstraint,
+                InterfaceSemanticRecordKind::GenericConstraint,
                 InterfaceSectionTag::Contracts,
             )? {
                 self.enqueue(PendingRecord::Constraint(index));
             }
         }
 
-        if kind == InterfaceSemanticFactKind::CallableSignature {
+        if kind == InterfaceSemanticRecordKind::CallableSignature {
             let index = self.one_record_index(
                 directory,
-                InterfaceSemanticFactKind::CallableSignature,
-                InterfaceSectionTag::DeclarationFacts,
+                InterfaceSemanticRecordKind::CallableSignature,
+                InterfaceSectionTag::DeclarationSemantics,
             )?;
 
             self.enqueue(PendingRecord::CallableSignature(index));
         }
 
-        if kind == InterfaceSemanticFactKind::GenericDeclaration {
+        if kind == InterfaceSemanticRecordKind::GenericDeclaration {
             let index = self.optional_record_index(
                 directory,
-                InterfaceSemanticFactKind::GenericDeclaration,
-                InterfaceSectionTag::DeclarationFacts,
+                InterfaceSemanticRecordKind::GenericDeclaration,
+                InterfaceSectionTag::DeclarationSemantics,
             )?;
 
             if let Some(index) = index {
@@ -144,20 +146,20 @@ impl<'bytes> SelectionBuilder<'bytes> {
             }
         }
 
-        if kind == InterfaceSemanticFactKind::DeclaredType {
+        if kind == InterfaceSemanticRecordKind::DeclaredType {
             let index = self.one_record_index(
                 directory,
-                InterfaceSemanticFactKind::DeclaredType,
-                InterfaceSectionTag::DeclarationFacts,
+                InterfaceSemanticRecordKind::DeclaredType,
+                InterfaceSectionTag::DeclarationSemantics,
             )?;
 
             self.enqueue(PendingRecord::DeclaredType(index));
         }
 
-        if kind == InterfaceSemanticFactKind::Implementation {
+        if kind == InterfaceSemanticRecordKind::Implementation {
             let indexes = self.record_indexes(
                 directory,
-                InterfaceSemanticFactKind::Implementation,
+                InterfaceSemanticRecordKind::Implementation,
                 InterfaceSectionTag::Implementations,
             )?;
 
@@ -170,21 +172,22 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         if matches!(
             kind,
-            InterfaceSemanticFactKind::Implementation | InterfaceSemanticFactKind::TargetFact
+            InterfaceSemanticRecordKind::Implementation
+                | InterfaceSemanticRecordKind::TargetProperty
         ) {
             for index in self.record_indexes(
                 directory,
-                InterfaceSemanticFactKind::TargetFact,
+                InterfaceSemanticRecordKind::TargetProperty,
                 InterfaceSectionTag::TargetDependencies,
             )? {
                 self.enqueue(PendingRecord::Target(index));
             }
         }
 
-        if kind == InterfaceSemanticFactKind::Runtime {
+        if kind == InterfaceSemanticRecordKind::Runtime {
             let index = self.one_record_index(
                 directory,
-                InterfaceSemanticFactKind::Runtime,
+                InterfaceSemanticRecordKind::Runtime,
                 InterfaceSectionTag::TargetDependencies,
             )?;
 
@@ -235,8 +238,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
     fn record_indexes(
         &self,
-        directory: &[InterfaceSemanticFactEntry],
-        kind: InterfaceSemanticFactKind,
+        directory: &[InterfaceSemanticRecord],
+        kind: InterfaceSemanticRecordKind,
         section: InterfaceSectionTag,
     ) -> Result<Vec<u32>, InterfaceValidationError> {
         let entries = directory
@@ -258,8 +261,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
     fn one_record_index(
         &self,
-        directory: &[InterfaceSemanticFactEntry],
-        kind: InterfaceSemanticFactKind,
+        directory: &[InterfaceSemanticRecord],
+        kind: InterfaceSemanticRecordKind,
         section: InterfaceSectionTag,
     ) -> Result<u32, InterfaceValidationError> {
         let indexes = self.record_indexes(directory, kind, section)?;
@@ -273,8 +276,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
     fn optional_record_index(
         &self,
-        directory: &[InterfaceSemanticFactEntry],
-        kind: InterfaceSemanticFactKind,
+        directory: &[InterfaceSemanticRecord],
+        kind: InterfaceSemanticRecordKind,
         section: InterfaceSectionTag,
     ) -> Result<Option<u32>, InterfaceValidationError> {
         let indexes = self.record_indexes(directory, kind, section)?;
@@ -778,7 +781,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
             }
             InterfaceConstantTerm::IntegerLiteral { .. }
             | InterfaceConstantTerm::Parameter(_)
-            | InterfaceConstantTerm::TargetFact(_) => {}
+            | InterfaceConstantTerm::TargetProperty(_) => {}
         }
 
         self.records.constant_terms.insert(index, term);

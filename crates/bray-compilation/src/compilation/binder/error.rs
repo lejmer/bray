@@ -1,10 +1,12 @@
-use bray_binder::BinderFactError;
+use bray_binder::BindingQueryError;
 
 use crate::fact::FactQueryError;
 
-pub(in crate::compilation) const fn binder_fact_error(error: BinderFactError) -> FactQueryError {
+pub(in crate::compilation) const fn binding_query_error(
+    error: BindingQueryError,
+) -> FactQueryError {
     match error {
-        BinderFactError::Cancelled => FactQueryError::Cancelled,
-        BinderFactError::DependencyUnavailable => FactQueryError::InfrastructureFailure,
+        BindingQueryError::Cancelled => FactQueryError::Cancelled,
+        BindingQueryError::DependencyUnavailable => FactQueryError::InfrastructureFailure,
     }
 }

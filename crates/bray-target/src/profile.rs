@@ -1,6 +1,6 @@
 use crate::{
-    TargetFactKind, TargetFactValue, TargetFacts, TargetIdentity, TargetMachineProperties,
-    TargetScalarKind,
+    TargetIdentity, TargetMachineProperties, TargetProperties, TargetPropertyKind,
+    TargetPropertyValue, TargetScalarKind,
 };
 
 /// The language-level identity and machine properties of one compilation target.
@@ -8,14 +8,14 @@ use crate::{
 pub struct TargetProfile {
     identity: TargetIdentity,
     machine: TargetMachineProperties,
-    facts: TargetFacts,
+    properties: TargetProperties,
 }
 
-/// A contradiction between facts supplied for one target profile.
+/// A contradiction between properties supplied for one target profile.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum TargetProfileBuildError {
-    /// A target-sized integer cannot represent one public `usize` target fact.
-    TargetFactNotRepresentable,
+    /// A target-sized integer cannot represent one public `usize` target property.
+    TargetPropertyNotRepresentable,
     /// The maximum storage alignment cannot represent the target pointer alignment.
     StorageAlignmentBelowPointerAlignment,
     /// The maximum storage alignment cannot represent the target stack alignment.
@@ -39,8 +39,8 @@ pub enum TargetProfileBuildError {
 impl std::fmt::Display for TargetProfileBuildError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TargetFactNotRepresentable => {
-                formatter.write_str("a target usize fact is not representable")
+            Self::TargetPropertyNotRepresentable => {
+                formatter.write_str("a target usize property is not representable")
             }
             Self::StorageAlignmentBelowPointerAlignment => {
                 formatter.write_str("maximum storage alignment is below pointer alignment")
@@ -76,21 +76,21 @@ impl std::fmt::Display for TargetProfileBuildError {
 impl std::error::Error for TargetProfileBuildError {}
 
 impl TargetProfile {
-    /// Creates a target profile when its complete fact groups are mutually consistent.
+    /// Creates a target profile when its complete property groups are mutually consistent.
     pub fn try_new(
         identity: TargetIdentity,
         machine: TargetMachineProperties,
-        facts: TargetFacts,
+        properties: TargetProperties,
     ) -> Result<Self, TargetProfileBuildError> {
         let pointer_alignment = u64::from(machine.pointer_alignment_bytes().get());
         let stack_alignment = u64::from(machine.stack_alignment_bytes().get());
         let maximum_usize = maximum_usize(machine.pointer_width_bits().get());
-        let alignments = facts.alignments();
+        let alignments = properties.alignments();
 
         if alignments.max_storage().get() > maximum_usize
             || alignments.max_allocation().get() > maximum_usize
         {
-            return Err(TargetProfileBuildError::TargetFactNotRepresentable);
+            return Err(TargetProfileBuildError::TargetPropertyNotRepresentable);
         }
 
         if alignments.max_storage().get() < pointer_alignment {
@@ -105,7 +105,7 @@ impl TargetProfile {
             return Err(TargetProfileBuildError::AllocationAlignmentBelowPointerAlignment);
         }
 
-        let scalars = facts.scalars();
+        let scalars = properties.scalars();
 
         if (scalars.complex32() && !scalars.real16())
             || (scalars.complex256() && !scalars.real128())
@@ -123,7 +123,7 @@ impl TargetProfile {
         if crate::TargetAtomicRepresentation::ALL
             .into_iter()
             .any(|representation| {
-                facts
+                properties
                     .atomics()
                     .representation(representation)
                     .required_alignment()
@@ -134,13 +134,13 @@ impl TargetProfile {
             return Err(TargetProfileBuildError::AtomicAlignmentAboveStorageMaximum);
         }
 
-        let abis = facts.abis();
+        let abis = properties.abis();
 
         if !abis.is_supported_by(scalars) {
             return Err(TargetProfileBuildError::AbiAcceptsUnavailableScalar);
         }
 
-        if !facts.c_abi().is_supported_by(scalars) {
+        if !properties.c_abi().is_supported_by(scalars) {
             return Err(TargetProfileBuildError::CAbiMapsUnavailableScalar);
         }
 
@@ -156,7 +156,7 @@ impl TargetProfile {
         Ok(Self {
             identity,
             machine,
-            facts,
+            properties,
         })
     }
 
@@ -170,14 +170,14 @@ impl TargetProfile {
         &self.machine
     }
 
-    /// Returns the language-defined target facts not derived from machine properties.
-    pub const fn facts(&self) -> &TargetFacts {
-        &self.facts
+    /// Returns the language-defined target properties not derived from machine properties.
+    pub const fn properties(&self) -> &TargetProperties {
+        &self.properties
     }
 
-    /// Returns one language-defined target fact.
-    pub fn fact(&self, kind: TargetFactKind) -> TargetFactValue<'_> {
-        TargetFactValue::for_profile(self, kind)
+    /// Returns one language-defined target property.
+    pub fn property(&self, kind: TargetPropertyKind) -> TargetPropertyValue<'_> {
+        TargetPropertyValue::for_profile(self, kind)
     }
 }
 
@@ -193,13 +193,13 @@ const fn maximum_usize(pointer_width_bits: u16) -> u64 {
 mod tests {
     use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
-    use crate::test_support::{test_target_facts, test_target_machine, test_target_profile};
+    use crate::test_support::{test_target_machine, test_target_profile, test_target_properties};
     use crate::{
-        Endianness, ObjectFormat, TargetAbiFacts, TargetAbiScalarFacts, TargetAddressSpaceFacts,
-        TargetAlignmentFacts, TargetArchitecture, TargetAtomicFacts, TargetFacts,
-        TargetForeignAbiFacts, TargetIdentity, TargetIdentityFacts, TargetMachineProperties,
-        TargetOperationFacts, TargetProfile, TargetProfileBuildError, TargetScalarFacts,
-        TargetScalarKind,
+        Endianness, ObjectFormat, TargetAbiScalars, TargetAbiSupport, TargetAddressSpaces,
+        TargetAlignmentLimits, TargetArchitecture, TargetAtomicSupport, TargetForeignAbiContract,
+        TargetIdentity, TargetMachineProperties, TargetOperationSupport, TargetPlatformIdentity,
+        TargetProfile, TargetProfileBuildError, TargetProperties, TargetScalarKind,
+        TargetScalarSupport,
     };
 
     #[test]
@@ -210,47 +210,48 @@ mod tests {
         assert_eq!(profile.machine().pointer_width_bits().get(), 64);
 
         assert_eq!(
-            profile.fact(crate::TargetFactKind::PointerBytes),
-            crate::TargetFactValue::Usize(8)
+            profile.property(crate::TargetPropertyKind::PointerBytes),
+            crate::TargetPropertyValue::Usize(8)
         );
     }
 
     #[test]
-    fn profiles_reject_alignment_facts_that_contradict_machine_properties() {
+    fn profiles_reject_alignment_properties_that_contradict_machine_properties() {
         let Some(identity) = TargetIdentity::try_new("x86_64-unknown-linux-gnu") else {
             panic!("test target identity must be valid");
         };
 
-        let Some(identity_facts) = TargetIdentityFacts::try_new("unknown", "linux", "gnu", "gnu")
+        let Some(platform_identity) =
+            TargetPlatformIdentity::try_new("unknown", "linux", "gnu", "gnu")
         else {
-            panic!("test target identity facts must be valid");
+            panic!("test target platform identity must be valid");
         };
 
         let maximum = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
 
-        let Some(alignments) = TargetAlignmentFacts::try_new(maximum, maximum) else {
-            panic!("test alignment facts must be internally valid");
+        let Some(alignments) = TargetAlignmentLimits::try_new(maximum, maximum) else {
+            panic!("test alignment limits must be internally valid");
         };
 
-        let Some(address_spaces) = TargetAddressSpaceFacts::try_new(true, false) else {
+        let Some(address_spaces) = TargetAddressSpaces::try_new(true, false) else {
             panic!("test target must expose one address space");
         };
 
-        let baseline = test_target_facts();
+        let baseline = test_target_properties();
 
-        let facts = TargetFacts::new(
-            identity_facts,
+        let properties = TargetProperties::new(
+            platform_identity,
             baseline.scalars(),
-            TargetAtomicFacts::default(),
+            TargetAtomicSupport::default(),
             baseline.abis(),
             baseline.c_abi(),
             address_spaces,
             alignments,
-            TargetOperationFacts::default(),
+            TargetOperationSupport::default(),
         );
 
         assert_eq!(
-            TargetProfile::try_new(identity, test_target_machine(), facts),
+            TargetProfile::try_new(identity, test_target_machine(), properties),
             Err(TargetProfileBuildError::StorageAlignmentBelowPointerAlignment)
         );
     }
@@ -260,19 +261,19 @@ mod tests {
         let machine = test_target_machine();
         let maximum = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
 
-        let alignments = TargetAlignmentFacts::try_new(maximum, maximum)
+        let alignments = TargetAlignmentLimits::try_new(maximum, maximum)
             .unwrap_or_else(|| panic!("test alignments must be valid"));
 
-        let facts = facts_with(TargetScalarFacts::default(), None, alignments);
+        let properties = properties_with(TargetScalarSupport::default(), None, alignments);
 
         assert_eq!(
-            TargetProfile::try_new(test_identity(), machine, facts),
+            TargetProfile::try_new(test_identity(), machine, properties),
             Err(TargetProfileBuildError::StorageAlignmentBelowStackAlignment)
         );
     }
 
     #[test]
-    fn profiles_reject_usize_facts_that_the_target_cannot_represent() {
+    fn profiles_reject_usize_properties_that_the_target_cannot_represent() {
         let pointer_width = NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN);
         let pointer_alignment = NonZeroU32::new(4).unwrap_or(NonZeroU32::MIN);
         let stack_alignment = NonZeroU32::new(16).unwrap_or(NonZeroU32::MIN);
@@ -289,14 +290,14 @@ mod tests {
 
         let maximum = NonZeroU64::new(1 << 40).unwrap_or(NonZeroU64::MIN);
 
-        let alignments = TargetAlignmentFacts::try_new(maximum, maximum)
+        let alignments = TargetAlignmentLimits::try_new(maximum, maximum)
             .unwrap_or_else(|| panic!("test alignments must be valid"));
 
-        let facts = facts_with(TargetScalarFacts::default(), None, alignments);
+        let properties = properties_with(TargetScalarSupport::default(), None, alignments);
 
         assert_eq!(
-            TargetProfile::try_new(test_identity(), machine, facts),
-            Err(TargetProfileBuildError::TargetFactNotRepresentable)
+            TargetProfile::try_new(test_identity(), machine, properties),
+            Err(TargetProfileBuildError::TargetPropertyNotRepresentable)
         );
     }
 
@@ -304,34 +305,28 @@ mod tests {
     fn profiles_reject_scalar_and_abi_cross_group_contradictions() {
         let maximum = NonZeroU64::new(1 << 29).unwrap_or(NonZeroU64::MIN);
 
-        let alignments = TargetAlignmentFacts::try_new(maximum, maximum)
+        let alignments = TargetAlignmentLimits::try_new(maximum, maximum)
             .unwrap_or_else(|| panic!("test alignments must be valid"));
 
-        let inconsistent_scalars = TargetScalarFacts::new(false, false, true, false);
-        let facts = facts_with(inconsistent_scalars, None, alignments);
+        let inconsistent_scalars = TargetScalarSupport::new(false, false, true, false);
+        let properties = properties_with(inconsistent_scalars, None, alignments);
 
         assert_eq!(
-            TargetProfile::try_new(test_identity(), test_target_machine(), facts),
+            TargetProfile::try_new(test_identity(), test_target_machine(), properties),
             Err(TargetProfileBuildError::ComplexScalarMissingComponent)
         );
 
-        let abi = TargetForeignAbiFacts::new(
-            TargetAbiScalarFacts::all(),
-            true,
-            true,
-            true,
-            true,
-            maximum,
-        );
+        let abi =
+            TargetForeignAbiContract::new(TargetAbiScalars::all(), true, true, true, true, maximum);
 
-        let facts = facts_with(
-            TargetScalarFacts::default(),
-            Some(TargetAbiFacts::new(Some(abi), None)),
+        let properties = properties_with(
+            TargetScalarSupport::default(),
+            Some(TargetAbiSupport::new(Some(abi), None)),
             alignments,
         );
 
         assert_eq!(
-            TargetProfile::try_new(test_identity(), test_target_machine(), facts),
+            TargetProfile::try_new(test_identity(), test_target_machine(), properties),
             Err(TargetProfileBuildError::AbiAcceptsUnavailableScalar)
         );
     }
@@ -341,11 +336,11 @@ mod tests {
         let storage_maximum = NonZeroU64::new(16).unwrap_or(NonZeroU64::MIN);
         let abi_maximum = NonZeroU64::new(32).unwrap_or(NonZeroU64::MIN);
 
-        let alignments = TargetAlignmentFacts::try_new(storage_maximum, storage_maximum)
+        let alignments = TargetAlignmentLimits::try_new(storage_maximum, storage_maximum)
             .unwrap_or_else(|| panic!("test alignments must be valid"));
 
-        let abi = TargetForeignAbiFacts::new(
-            TargetAbiScalarFacts::required(),
+        let abi = TargetForeignAbiContract::new(
+            TargetAbiScalars::required(),
             true,
             true,
             true,
@@ -353,14 +348,14 @@ mod tests {
             abi_maximum,
         );
 
-        let facts = facts_with(
-            TargetScalarFacts::default(),
-            Some(TargetAbiFacts::new(Some(abi), None)),
+        let properties = properties_with(
+            TargetScalarSupport::default(),
+            Some(TargetAbiSupport::new(Some(abi), None)),
             alignments,
         );
 
         assert_eq!(
-            TargetProfile::try_new(test_identity(), test_target_machine(), facts),
+            TargetProfile::try_new(test_identity(), test_target_machine(), properties),
             Err(TargetProfileBuildError::AbiAlignmentAboveStorageMaximum)
         );
     }
@@ -370,17 +365,17 @@ mod tests {
         let storage_maximum = NonZeroU64::new(16).unwrap_or(NonZeroU64::MIN);
         let scalar_alignment = NonZeroU64::new(32).unwrap_or(NonZeroU64::MIN);
 
-        let alignments = TargetAlignmentFacts::try_new(storage_maximum, storage_maximum)
+        let alignments = TargetAlignmentLimits::try_new(storage_maximum, storage_maximum)
             .unwrap_or_else(|| panic!("test alignments must be valid"));
 
-        let scalars = TargetScalarFacts::default()
+        let scalars = TargetScalarSupport::default()
             .try_with_alignment(TargetScalarKind::I128, scalar_alignment)
             .unwrap_or_else(|| panic!("test scalar alignment must be valid"));
 
-        let facts = facts_with(scalars, None, alignments);
+        let properties = properties_with(scalars, None, alignments);
 
         assert_eq!(
-            TargetProfile::try_new(test_identity(), test_target_machine(), facts),
+            TargetProfile::try_new(test_identity(), test_target_machine(), properties),
             Err(TargetProfileBuildError::ScalarAlignmentAboveStorageMaximum)
         );
     }
@@ -390,14 +385,14 @@ mod tests {
             .unwrap_or_else(|| panic!("test target identity must be valid"))
     }
 
-    fn facts_with(
-        scalars: TargetScalarFacts,
-        abis: Option<TargetAbiFacts>,
-        alignments: TargetAlignmentFacts,
-    ) -> TargetFacts {
-        let baseline = test_target_facts();
+    fn properties_with(
+        scalars: TargetScalarSupport,
+        abis: Option<TargetAbiSupport>,
+        alignments: TargetAlignmentLimits,
+    ) -> TargetProperties {
+        let baseline = test_target_properties();
 
-        TargetFacts::new(
+        TargetProperties::new(
             baseline.identity().clone(),
             scalars,
             baseline.atomics(),

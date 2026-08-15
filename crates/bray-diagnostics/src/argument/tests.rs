@@ -35,7 +35,7 @@ fn syntax_args_keep_syntax_kind_values_typed() {
 }
 
 #[test]
-fn artifact_mismatch_args_keep_expected_and_actual_facts_typed() {
+fn artifact_mismatch_args_keep_expected_and_actual_values_typed() {
     let digest =
         DiagnosticArtifactDigest::new(DiagnosticArtifactDigestAlgorithm::Blake3, [0_u8; 32]);
 

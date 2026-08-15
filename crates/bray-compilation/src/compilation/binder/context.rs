@@ -1,42 +1,42 @@
 use std::sync::Arc;
 
 use bray_binder::{
-    BinderFactContext, BinderFactError, BinderFactResult, ImportedPathRoot, NameAccess,
-    SymbolFactProvider, bind_surface_path_with_re_exports,
+    BindingQueryContext, BindingQueryError, BindingQueryResult, ImportedPathRoot, NameAccess,
+    SymbolQueryProvider, bind_surface_path_with_re_exports,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbol,
-    CallableParameterSymbolId, FunctionSymbol, FunctionSymbolId, ImportedSymbolFactAddress,
-    ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceFact, ModuleSymbolId,
+    CallableParameterSymbolId, FunctionSymbol, FunctionSymbolId, ImportedSemanticAddress,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceQuery, ModuleSymbolId,
     NamedTypeSymbolId, ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore,
-    StructFieldSymbol, StructFieldSymbolId, StructSymbol, StructSymbolId, SymbolFactRequest,
-    SymbolGraph, TypeAssociatedSurface, UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId,
+    StructFieldSymbol, StructFieldSymbolId, StructSymbol, StructSymbolId, SymbolGraph,
+    SymbolQueryRequest, TypeAssociatedSurface, UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId,
     UnionSymbol, UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_syntax::{PathSyntax, SyntaxTree};
 
 use super::super::Compilation;
-use super::CompilationSymbolFacts;
+use super::CompilationSymbolSemantics;
 use crate::fact::{CancellationToken, FactQueryError};
 
-pub(in crate::compilation) struct CompilationBinderFacts<'compilation> {
+pub(in crate::compilation) struct CompilationBindingContext<'compilation> {
     pub(super) compilation: &'compilation Compilation,
     declarations: &'compilation DeclarationTable,
     pub(super) symbols: &'compilation SymbolGraph,
     pub(super) semantic_values: &'compilation SemanticValueStore,
-    pub(super) symbol_facts: &'compilation CompilationSymbolFacts,
+    pub(super) symbol_semantics: &'compilation CompilationSymbolSemantics,
     pub(super) cancellation: &'compilation CancellationToken,
 }
 
-impl<'compilation> CompilationBinderFacts<'compilation> {
+impl<'compilation> CompilationBindingContext<'compilation> {
     pub(super) const fn new(
         compilation: &'compilation Compilation,
         declarations: &'compilation DeclarationTable,
         symbols: &'compilation SymbolGraph,
         semantic_values: &'compilation SemanticValueStore,
-        symbol_facts: &'compilation CompilationSymbolFacts,
+        symbol_semantics: &'compilation CompilationSymbolSemantics,
         cancellation: &'compilation CancellationToken,
     ) -> Self {
         Self {
@@ -44,7 +44,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
             declarations,
             symbols,
             semantic_values,
-            symbol_facts,
+            symbol_semantics,
             cancellation,
         }
     }
@@ -58,7 +58,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
         module: ModuleSymbolId,
         path: &PathSyntax,
         access: NameAccess,
-    ) -> BinderFactResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>> {
+    ) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>> {
         bind_surface_path_with_re_exports(
             self,
             module,
@@ -75,7 +75,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(super) fn imported_path_root(
         &self,
         components: &[&str],
-    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
+    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>> {
         let mut package_prefix = String::new();
         let mut selected = None;
 
@@ -111,45 +111,45 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
 
         let package = symbols
             .package_by_identity(identity)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         ImportedPathRoot::for_path(symbols, package.id(), components)
             .map(Some)
-            .ok_or(BinderFactError::DependencyUnavailable)
+            .ok_or(BindingQueryError::DependencyUnavailable)
     }
 
     pub(in crate::compilation) fn imported_symbols(
         &self,
-    ) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
+    ) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>> {
         let result = self
             .compilation
             .imported_symbol_skeleton_result_with_cancellation(self.cancellation)
             .map_err(|error| match error {
-                FactQueryError::Cancelled => BinderFactError::Cancelled,
-                _ => BinderFactError::DependencyUnavailable,
+                FactQueryError::Cancelled => BindingQueryError::Cancelled,
+                _ => BindingQueryError::DependencyUnavailable,
             })?;
 
         Ok(result.value().as_deref())
     }
 
-    pub(in crate::compilation) fn imported_fact_address(
+    pub(in crate::compilation) fn imported_semantic_address(
         &self,
         symbol: AnySymbolId,
-    ) -> BinderFactResult<Option<ImportedSymbolFactAddress>> {
+    ) -> BindingQueryResult<Option<ImportedSemanticAddress>> {
         if self.symbols.symbol_key(symbol).is_some() {
             return Ok(None);
         }
 
         Ok(self
             .imported_symbols()?
-            .and_then(|symbols| symbols.imported_fact_address(symbol)))
+            .and_then(|symbols| symbols.imported_semantic_address(symbol)))
     }
 
     pub(in crate::compilation) fn lookup_member(
         &self,
         owner: AnySymbolId,
         name: &str,
-    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
         if self.symbols.symbol_key(owner).is_some() {
             return Ok(self.symbols.lookup_member(owner, name));
         }
@@ -164,7 +164,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn member_name(
         &self,
         member: AnySymbolId,
-    ) -> BinderFactResult<Option<&bray_symbols::SymbolName>> {
+    ) -> BindingQueryResult<Option<&bray_symbols::SymbolName>> {
         if let Some(name) = self.symbols.member_name(member) {
             return Ok(Some(name));
         }
@@ -177,7 +177,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn structure(
         &self,
         id: StructSymbolId,
-    ) -> BinderFactResult<Option<&StructSymbol>> {
+    ) -> BindingQueryResult<Option<&StructSymbol>> {
         if let Some(record) = self.symbols.structure(id) {
             return Ok(Some(record));
         }
@@ -190,7 +190,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn struct_field(
         &self,
         id: StructFieldSymbolId,
-    ) -> BinderFactResult<Option<&StructFieldSymbol>> {
+    ) -> BindingQueryResult<Option<&StructFieldSymbol>> {
         if let Some(record) = self.symbols.struct_field(id) {
             return Ok(Some(record));
         }
@@ -203,7 +203,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn function(
         &self,
         id: FunctionSymbolId,
-    ) -> BinderFactResult<Option<&FunctionSymbol>> {
+    ) -> BindingQueryResult<Option<&FunctionSymbol>> {
         if let Some(record) = self.symbols.function(id) {
             return Ok(Some(record));
         }
@@ -216,7 +216,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn callable_parameter(
         &self,
         id: CallableParameterSymbolId,
-    ) -> BinderFactResult<Option<&CallableParameterSymbol>> {
+    ) -> BindingQueryResult<Option<&CallableParameterSymbol>> {
         if let Some(record) = self.symbols.callable_parameter(id) {
             return Ok(Some(record));
         }
@@ -229,7 +229,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn receiver_parameter(
         &self,
         id: ReceiverParameterSymbolId,
-    ) -> BinderFactResult<Option<&ReceiverParameterSymbol>> {
+    ) -> BindingQueryResult<Option<&ReceiverParameterSymbol>> {
         if let Some(record) = self.symbols.receiver_parameter(id) {
             return Ok(Some(record));
         }
@@ -242,7 +242,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn union(
         &self,
         id: UnionSymbolId,
-    ) -> BinderFactResult<Option<&UnionSymbol>> {
+    ) -> BindingQueryResult<Option<&UnionSymbol>> {
         if let Some(record) = self.symbols.union(id) {
             return Ok(Some(record));
         }
@@ -255,7 +255,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn union_variant(
         &self,
         id: UnionVariantSymbolId,
-    ) -> BinderFactResult<Option<&UnionVariantSymbol>> {
+    ) -> BindingQueryResult<Option<&UnionVariantSymbol>> {
         if let Some(record) = self.symbols.union_variant(id) {
             return Ok(Some(record));
         }
@@ -268,7 +268,7 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     pub(in crate::compilation) fn union_payload_field(
         &self,
         id: UnionPayloadFieldSymbolId,
-    ) -> BinderFactResult<Option<&UnionPayloadFieldSymbol>> {
+    ) -> BindingQueryResult<Option<&UnionPayloadFieldSymbol>> {
         if let Some(record) = self.symbols.union_payload_field(id) {
             return Ok(Some(record));
         }
@@ -279,8 +279,8 @@ impl<'compilation> CompilationBinderFacts<'compilation> {
     }
 }
 
-impl BinderFactContext for CompilationBinderFacts<'_> {
-    type SymbolFacts = Self;
+impl BindingQueryContext for CompilationBindingContext<'_> {
+    type SymbolSemantics = Self;
     type Cancellation = CancellationToken;
 
     fn syntax(&self) -> &SyntaxTree {
@@ -298,7 +298,7 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
     fn symbol_key(
         &self,
         symbol: AnySymbolId,
-    ) -> BinderFactResult<Option<&bray_symbols::SymbolKey>> {
+    ) -> BindingQueryResult<Option<&bray_symbols::SymbolKey>> {
         if let Some(key) = self.symbols.symbol_key(symbol) {
             return Ok(Some(key));
         }
@@ -308,7 +308,7 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
             .and_then(|symbols| symbols.symbol_key(symbol)))
     }
 
-    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BinderFactResult<Option<bool>> {
+    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<bool>> {
         if let Some(is_recovered) = self.symbols.symbol_is_recovered(symbol) {
             return Ok(Some(is_recovered));
         }
@@ -318,7 +318,7 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
             .and_then(|symbols| symbols.symbol_is_recovered(symbol)))
     }
 
-    fn containing_symbol(&self, symbol: AnySymbolId) -> BinderFactResult<Option<AnySymbolId>> {
+    fn containing_symbol(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<AnySymbolId>> {
         if let Some(owner) = self.symbols.containing_symbol(symbol) {
             return Ok(Some(owner));
         }
@@ -331,7 +331,7 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
     fn callable_parameter_default_provider(
         &self,
         parameter: CallableParameterSymbolId,
-    ) -> BinderFactResult<Option<CallableParameterDefaultProviderSymbolId>> {
+    ) -> BindingQueryResult<Option<CallableParameterDefaultProviderSymbolId>> {
         if let Some(provider) = self
             .symbols
             .callable_parameter(parameter)
@@ -349,7 +349,7 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
     fn runtime_default_subject(
         &self,
         provider: AnySymbolId,
-    ) -> BinderFactResult<Option<AnySymbolId>> {
+    ) -> BindingQueryResult<Option<AnySymbolId>> {
         if let Some(subject) = self.symbols.runtime_default_subject(provider) {
             return Ok(Some(subject));
         }
@@ -363,19 +363,19 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         &self,
         owner: AnySymbolId,
         name: &str,
-    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
-        CompilationBinderFacts::lookup_member(self, owner, name)
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
+        CompilationBindingContext::lookup_member(self, owner, name)
     }
 
     fn imported_path_root(
         &self,
         components: &[&str],
-    ) -> BinderFactResult<Option<ImportedPathRoot<'_>>> {
-        CompilationBinderFacts::imported_path_root(self, components)
+    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>> {
+        CompilationBindingContext::imported_path_root(self, components)
     }
 
-    fn imported_symbols(&self) -> BinderFactResult<Option<&ImportedSymbolSkeleton>> {
-        CompilationBinderFacts::imported_symbols(self)
+    fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>> {
+        CompilationBindingContext::imported_symbols(self)
     }
 
     fn module_re_export_lookup(
@@ -383,8 +383,9 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         module: ModuleSymbolId,
         name: &str,
         access: NameAccess,
-    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
-        let surface = self.symbol_fact(SymbolFactRequest::<ModuleSurfaceFact>::new(module))?;
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
+        let surface =
+            self.resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(module))?;
 
         Ok(match access {
             NameAccess::Public => surface.value().lookup_public(name),
@@ -395,12 +396,12 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
     fn type_associated_surface(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> BinderFactResult<Arc<DiagnosticResult<TypeAssociatedSurface>>> {
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeAssociatedSurface>>> {
         self.compilation
             .type_associated_surface_result_with_cancellation(subject, self.cancellation)
             .map_err(|error| match error {
-                FactQueryError::Cancelled => BinderFactError::Cancelled,
-                _ => BinderFactError::DependencyUnavailable,
+                FactQueryError::Cancelled => BindingQueryError::Cancelled,
+                _ => BindingQueryError::DependencyUnavailable,
             })
     }
 
@@ -412,7 +413,7 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
         self.compilation.selected_target().target().profile()
     }
 
-    fn symbol_facts(&self) -> &Self::SymbolFacts {
+    fn symbol_semantics(&self) -> &Self::SymbolSemantics {
         self
     }
 
@@ -422,55 +423,58 @@ impl BinderFactContext for CompilationBinderFacts<'_> {
 }
 
 impl Compilation {
-    pub(in crate::compilation) fn binder_facts_for<'compilation>(
+    pub(in crate::compilation) fn binding_context_for<'compilation>(
         &'compilation self,
         key: &bray_bound_tree::BoundUnitKey,
         cancellation: &'compilation CancellationToken,
-    ) -> Result<CompilationBinderFacts<'compilation>, FactQueryError> {
-        let facts = if key.kind() == bray_bound_tree::BoundUnitKind::TargetGate {
-            self.discovery_binder_facts(cancellation)?
+    ) -> Result<CompilationBindingContext<'compilation>, FactQueryError> {
+        let binding_context = if key.kind() == bray_bound_tree::BoundUnitKind::TargetGate {
+            self.discovery_binding_context(cancellation)?
         } else {
-            self.binder_facts(cancellation)?
+            self.binding_context(cancellation)?
         };
 
-        if !facts.symbols.contains_symbol_key(key.declared_owner()) {
+        if !binding_context
+            .symbols
+            .contains_symbol_key(key.declared_owner())
+        {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        Ok(facts)
+        Ok(binding_context)
     }
 
-    pub(in crate::compilation) fn binder_facts<'compilation>(
+    pub(in crate::compilation) fn binding_context<'compilation>(
         &'compilation self,
         cancellation: &'compilation CancellationToken,
-    ) -> Result<CompilationBinderFacts<'compilation>, FactQueryError> {
+    ) -> Result<CompilationBindingContext<'compilation>, FactQueryError> {
         let symbols = self.symbol_graph()?;
         let semantic_values = self.semantic_value_store()?;
         let declarations = self.product_source_graph()?.declarations();
 
-        Ok(CompilationBinderFacts::new(
+        Ok(CompilationBindingContext::new(
             self,
             declarations,
             symbols,
             semantic_values,
-            &self.state.symbol_facts,
+            &self.state.symbol_semantics,
             cancellation,
         ))
     }
 
-    pub(in crate::compilation) fn discovery_binder_facts<'compilation>(
+    pub(in crate::compilation) fn discovery_binding_context<'compilation>(
         &'compilation self,
         cancellation: &'compilation CancellationToken,
-    ) -> Result<CompilationBinderFacts<'compilation>, FactQueryError> {
+    ) -> Result<CompilationBindingContext<'compilation>, FactQueryError> {
         let symbols = self.discovery_symbol_graph()?;
         let semantic_values = self.semantic_value_store()?;
 
-        Ok(CompilationBinderFacts::new(
+        Ok(CompilationBindingContext::new(
             self,
             self.declaration_table(),
             symbols,
             semantic_values,
-            &self.state.discovery_symbol_facts,
+            &self.state.discovery_symbol_semantics,
             cancellation,
         ))
     }
@@ -480,7 +484,7 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::{BinderFactContext, BinderFactError, bind_expression_candidates};
+    use bray_binder::{BindingQueryContext, BindingQueryError, bind_expression_candidates};
     use bray_bound_tree::{
         AnyBoundNodeId, BoundBlock, BoundBlockItem, BoundCallExpression, BoundCallableBody,
         BoundExpression, BoundExpressionId, BoundNameExpression, BoundNodeOrigin,
@@ -502,7 +506,7 @@ mod tests {
         UnevaluatedDefaultTemplate,
     };
 
-    use super::CompilationBinderFacts;
+    use super::CompilationBindingContext;
     use crate::{CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput};
 
     #[test]
@@ -511,14 +515,14 @@ mod tests {
         let compilation = compilation([crate::test_support::encoded_semantic_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts(&cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let binding_context = compilation
+            .binding_context(&cancellation)
+            .unwrap_or_else(|error| panic!("binder context must be available: {error:?}"));
 
         assert!(compilation.state.imported_symbol_skeleton.get().is_none());
 
         assert!(matches!(
-            CompilationBinderFacts::imported_path_root(&facts, &["local", "value"]),
+            CompilationBindingContext::imported_path_root(&binding_context, &["local", "value"]),
             Ok(None)
         ));
 
@@ -540,11 +544,11 @@ mod tests {
         let compilation = compilation([crate::test_support::encoded_semantic_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts(&cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let binding_context = compilation
+            .binding_context(&cancellation)
+            .unwrap_or_else(|error| panic!("binder context must be available: {error:?}"));
 
-        let root = CompilationBinderFacts::imported_path_root(&facts, &components)
+        let root = CompilationBindingContext::imported_path_root(&binding_context, &components)
             .unwrap_or_else(|error| panic!("imported path root must be available: {error:?}"));
 
         assert!(root.is_some());
@@ -570,11 +574,11 @@ mod tests {
         let compilation = compilation([crate::test_support::encoded_semantic_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts(&cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let binding_context = compilation
+            .binding_context(&cancellation)
+            .unwrap_or_else(|error| panic!("binder context must be available: {error:?}"));
 
-        let symbols = facts
+        let symbols = binding_context
             .imported_symbols()
             .unwrap_or_else(|error| panic!("imported symbols must load: {error:?}"))
             .unwrap_or_else(|| panic!("test dependency must publish imported symbols"));
@@ -596,7 +600,7 @@ mod tests {
         };
 
         assert!(matches!(
-            BinderFactContext::lookup_member(&facts, structure, "direct"),
+            BindingQueryContext::lookup_member(&binding_context, structure, "direct"),
             Ok(MemberLookupResult::Found(AnySymbolId::TypeCallableMember(
                 _
             )))
@@ -610,15 +614,15 @@ mod tests {
         let compilation = compilation([crate::test_support::encoded_semantic_dependency(&fixture)]);
         let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts(&cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let binding_context = compilation
+            .binding_context(&cancellation)
+            .unwrap_or_else(|error| panic!("binder context must be available: {error:?}"));
 
         cancellation.cancel();
 
         assert!(matches!(
-            CompilationBinderFacts::imported_path_root(&facts, &components),
-            Err(BinderFactError::Cancelled)
+            CompilationBindingContext::imported_path_root(&binding_context, &components),
+            Err(BindingQueryError::Cancelled)
         ));
 
         assert!(compilation.state.imported_symbol_skeleton.get().is_none());
@@ -638,12 +642,15 @@ mod tests {
         let compilation = compilation([dependency]);
         let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts(&cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let binding_context = compilation
+            .binding_context(&cancellation)
+            .unwrap_or_else(|error| panic!("binder context must be available: {error:?}"));
 
         assert!(matches!(
-            CompilationBinderFacts::imported_path_root(&facts, &["invalid", "package"]),
+            CompilationBindingContext::imported_path_root(
+                &binding_context,
+                &["invalid", "package"]
+            ),
             Ok(None)
         ));
     }
@@ -693,9 +700,9 @@ mod tests {
 
         let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts_for(&key, &cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let binding_context = compilation
+            .binding_context_for(&key, &cancellation)
+            .unwrap_or_else(|error| panic!("binder context must be available: {error:?}"));
 
         let semantic_values = compilation
             .semantic_value_store()
@@ -706,7 +713,7 @@ mod tests {
         let results = expressions
             .iter()
             .copied()
-            .map(|expression| candidates(&facts, bound.value(), expression))
+            .map(|expression| candidates(&binding_context, bound.value(), expression))
             .collect::<Vec<_>>();
 
         let direct = results.iter().find_map(|result| match result.value() {
@@ -844,7 +851,11 @@ mod tests {
             );
         }
 
-        let repeated = candidates(&facts, bound.value(), first_overload.value().expression());
+        let repeated = candidates(
+            &binding_context,
+            bound.value(),
+            first_overload.value().expression(),
+        );
 
         assert_eq!(&repeated, first_overload);
     }
@@ -879,9 +890,9 @@ mod tests {
 
         let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts_for(&key, &cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let binding_context = compilation
+            .binding_context_for(&key, &cancellation)
+            .unwrap_or_else(|error| panic!("binder context must be available: {error:?}"));
 
         let expressions = candidate_expressions(bound.value());
 
@@ -889,16 +900,17 @@ mod tests {
             panic!("test source must contain one candidate expression");
         };
 
-        let owner = facts
+        let owner = binding_context
             .symbols
             .symbol_for_key(bound.value().key().declared_owner())
             .unwrap_or_else(|| panic!("candidate unit owner must resolve"));
 
-        let scope = super::super::symbol::type_scope(&facts, owner)
+        let scope = super::super::symbol::type_scope(&binding_context, owner)
             .unwrap_or_else(|error| panic!("candidate type scope must bind: {error:?}"));
 
-        let result = bind_expression_candidates(&facts, bound.value(), *expression, &scope)
-            .unwrap_or_else(|error| panic!("candidate enumeration must complete: {error:?}"));
+        let result =
+            bind_expression_candidates(&binding_context, bound.value(), *expression, &scope)
+                .unwrap_or_else(|error| panic!("candidate enumeration must complete: {error:?}"));
 
         assert!(matches!(
             result.value(),
@@ -941,15 +953,15 @@ mod tests {
 
         let cancellation = CancellationToken::new();
 
-        let facts = compilation
-            .binder_facts_for(&key, &cancellation)
-            .unwrap_or_else(|error| panic!("binder facts must be available: {error:?}"));
+        let binding_context = compilation
+            .binding_context_for(&key, &cancellation)
+            .unwrap_or_else(|error| panic!("binder context must be available: {error:?}"));
 
-        let imported = imported_function(&facts, &fixture.package);
+        let imported = imported_function(&binding_context, &fixture.package);
 
         let (unit, expression) = imported_call_unit(bound.value(), imported);
 
-        let result = candidates(&facts, &unit, expression);
+        let result = candidates(&binding_context, &unit, expression);
 
         let ExpressionCandidateSet::Callable(CallableCandidateTemplates::Present {
             candidates,
@@ -981,14 +993,14 @@ mod tests {
 
         let parameter_type = candidate
             .signature()
-            .parameter_type_template(*parameter, 0, facts.semantic_values)
+            .parameter_type_template(*parameter, 0, binding_context.semantic_values)
             .unwrap_or_else(|error| panic!("imported parameter type must resolve: {error:?}"));
 
         let TypeExpressionTemplate::Resolved(parameter_type) = parameter_type else {
             panic!("imported parameter type must use canonical semantic identity");
         };
 
-        let parameter_type = facts
+        let parameter_type = binding_context
             .semantic_values
             .type_data(parameter_type)
             .unwrap_or_else(|error| panic!("imported parameter type must be interned: {error:?}"));
@@ -997,7 +1009,7 @@ mod tests {
             panic!("imported parameter must retain its array type");
         };
 
-        let length = facts
+        let length = binding_context
             .semantic_values
             .constant_term_data(*length)
             .unwrap_or_else(|error| panic!("imported array length must be interned: {error:?}"));
@@ -1017,21 +1029,21 @@ mod tests {
     }
 
     fn candidates(
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &BoundUnit,
         expression: BoundExpressionId,
     ) -> bray_diagnostics::DiagnosticResult<ExpressionCandidateSet> {
-        let owner = facts
+        let owner = binding_context
             .symbols
             .symbol_for_key(unit.key().declared_owner())
             .unwrap_or_else(|| panic!("candidate unit owner must resolve"));
 
-        let scope = match super::super::symbol::type_scope(facts, owner) {
+        let scope = match super::super::symbol::type_scope(binding_context, owner) {
             Ok(scope) => scope,
             Err(error) => panic!("candidate type scope must bind: {error:?}"),
         };
 
-        let result = bind_expression_candidates(facts, unit, expression, &scope)
+        let result = bind_expression_candidates(binding_context, unit, expression, &scope)
             .unwrap_or_else(|error| panic!("candidate enumeration must complete: {error:?}"));
 
         assert!(result.diagnostics().is_empty());
@@ -1078,10 +1090,10 @@ mod tests {
     }
 
     fn imported_function(
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         package_identity: &PackageIdentity,
     ) -> AnySymbolId {
-        let symbols = facts
+        let symbols = binding_context
             .imported_symbols()
             .unwrap_or_else(|error| panic!("imported symbols must load: {error:?}"))
             .unwrap_or_else(|| panic!("test dependency must publish imported symbols"));

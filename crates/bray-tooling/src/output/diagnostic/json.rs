@@ -35,11 +35,11 @@ pub(in crate::output::diagnostic::json) use project::{
     DiagnosticProjectSelectionJson, DiagnosticSourceInputJson,
     DiagnosticUnsupportedEmissionReasonJson,
 };
-pub(in crate::output::diagnostic::json) use runtime::DiagnosticRuntimeArtifactProblemJson;
 pub(super) use report::write_json_diagnostic_groups;
 pub(crate) use report::write_json_diagnostics;
 #[cfg(feature = "analysis")]
 pub(crate) use report::{DiagnosticJson, diagnostic_jsons};
+pub(in crate::output::diagnostic::json) use runtime::DiagnosticRuntimeArtifactProblemJson;
 pub(in crate::output::diagnostic::json) use value::{
     DiagnosticArtifactDigestJson, DiagnosticLinkRequirementJson, DiagnosticOutputSinkJson,
     DiagnosticRuntimeAbiVersionJson, DiagnosticTypeJson, SourceSpanJson,

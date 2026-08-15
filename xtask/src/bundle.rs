@@ -278,9 +278,7 @@ fn retry_permission_denied<T>(
 ) -> std::io::Result<T> {
     for retry in 0..=retries {
         match operation() {
-            Err(error)
-                if error.kind() == ErrorKind::PermissionDenied && retry < retries =>
-            {
+            Err(error) if error.kind() == ErrorKind::PermissionDenied && retry < retries => {
                 std::thread::sleep(interval);
             }
             result => return result,

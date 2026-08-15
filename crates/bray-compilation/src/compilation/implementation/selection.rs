@@ -3,8 +3,7 @@ use std::sync::Arc;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     ImplementationInstanceData, ImplementationRequirementKey, ImplementationSelection,
-    ImplementationSelectionCandidate, ImplementationSelectionFact, ProofOutcome,
-    SemanticFactResult,
+    ImplementationSelectionCandidate, ImplementationSelectionQuery, ProofOutcome,
 };
 
 use super::super::Compilation;
@@ -15,7 +14,14 @@ impl Compilation {
     pub fn implementation_selection_result(
         &self,
         key: ImplementationRequirementKey,
-    ) -> Result<Arc<SemanticFactResult<ImplementationSelectionFact>>, FactQueryError> {
+    ) -> Result<
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <ImplementationSelectionQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+        FactQueryError,
+    > {
         self.implementation_selection_result_with_cancellation(key, &self.state.cancellation)
     }
 
@@ -23,7 +29,14 @@ impl Compilation {
         &self,
         key: ImplementationRequirementKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<SemanticFactResult<ImplementationSelectionFact>>, FactQueryError> {
+    ) -> Result<
+        Arc<
+            bray_diagnostics::DiagnosticResult<
+                <ImplementationSelectionQuery as bray_symbols::SemanticQueryContract>::Value,
+            >,
+        >,
+        FactQueryError,
+    > {
         let cell = self.state.implementation_selections.cell(key)?;
 
         let result = cell.get_or_compute(
@@ -43,7 +56,12 @@ impl Compilation {
         &self,
         key: ImplementationRequirementKey,
         cancellation: &CancellationToken,
-    ) -> Result<SemanticFactResult<ImplementationSelectionFact>, FactQueryError> {
+    ) -> Result<
+        bray_diagnostics::DiagnosticResult<
+            <ImplementationSelectionQuery as bray_symbols::SemanticQueryContract>::Value,
+        >,
+        FactQueryError,
+    > {
         let candidates =
             self.implementation_candidate_set_result_with_cancellation(key, cancellation)?;
 

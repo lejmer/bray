@@ -9,7 +9,7 @@ use crate::{
     RuntimeIdentity,
 };
 
-/// Runtime facilities and compatibility facts required by reachable code.
+/// Runtime facilities and compatibility requirements for reachable code.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RuntimeRequirements {
     runtime: Option<RuntimeIdentity>,
@@ -49,7 +49,7 @@ impl RuntimeRequirements {
         }
     }
 
-    /// Merges reachable requirement sets when their compatibility facts agree.
+    /// Merges reachable requirement sets when their compatibility contracts agree.
     pub fn try_merge(
         requirements: impl IntoIterator<Item = Self>,
     ) -> Result<Option<Self>, RuntimeRequirementsMergeError> {

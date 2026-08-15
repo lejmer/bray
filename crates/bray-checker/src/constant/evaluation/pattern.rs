@@ -80,12 +80,12 @@ where
             return Ok(false);
         }
 
-        let facts = self
+        let patterns = self
             .input
-            .pattern_facts()
+            .patterns()
             .ok_or(EvaluationFailure::invalid_input())?;
 
-        let checked = facts
+        let checked = patterns
             .pattern(pattern)
             .ok_or(EvaluationFailure::invalid_input())?;
 
@@ -101,12 +101,12 @@ where
         }
 
         for child in pattern_node.children() {
-            let child_fact = facts
+            let child_pattern = patterns
                 .pattern(*child)
                 .ok_or(EvaluationFailure::invalid_input())?;
 
             let (child_term, child_value) =
-                self.project_pattern_subject(subject_value, child_fact.projection())?;
+                self.project_pattern_subject(subject_value, child_pattern.projection())?;
 
             if !self.pattern_matches(owner, *child, child_term, child_value)? {
                 return Ok(false);
@@ -118,12 +118,12 @@ where
                 continue;
             };
 
-            let binding_fact = facts
+            let binding_type = patterns
                 .binding_type(binding)
                 .ok_or(EvaluationFailure::invalid_input())?;
 
             let (value, _) =
-                self.project_pattern_subject(subject_value, binding_fact.projection())?;
+                self.project_pattern_subject(subject_value, binding_type.projection())?;
 
             self.locals.insert(AnyLocalSymbolId::from(binding), value);
         }

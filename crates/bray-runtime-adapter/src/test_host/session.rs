@@ -41,7 +41,7 @@ struct CommandCancellation {
     cancellation: Mutex<Option<RootCancellationHandle>>,
 }
 
-pub(in crate) fn callbacks() -> NativeHostCallbacks {
+pub(crate) fn callbacks() -> NativeHostCallbacks {
     NativeHostCallbacks::new(
         active,
         output,
@@ -54,7 +54,7 @@ pub(in crate) fn callbacks() -> NativeHostCallbacks {
     )
 }
 
-pub(in crate) fn select_entry(entry: u32) -> bool {
+pub(crate) fn select_entry(entry: u32) -> bool {
     TEST_SESSION.with(|session| {
         let mut session = session.borrow_mut();
 

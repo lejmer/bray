@@ -103,7 +103,7 @@ pub(crate) fn run_build_command(
     };
 
     let native = if requires_generation {
-        match compilation.native_product_facts(
+        match compilation.native_product_plan(
             product.clone(),
             configuration.build(),
             runtime,
@@ -343,13 +343,13 @@ fn native_product_failure_result(
     output_format: OutputFormat,
     product: &ProductIdentity,
     target: &str,
-    error: &bray_compilation::NativeProductFactError,
+    error: &bray_compilation::NativeProductPlanningError,
 ) -> DriverRunResult {
     let diagnostics = match error {
-        bray_compilation::NativeProductFactError::StandardLibrary(error) => compilation
+        bray_compilation::NativeProductPlanningError::StandardLibrary(error) => compilation
             .check_diagnostics()
             .merged(&compilation.standard_library_load_diagnostics(error)),
-        bray_compilation::NativeProductFactError::InvalidRuntimeSelection(selection_error) => {
+        bray_compilation::NativeProductPlanningError::InvalidRuntimeSelection(selection_error) => {
             let runtime = runtime_selection_diagnostics(selection_error).unwrap_or_else(|| {
                 error.diagnostic(product, target).unwrap_or_else(|| {
                     panic!("runtime selection failure must publish an exact diagnostic")

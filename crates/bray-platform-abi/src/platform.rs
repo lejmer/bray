@@ -565,8 +565,7 @@ mod tests {
     use bray_runtime_abi::{NativePlatformStatus, NativePlatformText};
 
     use super::{
-        CONTEXT_ABI_MAJOR, CONTEXT_ABI_MINOR, CONTEXT_HEADER_BYTES,
-        PROCESS_CONTEXT,
+        CONTEXT_ABI_MAJOR, CONTEXT_ABI_MINOR, CONTEXT_HEADER_BYTES, PROCESS_CONTEXT,
         bray_platform_context_argument, bray_platform_context_argument_count,
         bray_platform_context_environment_entry, bray_platform_context_environment_key_equals,
         bray_platform_context_identity, bray_platform_context_native_text_width,
@@ -601,8 +600,17 @@ mod tests {
 
         assert_eq!((CONTEXT_ABI_MAJOR, CONTEXT_ABI_MINOR), (1, 0));
         assert!(context.len() >= CONTEXT_HEADER_BYTES);
-        assert_eq!(u16::from_le_bytes([context[0], context[1]]), CONTEXT_ABI_MAJOR);
-        assert_eq!(u16::from_le_bytes([context[2], context[3]]), CONTEXT_ABI_MINOR);
+
+        assert_eq!(
+            u16::from_le_bytes([context[0], context[1]]),
+            CONTEXT_ABI_MAJOR
+        );
+
+        assert_eq!(
+            u16::from_le_bytes([context[2], context[3]]),
+            CONTEXT_ABI_MINOR
+        );
+
         assert_eq!(context[4], PROCESS_CONTEXT.native_text_width());
         assert_eq!(u64::from_le_bytes(identity), PROCESS_CONTEXT.identity());
         assert_eq!(u64::from_le_bytes(total), context.len() as u64);
@@ -631,10 +639,8 @@ mod tests {
         let mut second_address = std::ptr::null();
         let mut second_length = 0;
 
-        let first_status = bray_platform_context_working_directory(
-            &raw mut first_address,
-            &raw mut first_length,
-        );
+        let first_status =
+            bray_platform_context_working_directory(&raw mut first_address, &raw mut first_length);
 
         let second_status = bray_platform_context_working_directory(
             &raw mut second_address,
@@ -643,25 +649,29 @@ mod tests {
 
         assert_eq!(first_status, NativePlatformStatus::SUCCESS);
         assert_eq!(second_status, NativePlatformStatus::SUCCESS);
-        assert_eq!((first_address, first_length), (second_address, second_length));
+
+        assert_eq!(
+            (first_address, first_length),
+            (second_address, second_length)
+        );
+
         assert!(!first_address.is_null());
         assert!(first_length > 0);
 
-        let first_status = bray_platform_context_argument(
-            0,
-            &raw mut first_address,
-            &raw mut first_length,
-        );
+        let first_status =
+            bray_platform_context_argument(0, &raw mut first_address, &raw mut first_length);
 
-        let second_status = bray_platform_context_argument(
-            0,
-            &raw mut second_address,
-            &raw mut second_length,
-        );
+        let second_status =
+            bray_platform_context_argument(0, &raw mut second_address, &raw mut second_length);
 
         assert_eq!(first_status, NativePlatformStatus::SUCCESS);
         assert_eq!(second_status, NativePlatformStatus::SUCCESS);
-        assert_eq!((first_address, first_length), (second_address, second_length));
+
+        assert_eq!(
+            (first_address, first_length),
+            (second_address, second_length)
+        );
+
         assert!(!first_address.is_null());
         assert!(first_length > 0);
     }
@@ -671,10 +681,7 @@ mod tests {
         let mut output = 0_u64;
         let output_pointer = &raw mut output;
 
-        let status = bray_platform_context_working_directory(
-            output_pointer.cast(),
-            output_pointer,
-        );
+        let status = bray_platform_context_working_directory(output_pointer.cast(), output_pointer);
 
         assert_eq!(status, NativePlatformStatus::INVALID_INPUT);
         assert_eq!(output, 0);
@@ -691,10 +698,8 @@ mod tests {
 
         let mut length = u64::MAX;
 
-        let text_status = bray_platform_context_working_directory(
-            owned_context_output(context),
-            &raw mut length,
-        );
+        let text_status =
+            bray_platform_context_working_directory(owned_context_output(context), &raw mut length);
 
         let mut key_length = u64::MAX;
         let mut value_address = std::ptr::null();
@@ -738,11 +743,7 @@ mod tests {
             NativePlatformStatus::SUCCESS
         );
 
-        let status = bray_platform_context_argument(
-            count,
-            &raw mut address,
-            &raw mut length,
-        );
+        let status = bray_platform_context_argument(count, &raw mut address, &raw mut length);
 
         assert_eq!(status, NativePlatformStatus::NOT_FOUND);
         assert!(address.is_null());
@@ -773,5 +774,4 @@ mod tests {
         assert_eq!(status, NativePlatformStatus::SUCCESS);
         assert_eq!(equal, 1);
     }
-
 }

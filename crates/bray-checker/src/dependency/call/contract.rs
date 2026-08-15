@@ -4,15 +4,16 @@ use bray_bound_tree::{
     StoragePlan,
 };
 use bray_symbols::{
-    BorrowKind, CallableDependencyContracts, CallableInstanceData, CallableSignatureFact,
+    BorrowKind, CallableDependencyContracts, CallableInstanceData, CallableSignatureQuery,
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
-    DependencySubject, DependencySubjectRoot, SymbolFactRequest, SymbolOrdinal, TypeData,
+    DependencySubject, DependencySubjectRoot, SymbolOrdinal, SymbolQueryRequest, TypeData,
     TypeExpressionTemplate,
 };
 
 use super::instantiation::{CallInstantiationContext, expression_access, identity_access};
 use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticFactProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerUnitView,
 };
 
 pub(crate) struct InstantiatedCallContracts {
@@ -40,7 +41,7 @@ pub(crate) fn selected_call_contracts<C>(
     DependencyContractInstantiationError<CheckerInfrastructureError>,
 >
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let contracts = callable_dependency_contracts(request, call.target())
         .map_err(DependencyContractInstantiationError::Resolution)?;
@@ -78,9 +79,8 @@ where
         .dependency_contract_template_data(contracts.invocation())
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let source = || {
-        DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)))
-    };
+    let source =
+        || DependencySubject::root(DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)));
 
     let mut dependencies = vec![DependencyRequirement::direct(
         source(),
@@ -125,7 +125,7 @@ pub(in crate::dependency) fn selected_iteration_contract<C>(
     selection: &SelectedIterationSource,
 ) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let source = expression_access(storage, selection.source()).ok_or(
         DependencyContractInstantiationError::Resolution(
@@ -172,7 +172,7 @@ fn instantiate_hidden_iteration_call<C>(
     result: bray_bound_tree::StorageAccessId,
 ) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let contracts =
         callable_dependency_contracts(request, BoundCallableTarget::Declaration(callable))
@@ -235,19 +235,19 @@ fn callable_dependency_contracts<C>(
     target: BoundCallableTarget,
 ) -> Result<CallableDependencyContracts, CheckerInfrastructureError>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     match target {
         BoundCallableTarget::Declaration(instance) => {
             let signature = request
-                .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+                .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                     instance.definition().callable_symbol(),
                 ))
                 .map_err(|error| match error {
-                    crate::CheckerFactError::Cancelled => {
+                    crate::CheckerQueryError::Cancelled => {
                         CheckerInfrastructureError::InvalidSemanticSelectionInput
                     }
-                    crate::CheckerFactError::Infrastructure(error) => error,
+                    crate::CheckerQueryError::Infrastructure(error) => error,
                 })?;
 
             let dependencies =
@@ -331,12 +331,12 @@ where
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundCallResult, BoundCallableTarget, BoundDependencyGuard, BoundDependencyRequirement,
-        BoundDependencyRequirementKind, BoundDependencySubject, BoundErrorExpression,
-        BoundExpression, BoundFutureConstruction, BoundResolvedCall, BoundUnitId,
-        BorrowCapabilityOrigin, PlannedBorrowCapability, SelectedArgument, SelectedCall,
-        StorageAccess, StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId,
-        StoragePlanBuilder, StorageProjection,
+        BorrowCapabilityOrigin, BoundCallResult, BoundCallableTarget, BoundDependencyGuard,
+        BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
+        BoundErrorExpression, BoundExpression, BoundFutureConstruction, BoundResolvedCall,
+        BoundUnitId, PlannedBorrowCapability, SelectedArgument, SelectedCall, StorageAccess,
+        StorageAccessId, StorageAccessRoot, StorageIdentity, StorageIdentityId, StoragePlanBuilder,
+        StorageProjection,
     };
     use bray_compiler_known::ImplementationHook;
     use bray_symbols::{
@@ -447,7 +447,6 @@ mod tests {
                         })
             )
         }));
-
     }
 
     #[test]

@@ -1,15 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_package_interface::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
     ExportedLookupKind, InterfaceDependency, InterfaceProductKind, PackageInterfaceExportBundle,
     SymbolRelationshipKind, build_package_interface_surface,
 };
 use bray_symbols::{
-    AnySymbolId, ExternalSymbolKey, ModulePathKey, ModuleSurfaceFact, ModuleSymbolId, ProductKind,
-    SymbolFactRequest, SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin,
+    AnySymbolId, ExternalSymbolKey, ModulePathKey, ModuleSurfaceQuery, ModuleSymbolId, ProductKind,
+    SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin, SymbolQueryRequest,
     SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
 
@@ -24,13 +24,13 @@ impl Compilation {
     ) -> Option<&Result<Arc<PackageInterfaceExportBundle>, PackageInterfaceExportError>> {
         self.state.package_interface_export.as_ref()?;
 
-        Some(self.fact(
+        Some(self.evaluate_query(
             CompilationFactKey::PackageInterfaceExportBundle,
             &self.state.package_interface_export_bundle,
             || {
                 let request = self
                     .package_interface_export_request()
-                    .unwrap_or_else(|| panic!("export fact requires its configured request"));
+                    .unwrap_or_else(|| panic!("export semantics requires its configured request"));
 
                 let span = self.state.fact_runtime.profile().map(|profile| {
                     profile.start(crate::profile::ProfileOperation::InterfaceExport, None)
@@ -71,7 +71,7 @@ impl Compilation {
         }
 
         let product = self
-            .product_semantic_facts()
+            .product_semantics()
             .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
         if product.diagnostics().has_errors() || product.value().is_recovered() {
@@ -112,8 +112,8 @@ impl Compilation {
         )
         .map_err(PackageInterfaceExportError::Surface)?;
 
-        let (semantic_facts, executable_templates, native_boundaries) =
-            super::semantic::build_semantic_facts(
+        let (semantics, executable_templates, native_boundaries) =
+            super::semantic::build_semantics(
                 self,
                 symbols,
                 &surface,
@@ -127,7 +127,7 @@ impl Compilation {
 
         PackageInterfaceExportBundle::try_new(
             surface,
-            semantic_facts,
+            semantics,
             request.language_revision(),
             implementation_configuration,
         )
@@ -307,9 +307,9 @@ fn select_owner_chain(
     selected: &mut BTreeSet<AnySymbolId>,
 ) -> Result<(), PackageInterfaceExportError> {
     while symbol != package {
-        let owner = graph
-            .containing_symbol(symbol)
-            .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
+        let owner = graph.containing_symbol(symbol).ok_or(
+            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()),
+        )?;
 
         selected.insert(owner);
         symbol = owner;
@@ -336,7 +336,7 @@ fn external_key(
     let owner = graph
         .runtime_default_subject(symbol)
         .or_else(|| graph.containing_symbol(symbol))
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()))?;
 
     let owner_key = external_key(graph, owner, keys)?;
 
@@ -354,7 +354,7 @@ fn external_key(
         }
         _ => None,
     }
-    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
+    .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()))?;
 
     keys.insert(symbol, key.clone());
 
@@ -449,18 +449,17 @@ fn export_symbol(
     let key = keys
         .get(&symbol)
         .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()))?;
 
-    let containing_symbol =
-        match graph
-            .runtime_default_subject(symbol)
-            .or_else(|| graph.containing_symbol(symbol))
-        {
-            Some(owner) => Some(keys.get(&owner).cloned().ok_or(
-                PackageInterfaceExportError::IncompletePublicDeclarationFacts(owner.kind()),
-            )?),
-            None => None,
-        };
+    let containing_symbol = match graph
+        .runtime_default_subject(symbol)
+        .or_else(|| graph.containing_symbol(symbol))
+    {
+        Some(owner) => Some(keys.get(&owner).cloned().ok_or(
+            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()),
+        )?),
+        None => None,
+    };
 
     Ok(ExportSymbolInput::new(key, containing_symbol))
 }
@@ -488,17 +487,17 @@ fn export_relationship(
 
     let ordinal = exported_relationship_ordinal(graph, owner, member, selected)
         .map(SymbolOrdinal::raw)
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(member.kind()))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()))?;
 
     let owner_key = keys
         .get(&owner)
         .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(owner.kind()))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()))?;
 
     let member_key = keys
         .get(&member)
         .cloned()
-        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationFacts(member.kind()))?;
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()))?;
 
     let relationship = ExportRelationshipInput::new(kind, owner_key, member_key, ordinal);
 
@@ -583,11 +582,11 @@ fn direct_exports(
         })
         .map(|(owner, name, symbol)| {
             let owner = keys.get(&owner).cloned().ok_or(
-                PackageInterfaceExportError::IncompletePublicDeclarationFacts(owner.kind()),
+                PackageInterfaceExportError::IncompletePublicDeclarationSemantics(owner.kind()),
             )?;
 
             let target = keys.get(&symbol).cloned().ok_or(
-                PackageInterfaceExportError::IncompletePublicDeclarationFacts(symbol.kind()),
+                PackageInterfaceExportError::IncompletePublicDeclarationSemantics(symbol.kind()),
             )?;
 
             Ok(ExportLookupInput::new(
@@ -613,7 +612,7 @@ fn module_keys(
                 .cloned()
                 .map(|key| (module.id(), key))
                 .ok_or(
-                    PackageInterfaceExportError::IncompletePublicDeclarationFacts(
+                    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
                         SymbolKind::Module,
                     ),
                 )
@@ -626,15 +625,15 @@ impl Compilation {
         &self,
         module_keys: &BTreeMap<ModuleSymbolId, ExternalSymbolKey>,
     ) -> Result<Vec<ExportLookupInput>, PackageInterfaceExportError> {
-        let facts = self
-            .binder_facts(&self.state.cancellation)
+        let semantics = self
+            .binding_context(&self.state.cancellation)
             .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
         let mut exports = Vec::new();
 
         for (module, owner_key) in module_keys {
-            let surface = facts
-                .symbol_fact(SymbolFactRequest::<ModuleSurfaceFact>::new(*module))
+            let surface = semantics
+                .resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(*module))
                 .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
 
             if surface.diagnostics().has_errors() {
@@ -649,7 +648,7 @@ impl Compilation {
             {
                 let AnySymbolId::Module(target) = edge.target() else {
                     return Err(
-                        PackageInterfaceExportError::IncompletePublicDeclarationFacts(
+                        PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
                             edge.target().kind(),
                         ),
                     );
@@ -657,7 +656,7 @@ impl Compilation {
 
                 let Some(target_key) = module_keys.get(&target) else {
                     return Err(
-                        PackageInterfaceExportError::IncompletePublicDeclarationFacts(
+                        PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
                             SymbolKind::Module,
                         ),
                     );
@@ -690,17 +689,16 @@ mod tests {
         encode_package_interface,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
-    use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
         MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
         RuntimeDefaultTemplateReference, SymbolKey, SymbolKind, SymbolName, TypeExpressionTemplate,
     };
+    use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
     use bray_testing::test_source_inputs;
 
     use crate::test_support::{
-        package_version, source_function_body_key,
-        source_named_trait_callable_fulfillment_body_key,
+        package_version, source_function_body_key, source_named_trait_callable_fulfillment_body_key,
     };
     use crate::{
         Compilation, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
@@ -708,7 +706,7 @@ mod tests {
     };
 
     #[test]
-    fn module_only_library_exports_are_lazy_cached_facts() {
+    fn module_only_library_exports_are_cached_on_demand() {
         let compilation = compilation("module app;");
 
         assert!(
@@ -775,7 +773,7 @@ mod tests {
     }
 
     #[test]
-    fn public_callable_and_type_facts_round_trip_without_source() {
+    fn public_callable_and_type_semantics_round_trip_without_source() {
         let compilation = compilation(concat!(
             "module app;\n",
             "\n",
@@ -816,17 +814,17 @@ mod tests {
             .decode_identity_surface()
             .unwrap_or_else(|error| panic!("identity surface must decode: {error:?}"));
 
-        let facts = validated
-            .decode_semantic_facts(&surface)
-            .unwrap_or_else(|error| panic!("semantic facts must decode: {error:?}"));
+        let semantics = validated
+            .decode_semantics(&surface)
+            .unwrap_or_else(|error| panic!("semantics must decode: {error:?}"));
 
-        assert_eq!(facts.callable_signatures().len(), 2);
-        assert_eq!(facts.generic_declarations().len(), 4);
-        assert_eq!(facts.constraints().len(), 1);
-        assert_eq!(facts.checked_templates().len(), 3);
-        assert_eq!(facts.declaration_templates().len(), 3);
-        assert_eq!(facts.declared_types().len(), 2);
-        assert_eq!(facts.type_representations().len(), 2);
+        assert_eq!(semantics.callable_signatures().len(), 2);
+        assert_eq!(semantics.generic_declarations().len(), 4);
+        assert_eq!(semantics.constraints().len(), 1);
+        assert_eq!(semantics.checked_templates().len(), 3);
+        assert_eq!(semantics.declaration_templates().len(), 3);
+        assert_eq!(semantics.declared_types().len(), 2);
+        assert_eq!(semantics.type_representations().len(), 2);
     }
 
     #[test]
@@ -842,7 +840,7 @@ mod tests {
 
         let bundle = export(&compilation);
 
-        assert_eq!(bundle.semantic_facts().callable_signatures().len(), 1);
+        assert_eq!(bundle.semantics().callable_signatures().len(), 1);
     }
 
     #[test]
@@ -877,7 +875,7 @@ mod tests {
     }
 
     #[test]
-    fn exported_callable_and_type_facts_intern_without_provider_source() {
+    fn exported_callable_and_type_semantics_intern_without_provider_source() {
         let provider = compilation(concat!(
             "module app;\n",
             "\n",
@@ -970,13 +968,21 @@ mod tests {
             AnySymbolId::InherentTypeMember(inherent_type_member.id()),
             AnySymbolId::TraitTypeFulfillment(trait_type_fulfillment.id()),
         ] {
-            let fact = consumer
+            let semantics = consumer
                 .symbol_type_template(symbol)
-                .unwrap_or_else(|error| panic!("imported type fact must resolve: {error:?}"))
+                .unwrap_or_else(|error| panic!("imported type semantics must resolve: {error:?}"))
                 .unwrap_or_else(|| panic!("imported symbol must carry a declared type"));
 
-            assert!(fact.diagnostics().is_empty(), "{:?}", fact.diagnostics());
-            assert!(matches!(fact.value(), TypeExpressionTemplate::Resolved(_)));
+            assert!(
+                semantics.diagnostics().is_empty(),
+                "{:?}",
+                semantics.diagnostics()
+            );
+
+            assert!(matches!(
+                semantics.value(),
+                TypeExpressionTemplate::Resolved(_)
+            ));
         }
 
         let [parameter] = skeleton.callable_parameters() else {
@@ -1020,9 +1026,9 @@ mod tests {
             source_graph.diagnostics()
         );
 
-        let product = compilation
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("standard memory product facts must build: {error:?}"));
+        let product = compilation.product_semantics().unwrap_or_else(|error| {
+            panic!("standard memory product semantics must build: {error:?}")
+        });
 
         assert!(
             product.diagnostics().is_empty(),
@@ -1032,19 +1038,18 @@ mod tests {
 
         assert!(
             !product.value().is_recovered(),
-            "standard memory product facts must not recover"
+            "standard memory product semantics must not recover"
         );
 
         let symbols = compilation
             .symbol_graph()
             .unwrap_or_else(|error| panic!("standard memory symbol graph must build: {error:?}"));
 
-        let identity = super::build_identity_surface(
-            &compilation,
-            symbols,
-            product.value().public_symbols(),
-        )
-        .unwrap_or_else(|error| panic!("standard memory identity surface must build: {error:?}"));
+        let identity =
+            super::build_identity_surface(&compilation, symbols, product.value().public_symbols())
+                .unwrap_or_else(|error| {
+                    panic!("standard memory identity surface must build: {error:?}")
+                });
 
         let request = compilation
             .package_interface_export_request()
@@ -1059,7 +1064,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("standard memory interface surface must build: {error:?}"));
 
-        let (facts, _, _) = super::super::semantic::build_semantic_facts(
+        let (semantics, _, _) = super::super::semantic::build_semantics(
             &compilation,
             symbols,
             &surface,
@@ -1068,7 +1073,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("standard memory semantic export must build: {error:?}"));
 
-        for (template_index, template) in facts.checked_templates().iter().enumerate() {
+        for (template_index, template) in semantics.checked_templates().iter().enumerate() {
             for (node_index, node) in template.nodes().iter().enumerate() {
                 let bray_package_interface::InterfaceCheckedTemplateOperation::Borrow {
                     kind,
@@ -1086,14 +1091,18 @@ mod tests {
 
                 let operand_ty = template.nodes()[operand_index].ty();
 
-                let node_ty = facts.types().iter().enumerate().find_map(|(index, ty)| {
-                    u32::try_from(index)
-                        .ok()
-                        .filter(|index| {
-                            bray_package_interface::InterfaceTypeId::new(*index) == node.ty()
-                        })
-                        .map(|_| ty)
-                });
+                let node_ty = semantics
+                    .types()
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, ty)| {
+                        u32::try_from(index)
+                            .ok()
+                            .filter(|index| {
+                                bray_package_interface::InterfaceTypeId::new(*index) == node.ty()
+                            })
+                            .map(|_| ty)
+                    });
 
                 assert!(
                     matches!(
@@ -1108,25 +1117,25 @@ mod tests {
             }
         }
 
-        assert_strictly_canonical("constraints", facts.constraints());
-        assert_strictly_canonical("callable contracts", facts.callable_contracts());
-        assert_strictly_canonical("callable signatures", facts.callable_signatures());
-        assert_strictly_canonical("generic declarations", facts.generic_declarations());
+        assert_strictly_canonical("constraints", semantics.constraints());
+        assert_strictly_canonical("callable contracts", semantics.callable_contracts());
+        assert_strictly_canonical("callable signatures", semantics.callable_signatures());
+        assert_strictly_canonical("generic declarations", semantics.generic_declarations());
 
         assert_strictly_canonical(
             "callable parameter defaults",
-            facts.callable_parameter_defaults(),
+            semantics.callable_parameter_defaults(),
         );
 
-        assert_strictly_canonical("predicate definitions", facts.predicate_definitions());
-        assert_strictly_canonical("declared types", facts.declared_types());
-        assert_strictly_canonical("type representations", facts.type_representations());
-        assert_strictly_canonical("implementations", facts.implementations());
-        assert_strictly_canonical("coherence", facts.coherence());
-        assert_strictly_canonical("target dependencies", facts.target_dependencies());
-        assert_strictly_canonical("ABI dependencies", facts.abi_dependencies());
-        assert_strictly_canonical("runtime requirements", facts.runtime_requirements());
-        assert_strictly_canonical("provenance", facts.provenance());
+        assert_strictly_canonical("predicate definitions", semantics.predicate_definitions());
+        assert_strictly_canonical("declared types", semantics.declared_types());
+        assert_strictly_canonical("type representations", semantics.type_representations());
+        assert_strictly_canonical("implementations", semantics.implementations());
+        assert_strictly_canonical("coherence", semantics.coherence());
+        assert_strictly_canonical("target dependencies", semantics.target_dependencies());
+        assert_strictly_canonical("ABI dependencies", semantics.abi_dependencies());
+        assert_strictly_canonical("runtime requirements", semantics.runtime_requirements());
+        assert_strictly_canonical("provenance", semantics.provenance());
 
         compilation
             .package_implementation_configuration(None)
@@ -1303,8 +1312,8 @@ mod tests {
         );
 
         let product = provider
-            .product_semantic_facts()
-            .unwrap_or_else(|error| panic!("formatting product facts must build: {error:?}"));
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("formatting product semantics must build: {error:?}"));
 
         assert!(
             product.diagnostics().is_empty(),
@@ -1334,23 +1343,26 @@ mod tests {
             .and_then(bray_lowering::LoweredUnit::mir)
             .unwrap_or_else(|| panic!("writer formatting adapter must produce MIR: {adapter:#?}"));
 
-        assert!(adapter.operations().iter().any(|operation| matches!(
-            operation.kind(),
-            MirOperationKind::Borrow { place, .. }
-                if place
-                    .projections()
-                    .iter()
-                    .any(|projection| matches!(projection.kind(), MirProjectionKind::Field(_)))
-                    && matches!(
-                        place.projections().last().map(bray_ir::MirProjection::kind),
-                        Some(MirProjectionKind::Dereference)
-                    )
-        )), "generic writer field borrow must reach the destination value: {adapter:#?}");
+        assert!(
+            adapter.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Borrow { place, .. }
+                    if place
+                        .projections()
+                        .iter()
+                        .any(|projection| matches!(projection.kind(), MirProjectionKind::Field(_)))
+                        && matches!(
+                            place.projections().last().map(bray_ir::MirProjection::kind),
+                            Some(MirProjectionKind::Dereference)
+                        )
+            )),
+            "generic writer field borrow must reach the destination value: {adapter:#?}"
+        );
 
         let interface = export(&provider);
 
         let runtime_capabilities: BTreeSet<_> = interface
-            .semantic_facts()
+            .semantics()
             .runtime_requirements()
             .iter()
             .flat_map(|requirement| requirement.requirements().capabilities())
@@ -1378,7 +1390,7 @@ mod tests {
         let implementation = PackageImplementationArtifact::try_new(
             &validated,
             interface.surface(),
-            interface.semantic_facts(),
+            interface.semantics(),
             interface.implementation_configuration().clone(),
             [],
             interface.executable_templates().iter().cloned(),
@@ -1594,11 +1606,18 @@ mod tests {
             .unwrap_or_else(|error| panic!("imported formatting adapter must lower: {error:?}"));
 
         assert!(streamed.value().is_some(), "{:#?}", streamed.diagnostics());
-        assert!(streamed.diagnostics().is_empty(), "{:#?}", streamed.diagnostics());
+
+        assert!(
+            streamed.diagnostics().is_empty(),
+            "{:#?}",
+            streamed.diagnostics()
+        );
 
         let imported_instances = consumer
             .imported_codegen_instance_count_for_test()
-            .unwrap_or_else(|error| panic!("imported formatting reachability must close: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("imported formatting reachability must close: {error:?}")
+            });
 
         assert!(imported_instances > 0);
     }
@@ -1640,7 +1659,7 @@ mod tests {
 
         assert_eq!(bundle.surface().symbols().symbols().len(), 3);
 
-        let [dependency] = bundle.semantic_facts().target_dependencies() else {
+        let [dependency] = bundle.semantics().target_dependencies() else {
             panic!("selected contribution must retain one exact target dependency");
         };
 
@@ -1671,20 +1690,20 @@ mod tests {
 
         assert_eq!(dependency.owner(), &InterfaceSymbolReference::Local(owner));
 
-        let InterfaceSymbolReference::CompilerKnown(fact) = dependency.fact() else {
-            panic!("target dependency must retain its compiler-known fact");
+        let InterfaceSymbolReference::CompilerKnown(semantics) = dependency.property() else {
+            panic!("target dependency must retain its compiler-known semantics");
         };
 
         let declaration = CompilerKnownDeclarationKey::try_new("TargetPointerBits")
             .unwrap_or_else(|| panic!("target pointer-bits key must be valid"));
 
-        let fact_key = SymbolKey::compiler_known_declaration(declaration, SymbolKind::Constant)
+        let semantic_key = SymbolKey::compiler_known_declaration(declaration, SymbolKind::Constant)
             .unwrap_or_else(|| panic!("target pointer-bits symbol key must be valid"));
 
-        assert_eq!(fact.key(), &fact_key);
+        assert_eq!(semantics.key(), &semantic_key);
 
         let value = bundle
-            .semantic_facts()
+            .semantics()
             .constant_values()
             .get(
                 usize::try_from(dependency.value().raw())
@@ -1721,10 +1740,7 @@ mod tests {
 
         let bundle = export(&compilation);
 
-        assert_eq!(
-            bundle.semantic_facts().callable_parameter_defaults().len(),
-            1
-        );
+        assert_eq!(bundle.semantics().callable_parameter_defaults().len(), 1);
     }
 
     fn export(compilation: &Compilation) -> &Arc<PackageInterfaceExportBundle> {

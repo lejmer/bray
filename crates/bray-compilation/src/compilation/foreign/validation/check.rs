@@ -1,6 +1,6 @@
 // rust-style: allow(module-too-large, reason = "foreign boundary validation keeps its exhaustive ABI contract checks together")
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::BoundSourceAnchor;
 use bray_checker::{
     TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -9,8 +9,8 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{DiagnosticArg, DiagnosticBag, DiagnosticType};
 use bray_symbols::{
     CallableAbi, CallableExecution, CallableSignatureTemplate, CallableTrust, DeclaredLayoutMode,
-    FunctionSymbolId, GenericArgument, NamedTypeSymbolId, SemanticValueStore, StructFieldTypeFact,
-    StructSymbolId, SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId,
+    FunctionSymbolId, GenericArgument, NamedTypeSymbolId, SemanticValueStore, StructFieldTypeQuery,
+    StructSymbolId, SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
     diagnostic_callable_abi, diagnostic_callable_execution,
 };
 use bray_syntax::FunctionDeclarationSyntax;
@@ -60,7 +60,7 @@ pub(in crate::compilation::foreign) fn callable_surface(
         trust,
         execution,
         parameters,
-        // The boundary view owns its result template independently of the signature fact.
+        // The boundary view owns its result template independently of the signature query result.
         result: signature.result().clone(),
     })
 }
@@ -595,11 +595,11 @@ fn c_struct_matches(
         return Ok(false);
     }
 
-    let facts = compilation.binder_facts(cancellation)?;
+    let binding_context = compilation.binding_context(cancellation)?;
 
-    let structure = facts
+    let structure = binding_context
         .structure(*structure)
-        .map_err(super::super::super::binder::binder_fact_error)?
+        .map_err(super::super::super::binder::binding_query_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if !structure.generic_type_parameters().is_empty()
@@ -618,9 +618,9 @@ fn c_struct_matches(
     }
 
     for (field, expected) in structure.fields().iter().zip(expected_fields) {
-        let field = facts
-            .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(*field))
-            .map_err(super::super::super::binder::binder_fact_error)?;
+        let field = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(*field))
+            .map_err(super::super::super::binder::binding_query_error)?;
 
         let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
         else {
@@ -676,11 +676,11 @@ fn platform_status_matches(
         return Ok(false);
     }
 
-    let facts = compilation.binder_facts(cancellation)?;
+    let binding_context = compilation.binding_context(cancellation)?;
 
-    let structure = facts
+    let structure = binding_context
         .structure(*structure)
-        .map_err(super::super::super::binder::binder_fact_error)?
+        .map_err(super::super::super::binder::binding_query_error)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
     if !structure.generic_type_parameters().is_empty()
@@ -703,9 +703,9 @@ fn platform_status_matches(
         RepresentationRole::ScalarU32,
         RepresentationRole::ScalarI64,
     ]) {
-        let field = facts
-            .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(*field))
-            .map_err(super::super::super::binder::binder_fact_error)?;
+        let field = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(*field))
+            .map_err(super::super::super::binder::binding_query_error)?;
 
         let Some(field_ty) = resolve_template_type(compilation, field.value(), cancellation)?
         else {
@@ -867,14 +867,14 @@ fn named_type_is_supported(
             .selected_target()
             .target()
             .profile()
-            .facts()
+            .properties()
             .abis()
             .c_contract(),
         CallableAbi::System => compilation
             .selected_target()
             .target()
             .profile()
-            .facts()
+            .properties()
             .abis()
             .system_contract(),
         CallableAbi::Bray => None,

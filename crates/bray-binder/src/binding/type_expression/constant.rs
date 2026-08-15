@@ -7,13 +7,13 @@ use bray_symbols::{
 use bray_syntax::{ExpressionSyntax, GenericArgumentSyntax, SourceSyntaxNode};
 
 use super::core::TypeExpressionBinder;
-use crate::{BinderFactError, BinderFactResult};
+use crate::{BindingQueryError, BindingQueryResult};
 
 impl TypeExpressionBinder<'_> {
     pub(super) fn bind_array_length(
         &mut self,
         expression: &ExpressionSyntax,
-    ) -> BinderFactResult<ConstantExpressionOccurrence> {
+    ) -> BindingQueryResult<ConstantExpressionOccurrence> {
         let expected = self.bind_compiler_known_type_id(RepresentationRole::ScalarUsize)?;
 
         Ok(self.constant_expression_occurrence(
@@ -26,7 +26,7 @@ impl TypeExpressionBinder<'_> {
         &self,
         argument: &GenericArgumentSyntax,
         parameter: GenericConstParameterSymbolId,
-    ) -> BinderFactResult<ConstantExpressionOccurrence> {
+    ) -> BindingQueryResult<ConstantExpressionOccurrence> {
         let expected = ConstantExpressionExpectedType::GenericParameter(parameter);
 
         if let Some(expression) = argument.expressions().next() {
@@ -41,7 +41,7 @@ impl TypeExpressionBinder<'_> {
             return Ok(self.constant_expression_occurrence(argument, expected));
         }
 
-        Err(BinderFactError::DependencyUnavailable)
+        Err(BindingQueryError::DependencyUnavailable)
     }
 
     fn constant_expression_occurrence(

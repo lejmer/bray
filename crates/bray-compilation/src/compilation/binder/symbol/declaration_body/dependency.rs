@@ -1,4 +1,4 @@
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult};
+use bray_binder::{BindingQueryContext, BindingQueryError, BindingQueryResult};
 use bray_bound_tree::{
     BoundDependencyContract, BoundDependencyGuard, BoundDependencyRequirement,
     BoundDependencySubject, StorageAccessId, StorageIdentity, StoragePlan, StorageProjection,
@@ -9,13 +9,13 @@ use bray_symbols::{
     SymbolOrdinal,
 };
 
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 
 pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     contract: &BoundDependencyContract,
-) -> BinderFactResult<DependencyContractTemplateId> {
+) -> BindingQueryResult<DependencyContractTemplateId> {
     let mut requirements = Vec::new();
 
     for requirement in contract.requirements() {
@@ -27,14 +27,14 @@ pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
     context
         .semantic_values()
         .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
-        .map_err(|_| BinderFactError::DependencyUnavailable)
+        .map_err(|_| BindingQueryError::DependencyUnavailable)
 }
 
 fn portable_requirement(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     requirement: &BoundDependencyRequirement,
-) -> BinderFactResult<Option<DependencyRequirement>> {
+) -> BindingQueryResult<Option<DependencyRequirement>> {
     match requirement {
         BoundDependencyRequirement::Direct { subject, kind } => {
             let Some(subject) = portable_bound_subject(context, storage, *subject)? else {
@@ -67,10 +67,10 @@ fn portable_requirement(
 }
 
 fn portable_guard(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     guard: BoundDependencyGuard,
-) -> BinderFactResult<Option<DependencyGuard>> {
+) -> BindingQueryResult<Option<DependencyGuard>> {
     match guard {
         BoundDependencyGuard::NullablePresent(access) => Ok(portable_guard_subject(
             context,
@@ -102,10 +102,10 @@ fn portable_guard(
 }
 
 fn portable_bound_subject(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     subject: BoundDependencySubject,
-) -> BinderFactResult<Option<PortableSubject>> {
+) -> BindingQueryResult<Option<PortableSubject>> {
     match subject {
         BoundDependencySubject::Storage(identity) => {
             portable_storage_identity(context, storage, identity)
@@ -114,7 +114,7 @@ fn portable_bound_subject(
         BoundDependencySubject::BorrowCapability(capability) => {
             let capability = storage
                 .borrow_capability(capability)
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             portable_subject(context, storage, capability.access())
         }
@@ -127,27 +127,27 @@ fn portable_bound_subject(
 }
 
 fn portable_subject(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     access: StorageAccessId,
-) -> BinderFactResult<Option<PortableSubject>> {
+) -> BindingQueryResult<Option<PortableSubject>> {
     let projection_count = storage
         .resolved_projections(access)
-        .ok_or(BinderFactError::DependencyUnavailable)?
+        .ok_or(BindingQueryError::DependencyUnavailable)?
         .len();
 
     portable_subject_with_projection_count(context, storage, access, projection_count)
 }
 
 fn portable_guard_subject(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     access: StorageAccessId,
     is_guard_projection: impl FnOnce(&StorageProjection) -> bool,
-) -> BinderFactResult<Option<PortableSubject>> {
+) -> BindingQueryResult<Option<PortableSubject>> {
     let projections = storage
         .resolved_projections(access)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let projection_count = if projections.last().is_some_and(is_guard_projection) {
         projections.len().saturating_sub(1)
@@ -159,13 +159,13 @@ fn portable_guard_subject(
 }
 
 fn portable_subject_with_projection_count(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     access: StorageAccessId,
     projection_count: usize,
-) -> BinderFactResult<Option<PortableSubject>> {
+) -> BindingQueryResult<Option<PortableSubject>> {
     let Some(identity) = storage.root_identity(access) else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
     let Some(mut subject) = portable_storage_identity(context, storage, identity)? else {
@@ -174,7 +174,7 @@ fn portable_subject_with_projection_count(
 
     for projection in storage
         .resolved_projections(access)
-        .ok_or(BinderFactError::DependencyUnavailable)?
+        .ok_or(BindingQueryError::DependencyUnavailable)?
         .iter()
         .take(projection_count)
     {
@@ -205,20 +205,20 @@ fn portable_subject_with_projection_count(
 }
 
 fn portable_storage_identity(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     storage: &StoragePlan,
     identity: bray_bound_tree::StorageIdentityId,
-) -> BinderFactResult<Option<PortableSubject>> {
+) -> BindingQueryResult<Option<PortableSubject>> {
     let identity = storage
         .identity(identity)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let root = match identity {
         StorageIdentity::Parameter(parameter) => {
             let parameter = context
                 .symbols()
                 .callable_parameter(parameter)
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter.ordinal()))
         }
@@ -226,7 +226,7 @@ fn portable_storage_identity(
             let parameter = context
                 .symbols()
                 .predicate_parameter(parameter)
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter.ordinal()))
         }

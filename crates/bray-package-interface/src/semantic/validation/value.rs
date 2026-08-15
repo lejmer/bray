@@ -1,11 +1,11 @@
 use crate::validation::is_strictly_sorted;
 use crate::{
-    InterfaceLimit, InterfaceSemanticFacts, InterfaceTypeId, InterfaceValidationError,
+    InterfaceLimit, InterfaceSemantics, InterfaceTypeId, InterfaceValidationError,
     InterfaceValidationLimits,
 };
 
-use super::fact::{validate_index, validate_symbol};
 use super::saturating_u64;
+use super::surface::{validate_index, validate_symbol};
 use crate::semantic::model::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
     InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
@@ -13,7 +13,7 @@ use crate::semantic::model::{
     InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceType,
 };
 
-impl InterfaceSemanticFacts {
+impl InterfaceSemantics {
     pub(super) fn validate_value_graph(
         &self,
         symbol_count: usize,
@@ -245,7 +245,7 @@ impl InterfaceSemanticFacts {
                 )?;
             }
             InterfaceConstantTerm::Parameter(symbol)
-            | InterfaceConstantTerm::TargetFact(symbol) => {
+            | InterfaceConstantTerm::TargetProperty(symbol) => {
                 validate_symbol(symbol, symbol_count, dependency_count)?;
             }
             InterfaceConstantTerm::Unary { operand, .. } => {
@@ -432,7 +432,7 @@ impl InterfaceSemanticFacts {
     }
 }
 fn validate_type_depth(
-    facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     limits: InterfaceValidationLimits,
 ) -> Result<(), InterfaceValidationError> {
     #[derive(Clone, Copy)]
@@ -442,9 +442,9 @@ fn validate_type_depth(
         Complete(u64),
     }
 
-    let mut states = vec![VisitState::Unvisited; facts.types.len()];
+    let mut states = vec![VisitState::Unvisited; semantics.types.len()];
 
-    for root in 0..facts.types.len() {
+    for root in 0..semantics.types.len() {
         if matches!(states[root], VisitState::Complete(_)) {
             continue;
         }
@@ -452,7 +452,7 @@ fn validate_type_depth(
         let mut pending = vec![(root, false)];
 
         while let Some((index, exiting)) = pending.pop() {
-            let Some(ty) = facts.types.get(index) else {
+            let Some(ty) = semantics.types.get(index) else {
                 return Err(InterfaceValidationError::Malformed);
             };
 

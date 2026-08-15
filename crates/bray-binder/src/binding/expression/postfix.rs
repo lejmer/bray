@@ -13,7 +13,7 @@ use bray_syntax::{
 use super::super::BindingResult;
 use super::super::name::symbol_name;
 use super::ExpressionBinder;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::Binder;
 use crate::binding::BindingError;
 
@@ -26,7 +26,7 @@ impl ExpressionBinder {
         mut current: BoundExpressionId,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let mut failure = None;
 
@@ -118,7 +118,7 @@ impl ExpressionBinder {
         callee: BoundExpressionId,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let mut generic_arguments = Vec::new();
 
@@ -166,7 +166,7 @@ impl ExpressionBinder {
         syntax: &ArgumentListSyntax,
     ) -> BindingResult<Vec<BoundArgument>>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let mut arguments = Vec::new();
 
@@ -194,7 +194,7 @@ impl ExpressionBinder {
         operand: BoundExpressionId,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let recovered = syntax.is_recovered() || binder.expression_is_recovered(operand);
         let target_syntax = SyntaxAnchor::from_node(&syntax.type_expression());

@@ -10,7 +10,7 @@ use bray_linker::{
 };
 use bray_target::TargetIdentity;
 
-use super::{LinkOutputStaging, ProductLinkFacts, StagedArtifact};
+use super::{LinkOutputStaging, ProductLinkInputs, StagedArtifact};
 use crate::{ArtifactId, ArtifactKind, ArtifactProducer, EmissionPlan};
 
 /// Constructs one immutable native link plan without invoking a linker.
@@ -18,14 +18,14 @@ pub fn construct_link_plan(
     emission: &EmissionPlan,
     staged_artifacts: impl IntoIterator<Item = StagedArtifact>,
     output_staging: impl IntoIterator<Item = LinkOutputStaging>,
-    facts: &ProductLinkFacts,
+    inputs: &ProductLinkInputs,
     linker: &Linker,
 ) -> Result<LinkPlan, LinkPlanConstructionError> {
-    if emission.request().target() != facts.target.identity() {
+    if emission.request().target() != inputs.target.identity() {
         return Err(LinkPlanConstructionError::TargetMismatch {
             // The error owns both Arc-backed identities after construction returns.
             planned: emission.request().target().clone(),
-            selected: facts.target.identity().clone(),
+            selected: inputs.target.identity().clone(),
         });
     }
 
@@ -33,7 +33,7 @@ pub fn construct_link_plan(
     let staged_artifacts = staged_artifacts_by_id(staged_artifacts)?;
     let output_staging = output_staging_by_id(output_staging)?;
 
-    let startup_mode = startup_mode(product_kind, facts);
+    let startup_mode = startup_mode(product_kind, inputs);
 
     linker
         .select_plan(|driver| {
@@ -44,7 +44,7 @@ pub fn construct_link_plan(
                 product_kind,
                 staged_artifacts.clone(),
                 output_staging.clone(),
-                facts,
+                inputs,
                 driver.clone(),
                 startup_mode,
             )
@@ -56,16 +56,16 @@ pub fn construct_link_plan(
         })
 }
 
-/// A conflict between an emission plan, staged artifacts, and resolved product link facts.
+/// A conflict between an emission plan, staged artifacts, and resolved product link inputs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LinkPlanConstructionError {
     /// The emission plan contains no linked product.
     MissingLinkedProduct,
-    /// Selected linker target facts belong to another emission target.
+    /// Selected linker target inputs belong to another emission target.
     TargetMismatch {
         /// Target selected by the immutable emission plan.
         planned: TargetIdentity,
-        /// Target covered by the resolved linker facts.
+        /// Target covered by the resolved linker inputs.
         selected: TargetIdentity,
     },
     /// More than one staged record names the same planned artifact.
@@ -115,7 +115,7 @@ struct LinkPlanConstructor<'plan> {
     emission: &'plan EmissionPlan,
     staged_artifacts: BTreeMap<ArtifactId, PathBuf>,
     output_staging: BTreeMap<ArtifactId, (LinkedArtifactKind, PathBuf, StagingPathKey)>,
-    facts: &'plan ProductLinkFacts,
+    inputs: &'plan ProductLinkInputs,
     builder: LinkPlanBuilder,
     next_input: u32,
 }
@@ -126,7 +126,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
         product_kind: LinkedProductKind,
         staged_artifacts: BTreeMap<ArtifactId, PathBuf>,
         output_staging: BTreeMap<ArtifactId, (LinkedArtifactKind, PathBuf, StagingPathKey)>,
-        facts: &'plan ProductLinkFacts,
+        inputs: &'plan ProductLinkInputs,
         driver: LinkerDriverIdentity,
         startup_mode: LinkStartupMode,
     ) -> Self {
@@ -134,18 +134,18 @@ impl<'plan> LinkPlanConstructor<'plan> {
             // The link plan owns the Arc-backed product identity independently of the emission plan.
             emission.request().product().clone(),
             product_kind,
-            // The link plan owns target facts independently of the supplied product facts.
-            facts.target.clone(),
+            // The link plan owns target inputs independently of the supplied product inputs.
+            inputs.target.clone(),
             driver,
             startup_mode,
-            facts.policy,
+            inputs.policy,
         );
 
         Self {
             emission,
             staged_artifacts,
             output_staging,
-            facts,
+            inputs,
             builder,
             next_input: 0,
         }
@@ -161,7 +161,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
         self.push_native_inputs_matching(is_native_library_input)?;
         self.push_termination_inputs()?;
         self.push_outputs()?;
-        self.push_product_facts();
+        self.push_product_inputs();
 
         if let Some((artifact, _)) = self.staged_artifacts.pop_first() {
             return Err(LinkPlanConstructionError::UnexpectedStagedArtifact(
@@ -179,8 +179,8 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 
     fn push_startup_inputs(&mut self) -> Result<(), LinkPlanConstructionError> {
-        // The link plan owns input specifications independently of the product-fact borrow.
-        for input in self.facts.startup_inputs.iter().cloned() {
+        // The link plan owns input specifications independently of the product-input borrow.
+        for input in self.inputs.startup_inputs.iter().cloned() {
             if input.kind() != LinkInputKind::StartupObject {
                 return Err(LinkPlanConstructionError::InvalidStartupInputKind(
                     input.kind(),
@@ -228,7 +228,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 
     fn push_runtime_input(&mut self) -> Result<(), LinkPlanConstructionError> {
-        let Some(runtime) = &self.facts.runtime else {
+        let Some(runtime) = &self.inputs.runtime else {
             return Ok(());
         };
 
@@ -255,7 +255,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 
     fn validate_native_inputs(&self) -> Result<(), LinkPlanConstructionError> {
-        for input in self.facts.native_inputs.iter() {
+        for input in self.inputs.native_inputs.iter() {
             if !matches!(
                 input.kind(),
                 LinkInputKind::Archive | LinkInputKind::NativeLibrary | LinkInputKind::Framework
@@ -273,9 +273,9 @@ impl<'plan> LinkPlanConstructor<'plan> {
         &mut self,
         include: fn(&LinkInputSpec) -> bool,
     ) -> Result<(), LinkPlanConstructionError> {
-        // The link plan owns input specifications independently of the product-fact borrow.
+        // The link plan owns input specifications independently of the product-input borrow.
         for input in self
-            .facts
+            .inputs
             .native_inputs
             .iter()
             .filter(|input| include(input))
@@ -289,8 +289,8 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 
     fn push_termination_inputs(&mut self) -> Result<(), LinkPlanConstructionError> {
-        // The link plan owns input specifications independently of the product-fact borrow.
-        for input in self.facts.termination_inputs.iter().cloned() {
+        // The link plan owns input specifications independently of the product-input borrow.
+        for input in self.inputs.termination_inputs.iter().cloned() {
             if input.kind() != LinkInputKind::TerminationObject {
                 return Err(LinkPlanConstructionError::InvalidTerminationInputKind(
                     input.kind(),
@@ -348,8 +348,8 @@ impl<'plan> LinkPlanConstructor<'plan> {
         Ok(())
     }
 
-    fn push_product_facts(&mut self) {
-        if let Some(entry_point) = &self.facts.entry_point {
+    fn push_product_inputs(&mut self) {
+        if let Some(entry_point) = &self.inputs.entry_point {
             // The completed link plan owns the Arc-backed binary name.
             self.builder.set_entry_point(entry_point.clone());
         }
@@ -359,17 +359,17 @@ impl<'plan> LinkPlanConstructor<'plan> {
             self.builder.set_executable_host(host.clone());
         }
 
-        // The link plan owns binary names independently of the product-fact borrow.
-        for symbol in self.facts.exported_symbols.iter().cloned() {
+        // The link plan owns binary names independently of the product-input borrow.
+        for symbol in self.inputs.exported_symbols.iter().cloned() {
             self.builder.push_exported_symbol(symbol);
         }
 
-        for symbol in self.facts.retained_symbols.iter().cloned() {
+        for symbol in self.inputs.retained_symbols.iter().cloned() {
             self.builder.push_retained_symbol(symbol);
         }
 
-        // Search-path values must remain available after product facts are released.
-        for path in self.facts.search_paths.iter().cloned() {
+        // Search-path values must remain available after product inputs are released.
+        for path in self.inputs.search_paths.iter().cloned() {
             self.builder.push_search_path(path);
         }
     }
@@ -394,11 +394,11 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 }
 
-fn startup_mode(product: LinkedProductKind, facts: &ProductLinkFacts) -> LinkStartupMode {
+fn startup_mode(product: LinkedProductKind, inputs: &ProductLinkInputs) -> LinkStartupMode {
     match product {
         LinkedProductKind::StaticLibrary => LinkStartupMode::NotApplicable,
         LinkedProductKind::Executable | LinkedProductKind::SharedLibrary
-            if facts.startup_inputs.is_empty() && facts.termination_inputs.is_empty() =>
+            if inputs.startup_inputs.is_empty() && inputs.termination_inputs.is_empty() =>
         {
             LinkStartupMode::PlatformCompilerDriver
         }
@@ -529,7 +529,7 @@ mod tests {
     use bray_target::{CodeModel, RelocationModel};
 
     use super::{
-        LinkOutputStaging, LinkPlanConstructionError, ProductLinkFacts, StagedArtifact,
+        LinkOutputStaging, LinkPlanConstructionError, ProductLinkInputs, StagedArtifact,
         construct_link_plan,
     };
     use crate::test_support::{
@@ -548,7 +548,7 @@ mod tests {
         let staged = staged_artifacts(&plan);
         let outputs = output_staging(&plan);
 
-        let facts = product_link_facts()
+        let inputs = product_link_inputs()
             .with_startup_inputs([file_input(
                 LinkInputKind::StartupObject,
                 "crt/start.o",
@@ -578,7 +578,7 @@ mod tests {
             &plan,
             staged.iter().cloned().rev(),
             outputs.iter().cloned().rev(),
-            &facts,
+            &inputs,
             &linker_for(LinkStartupMode::ExplicitInputs),
         )
         .unwrap_or_else(|error| panic!("link plan must construct: {error:?}"));
@@ -642,7 +642,7 @@ mod tests {
             .executable_host()
             .unwrap_or_else(|| panic!("async executable must have a host contract"));
 
-        let facts = product_link_facts()
+        let inputs = product_link_inputs()
             .with_runtime(runtime.clone())
             .with_native_inputs([
                 native_library("pthread"),
@@ -662,7 +662,7 @@ mod tests {
             &plan,
             staged_artifacts(&plan),
             output_staging(&plan),
-            &facts,
+            &inputs,
             &linker_for(LinkStartupMode::PlatformCompilerDriver),
         )
         .unwrap_or_else(|error| panic!("async link plan must construct: {error:?}"));
@@ -748,7 +748,7 @@ mod tests {
                 &plan,
                 staged,
                 output_staging(&plan),
-                &product_link_facts(),
+                &product_link_inputs(),
                 &linker_for(LinkStartupMode::PlatformCompilerDriver),
             ),
             Err(LinkPlanConstructionError::MissingStagedArtifact(
@@ -767,7 +767,7 @@ mod tests {
                 &plan,
                 staged_artifacts(&plan),
                 outputs,
-                &product_link_facts(),
+                &product_link_inputs(),
                 &linker_for(LinkStartupMode::PlatformCompilerDriver),
             ),
             Err(LinkPlanConstructionError::MissingOutputStaging(
@@ -789,7 +789,7 @@ mod tests {
                 &plan,
                 staged_artifacts(&plan).into_iter().chain([foreign]),
                 output_staging(&plan),
-                &product_link_facts(),
+                &product_link_inputs(),
                 &linker_for(LinkStartupMode::PlatformCompilerDriver),
             ),
             Err(LinkPlanConstructionError::UnexpectedStagedArtifact(
@@ -803,7 +803,7 @@ mod tests {
         let plan = library_plan();
         let staged = staged_artifacts(&plan);
         let outputs = output_staging(&plan);
-        let facts = product_link_facts();
+        let inputs = product_link_inputs();
         let invocations = Arc::new(AtomicUsize::new(0));
 
         let driver = Arc::new(CountingDriver {
@@ -821,7 +821,7 @@ mod tests {
             &plan,
             staged.iter().cloned(),
             outputs.iter().cloned(),
-            &facts,
+            &inputs,
             &linker,
         );
 
@@ -829,7 +829,7 @@ mod tests {
             &plan,
             staged.into_iter().rev(),
             outputs.into_iter().rev(),
-            &facts,
+            &inputs,
             &linker,
         );
 
@@ -848,7 +848,7 @@ mod tests {
 
     #[test]
     fn link_plan_inputs_are_immutable_worker_safe_values() {
-        assert_send_sync::<ProductLinkFacts>();
+        assert_send_sync::<ProductLinkInputs>();
         assert_send_sync::<StagedArtifact>();
         assert_send_sync::<LinkOutputStaging>();
     }
@@ -977,8 +977,8 @@ mod tests {
             .collect()
     }
 
-    fn product_link_facts() -> ProductLinkFacts {
-        ProductLinkFacts::new(
+    fn product_link_inputs() -> ProductLinkInputs {
+        ProductLinkInputs::new(
             link_target(),
             LinkPolicy::new(
                 DeadStripPolicy::RemoveUnreachable,

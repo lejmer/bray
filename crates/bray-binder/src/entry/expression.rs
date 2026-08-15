@@ -3,8 +3,8 @@ use bray_bound_tree::{
     BoundUnitKey,
 };
 use bray_symbols::{
-    AnySymbolId, CallableSignatureFact, LocalScopeId, PredicateDefinitionSymbolId,
-    PredicateSignatureTemplateFact, SymbolFactRequest,
+    AnySymbolId, CallableSignatureQuery, LocalScopeId, PredicateDefinitionSymbolId,
+    PredicateSignatureTemplateQuery, SymbolQueryRequest,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, ExpressionSyntax, RequiresClauseSyntax, SyntaxKind, TypeExpressionSyntax,
@@ -14,7 +14,7 @@ use bray_syntax::{
 use super::BoundUnitBindingError;
 use super::support::{
     anchored_descendant, create_binder, error_type, insert_callable_inputs, insert_surface,
-    map_assembly_error, map_binding_error, map_fact_error, path_context, push_callable_inputs,
+    map_assembly_error, map_binding_error, map_query_error, path_context, push_callable_inputs,
 };
 use crate::binder::{Binder, BinderOutput};
 use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, push_contract_scope};
@@ -23,7 +23,7 @@ use crate::publication::{
     assemble_embedded_constant, assemble_predicate_definition, assemble_runtime_default,
     assemble_target_gate, direct_nested_units,
 };
-use crate::{BinderFactContext, BoundUnitComputation, SymbolFactProvider};
+use crate::{BindingQueryContext, BoundUnitComputation, SymbolQueryProvider};
 
 macro_rules! define_pending_expression_unit {
     (
@@ -32,7 +32,7 @@ macro_rules! define_pending_expression_unit {
         $assemble:ident,
         $bind_helper:ident,
         $root:ty,
-        [$($fact_contract:ty),* $(,)?],
+        [$($query_contract:ty),* $(,)?],
         $pending_description:literal,
         $bind_description:literal
     ) => {
@@ -57,15 +57,15 @@ macro_rules! define_pending_expression_unit {
 
         #[doc = $bind_description]
         pub fn $bind<C>(
-            facts: &C,
+            binding_context: &C,
             unit: BoundUnitId,
             key: BoundUnitKey,
         ) -> Result<$pending, BoundUnitBindingError>
         where
-            C: BinderFactContext + ?Sized,
-            $(C::SymbolFacts: SymbolFactProvider<$fact_contract>,)*
+            C: BindingQueryContext + ?Sized,
+            $(C::SymbolSemantics: SymbolQueryProvider<$query_contract>,)*
         {
-            let (output, root) = $bind_helper(facts, unit, key)?;
+            let (output, root) = $bind_helper(binding_context, unit, key)?;
 
             let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
 
@@ -84,7 +84,7 @@ define_pending_expression_unit!(
     assemble_runtime_default,
     bind_runtime_default_unit,
     BoundExpressionId,
-    [CallableSignatureFact],
+    [CallableSignatureQuery],
     "A bound runtime-default expression ready to complete its semantic unit.",
     "Binds one runtime-default expression into committed task-local state."
 );
@@ -114,7 +114,7 @@ define_pending_expression_unit!(
     assemble_predicate_definition,
     bind_predicate_definition_unit,
     BoundExpressionId,
-    [PredicateSignatureTemplateFact],
+    [PredicateSignatureTemplateQuery],
     "A bound predicate-definition expression ready to complete its semantic unit.",
     "Binds one predicate-definition expression into committed task-local state."
 );
@@ -134,7 +134,7 @@ define_pending_expression_unit!(
     assemble_contract_clause,
     bind_contract_clause_unit,
     BoundBlockId,
-    [CallableSignatureFact],
+    [CallableSignatureQuery],
     "A bound contract-clause expression sequence ready to complete its semantic unit.",
     "Binds one contract-clause expression sequence into committed task-local state."
 );
@@ -150,63 +150,70 @@ define_pending_expression_unit!(
 );
 
 fn bind_constraint_unit<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    bind_expression_sequence_unit(facts, unit, key, false, false, |_, _| Ok(()))
+    bind_expression_sequence_unit(binding_context, unit, key, false, false, |_, _| Ok(()))
 }
 
 fn bind_contract_clause_unit<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     let has_result = if key.source().syntax().syntax_kind() == SyntaxKind::EnsuresClause {
-        let owner = facts
+        let owner = binding_context
             .symbols()
             .symbol_for_key(key.declared_owner())
             .ok_or(BoundUnitBindingError::MissingOwner)?;
 
-        callable_normal_completion_has_value(facts, owner).map_err(map_fact_error)?
+        callable_normal_completion_has_value(binding_context, owner).map_err(map_query_error)?
     } else {
         false
     };
 
-    bind_expression_sequence_unit(facts, unit, key, true, has_result, |binder, scope| {
-        push_callable_inputs(binder, scope).map(|_| ())
-    })
+    bind_expression_sequence_unit(
+        binding_context,
+        unit,
+        key,
+        true,
+        has_result,
+        |binder, scope| push_callable_inputs(binder, scope).map(|_| ()),
+    )
 }
 
 fn bind_expression_unit<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    bind_expression_unit_with_scope(facts, unit, key, |_, _| Ok(()))
+    bind_expression_unit_with_scope(binding_context, unit, key, |_, _| Ok(()))
 }
 
 fn bind_embedded_constant_unit<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    if let Some(syntax) = anchored_descendant::<_, ExpressionSyntax>(facts, key.source().syntax()) {
+    if let Some(syntax) =
+        anchored_descendant::<_, ExpressionSyntax>(binding_context, key.source().syntax())
+    {
         return bind_expression_root_unit(
-            facts,
+            binding_context,
             unit,
             key,
             |_, _| Ok(()),
@@ -216,11 +223,12 @@ where
         );
     }
 
-    let syntax = anchored_descendant::<_, TypeExpressionSyntax>(facts, key.source().syntax())
-        .ok_or(BoundUnitBindingError::MissingSyntax)?;
+    let syntax =
+        anchored_descendant::<_, TypeExpressionSyntax>(binding_context, key.source().syntax())
+            .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     bind_expression_root_unit(
-        facts,
+        binding_context,
         unit,
         key,
         |_, _| Ok(()),
@@ -231,43 +239,43 @@ where
 }
 
 fn bind_runtime_default_unit<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
-    bind_expression_unit_with_scope(facts, unit, key, push_runtime_default_inputs)
+    bind_expression_unit_with_scope(binding_context, unit, key, push_runtime_default_inputs)
 }
 
 fn bind_predicate_definition_unit<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<PredicateSignatureTemplateQuery>,
 {
-    bind_expression_unit_with_scope(facts, unit, key, push_predicate_inputs)
+    bind_expression_unit_with_scope(binding_context, unit, key, push_predicate_inputs)
 }
 
 fn bind_expression_unit_with_scope<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
     configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    let syntax = anchored_descendant::<_, ExpressionSyntax>(facts, key.source().syntax())
+    let syntax = anchored_descendant::<_, ExpressionSyntax>(binding_context, key.source().syntax())
         .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     bind_expression_root_unit(
-        facts,
+        binding_context,
         unit,
         key,
         configure_scope,
@@ -278,7 +286,7 @@ where
 }
 
 fn bind_expression_root_unit<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
     configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
@@ -289,15 +297,15 @@ fn bind_expression_root_unit<C>(
     ) -> Result<BoundExpressionId, crate::binding::BindingError>,
 ) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    let mut binder = create_binder(facts, unit, key)?;
+    let mut binder = create_binder(binding_context, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
     configure_scope(&mut binder, root_scope)?;
 
     let path_context = path_context(&binder, root_scope)?;
-    let error_type = error_type(facts)?;
+    let error_type = error_type(binding_context)?;
 
     let mut expression_binder = match binder.unit().key().kind() {
         bray_bound_tree::BoundUnitKind::EmbeddedConstant => {
@@ -321,17 +329,17 @@ fn push_runtime_default_inputs<C>(
     scope: LocalScopeId,
 ) -> Result<(), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     let provider = binder
-        .facts()
+        .binding_context()
         .symbols()
         .symbol_for_key(binder.unit().key().declared_owner())
         .ok_or(BoundUnitBindingError::MissingOwner)?;
 
     let subject = binder
-        .facts()
+        .binding_context()
         .symbols()
         .runtime_default_subject(provider)
         .ok_or(BoundUnitBindingError::MissingOwner)?;
@@ -341,18 +349,18 @@ where
     };
 
     let parameter = binder
-        .facts()
+        .binding_context()
         .symbols()
         .callable_parameter(parameter)
         .ok_or(BoundUnitBindingError::MissingOwner)?;
 
     let signature = binder
-        .facts()
-        .symbol_facts()
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        .binding_context()
+        .symbol_semantics()
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
             parameter.owner(),
         ))
-        .map_err(map_fact_error)?;
+        .map_err(map_query_error)?;
 
     insert_callable_inputs(
         binder,
@@ -367,23 +375,23 @@ fn push_predicate_inputs<C>(
     scope: LocalScopeId,
 ) -> Result<(), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<PredicateSignatureTemplateFact>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<PredicateSignatureTemplateQuery>,
 {
     let owner = binder
-        .facts()
+        .binding_context()
         .symbols()
         .symbol_for_key(binder.unit().key().declared_owner())
         .and_then(PredicateDefinitionSymbolId::try_from_any)
         .ok_or(BoundUnitBindingError::MissingOwner)?;
 
     let signature = binder
-        .facts()
-        .symbol_facts()
-        .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+        .binding_context()
+        .symbol_semantics()
+        .resolve_symbol_query(SymbolQueryRequest::<PredicateSignatureTemplateQuery>::new(
             owner,
         ))
-        .map_err(map_fact_error)?;
+        .map_err(map_query_error)?;
 
     for parameter in signature.value().parameters() {
         let symbol = parameter.parameter().into();
@@ -399,7 +407,7 @@ where
 }
 
 fn bind_expression_sequence_unit<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
     uses_contract_scope: bool,
@@ -407,13 +415,13 @@ fn bind_expression_sequence_unit<C>(
     configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
 ) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let source = key.source();
     let syntax = source.syntax();
 
-    let expressions =
-        anchored_expression_sequence(facts, syntax).ok_or(BoundUnitBindingError::MissingSyntax)?;
+    let expressions = anchored_expression_sequence(binding_context, syntax)
+        .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
     if expressions.is_empty() {
         return Err(BoundUnitBindingError::MissingSyntax);
@@ -422,7 +430,7 @@ where
     let origin = BoundNodeOrigin::source(source);
     let is_recovered = syntax.is_recovered();
 
-    let mut binder = create_binder(facts, unit, key)?;
+    let mut binder = create_binder(binding_context, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
     configure_scope(&mut binder, root_scope)?;
@@ -435,7 +443,7 @@ where
     };
 
     let path_context = path_context(&binder, expression_scope)?;
-    let error_type = error_type(facts)?;
+    let error_type = error_type(binding_context)?;
 
     let mut expression_binder = ExpressionBinder::new(path_context, error_type);
     let mut roots = Vec::with_capacity(expressions.len());
@@ -477,19 +485,25 @@ where
 }
 
 fn anchored_expression_sequence<C>(
-    facts: &C,
+    binding_context: &C,
     anchor: bray_declarations::SyntaxAnchor,
 ) -> Option<Vec<ExpressionSyntax>>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     match anchor.syntax_kind() {
-        SyntaxKind::RequiresClause => anchored_descendant::<_, RequiresClauseSyntax>(facts, anchor)
-            .map(|clause| clause.expressions().collect()),
-        SyntaxKind::EnsuresClause => anchored_descendant::<_, EnsuresClauseSyntax>(facts, anchor)
-            .map(|clause| clause.expressions().collect()),
-        SyntaxKind::WithClause => anchored_descendant::<_, WithClauseSyntax>(facts, anchor)
-            .map(|clause| clause.expressions().collect()),
+        SyntaxKind::RequiresClause => {
+            anchored_descendant::<_, RequiresClauseSyntax>(binding_context, anchor)
+                .map(|clause| clause.expressions().collect())
+        }
+        SyntaxKind::EnsuresClause => {
+            anchored_descendant::<_, EnsuresClauseSyntax>(binding_context, anchor)
+                .map(|clause| clause.expressions().collect())
+        }
+        SyntaxKind::WithClause => {
+            anchored_descendant::<_, WithClauseSyntax>(binding_context, anchor)
+                .map(|clause| clause.expressions().collect())
+        }
         _ => None,
     }
 }

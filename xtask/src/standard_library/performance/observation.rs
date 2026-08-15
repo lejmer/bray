@@ -164,10 +164,11 @@ fn read(path: &Path) -> Result<RecordedExecution, String> {
         return Err("performance observation stream exceeds its record bound".to_owned());
     }
 
-    let bytes = fs::read(path)
-        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    let bytes =
+        fs::read(path).map_err(|error| format!("could not read {}: {error}", path.display()))?;
 
-    let Some(records) = bytes.strip_prefix(&bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER) else {
+    let Some(records) = bytes.strip_prefix(&bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER)
+    else {
         return Err("performance observation stream has an unsupported header".to_owned());
     };
 
@@ -207,9 +208,15 @@ fn read(path: &Path) -> Result<RecordedExecution, String> {
             }
             CONTROLLED_DURATION_RECORD if duration_nanoseconds.replace(value).is_none() => {}
             CONTROLLED_DURATION_RECORD => {
-                return Err("performance observation stream repeats its controlled interval".to_owned());
+                return Err(
+                    "performance observation stream repeats its controlled interval".to_owned(),
+                );
             }
-            kind => return Err(format!("performance observation stream has unknown record {kind}")),
+            kind => {
+                return Err(format!(
+                    "performance observation stream has unknown record {kind}"
+                ));
+            }
         }
     }
 
@@ -237,9 +244,7 @@ fn require_observation_symbols(linker_map: &Path, kind: ObservationKind) -> Resu
             bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
             bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
         ],
-        ObservationKind::Memory => &[
-            bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
-        ],
+        ObservationKind::Memory => &[bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL],
     };
 
     for symbol in required {
@@ -260,8 +265,12 @@ const fn empty_storage() -> StorageExpectation {
 }
 
 fn linked_symbols(linker_map: &Path) -> Result<String, String> {
-    fs::read_to_string(linker_map)
-        .map_err(|error| format!("could not read linker map {}: {error}", linker_map.display()))
+    fs::read_to_string(linker_map).map_err(|error| {
+        format!(
+            "could not read linker map {}: {error}",
+            linker_map.display()
+        )
+    })
 }
 
 const fn observation_symbols() -> [&'static str; 5] {
@@ -398,8 +407,11 @@ mod tests {
         require_observation_symbols(&path, ObservationKind::Memory)
             .unwrap_or_else(|error| panic!("memory observation root must validate: {error}"));
 
-        fs::write(&path, bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL)
-            .unwrap_or_else(|error| panic!("linker map fixture must write: {error}"));
+        fs::write(
+            &path,
+            bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
+        )
+        .unwrap_or_else(|error| panic!("linker map fixture must write: {error}"));
 
         assert!(require_observation_symbols(&path, ObservationKind::Memory).is_err());
     }

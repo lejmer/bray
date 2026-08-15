@@ -584,8 +584,8 @@ where
 {
     match request.member_name(symbol) {
         Ok(name) => Ok(name.map(|name| name.as_str().to_owned())),
-        Err(crate::CheckerFactError::Cancelled) => Ok(None),
-        Err(crate::CheckerFactError::Infrastructure(error)) => Err(error),
+        Err(crate::CheckerQueryError::Cancelled) => Ok(None),
+        Err(crate::CheckerQueryError::Infrastructure(error)) => Err(error),
     }
 }
 

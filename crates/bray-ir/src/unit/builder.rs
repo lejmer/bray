@@ -5,7 +5,7 @@ use bray_symbols::TypeId;
 use crate::{
     MirBlock, MirBlockId, MirBlockKind, MirFrameDescriptor, MirHelperReference, MirOperation,
     MirOperationCommit, MirOperationId, MirOperationKind, MirSourceAnchor, MirSourceOrigin,
-    MirStorage, MirStorageId, MirStorageKind, MirTargetFacts, MirTerminator, MirTerminatorKind,
+    MirStorage, MirStorageId, MirStorageKind, MirTargetContract, MirTerminator, MirTerminatorKind,
     MirUnit, MirUnitId, MirUnitKey, MirUnitKind, MirValue, MirValueId, MirValueOrigin,
 };
 
@@ -27,7 +27,7 @@ pub struct MirUnitBuilder {
     key: MirUnitKey,
     unit: MirUnitId,
     source: MirSourceOrigin,
-    target: MirTargetFacts,
+    target: MirTargetContract,
     kind: MirUnitKind,
     frame_descriptor: Option<MirFrameDescriptor>,
     blocks: Vec<MirBlockBuilder>,
@@ -42,7 +42,7 @@ impl MirUnitBuilder {
         unit: MirUnitId,
         key: crate::MirImportedExecutableKey,
         kind: MirUnitKind,
-        target: MirTargetFacts,
+        target: MirTargetContract,
     ) -> Self {
         Self {
             key: MirUnitKey::ImportedExecutable(key),
@@ -62,7 +62,7 @@ impl MirUnitBuilder {
     pub fn for_bound(
         identity: BoundUnitIdentity<'_>,
         kind: MirUnitKind,
-        target: MirTargetFacts,
+        target: MirTargetContract,
     ) -> Self {
         let source = identity.key().source();
 
@@ -87,7 +87,7 @@ impl MirUnitBuilder {
     pub fn for_executable_host(
         unit: MirUnitId,
         host: ExecutableHostContract,
-        target: MirTargetFacts,
+        target: MirTargetContract,
     ) -> Self {
         // Product identities are Arc-backed and the generated unit owns its provenance.
         let product = host.product().clone();
@@ -111,7 +111,7 @@ impl MirUnitBuilder {
         unit: MirUnitId,
         key: MirUnitKey,
         reference: MirHelperReference,
-        target: MirTargetFacts,
+        target: MirTargetContract,
     ) -> Self {
         Self {
             key,
@@ -381,7 +381,7 @@ mod tests {
     use super::MirUnitBuilder;
     use crate::{
         MirAggregate, MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCleanupEdge,
-        MirCleanupPhase, MirEdge, MirFrameDescriptor, MirFrameStateFacts, MirFrameStateId,
+        MirCleanupPhase, MirEdge, MirFrameDescriptor, MirFrameState, MirFrameStateId,
         MirImmediateValue, MirMemoryOperation, MirOperand, MirOperationKind, MirPlace,
         MirProjection, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
         MirTerminatorKind, MirUnitBuildError, MirUnitKind,
@@ -1003,7 +1003,7 @@ mod tests {
         entry: crate::MirBlockId,
         result_type: bray_symbols::TypeId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameStateFacts::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
         let abi = RuntimeAbiVersion::new(1, 0);
 

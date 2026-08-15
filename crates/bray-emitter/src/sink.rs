@@ -114,9 +114,7 @@ impl OutputSink {
             Self::ManagedFilesystem { published, .. } => {
                 DiagnosticOutputSink::Filesystem(published.clone())
             }
-            Self::Filesystem(path) => {
-                DiagnosticOutputSink::Filesystem(path.clone())
-            }
+            Self::Filesystem(path) => DiagnosticOutputSink::Filesystem(path.clone()),
             Self::Memory { collector, .. } => {
                 DiagnosticOutputSink::Memory(collector.as_str().to_owned())
             }

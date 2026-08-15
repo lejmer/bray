@@ -62,7 +62,7 @@ impl Default for BackendEmissionPolicy {
     }
 }
 
-/// Selected backend facts and codegen-unit membership available to emission planning.
+/// Selected backend inputs and codegen-unit membership available to emission planning.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct EmissionBackend {
     identity: BackendIdentity,

@@ -5,7 +5,7 @@ use bray_symbols::{
     DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId,
     ImplementationCoherenceEvidence, ImplementationCoherenceParticipant, ImplementationInstanceId,
     ImplementationRequirementKey, ImplementationSubject, ImplementationSymbolId,
-    PredicateSemanticSummary, TargetFactDependency, TraitApplicationId,
+    PredicateSemanticSummary, TargetPropertyDependency, TraitApplicationId,
     TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeId,
 };
 
@@ -13,7 +13,7 @@ use crate::semantic::model::InterfaceCallablePhaseBehavior;
 use crate::{
     InterfaceCallableInstanceId, InterfaceConstantTermId, InterfaceConstantValueId,
     InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
-    InterfaceImplementationInstanceId, InterfaceSemanticFacts, InterfaceTraitApplicationId,
+    InterfaceImplementationInstanceId, InterfaceSemantics, InterfaceTraitApplicationId,
     InterfaceTypeId,
 };
 
@@ -22,50 +22,49 @@ use super::common::{
     resolve_symbol_key,
 };
 use super::{
-    ImportedAbiDependency, ImportedCallableContractFact, ImportedConstraintFact,
-    ImportedImplementationFact, ImportedRuntimeRequirement, ImportedSemanticFacts,
-    ImportedSourceProvenance, ImportedTargetFact, InterfaceSemanticInternError,
-    InterfaceSymbolResolver, InternState,
+    ImportedAbiDependency, ImportedCallableContract, ImportedConstraint, ImportedImplementation,
+    ImportedRuntimeRequirement, ImportedSemantics, ImportedSourceProvenance,
+    ImportedTargetProperty, InterfaceSemanticInternError, InterfaceSymbolResolver, InternState,
 };
 
 impl InternState {
     pub(super) fn finish(
         self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<ImportedSemanticFacts, InterfaceSemanticInternError> {
-        let constraints = self.convert_constraints(facts, symbols)?;
-        let callable_signatures = self.convert_callable_signatures(facts, symbols)?;
+    ) -> Result<ImportedSemantics, InterfaceSemanticInternError> {
+        let constraints = self.convert_constraints(semantics, symbols)?;
+        let callable_signatures = self.convert_callable_signatures(semantics, symbols)?;
 
         let generic_declarations =
-            self.convert_generic_declarations(facts, symbols, &constraints)?;
+            self.convert_generic_declarations(semantics, symbols, &constraints)?;
 
         let callable_parameter_defaults =
-            self.convert_callable_parameter_defaults(facts, symbols)?;
+            self.convert_callable_parameter_defaults(semantics, symbols)?;
 
-        let predicate_definitions = self.convert_predicate_definitions(facts, symbols)?;
-        let declared_types = self.convert_declared_types(facts, symbols)?;
-        let type_representations = self.convert_type_representations(facts, symbols)?;
+        let predicate_definitions = self.convert_predicate_definitions(semantics, symbols)?;
+        let declared_types = self.convert_declared_types(semantics, symbols)?;
+        let type_representations = self.convert_type_representations(semantics, symbols)?;
 
-        let callable_contracts = self.convert_callable_contracts(facts, symbols)?;
-        let coherence = self.convert_coherence(facts, symbols)?;
-        let target_dependencies = self.convert_target_dependencies(facts, symbols)?;
+        let callable_contracts = self.convert_callable_contracts(semantics, symbols)?;
+        let coherence = self.convert_coherence(semantics, symbols)?;
+        let target_dependencies = self.convert_target_dependencies(semantics, symbols)?;
 
         let implementations = self.convert_implementations(
-            facts,
+            semantics,
             symbols,
             &coherence,
             &constraints,
             &target_dependencies,
         )?;
 
-        let abi_dependencies = self.convert_abi_dependencies(facts, symbols)?;
-        let runtime_requirements = self.convert_runtime_requirements(facts, symbols)?;
-        let provenance = self.convert_provenance(facts, symbols)?;
-        let declaration_templates = self.convert_declaration_templates(facts, symbols)?;
+        let abi_dependencies = self.convert_abi_dependencies(semantics, symbols)?;
+        let runtime_requirements = self.convert_runtime_requirements(semantics, symbols)?;
+        let provenance = self.convert_provenance(semantics, symbols)?;
+        let declaration_templates = self.convert_declaration_templates(semantics, symbols)?;
 
-        Ok(ImportedSemanticFacts {
-            interface_facts: std::sync::Arc::new(facts.clone()),
+        Ok(ImportedSemantics {
+            interface_semantics: std::sync::Arc::new(semantics.clone()),
             types: finish_table(self.types)?,
             constant_values: finish_table(self.constant_values)?,
             constant_terms: finish_table(self.constant_terms)?,
@@ -94,10 +93,10 @@ impl InternState {
 
     pub(super) fn convert_constraints(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<ImportedConstraintFact>, InterfaceSemanticInternError> {
-        facts
+    ) -> Result<Vec<ImportedConstraint>, InterfaceSemanticInternError> {
+        semantics
             .constraints
             .iter()
             .map(|input| {
@@ -107,7 +106,7 @@ impl InternState {
                     return Err(invalid_symbol(&input.owner));
                 };
 
-                Ok(ImportedConstraintFact {
+                Ok(ImportedConstraint {
                     owner,
                     constraint: match input.kind {
                         crate::InterfaceConstraintKind::Predicate(predicate) => {
@@ -147,10 +146,10 @@ impl InternState {
 
     pub(super) fn convert_callable_contracts(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<ImportedCallableContractFact>, InterfaceSemanticInternError> {
-        facts
+    ) -> Result<Vec<ImportedCallableContract>, InterfaceSemanticInternError> {
+        semantics
             .callable_contracts
             .iter()
             .map(|input| {
@@ -202,7 +201,7 @@ impl InternState {
                     .map(|behavior| self.convert_callable_behavior(behavior, symbols))
                     .transpose()?;
 
-                Ok(ImportedCallableContractFact {
+                Ok(ImportedCallableContract {
                     owner: resolve_family::<CallableSymbolId>(symbols, &input.owner)?,
                     contract: CallableContractSet::new(
                         clauses,
@@ -269,13 +268,13 @@ impl InternState {
 
     pub(super) fn convert_implementations(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
         coherence: &[ImplementationCoherenceEvidence],
-        constraints: &[ImportedConstraintFact],
-        target_dependencies: &[ImportedTargetFact],
-    ) -> Result<Vec<ImportedImplementationFact>, InterfaceSemanticInternError> {
-        facts
+        constraints: &[ImportedConstraint],
+        target_dependencies: &[ImportedTargetProperty],
+    ) -> Result<Vec<ImportedImplementation>, InterfaceSemanticInternError> {
+        semantics
             .implementations
             .iter()
             .map(|input| {
@@ -300,7 +299,7 @@ impl InternState {
                         .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
                 );
 
-                // Header facts retain shallow Arc-backed semantic values independently.
+                // Header semantics retain shallow Arc-backed semantic values independently.
                 let coherence = trait_application
                     .and_then(|trait_application| {
                         coherence.iter().find(|evidence| {
@@ -330,7 +329,7 @@ impl InternState {
                     .collect::<Vec<_>>()
                     .into();
 
-                // Header facts retain shallow copies of shared semantic values independently.
+                // Header semantics retain shallow copies of shared semantic values independently.
                 let target_dependencies = target_dependencies
                     .iter()
                     .filter(|dependency| dependency.owner() == owner)
@@ -338,7 +337,7 @@ impl InternState {
                     .collect::<Vec<_>>()
                     .into();
 
-                Ok(ImportedImplementationFact {
+                Ok(ImportedImplementation {
                     implementation,
                     subject,
                     trait_application,
@@ -352,10 +351,10 @@ impl InternState {
 
     pub(super) fn convert_coherence(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Vec<ImplementationCoherenceEvidence>, InterfaceSemanticInternError> {
-        facts
+        semantics
             .coherence
             .iter()
             .map(|input| {
@@ -394,25 +393,25 @@ impl InternState {
 
     pub(super) fn convert_target_dependencies(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
-    ) -> Result<Vec<ImportedTargetFact>, InterfaceSemanticInternError> {
-        facts
+    ) -> Result<Vec<ImportedTargetProperty>, InterfaceSemanticInternError> {
+        semantics
             .target_dependencies
             .iter()
             .map(|input| {
                 let owner = resolve_symbol(symbols, &input.owner)?;
-                let fact = resolve_exact(symbols, &input.fact)?;
+                let property = resolve_exact(symbols, &input.property)?;
 
-                let key = resolve_symbol_key(symbols, &input.fact)?;
+                let key = resolve_symbol_key(symbols, &input.property)?;
 
                 let value = self
                     .constant_value_id(input.value)
                     .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
-                Ok(ImportedTargetFact {
+                Ok(ImportedTargetProperty {
                     owner,
-                    dependency: TargetFactDependency::new(key, fact, value),
+                    dependency: TargetPropertyDependency::new(key, property, value),
                 })
             })
             .collect()
@@ -420,10 +419,10 @@ impl InternState {
 
     pub(super) fn convert_abi_dependencies(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Vec<ImportedAbiDependency>, InterfaceSemanticInternError> {
-        facts
+        semantics
             .abi_dependencies
             .iter()
             .map(|input| {
@@ -437,10 +436,10 @@ impl InternState {
 
     pub(super) fn convert_runtime_requirements(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Vec<ImportedRuntimeRequirement>, InterfaceSemanticInternError> {
-        facts
+        semantics
             .runtime_requirements
             .iter()
             .map(|input| {
@@ -459,16 +458,16 @@ impl InternState {
 
     pub(super) fn convert_provenance(
         &self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Vec<ImportedSourceProvenance>, InterfaceSemanticInternError> {
-        facts
+        semantics
             .provenance
             .iter()
             .map(|input| {
                 Ok(ImportedSourceProvenance {
                     symbol: resolve_symbol(symbols, &input.symbol)?,
-                    // Imported facts retain the Arc-backed document identity independently.
+                    // Imported semantics retain the Arc-backed document identity independently.
                     document: input.document.clone(),
                     start: input.start,
                     end: input.end,

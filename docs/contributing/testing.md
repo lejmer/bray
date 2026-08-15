@@ -32,7 +32,7 @@ standard library is available.
 
 `xtask/fixtures/readiness/semantic-coverage.json` is the machine-checked pre-lowering semantic coverage inventory. It is a fixture,
 not design documentation. Its rule-family entries name production owners, structured-diagnostic source tests, valid source tests,
-imported or compiler-known boundary tests, and published facts or queries. Its cross-cutting entries cover target and product
+imported or compiler-known boundary tests, and published query results. Its cross-cutting entries cover target and product
 variation, lazy demand, scheduling, recovery, cancellation, bounded work, and deterministic diagnostics.
 
 Update the fixture when a semantic rule family or its owning query changes. Every source-test anchor must identify an executable test
@@ -42,7 +42,7 @@ readiness audit rejects missing rows, placeholders, stale code anchors, and non-
 ## Lowering coverage fixture
 
 `xtask/fixtures/readiness/lowering-coverage.json` is the machine-checked lowering boundary inventory. It maps every bound-expression
-variant, structured-expression kind, pattern form, bound-unit root, and required semantic fact to its production lowering owner and
+variant, structured-expression kind, pattern form, bound-unit root, and required semantic input to its production lowering owner and
 an executable test. Cross-cutting rows cover MIR validation, lazy publication, worker-count determinism, and recovery. The lowering
 readiness audit directly enforces the MIR-only codegen dependency boundary.
 

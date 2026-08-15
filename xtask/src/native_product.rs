@@ -58,7 +58,7 @@ pub(crate) fn emit_executable_with_configuration(
     .map_err(|error| format!("native runtime artifact is invalid: {error:?}"))?;
 
     let native = compilation
-        .native_product_facts(
+        .native_product_plan(
             product.clone(),
             configuration,
             Some(runtime),

@@ -9,14 +9,14 @@ use super::{
     DiagnosticPatternCoverageJson, DiagnosticProblemJson, DiagnosticProjectCommandFailureJson,
     DiagnosticProjectDependencyCycleMemberJson, DiagnosticProjectSelectionJson,
     DiagnosticRuntimeAbiVersionJson, DiagnosticRuntimeArtifactProblemJson,
-    DiagnosticSelectionCandidatesJson,
-    DiagnosticSelectionRejectionsJson, DiagnosticSourceInputJson, DiagnosticStorageAccessJson,
-    DiagnosticTraitFulfillmentMismatchJson, DiagnosticTypeJson,
-    DiagnosticUnsupportedEmissionReasonJson, SourceSpanJson, array_generator_problem_json,
-    callback_state_problem_json, copy_contract_problem_json, interface_semantic_problem_json,
-    interface_symbol_graph_problem_json, layout_problem_json, native_link_directive_problem_json,
-    native_symbol_directive_problem_json, platform_service_signature_problem_json,
-    propagation_problem_json, refinement_capacity_json, union_tag_problem_json,
+    DiagnosticSelectionCandidatesJson, DiagnosticSelectionRejectionsJson,
+    DiagnosticSourceInputJson, DiagnosticStorageAccessJson, DiagnosticTraitFulfillmentMismatchJson,
+    DiagnosticTypeJson, DiagnosticUnsupportedEmissionReasonJson, SourceSpanJson,
+    array_generator_problem_json, callback_state_problem_json, copy_contract_problem_json,
+    interface_semantic_problem_json, interface_symbol_graph_problem_json, layout_problem_json,
+    native_link_directive_problem_json, native_symbol_directive_problem_json,
+    platform_service_signature_problem_json, propagation_problem_json, refinement_capacity_json,
+    union_tag_problem_json,
 };
 use crate::output::diagnostic::source_map::DiagnosticSourceMap;
 use crate::output::path_to_output_string;
@@ -270,11 +270,9 @@ impl DiagnosticArgValueJson {
                     minor: version.minor(),
                 })
             }
-            DiagnosticArgValue::RuntimeArtifactProblem(problem) => {
-                Self::RuntimeArtifactProblem(DiagnosticRuntimeArtifactProblemJson::from_problem(
-                    problem,
-                ))
-            }
+            DiagnosticArgValue::RuntimeArtifactProblem(problem) => Self::RuntimeArtifactProblem(
+                DiagnosticRuntimeArtifactProblemJson::from_problem(problem),
+            ),
             DiagnosticArgValue::Type(ty) => Self::Type(DiagnosticTypeJson::from_type(ty)),
             DiagnosticArgValue::SelectionKind(kind) => Self::SelectionKind((*kind).as_str()),
             DiagnosticArgValue::SelectionCandidates(candidates) => Self::SelectionCandidates(

@@ -100,7 +100,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<ConstantValueId>, FactQueryError> {
         let key = self.embedded_constant_key(occurrence)?;
 
-        // Independently cached facts retain the same Arc-backed unit identity.
+        // Independently cached results retain the same Arc-backed unit identity.
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
         let context = self.checker_context_for(&key, cancellation)?;

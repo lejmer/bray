@@ -26,9 +26,19 @@ pub(super) fn finished(elapsed: Duration) {
 }
 
 fn plan_message(workloads: usize, warmups: u32, samples: u32) -> String {
-    let workload = if workloads == 1 { "workload" } else { "workloads" };
+    let workload = if workloads == 1 {
+        "workload"
+    } else {
+        "workloads"
+    };
+
     let warmup = if warmups == 1 { "warmup" } else { "warmups" };
-    let sample = if samples == 1 { "measured sample" } else { "measured samples" };
+
+    let sample = if samples == 1 {
+        "measured sample"
+    } else {
+        "measured samples"
+    };
 
     format!("Measuring {workloads} {workload} with {warmups} {warmup} and {samples} {sample}")
 }

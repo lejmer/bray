@@ -203,9 +203,9 @@ impl StorageExitDecision {
     }
 }
 
-/// A contract violation while constructing durable storage-flow facts.
+/// A contract violation while constructing durable storage-flow analysis.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StorageFlowFactsBuildError {
+pub enum StorageFlowBuildError {
     /// A decision references an identity owned by another unit.
     ForeignUnit,
     /// The same direct-await expression has more than one state snapshot.
@@ -216,7 +216,7 @@ pub enum StorageFlowFactsBuildError {
 
 /// Immutable storage, ownership, and borrow decisions for one bound unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct StorageFlowFacts {
+pub struct StorageFlow {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     operations: Arc<[StorageOperationDecision]>,
@@ -227,7 +227,7 @@ pub struct StorageFlowFacts {
     is_recovered: bool,
 }
 
-impl StorageFlowFacts {
+impl StorageFlow {
     /// Validates and creates one durable storage-flow result.
     pub fn try_new(
         unit: BoundUnitId,
@@ -236,7 +236,7 @@ impl StorageFlowFacts {
         suspensions: impl IntoIterator<Item = StorageSuspensionState>,
         exits: impl IntoIterator<Item = StorageExitDecision>,
         is_recovered: bool,
-    ) -> Result<Self, StorageFlowFactsBuildError> {
+    ) -> Result<Self, StorageFlowBuildError> {
         let operations = operations.into_iter().collect::<Vec<_>>();
         let mut suspensions = suspensions.into_iter().collect::<Vec<_>>();
         let exits = exits.into_iter().collect::<Vec<_>>();
@@ -278,7 +278,7 @@ impl StorageFlowFacts {
                     .iter()
                     .any(|borrow| borrow.unit() != unit)
         }) {
-            return Err(StorageFlowFactsBuildError::ForeignUnit);
+            return Err(StorageFlowBuildError::ForeignUnit);
         }
 
         suspensions.sort_unstable_by_key(StorageSuspensionState::expression);
@@ -287,7 +287,7 @@ impl StorageFlowFacts {
             .windows(2)
             .any(|pair| pair[0].expression() == pair[1].expression())
         {
-            return Err(StorageFlowFactsBuildError::DuplicateSuspension);
+            return Err(StorageFlowBuildError::DuplicateSuspension);
         }
 
         Ok(Self {
@@ -302,14 +302,14 @@ impl StorageFlowFacts {
         })
     }
 
-    /// Adds validated memory-flow decisions without mutating the published facts.
+    /// Adds validated memory-flow decisions without mutating the published analysis.
     pub fn with_memory_operations(
         mut self,
         checked: &CheckedMemoryOperations,
         decisions: impl IntoIterator<Item = MemoryOperationDecision>,
-    ) -> Result<Self, StorageFlowFactsBuildError> {
+    ) -> Result<Self, StorageFlowBuildError> {
         if checked.unit() != self.unit || checked.kind() != self.kind {
-            return Err(StorageFlowFactsBuildError::ForeignUnit);
+            return Err(StorageFlowBuildError::ForeignUnit);
         }
 
         let mut operations = decisions.into_iter().collect::<Vec<_>>();
@@ -318,7 +318,7 @@ impl StorageFlowFacts {
             .iter()
             .any(|operation| operation.expression().unit() != self.unit)
         {
-            return Err(StorageFlowFactsBuildError::ForeignUnit);
+            return Err(StorageFlowBuildError::ForeignUnit);
         }
 
         operations.sort_unstable_by_key(|operation| operation.expression());
@@ -327,7 +327,7 @@ impl StorageFlowFacts {
             .windows(2)
             .any(|pair| pair[0].expression() == pair[1].expression())
         {
-            return Err(StorageFlowFactsBuildError::DuplicateMemoryOperation);
+            return Err(StorageFlowBuildError::DuplicateMemoryOperation);
         }
 
         self.memory_operations = shared_slice(operations);
@@ -336,7 +336,7 @@ impl StorageFlowFacts {
         Ok(self)
     }
 
-    /// Returns the bound unit described by these facts.
+    /// Returns the bound unit described by this analysis.
     pub const fn unit(&self) -> BoundUnitId {
         self.unit
     }
@@ -394,8 +394,8 @@ impl StorageFlowFacts {
 #[cfg(test)]
 mod tests {
     use super::{
-        StorageExitDecision, StorageFlowFacts, StorageFlowFactsBuildError,
-        StorageOperationDecision, StorageOperationStatus, StorageSuspensionState,
+        StorageExitDecision, StorageFlow, StorageFlowBuildError, StorageOperationDecision,
+        StorageOperationStatus, StorageSuspensionState,
     };
     use crate::{
         BoundBlockId, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
@@ -403,7 +403,7 @@ mod tests {
     };
 
     #[test]
-    fn storage_flow_facts_retain_operations_and_normalized_exit_state() {
+    fn storage_flow_retains_operations_and_normalized_exit_state() {
         let unit = BoundUnitId::new(3);
         let expression = BoundExpressionId::from_slot(unit, 0);
         let access = StorageAccessId::from_slot(unit, 0);
@@ -430,7 +430,7 @@ mod tests {
         let suspension =
             StorageSuspensionState::new(expression, [storage], [storage], [access], []);
 
-        let facts = StorageFlowFacts::try_new(
+        let storage_flow = StorageFlow::try_new(
             unit,
             BoundUnitKind::CallableBody,
             [operation],
@@ -438,24 +438,24 @@ mod tests {
             [exit],
             false,
         )
-        .unwrap_or_else(|error| panic!("unit-local storage facts must build: {error:?}"));
+        .unwrap_or_else(|error| panic!("unit-local storage-flow analysis must build: {error:?}"));
 
-        assert_eq!(facts.operations(), &[operation]);
+        assert_eq!(storage_flow.operations(), &[operation]);
 
         assert_eq!(
-            facts
+            storage_flow
                 .suspension(expression)
                 .map(StorageSuspensionState::initialized),
             Some(&[storage][..])
         );
 
-        assert_eq!(facts.exits()[0].initialized(), &[storage]);
-        assert_eq!(facts.exits()[0].moved(), &[access]);
-        assert!(!facts.is_recovered());
+        assert_eq!(storage_flow.exits()[0].initialized(), &[storage]);
+        assert_eq!(storage_flow.exits()[0].moved(), &[access]);
+        assert!(!storage_flow.is_recovered());
     }
 
     #[test]
-    fn storage_flow_facts_reject_foreign_ids() {
+    fn storage_flow_rejects_foreign_ids() {
         let unit = BoundUnitId::new(4);
         let foreign = BoundUnitId::new(5);
 
@@ -468,15 +468,15 @@ mod tests {
         );
 
         assert_eq!(
-            StorageFlowFacts::try_new(unit, BoundUnitKind::CallableBody, [decision], [], [], true,),
-            Err(StorageFlowFactsBuildError::ForeignUnit)
+            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [decision], [], [], true,),
+            Err(StorageFlowBuildError::ForeignUnit)
         );
     }
 
     #[test]
-    fn storage_flow_facts_are_send_and_sync() {
+    fn storage_flow_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<StorageFlowFacts>();
+        assert_send_sync::<StorageFlow>();
     }
 }

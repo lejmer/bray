@@ -143,10 +143,10 @@ impl From<BoundDependencyRequirementKind> for DependencyRequirementKind {
     }
 }
 
-/// Resolves portable dependency-template subjects into exact bound-unit facts.
+/// Resolves portable dependency-template subjects into exact bound-unit selections.
 ///
 /// Implementations must resolve projections and validate them against the current checked
-/// expressions, selected implementations, and semantic facts.
+/// expressions, selected implementations, and semantic selections.
 pub trait DependencyContractInstantiationContext {
     /// The typed failure returned when a formal subject or guard cannot be instantiated.
     type Error;
@@ -154,7 +154,7 @@ pub trait DependencyContractInstantiationContext {
     /// Returns the checked semantic unit receiving the instantiated contract.
     fn unit(&self) -> BoundUnitId;
 
-    /// Resolves one formal requirement subject to the exact fact selected in this unit.
+    /// Resolves one formal requirement subject to the exact selection selected in this unit.
     fn resolve_subject(
         &mut self,
         subject: &DependencySubject,
@@ -173,7 +173,7 @@ pub trait DependencyContractInstantiationContext {
 pub enum DependencyContractInstantiationError<E> {
     /// Binder-owned subject or guard resolution failed.
     Resolution(E),
-    /// A resolver returned a bound fact owned by another checked semantic unit.
+    /// A resolver returned a bound selection owned by another checked semantic unit.
     ForeignUnit,
 }
 

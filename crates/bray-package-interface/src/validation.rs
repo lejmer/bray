@@ -187,48 +187,48 @@ impl ValidatedPackageInterface {
         crate::surface::decode_surface(self, self.limits)
     }
 
-    /// Decodes and validates semantic facts against an already decoded identity surface.
-    pub fn decode_semantic_facts(
+    /// Decodes and validates semantics against an already decoded identity surface.
+    pub fn decode_semantics(
         &self,
         surface: &crate::PackageInterfaceSurface,
-    ) -> Result<crate::InterfaceSemanticFacts, InterfaceValidationError> {
-        let sections = self.sections_by_tag(crate::semantic::COMPLETE_FACT_SECTIONS)?;
+    ) -> Result<crate::InterfaceSemantics, InterfaceValidationError> {
+        let sections = self.sections_by_tag(crate::semantic::COMPLETE_SEMANTIC_SECTIONS)?;
 
-        crate::decode_semantic_facts(&sections, surface, self.limits)
+        crate::decode_semantics(&sections, surface, self.limits)
     }
 
-    /// Decodes the semantic dependency graph required by one symbol-owned fact category.
-    pub fn decode_semantic_fact_graph(
+    /// Decodes the semantic dependency graph required by one symbol-owned record category.
+    pub fn decode_semantic_graph(
         &self,
         surface: &crate::PackageInterfaceSurface,
         owner: bray_symbols::InterfaceSymbolId,
-        kind: crate::InterfaceSemanticFactKind,
-    ) -> Result<crate::InterfaceSemanticFacts, InterfaceValidationError> {
-        if let Some(facts) = self.decode_selected_semantic_fact_graph(surface, owner, kind)? {
-            return Ok(facts);
+        kind: crate::InterfaceSemanticRecordKind,
+    ) -> Result<crate::InterfaceSemantics, InterfaceValidationError> {
+        if let Some(semantics) = self.decode_selected_semantic_graph(surface, owner, kind)? {
+            return Ok(semantics);
         }
 
-        let sections = self.sections_by_tag(crate::semantic::COMPLETE_FACT_SECTIONS)?;
+        let sections = self.sections_by_tag(crate::semantic::COMPLETE_SEMANTIC_SECTIONS)?;
 
-        crate::semantic::decode_semantic_fact_graph(&sections, surface, owner, kind, self.limits)
+        crate::semantic::decode_semantic_graph(&sections, surface, owner, kind, self.limits)
     }
 
-    /// Decodes the independently addressable semantic dependency graph for one symbol-owned fact.
+    /// Decodes the independently addressable semantic dependency graph for one symbol-owned record.
     ///
-    /// Returns `None` when the fact category requires the complete semantic graph.
-    pub fn decode_selected_semantic_fact_graph(
+    /// Returns `None` when the record category requires the complete semantic graph.
+    pub fn decode_selected_semantic_graph(
         &self,
         surface: &crate::PackageInterfaceSurface,
         owner: bray_symbols::InterfaceSymbolId,
-        kind: crate::InterfaceSemanticFactKind,
-    ) -> Result<Option<crate::InterfaceSemanticFacts>, InterfaceValidationError> {
-        let Some(tags) = crate::semantic::selected_fact_sections(kind) else {
+        kind: crate::InterfaceSemanticRecordKind,
+    ) -> Result<Option<crate::InterfaceSemantics>, InterfaceValidationError> {
+        let Some(tags) = crate::semantic::selected_semantic_sections(kind) else {
             return Ok(None);
         };
 
         let sections = self.sections_by_tag(tags)?;
 
-        crate::semantic::decode_selected_semantic_fact_graph(
+        crate::semantic::decode_selected_semantic_graph(
             &sections,
             surface,
             owner,
@@ -241,7 +241,7 @@ impl ValidatedPackageInterface {
     pub fn validate_complete(&self) -> Result<(), InterfaceValidationError> {
         let surface = self.decode_identity_surface()?;
 
-        self.decode_semantic_facts(&surface)?;
+        self.decode_semantics(&surface)?;
 
         Ok(())
     }
@@ -1049,7 +1049,7 @@ mod tests {
             .into_iter()
             .map(EncodedArtifactSection::from_surface)
             .chain(
-                crate::semantic::encode_validated_semantic_facts(bundle.semantic_facts())
+                crate::semantic::encode_validated_semantics(bundle.semantics())
                     .into_iter()
                     .map(EncodedArtifactSection::from_semantic),
             )
@@ -1058,7 +1058,7 @@ mod tests {
         let provenance = sections
             .iter_mut()
             .find(|section| section.tag() == InterfaceSectionTag::SourceProvenance)
-            .unwrap_or_else(|| panic!("encoded facts must contain provenance"));
+            .unwrap_or_else(|| panic!("encoded semantics must contain provenance"));
 
         *provenance.payload_mut() = vec![0; 4096];
 
@@ -1098,8 +1098,8 @@ mod tests {
             .unwrap_or_else(|error| panic!("identity surface must decode: {error:?}"));
 
         interface
-            .decode_semantic_facts(&surface)
-            .unwrap_or_else(|error| panic!("semantic facts must decode: {error:?}"));
+            .decode_semantics(&surface)
+            .unwrap_or_else(|error| panic!("semantics must decode: {error:?}"));
 
         assert!(interface.decoded_sections[provenance].get().is_none());
     }

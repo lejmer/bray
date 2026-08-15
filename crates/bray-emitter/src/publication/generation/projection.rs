@@ -12,9 +12,7 @@ use crate::publication::operation::{
     ArtifactPublicationFailure, PreparedArtifact, artifact_failure,
 };
 use crate::publication::staging::replacement_mode;
-use crate::{
-    OutputSink, PlannedArtifactDestination, ProductGenerationIdentity, ReplacementPolicy,
-};
+use crate::{OutputSink, PlannedArtifactDestination, ProductGenerationIdentity, ReplacementPolicy};
 
 pub(super) struct CommittedPublicProjection {
     destination: PathBuf,
@@ -91,11 +89,7 @@ pub(super) fn prepare_public_projections<'plan>(
     }
 
     for destination in stale_paths {
-        let backup = prepare_public_backup(
-            &layout.staging,
-            &destination,
-            prepared[0].planned,
-        )?;
+        let backup = prepare_public_backup(&layout.staging, &destination, prepared[0].planned)?;
 
         if backup.is_some() {
             projections.push(PreparedPublicProjection {
@@ -215,21 +209,15 @@ fn copy_public_projection(
     permissions: Option<std::fs::Permissions>,
     planned: &crate::PlannedArtifact,
 ) -> Result<CompletedStagedFile, ArtifactPublicationFailure> {
-    let mut source = File::open(source).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Read(error.kind()))
-    })?;
+    let mut source = File::open(source)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Read(error.kind())))?;
 
-    let mut staged = StagedFile::create_in(
-        staging_directory,
-        destination,
-        replacement,
-        permissions,
-    )
-    .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
+    let mut staged =
+        StagedFile::create_in(staging_directory, destination, replacement, permissions)
+            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
 
-    std::io::copy(&mut source, &mut staged).map_err(|error| {
-        artifact_failure(planned, PublicationErrorKind::Write(error.kind()))
-    })?;
+    std::io::copy(&mut source, &mut staged)
+        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Write(error.kind())))?;
 
     staged
         .finish()

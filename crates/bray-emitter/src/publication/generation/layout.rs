@@ -43,9 +43,7 @@ mod tests {
 
         assert_eq!(
             product_store_relative(Path::new("native/debug/example.package"), &product),
-            Path::new(
-                ".bray/products/native/debug/example.package/example.package/application"
-            )
+            Path::new(".bray/products/native/debug/example.package/example.package/application")
         );
 
         assert_eq!(

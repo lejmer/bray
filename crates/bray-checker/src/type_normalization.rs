@@ -6,13 +6,13 @@ use bray_symbols::{
     GenericSubstitutionId, TraitApplicationData, TraitApplicationId, TypeData, TypeId,
 };
 
-use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext};
+use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
 
 pub fn normalize_type_valued_members<C>(
     request: &C,
     ty: TypeId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TypeId, CheckerFactError>
+) -> Result<TypeId, CheckerQueryError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -39,7 +39,7 @@ impl<C> TypeNormalizer<'_, '_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    fn normalize_type(&mut self, ty: TypeId) -> Result<TypeId, CheckerFactError> {
+    fn normalize_type(&mut self, ty: TypeId) -> Result<TypeId, CheckerQueryError> {
         if let Some(normalized) = self.normalized.get(&ty).copied() {
             return Ok(normalized);
         }
@@ -184,7 +184,7 @@ where
     fn normalize_application(
         &mut self,
         application: TraitApplicationId,
-    ) -> Result<TraitApplicationId, CheckerFactError> {
+    ) -> Result<TraitApplicationId, CheckerQueryError> {
         let data = self
             .request
             .semantic_values()
@@ -202,7 +202,7 @@ where
     fn normalize_substitution(
         &mut self,
         substitution: GenericSubstitutionId,
-    ) -> Result<GenericSubstitutionId, CheckerFactError> {
+    ) -> Result<GenericSubstitutionId, CheckerQueryError> {
         let data = self
             .request
             .semantic_values()
@@ -222,7 +222,7 @@ where
 
         let normalized = GenericSubstitutionData::try_new(data.owner(), parameters, arguments)
             .map_err(|_| {
-                CheckerFactError::Infrastructure(
+                CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticValueUnavailable,
                 )
             })?;
@@ -233,7 +233,7 @@ where
             .map_err(semantic_value_error)
     }
 
-    fn intern(&self, data: TypeData) -> Result<TypeId, CheckerFactError> {
+    fn intern(&self, data: TypeData) -> Result<TypeId, CheckerQueryError> {
         self.request
             .semantic_values()
             .intern_type(data)
@@ -241,6 +241,6 @@ where
     }
 }
 
-fn semantic_value_error(_: bray_symbols::SemanticValueStoreError) -> CheckerFactError {
-    CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+fn semantic_value_error(_: bray_symbols::SemanticValueStoreError) -> CheckerQueryError {
+    CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
 }

@@ -60,10 +60,7 @@ pub unsafe fn destination_slice<'a>(pointer: *mut u8, length: usize) -> &'a mut 
     unsafe_code,
     reason = "checked native transfer boundaries publish initialized byte counts"
 )]
-pub unsafe fn publish_transfer_count(
-    transferred: *mut u64,
-    count: usize,
-) -> NativePlatformStatus {
+pub unsafe fn publish_transfer_count(transferred: *mut u64, count: usize) -> NativePlatformStatus {
     let Ok(count) = u64::try_from(count) else {
         return NativePlatformStatus::EXHAUSTED;
     };

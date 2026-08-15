@@ -2,9 +2,7 @@ use std::io::{self, Write};
 use std::sync::{Condvar, Mutex};
 use std::thread::ThreadId;
 
-use bray_platform::{
-    RunOutputStream, flush_current_run_output, write_current_run_output,
-};
+use bray_platform::{RunOutputStream, flush_current_run_output, write_current_run_output};
 use bray_platform_abi_support::{
     platform_io_error, publish_transfer_count, source_slice, validate_transfer,
 };
@@ -219,9 +217,8 @@ mod tests {
     use bray_runtime_abi::NativePlatformStatus;
 
     use super::{
-        bray_platform_standard_input_read,
-        bray_platform_standard_output_lock, bray_platform_standard_output_unlock,
-        bray_platform_standard_output_write,
+        bray_platform_standard_input_read, bray_platform_standard_output_lock,
+        bray_platform_standard_output_unlock, bray_platform_standard_output_write,
     };
 
     #[test]
@@ -230,11 +227,7 @@ mod tests {
         let mut transferred = 9;
 
         assert_eq!(
-            bray_platform_standard_input_read(
-                destination.as_mut_ptr(),
-                1,
-                &raw mut transferred,
-            ),
+            bray_platform_standard_input_read(destination.as_mut_ptr(), 1, &raw mut transferred,),
             NativePlatformStatus::UNSUPPORTED
         );
 
@@ -243,10 +236,9 @@ mod tests {
 
     #[test]
     fn inherited_stream_errors_preserve_portable_and_native_details() {
-        let broken = super::inherited_io_result::<()>(Err(io::Error::from(
-            io::ErrorKind::BrokenPipe,
-        )))
-        .expect_err("broken stream must fail");
+        let broken =
+            super::inherited_io_result::<()>(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
+                .expect_err("broken stream must fail");
 
         let native = super::inherited_io_result::<()>(Err(io::Error::from_raw_os_error(12_345)))
             .expect_err("native error must fail");
@@ -261,11 +253,7 @@ mod tests {
         let mut transferred = 0;
 
         assert_eq!(
-            bray_platform_standard_output_write(
-                std::ptr::null(),
-                0,
-                &raw mut transferred,
-            ),
+            bray_platform_standard_output_write(std::ptr::null(), 0, &raw mut transferred,),
             NativePlatformStatus::SUCCESS
         );
 

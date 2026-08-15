@@ -377,7 +377,7 @@ impl Lowerer<'_> {
         {
             let Some(plan) = self
                 .input
-                .async_facts()
+                .async_analysis()
                 .scope_exits()
                 .iter()
                 .find(|plan| plan.scope() == *scope && plan.exit() == exit)
@@ -402,7 +402,7 @@ impl Lowerer<'_> {
     ) -> Result<bool, LoweringError> {
         let Some(plan) = self
             .input
-            .async_facts()
+            .async_analysis()
             .scope_exits()
             .iter()
             .find(|plan| plan.scope() == scope && plan.exit() == exit)

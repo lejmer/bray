@@ -1,24 +1,24 @@
 use crate::inspection::{InterfaceInspectionRecord, InterfaceInspectionRecordKind};
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
-    InterfaceSectionTag, InterfaceSemanticFacts, InterfaceValidationError,
-    InterfaceValidationLimits, ValidatedInterfaceSection,
+    InterfaceSectionTag, InterfaceSemantics, InterfaceValidationError, InterfaceValidationLimits,
+    ValidatedInterfaceSection,
 };
 
-use super::{contract, declaration, directory, facts, support, surface, template, value};
+use super::{bundle, contract, declaration, directory, support, surface, template, value};
 
 pub(crate) fn decode_inspection_records(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
-    facts::validate_decode_allocation(&[section], limits)?;
+    bundle::validate_decode_allocation(&[section], limits)?;
 
     let mut context = SemanticDecodeContext::new(limits);
-    let mut decoded = InterfaceSemanticFacts::new();
+    let mut decoded = InterfaceSemantics::new();
 
     match section.tag() {
-        InterfaceSectionTag::SymbolFactDirectory => {
-            inspect_fact_directory(section, limits, &mut context)
+        InterfaceSectionTag::SemanticRecordDirectory => {
+            inspect_semantic_directory(section, limits, &mut context)
         }
         InterfaceSectionTag::SemanticTypes => inspect_types(section, limits, &mut context),
         InterfaceSectionTag::Constants => {
@@ -27,7 +27,7 @@ pub(crate) fn decode_inspection_records(
         InterfaceSectionTag::Contracts => {
             inspect_contracts(section, limits, &mut context, &mut decoded)
         }
-        InterfaceSectionTag::DeclarationFacts => {
+        InterfaceSectionTag::DeclarationSemantics => {
             inspect_declarations(section, limits, &mut context, &mut decoded)
         }
         InterfaceSectionTag::DeclarationTemplates => {
@@ -54,15 +54,15 @@ pub(crate) fn decode_inspection_records(
     }
 }
 
-fn inspect_fact_directory(
+fn inspect_semantic_directory(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
-    let directory = directory::decode_fact_directory(section, limits, context)?;
+    let directory = directory::decode_semantic_directory(section, limits, context)?;
 
     Ok(vec![record(
-        InterfaceInspectionRecordKind::SymbolFacts,
+        InterfaceInspectionRecordKind::SymbolSemantics,
         directory.len(),
     )])
 }
@@ -102,7 +102,7 @@ fn inspect_constants(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    decoded: &mut InterfaceSemanticFacts,
+    decoded: &mut InterfaceSemantics,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
     value::decode_constants(section, limits, context, decoded)?;
 
@@ -122,7 +122,7 @@ fn inspect_contracts(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    decoded: &mut InterfaceSemanticFacts,
+    decoded: &mut InterfaceSemantics,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
     contract::decode_contracts(section, limits, context, decoded)?;
 
@@ -146,7 +146,7 @@ fn inspect_declarations(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    decoded: &mut InterfaceSemanticFacts,
+    decoded: &mut InterfaceSemantics,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
     declaration::decode_declarations(section, limits, context, decoded)?;
 
@@ -178,7 +178,7 @@ fn inspect_templates(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    decoded: &mut InterfaceSemanticFacts,
+    decoded: &mut InterfaceSemantics,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
     template::decode_templates(section, limits, context, decoded)?;
 
@@ -198,7 +198,7 @@ fn inspect_implementations(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    decoded: &mut InterfaceSemanticFacts,
+    decoded: &mut InterfaceSemantics,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
     surface::decode_implementations(section, limits, context, decoded)?;
 
@@ -218,13 +218,13 @@ fn inspect_target_dependencies(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    decoded: &mut InterfaceSemanticFacts,
+    decoded: &mut InterfaceSemantics,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
     surface::decode_target_dependencies(section, limits, context, decoded)?;
 
     Ok(vec![
         record(
-            InterfaceInspectionRecordKind::TargetFacts,
+            InterfaceInspectionRecordKind::TargetProperties,
             decoded.target_dependencies.len(),
         ),
         record(
@@ -242,7 +242,7 @@ fn inspect_provenance(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    decoded: &mut InterfaceSemanticFacts,
+    decoded: &mut InterfaceSemantics,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
     surface::decode_provenance(section, limits, context, decoded)?;
 
@@ -256,7 +256,7 @@ fn inspect_support_graph(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    decoded: &mut InterfaceSemanticFacts,
+    decoded: &mut InterfaceSemantics,
 ) -> Result<Vec<InterfaceInspectionRecord>, InterfaceValidationError> {
     support::decode_support_graph(section, limits, context, decoded)?;
 

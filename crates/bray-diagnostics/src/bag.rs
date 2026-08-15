@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn bags_preserve_similarly_rendered_distinct_source_facts() {
+    fn bags_preserve_similarly_rendered_distinct_source_diagnostics() {
         let first_span = SourceSpan::new(
             SourceId::new(0),
             TextRange::new(TextSize::new(1), TextSize::new(2)),

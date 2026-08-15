@@ -1,15 +1,19 @@
-macro_rules! impl_declaration_body_fact {
+macro_rules! impl_declaration_body_query {
     ($contract:ty, $cache:ident, $binding:ident) => {
-        impl CompilationSymbolFactBinding<$contract> for CompilationSymbolFacts {
-            fn cache(&self) -> &SymbolFactCache<$contract> {
+        impl CompilationSymbolQueryEvaluator<$contract> for CompilationSymbolSemantics {
+            fn cache(&self) -> &SymbolQueryCache<$contract> {
                 &self.$cache
             }
 
             fn bind(
                 &self,
-                context: &CompilationBinderFacts<'_>,
-                request: SymbolFactRequest<$contract>,
-            ) -> BinderFactResult<SymbolFactResult<$contract>> {
+                context: &CompilationBindingContext<'_>,
+                request: SymbolQueryRequest<$contract>,
+            ) -> BindingQueryResult<
+                bray_diagnostics::DiagnosticResult<
+                    <$contract as bray_symbols::SymbolQueryContract>::Value,
+                >,
+            > {
                 $binding(context, request.owner())
             }
         }

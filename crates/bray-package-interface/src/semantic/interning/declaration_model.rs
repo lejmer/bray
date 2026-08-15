@@ -8,12 +8,12 @@ use crate::InterfacePredicateDefinitionState;
 
 /// One imported callable signature template and its exact owner.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedCallableSignatureFact {
+pub struct ImportedCallableSignature {
     pub(super) owner: CallableSymbolId,
     pub(super) signature: CallableSignatureTemplate,
 }
 
-impl ImportedCallableSignatureFact {
+impl ImportedCallableSignature {
     /// Returns the callable that owns this signature.
     pub const fn owner(&self) -> CallableSymbolId {
         self.owner
@@ -27,12 +27,12 @@ impl ImportedCallableSignatureFact {
 
 /// One imported generic declaration template and its exact owner.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedGenericDeclarationFact {
+pub struct ImportedGenericDeclaration {
     pub(super) owner: GenericOwnerId,
     pub(super) declaration: GenericDeclarationTemplate,
 }
 
-impl ImportedGenericDeclarationFact {
+impl ImportedGenericDeclaration {
     /// Returns the generic declaration that owns this template.
     pub const fn owner(&self) -> GenericOwnerId {
         self.owner
@@ -44,15 +44,15 @@ impl ImportedGenericDeclarationFact {
     }
 }
 
-/// One imported callable parameter default-template fact.
+/// One imported callable parameter default-template record.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedCallableParameterDefaultFact {
+pub struct ImportedCallableParameterDefault {
     pub(super) parameter: CallableParameterSymbolId,
     pub(super) default: UnevaluatedDefaultTemplate,
 }
 
-impl ImportedCallableParameterDefaultFact {
-    /// Returns the callable parameter that owns this fact.
+impl ImportedCallableParameterDefault {
+    /// Returns the callable parameter that owns this record.
     pub const fn parameter(self) -> CallableParameterSymbolId {
         self.parameter
     }
@@ -65,12 +65,12 @@ impl ImportedCallableParameterDefaultFact {
 
 /// One imported predicate definition state and its exact owner.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ImportedPredicateDefinitionFact {
+pub struct ImportedPredicateDefinition {
     pub(super) owner: PredicateDefinitionSymbolId,
     pub(super) state: InterfacePredicateDefinitionState,
 }
 
-impl ImportedPredicateDefinitionFact {
+impl ImportedPredicateDefinition {
     /// Returns the predicate declaration that owns this state.
     pub const fn owner(self) -> PredicateDefinitionSymbolId {
         self.owner

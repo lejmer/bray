@@ -4,7 +4,7 @@ use bray_symbols::{
     ImplementationSymbolId, SemanticValueStore, TraitApplicationData, TraitSymbolId,
 };
 
-use crate::{InterfaceGenericArgument, InterfaceSemanticFacts};
+use crate::{InterfaceGenericArgument, InterfaceSemantics};
 
 use super::common::{invalid_symbol, resolve_exact, resolve_symbol};
 use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
@@ -12,11 +12,11 @@ use super::{InterfaceSemanticInternError, InterfaceSymbolResolver, InternState};
 impl InternState {
     pub(super) fn intern_substitutions(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        for (index, input) in facts.substitutions.iter().enumerate() {
+        for (index, input) in semantics.substitutions.iter().enumerate() {
             if self.substitutions[index].is_some() {
                 continue;
             }
@@ -71,11 +71,11 @@ impl InternState {
 
     pub(super) fn intern_trait_applications(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        for (index, input) in facts.trait_applications.iter().enumerate() {
+        for (index, input) in semantics.trait_applications.iter().enumerate() {
             if self.trait_applications[index].is_some() {
                 continue;
             }
@@ -98,11 +98,11 @@ impl InternState {
 
     pub(super) fn intern_callable_instances(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        for (index, input) in facts.callable_instances.iter().enumerate() {
+        for (index, input) in semantics.callable_instances.iter().enumerate() {
             if self.callable_instances[index].is_some() {
                 continue;
             }
@@ -129,11 +129,11 @@ impl InternState {
 
     pub(super) fn intern_implementation_instances(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        for (index, input) in facts.implementation_instances.iter().enumerate() {
+        for (index, input) in semantics.implementation_instances.iter().enumerate() {
             if self.implementation_instances[index].is_some() {
                 continue;
             }

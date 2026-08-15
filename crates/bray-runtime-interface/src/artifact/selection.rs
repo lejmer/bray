@@ -272,7 +272,10 @@ fn dependency_link_order(
         ordered.push(index);
     }
 
-    debug_assert!(remaining.is_empty(), "runtime component graph was validated");
+    debug_assert!(
+        remaining.is_empty(),
+        "runtime component graph was validated"
+    );
 
     ordered
 }

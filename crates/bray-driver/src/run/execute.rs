@@ -251,25 +251,25 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
     }
 
     if command_kind == DriverCommandKind::InspectTokens {
-        return run_fact_inspection_command(request, output_format, render_token_inspection)
+        return run_inspection_command(request, output_format, render_token_inspection)
             .with_report_file(report_file)
             .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectSyntax {
-        return run_fact_inspection_command(request, output_format, render_syntax_inspection)
+        return run_inspection_command(request, output_format, render_syntax_inspection)
             .with_report_file(report_file)
             .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectDeclarations {
-        return run_fact_inspection_command(request, output_format, render_declaration_inspection)
+        return run_inspection_command(request, output_format, render_declaration_inspection)
             .with_report_file(report_file)
             .with_profile_output(profile_output);
     }
 
     if command_kind == DriverCommandKind::InspectSymbols {
-        return run_fact_inspection_command(request, output_format, render_symbol_inspection)
+        return run_inspection_command(request, output_format, render_symbol_inspection)
             .with_report_file(report_file)
             .with_profile_output(profile_output);
     }
@@ -279,13 +279,9 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             unreachable!("bound inspection command must retain its source target");
         };
 
-        return run_fact_inspection_command(
-            request,
-            output_format,
-            |compilation, output_format| {
-                render_bound_inspection(compilation, target, output_format)
-            },
-        )
+        return run_inspection_command(request, output_format, |compilation, output_format| {
+            render_bound_inspection(compilation, target, output_format)
+        })
         .with_report_file(report_file)
         .with_profile_output(profile_output);
     }
@@ -295,13 +291,9 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             unreachable!("lowered inspection command must retain its source target");
         };
 
-        return run_fact_inspection_command(
-            request,
-            output_format,
-            |compilation, output_format| {
-                render_lowered_inspection(compilation, target, output_format)
-            },
-        )
+        return run_inspection_command(request, output_format, |compilation, output_format| {
+            render_lowered_inspection(compilation, target, output_format)
+        })
         .with_report_file(report_file)
         .with_profile_output(profile_output);
     }
@@ -311,11 +303,9 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             unreachable!("MIR inspection command must retain its source target");
         };
 
-        return run_fact_inspection_command(
-            request,
-            output_format,
-            |compilation, output_format| render_mir_inspection(compilation, target, output_format),
-        )
+        return run_inspection_command(request, output_format, |compilation, output_format| {
+            render_mir_inspection(compilation, target, output_format)
+        })
         .with_report_file(report_file)
         .with_profile_output(profile_output);
     }
@@ -397,7 +387,7 @@ fn run_inspect_source_command(
     )
 }
 
-fn run_fact_inspection_command(
+fn run_inspection_command(
     request: CompilationRequest,
     output_format: OutputFormat,
     render: impl FnOnce(&Compilation, OutputFormat) -> Result<InspectionOutput, InspectionError>,

@@ -405,7 +405,7 @@ impl InterfaceCheckedTemplate {
     }
 }
 
-/// One declaration-owned template addressable through the fact directory.
+/// One declaration-owned template addressable through the record directory.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDeclarationTemplate {
     owner: InterfaceSymbolReference,

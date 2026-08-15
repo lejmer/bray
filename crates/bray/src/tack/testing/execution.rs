@@ -18,11 +18,12 @@ use bray_diagnostics::{
 use bray_platform::{NativeChildProcess, NativePipeWriter, NativeProcessCommand, NativeStdio};
 use bray_test_protocol::{
     CapturedStream, TestAdmission, TestAdmissionSchedule, TestBatchRequest, TestCaptureLimits,
-    TestCapturePolicy, TestCatalogEntryId, TestCommandReport, TestDuration, TestExecutionMode, TestExecutionPlan,
-    TestExecutionPlanBuildError, TestHostCommand, TestHostCommandId, TestHostControl, TestIdentity,
-    TestInfrastructureFailure, TestInfrastructureFailureKind, TestInvocationPlan,
-    TestInvocationResult, TestOutcome, TestSchedulingError, TestSelection, TestSelectionQuery,
-    TestSelectionSummary, TestStopReason, read_host_result, write_host_command, write_host_control,
+    TestCapturePolicy, TestCatalogEntryId, TestCommandReport, TestDuration, TestExecutionMode,
+    TestExecutionPlan, TestExecutionPlanBuildError, TestHostCommand, TestHostCommandId,
+    TestHostControl, TestIdentity, TestInfrastructureFailure, TestInfrastructureFailureKind,
+    TestInvocationPlan, TestInvocationResult, TestOutcome, TestSchedulingError, TestSelection,
+    TestSelectionQuery, TestSelectionSummary, TestStopReason, read_host_result, write_host_command,
+    write_host_control,
 };
 use bray_tooling::OutputFormat;
 
@@ -649,14 +650,9 @@ mod tests {
         let request = TestBatchRequest::try_new([first, second])
             .unwrap_or_else(|error| panic!("batch request should be valid: {error:?}"));
 
-        let (reports, rendered) = super::execute_batch(
-            directory.path(),
-            vec![host],
-            &request,
-            2,
-            false,
-        )
-        .unwrap_or_else(|diagnostics| panic!("batch should execute: {diagnostics:?}"));
+        let (reports, rendered) =
+            super::execute_batch(directory.path(), vec![host], &request, 2, false)
+                .unwrap_or_else(|diagnostics| panic!("batch should execute: {diagnostics:?}"));
 
         assert_eq!(
             reports

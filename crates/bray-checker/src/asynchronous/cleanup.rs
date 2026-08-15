@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AsyncScopeExitPlan, BoundUnitKind, StorageAccessId, StorageFlowFacts, StorageIdentity,
+    AsyncScopeExitPlan, BoundUnitKind, StorageAccessId, StorageFlow, StorageIdentity,
     StorageIdentityId, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
@@ -9,7 +9,9 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{CallableSymbolId, GenericArgument, TypeData, TypeId};
 
 use crate::storage::StorageScopeOwners;
-use crate::{CheckerFactError, CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct CleanupShape {
@@ -61,7 +63,7 @@ where
         }
     }
 
-    pub(super) fn resolve(&mut self, ty: TypeId) -> Result<CleanupShape, CheckerFactError> {
+    pub(super) fn resolve(&mut self, ty: TypeId) -> Result<CleanupShape, CheckerQueryError> {
         if let Some(shape) = self.completed.get(&ty) {
             return Ok(*shape);
         }
@@ -71,7 +73,7 @@ where
         }
 
         let data = self.request.semantic_values().type_data(ty).map_err(|_| {
-            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })?;
 
         let shape = match data.as_ref() {
@@ -114,7 +116,7 @@ where
         &mut self,
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
-    ) -> Result<CleanupShape, CheckerFactError> {
+    ) -> Result<CleanupShape, CheckerQueryError> {
         let role = match definition {
             bray_symbols::NamedTypeSymbolId::Struct(definition) => self
                 .request
@@ -145,7 +147,7 @@ where
                     .semantic_values()
                     .generic_substitution_data(substitution)
                     .map_err(|_| {
-                        CheckerFactError::Infrastructure(
+                        CheckerQueryError::Infrastructure(
                             CheckerInfrastructureError::SemanticValueUnavailable,
                         )
                     })?;
@@ -189,7 +191,7 @@ where
     fn aggregate(
         &mut self,
         types: impl IntoIterator<Item = TypeId>,
-    ) -> Result<CleanupShape, CheckerFactError> {
+    ) -> Result<CleanupShape, CheckerQueryError> {
         let mut shape = CleanupShape::default();
 
         for ty in types {
@@ -207,8 +209,8 @@ where
 pub(super) fn scope_exit_plans<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-    flow: &StorageFlowFacts,
-) -> Result<(Vec<AsyncScopeExitPlan>, DiagnosticBag), CheckerFactError>
+    flow: &StorageFlow,
+) -> Result<(Vec<AsyncScopeExitPlan>, DiagnosticBag), CheckerQueryError>
 where
     C: CheckerRequestContext + ?Sized,
 {

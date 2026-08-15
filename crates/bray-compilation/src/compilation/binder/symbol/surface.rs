@@ -1,4 +1,6 @@
-use bray_binder::{BinderFactError, BinderFactResult, CallableTypeQualifiers, bind_callable_abi};
+use bray_binder::{
+    BindingQueryError, BindingQueryResult, CallableTypeQualifiers, bind_callable_abi,
+};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
@@ -11,7 +13,7 @@ use bray_syntax::{
     walk_direct_child_nodes,
 };
 
-use super::super::context::CompilationBinderFacts;
+use super::super::context::CompilationBindingContext;
 
 pub(super) struct CallableSurface {
     pub(super) parameters: ParameterListSyntax,
@@ -21,16 +23,16 @@ pub(super) struct CallableSurface {
 }
 
 pub(super) fn declaration_callable_surface(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-) -> BinderFactResult<CallableSurface> {
+) -> BindingQueryResult<CallableSurface> {
     with_declaration_root(context, symbol, |root| callable_surface(root, symbol))
 }
 
 fn callable_surface(
     root: SyntaxNodeView<'_>,
     symbol: AnySymbolId,
-) -> BinderFactResult<CallableSurface> {
+) -> BindingQueryResult<CallableSurface> {
     let mut parameters = None;
     let mut result = None;
     let mut abi_directives = Vec::new();
@@ -63,7 +65,7 @@ fn callable_surface(
         SyntaxWalkControl::Continue
     });
 
-    let parameters = parameters.ok_or(BinderFactError::DependencyUnavailable)?;
+    let parameters = parameters.ok_or(BindingQueryError::DependencyUnavailable)?;
 
     // Declaration discovery owns duplicate directive diagnostics. Binding only needs the first
     // ABI directive to choose the recovered callable ABI.
@@ -182,37 +184,37 @@ const fn receiver_mode_from_modifiers(modifiers: CallableModifierPresence) -> Re
 pub(super) fn compiler_known_surface(
     symbols: &SymbolGraph,
     symbol: AnySymbolId,
-) -> BinderFactResult<&'static bray_compiler_known::CatalogDeclarationSurfaceSyntax> {
+) -> BindingQueryResult<&'static bray_compiler_known::CatalogDeclarationSurfaceSyntax> {
     symbols
         .compiler_known_provider()
-        .declaration_fact_for_symbol(symbol)
-        .map(|fact| fact.surface())
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .declaration_semantics_for_symbol(symbol)
+        .map(|semantics| semantics.surface())
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
-pub(super) fn symbol_ordinal(index: usize) -> BinderFactResult<bray_symbols::SymbolOrdinal> {
-    let ordinal = u32::try_from(index).map_err(|_| BinderFactError::DependencyUnavailable)?;
+pub(super) fn symbol_ordinal(index: usize) -> BindingQueryResult<bray_symbols::SymbolOrdinal> {
+    let ordinal = u32::try_from(index).map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     Ok(bray_symbols::SymbolOrdinal::new(ordinal))
 }
 
 pub(super) fn declaration_syntax<T>(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-) -> BinderFactResult<T>
+) -> BindingQueryResult<T>
 where
     T: bray_syntax::SyntaxCast,
 {
     with_declaration_root(context, symbol, |root| {
         root.cast::<T>()
-            .ok_or(BinderFactError::DependencyUnavailable)
+            .ok_or(BindingQueryError::DependencyUnavailable)
     })
 }
 
 pub(super) fn declaration_child<T>(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-) -> BinderFactResult<T>
+) -> BindingQueryResult<T>
 where
     T: bray_syntax::SyntaxCast,
 {
@@ -229,15 +231,15 @@ where
             SyntaxWalkControl::Continue
         });
 
-        child.ok_or(BinderFactError::DependencyUnavailable)
+        child.ok_or(BindingQueryError::DependencyUnavailable)
     })
 }
 
 pub(super) fn with_declaration_root<R>(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-    consume: impl FnOnce(SyntaxNodeView<'_>) -> BinderFactResult<R>,
-) -> BinderFactResult<R> {
+    consume: impl FnOnce(SyntaxNodeView<'_>) -> BindingQueryResult<R>,
+) -> BindingQueryResult<R> {
     if let Some(anchor) = context.symbols.declaration_syntax_anchor(symbol) {
         let root = syntax_node_for_anchor(context, anchor)?;
 
@@ -248,15 +250,15 @@ pub(super) fn with_declaration_root<R>(
 
     let fragment = surface
         .syntax_fragment()
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     consume(fragment.root())
 }
 
 pub(super) fn syntax_node_for_anchor<'syntax>(
-    context: &'syntax CompilationBinderFacts<'_>,
+    context: &'syntax CompilationBindingContext<'_>,
     anchor: SyntaxAnchor,
-) -> BinderFactResult<SyntaxNodeView<'syntax>> {
+) -> BindingQueryResult<SyntaxNodeView<'syntax>> {
     context
         .compilation
         .syntax_tree()
@@ -266,5 +268,5 @@ pub(super) fn syntax_node_for_anchor<'syntax>(
             anchor.full_range(),
             anchor.is_recovered(),
         )
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }

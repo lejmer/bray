@@ -10,7 +10,7 @@ pub struct NestedCallableEvidence {
 }
 
 impl NestedCallableEvidence {
-    /// Creates evidence connecting an outer expression to its nested callable fact.
+    /// Creates evidence connecting an outer expression to its nested callable result.
     pub fn new(
         expression: BoundExpressionId,
         callable: AnonymousCallableSymbolId,

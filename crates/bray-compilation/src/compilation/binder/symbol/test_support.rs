@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_symbols::{
     DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
-    DependencySubjectRoot, SymbolFactContract, SymbolFactRequest, SymbolFactResult, SymbolGraph,
-    SymbolOrdinal, SymbolOrigin, TypeData, TypeExpressionTemplate, TypeId,
+    DependencySubjectRoot, SymbolGraph, SymbolOrdinal, SymbolOrigin, SymbolQueryContract,
+    SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
 
-use super::super::context::CompilationBinderFacts;
+use super::super::context::CompilationBindingContext;
 use crate::compilation::Compilation;
 use crate::fact::CancellationToken;
 
@@ -26,27 +26,27 @@ pub(super) fn source_id<T, I: Copy>(
     id(symbol)
 }
 
-pub(super) fn binder_facts<'compilation>(
+pub(super) fn binding_context<'compilation>(
     compilation: &'compilation Compilation,
     cancellation: &'compilation CancellationToken,
-) -> CompilationBinderFacts<'compilation> {
-    match compilation.binder_facts(cancellation) {
-        Ok(facts) => facts,
-        Err(error) => panic!("source binder facts must be available: {error:?}"),
+) -> CompilationBindingContext<'compilation> {
+    match compilation.binding_context(cancellation) {
+        Ok(binding_context) => binding_context,
+        Err(error) => panic!("source binder context must be available: {error:?}"),
     }
 }
 
-pub(super) fn published_fact<C>(
-    facts: &CompilationBinderFacts<'_>,
-    request: SymbolFactRequest<C>,
-) -> Arc<SymbolFactResult<C>>
+pub(super) fn resolved_query<C>(
+    binding_context: &CompilationBindingContext<'_>,
+    request: SymbolQueryRequest<C>,
+) -> Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>
 where
-    C: SymbolFactContract,
-    for<'facts> CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
+    C: SymbolQueryContract,
+    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolQueryProvider<C>,
 {
-    match facts.symbol_fact(request) {
+    match binding_context.resolve_symbol_query(request) {
         Ok(result) => result,
-        Err(error) => panic!("test symbol fact must bind: {error:?}"),
+        Err(error) => panic!("test symbol query must bind: {error:?}"),
     }
 }
 

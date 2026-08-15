@@ -1,66 +1,68 @@
 use std::collections::BTreeMap;
 
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
+use bray_binder::{
+    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
+};
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::InterfacePredicateDefinitionState;
 use bray_symbols::{
-    ErrorPredicateDefinition, PredicateDefinition, PredicateDefinitionFact,
+    ErrorPredicateDefinition, PredicateDefinition, PredicateDefinitionQuery,
     PredicateDefinitionState, PredicateDefinitionSymbolId, PredicateSemanticSummary,
-    PredicateSignatureTemplateFact, PredicateSymbolId, SymbolFactRequest, SymbolFactResult,
-    SymbolOrigin, TraitPredicateFulfillmentDefinitionFact, TraitPredicateFulfillmentSymbolId,
-    TraitPredicateMemberDefinitionFact, TraitPredicateMemberSymbolId,
+    PredicateSignatureTemplateQuery, PredicateSymbolId, SymbolOrigin, SymbolQueryRequest,
+    TraitPredicateFulfillmentDefinitionQuery, TraitPredicateFulfillmentSymbolId,
+    TraitPredicateMemberDefinitionQuery, TraitPredicateMemberSymbolId,
 };
 
-use super::super::binding::CompilationSymbolFactBinding;
-use super::super::cache::CompilationSymbolFacts;
+use super::super::binding::CompilationSymbolQueryEvaluator;
+use super::super::cache::CompilationSymbolSemantics;
 use super::super::imported::{imported_declaration_template, imported_predicate_definition_state};
 use super::shared::{checked_source_expression, syntax_diagnostics};
-use crate::compilation::binder::CompilationBinderFacts;
-use crate::fact::{CompilationFactKey, SymbolFactCache};
+use crate::compilation::binder::CompilationBindingContext;
+use crate::fact::{CompilationFactKey, SymbolQueryCache};
 
-impl_declaration_body_fact!(
-    PredicateDefinitionFact,
+impl_declaration_body_query!(
+    PredicateDefinitionQuery,
     predicate_definitions,
     bind_predicate_definition
 );
-impl_declaration_body_fact!(
-    TraitPredicateMemberDefinitionFact,
+impl_declaration_body_query!(
+    TraitPredicateMemberDefinitionQuery,
     trait_predicate_member_definitions,
     bind_trait_predicate_member_definition
 );
-impl_declaration_body_fact!(
-    TraitPredicateFulfillmentDefinitionFact,
+impl_declaration_body_query!(
+    TraitPredicateFulfillmentDefinitionQuery,
     trait_predicate_fulfillment_definitions,
     bind_trait_predicate_fulfillment_definition
 );
 
 fn bind_predicate_definition(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: PredicateSymbolId,
-) -> BinderFactResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
+) -> BindingQueryResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
     predicate_definition(context, owner.into())
 }
 
 fn bind_trait_predicate_member_definition(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: TraitPredicateMemberSymbolId,
-) -> BinderFactResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
+) -> BindingQueryResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
     predicate_definition(context, owner.into())
 }
 
 fn bind_trait_predicate_fulfillment_definition(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: TraitPredicateFulfillmentSymbolId,
-) -> BinderFactResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
+) -> BindingQueryResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
     predicate_definition(context, owner.into())
 }
 
 fn predicate_definition(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: PredicateDefinitionSymbolId,
-) -> BinderFactResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
-    if let Some(address) = context.imported_fact_address(owner.into_any())? {
+) -> BindingQueryResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
+    if let Some(address) = context.imported_semantic_address(owner.into_any())? {
         return imported_predicate_definition(context, address);
     }
 
@@ -70,9 +72,9 @@ fn predicate_definition(
         ));
     }
 
-    let signature = context.symbol_fact(
-        SymbolFactRequest::<PredicateSignatureTemplateFact>::new(owner),
-    )?;
+    let signature = context.resolve_symbol_query(SymbolQueryRequest::<
+        PredicateSignatureTemplateQuery,
+    >::new(owner))?;
 
     let key = predicate_definition_key(context, owner)?;
 
@@ -129,9 +131,9 @@ fn missing_predicate_state(
 }
 
 fn imported_predicate_definition(
-    context: &CompilationBinderFacts<'_>,
-    address: bray_symbols::ImportedSymbolFactAddress,
-) -> BinderFactResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
+    context: &CompilationBindingContext<'_>,
+    address: bray_symbols::ImportedSemanticAddress,
+) -> BindingQueryResult<DiagnosticResult<PredicateDefinitionState<PredicateDefinition>>> {
     let state = imported_predicate_definition_state(context, address)?;
 
     match state.value() {
@@ -151,7 +153,7 @@ fn imported_predicate_definition(
             )?;
 
             let Some(template) = template_result.value() else {
-                return Err(BinderFactError::DependencyUnavailable);
+                return Err(BindingQueryError::DependencyUnavailable);
             };
 
             let diagnostics = state.diagnostics().merged(template_result.diagnostics());
@@ -169,12 +171,12 @@ fn imported_predicate_definition(
 }
 
 fn predicate_definition_key(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: PredicateDefinitionSymbolId,
-) -> BinderFactResult<Option<BoundUnitKey>> {
+) -> BindingQueryResult<Option<BoundUnitKey>> {
     let compilation = context.compilation();
 
-    let result = compilation.fact(
+    let result = compilation.evaluate_query(
         CompilationFactKey::PredicateDefinitionKeys,
         &compilation.state.predicate_definition_keys,
         || {
@@ -207,9 +209,9 @@ fn predicate_definition_key(
 }
 
 fn predicate_origin(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: PredicateDefinitionSymbolId,
-) -> BinderFactResult<SymbolOrigin> {
+) -> BindingQueryResult<SymbolOrigin> {
     match owner {
         PredicateDefinitionSymbolId::Predicate(owner) => context
             .symbols()
@@ -224,7 +226,7 @@ fn predicate_origin(
             .trait_predicate_fulfillment(owner)
             .map(|record| record.origin()),
     }
-    .ok_or(BinderFactError::DependencyUnavailable)
+    .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
 #[cfg(test)]

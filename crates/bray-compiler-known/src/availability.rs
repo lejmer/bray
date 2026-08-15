@@ -2,7 +2,7 @@ define_catalog_enum! {
     /// A language-defined predicate controlling catalog entry availability.
     ///
     /// The process-wide catalog retains every entry. Compilation-owned target
-    /// facts evaluate these rules without mutating catalog descriptors.
+    /// selected-target queries evaluate these rules without mutating catalog descriptors.
     #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub enum AvailabilityRule {
         /// The entry is available on every supported target.

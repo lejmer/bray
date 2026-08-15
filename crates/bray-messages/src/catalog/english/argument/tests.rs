@@ -49,9 +49,7 @@ fn argument_formatter_formats_representative_english_values() {
         ),
         DiagnosticArg::new(
             DiagnosticArgName::InterfaceLimit,
-            DiagnosticArgValue::InterfaceLimit(
-                DiagnosticInterfaceLimit::ImplementationEntryCount,
-            ),
+            DiagnosticArgValue::InterfaceLimit(DiagnosticInterfaceLimit::ImplementationEntryCount),
         ),
     ];
 

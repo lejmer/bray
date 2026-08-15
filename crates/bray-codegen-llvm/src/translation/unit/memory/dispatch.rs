@@ -18,9 +18,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.ensure_memory_available(memory.kind())?;
 
         match memory.kind() {
-            CheckedMemoryOperationKind::UninitNew { .. } => self
-                .translate_uninit_new(operation)
-                .map(Some),
+            CheckedMemoryOperationKind::UninitNew { .. } => {
+                self.translate_uninit_new(operation).map(Some)
+            }
             CheckedMemoryOperationKind::UninitPointer { .. } => self
                 .translate_uninit_pointer(memory)
                 .map(|pointer| Some(pointer.into())),
@@ -30,9 +30,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::UninitAssumeInitialized { .. } => {
                 self.translate_assume_initialized(memory).map(Some)
             }
-            CheckedMemoryOperationKind::UninitMove { element } => self
-                .translate_uninit_move(memory, element)
-                .map(Some),
+            CheckedMemoryOperationKind::UninitMove { element } => {
+                self.translate_uninit_move(memory, element).map(Some)
+            }
             CheckedMemoryOperationKind::BorrowFrom { .. } => self
                 .translate_anchored_borrow(memory)
                 .map(|pointer| Some(pointer.into())),
@@ -226,10 +226,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 pointee,
                 address_space,
                 ..
-            } => {
-                self.translate_volatile_read(memory, pointee, address_space)
-                    .map(Some)
-            }
+            } => self
+                .translate_volatile_read(memory, pointee, address_space)
+                .map(Some),
             CheckedMemoryOperationKind::VolatileWrite { address_space, .. } => {
                 self.translate_volatile_write(memory, address_space)?;
 
@@ -238,12 +237,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::ExposeAddress { .. } => {
                 self.translate_expose_address(memory).map(Some)
             }
-            CheckedMemoryOperationKind::FromExposedAddress { .. } => {
-                self.translate_from_exposed_address(operation, memory).map(Some)
-            }
-            CheckedMemoryOperationKind::CompareAddress { comparison, .. } => {
-                self.translate_address_comparison(memory, comparison).map(Some)
-            }
+            CheckedMemoryOperationKind::FromExposedAddress { .. } => self
+                .translate_from_exposed_address(operation, memory)
+                .map(Some),
+            CheckedMemoryOperationKind::CompareAddress { comparison, .. } => self
+                .translate_address_comparison(memory, comparison)
+                .map(Some),
             kind @ (CheckedMemoryOperationKind::Fence { .. }
             | CheckedMemoryOperationKind::CatastrophicAbort
             | CheckedMemoryOperationKind::DebuggerTrap
@@ -254,9 +253,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             CheckedMemoryOperationKind::InlineAssembly {
                 output, contract, ..
-            } => {
-                self.translate_inline_assembly(id, operation, memory, contract, output.is_none())
-            }
+            } => self.translate_inline_assembly(id, operation, memory, contract, output.is_none()),
             CheckedMemoryOperationKind::AtomicInitialize { .. }
             | CheckedMemoryOperationKind::AtomicLoad { .. }
             | CheckedMemoryOperationKind::AtomicStore { .. }
@@ -318,10 +315,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         kind: CheckedMemoryOperationKind,
     ) -> Result<(), CodegenFailure> {
-        let facts = self.request.target().profile().facts();
-        let operations = facts.operations();
+        let properties = self.request.target().profile().properties();
+        let operations = properties.operations();
 
-        let control = bray_target::TargetControlFacts::for_architecture(
+        let control = bray_target::TargetControlSupport::for_architecture(
             self.request.target().profile().machine().architecture(),
         );
 
@@ -348,7 +345,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::AtomicCompareExchange { .. }
             | CheckedMemoryOperationKind::AtomicFetch { .. }
             | CheckedMemoryOperationKind::AtomicWait { .. }
-            | CheckedMemoryOperationKind::AtomicNotify { .. } => self.atomic_memory_available(kind)?,
+            | CheckedMemoryOperationKind::AtomicNotify { .. } => {
+                self.atomic_memory_available(kind)?
+            }
             CheckedMemoryOperationKind::RawAllocate
             | CheckedMemoryOperationKind::RawDeallocate
             | CheckedMemoryOperationKind::Allocate
@@ -372,7 +371,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::VolatileWrite {
                 address_space: VolatileAddressSpace::Device,
                 ..
-            } => operations.raw_memory() && facts.address_spaces().device(),
+            } => operations.raw_memory() && properties.address_spaces().device(),
             CheckedMemoryOperationKind::InlineAssembly { .. } => control.inline_assembly(),
             _ => operations.raw_memory(),
         };
@@ -439,15 +438,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             _ => return Ok(false),
         };
 
-        let facts = self
+        let support = self
             .request
             .target()
             .profile()
-            .facts()
+            .properties()
             .atomics()
             .representation(representation);
 
-        let operations = facts.operations();
+        let operations = support.operations();
 
         Ok(match kind {
             CheckedMemoryOperationKind::AtomicInitialize { .. }
@@ -458,13 +457,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 operations.compare_exchange()
             }
             CheckedMemoryOperationKind::AtomicFetch {
-                kind: bray_bound_tree::AtomicFetchKind::Add
-                    | bray_bound_tree::AtomicFetchKind::Subtract,
+                kind:
+                    bray_bound_tree::AtomicFetchKind::Add | bray_bound_tree::AtomicFetchKind::Subtract,
                 ..
             } => operations.fetch_arithmetic(),
             CheckedMemoryOperationKind::AtomicFetch { .. } => operations.fetch_bitwise(),
             CheckedMemoryOperationKind::AtomicWait { .. }
-            | CheckedMemoryOperationKind::AtomicNotify { .. } => facts.wait_notify(),
+            | CheckedMemoryOperationKind::AtomicNotify { .. } => support.wait_notify(),
             _ => false,
         })
     }
@@ -476,9 +475,8 @@ mod tests {
 
     use bray_bound_tree::{
         AtomicFetchKind, CheckedMemoryOperationKind, MemoryAddressKind, MemoryCopyKind,
-        MemoryLayoutQueryKind,
-        MemoryOffsetUnit, MemoryOrder, MemoryReadKind, PointerAddressComparison,
-        VolatileAddressSpace,
+        MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryOrder, MemoryReadKind,
+        PointerAddressComparison, VolatileAddressSpace,
     };
     use bray_codegen::test_support::{codegen_request_for_unit, codegen_target_with_profile};
     use bray_codegen::{
@@ -491,7 +489,7 @@ mod tests {
     use bray_ir::{
         MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
         MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationId, MirOperationKind,
-        MirPlace, MirSourceAnchor, MirStorageKind, MirTargetFacts, MirTerminatorKind,
+        MirPlace, MirSourceAnchor, MirStorageKind, MirTargetContract, MirTerminatorKind,
         MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
@@ -501,9 +499,9 @@ mod tests {
     };
     use bray_target::test_support::test_target_profile;
     use bray_target::{
-        TargetAtomicFacts, TargetAtomicOperationFacts, TargetAtomicRepresentationFacts,
-        TargetAddressSpaceFacts, TargetFacts, TargetLayoutContract, TargetOperationFacts,
-        TargetProfile, TargetValueLayout,
+        TargetAddressSpaces, TargetAtomicOperations, TargetAtomicRepresentationSupport,
+        TargetAtomicSupport, TargetLayoutContract, TargetOperationSupport, TargetProfile,
+        TargetProperties, TargetValueLayout,
     };
     use inkwell::context::Context;
 
@@ -621,8 +619,7 @@ mod tests {
         let relocation = ir
             .lines()
             .find(|line| {
-                line.contains("@llvm.memcpy")
-                    && line.contains("%memory.buffer.relocate.bytes")
+                line.contains("@llvm.memcpy") && line.contains("%memory.buffer.relocate.bytes")
             })
             .unwrap_or_else(|| panic!("missing raw-buffer relocation memcpy"));
 
@@ -675,10 +672,8 @@ mod tests {
         let ir = module.print_to_string().to_string();
         let allocation = position(&ir, bray_runtime_abi::MEMORY_ALLOCATION_SYMBOL);
 
-        let allocation_observation = position(
-            &ir,
-            bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
-        );
+        let allocation_observation =
+            position(&ir, bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL);
 
         let relocation = ir
             .find("memory.buffer.relocate.bytes")
@@ -697,7 +692,11 @@ mod tests {
 
     fn position(ir: &str, symbol: &str) -> usize {
         ir.match_indices(symbol)
-            .find(|(position, _)| ir[..*position].rsplit_once('\n').is_some_and(|(_, line)| line.contains("call")))
+            .find(|(position, _)| {
+                ir[..*position]
+                    .rsplit_once('\n')
+                    .is_some_and(|(_, line)| line.contains("call"))
+            })
             .map(|(position, _)| position)
             .unwrap_or_else(|| panic!("observed memory LLVM is missing {symbol}"))
     }
@@ -720,8 +719,8 @@ mod tests {
                 backend.prepare_module(fixture.request(), &context),
                 Err(bray_codegen::CodegenFailure::UnsupportedTarget)
             ));
-            }
         }
+    }
 
     #[test]
     fn aggregate_atomic_values_use_integer_storage_and_restore_semantic_values() {
@@ -734,7 +733,9 @@ mod tests {
 
         let (_machine, module) = backend
             .prepare_module(fixture.request(), &context)
-            .unwrap_or_else(|error| panic!("aggregate atomic LLVM generation must succeed: {error:?}"))
+            .unwrap_or_else(|error| {
+                panic!("aggregate atomic LLVM generation must succeed: {error:?}")
+            })
             .unwrap_or_else(|| panic!("aggregate atomic LLVM generation must not be cancelled"));
 
         let ir = module.print_to_string().to_string();
@@ -745,7 +746,10 @@ mod tests {
             "atomic.bits.storage",
             "atomic.bits.value",
         ] {
-            assert!(ir.contains(spelling), "missing aggregate atomic LLVM for {spelling}");
+            assert!(
+                ir.contains(spelling),
+                "missing aggregate atomic LLVM for {spelling}"
+            );
         }
     }
 
@@ -762,7 +766,7 @@ mod tests {
         let types = memory_types();
 
         let mir_target =
-            MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
 
         let bound = bray_testing::test_bound_unit(171);
         let source = MirSourceAnchor::from(bound.key().source());
@@ -917,14 +921,7 @@ mod tests {
         push_atomic_operations(&mut builder, entry, &source, types, address, read);
         push_aggregate_atomic_operations(&mut builder, entry, &source, types, read);
 
-        push_uninitialized_operations(
-            &mut builder,
-            entry,
-            &source,
-            types,
-            read,
-            address,
-        );
+        push_uninitialized_operations(&mut builder, entry, &source, types, read, address);
 
         push_memory(
             &mut builder,
@@ -962,10 +959,7 @@ mod tests {
                 pointee: types.value,
                 address_space: VolatileAddressSpace::Host,
             },
-            [
-                MirOperand::Value(address),
-                MirOperand::Value(volatile_read),
-            ],
+            [MirOperand::Value(address), MirOperand::Value(volatile_read)],
             [types.pointer, types.value],
             None,
         );
@@ -1042,7 +1036,10 @@ mod tests {
             Some(types.pointer),
         );
 
-        for comparison in [PointerAddressComparison::Equal, PointerAddressComparison::Less] {
+        for comparison in [
+            PointerAddressComparison::Equal,
+            PointerAddressComparison::Less,
+        ] {
             push_memory(
                 &mut builder,
                 entry,
@@ -1488,10 +1485,7 @@ mod tests {
             CheckedMemoryOperationKind::RawBufferRelocate {
                 element: types.aligned_value,
             },
-            [
-                MirOperand::Value(buffer),
-                MirOperand::Value(source_buffer),
-            ],
+            [MirOperand::Value(buffer), MirOperand::Value(source_buffer)],
             [types.raw_buffer_borrow, types.raw_buffer_borrow],
             None,
         );
@@ -1503,14 +1497,8 @@ mod tests {
             CheckedMemoryOperationKind::RawBufferReplace {
                 element: types.value,
             },
-            [
-                MirOperand::Value(buffer),
-                MirOperand::Value(source_buffer),
-            ],
-            [
-                types.raw_buffer_borrow,
-                types.raw_buffer_borrow,
-            ],
+            [MirOperand::Value(buffer), MirOperand::Value(source_buffer)],
+            [types.raw_buffer_borrow, types.raw_buffer_borrow],
             None,
         );
 
@@ -1602,27 +1590,28 @@ mod tests {
     fn memory_target(raw_memory: bool, allocation: bool) -> bray_codegen::CodegenTarget {
         let profile = test_target_profile();
 
-        let baseline = profile.facts();
+        let baseline = profile.properties();
 
-        let address_spaces = TargetAddressSpaceFacts::try_new(true, true)
+        let address_spaces = TargetAddressSpaces::try_new(true, true)
             .unwrap_or_else(|| panic!("memory test address spaces must be valid"));
 
-        let facts = TargetFacts::new(
+        let properties = TargetProperties::new(
             baseline.identity().clone(),
             baseline.scalars(),
-            test_atomic_facts(),
+            test_atomic_support(),
             baseline.abis(),
             baseline.c_abi(),
             address_spaces,
             baseline.alignments(),
-            TargetOperationFacts::new(raw_memory, allocation),
+            TargetOperationSupport::new(raw_memory, allocation),
         );
 
-        let profile =
-            TargetProfile::try_new(profile.identity().clone(), profile.machine().clone(), facts)
-                .unwrap_or_else(|error| {
-                    panic!("memory test target profile must be valid: {error:?}")
-                });
+        let profile = TargetProfile::try_new(
+            profile.identity().clone(),
+            profile.machine().clone(),
+            properties,
+        )
+        .unwrap_or_else(|error| panic!("memory test target profile must be valid: {error:?}"));
 
         codegen_target_with_profile(profile, "x86_64-unknown-linux-gnu")
     }
@@ -1736,7 +1725,6 @@ mod tests {
             [types.pointer, types.value],
             Some(types.value),
         );
-
     }
 
     fn push_aggregate_atomic_operations(
@@ -1827,28 +1815,24 @@ mod tests {
                 MirOperand::Value(aggregate),
                 MirOperand::Value(aggregate),
             ],
-            [
-                types.atomic_pointer,
-                types.atomic_value,
-                types.atomic_value,
-            ],
+            [types.atomic_pointer, types.atomic_value, types.atomic_value],
             Some(types.atomic_compare_exchange_result),
         );
     }
 
-    fn test_atomic_facts() -> TargetAtomicFacts {
-        let unavailable = |alignment| TargetAtomicRepresentationFacts::unavailable(alignment);
+    fn test_atomic_support() -> TargetAtomicSupport {
+        let unavailable = |alignment| TargetAtomicRepresentationSupport::unavailable(alignment);
 
-        let available = TargetAtomicRepresentationFacts::try_new(
-            TargetAtomicOperationFacts::integer(),
+        let available = TargetAtomicRepresentationSupport::try_new(
+            TargetAtomicOperations::integer(),
             NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN),
             true,
             true,
             true,
         )
-        .unwrap_or_else(|| panic!("atomic test facts must be valid"));
+        .unwrap_or_else(|| panic!("atomic test support must be valid"));
 
-        TargetAtomicFacts::new(
+        TargetAtomicSupport::new(
             unavailable(NonZeroU64::MIN),
             unavailable(NonZeroU64::new(2).unwrap_or(NonZeroU64::MIN)),
             available,

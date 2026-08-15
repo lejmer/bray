@@ -11,13 +11,13 @@ use bray_ir::{
     MirAggregate, MirAggregateKind, MirAnonymousCallableReference, MirBinaryOperator, MirBlockId,
     MirBlockKind, MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirCleanupEdge,
     MirCleanupPhase, MirConstruction, MirConstructionInput, MirEdge, MirExecutableTemplateId,
-    MirFrameDescriptor, MirFrameReference, MirFrameStateFacts, MirGeneratorKind,
-    MirGeneratorOperation, MirImmediateValue, MirImportedExecutableKey, MirMemoryOperation,
-    MirNumericConversionKind, MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate,
-    MirPlace, MirProjection, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageId,
-    MirStorageKind, MirStoreKind, MirSwitchCase, MirTargetFacts, MirTerminatorKind,
-    MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuildError,
-    MirUnitBuilder, MirUnitId, MirUnitKind, MirValueId,
+    MirFrameDescriptor, MirFrameReference, MirFrameState, MirGeneratorKind, MirGeneratorOperation,
+    MirImmediateValue, MirImportedExecutableKey, MirMemoryOperation, MirNumericConversionKind,
+    MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjection,
+    MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirStorageKind,
+    MirStoreKind, MirSwitchCase, MirTargetContract, MirTerminatorKind, MirTextOperation,
+    MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitId,
+    MirUnitKind, MirValueId,
 };
 use bray_runtime_interface::{
     ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiOperation,
@@ -35,8 +35,8 @@ use crate::decode::map_wire_error;
 use crate::semantic::{SemanticDecodeContext, read_symbol_reference};
 use crate::wire::WireReader;
 use crate::{
-    ImportedSemanticFacts, InterfaceExecutableTemplate, InterfaceSymbolResolver,
-    InterfaceConstantValueKind, InterfaceValidationError, InterfaceValidationLimits,
+    ImportedSemantics, InterfaceConstantValueKind, InterfaceExecutableTemplate,
+    InterfaceSymbolResolver, InterfaceValidationError, InterfaceValidationLimits,
 };
 use bray_target::InlineAssemblyOptions;
 
@@ -45,7 +45,7 @@ use super::support::{FORMAT_VERSION, read_bool, read_count, read_optional, read_
 /// Failure while reconstructing one imported executable template.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExecutableTemplateDecodeError {
-    /// The encoded template is malformed or references absent interface facts.
+    /// The encoded template is malformed or references absent interface semantics.
     Malformed,
     /// The encoded template was lowered for a different target contract.
     TargetMismatch,
@@ -60,15 +60,15 @@ pub fn decode_executable_template(
     template: &InterfaceExecutableTemplate,
     owner: AnySymbolId,
     unit: MirUnitId,
-    target: MirTargetFacts,
-    facts: &ImportedSemanticFacts,
+    target: MirTargetContract,
+    semantics: &ImportedSemantics,
     symbols: &impl InterfaceSymbolResolver,
     limits: InterfaceValidationLimits,
 ) -> Result<MirUnit, ExecutableTemplateDecodeError> {
     let mut decoder = Decoder {
         reader: WireReader::new(template.payload()),
         semantic: SemanticDecodeContext::new(limits),
-        facts,
+        semantics,
         symbols,
         unit,
         owner,
@@ -328,9 +328,7 @@ fn assembly_constant_payload(
 
 fn assembly_options_valid(bits: u64, has_normal_output: bool) -> bool {
     InlineAssemblyOptions::try_new(bits)
-        .is_some_and(|options| {
-            !options.may_unwind() && (has_normal_output || !options.pure())
-        })
+        .is_some_and(|options| !options.may_unwind() && (has_normal_output || !options.pure()))
 }
 
 fn assembly_type_counts(contract: InlineAssemblyContract) -> (usize, usize, usize) {
@@ -347,11 +345,11 @@ fn assembly_type_counts(contract: InlineAssemblyContract) -> (usize, usize, usiz
     (inputs, outputs, labels)
 }
 
-struct Decoder<'data, 'facts, R> {
+struct Decoder<'data, 'semantics, R> {
     reader: WireReader<'data>,
     semantic: SemanticDecodeContext,
-    facts: &'facts ImportedSemanticFacts,
-    symbols: &'facts R,
+    semantics: &'semantics ImportedSemantics,
+    symbols: &'semantics R,
     unit: MirUnitId,
     owner: AnySymbolId,
     identity: MirExecutableTemplateId,
@@ -515,7 +513,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
     fn require_target(
         &mut self,
-        target: &MirTargetFacts,
+        target: &MirTargetContract,
     ) -> Result<(), ExecutableTemplateDecodeError> {
         let digest = self.reader.read_array::<32>().map_err(map_wire_error)?;
 
@@ -910,7 +908,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         let dependency_slot = index(read_u32(&mut self.reader)?)?;
 
         let dependency_contract = self
-            .facts
+            .semantics
             .dependency_contracts()
             .get(dependency_slot)
             .copied()
@@ -1177,8 +1175,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
-        validate_decoded_protected_memory_types(kind, &operand_types, result_type, self.facts)?;
-        validate_decoded_atomic_result(kind, result_type, self.facts)?;
+        validate_decoded_protected_memory_types(kind, &operand_types, result_type, self.semantics)?;
+        validate_decoded_atomic_result(kind, result_type, self.semantics)?;
 
         Ok(
             MirMemoryOperation::new(kind, operands, operand_types, result_type)
@@ -1583,7 +1581,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     ) -> Result<Vec<bray_symbols::TypeId>, ExecutableTemplateDecodeError> {
         let elements = match ty {
             Some(ty) => self
-                .facts
+                .semantics
                 .assembly_value_element_types(ty)
                 .ok_or(ExecutableTemplateDecodeError::Malformed)?,
             None if expected == 0 => Vec::new(),
@@ -1982,7 +1980,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                         storages.push(self.storage_id()?);
                     }
 
-                    states.push(MirFrameStateFacts::new(state, entry, lanes, storages));
+                    states.push(MirFrameState::new(state, entry, lanes, storages));
                 }
 
                 MirFrameDescriptor::try_new(frame, abi_version, frame_abi, result_type, states)
@@ -2037,7 +2035,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn ty(&mut self) -> Result<bray_symbols::TypeId, ExecutableTemplateDecodeError> {
         let slot = index(read_u32(&mut self.reader)?)?;
 
-        self.facts
+        self.semantics
             .types()
             .get(slot)
             .copied()
@@ -2049,7 +2047,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     ) -> Result<bray_symbols::ConstantValueId, ExecutableTemplateDecodeError> {
         let slot = index(read_u32(&mut self.reader)?)?;
 
-        self.facts
+        self.semantics
             .constant_values()
             .get(slot)
             .copied()
@@ -2089,14 +2087,14 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         let slot = index(read_u32(&mut self.reader)?)?;
 
         let value = self
-            .facts
+            .semantics
             .constant_values()
             .get(slot)
             .copied()
             .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
         let kind = self
-            .facts
+            .semantics
             .interface_constant_values()
             .get(slot)
             .map(crate::InterfaceConstantValue::kind)
@@ -2112,7 +2110,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     ) -> Result<bray_symbols::ConstantTermId, ExecutableTemplateDecodeError> {
         let slot = index(read_u32(&mut self.reader)?)?;
 
-        self.facts
+        self.semantics
             .constant_terms()
             .get(slot)
             .copied()
@@ -2124,7 +2122,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     ) -> Result<bray_symbols::GenericSubstitutionId, ExecutableTemplateDecodeError> {
         let slot = index(read_u32(&mut self.reader)?)?;
 
-        self.facts
+        self.semantics
             .substitutions()
             .get(slot)
             .copied()
@@ -2136,7 +2134,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     ) -> Result<bray_symbols::TraitApplicationId, ExecutableTemplateDecodeError> {
         let slot = index(read_u32(&mut self.reader)?)?;
 
-        self.facts
+        self.semantics
             .trait_applications()
             .get(slot)
             .copied()
@@ -2148,7 +2146,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     ) -> Result<bray_symbols::ImplementationInstanceId, ExecutableTemplateDecodeError> {
         let slot = index(read_u32(&mut self.reader)?)?;
 
-        self.facts
+        self.semantics
             .implementation_instances()
             .get(slot)
             .copied()
@@ -2242,7 +2240,7 @@ fn validate_decoded_protected_memory_types(
     kind: CheckedMemoryOperationKind,
     operands: &[bray_symbols::TypeId],
     result: Option<bray_symbols::TypeId>,
-    facts: &ImportedSemanticFacts,
+    semantics: &ImportedSemantics,
 ) -> Result<(), ExecutableTemplateDecodeError> {
     let uninit = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Uninit")
         .ok_or(ExecutableTemplateDecodeError::Malformed)?;
@@ -2260,9 +2258,9 @@ fn validate_decoded_protected_memory_types(
                 ProtectedMemoryWrapper::RawPointer => &raw_pointer,
             };
 
-            facts.compiler_known_type_argument(ty, expected)
+            semantics.compiler_known_type_argument(ty, expected)
         },
-        |ty, kind| facts.borrow_target(ty, kind),
+        |ty, kind| semantics.borrow_target(ty, kind),
     )
     .then_some(())
     .ok_or(ExecutableTemplateDecodeError::Malformed)
@@ -2367,7 +2365,7 @@ const fn address_borrow_kind(kind: bray_bound_tree::MemoryAddressKind) -> bray_s
 fn validate_decoded_atomic_result(
     kind: CheckedMemoryOperationKind,
     result: Option<bray_symbols::TypeId>,
-    facts: &ImportedSemanticFacts,
+    semantics: &ImportedSemantics,
 ) -> Result<(), ExecutableTemplateDecodeError> {
     let CheckedMemoryOperationKind::AtomicCompareExchange { value, .. } = kind else {
         return Ok(());
@@ -2375,7 +2373,7 @@ fn validate_decoded_atomic_result(
 
     let result = result.ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
-    let elements = facts
+    let elements = semantics
         .tuple_element_types(result)
         .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
@@ -2383,7 +2381,7 @@ fn validate_decoded_atomic_result(
         .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
     atomic_compare_exchange_result_elements_valid(value, &elements, |ty| {
-        facts.is_compiler_known_type(ty, &boolean)
+        semantics.is_compiler_known_type(ty, &boolean)
     })
     .then_some(())
     .ok_or(ExecutableTemplateDecodeError::Malformed)
@@ -2468,11 +2466,10 @@ mod tests {
 
     use super::{
         AssemblyConstantPayload, AssemblyConstantRole, ExecutableTemplateDecodeError,
-        assembly_constant_payload, assembly_options_valid,
+        ProtectedMemoryWrapper, assembly_constant_payload, assembly_options_valid,
         atomic_compare_exchange_result_elements_valid, decoded_atomic_kind,
         decoded_inline_assembly_contract, decoded_inline_assembly_types,
         decoded_inline_assembly_value_types, protected_memory_types_valid,
-        ProtectedMemoryWrapper,
     };
 
     #[derive(Clone, Copy)]
@@ -2501,9 +2498,7 @@ mod tests {
                 operands,
                 result,
                 |ty, wrapper| match (ty, wrapper) {
-                    (ty, ProtectedMemoryWrapper::Uninit) if ty == self.uninit => {
-                        Some(self.element)
-                    }
+                    (ty, ProtectedMemoryWrapper::Uninit) if ty == self.uninit => Some(self.element),
                     (ty, ProtectedMemoryWrapper::RawPointer) if ty == self.pointer => {
                         Some(self.element)
                     }

@@ -4,7 +4,7 @@ use crate::semantic::codec::common::{
     read_u32,
 };
 use crate::semantic::model::{
-    InterfaceCheckedTemplateId, InterfaceSemanticFacts, InterfaceSupportEntity,
+    InterfaceCheckedTemplateId, InterfaceSemantics, InterfaceSupportEntity,
     InterfaceSupportImplementation, InterfaceTraitApplicationId, InterfaceTypeId,
 };
 use crate::wire::WireReader;
@@ -16,7 +16,7 @@ pub(super) fn decode_support_graph(
     section: ValidatedInterfaceSection<'_>,
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
-    facts: &mut InterfaceSemanticFacts,
+    semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
     let count = read_count(&mut reader, limits, InterfaceLimit::RecordCount)?;
@@ -46,7 +46,7 @@ pub(super) fn decode_support_graph(
 
     reader.finish().map_err(map_wire_error)?;
 
-    facts.support_entities = entities.into();
+    semantics.support_entities = entities.into();
 
     Ok(())
 }

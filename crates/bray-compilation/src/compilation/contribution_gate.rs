@@ -19,9 +19,10 @@ use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, ConstantSymbolId, ConstantValueData, ConstantValueId,
     ConstantValueKind, DirectiveArgumentTemplate, DirectiveKind, DirectiveSurface,
     DirectiveTemplate, IntegerConstant, IntegerSign, ModuleContributionGate, ModuleSymbol,
-    NamedTypeSymbolId, ProductKind, StructSymbolId, SymbolProvider, TargetFactDependency, TypeId,
+    NamedTypeSymbolId, ProductKind, StructSymbolId, SymbolProvider, TargetPropertyDependency,
+    TypeId,
 };
-use bray_target::{TargetFactKind, TargetFactValue};
+use bray_target::{TargetPropertyKind, TargetPropertyValue};
 
 use super::Compilation;
 use super::binder::bind_module_part_directives_for_selection;
@@ -63,17 +64,17 @@ impl Compilation {
 
     pub(in crate::compilation) fn target_dependencies_hold(
         &self,
-        dependencies: &[TargetFactDependency],
+        dependencies: &[TargetPropertyDependency],
     ) -> Result<bool, FactQueryError> {
         let provider = self.available_compiler_known_symbols().provider();
 
         for dependency in dependencies {
-            let Some(fact) = provider.symbol_target_fact(dependency.fact()) else {
+            let Some(property) = provider.symbol_target_property(dependency.property()) else {
                 return Ok(false);
             };
 
             let Some(symbol) =
-                SymbolProvider::<ConstantSymbolId>::symbol(provider, dependency.fact())
+                SymbolProvider::<ConstantSymbolId>::symbol(provider, dependency.property())
             else {
                 return Ok(false);
             };
@@ -82,7 +83,7 @@ impl Compilation {
                 return Ok(false);
             }
 
-            if self.target_fact_value(fact)? != dependency.value() {
+            if self.target_property_value(property)? != dependency.value() {
                 return Ok(false);
             }
         }
@@ -98,15 +99,15 @@ impl Compilation {
             return Ok(None);
         };
 
-        let Some(fact) = self
+        let Some(property) = self
             .available_compiler_known_symbols()
             .provider()
-            .symbol_target_fact(symbol)
+            .symbol_target_property(symbol)
         else {
             return Ok(None);
         };
 
-        self.target_fact_value(fact).map(Some)
+        self.target_property_value(property).map(Some)
     }
 
     fn module_contribution_gate_key(
@@ -138,10 +139,10 @@ impl Compilation {
             .module_for_part(part.id())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let context = self.discovery_binder_facts(cancellation)?;
+        let context = self.discovery_binding_context(cancellation)?;
 
         let directives = bind_module_part_directives_for_selection(&context, module.id(), part)
-            .map_err(super::binder::binder_fact_error)?;
+            .map_err(super::binder::binding_query_error)?;
 
         let (directives, mut diagnostics) = directives.into_parts();
 
@@ -222,7 +223,7 @@ impl Compilation {
             return Err(FactQueryError::InfrastructureFailure);
         }
 
-        // Independently cached semantic facts retain the same Arc-backed unit identity.
+        // Independently cached semantic results retain the same Arc-backed unit identity.
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
         let context = self.checker_context_for(&key, cancellation)?;
@@ -288,18 +289,24 @@ impl Compilation {
     fn target_gate_reference(
         &self,
         target: BoundReferenceTarget,
-    ) -> Result<(ConstantReferenceResolution, Option<TargetFactDependency>), FactQueryError> {
+    ) -> Result<
+        (
+            ConstantReferenceResolution,
+            Option<TargetPropertyDependency>,
+        ),
+        FactQueryError,
+    > {
         let BoundReferenceTarget::Surface(AnySymbolId::Constant(symbol)) = target else {
             return Ok((ConstantReferenceResolution::Invalid, None));
         };
 
         let provider = self.available_compiler_known_symbols().provider();
 
-        let Some(fact) = provider.symbol_target_fact(symbol) else {
+        let Some(property) = provider.symbol_target_property(symbol) else {
             return Ok((ConstantReferenceResolution::Invalid, None));
         };
 
-        let value = self.target_fact_value(fact)?;
+        let value = self.target_property_value(property)?;
 
         // Dependency evidence owns the provider's Arc-backed symbol key beyond this lookup.
         let key = SymbolProvider::<ConstantSymbolId>::symbol(provider, symbol)
@@ -309,7 +316,7 @@ impl Compilation {
 
         Ok((
             ConstantReferenceResolution::Value(value),
-            Some(TargetFactDependency::new(key, symbol, value)),
+            Some(TargetPropertyDependency::new(key, symbol, value)),
         ))
     }
 
@@ -334,33 +341,35 @@ impl Compilation {
         }
     }
 
-    pub(in crate::compilation) fn target_fact_value(
+    pub(in crate::compilation) fn target_property_value(
         &self,
-        fact: TargetFactKind,
+        property: TargetPropertyKind,
     ) -> Result<ConstantValueId, FactQueryError> {
-        let fact_value = self.requested_target().profile().fact(fact);
+        let property_value = self.requested_target().profile().property(property);
 
-        let value = match fact_value {
-            TargetFactValue::String(value) => ConstantValueKind::String(Arc::from(value)),
-            TargetFactValue::Usize(value) => ConstantValueKind::Integer(unsigned_integer(value)),
-            TargetFactValue::Boolean(value) => ConstantValueKind::Boolean(value),
+        let value = match property_value {
+            TargetPropertyValue::String(value) => ConstantValueKind::String(Arc::from(value)),
+            TargetPropertyValue::Usize(value) => {
+                ConstantValueKind::Integer(unsigned_integer(value))
+            }
+            TargetPropertyValue::Boolean(value) => ConstantValueKind::Boolean(value),
         };
 
-        let ty = self.target_fact_type(fact)?;
+        let ty = self.target_property_type(property)?;
 
         self.semantic_value_store()?
             .intern_constant_value(ConstantValueData::new(ty, value))
             .map_err(|_| FactQueryError::InfrastructureFailure)
     }
 
-    pub(in crate::compilation) fn target_fact_type(
+    pub(in crate::compilation) fn target_property_type(
         &self,
-        fact: TargetFactKind,
+        property: TargetPropertyKind,
     ) -> Result<TypeId, FactQueryError> {
-        let role = match self.requested_target().profile().fact(fact) {
-            TargetFactValue::String(_) => RepresentationRole::String,
-            TargetFactValue::Usize(_) => RepresentationRole::ScalarUsize,
-            TargetFactValue::Boolean(_) => RepresentationRole::ScalarBool,
+        let role = match self.requested_target().profile().property(property) {
+            TargetPropertyValue::String(_) => RepresentationRole::String,
+            TargetPropertyValue::Usize(_) => RepresentationRole::ScalarUsize,
+            TargetPropertyValue::Boolean(_) => RepresentationRole::ScalarBool,
         };
 
         let definition = self
@@ -440,9 +449,9 @@ mod tests {
 
     use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
     use bray_symbols::{
-        AnyConstantDefinitionId, ConstantInstanceKey, ConstantValueKind, TargetFactDependency,
+        AnyConstantDefinitionId, ConstantInstanceKey, ConstantValueKind, TargetPropertyDependency,
     };
-    use bray_target::TargetFactKind;
+    use bray_target::TargetPropertyKind;
 
     use super::super::constant::empty_concrete_substitution;
     use crate::test_support::compilation;
@@ -465,7 +474,7 @@ mod tests {
             panic!("target gate must retain one exact target dependency");
         };
 
-        assert_dependency(&enabled, dependency, TargetFactKind::ScalarU64);
+        assert_dependency(&enabled, dependency, TargetPropertyKind::ScalarU64);
 
         let disabled = compilation("@target(target.atomic.U128) module app;");
         let disabled_gate = module_gate(&disabled);
@@ -482,7 +491,7 @@ mod tests {
             panic!("target gate must retain one exact target dependency");
         };
 
-        assert_dependency(&disabled, dependency, TargetFactKind::AtomicU128);
+        assert_dependency(&disabled, dependency, TargetPropertyKind::AtomicU128);
     }
 
     #[test]
@@ -497,7 +506,7 @@ mod tests {
             panic!("target gate must retain one exact target dependency");
         };
 
-        assert_dependency(&negated, dependency, TargetFactKind::AtomicU128);
+        assert_dependency(&negated, dependency, TargetPropertyKind::AtomicU128);
 
         let composed = compilation("@target(target.scalar.U64 && !target.atomic.U128) module app;");
         let gate = module_gate(&composed);
@@ -519,7 +528,7 @@ mod tests {
             panic!("target gate must retain one exact target dependency");
         };
 
-        assert_dependency(&compilation, dependency, TargetFactKind::PointerBits);
+        assert_dependency(&compilation, dependency, TargetPropertyKind::PointerBits);
     }
 
     #[test]
@@ -534,7 +543,7 @@ mod tests {
             panic!("target gate must retain the exact C ABI target dependency");
         };
 
-        assert_dependency(&compilation, dependency, TargetFactKind::CLong);
+        assert_dependency(&compilation, dependency, TargetPropertyKind::CLong);
     }
 
     #[test]
@@ -551,7 +560,7 @@ mod tests {
             panic!("target gate must retain only the evaluated target dependency");
         };
 
-        assert_dependency(&compilation, dependency, TargetFactKind::ScalarU64);
+        assert_dependency(&compilation, dependency, TargetPropertyKind::ScalarU64);
     }
 
     #[test]
@@ -591,7 +600,7 @@ mod tests {
             panic!("target gate must retain its selected target dependency");
         };
 
-        assert_dependency(&compilation, dependency, TargetFactKind::PointerBits);
+        assert_dependency(&compilation, dependency, TargetPropertyKind::PointerBits);
     }
 
     #[test]
@@ -642,13 +651,13 @@ mod tests {
     }
 
     #[test]
-    fn target_facts_are_ordinary_selected_target_constants() {
+    fn target_properties_are_ordinary_selected_target_constants() {
         let compilation = compilation("module app;");
         let provider = compilation.available_compiler_known_symbols().provider();
 
         let symbol = provider
-            .target_fact_symbol(TargetFactKind::ScalarU64)
-            .unwrap_or_else(|| panic!("compiler-known target fact must be available"));
+            .target_property_symbol(TargetPropertyKind::ScalarU64)
+            .unwrap_or_else(|| panic!("compiler-known target property must be available"));
 
         let definition = AnyConstantDefinitionId::Constant(symbol);
 
@@ -658,13 +667,15 @@ mod tests {
                 .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}")),
             definition,
         )
-        .unwrap_or_else(|error| panic!("target fact substitution must be valid: {error:?}"));
+        .unwrap_or_else(|error| panic!("target property substitution must be valid: {error:?}"));
 
         let instance = ConstantInstanceKey::new(definition, substitution, None);
 
         let value = compilation
             .constant_instance(instance)
-            .unwrap_or_else(|error| panic!("target fact instance must be available: {error:?}"));
+            .unwrap_or_else(|error| {
+                panic!("target property instance must be available: {error:?}")
+            });
 
         assert!(value.diagnostics().is_empty());
 
@@ -672,7 +683,7 @@ mod tests {
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
             .constant_value_data(value.value().value())
-            .unwrap_or_else(|error| panic!("target fact value must be available: {error:?}"));
+            .unwrap_or_else(|error| panic!("target property value must be available: {error:?}"));
 
         assert_eq!(data.kind(), &ConstantValueKind::Boolean(true));
     }
@@ -691,22 +702,22 @@ mod tests {
 
     fn assert_dependency(
         compilation: &crate::Compilation,
-        dependency: &TargetFactDependency,
-        expected: TargetFactKind,
+        dependency: &TargetPropertyDependency,
+        expected: TargetPropertyKind,
     ) {
         let provider = compilation.available_compiler_known_symbols().provider();
 
         assert_eq!(
-            provider.symbol_target_fact(dependency.fact()),
+            provider.symbol_target_property(dependency.property()),
             Some(expected)
         );
 
         assert_eq!(
             dependency.value(),
             compilation
-                .target_fact_value(expected)
+                .target_property_value(expected)
                 .unwrap_or_else(|error| panic!(
-                    "selected target fact must be available: {error:?}"
+                    "selected target property must be available: {error:?}"
                 ))
         );
     }

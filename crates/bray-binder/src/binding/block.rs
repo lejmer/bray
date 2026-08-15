@@ -12,13 +12,13 @@ use bray_syntax::{
 
 use super::BindingResult;
 use super::name::{name_is_available, symbol_name};
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode};
 use crate::lookup::PathBindingContext;
 
 pub(crate) trait BlockBindingOperations<C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     fn bind_expression(
         &mut self,
@@ -52,7 +52,7 @@ where
 
 impl<C> Binder<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     pub(crate) fn bind_block(
         &mut self,
@@ -244,7 +244,7 @@ where
 
 fn bound_block_item_is_recovered<C>(binder: &Binder<'_, C>, item: &BoundBlockItem) -> bool
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     match item {
         BoundBlockItem::LocalBinding(binding) => {
@@ -269,11 +269,11 @@ mod tests {
     use bray_syntax::{ExpressionSyntax, GeneratorIterationExpressionSyntax, TypeExpressionSyntax};
 
     use super::BlockBindingOperations;
-    use crate::BinderFactContext;
+    use crate::BindingQueryContext;
     use crate::binder::Binder;
     use crate::binder::ControlTargetKind;
     use crate::binding::{BindingError, BindingResult};
-    use crate::fact::test_support::TestFixture;
+    use crate::query::test_support::TestFixture;
 
     #[test]
     fn blocks_bind_local_items_in_source_order_and_activate_after_initializers() {
@@ -288,9 +288,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let root = binder.unit().root_scope();
         let mut operations = TestOperations::new(fixture.declared_type);
@@ -378,9 +378,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let root = binder.unit().root_scope();
         let mut operations = TestOperations::failing(fixture.declared_type);
@@ -415,9 +415,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let root = binder.unit().root_scope();
         let mut operations = TestOperations::new(fixture.declared_type);
@@ -469,9 +469,9 @@ mod tests {
             "}",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (mut binder, block) = crate::binding::test_support::binder_and_block(&facts);
+        let (mut binder, block) = crate::binding::test_support::binder_and_block(&binding_context);
 
         let root = binder.unit().root_scope();
         let mut operations = TestOperations::new(fixture.declared_type);
@@ -558,7 +558,7 @@ mod tests {
 
     impl<C> BlockBindingOperations<C> for TestOperations
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         fn bind_expression(
             &mut self,
@@ -630,7 +630,7 @@ mod tests {
             scope: bray_symbols::LocalScopeId,
         ) -> BindingResult<crate::lookup::PathBindingContext> {
             Ok(crate::binding::test_support::internal_path_context(
-                binder.facts(),
+                binder.binding_context(),
                 scope,
             ))
         }

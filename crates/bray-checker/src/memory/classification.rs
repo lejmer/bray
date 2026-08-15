@@ -80,9 +80,7 @@ where
     };
 
     let kind = match hook {
-        ImplementationHook::UninitNew => {
-            CheckedMemoryOperationKind::UninitNew { element: one()? }
-        }
+        ImplementationHook::UninitNew => CheckedMemoryOperationKind::UninitNew { element: one()? },
         ImplementationHook::UninitPointer => CheckedMemoryOperationKind::UninitPointer {
             kind: MemoryAddressKind::Shared,
             element: one()?,
@@ -154,12 +152,7 @@ where
         ImplementationHook::RawPointerRead => {
             let pointee = one()?;
 
-            let read_kind = memory_read_kind(
-                request,
-                pointee,
-                read_kinds,
-                diagnostics,
-            )?;
+            let read_kind = memory_read_kind(request, pointee, read_kinds, diagnostics)?;
 
             CheckedMemoryOperationKind::Read {
                 pointee,
@@ -647,7 +640,11 @@ mod tests {
             ];
 
             for (hook, types, expected) in cases {
-                let arguments = types.into_iter().map(GenericArgument::Type).collect::<Vec<_>>();
+                let arguments = types
+                    .into_iter()
+                    .map(GenericArgument::Type)
+                    .collect::<Vec<_>>();
+
                 let expression = first_expression(request);
 
                 let result = classify_operation(

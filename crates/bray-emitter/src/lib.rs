@@ -25,7 +25,7 @@ pub use bray_symbols::{ProductIdentity, ProductKind};
 pub use generation::{ProductGenerationIdentity, PublishedProductGeneration};
 pub use link::{
     LinkOutputStaging, LinkOutputStagingBuildError, LinkPlanConstructionError, LinkStaging,
-    LinkStagingError, ProductLinkFacts, StagedArtifact, StagedArtifactBuildError,
+    LinkStagingError, ProductLinkInputs, StagedArtifact, StagedArtifactBuildError,
     construct_link_plan,
 };
 pub use outcome::{EmissionFailure, EmissionOutcome, EmissionOutcomeBuildError, EmissionStatus};

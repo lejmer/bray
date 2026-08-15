@@ -50,7 +50,7 @@ pub fn partition_codegen_units(
     let mut current = Vec::new();
     let mut current_work = CodegenWork::new(0);
     let mut current_compatibility = None;
-    let mut current_target: Option<&bray_ir::MirTargetFacts> = None;
+    let mut current_target: Option<&bray_ir::MirTargetContract> = None;
 
     for group in partition_groups {
         // The pending unit owns its Arc-backed class beyond this group iteration.
@@ -246,7 +246,7 @@ fn finish_unit(
     current: &mut Vec<CodegenInstance>,
     current_work: &mut CodegenWork,
     current_compatibility: &mut Option<CodegenPartitionCompatibility>,
-    current_target: &mut Option<&bray_ir::MirTargetFacts>,
+    current_target: &mut Option<&bray_ir::MirTargetContract>,
     units: &mut Vec<CodegenUnit>,
 ) -> Result<(), CodegenPartitionError> {
     if current.is_empty() {
@@ -288,7 +288,7 @@ fn is_content_boundary(
 struct PartitionGroup<'a> {
     compatibility: Option<CodegenPartitionCompatibility>,
     compatibilities: Vec<CodegenPartitionCompatibility>,
-    target: &'a bray_ir::MirTargetFacts,
+    target: &'a bray_ir::MirTargetContract,
     instances: Vec<&'a CodegenInstance>,
     work: CodegenWork,
     anchor: [u8; 32],
@@ -445,7 +445,7 @@ pub enum CodegenPartitionError {
 mod tests {
     use std::sync::Arc;
 
-    use bray_ir::MirTargetFacts;
+    use bray_ir::MirTargetContract;
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_symbols::PackageIdentity;
     use bray_testing::{
@@ -677,7 +677,7 @@ mod tests {
         let first_target = test_mir_target();
 
         let second_target =
-            MirTargetFacts::new(first_target.profile().clone(), RuntimeAbiVersion::new(2, 0));
+            MirTargetContract::new(first_target.profile().clone(), RuntimeAbiVersion::new(2, 0));
 
         let first = CodegenInstance::non_generic(test_mir_unit_for_target(4, first_target));
         let second = CodegenInstance::non_generic(test_mir_unit_for_target(8, second_target));

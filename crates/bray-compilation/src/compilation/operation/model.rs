@@ -148,7 +148,7 @@ impl OperationResolution {
     }
 
     pub(in crate::compilation) fn selection_entry(&self) -> Option<SemanticSelectionEntry> {
-        // The operation fact retains its selection while the type input owns the table entry.
+        // The operation selection retains its result while the type input owns the table entry.
         self.selection.clone().map(|selection| {
             SemanticSelectionEntry::new(self.expression, SemanticSelection::Operation(selection))
         })

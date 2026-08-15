@@ -10,7 +10,8 @@ use bray_diagnostics::{
 };
 use bray_symbols::CallableAbi;
 use bray_target::{
-    TargetForeignAbiFacts, TargetLayoutContract, TargetProfile, TargetScalarKind, TargetValueLayout,
+    TargetForeignAbiContract, TargetLayoutContract, TargetProfile, TargetScalarKind,
+    TargetValueLayout,
 };
 
 use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerSource};
@@ -271,7 +272,7 @@ fn requirement_violation(
         TargetValidityRequirement::Representation(role) => {
             let scalar = scalar_kind(*role)?;
 
-            (!target.facts().scalars().supports(scalar))
+            (!target.properties().scalars().supports(scalar))
                 .then_some(TargetViolation::Representation(scalar))
         }
         TargetValidityRequirement::CallableAbi(requirement) => {
@@ -314,16 +315,19 @@ fn callable_abi_violation(
         })
 }
 
-fn foreign_abi_contract(target: &TargetProfile, abi: CallableAbi) -> Option<TargetForeignAbiFacts> {
+fn foreign_abi_contract(
+    target: &TargetProfile,
+    abi: CallableAbi,
+) -> Option<TargetForeignAbiContract> {
     match abi {
         CallableAbi::Bray => None,
-        CallableAbi::C => target.facts().abis().c_contract(),
-        CallableAbi::System => target.facts().abis().system_contract(),
+        CallableAbi::C => target.properties().abis().c_contract(),
+        CallableAbi::System => target.properties().abis().system_contract(),
     }
 }
 
 fn abi_accepts_value(
-    contract: TargetForeignAbiFacts,
+    contract: TargetForeignAbiContract,
     abi: CallableAbi,
     value: TargetAbiValue,
 ) -> bool {
@@ -351,11 +355,11 @@ fn layout_violation(
     let (kind, maximum) = match requirement.usage() {
         TargetLayoutUse::Storage => (
             DiagnosticAlignmentKind::Storage,
-            target.facts().alignments().max_storage().get(),
+            target.properties().alignments().max_storage().get(),
         ),
         TargetLayoutUse::Allocation => (
             DiagnosticAlignmentKind::Allocation,
-            target.facts().alignments().max_allocation().get(),
+            target.properties().alignments().max_allocation().get(),
         ),
         TargetLayoutUse::CallableAbi(abi) => {
             let Some(contract) = foreign_abi_contract(target, abi) else {
@@ -556,7 +560,7 @@ mod tests {
     use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticTargetRepresentation};
     use bray_symbols::CallableAbi;
     use bray_target::{
-        TargetAbiFacts, TargetFacts, TargetIdentity, TargetLayoutContract, TargetProfile,
+        TargetAbiSupport, TargetIdentity, TargetLayoutContract, TargetProfile, TargetProperties,
         TargetValueLayout,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
@@ -733,23 +737,23 @@ mod tests {
 
     fn target_without_abis() -> TargetProfile {
         let baseline = bray_target::test_support::test_target_profile();
-        let facts = baseline.facts();
+        let properties = baseline.properties();
 
-        let facts = TargetFacts::new(
-            facts.identity().clone(),
-            facts.scalars(),
-            facts.atomics(),
-            TargetAbiFacts::new(None, None),
-            facts.c_abi(),
-            facts.address_spaces(),
-            facts.alignments(),
-            facts.operations(),
+        let properties = TargetProperties::new(
+            properties.identity().clone(),
+            properties.scalars(),
+            properties.atomics(),
+            TargetAbiSupport::new(None, None),
+            properties.c_abi(),
+            properties.address_spaces(),
+            properties.alignments(),
+            properties.operations(),
         );
 
         let identity = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
             .unwrap_or_else(|| panic!("test target identity must be valid"));
 
-        TargetProfile::try_new(identity, baseline.machine().clone(), facts)
+        TargetProfile::try_new(identity, baseline.machine().clone(), properties)
             .unwrap_or_else(|error| panic!("test target without ABIs must be valid: {error:?}"))
     }
 }

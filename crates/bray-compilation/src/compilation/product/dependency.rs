@@ -47,7 +47,7 @@ pub(super) fn validate_public_expression_dependencies(
             continue;
         }
 
-        // Both lazy facts own the same Arc-backed unit key independently.
+        // Both lazy query results own the same Arc-backed unit key independently.
         let bound = compilation.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
         let selections = compilation.semantic_selections_with_cancellation(key, cancellation)?;

@@ -210,9 +210,7 @@ impl Parser {
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) {
         loop {
-            if self.at(SyntaxKind::CloseParenToken)
-                || self.at(SyntaxKind::EndOfFileToken)
-            {
+            if self.at(SyntaxKind::CloseParenToken) || self.at(SyntaxKind::EndOfFileToken) {
                 break;
             }
 
@@ -225,9 +223,7 @@ impl Parser {
 
             builder.push_separator_token(self.expect(SyntaxKind::CommaToken));
 
-            if self.at(SyntaxKind::CloseParenToken)
-                || self.at(SyntaxKind::EndOfFileToken)
-            {
+            if self.at(SyntaxKind::CloseParenToken) || self.at(SyntaxKind::EndOfFileToken) {
                 break;
             }
 

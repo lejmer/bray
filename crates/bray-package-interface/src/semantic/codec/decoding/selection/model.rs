@@ -5,7 +5,7 @@ use crate::semantic::model::{
     InterfaceCoherenceRecord, InterfaceConstantTerm, InterfaceConstantValue, InterfaceConstraint,
     InterfaceDeclaredType, InterfaceDependencyContract, InterfaceGenericDeclaration,
     InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceImplementationRecord,
-    InterfaceRuntimeRequirement, InterfaceTargetFactDependency, InterfaceTraitApplication,
+    InterfaceRuntimeRequirement, InterfaceTargetPropertyDependency, InterfaceTraitApplication,
     InterfaceType,
 };
 
@@ -49,7 +49,7 @@ pub(super) struct SelectedRecords {
     pub(super) declared_types: RecordSet<InterfaceDeclaredType>,
     pub(super) implementations: RecordSet<InterfaceImplementationRecord>,
     pub(super) coherence: RecordSet<InterfaceCoherenceRecord>,
-    pub(super) target_dependencies: RecordSet<InterfaceTargetFactDependency>,
+    pub(super) target_dependencies: RecordSet<InterfaceTargetPropertyDependency>,
     pub(super) runtime_requirements: RecordSet<InterfaceRuntimeRequirement>,
 }
 

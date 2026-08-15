@@ -36,7 +36,9 @@ pub(in crate::standard_library::performance) fn validate_parts(
         ExpectedSideEffects::None => {}
         ExpectedSideEffects::AbsentPath(path) if !working_directory.join(path).exists() => {}
         ExpectedSideEffects::AbsentPath(_) => {
-            return Err("performance artifact did not clean up its declared file effect".to_owned());
+            return Err(
+                "performance artifact did not clean up its declared file effect".to_owned(),
+            );
         }
     }
 

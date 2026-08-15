@@ -17,7 +17,7 @@ use bray_symbols::{
     TypeExpressionTemplate, TypeId,
 };
 
-use crate::{CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome};
+use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult};
 
 use super::model::{
     DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
@@ -39,8 +39,8 @@ where
             value.representation,
             checker.diagnostics,
         )),
-        Err(CheckerFactError::Cancelled) => CheckerOutcome::Cancelled,
-        Err(CheckerFactError::Infrastructure(error)) => {
+        Err(CheckerQueryError::Cancelled) => CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
     }
@@ -187,7 +187,7 @@ where
         &mut self,
         subject: NamedTypeSymbolId,
         incoming_member: Option<SourceSpan>,
-    ) -> CheckerFactResult<CheckedRepresentation> {
+    ) -> CheckerQueryResult<CheckedRepresentation> {
         if let Some(result) = self.completed.get(&subject) {
             // Completed contracts own Arc-backed tag storage and are cheap to share.
             return Ok(CheckedRepresentation {
@@ -197,7 +197,7 @@ where
         }
 
         if self.context.cancellation().is_cancelled() {
-            return Err(CheckerFactError::Cancelled);
+            return Err(CheckerQueryError::Cancelled);
         }
 
         let imported = self.context.imported_type_representation(subject)?;
@@ -206,7 +206,7 @@ where
             .add_range(imported.diagnostics().iter().cloned());
 
         if let Some(result) = imported.value() {
-            // Imported representation facts own Arc-backed tag storage.
+            // Imported representation records own Arc-backed tag storage.
             let result = result.clone();
 
             self.completed.insert(subject, result.clone());
@@ -281,7 +281,7 @@ where
     fn check_definition(
         &mut self,
         definition: &DeclaredTypeDefinition,
-    ) -> CheckerFactResult<CheckedRepresentation> {
+    ) -> CheckerQueryResult<CheckedRepresentation> {
         let members = definition
             .fields()
             .iter()
@@ -354,7 +354,7 @@ where
     fn check_member(
         &mut self,
         member: &DeclaredStorageMember,
-    ) -> CheckerFactResult<MemberRepresentation> {
+    ) -> CheckerQueryResult<MemberRepresentation> {
         let mut result = self.check_template(member.ty(), Some(member.span()))?;
 
         if result.copyable == Copyability::Never {
@@ -383,7 +383,7 @@ where
         &mut self,
         template: &TypeExpressionTemplate,
         origin: Option<SourceSpan>,
-    ) -> CheckerFactResult<MemberRepresentation> {
+    ) -> CheckerQueryResult<MemberRepresentation> {
         match template {
             TypeExpressionTemplate::Resolved(ty) => self.check_type(*ty, origin),
             TypeExpressionTemplate::Named {
@@ -456,11 +456,9 @@ where
         parameters: &[GenericParameterSymbolId],
         arguments: &[GenericArgumentTemplate],
         origin: Option<SourceSpan>,
-    ) -> CheckerFactResult<MemberRepresentation> {
-        if named_representation_role(
-            self.context.available_compiler_known_symbols(),
-            subject,
-        ) == Some(RepresentationRole::Uninit)
+    ) -> CheckerQueryResult<MemberRepresentation> {
+        if named_representation_role(self.context.available_compiler_known_symbols(), subject)
+            == Some(RepresentationRole::Uninit)
         {
             let [GenericParameterSymbolId::Type(_)] = parameters else {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -523,9 +521,9 @@ where
         &mut self,
         ty: TypeId,
         origin: Option<SourceSpan>,
-    ) -> CheckerFactResult<MemberRepresentation> {
+    ) -> CheckerQueryResult<MemberRepresentation> {
         let data = self.context.semantic_values().type_data(ty).map_err(|_| {
-            CheckerFactError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })?;
 
         match data.as_ref() {
@@ -547,13 +545,9 @@ where
                                 RepresentationRole::Uninit,
                                 ty,
                             )
-                            .ok_or(
-                                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                            )?;
+                            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
-                        return self
-                            .check_type(element, origin)
-                            .map(uninit_representation);
+                        return self.check_type(element, origin).map(uninit_representation);
                     }
 
                     return Ok(compiler_known_representation(role));
@@ -570,7 +564,7 @@ where
                     .semantic_values()
                     .generic_substitution_data(*substitution)
                     .map_err(|_| {
-                        CheckerFactError::Infrastructure(
+                        CheckerQueryError::Infrastructure(
                             CheckerInfrastructureError::SemanticValueUnavailable,
                         )
                     })?;
@@ -934,18 +928,16 @@ fn compiler_known_representation(role: RepresentationRole) -> MemberRepresentati
         | RepresentationRole::Future
         | RepresentationRole::Uninit
         | RepresentationRole::Task
-        | RepresentationRole::PanicReport => {
-            MemberRepresentation {
-                finite: true,
-                plain: false,
-                copyable: Copyability::Never,
-                copy_dependencies: BTreeSet::new(),
-                non_copyable_members: BTreeSet::new(),
-                stored_type_problems: BTreeSet::new(),
-                recursive_cycles: Vec::new(),
-                recovered: false,
-            }
-        }
+        | RepresentationRole::PanicReport => MemberRepresentation {
+            finite: true,
+            plain: false,
+            copyable: Copyability::Never,
+            copy_dependencies: BTreeSet::new(),
+            non_copyable_members: BTreeSet::new(),
+            stored_type_problems: BTreeSet::new(),
+            recursive_cycles: Vec::new(),
+            recovered: false,
+        },
         RepresentationRole::Result
         | RepresentationRole::RunResult
         | RepresentationRole::ConversionError => MemberRepresentation {

@@ -7,7 +7,12 @@ pub(crate) fn run<T, E>(label: &str, operation: impl FnOnce() -> Result<T, E>) -
 
     let started = Instant::now();
     let result = operation();
-    let outcome = if result.is_ok() { "completed" } else { "failed" };
+
+    let outcome = if result.is_ok() {
+        "completed"
+    } else {
+        "failed"
+    };
 
     eprintln!("{}", finish_message(label, outcome, started.elapsed()));
 

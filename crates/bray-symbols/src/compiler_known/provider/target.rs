@@ -1,127 +1,130 @@
 use std::collections::BTreeMap;
 
 use bray_compiler_known::CompilerKnownDeclarationKey;
-use bray_target::TargetFactKind;
+use bray_target::TargetPropertyKind;
 
 use super::super::CompilerKnownSymbolBuildError;
 use crate::{AnySymbolId, ConstantSymbolId, ExactSymbolId};
 
-pub(super) struct TargetFactSymbols {
-    pub(super) facts: BTreeMap<TargetFactKind, ConstantSymbolId>,
-    pub(super) symbols: BTreeMap<ConstantSymbolId, TargetFactKind>,
+pub(super) struct TargetPropertySymbols {
+    pub(super) properties: BTreeMap<TargetPropertyKind, ConstantSymbolId>,
+    pub(super) symbols: BTreeMap<ConstantSymbolId, TargetPropertyKind>,
 }
 
-pub(super) fn build_target_facts(
+pub(super) fn build_target_properties(
     declarations: &BTreeMap<CompilerKnownDeclarationKey, AnySymbolId>,
-) -> Result<TargetFactSymbols, CompilerKnownSymbolBuildError> {
-    let mut facts = BTreeMap::new();
+) -> Result<TargetPropertySymbols, CompilerKnownSymbolBuildError> {
+    let mut properties = BTreeMap::new();
     let mut symbols = BTreeMap::new();
 
-    for &fact in TargetFactKind::ALL {
-        let key = CompilerKnownDeclarationKey::try_new(target_fact_catalog_key(fact))
-            .ok_or(CompilerKnownSymbolBuildError::MissingTargetFact { fact })?;
+    for &property in TargetPropertyKind::ALL {
+        let key = CompilerKnownDeclarationKey::try_new(target_property_catalog_key(property))
+            .ok_or(CompilerKnownSymbolBuildError::MissingTargetProperty { property })?;
 
         let symbol = declarations
             .get(&key)
             .copied()
             .and_then(ConstantSymbolId::try_from_any)
-            .ok_or(CompilerKnownSymbolBuildError::MissingTargetFact { fact })?;
+            .ok_or(CompilerKnownSymbolBuildError::MissingTargetProperty { property })?;
 
-        facts.insert(fact, symbol);
-        symbols.insert(symbol, fact);
+        properties.insert(property, symbol);
+        symbols.insert(symbol, property);
     }
 
-    Ok(TargetFactSymbols { facts, symbols })
+    Ok(TargetPropertySymbols {
+        properties,
+        symbols,
+    })
 }
 
-const fn target_fact_catalog_key(fact: TargetFactKind) -> &'static str {
-    match fact {
-        TargetFactKind::IdentityName => "TargetIdentityName",
-        TargetFactKind::IdentityArchitecture => "TargetIdentityArchitecture",
-        TargetFactKind::IdentityVendor => "TargetIdentityVendor",
-        TargetFactKind::IdentitySystem => "TargetIdentitySystem",
-        TargetFactKind::IdentityEnvironment => "TargetIdentityEnvironment",
-        TargetFactKind::IdentityAbi => "TargetIdentityAbi",
-        TargetFactKind::PointerBits => "TargetPointerBits",
-        TargetFactKind::PointerBytes => "TargetPointerBytes",
-        TargetFactKind::EndianLittle => "TargetEndianLittle",
-        TargetFactKind::EndianBig => "TargetEndianBig",
-        TargetFactKind::ScalarBool => "TargetScalarBool",
-        TargetFactKind::ScalarChar => "TargetScalarChar",
-        TargetFactKind::ScalarI8 => "TargetScalarI8",
-        TargetFactKind::ScalarI16 => "TargetScalarI16",
-        TargetFactKind::ScalarI32 => "TargetScalarI32",
-        TargetFactKind::ScalarI64 => "TargetScalarI64",
-        TargetFactKind::ScalarI128 => "TargetScalarI128",
-        TargetFactKind::ScalarU8 => "TargetScalarU8",
-        TargetFactKind::ScalarU16 => "TargetScalarU16",
-        TargetFactKind::ScalarU32 => "TargetScalarU32",
-        TargetFactKind::ScalarU64 => "TargetScalarU64",
-        TargetFactKind::ScalarU128 => "TargetScalarU128",
-        TargetFactKind::ScalarUsize => "TargetScalarUsize",
-        TargetFactKind::ScalarIsize => "TargetScalarIsize",
-        TargetFactKind::ScalarR16 => "TargetScalarR16",
-        TargetFactKind::ScalarR32 => "TargetScalarR32",
-        TargetFactKind::ScalarR64 => "TargetScalarR64",
-        TargetFactKind::ScalarR128 => "TargetScalarR128",
-        TargetFactKind::ScalarC32 => "TargetScalarC32",
-        TargetFactKind::ScalarC64 => "TargetScalarC64",
-        TargetFactKind::ScalarC128 => "TargetScalarC128",
-        TargetFactKind::ScalarC256 => "TargetScalarC256",
-        TargetFactKind::AtomicU8 => "TargetAtomicU8",
-        TargetFactKind::AtomicU16 => "TargetAtomicU16",
-        TargetFactKind::AtomicU32 => "TargetAtomicU32",
-        TargetFactKind::AtomicU64 => "TargetAtomicU64",
-        TargetFactKind::AtomicU128 => "TargetAtomicU128",
-        TargetFactKind::AtomicPointer => "TargetAtomicPointer",
-        TargetFactKind::AtomicU8Alignment => "TargetAtomicU8Alignment",
-        TargetFactKind::AtomicU8AlwaysLockFree => "TargetAtomicU8AlwaysLockFree",
-        TargetFactKind::AtomicU8WaitNotify => "TargetAtomicU8WaitNotify",
-        TargetFactKind::AtomicU8CrossProcess => "TargetAtomicU8CrossProcess",
-        TargetFactKind::AtomicU16Alignment => "TargetAtomicU16Alignment",
-        TargetFactKind::AtomicU16AlwaysLockFree => "TargetAtomicU16AlwaysLockFree",
-        TargetFactKind::AtomicU16WaitNotify => "TargetAtomicU16WaitNotify",
-        TargetFactKind::AtomicU16CrossProcess => "TargetAtomicU16CrossProcess",
-        TargetFactKind::AtomicU32Alignment => "TargetAtomicU32Alignment",
-        TargetFactKind::AtomicU32AlwaysLockFree => "TargetAtomicU32AlwaysLockFree",
-        TargetFactKind::AtomicU32WaitNotify => "TargetAtomicU32WaitNotify",
-        TargetFactKind::AtomicU32CrossProcess => "TargetAtomicU32CrossProcess",
-        TargetFactKind::AtomicU64Alignment => "TargetAtomicU64Alignment",
-        TargetFactKind::AtomicU64AlwaysLockFree => "TargetAtomicU64AlwaysLockFree",
-        TargetFactKind::AtomicU64WaitNotify => "TargetAtomicU64WaitNotify",
-        TargetFactKind::AtomicU64CrossProcess => "TargetAtomicU64CrossProcess",
-        TargetFactKind::AtomicU128Alignment => "TargetAtomicU128Alignment",
-        TargetFactKind::AtomicU128AlwaysLockFree => "TargetAtomicU128AlwaysLockFree",
-        TargetFactKind::AtomicU128WaitNotify => "TargetAtomicU128WaitNotify",
-        TargetFactKind::AtomicU128CrossProcess => "TargetAtomicU128CrossProcess",
-        TargetFactKind::AtomicPointerAlignment => "TargetAtomicPointerAlignment",
-        TargetFactKind::AtomicPointerAlwaysLockFree => "TargetAtomicPointerAlwaysLockFree",
-        TargetFactKind::AtomicPointerWaitNotify => "TargetAtomicPointerWaitNotify",
-        TargetFactKind::AtomicPointerCrossProcess => "TargetAtomicPointerCrossProcess",
-        TargetFactKind::AbiC => "TargetAbiC",
-        TargetFactKind::AbiSystem => "TargetAbiSystem",
-        TargetFactKind::CChar => "TargetCChar",
-        TargetFactKind::CSignedChar => "TargetCSignedChar",
-        TargetFactKind::CUnsignedChar => "TargetCUnsignedChar",
-        TargetFactKind::CShort => "TargetCShort",
-        TargetFactKind::CUnsignedShort => "TargetCUnsignedShort",
-        TargetFactKind::CInt => "TargetCInt",
-        TargetFactKind::CUnsignedInt => "TargetCUnsignedInt",
-        TargetFactKind::CLong => "TargetCLong",
-        TargetFactKind::CUnsignedLong => "TargetCUnsignedLong",
-        TargetFactKind::CLongLong => "TargetCLongLong",
-        TargetFactKind::CUnsignedLongLong => "TargetCUnsignedLongLong",
-        TargetFactKind::CSize => "TargetCSize",
-        TargetFactKind::CPointerDifference => "TargetCPointerDifference",
-        TargetFactKind::CWideChar => "TargetCWideChar",
-        TargetFactKind::CBool => "TargetCBool",
-        TargetFactKind::CFloat => "TargetCFloat",
-        TargetFactKind::CDouble => "TargetCDouble",
-        TargetFactKind::CLongDouble => "TargetCLongDouble",
-        TargetFactKind::AddressSpaceHost => "TargetAddressSpaceHost",
-        TargetFactKind::AddressSpaceDevice => "TargetAddressSpaceDevice",
-        TargetFactKind::AlignmentMaxStorage => "TargetAlignmentMaxStorage",
-        TargetFactKind::AlignmentMaxAllocation => "TargetAlignmentMaxAllocation",
-        TargetFactKind::PlatformDynamicLoading => "TargetPlatformDynamicLoading",
+const fn target_property_catalog_key(property: TargetPropertyKind) -> &'static str {
+    match property {
+        TargetPropertyKind::IdentityName => "TargetIdentityName",
+        TargetPropertyKind::IdentityArchitecture => "TargetIdentityArchitecture",
+        TargetPropertyKind::IdentityVendor => "TargetIdentityVendor",
+        TargetPropertyKind::IdentitySystem => "TargetIdentitySystem",
+        TargetPropertyKind::IdentityEnvironment => "TargetIdentityEnvironment",
+        TargetPropertyKind::IdentityAbi => "TargetIdentityAbi",
+        TargetPropertyKind::PointerBits => "TargetPointerBits",
+        TargetPropertyKind::PointerBytes => "TargetPointerBytes",
+        TargetPropertyKind::EndianLittle => "TargetEndianLittle",
+        TargetPropertyKind::EndianBig => "TargetEndianBig",
+        TargetPropertyKind::ScalarBool => "TargetScalarBool",
+        TargetPropertyKind::ScalarChar => "TargetScalarChar",
+        TargetPropertyKind::ScalarI8 => "TargetScalarI8",
+        TargetPropertyKind::ScalarI16 => "TargetScalarI16",
+        TargetPropertyKind::ScalarI32 => "TargetScalarI32",
+        TargetPropertyKind::ScalarI64 => "TargetScalarI64",
+        TargetPropertyKind::ScalarI128 => "TargetScalarI128",
+        TargetPropertyKind::ScalarU8 => "TargetScalarU8",
+        TargetPropertyKind::ScalarU16 => "TargetScalarU16",
+        TargetPropertyKind::ScalarU32 => "TargetScalarU32",
+        TargetPropertyKind::ScalarU64 => "TargetScalarU64",
+        TargetPropertyKind::ScalarU128 => "TargetScalarU128",
+        TargetPropertyKind::ScalarUsize => "TargetScalarUsize",
+        TargetPropertyKind::ScalarIsize => "TargetScalarIsize",
+        TargetPropertyKind::ScalarR16 => "TargetScalarR16",
+        TargetPropertyKind::ScalarR32 => "TargetScalarR32",
+        TargetPropertyKind::ScalarR64 => "TargetScalarR64",
+        TargetPropertyKind::ScalarR128 => "TargetScalarR128",
+        TargetPropertyKind::ScalarC32 => "TargetScalarC32",
+        TargetPropertyKind::ScalarC64 => "TargetScalarC64",
+        TargetPropertyKind::ScalarC128 => "TargetScalarC128",
+        TargetPropertyKind::ScalarC256 => "TargetScalarC256",
+        TargetPropertyKind::AtomicU8 => "TargetAtomicU8",
+        TargetPropertyKind::AtomicU16 => "TargetAtomicU16",
+        TargetPropertyKind::AtomicU32 => "TargetAtomicU32",
+        TargetPropertyKind::AtomicU64 => "TargetAtomicU64",
+        TargetPropertyKind::AtomicU128 => "TargetAtomicU128",
+        TargetPropertyKind::AtomicPointer => "TargetAtomicPointer",
+        TargetPropertyKind::AtomicU8Alignment => "TargetAtomicU8Alignment",
+        TargetPropertyKind::AtomicU8AlwaysLockFree => "TargetAtomicU8AlwaysLockFree",
+        TargetPropertyKind::AtomicU8WaitNotify => "TargetAtomicU8WaitNotify",
+        TargetPropertyKind::AtomicU8CrossProcess => "TargetAtomicU8CrossProcess",
+        TargetPropertyKind::AtomicU16Alignment => "TargetAtomicU16Alignment",
+        TargetPropertyKind::AtomicU16AlwaysLockFree => "TargetAtomicU16AlwaysLockFree",
+        TargetPropertyKind::AtomicU16WaitNotify => "TargetAtomicU16WaitNotify",
+        TargetPropertyKind::AtomicU16CrossProcess => "TargetAtomicU16CrossProcess",
+        TargetPropertyKind::AtomicU32Alignment => "TargetAtomicU32Alignment",
+        TargetPropertyKind::AtomicU32AlwaysLockFree => "TargetAtomicU32AlwaysLockFree",
+        TargetPropertyKind::AtomicU32WaitNotify => "TargetAtomicU32WaitNotify",
+        TargetPropertyKind::AtomicU32CrossProcess => "TargetAtomicU32CrossProcess",
+        TargetPropertyKind::AtomicU64Alignment => "TargetAtomicU64Alignment",
+        TargetPropertyKind::AtomicU64AlwaysLockFree => "TargetAtomicU64AlwaysLockFree",
+        TargetPropertyKind::AtomicU64WaitNotify => "TargetAtomicU64WaitNotify",
+        TargetPropertyKind::AtomicU64CrossProcess => "TargetAtomicU64CrossProcess",
+        TargetPropertyKind::AtomicU128Alignment => "TargetAtomicU128Alignment",
+        TargetPropertyKind::AtomicU128AlwaysLockFree => "TargetAtomicU128AlwaysLockFree",
+        TargetPropertyKind::AtomicU128WaitNotify => "TargetAtomicU128WaitNotify",
+        TargetPropertyKind::AtomicU128CrossProcess => "TargetAtomicU128CrossProcess",
+        TargetPropertyKind::AtomicPointerAlignment => "TargetAtomicPointerAlignment",
+        TargetPropertyKind::AtomicPointerAlwaysLockFree => "TargetAtomicPointerAlwaysLockFree",
+        TargetPropertyKind::AtomicPointerWaitNotify => "TargetAtomicPointerWaitNotify",
+        TargetPropertyKind::AtomicPointerCrossProcess => "TargetAtomicPointerCrossProcess",
+        TargetPropertyKind::AbiC => "TargetAbiC",
+        TargetPropertyKind::AbiSystem => "TargetAbiSystem",
+        TargetPropertyKind::CChar => "TargetCChar",
+        TargetPropertyKind::CSignedChar => "TargetCSignedChar",
+        TargetPropertyKind::CUnsignedChar => "TargetCUnsignedChar",
+        TargetPropertyKind::CShort => "TargetCShort",
+        TargetPropertyKind::CUnsignedShort => "TargetCUnsignedShort",
+        TargetPropertyKind::CInt => "TargetCInt",
+        TargetPropertyKind::CUnsignedInt => "TargetCUnsignedInt",
+        TargetPropertyKind::CLong => "TargetCLong",
+        TargetPropertyKind::CUnsignedLong => "TargetCUnsignedLong",
+        TargetPropertyKind::CLongLong => "TargetCLongLong",
+        TargetPropertyKind::CUnsignedLongLong => "TargetCUnsignedLongLong",
+        TargetPropertyKind::CSize => "TargetCSize",
+        TargetPropertyKind::CPointerDifference => "TargetCPointerDifference",
+        TargetPropertyKind::CWideChar => "TargetCWideChar",
+        TargetPropertyKind::CBool => "TargetCBool",
+        TargetPropertyKind::CFloat => "TargetCFloat",
+        TargetPropertyKind::CDouble => "TargetCDouble",
+        TargetPropertyKind::CLongDouble => "TargetCLongDouble",
+        TargetPropertyKind::AddressSpaceHost => "TargetAddressSpaceHost",
+        TargetPropertyKind::AddressSpaceDevice => "TargetAddressSpaceDevice",
+        TargetPropertyKind::AlignmentMaxStorage => "TargetAlignmentMaxStorage",
+        TargetPropertyKind::AlignmentMaxAllocation => "TargetAlignmentMaxAllocation",
+        TargetPropertyKind::PlatformDynamicLoading => "TargetPlatformDynamicLoading",
     }
 }

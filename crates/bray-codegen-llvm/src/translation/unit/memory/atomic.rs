@@ -76,11 +76,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.atomic_decode_compare_exchange(operation, value, result.into())
                     .map(Some)
             }
-            CheckedMemoryOperationKind::AtomicFetch {
-                value,
-                kind,
-                order,
-            } => self
+            CheckedMemoryOperationKind::AtomicFetch { value, kind, order } => self
                 .atomic_read_modify_write(operation, value, llvm_fetch_kind(kind), order)
                 .map(Some),
             CheckedMemoryOperationKind::AtomicWait { value, order } => {
@@ -150,12 +146,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (integer, pointer_type) = self.atomic_integer(value)?;
 
-        let previous = llvm(self.builder.build_atomicrmw(
-            kind,
-            storage,
-            integer,
-            llvm_memory_order(order),
-        ))?;
+        let previous =
+            llvm(
+                self.builder
+                    .build_atomicrmw(kind, storage, integer, llvm_memory_order(order)),
+            )?;
 
         match pointer_type {
             Some(pointer_type) => llvm(self.builder.build_int_to_ptr(
@@ -179,8 +174,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     fn atomic_integer(
         &self,
         value: BasicValueEnum<'context>,
-    ) -> Result<(IntValue<'context>, Option<inkwell::types::PointerType<'context>>), CodegenFailure>
-    {
+    ) -> Result<
+        (
+            IntValue<'context>,
+            Option<inkwell::types::PointerType<'context>>,
+        ),
+        CodegenFailure,
+    > {
         if let Some(value) = int_value(value) {
             return Ok((value, None));
         }
@@ -296,10 +296,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .build_alloca(storage_type, "atomic.value.storage"),
         )?;
 
-        llvm(
-            self.builder
-                .build_store(storage, storage_type.const_zero()),
-        )?;
+        llvm(self.builder.build_store(storage, storage_type.const_zero()))?;
 
         llvm(self.builder.build_store(storage, value))?;
 

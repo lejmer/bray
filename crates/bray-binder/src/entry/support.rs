@@ -1,9 +1,9 @@
 use bray_bound_tree::{BoundReferenceTarget, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
-    AnySymbolId, CallableExecution, CallableSignatureFact, CallableSignatureTemplate,
-    CallableSymbolId, LocalScopeId, LocalSymbolRegionId, SelfTypeContext, SymbolFactRequest,
-    SymbolName, TypeData,
+    AnySymbolId, CallableExecution, CallableSignatureQuery, CallableSignatureTemplate,
+    CallableSymbolId, LocalScopeId, LocalSymbolRegionId, SelfTypeContext, SymbolName,
+    SymbolQueryRequest, TypeData,
 };
 
 use super::BoundUnitBindingError;
@@ -12,15 +12,15 @@ use crate::binding::BindingError;
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::publication::BoundUnitAssemblyError;
 use crate::unit::{BoundUnitConstructionError, BoundUnitLocalBuilder};
-use crate::{BinderFactContext, SymbolFactProvider};
+use crate::{BindingQueryContext, SymbolQueryProvider};
 
 pub(super) fn create_binder<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<Binder<'_, C>, BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let region = LocalSymbolRegionId::new(unit.raw());
     let start = key.source().syntax().full_range().start();
@@ -28,7 +28,7 @@ where
     let unit = BoundUnitLocalBuilder::new(unit, key, region, start)
         .map_err(|_| BoundUnitBindingError::Construction)?;
 
-    Ok(Binder::new(facts, unit))
+    Ok(Binder::new(binding_context, unit))
 }
 
 pub(super) fn path_context<C>(
@@ -36,16 +36,16 @@ pub(super) fn path_context<C>(
     scope: LocalScopeId,
 ) -> Result<PathBindingContext, BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let symbol = binder
-        .facts()
+        .binding_context()
         .symbols()
         .symbol_for_key(binder.unit().key().declared_owner())
         .ok_or(BoundUnitBindingError::MissingOwner)?;
 
     let module = binder
-        .facts()
+        .binding_context()
         .symbols()
         .containing_module(symbol)
         .ok_or(BoundUnitBindingError::MissingModule)?;
@@ -63,11 +63,11 @@ pub(crate) fn push_callable_inputs<C>(
     scope: LocalScopeId,
 ) -> Result<CallableExecution, BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     let callable = binder
-        .facts()
+        .binding_context()
         .symbols()
         .symbol_for_key(binder.unit().key().declared_owner())
         .and_then(CallableSymbolId::try_from_any)
@@ -82,14 +82,14 @@ pub(crate) fn push_callable_inputs_for<C>(
     callable: CallableSymbolId,
 ) -> Result<CallableExecution, BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
     let signature = binder
-        .facts()
-        .symbol_facts()
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
-        .map_err(map_fact_error)?;
+        .binding_context()
+        .symbol_semantics()
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
+        .map_err(map_query_error)?;
 
     insert_callable_inputs(
         binder,
@@ -100,7 +100,7 @@ where
 
     signature
         .value()
-        .execution(binder.facts().semantic_values())
+        .execution(binder.binding_context().semantic_values())
         .map_err(|_| BoundUnitBindingError::Construction)
 }
 
@@ -111,7 +111,7 @@ pub(super) fn insert_callable_inputs<C>(
     parameter_count: usize,
 ) -> Result<(), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     if let Some(receiver) = signature.receiver() {
         let parameter = receiver.parameter().into();
@@ -126,11 +126,11 @@ where
     }
 
     let parameter_types = signature
-        .parameter_type_templates(binder.facts().semantic_values())
+        .parameter_type_templates(binder.binding_context().semantic_values())
         .map_err(|_| BoundUnitBindingError::Binding)?;
 
     let parameter_names = signature
-        .parameter_names(binder.facts().semantic_values())
+        .parameter_names(binder.binding_context().semantic_values())
         .map_err(|_| BoundUnitBindingError::Binding)?;
 
     for ((parameter, name), ty) in signature
@@ -157,9 +157,9 @@ fn receiver_type<C>(
     ty: bray_symbols::TypeId,
 ) -> Result<bray_symbols::TypeId, BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    let values = binder.facts().semantic_values();
+    let values = binder.binding_context().semantic_values();
 
     let data = values
         .type_data(ty)
@@ -170,7 +170,7 @@ where
     };
 
     values
-        .intern_open_named_type(binder.facts().symbols(), *definition)
+        .intern_open_named_type(binder.binding_context().symbols(), *definition)
         .map_err(BoundUnitBindingError::SemanticValue)?
         .ok_or(BoundUnitBindingError::Binding)
 }
@@ -181,14 +181,19 @@ pub(super) fn insert_surface<C>(
     symbol: AnySymbolId,
 ) -> Result<(), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     if let Some(name) = binder
-        .facts()
+        .binding_context()
         .symbols()
         .symbol_key(symbol)
         .and_then(bray_symbols::SymbolKey::source_declaration_id)
-        .and_then(|declaration| binder.facts().declarations().declaration(declaration))
+        .and_then(|declaration| {
+            binder
+                .binding_context()
+                .declarations()
+                .declaration(declaration)
+        })
         .and_then(bray_declarations::DeclarationRecord::name)
         .and_then(bray_declarations::DeclarationName::as_identifier)
     {
@@ -197,7 +202,7 @@ where
 
     // Insertion mutates the binder after releasing the graph borrow. Symbol names are Arc-backed.
     let name = binder
-        .facts()
+        .binding_context()
         .symbols()
         .member_name(symbol)
         .cloned()
@@ -213,7 +218,7 @@ pub(super) fn insert_named_surface<C>(
     name: &str,
 ) -> Result<(), BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let name = SymbolName::try_new(name).ok_or(BoundUnitBindingError::MissingOwner)?;
 
@@ -223,22 +228,24 @@ where
         .map_err(|_| BoundUnitBindingError::Construction)
 }
 
-pub(super) fn error_type<C>(facts: &C) -> Result<bray_symbols::TypeId, BoundUnitBindingError>
+pub(super) fn error_type<C>(
+    binding_context: &C,
+) -> Result<bray_symbols::TypeId, BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    facts
+    binding_context
         .semantic_values()
         .intern_type(TypeData::Error)
         .map_err(BoundUnitBindingError::SemanticValue)
 }
 
-pub(super) fn anchored_descendant<C, T>(facts: &C, anchor: SyntaxAnchor) -> Option<T>
+pub(super) fn anchored_descendant<C, T>(binding_context: &C, anchor: SyntaxAnchor) -> Option<T>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
     T: bray_syntax::SyntaxCast,
 {
-    anchor.find_descendant(facts.syntax())
+    anchor.find_descendant(binding_context.syntax())
 }
 
 pub(super) fn map_binding_error(error: BindingError) -> BoundUnitBindingError {
@@ -269,9 +276,9 @@ pub(super) fn map_assembly_error(error: BoundUnitAssemblyError) -> BoundUnitBind
     }
 }
 
-pub(super) const fn map_fact_error(error: crate::BinderFactError) -> BoundUnitBindingError {
+pub(super) const fn map_query_error(error: crate::BindingQueryError) -> BoundUnitBindingError {
     match error {
-        crate::BinderFactError::Cancelled => BoundUnitBindingError::Cancelled,
-        crate::BinderFactError::DependencyUnavailable => BoundUnitBindingError::Binding,
+        crate::BindingQueryError::Cancelled => BoundUnitBindingError::Cancelled,
+        crate::BindingQueryError::DependencyUnavailable => BoundUnitBindingError::Binding,
     }
 }

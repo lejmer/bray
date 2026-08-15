@@ -156,7 +156,9 @@ fn require_hello_world_output(
         if !progress.contains("Building example.hello/application [debug]")
             || !progress.contains(&finished)
         {
-            return Err(format!("{operation} omitted expected build progress: {progress:?}"));
+            return Err(format!(
+                "{operation} omitted expected build progress: {progress:?}"
+            ));
         }
     }
 

@@ -14,16 +14,16 @@ use bray_syntax::{
     walk_syntax_node,
 };
 
-use crate::{BinderFactError, BinderFactResult};
+use crate::{BindingQueryError, BindingQueryResult};
 
 /// Binds one directive occurrence without applying directive-specific policy.
 pub fn bind_directive_template(
     owner: AnySymbolId,
     attachment: DirectiveAttachment,
     syntax: SyntaxNodeView<'_>,
-) -> BinderFactResult<DiagnosticResult<DirectiveTemplate>> {
+) -> BindingQueryResult<DiagnosticResult<DirectiveTemplate>> {
     let kind = DirectiveKind::try_from_syntax_kind(syntax.kind())
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let directive_syntax = SyntaxAnchor::from_node(&syntax);
     let mut arguments = Vec::new();
@@ -58,7 +58,7 @@ pub fn bind_directive_template(
     });
 
     if failed {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     }
 
     Ok(DiagnosticResult::new(
@@ -71,7 +71,7 @@ pub fn bind_directive_template(
 pub fn bind_callable_type_directives(
     owner: AnySymbolId,
     syntax: SyntaxNodeView<'_>,
-) -> BinderFactResult<DiagnosticResult<DirectiveSurface>> {
+) -> BindingQueryResult<DiagnosticResult<DirectiveSurface>> {
     let attachment = DirectiveAttachment::CallableType(SyntaxAnchor::from_node(&syntax));
     let mut directives = Vec::new();
     let mut diagnostics = DiagnosticBag::new();

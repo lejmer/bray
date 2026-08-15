@@ -14,12 +14,12 @@ use bray_source::{SourceId, TextRange, TextSize};
 use bray_symbols::{AnySymbolId, SymbolKind, SymbolOrigin};
 use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node};
 
-use super::facts::Compilation;
+use super::state::Compilation;
 use crate::fact::{CancellationToken, FactQueryError, QueryPriority};
 
-type BoundUnitFact = Arc<DiagnosticResult<BoundUnit>>;
-type SyntaxBoundExpression = (BoundUnitFact, BoundExpressionId);
-type SyntaxBoundUnit = (BoundUnitKey, BoundUnitFact);
+type BoundUnitResult = Arc<DiagnosticResult<BoundUnit>>;
+type SyntaxBoundExpression = (BoundUnitResult, BoundExpressionId);
+type SyntaxBoundUnit = (BoundUnitKey, BoundUnitResult);
 
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(super) struct SourceReferenceIndex {
@@ -281,7 +281,7 @@ impl Compilation {
                 return Ok(recovery_or_unavailable(syntax.is_recovered(), None));
             };
 
-            // The semantic fact owns its Arc-backed unit key independently of `bound`.
+            // The semantic result owns its Arc-backed unit key independently of `bound`.
             let key = bound.value().key().clone();
             let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
 
@@ -320,7 +320,7 @@ impl Compilation {
         source_id: SourceId,
         cancellation: &CancellationToken,
         priority: QueryPriority,
-    ) -> Result<Vec<BoundUnitFact>, FactQueryError> {
+    ) -> Result<Vec<BoundUnitResult>, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
             let mut keys = self
                 .declared_unit_keys()?
@@ -403,7 +403,7 @@ impl Compilation {
         priority: QueryPriority,
     ) -> Result<DiagnosticBag, FactQueryError> {
         self.run_semantic_query(cancellation, priority, || {
-            // The returned bag remains owned after the package fact cache is released.
+            // The returned bag remains owned after the package query cache is released.
             let diagnostics = self
                 .check_diagnostics_with_cancellation(cancellation)?
                 .clone();
@@ -868,7 +868,7 @@ impl Compilation {
         let mut key = key.clone();
 
         loop {
-            // The result retains `key` while the fact request owns its Arc-backed clone.
+            // The result retains `key` while the query request owns its Arc-backed clone.
             let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
             let nested = bound
@@ -904,7 +904,7 @@ impl Compilation {
         let target = match node {
             BoundExpression::Name(reference) => Some(reference.target()),
             BoundExpression::PatternReference(_) => {
-                // The semantic fact owns its Arc-backed unit key independently of `bound`.
+                // The semantic result owns its Arc-backed unit key independently of `bound`.
                 let key = bound.key().clone();
 
                 let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
@@ -1534,7 +1534,7 @@ mod tests {
             .state
             .check_diagnostics
             .set_test_observer(gate.observer())
-            .unwrap_or_else(|error| panic!("diagnostic fact must accept observation: {error:?}"));
+            .unwrap_or_else(|error| panic!("diagnostic result must accept observation: {error:?}"));
 
         let parallel_diagnostics = std::thread::scope(|scope| {
             let parallel = &parallel;
@@ -1588,7 +1588,7 @@ mod tests {
             .state
             .check_diagnostics
             .set_test_observer(gate.observer())
-            .unwrap_or_else(|error| panic!("diagnostic fact must accept an observer: {error:?}"));
+            .unwrap_or_else(|error| panic!("diagnostic result must accept an observer: {error:?}"));
 
         let result = std::thread::scope(|scope| {
             let request = scope.spawn(|| {

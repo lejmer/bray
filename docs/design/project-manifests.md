@@ -329,7 +329,7 @@ A successful load publishes a `ProjectGraph` containing:
 - and selected product nodes in dependency-first order for each target.
 
 The graph has no mutable caches or ambient lookup hooks. Shared readers may safely use it from parallel compilation, inspection,
-and language-tooling work. Demand-driven compiler facts may retain or index graph values, but may not mutate project semantics.
+and language-tooling work. Demand-driven compiler queries may retain or index graph values, but may not mutate project semantics.
 
 Two workspaces with the same manifest values and project-owned source paths produce equal graph values regardless of manifest array
 ordering or host directory enumeration order.

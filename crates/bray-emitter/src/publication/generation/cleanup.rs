@@ -5,9 +5,9 @@ use bray_base::sync_directory;
 
 use super::manifest::GenerationManifest;
 use super::transaction::{GENERATION_MANIFEST, ManagedLayout};
+use crate::ProductGenerationIdentity;
 use crate::publication::diagnostic::{PublicationError, PublicationErrorKind};
 use crate::publication::operation::{ArtifactPublicationFailure, artifact_failure, planned_error};
-use crate::ProductGenerationIdentity;
 
 pub(super) fn generation_public_paths(
     root: &Path,
@@ -23,9 +23,8 @@ pub(super) fn generation_public_paths(
     )
     .map_err(|error| artifact_failure(planned, PublicationErrorKind::Read(error.kind())))?;
 
-    let manifest = serde_json::from_slice::<GenerationManifest>(&bytes).map_err(|_| {
-        artifact_failure(planned, PublicationErrorKind::InvalidGenerationManifest)
-    })?;
+    let manifest = serde_json::from_slice::<GenerationManifest>(&bytes)
+        .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidGenerationManifest))?;
 
     manifest
         .artifacts
@@ -85,8 +84,8 @@ pub(super) fn retain_recent_generations(
             continue;
         };
 
-        let Some(identity) = bray_base::decode_lowercase_hex::<32>(&name)
-            .map(ProductGenerationIdentity::new)
+        let Some(identity) =
+            bray_base::decode_lowercase_hex::<32>(&name).map(ProductGenerationIdentity::new)
         else {
             continue;
         };

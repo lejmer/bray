@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_bound_tree::CheckedTemplate;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_package_interface::{ImportedInterfaceSymbolResolver, InterfaceSymbolResolver};
-use bray_symbols::{AnySymbolId, ImportedSymbolFactAddress};
+use bray_symbols::{AnySymbolId, ImportedSemanticAddress};
 
 use super::diagnostic::{
     executable_template_decode_diagnostics, executable_template_diagnostics,
@@ -36,7 +36,7 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::DependencyImplementation(interface),
             cache,
             cancellation,
@@ -95,7 +95,7 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        let Some(address) = skeleton.imported_fact_address(symbol) else {
+        let Some(address) = skeleton.imported_semantic_address(symbol) else {
             return Ok(None);
         };
 
@@ -266,7 +266,7 @@ impl super::super::Compilation {
 
         let selected_target = self.selected_target().target();
 
-        let target = bray_ir::MirTargetFacts::new(
+        let target = bray_ir::MirTargetContract::new(
             selected_target.profile().clone(),
             selected_target.runtime_abi(),
         );
@@ -298,7 +298,7 @@ impl super::super::Compilation {
         &self,
         key: bray_ir::MirImportedExecutableKey,
         unit: bray_ir::MirUnitId,
-        target: bray_ir::MirTargetFacts,
+        target: bray_ir::MirTargetContract,
         cancellation: &CancellationToken,
     ) -> Result<Option<bray_ir::MirUnit>, FactQueryError> {
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
@@ -307,7 +307,7 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        let Some(address) = skeleton.imported_fact_address(key.owner()) else {
+        let Some(address) = skeleton.imported_semantic_address(key.owner()) else {
             return Ok(None);
         };
 
@@ -332,7 +332,7 @@ impl super::super::Compilation {
 
     pub(in crate::compilation) fn imported_constant_callable_body_with_cancellation(
         &self,
-        address: ImportedSymbolFactAddress,
+        address: ImportedSemanticAddress,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Option<Arc<CheckedTemplate>>>>, FactQueryError> {
         let cell = self.state.imported_constant_callable_bodies.cell(address)?;
@@ -352,7 +352,7 @@ impl super::super::Compilation {
 
     fn compute_imported_constant_callable_body(
         &self,
-        address: ImportedSymbolFactAddress,
+        address: ImportedSemanticAddress,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<Arc<CheckedTemplate>>>, FactQueryError> {
         let input = self
@@ -477,7 +477,7 @@ mod tests {
         ValidatedPackageInterface, encode_package_interface,
         test_support::package_interface_export_bundle,
     };
-    use bray_symbols::{ImportedSymbolFactAddress, SymbolKind};
+    use bray_symbols::{ImportedSemanticAddress, SymbolKind};
 
     use crate::fact::ImportedExecutableTemplateAddress;
     use crate::test_support::compilation_with_dependencies;
@@ -546,10 +546,8 @@ mod tests {
     fn missing_imported_executable_templates_publish_structured_diagnostics() {
         let (compilation, owner) = imported_body_compilation(true);
 
-        let address = ImportedExecutableTemplateAddress::root(constant_body_address(
-            &compilation,
-            owner,
-        ));
+        let address =
+            ImportedExecutableTemplateAddress::root(constant_body_address(&compilation, owner));
 
         let result = compilation
             .imported_executable_template_with_cancellation(
@@ -597,7 +595,7 @@ mod tests {
             .unwrap_or_else(|| panic!("test interface must export a function"));
 
         let template = bundle
-            .semantic_facts()
+            .semantics()
             .checked_templates()
             .first()
             .unwrap_or_else(|| panic!("test interface must publish a checked template"));
@@ -614,7 +612,7 @@ mod tests {
         let artifact = PackageImplementationArtifact::try_new(
             &interface,
             bundle.surface(),
-            bundle.semantic_facts(),
+            bundle.semantics(),
             bundle.implementation_configuration().clone(),
             [InterfaceConstantCallableBody::new(owner, template)],
             [],
@@ -646,7 +644,7 @@ mod tests {
     fn constant_body_address(
         compilation: &Compilation,
         owner: bray_symbols::InterfaceSymbolId,
-    ) -> ImportedSymbolFactAddress {
+    ) -> ImportedSemanticAddress {
         let skeleton = compilation
             .imported_symbol_skeleton_result()
             .unwrap_or_else(|error| panic!("imported skeleton must load: {error:?}"));
@@ -661,13 +659,13 @@ mod tests {
             .iter()
             .find(|function| {
                 function
-                    .imported_fact_key()
+                    .imported_semantic_key()
                     .is_some_and(|key| key.symbol() == owner)
             })
             .unwrap_or_else(|| panic!("imported function must retain its interface address"));
 
         skeleton
-            .imported_fact_address(function.id().into())
-            .unwrap_or_else(|| panic!("imported function must publish a fact address"))
+            .imported_semantic_address(function.id().into())
+            .unwrap_or_else(|| panic!("imported function must publish a semantic address"))
     }
 }

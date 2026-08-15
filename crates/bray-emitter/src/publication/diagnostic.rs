@@ -212,12 +212,12 @@ impl PublicationErrorKind {
             Self::LengthMismatch { expected, actual } => diagnostic
                 .with_arg(DiagnosticArg::expected_byte_count(expected))
                 .with_arg(DiagnosticArg::actual_byte_count(actual)),
-            Self::DigestMismatch(facts) => diagnostic
+            Self::DigestMismatch(mismatches) => diagnostic
                 .with_arg(DiagnosticArg::expected_artifact_digest(
-                    facts.expected.diagnostic_digest(),
+                    mismatches.expected.diagnostic_digest(),
                 ))
                 .with_arg(DiagnosticArg::actual_artifact_digest(
-                    facts.actual.diagnostic_digest(),
+                    mismatches.actual.diagnostic_digest(),
                 )),
             Self::MissingContribution
             | Self::InvalidContribution

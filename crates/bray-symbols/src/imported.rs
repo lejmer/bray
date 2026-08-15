@@ -2,8 +2,8 @@ mod identity;
 mod skeleton;
 
 pub use identity::{
-    ImportedIdentitySurfaceError, ImportedPackageIdentitySurface, ImportedSymbolFactAddress,
-    ImportedSymbolFactKey, ImportedSymbolIdentity, ImportedSymbolIdentityInput,
+    ImportedIdentitySurfaceError, ImportedPackageIdentitySurface, ImportedSemanticAddress,
+    ImportedSemanticKey, ImportedSymbolIdentity, ImportedSymbolIdentityInput,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use skeleton::test_support;

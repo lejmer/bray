@@ -1,4 +1,4 @@
-use super::facts::section;
+use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use crate::semantic::codec::coherence::coherence_record_indexes;
 use crate::semantic::codec::common::{
@@ -7,11 +7,11 @@ use crate::semantic::codec::common::{
 use crate::semantic::codec::record::encode_record_table;
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
-use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
+use crate::{InterfaceSectionTag, InterfaceSemantics};
 use bray_runtime_interface::{ProtectedFrameAbiOperation, RuntimeAbiVersion};
 
-pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
-    let Some(coherence_by_implementation) = coherence_record_indexes(&facts.coherence) else {
+pub(super) fn encode_implementations(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
+    let Some(coherence_by_implementation) = coherence_record_indexes(&semantics.coherence) else {
         unreachable!("validated coherence indexes fit the wire format");
     };
 
@@ -19,7 +19,7 @@ pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedS
 
     encode_record_table(
         &mut encoder,
-        &facts.implementations,
+        &semantics.implementations,
         |encoder, implementation| {
             write_symbol_reference(encoder, &implementation.implementation);
             encoder.write_u32(implementation.subject.raw());
@@ -43,7 +43,7 @@ pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedS
         },
     );
 
-    encode_record_table(&mut encoder, &facts.coherence, |encoder, coherence| {
+    encode_record_table(&mut encoder, &semantics.coherence, |encoder, coherence| {
         encoder.write_u32(coherence.subject.raw());
         encoder.write_u32(coherence.trait_application.raw());
 
@@ -56,27 +56,27 @@ pub(super) fn encode_implementations(facts: &InterfaceSemanticFacts) -> EncodedS
 
     section(
         InterfaceSectionTag::Implementations,
-        facts.implementations.len() + facts.coherence.len(),
+        semantics.implementations.len() + semantics.coherence.len(),
         encoder,
     )
 }
 
-pub(super) fn encode_target_dependencies(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
+pub(super) fn encode_target_dependencies(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
     encode_record_table(
         &mut encoder,
-        &facts.target_dependencies,
+        &semantics.target_dependencies,
         |encoder, dependency| {
             write_symbol_reference(encoder, &dependency.owner);
-            write_symbol_reference(encoder, &dependency.fact);
+            write_symbol_reference(encoder, &dependency.property);
             encoder.write_u32(dependency.value.raw());
         },
     );
 
     encode_record_table(
         &mut encoder,
-        &facts.abi_dependencies,
+        &semantics.abi_dependencies,
         |encoder, dependency| {
             write_symbol_reference(encoder, &dependency.symbol);
             encoder.write_u32(dependency.abi.to_wire());
@@ -85,7 +85,7 @@ pub(super) fn encode_target_dependencies(facts: &InterfaceSemanticFacts) -> Enco
 
     encode_record_table(
         &mut encoder,
-        &facts.runtime_requirements,
+        &semantics.runtime_requirements,
         |encoder, requirement| {
             write_symbol_reference(encoder, requirement.owner());
             write_count(encoder, requirement.frames().len());
@@ -119,9 +119,9 @@ pub(super) fn encode_target_dependencies(facts: &InterfaceSemanticFacts) -> Enco
 
     section(
         InterfaceSectionTag::TargetDependencies,
-        facts.target_dependencies.len()
-            + facts.abi_dependencies.len()
-            + facts.runtime_requirements.len(),
+        semantics.target_dependencies.len()
+            + semantics.abi_dependencies.len()
+            + semantics.runtime_requirements.len(),
         encoder,
     )
 }
@@ -139,10 +139,10 @@ fn write_tags<T: Copy + WireTag>(encoder: &mut WireEncoder, values: &[T]) {
     }
 }
 
-pub(super) fn encode_provenance(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
+pub(super) fn encode_provenance(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    for provenance in &*facts.provenance {
+    for provenance in &*semantics.provenance {
         write_symbol_reference(&mut encoder, &provenance.symbol);
         write_string(&mut encoder, provenance.document.as_str());
 
@@ -152,7 +152,7 @@ pub(super) fn encode_provenance(facts: &InterfaceSemanticFacts) -> EncodedSemant
 
     section(
         InterfaceSectionTag::SourceProvenance,
-        facts.provenance.len(),
+        semantics.provenance.len(),
         encoder,
     )
 }

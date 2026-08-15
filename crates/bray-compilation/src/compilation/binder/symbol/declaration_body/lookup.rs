@@ -1,15 +1,15 @@
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult};
+use bray_binder::{BindingQueryContext, BindingQueryError, BindingQueryResult};
 use bray_symbols::{
     AnySymbolId, CallableParameterSymbolId, StructFieldSymbolId, UnionPayloadFieldSymbolId,
     UnionVariantSymbolId,
 };
 
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 
 pub(in crate::compilation) fn runtime_default_provider(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-) -> BinderFactResult<Option<AnySymbolId>> {
+) -> BindingQueryResult<Option<AnySymbolId>> {
     if let Some(provider) = context.symbols().runtime_default_provider(owner) {
         return Ok(Some(provider));
     }
@@ -35,10 +35,10 @@ pub(in crate::compilation) fn runtime_default_provider(
     })
 }
 
-pub(super) fn callable_parameter<'facts>(
-    context: &'facts CompilationBinderFacts<'_>,
+pub(super) fn callable_parameter<'binding>(
+    context: &'binding CompilationBindingContext<'_>,
     owner: CallableParameterSymbolId,
-) -> BinderFactResult<&'facts bray_symbols::CallableParameterSymbol> {
+) -> BindingQueryResult<&'binding bray_symbols::CallableParameterSymbol> {
     if let Some(record) = context.symbols().callable_parameter(owner) {
         return Ok(record);
     }
@@ -46,13 +46,13 @@ pub(super) fn callable_parameter<'facts>(
     context
         .imported_symbols()?
         .and_then(|symbols| symbols.callable_parameter(owner))
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
-pub(super) fn struct_field<'facts>(
-    context: &'facts CompilationBinderFacts<'_>,
+pub(super) fn struct_field<'binding>(
+    context: &'binding CompilationBindingContext<'_>,
     owner: StructFieldSymbolId,
-) -> BinderFactResult<&'facts bray_symbols::StructFieldSymbol> {
+) -> BindingQueryResult<&'binding bray_symbols::StructFieldSymbol> {
     if let Some(record) = context.symbols().struct_field(owner) {
         return Ok(record);
     }
@@ -60,13 +60,13 @@ pub(super) fn struct_field<'facts>(
     context
         .imported_symbols()?
         .and_then(|symbols| symbols.struct_field(owner))
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
-pub(super) fn union_payload_field<'facts>(
-    context: &'facts CompilationBinderFacts<'_>,
+pub(super) fn union_payload_field<'binding>(
+    context: &'binding CompilationBindingContext<'_>,
     owner: UnionPayloadFieldSymbolId,
-) -> BinderFactResult<&'facts bray_symbols::UnionPayloadFieldSymbol> {
+) -> BindingQueryResult<&'binding bray_symbols::UnionPayloadFieldSymbol> {
     if let Some(record) = context.symbols().union_payload_field(owner) {
         return Ok(record);
     }
@@ -74,13 +74,13 @@ pub(super) fn union_payload_field<'facts>(
     context
         .imported_symbols()?
         .and_then(|symbols| symbols.union_payload_field(owner))
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
-pub(super) fn union_variant<'facts>(
-    context: &'facts CompilationBinderFacts<'_>,
+pub(super) fn union_variant<'binding>(
+    context: &'binding CompilationBindingContext<'_>,
     owner: UnionVariantSymbolId,
-) -> BinderFactResult<&'facts bray_symbols::UnionVariantSymbol> {
+) -> BindingQueryResult<&'binding bray_symbols::UnionVariantSymbol> {
     if let Some(record) = context.symbols().union_variant(owner) {
         return Ok(record);
     }
@@ -88,5 +88,5 @@ pub(super) fn union_variant<'facts>(
     context
         .imported_symbols()?
         .and_then(|symbols| symbols.union_variant(owner))
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }

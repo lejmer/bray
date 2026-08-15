@@ -9,7 +9,7 @@ The language documents define Bray semantics and observable evaluation behavior.
 
 `docs/design/binder.md` defines bound units and the source-shaped HIR.
 
-`docs/design/checker.md` defines the durable semantic facts consumed by lowering.
+`docs/design/checker.md` defines the durable semantic lowering inputs consumed by lowering.
 
 `docs/design/async-runtime.md` defines async frames, suspension, cancellation, cleanup, and the compiler/runtime boundary.
 
@@ -49,7 +49,7 @@ Lowering does not:
 - copy interned semantic primitives into MIR-prefixed equivalents,
 - expose task-local lowering state as a durable compiler representation,
 - introduce backend-specific types, instructions, target machines, or optimization policy,
-- repair missing semantic facts by reinterpreting syntax or bound nodes,
+- repair missing semantic lowering inputs by reinterpreting syntax or bound nodes,
 - lower every unit eagerly merely because one product or tooling request needs one unit,
 - publish partially constructed MIR after cancellation or failure.
 
@@ -63,29 +63,29 @@ The bound high-level intermediate representation, abbreviated HIR, is the immuta
 `bray-bound-tree`.
 
 Bound HIR retains recognizable language constructs and close source correlation. Its semantic decisions are completed through
-independently demandable durable facts rather than by progressively replacing the bound tree.
+independently demandable durable lowering inputs rather than by progressively replacing the bound tree.
 
 ### MIR
 
 Bray mid-level intermediate representation, abbreviated MIR, is the immutable execution-shaped representation owned by `bray-ir`.
 
 MIR represents explicit basic blocks, operations, values, storage, control-flow edges, cleanup behavior, concrete semantic
-references, and target facts required by code generation.
+references, and target properties required by code generation.
 
 MIR is backend-independent. LLVM IR and another backend's internal representation are lower-level representations owned by their
 respective code generation implementations.
 
 ### Lowering Input
 
-`LoweringInput` is a validated borrowing view over one executable bound unit and the exact durable semantic facts required to lower
+`LoweringInput` is a validated borrowing view over one executable bound unit and the exact durable semantic lowering inputs required to lower
 that unit into MIR.
 
-It is not a copied checked tree, a generic fact map, a completion marker, or a progressively enriched wrapper around the HIR.
+It is not a copied checked tree, a generic lowering input map, a completion marker, or a progressively enriched wrapper around the HIR.
 
 ### Lowering Task
 
 A lowering task applies the exhaustive policy selected for one bound-unit category. It classifies a compile-time-only unit without
-requesting execution facts, or constructs one MIR unit from one validated executable lowering input or compiler-generated host
+requesting execution lowering inputs, or constructs one MIR unit from one validated executable lowering input or compiler-generated host
 input.
 
 Mutable MIR builder state is private to one worker. Only the completed immutable lowering result may be shared or cached.
@@ -98,8 +98,8 @@ The phase boundary is:
 
 ```text
 bound HIR
-    + exact durable semantic facts
-    + selected compiler-known and target facts
+    + exact durable semantic lowering inputs
+    + selected compiler-known and target properties
     -> task-local lowering
     -> validated immutable Bray MIR
 ```
@@ -140,7 +140,7 @@ Defined semantic meaning must retain its stable type across the lowering boundar
 - concrete symbol, callable, implementation, declaration, and member identities,
 - compiler-known declaration and behavior-role identities,
 - callable ABI and execution-mode decisions,
-- target, layout, and representation facts whose meaning is already fixed,
+- target, layout, and representation lowering inputs whose meaning is already fixed,
 - effect, capability, contract, ownership, and lifecycle decisions required by an operation,
 - package and external-reference identities,
 - source anchors and spans where downstream correlation is required.
@@ -175,7 +175,7 @@ The durable unit should use compact typed identities and immutable indexed stora
 minimum it contains:
 
 - a stable unit identity and semantic origin,
-- its selected MIR unit category and target facts,
+- its selected MIR unit category and target properties,
 - an exact entry block,
 - immutable block, operation, value, storage, and frame tables,
 - source provenance required for diagnostics and inspection,
@@ -203,32 +203,32 @@ Lowering may begin only with a validated `LoweringInput`.
 For a source-backed unit, the input must borrow:
 
 - the published bound unit,
-- control-flow facts,
+- control-flow lowering inputs,
 - final expression types,
-- pattern and match facts,
+- pattern and match lowering inputs,
 - semantic selections,
 - final literal values,
 - the stable semantic-value store owning referenced types, constants, and callable instances,
 - storage identities and access plans,
-- liveness and refinement facts,
+- liveness and refinement lowering inputs,
 - ownership, movement, and borrowing decisions,
 - dependency contracts,
-- async frame, suspension, task, and cleanup facts,
+- async frame, suspension, task, and cleanup lowering inputs,
 - body behavior and lifecycle obligations,
 - target-available compiler-known identities,
-- selected MIR unit and target facts.
+- selected MIR unit and target properties.
 
-Every fact must belong to the exact bound unit and semantic unit category being lowered. The constructor validates those ownership
-relationships and any cross-fact completeness required by lowering.
+Every lowering input must belong to the exact bound unit and semantic unit category being lowered. The constructor validates those ownership
+relationships and any cross-lowering input completeness required by lowering.
 
-The input contract should remain explicit. It must not be replaced with a generic fact map, an untyped bag, or a universal checked
+The input contract should remain explicit. It must not be replaced with a generic lowering input map, an untyped bag, or a universal checked
 unit object.
 
 If lowering needs a semantic decision absent from `LoweringInput`, the input contract or an earlier semantic phase is incomplete.
 Lowering must not perform the missing analysis itself.
 
 Compiler-generated executable hosts use a distinct typed input because they have no source-backed bound unit. They still consume
-the same selected target, runtime, callable, and product facts where those meanings are shared.
+the same selected target, runtime, callable, and product lowering inputs where those meanings are shared.
 
 ---
 
@@ -239,7 +239,7 @@ the same selected target, runtime, callable, and product facts where those meani
 `bray-ir` owns MIR data types, generic builders, and representation validation.
 
 Production transformation functions should use the `lower_` prefix. A function that only appends a previously lowered operation,
-validates MIR, or observes semantic facts should use a name describing that narrower behavior.
+validates MIR, or observes semantic lowering inputs should use a name describing that narrower behavior.
 
 The top-level source-backed entry point should conceptually have this contract:
 
@@ -270,7 +270,7 @@ provenance. They are implementation details and must not become another cached r
 
 ## Control Flow And Evaluation Order
 
-Lowering must preserve the evaluation order defined by the language and established semantic facts.
+Lowering must preserve the evaluation order defined by the language and established semantic lowering inputs.
 
 Nested source control becomes explicit block structure. MIR should not contain general `IfExpression`, `MatchExpression`,
 `LoopExpression`, or short-circuit expression nodes for a backend to interpret.
@@ -297,7 +297,7 @@ Code generation must not infer unreachability from missing source structure.
 
 MIR separates computed values from addressable storage.
 
-Lowering consumes checked storage and ownership facts. It does not rerun borrow analysis or decide whether an access moves, copies,
+Lowering consumes checked storage and ownership lowering inputs. It does not rerun borrow analysis or decide whether an access moves, copies,
 borrows, initializes, finalizes, or destroys a value.
 
 For each evaluated access, lowering emits the operation selected by the checked storage plan and storage-flow decision. The MIR
@@ -333,7 +333,7 @@ Static, virtual, witness-based, foreign, compiler-known, and indirect calls may 
 execution and validation contracts differ. They should share one operation representation when the difference is only an existing
 semantic identity or typed role.
 
-Generic specialization and reachable concrete-instance selection are compilation facts. MIR references concrete instances selected
+Generic specialization and reachable concrete-instance selection are compilation lowering inputs. MIR references concrete instances selected
 for the requested product rather than carrying unresolved generic applications for the backend.
 
 ---
@@ -342,7 +342,7 @@ for the requested product rather than carrying unresolved generic applications f
 
 Cleanup behavior must be explicit before code generation.
 
-Lowering consumes checked lifecycle, liveness, storage, dependency, panic, cancellation, and body-behavior facts to construct:
+Lowering consumes checked lifecycle, liveness, storage, dependency, panic, cancellation, and body-behavior lowering inputs to construct:
 
 - normal scope exits,
 - early return and propagation exits,
@@ -356,7 +356,7 @@ MIR validation must be able to reject missing, duplicated, or incompatible clean
 references. It must not need to invoke the checker again.
 
 Lowering does not invent recovery semantics for invalid source. Product emission should not request MIR for a unit whose required
-semantic facts are unavailable because of source errors.
+semantic lowering inputs are unavailable because of source errors.
 
 ---
 
@@ -373,7 +373,7 @@ use typed runtime roles rather than source-level runtime or standard-library nam
 Each resumable frame state retains its checked initialized storage, execution-lane requirements, dependency contract, and deferred
 callable set. Suspension names both the private registration and wake roles needed to resume that exact state.
 
-Lowering derives portable runtime requirements and protected-frame contracts from checked facts. MIR refers to closed runtime roles
+Lowering derives portable runtime requirements and protected-frame contracts from checked lowering inputs. MIR refers to closed runtime roles
 without selecting a runtime artifact or target-specific binary symbol. Product formation resolves those choices after reachable
 requirements merge.
 
@@ -406,7 +406,7 @@ Lowering must not recover compiler-known behavior from source spelling, catalog 
 
 MIR retains source anchors only where they support diagnostics, inspection, debugging, or stable provenance.
 
-Lowering-generated operations should use the most specific meaningful source anchor from the construct or semantic fact that caused
+Lowering-generated operations should use the most specific meaningful source anchor from the construct or semantic lowering input that caused
 them. Compiler-generated operations without a direct source occurrence use explicit generated provenance associated with the
 owning unit or product.
 
@@ -419,25 +419,25 @@ Source correlation must not affect MIR identity assignment, control-flow meaning
 
 ## Lazy Demand, Parallelism, And Caching
 
-Compilation exposes a typed lowering result as a lazy fact keyed by the stable concrete unit identity and every input whose
+Compilation exposes a typed lowering result as a lazy lowering input keyed by the stable concrete unit identity and every input whose
 change can alter that result. Executable units produce validated MIR. Units whose meaning is consumed entirely before runtime
 produce an explicit compile-time-only classification instead of an absent MIR value.
 
 A request for one lowering result:
 
 1. requests that unit's bound HIR,
-2. classifies compile-time-only units without requesting execution facts,
-3. requests only the durable semantic facts named by `LoweringInput` for executable units,
+2. classifies compile-time-only units without requesting execution lowering inputs,
+3. requests only the durable semantic lowering inputs named by `LoweringInput` for executable units,
 4. validates the lowering input,
 5. lowers and validates the MIR in task-local state,
 6. publishes the complete immutable result once.
 
-It does not force unrelated units or unrelated semantic facts.
+It does not force unrelated units or unrelated semantic lowering inputs.
 
 Independent MIR units may lower in parallel when their exact dependencies are available. Construction order and worker scheduling
 must not affect identities, diagnostics, references, or serialized output.
 
-Concurrent requests for the same fact should share one completed immutable result through the compilation fact machinery. They
+Concurrent requests for the same lowering input should share one completed immutable result through the compilation lowering input machinery. They
 must not share a mutable MIR builder.
 
 Cancellation discards task-local construction. It does not publish a partial unit or poison a future request.
@@ -467,7 +467,7 @@ Validation should cover at least:
 
 Ordinary source errors belong to binding or checking and should prevent a lowering request from acquiring complete input.
 
-An invalid `LoweringInput`, impossible checked-fact combination, or invalid MIR produced from validated input indicates a compiler
+An invalid `LoweringInput`, impossible checked-lowering input combination, or invalid MIR produced from validated input indicates a compiler
 contract failure. Target or backend availability failures that can arise from a valid user request use structured diagnostics at
 their owning boundary.
 
@@ -517,10 +517,10 @@ Lowering tests should cover:
 - deterministic output across demand order and worker counts,
 - cancellation without partial publication,
 - concurrent requests sharing one immutable result,
-- narrow demand that does not lower unrelated units or request unrelated semantic facts.
+- narrow demand that does not lower unrelated units or request unrelated semantic lowering inputs.
 
 Tests should assert complete MIR structures where practical. A coverage fixture should map every lowerable bound construct and
-required semantic fact to a production lowering entry point and executable test.
+required semantic lowering input to a production lowering entry point and executable test.
 
 ---
 
@@ -528,7 +528,7 @@ required semantic fact to a production lowering entry point and executable test.
 
 Lowering should be implemented as vertical execution-shaped slices:
 
-1. establish the lazy per-unit compilation fact and production `lower_unit` entry point,
+1. establish the lazy per-unit compilation lowering input and production `lower_unit` entry point,
 2. lower simple synchronous blocks, values, storage, calls, branches, and returns,
 3. lower structured control, patterns, propagation, construction, and conversions,
 4. lower checked ownership operations and complete cleanup paths,

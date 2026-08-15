@@ -151,9 +151,7 @@ impl DiagnosticRuntimeArtifactProblem {
             Self::DuplicateRoleOwner { .. } => "duplicate_role_owner",
             Self::MissingCapabilityOwner { .. } => "missing_capability_owner",
             Self::DuplicateCapabilityOwner { .. } => "duplicate_capability_owner",
-            Self::DuplicatePlatformServiceOwner { .. } => {
-                "duplicate_platform_service_owner"
-            }
+            Self::DuplicatePlatformServiceOwner { .. } => "duplicate_platform_service_owner",
             Self::MissingComponent => "missing_component",
             Self::UnexpectedComponent => "unexpected_component",
             Self::ArchiveFileNameMismatch => "archive_file_name_mismatch",

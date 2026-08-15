@@ -285,7 +285,7 @@ impl<'host> ArtifactPublisher<'host> {
             )?,
         };
 
-        // Publication records own stable plan facts independently of the borrowed plan.
+        // Publication records own stable plan records independently of the borrowed plan.
         Ok(EmittedArtifact::new(
             planned.id().clone(),
             sink.clone(),
@@ -968,7 +968,11 @@ mod tests {
         );
 
         assert_eq!(file_bytes(&reference), first_reference);
-        assert_eq!(file_bytes(&output.path().join("application.brayd")), b"first");
+
+        assert_eq!(
+            file_bytes(&output.path().join("application.brayd")),
+            b"first"
+        );
 
         let replace = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
@@ -1086,7 +1090,11 @@ mod tests {
             .count();
 
         assert_eq!(count, 2);
-        assert_eq!(file_bytes(&output.path().join("application.brayd")), b"third");
+
+        assert_eq!(
+            file_bytes(&output.path().join("application.brayd")),
+            b"third"
+        );
     }
 
     #[test]
@@ -1170,9 +1178,11 @@ mod tests {
             ]
         });
 
-        assert!(outcomes
-            .iter()
-            .all(|outcome| matches!(outcome.status(), EmissionStatus::Complete)));
+        assert!(
+            outcomes
+                .iter()
+                .all(|outcome| matches!(outcome.status(), EmissionStatus::Complete))
+        );
 
         let visible = file_bytes(&output.path().join("application.brayd"));
 

@@ -49,7 +49,7 @@ impl<'graph> CompilerKnownCatalogAudit<'graph> {
                 representation_roles: catalog.role_registry().representations().len(),
                 implementation_roles: catalog.role_registry().implementations().len(),
                 completion_units: plan.units().len(),
-                completion_facts: plan.requests().len(),
+                completion_queries: plan.requests().len(),
                 target_profiles: 0,
             },
         })

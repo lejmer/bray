@@ -175,16 +175,16 @@ impl AsyncScopeExitPlan {
     }
 }
 
-/// A malformed async fact table.
+/// A malformed async analysis table.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum AsyncFactsBuildError {
-    /// One fact references semantic state owned by another bound unit.
+pub enum AsyncAnalysisBuildError {
+    /// One analysis references semantic state owned by another bound unit.
     ForeignUnit,
 }
 
-/// Durable async frame, suspension, task, and cleanup facts for one bound unit.
+/// Durable async frame, suspension, task, and cleanup analysis for one bound unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct CheckedAsyncFacts {
+pub struct CheckedAsync {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     frame_dependencies: Arc<[BoundDependencySubject]>,
@@ -194,8 +194,8 @@ pub struct CheckedAsyncFacts {
     is_recovered: bool,
 }
 
-impl CheckedAsyncFacts {
-    /// Validates and creates one immutable async fact table.
+impl CheckedAsync {
+    /// Validates and creates one immutable async analysis table.
     pub fn try_new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
@@ -204,7 +204,7 @@ impl CheckedAsyncFacts {
         task_operations: impl IntoIterator<Item = AsyncTaskOperation>,
         scope_exits: impl IntoIterator<Item = AsyncScopeExitPlan>,
         is_recovered: bool,
-    ) -> Result<Self, AsyncFactsBuildError> {
+    ) -> Result<Self, AsyncAnalysisBuildError> {
         let frame_dependencies = sorted_unique_shared_slice(frame_dependencies);
         let suspensions = shared_slice(suspensions);
         let task_operations = shared_slice(task_operations);
@@ -241,7 +241,7 @@ impl CheckedAsyncFacts {
                         .any(|access| access.unit() != unit)
             })
         {
-            return Err(AsyncFactsBuildError::ForeignUnit);
+            return Err(AsyncAnalysisBuildError::ForeignUnit);
         }
 
         Ok(Self {
@@ -295,7 +295,7 @@ impl CheckedAsyncFacts {
 mod tests {
     use super::{
         AsyncScopeExitPlan, AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation,
-        AsyncTaskOperationKind, CheckedAsyncFacts,
+        AsyncTaskOperationKind, CheckedAsync,
     };
     use crate::{
         BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnitId, BoundUnitKind,
@@ -303,7 +303,7 @@ mod tests {
     };
 
     #[test]
-    fn async_facts_normalize_frame_dependencies_and_preserve_operation_order() {
+    fn async_analysis_normalizes_frame_dependencies_and_preserves_operation_order() {
         let unit = BoundUnitId::new(7);
         let await_expression = BoundExpressionId::from_slot(unit, 2);
         let operand = BoundExpressionId::from_slot(unit, 1);
@@ -330,7 +330,7 @@ mod tests {
             false,
         );
 
-        let facts = CheckedAsyncFacts::try_new(
+        let analysis = CheckedAsync::try_new(
             unit,
             BoundUnitKind::CallableBody,
             [dependency, dependency],
@@ -339,19 +339,19 @@ mod tests {
             [cleanup],
             false,
         )
-        .unwrap_or_else(|error| panic!("unit-local async facts must build: {error:?}"));
+        .unwrap_or_else(|error| panic!("unit-local analysis must build: {error:?}"));
 
-        assert_eq!(facts.frame_dependencies(), &[dependency]);
-        assert_eq!(facts.task_operations(), &[operation]);
-        assert_eq!(facts.suspensions().len(), 1);
-        assert_eq!(facts.scope_exits().len(), 1);
-        assert_eq!(facts.scope_exits()[0].moved(), &[storage]);
+        assert_eq!(analysis.frame_dependencies(), &[dependency]);
+        assert_eq!(analysis.task_operations(), &[operation]);
+        assert_eq!(analysis.suspensions().len(), 1);
+        assert_eq!(analysis.scope_exits().len(), 1);
+        assert_eq!(analysis.scope_exits()[0].moved(), &[storage]);
     }
 
     #[test]
-    fn async_facts_are_send_and_sync() {
+    fn async_analysis_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<CheckedAsyncFacts>();
+        assert_send_sync::<CheckedAsync>();
     }
 }

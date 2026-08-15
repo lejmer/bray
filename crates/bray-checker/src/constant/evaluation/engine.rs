@@ -169,8 +169,8 @@ where
         || input.expression_types().kind() != request.view().kind()
         || input.semantic_selections().unit() != request.view().unit()
         || input.semantic_selections().kind() != request.view().kind()
-        || input.pattern_facts().is_some_and(|facts| {
-            facts.unit() != request.view().unit() || facts.kind() != request.view().kind()
+        || input.patterns().is_some_and(|patterns| {
+            patterns.unit() != request.view().unit() || patterns.kind() != request.view().kind()
         })
         || !input.is_consistent()
     {
@@ -878,8 +878,8 @@ mod tests {
         AnySymbolId, ConstantSymbolId, ConstantTermData, ConstantValueData, ConstantValueKind,
         GenericConstParameterSymbolId, LocalScopeBoundary, LocalSymbolRegionId,
         LocalSymbolRegionKey, LocalSymbolRegionRole, LocalSymbolSnapshotBuilder, ModulePathKey,
-        PackageIdentity, RealConstantBits, StructFieldSymbolId, StructSymbolId, SymbolFactKind,
-        SymbolId, SymbolKey, SymbolKind, SymbolRootKey, TargetSizedIntegerType,
+        PackageIdentity, RealConstantBits, StructFieldSymbolId, StructSymbolId, SymbolId,
+        SymbolKey, SymbolKind, SymbolQueryKind, SymbolRootKey, TargetSizedIntegerType,
         TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId, TypeId,
     };
     use bray_syntax::LiteralExpressionSyntax;
@@ -895,7 +895,7 @@ mod tests {
         semantic_values, trait_callable_instance, tuple_type,
     };
     use crate::{
-        CheckerFactResult, CheckerInfrastructureError, CheckerOutcome, CheckerUnitView,
+        CheckerInfrastructureError, CheckerOutcome, CheckerQueryResult, CheckerUnitView,
         ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantChecker,
         ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluationUsage,
         ConstantEvaluator, ConstantReferenceResolution, DeclaredUnitContext,
@@ -965,7 +965,7 @@ mod tests {
     }
 
     #[test]
-    fn open_checking_retains_target_sized_literals_without_demanding_target_facts() {
+    fn open_checking_retains_target_sized_literals_without_demanding_target_properties() {
         let (unit, root, context) = literal_unit(
             BoundUnitId::new(104),
             "module example;\nconst value: usize = 4294967296;\n",
@@ -1475,14 +1475,14 @@ mod tests {
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,
-        ) -> CheckerFactResult<bool> {
+        ) -> CheckerQueryResult<bool> {
             Ok(true)
         }
 
         fn resolve(
             &self,
             request: &ConstantCallRequest,
-        ) -> CheckerFactResult<ConstantCallResolution> {
+        ) -> CheckerQueryResult<ConstantCallResolution> {
             self.requests
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1502,14 +1502,14 @@ mod tests {
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,
-        ) -> CheckerFactResult<bool> {
+        ) -> CheckerQueryResult<bool> {
             Ok(true)
         }
 
         fn resolve(
             &self,
             _request: &ConstantCallRequest,
-        ) -> CheckerFactResult<ConstantCallResolution> {
+        ) -> CheckerQueryResult<ConstantCallResolution> {
             Ok(ConstantCallResolution::Cycle)
         }
     }
@@ -1520,14 +1520,14 @@ mod tests {
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,
-        ) -> CheckerFactResult<bool> {
+        ) -> CheckerQueryResult<bool> {
             Ok(false)
         }
 
         fn resolve(
             &self,
             _request: &ConstantCallRequest,
-        ) -> CheckerFactResult<ConstantCallResolution> {
+        ) -> CheckerQueryResult<ConstantCallResolution> {
             panic!("ineligible calls must not be evaluated")
         }
     }
@@ -1838,7 +1838,7 @@ mod tests {
     }
 
     #[test]
-    fn open_target_facts_are_valid_terms_but_not_closed_values() {
+    fn open_target_properties_are_valid_terms_but_not_closed_values() {
         let (seed, _, seed_context) = literal_unit(
             BoundUnitId::new(102),
             "module example;\nconst value: u16 = 1;\n",
@@ -1849,18 +1849,18 @@ mod tests {
 
         let (unit, root, context) = reference_unit(BoundUnitId::new(103), expected);
 
-        let target_fact = match semantic_values().intern_constant_term(
-            ConstantTermData::TargetFact(ConstantSymbolId::from_symbol_id(SymbolId::new(2))),
+        let target_property = match semantic_values().intern_constant_term(
+            ConstantTermData::TargetProperty(ConstantSymbolId::from_symbol_id(SymbolId::new(2))),
         ) {
             Ok(term) => term,
-            Err(error) => panic!("target-fact term must intern: {error:?}"),
+            Err(error) => panic!("target-property term must intern: {error:?}"),
         };
 
         let types = checked_types(&unit, root, &context, expected);
         let selections = empty_selections(&unit, &types);
 
         let input = ConstantEvaluationInput::new(&types, &selections)
-            .with_references([(root, ConstantReferenceResolution::Term(target_fact))]);
+            .with_references([(root, ConstantReferenceResolution::Term(target_property))]);
 
         let entry = checker_entry(&unit);
 
@@ -1876,7 +1876,7 @@ mod tests {
             panic!("open constant checking must complete");
         };
 
-        assert_eq!(*checked.value(), target_fact);
+        assert_eq!(*checked.value(), target_property);
         assert!(checked.diagnostics().is_empty());
 
         let request = match CheckerUnitView::new(&unit, &entry, &context) {
@@ -2447,7 +2447,7 @@ mod tests {
 
         let region_key = LocalSymbolRegionKey::try_new(
             key.declared_owner().clone(),
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::ConstantDefinition),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::ConstantDefinition),
             [key.source().syntax()],
             None,
         );
@@ -2808,22 +2808,22 @@ mod tests {
         match TargetProfile::try_new(
             identity,
             machine,
-            match bray_target::TargetFacts::try_portable(
+            match bray_target::TargetProperties::try_portable(
                 "unknown",
                 "linux",
                 "gnu",
                 "gnu",
-                bray_target::TargetCAbiFacts::try_new(
+                bray_target::TargetCDataModel::try_new(
                     bray_target::TargetScalarKind::I8,
                     bray_target::TargetScalarKind::I64,
                     bray_target::TargetScalarKind::U64,
                     bray_target::TargetScalarKind::I32,
                     None,
                 )
-                .unwrap_or_else(|| panic!("constant-evaluation test C ABI facts must be valid")),
+                .unwrap_or_else(|| panic!("constant-evaluation test C data model must be valid")),
             ) {
-                Some(facts) => facts,
-                None => panic!("constant-evaluation test target facts must be valid"),
+                Some(data_model) => data_model,
+                None => panic!("constant-evaluation test target properties must be valid"),
             },
         ) {
             Ok(profile) => profile,

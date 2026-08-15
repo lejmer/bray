@@ -6,9 +6,7 @@ use serde::Deserialize;
 
 use super::layout::product_store;
 use super::lock::open_lock_file;
-use super::manifest::{
-    GenerationManifest, GenerationReference, permission_key,
-};
+use super::manifest::{GenerationManifest, GenerationReference, permission_key};
 use super::transaction::{
     GENERATION_MANIFEST, GENERATIONS_DIRECTORY, MANIFEST_REVISION, PUBLISHED_REFERENCE,
 };
@@ -61,15 +59,14 @@ fn lock_product_destination(
     destination: &ManagedFilesystemDestination,
     product: &bray_symbols::ProductIdentity,
 ) -> Result<PublishedProductReadGuard, PublishedGenerationReadError> {
-
     let public_directory = destination
         .relative_directory()
         .map_or_else(PathBuf::new, ManagedOutputDirectory::to_path_buf);
 
     let store = product_store(destination.root(), &public_directory, product);
 
-    let file = open_lock_file(&store)
-        .map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;
+    let file =
+        open_lock_file(&store).map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;
 
     file.lock_shared()
         .map_err(|error| PublishedGenerationReadError::Read(error.kind()))?;
@@ -173,7 +170,10 @@ pub fn resolve_published_artifact(
     let path = destination.root().join(published.to_path_buf());
 
     if artifact.permissions.logical != permission_key(kind)
-        || !artifact.permissions.matches(&internal_path).unwrap_or(false)
+        || !artifact
+            .permissions
+            .matches(&internal_path)
+            .unwrap_or(false)
         || !artifact.permissions.matches(&path).unwrap_or(false)
     {
         return Err(PublishedGenerationReadError::InvalidArtifact);

@@ -4,18 +4,18 @@ mod model;
 mod validation;
 
 pub(crate) use codec::{
-    COMPLETE_FACT_SECTIONS, SemanticDecodeContext, decode_inspection_records,
-    decode_selected_semantic_fact_graph, decode_semantic_fact_graph, decode_template_payload,
-    encode_template_payload, encode_validated_semantic_facts, read_symbol_reference,
-    selected_fact_sections, validate_decode_allocation, write_symbol_reference,
+    COMPLETE_SEMANTIC_SECTIONS, SemanticDecodeContext, decode_inspection_records,
+    decode_selected_semantic_graph, decode_semantic_graph, decode_template_payload,
+    encode_template_payload, encode_validated_semantics, read_symbol_reference,
+    selected_semantic_sections, validate_decode_allocation, write_symbol_reference,
 };
-pub use codec::{EncodedSemanticSection, decode_semantic_facts, encode_semantic_facts};
+pub use codec::{EncodedSemanticSection, decode_semantics, encode_semantics};
 pub use interning::{
-    ImportedAbiDependency, ImportedCallableContractFact, ImportedCallableParameterDefaultFact,
-    ImportedCallableSignatureFact, ImportedConstraintFact, ImportedDeclarationTemplateFact,
-    ImportedDeclaredTypeFact, ImportedGenericDeclarationFact, ImportedImplementationFact,
-    ImportedPredicateDefinitionFact, ImportedRuntimeRequirement, ImportedSemanticFact,
-    ImportedSemanticFacts, ImportedSourceProvenance, ImportedTargetFact,
+    ImportedAbiDependency, ImportedCallableContract, ImportedCallableParameterDefault,
+    ImportedCallableSignature, ImportedConstraint, ImportedDeclarationTemplate,
+    ImportedDeclaredType, ImportedGenericDeclaration, ImportedImplementation,
+    ImportedPredicateDefinition, ImportedRuntimeRequirement, ImportedSemanticRecord,
+    ImportedSemantics, ImportedSourceProvenance, ImportedTargetProperty,
     InterfaceSemanticInternError, InterfaceSymbolResolver,
 };
 pub use model::{
@@ -39,9 +39,9 @@ pub use model::{
     InterfaceImplementationInstanceId, InterfaceImplementationRecord,
     InterfaceImplementationReference, InterfacePredicateDefinition,
     InterfacePredicateDefinitionState, InterfacePredicateSummary, InterfaceRuntimeRequirement,
-    InterfaceSemanticFactEntry, InterfaceSemanticFactKind, InterfaceSemanticFacts,
+    InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics,
     InterfaceSourceProvenance, InterfaceStorageMember, InterfaceStorageShape,
-    InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceTargetFactDependency,
+    InterfaceSupportEntity, InterfaceSupportImplementation, InterfaceTargetPropertyDependency,
     InterfaceTemplateReference, InterfaceTraitApplication, InterfaceTraitApplicationId,
     InterfaceTrustedCapabilityRequirement, InterfaceType, InterfaceTypeId,
     InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,

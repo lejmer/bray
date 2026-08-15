@@ -25,7 +25,7 @@ pub struct CompilerKnownCatalogAuditReport {
     pub(super) representation_roles: usize,
     pub(super) implementation_roles: usize,
     pub(super) completion_units: usize,
-    pub(super) completion_facts: usize,
+    pub(super) completion_queries: usize,
     pub(super) target_profiles: usize,
 }
 
@@ -60,9 +60,9 @@ impl CompilerKnownCatalogAuditReport {
         self.completion_units
     }
 
-    /// Returns the number of semantic fact requests forced by completion.
-    pub const fn completion_facts(self) -> usize {
-        self.completion_facts
+    /// Returns the number of semantic query requests evaluated by completion.
+    pub const fn completion_queries(self) -> usize {
+        self.completion_queries
     }
 
     /// Returns the number of target profiles audited.
@@ -71,7 +71,7 @@ impl CompilerKnownCatalogAuditReport {
     }
 }
 
-/// A validated compiler-known catalog audit and semantic-fact forcer.
+/// A validated compiler-known catalog audit and semantic-query evaluator.
 pub struct CompilerKnownCatalogAudit<'graph> {
     pub(super) graph: &'graph SymbolGraph,
     pub(super) report: CompilerKnownCatalogAuditReport,

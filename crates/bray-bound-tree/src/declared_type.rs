@@ -96,7 +96,7 @@ pub struct DeclaredValueTypeTemplates {
 }
 
 impl DeclaredValueTypeTemplates {
-    /// Creates a fact in canonical term and constraint order.
+    /// Creates a template in canonical term and constraint order.
     pub fn new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
@@ -123,7 +123,7 @@ impl DeclaredValueTypeTemplates {
         }
     }
 
-    /// Returns the exact bound unit described by this fact.
+    /// Returns the exact bound unit described by this template.
     pub const fn unit(&self) -> BoundUnitId {
         self.unit
     }
@@ -166,7 +166,7 @@ mod tests {
     use crate::{BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind};
 
     #[test]
-    fn declared_value_type_facts_are_send_and_sync() {
+    fn declared_value_types_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<DeclaredValueTypeTerm>();
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn declared_value_type_facts_canonicalize_and_deduplicate_entries() {
+    fn declared_value_types_canonicalize_and_deduplicate_entries() {
         let unit = BoundUnitId::new(3);
         let expression = DeclaredValueTypeTerm::Expression(BoundExpressionId::from_slot(unit, 1));
         let pattern = DeclaredValueTypeTerm::Pattern(BoundPatternId::from_slot(unit, 0));
@@ -189,7 +189,7 @@ mod tests {
             pattern,
         );
 
-        let facts = DeclaredValueTypeTemplates::new(
+        let templates = DeclaredValueTypeTemplates::new(
             unit,
             BoundUnitKind::CallableBody,
             [evidence.clone(), evidence.clone()],
@@ -198,8 +198,8 @@ mod tests {
             Some(template.clone()),
         );
 
-        assert_eq!(facts.evidence(), &[evidence]);
-        assert_eq!(facts.constraints(), &[constraint]);
-        assert_eq!(facts.callable_result(), Some(&template));
+        assert_eq!(templates.evidence(), &[evidence]);
+        assert_eq!(templates.constraints(), &[constraint]);
+        assert_eq!(templates.callable_result(), Some(&template));
     }
 }

@@ -113,7 +113,7 @@ where
             ConstantTermData::Value(value) => Some(*value),
             ConstantTermData::IntegerLiteral { .. }
             | ConstantTermData::Parameter(_)
-            | ConstantTermData::TargetFact(_)
+            | ConstantTermData::TargetProperty(_)
             | ConstantTermData::Unary { .. }
             | ConstantTermData::Binary { .. }
             | ConstantTermData::Conversion { .. }

@@ -191,9 +191,7 @@ pub(crate) fn format_english_runtime_artifact_problem(
         Problem::MissingCooperativeExecution => {
             "runtime contract omits cooperative execution".to_owned()
         }
-        Problem::InvalidArchiveFileName => {
-            "invalid runtime component archive file name".to_owned()
-        }
+        Problem::InvalidArchiveFileName => "invalid runtime component archive file name".to_owned(),
         Problem::UnreferencedSupportComponent(component) => {
             format!("support component `{component}` is unreferenced")
         }
@@ -244,9 +242,7 @@ pub(crate) fn format_english_runtime_artifact_problem(
         ),
         Problem::MissingComponent => "missing runtime component".to_owned(),
         Problem::UnexpectedComponent => "unexpected runtime component".to_owned(),
-        Problem::ArchiveFileNameMismatch => {
-            "archive file name does not match metadata".to_owned()
-        }
+        Problem::ArchiveFileNameMismatch => "archive file name does not match metadata".to_owned(),
     }
 }
 

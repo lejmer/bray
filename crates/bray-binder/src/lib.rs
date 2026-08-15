@@ -5,9 +5,9 @@
 mod binder;
 mod binding;
 mod entry;
-mod fact;
 mod lookup;
 mod publication;
+mod query;
 mod result;
 mod semantic_context;
 mod surface;
@@ -29,13 +29,13 @@ pub use entry::{
     bind_constraint, bind_contract_clause, bind_embedded_constant, bind_predicate_definition,
     bind_runtime_default, bind_target_gate,
 };
-pub use fact::{
-    BinderFactContext, BinderFactError, BinderFactResult, BindingSymbolFactProvider,
-    ImportedPathRoot, SymbolFactProvider,
-};
 pub use lookup::{
-    BoundImplementationUsing, NameAccess, bind_implementation_using,
+    BoundImplementationUsing, ImportedPathRoot, NameAccess, bind_implementation_using,
     bind_named_trait_implementation_path, bind_surface_path_with_re_exports,
+};
+pub use query::{
+    BindingQueryContext, BindingQueryError, BindingQueryResult, BindingSymbolQueryEvaluator,
+    SymbolQueryProvider,
 };
 pub use result::BoundUnitComputation;
 pub use semantic_context::{SemanticUnitContextError, semantic_unit_context};

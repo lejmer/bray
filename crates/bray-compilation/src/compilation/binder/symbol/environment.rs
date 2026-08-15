@@ -1,5 +1,5 @@
 use bray_binder::{
-    BinderFactError, BinderFactResult, TypeExpressionBinder, TypeExpressionScope,
+    BindingQueryError, BindingQueryResult, TypeExpressionBinder, TypeExpressionScope,
     TypeParameterBinding,
 };
 use bray_compiler_known::CatalogGenericParameterKind;
@@ -9,12 +9,12 @@ use bray_symbols::{
     SymbolOrigin,
 };
 
-use super::super::context::CompilationBinderFacts;
+use super::super::context::CompilationBindingContext;
 
-pub(in crate::compilation) fn type_binder<'facts>(
-    context: &'facts CompilationBinderFacts<'facts>,
+pub(in crate::compilation) fn type_binder<'binding>(
+    context: &'binding CompilationBindingContext<'binding>,
     symbol: AnySymbolId,
-) -> BinderFactResult<TypeExpressionBinder<'facts>> {
+) -> BindingQueryResult<TypeExpressionBinder<'binding>> {
     let scope = type_scope(context, symbol)?;
 
     Ok(TypeExpressionBinder::new(
@@ -27,9 +27,9 @@ pub(in crate::compilation) fn type_binder<'facts>(
 }
 
 pub(in crate::compilation) fn type_scope(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-) -> BinderFactResult<TypeExpressionScope> {
+) -> BindingQueryResult<TypeExpressionScope> {
     let type_parameters = type_parameter_bindings(context, symbol)?;
 
     let module = context
@@ -48,9 +48,9 @@ pub(in crate::compilation) fn type_scope(
 }
 
 fn type_parameter_bindings(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-) -> BinderFactResult<Vec<TypeParameterBinding>> {
+) -> BindingQueryResult<Vec<TypeParameterBinding>> {
     let mut bindings = Vec::new();
 
     for owner in symbol_ancestry(context.symbols, symbol).into_iter().rev() {
@@ -120,14 +120,14 @@ pub(in crate::compilation) fn has_visible_generic_parameters(
 }
 
 fn type_parameter_name(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     parameter: GenericTypeParameterSymbolId,
-) -> BinderFactResult<SymbolName> {
+) -> BindingQueryResult<SymbolName> {
     let record = context
         .symbols
         .generic_type_parameter(parameter)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     if let Some(name) = record.inferred_name() {
         // Binder environments retain their own cheaply shared semantic name handle.
@@ -145,47 +145,47 @@ fn type_parameter_name(
 }
 
 fn parameter_name(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     origin: SymbolOrigin,
     declaration: Option<bray_declarations::DeclarationId>,
     ordinal: u32,
     kind: CatalogGenericParameterKind,
-) -> BinderFactResult<SymbolName> {
+) -> BindingQueryResult<SymbolName> {
     match origin {
         SymbolOrigin::Source => {
             let declaration = declaration
                 .and_then(|id| context.declarations().declaration(id))
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             declaration
                 .name()
                 .and_then(bray_declarations::DeclarationName::as_identifier)
                 .and_then(SymbolName::try_new)
-                .ok_or(BinderFactError::DependencyUnavailable)
+                .ok_or(BindingQueryError::DependencyUnavailable)
         }
         SymbolOrigin::CompilerKnown | SymbolOrigin::CompilerProvided => {
-            let fact = context
+            let semantics = context
                 .symbols
                 .compiler_known_provider()
-                .declaration_fact_for_symbol(owner)
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .declaration_semantics_for_symbol(owner)
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             let ordinal =
-                usize::try_from(ordinal).map_err(|_| BinderFactError::DependencyUnavailable)?;
+                usize::try_from(ordinal).map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
-            let signature = fact.surface().signature();
+            let signature = semantics.surface().signature();
 
             let parameter = signature
                 .generic_parameters()
                 .get(ordinal)
                 .filter(|parameter| parameter.kind() == kind)
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
-            SymbolName::try_new(parameter.name()).ok_or(BinderFactError::DependencyUnavailable)
+            SymbolName::try_new(parameter.name()).ok_or(BindingQueryError::DependencyUnavailable)
         }
         SymbolOrigin::Imported | SymbolOrigin::Synthesized => {
-            Err(BinderFactError::DependencyUnavailable)
+            Err(BindingQueryError::DependencyUnavailable)
         }
     }
 }
@@ -311,7 +311,7 @@ impl_generic_parameter_access!(ImportedSymbolSkeleton);
 pub(super) fn generic_parameter_ids(
     symbols: &impl GenericParameterAccess,
     owner: AnySymbolId,
-) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
+) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
     let mut parameters = Vec::new();
 
     if let Some(type_parameters) = symbols.generic_type_parameters(owner) {
@@ -338,7 +338,7 @@ pub(super) fn generic_parameter_ids(
         .iter()
         .any(|parameter| symbols.generic_parameter_ordinal(*parameter).is_none())
     {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     }
 
     Ok(parameters)

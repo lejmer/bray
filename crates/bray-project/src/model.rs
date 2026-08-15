@@ -4,7 +4,7 @@ use bray_runtime_interface::PlatformServiceBinding;
 use bray_standard_library::PackageSourceAuthority;
 
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
-use bray_target::{TargetFactKind, TargetIdentity, TargetOutputKind, TargetProfile};
+use bray_target::{TargetIdentity, TargetOutputKind, TargetProfile, TargetPropertyKind};
 
 use crate::{ProjectPath, TargetPredicate};
 
@@ -104,7 +104,7 @@ impl ProjectSourceRoot {
 pub struct ProjectDependency {
     product: ProductIdentity,
     predicate: Option<TargetPredicate>,
-    property_dependencies: Arc<[TargetFactKind]>,
+    property_dependencies: Arc<[TargetPropertyKind]>,
     active_targets: Arc<[TargetIdentity]>,
 }
 
@@ -112,7 +112,7 @@ impl ProjectDependency {
     pub(crate) const fn new(
         product: ProductIdentity,
         predicate: Option<TargetPredicate>,
-        property_dependencies: Arc<[TargetFactKind]>,
+        property_dependencies: Arc<[TargetPropertyKind]>,
         active_targets: Arc<[TargetIdentity]>,
     ) -> Self {
         Self {
@@ -134,7 +134,7 @@ impl ProjectDependency {
     }
 
     /// Returns every language-defined target property read by the predicate.
-    pub fn property_dependencies(&self) -> &[TargetFactKind] {
+    pub fn property_dependencies(&self) -> &[TargetPropertyKind] {
         &self.property_dependencies
     }
 
@@ -279,7 +279,7 @@ impl ProjectTargetBuildPlan {
 impl ProjectPackage {
     #[expect(
         clippy::too_many_arguments,
-        reason = "the package node keeps each independent immutable graph fact explicit"
+        reason = "the package node keeps each independent immutable graph field explicit"
     )]
     pub(crate) fn new(
         identity: PackageIdentity,

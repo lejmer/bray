@@ -119,7 +119,7 @@ impl TargetAddressSpace {
     }
 }
 
-/// Complete scalar, aggregate, and address-space layout facts for one target.
+/// Complete scalar, aggregate, and address-space layout rules for one target.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TargetDataLayout {
     scalars: Arc<[TargetScalarLayout]>,

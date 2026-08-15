@@ -39,7 +39,7 @@ impl SemanticAnalysisLimits {
         self.recursion_depth
     }
 
-    /// Returns the maximum pairwise semantic comparisons in one package-level fact.
+    /// Returns the maximum pairwise semantic comparisons in one package-level analysis.
     pub const fn pairwise_comparisons(self) -> u64 {
         self.pairwise_comparisons
     }

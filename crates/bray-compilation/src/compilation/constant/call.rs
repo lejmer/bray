@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_checker::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerUnitView,
+    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerUnitView,
     ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
     ConstantEvaluator, ConstantReferenceResolution, ConstantTemplateResolver,
     DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
@@ -10,18 +10,18 @@ use bray_checker::{
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableConstness, CallableSignatureFact, ImportedSymbolSkeleton, SymbolFactRequest, SymbolKey,
-    SymbolKeyData, TypeData,
+    CallableConstness, CallableSignatureQuery, ImportedSymbolSkeleton, SymbolKey, SymbolKeyData,
+    SymbolQueryRequest, TypeData,
 };
 
 use super::super::Compilation;
-use super::super::binder::binder_fact_error;
+use super::super::binder::binding_query_error;
 use super::super::checker::checker_result;
 use super::super::unit::semantic_unit_context_for;
 use super::definition::{
     call_parameter_values, constant_callable_root, substitute_expression_types,
 };
-use crate::fact::{CancellationToken, CompilationFactKey, ConstantCallFactKey, FactQueryError};
+use crate::fact::{CancellationToken, CompilationFactKey, ConstantCallQueryKey, FactQueryError};
 
 pub(in crate::compilation) struct CompilationConstantCallResolver<'compilation> {
     compilation: &'compilation Compilation,
@@ -44,13 +44,13 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
     fn is_constant_callable(
         &self,
         callable: bray_symbols::CallableInstanceData,
-    ) -> CheckerFactResult<bool> {
+    ) -> CheckerQueryResult<bool> {
         self.compilation
             .is_constant_callable(callable, self.cancellation)
-            .map_err(checker_call_fact_error)
+            .map_err(checker_call_query_error)
     }
 
-    fn resolve(&self, request: &ConstantCallRequest) -> CheckerFactResult<ConstantCallResolution> {
+    fn resolve(&self, request: &ConstantCallRequest) -> CheckerQueryResult<ConstantCallResolution> {
         match self
             .compilation
             .constant_call_with_cancellation(request, self.cancellation)
@@ -65,7 +65,7 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
                 )),
             },
             Err(FactQueryError::Cycle(_)) => Ok(ConstantCallResolution::Cycle),
-            Err(error) => Err(checker_call_fact_error(error)),
+            Err(error) => Err(checker_call_query_error(error)),
         }
     }
 }
@@ -92,11 +92,11 @@ impl ConstantCallResolver for CompilationConstantTemplateResolver<'_> {
     fn is_constant_callable(
         &self,
         callable: bray_symbols::CallableInstanceData,
-    ) -> CheckerFactResult<bool> {
+    ) -> CheckerQueryResult<bool> {
         self.calls.is_constant_callable(callable)
     }
 
-    fn resolve(&self, request: &ConstantCallRequest) -> CheckerFactResult<ConstantCallResolution> {
+    fn resolve(&self, request: &ConstantCallRequest) -> CheckerQueryResult<ConstantCallResolution> {
         self.calls.resolve(request)
     }
 }
@@ -118,7 +118,7 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
         &self,
         instance: bray_symbols::ConstantInstanceKey,
         limits: bray_checker::ConstantEvaluationLimits,
-    ) -> CheckerFactResult<DiagnosticResult<ConstantReferenceResolution>> {
+    ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>> {
         match self.calls.compilation.constant_instance_with_limits(
             instance,
             limits,
@@ -134,21 +134,21 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
                         .calls
                         .compilation
                         .constant_definition_span(instance.definition())
-                        .map_err(checker_call_fact_error)?,
+                        .map_err(checker_call_query_error)?,
                 },
             )),
-            Err(error) => Err(checker_call_fact_error(error)),
+            Err(error) => Err(checker_call_query_error(error)),
         }
     }
 }
 
-fn checker_call_fact_error(error: FactQueryError) -> CheckerFactError {
+fn checker_call_query_error(error: FactQueryError) -> CheckerQueryError {
     match error {
-        FactQueryError::Cancelled => CheckerFactError::Cancelled,
-        FactQueryError::CheckerInfrastructure(error) => CheckerFactError::Infrastructure(error),
+        FactQueryError::Cancelled => CheckerQueryError::Cancelled,
+        FactQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
         FactQueryError::Cycle(_)
         | FactQueryError::InfrastructureFailure
-        | FactQueryError::SemanticUnitContext(_) => CheckerFactError::Infrastructure(
+        | FactQueryError::SemanticUnitContext(_) => CheckerQueryError::Infrastructure(
             CheckerInfrastructureError::InvalidConstantEvaluationInput,
         ),
     }
@@ -161,13 +161,13 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<bool, FactQueryError> {
         let values = self.semantic_value_store()?;
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let signature = facts
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        let signature = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 callable.definition().callable_symbol(),
             ))
-            .map_err(binder_fact_error)?;
+            .map_err(binding_query_error)?;
 
         signature
             .value()
@@ -187,7 +187,7 @@ impl Compilation {
             .intern_callable_instance(request.callable())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let key = ConstantCallFactKey::new(
+        let key = ConstantCallQueryKey::new(
             callable,
             request.selected_implementation(),
             Arc::from(request.arguments()),
@@ -211,7 +211,7 @@ impl Compilation {
 
     fn compute_constant_call(
         &self,
-        key: &ConstantCallFactKey,
+        key: &ConstantCallQueryKey,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<EvaluatedConstantCall>>, FactQueryError> {
         let values = self.semantic_value_store()?;
@@ -220,25 +220,25 @@ impl Compilation {
             .callable_instance_data(key.callable())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let facts = self.binder_facts(cancellation)?;
+        let binding_context = self.binding_context(cancellation)?;
 
-        let signature_fact = facts
-            .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
+        let signature_result = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 callable.definition().callable_symbol(),
             ))
-            .map_err(binder_fact_error)?;
+            .map_err(binding_query_error)?;
 
         let checked_terms = self.checked_constant_terms_for_templates_with_cancellation(
             [
-                signature_fact.value().callable_type(),
-                signature_fact.value().result(),
+                signature_result.value().callable_type(),
+                signature_result.value().result(),
             ],
             cancellation,
         )?;
 
         let signature = resolve_callable_signature_template(
             values,
-            signature_fact.value(),
+            signature_result.value(),
             callable.substitution(),
             checked_terms.value(),
         )
@@ -262,9 +262,9 @@ impl Compilation {
         }
 
         let Some(body_key) = self.callable_body_key(callable.definition())? else {
-            let address = facts
-                .imported_fact_address(callable.definition().callable_symbol().into_any())
-                .map_err(binder_fact_error)?;
+            let address = binding_context
+                .imported_semantic_address(callable.definition().callable_symbol().into_any())
+                .map_err(binding_query_error)?;
 
             let Some(address) = address else {
                 return Ok(DiagnosticResult::without_diagnostics(None));
@@ -277,7 +277,7 @@ impl Compilation {
                 return Ok(DiagnosticResult::new(
                     None,
                     DiagnosticBag::merged_all([
-                        signature_fact.diagnostics(),
+                        signature_result.diagnostics(),
                         checked_terms.diagnostics(),
                         body.diagnostics(),
                     ]),
@@ -317,7 +317,7 @@ impl Compilation {
             return Ok(DiagnosticResult::new(
                 Some(*evaluated.value()),
                 DiagnosticBag::merged_all([
-                    signature_fact.diagnostics(),
+                    signature_result.diagnostics(),
                     checked_terms.diagnostics(),
                     body.diagnostics(),
                     evaluated.diagnostics(),
@@ -331,18 +331,18 @@ impl Compilation {
             return Ok(DiagnosticResult::new(
                 None,
                 DiagnosticBag::merged_all([
-                    signature_fact.diagnostics(),
+                    signature_result.diagnostics(),
                     checked_terms.diagnostics(),
                     bound.result().diagnostics(),
                 ]),
             ));
         };
 
-        // Independently cached body facts each retain the Arc-backed unit key.
+        // Independently cached body binding_context each retain the Arc-backed unit key.
         let semantics =
             self.expression_semantics_with_cancellation(body_key.clone(), cancellation)?;
 
-        let patterns = self.pattern_facts_with_cancellation(body_key.clone(), cancellation)?;
+        let patterns = self.patterns_with_cancellation(body_key.clone(), cancellation)?;
 
         let context = self.checker_context_for(&body_key, cancellation)?;
 
@@ -371,7 +371,7 @@ impl Compilation {
 
         let input = ConstantEvaluationInput::new(&types, &semantics.result().value().1)
             .with_block_root(root, key.result_type())
-            .with_pattern_facts(patterns.result().value())
+            .with_patterns(patterns.result().value())
             .with_references(references)
             .with_call_resolver(&resolver)
             .with_limits(key.limits());
@@ -388,7 +388,7 @@ impl Compilation {
         )?;
 
         let diagnostics = DiagnosticBag::merged_all([
-            signature_fact.diagnostics(),
+            signature_result.diagnostics(),
             checked_terms.diagnostics(),
             bound.result().diagnostics(),
             semantics.result().diagnostics(),

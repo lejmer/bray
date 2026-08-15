@@ -71,7 +71,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .request
             .target()
             .profile()
-            .facts()
+            .properties()
             .alignments()
             .max_allocation()
             .get();

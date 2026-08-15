@@ -1,4 +1,4 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
 };
@@ -6,16 +6,16 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnySymbolId, NamedTypeSymbolId, TypeId};
 
 use super::super::super::Compilation;
-use super::super::super::binder::CompilationBinderFacts;
+use super::super::super::binder::CompilationBindingContext;
 use super::super::model::OperationResolution;
 use super::super::query::construction_operands;
-use crate::fact::{CancellationToken, FactQueryError, OperationSelectionFactKey};
+use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
 impl Compilation {
     pub(in crate::compilation::operation) fn resolve_construction_operation(
         &self,
-        key: &OperationSelectionFactKey,
-        facts: &CompilationBinderFacts<'_>,
+        key: &OperationSelectionQueryKey,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         cancellation: &CancellationToken,
@@ -27,7 +27,7 @@ impl Compilation {
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let Some(result_type) =
-            self.construction_result_type(facts, unit, types, key.expression())?
+            self.construction_result_type(binding_context, unit, types, key.expression())?
         else {
             if let Some(variant) = self.unqualified_variant_reference(unit, key.expression()) {
                 diagnostics.add(super::union::unqualified_variant_diagnostic(
@@ -41,19 +41,22 @@ impl Compilation {
 
         let candidate = match expression {
             BoundExpression::StructConstruction(_) => {
-                self.struct_construction_candidate(facts, result_type, diagnostics)?
+                self.struct_construction_candidate(binding_context, result_type, diagnostics)?
             }
             BoundExpression::LeadingDotVariant(variant) => self.leading_dot_variant_candidate(
-                facts,
+                binding_context,
                 result_type,
                 variant.selector(),
                 diagnostics,
             )?,
-            BoundExpression::UnqualifiedVariant(variant) => {
-                self.unqualified_variant_candidate(facts, result_type, variant, diagnostics)?
-            }
+            BoundExpression::UnqualifiedVariant(variant) => self.unqualified_variant_candidate(
+                binding_context,
+                result_type,
+                variant,
+                diagnostics,
+            )?,
             BoundExpression::MemberAccess(_) => self.union_variant_construction_candidate(
-                facts,
+                binding_context,
                 unit,
                 key.expression(),
                 result_type,
@@ -61,7 +64,7 @@ impl Compilation {
             )?,
             BoundExpression::Call(call) => {
                 let candidate = self.union_variant_construction_candidate(
-                    facts,
+                    binding_context,
                     unit,
                     call.callee(),
                     result_type,
@@ -78,7 +81,7 @@ impl Compilation {
                 if structured.kind() == BoundStructuredExpressionKind::TypeFormConstruction =>
             {
                 self.type_form_construction_candidate(
-                    facts,
+                    binding_context,
                     result_type,
                     cancellation,
                     diagnostics,
@@ -98,7 +101,7 @@ impl Compilation {
 
         let selected = self.select_operation(
             key,
-            facts,
+            binding_context,
             unit,
             types,
             construction_operands(expression),
@@ -114,12 +117,14 @@ impl Compilation {
 
     fn construction_result_type(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
     ) -> Result<Option<TypeId>, FactQueryError> {
-        if let Some(result) = self.qualified_union_result_type(facts, unit, types, expression)? {
+        if let Some(result) =
+            self.qualified_union_result_type(binding_context, unit, types, expression)?
+        {
             return Ok(Some(result));
         }
 
@@ -159,7 +164,7 @@ impl Compilation {
         };
 
         super::super::super::substitution::named_type(
-            facts.semantic_values(),
+            binding_context.semantic_values(),
             NamedTypeSymbolId::Struct(structure),
         )
         .map(Some)
@@ -167,7 +172,7 @@ impl Compilation {
 
     fn qualified_union_result_type(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
@@ -189,7 +194,7 @@ impl Compilation {
         if let Some(result) = types.expression(member.receiver())
             && !result.is_recovered()
         {
-            let data = facts
+            let data = binding_context
                 .semantic_values()
                 .type_data(result.ty())
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -215,7 +220,7 @@ impl Compilation {
         };
 
         super::super::super::substitution::named_type(
-            facts.semantic_values(),
+            binding_context.semantic_values(),
             NamedTypeSymbolId::Union(union),
         )
         .map(Some)

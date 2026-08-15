@@ -1,4 +1,4 @@
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_bound_tree::{ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget};
 use bray_checker::{
     ConstructionInputSurface, ImplementationSelectionEvidence, OperationCandidate,
@@ -9,19 +9,19 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{ImplementationSelection, RuntimeDefaultPresence, SymbolName, TypeData, TypeId};
 
 use super::super::super::Compilation;
-use super::super::super::binder::{CompilationBinderFacts, binder_fact_error};
+use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::selected_storage_callable;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     pub(super) fn type_form_construction_candidate(
         &self,
-        facts: &CompilationBinderFacts<'_>,
+        binding_context: &CompilationBindingContext<'_>,
         result_type: TypeId,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationCandidate>, FactQueryError> {
-        let data = facts
+        let data = binding_context
             .semantic_values()
             .type_data(result_type)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -33,8 +33,14 @@ impl Compilation {
         let member_key = CompilerKnownDeclarationKey::try_new("StorageCreate")
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let selected =
-            selected_storage_callable(self, facts, *storage, *target, &member_key, cancellation)?;
+        let selected = selected_storage_callable(
+            self,
+            binding_context,
+            *storage,
+            *target,
+            &member_key,
+            cancellation,
+        )?;
 
         *diagnostics = diagnostics.merged(selected.diagnostics());
 
@@ -42,7 +48,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        let callable_type = facts
+        let callable_type = binding_context
             .semantic_values()
             .type_data(resolved_signature.callable_type())
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
@@ -66,7 +72,7 @@ impl Compilation {
             let parameter_type_id = parameter.ty();
             let parameter = parameter.parameter();
 
-            let record = facts
+            let record = binding_context
                 .symbols()
                 .callable_parameter(parameter)
                 .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -96,14 +102,14 @@ impl Compilation {
             witness: *witness,
         };
 
-        let implementation = facts
+        let implementation = binding_context
             .semantic_values()
             .implementation_instance_data(*witness)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let key = facts
+        let key = binding_context
             .symbol_key(implementation.definition().into_any())
-            .map_err(binder_fact_error)?
+            .map_err(binding_query_error)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         // The candidate owns the shared key returned by the immutable symbol table.

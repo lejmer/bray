@@ -19,7 +19,7 @@ The design must provide:
 - generated callback entry that contains panics and initializes foreign caller threads,
 - explicitly target-gated low-level operating-system modules,
 - typed operational failures without host-authored user-facing prose,
-- deterministic compiler facts, artifacts, and diagnostics,
+- deterministic compiler results, artifacts, and diagnostics,
 - and a narrow allocation of responsibility across source, compiler, runtime, platform, and native-shim layers.
 
 The design must preserve the existing language contracts for `@abi(...)`, `@layout(...)`, `@link(...)`, `@symbol(...)`, `extern`,
@@ -255,8 +255,8 @@ the same native thread, and only then releases the attachment. Product unload cl
 quiescence.
 
 Thread initialization is a private platform/runtime mechanism and does not depend on the public `std.thread.Thread<T>` abstraction.
-It establishes only the execution facts declared by the callback boundary. A callback requiring main-thread, blocking, compute, or
-other execution facts is rejected or routed only when the foreign API contract supplies those facts.
+It establishes only the execution requirements declared by the callback boundary. A callback requiring main-thread, blocking, compute, or
+other execution requirements is rejected or routed only when the foreign API contract supplies those requirements.
 
 Concurrent invocation is allowed only when the callback's state and synchronization contracts admit it. Reentrant invocation is
 separate from concurrent invocation and must be declared by the wrapper for the foreign API.
@@ -299,7 +299,7 @@ The compiler owns:
 - `@link(...)` and `@symbol(...)` semantic contracts,
 - foreign import and export classification,
 - target-gate evaluation and target-property dependency recording,
-- checked callback-context transfer, affinity, effect, and lifetime facts,
+- checked callback-context transfer, affinity, effect, and lifetime contracts,
 - exported-wrapper generation,
 - immutable native-link requirements,
 - and structured diagnostics for invalid source or incompatible target contracts.

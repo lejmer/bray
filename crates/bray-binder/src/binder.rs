@@ -8,10 +8,10 @@ use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{Diagnostic, DiagnosticBag};
 use bray_symbols::{
     AnySymbolId, ConstantSymbolId, LocalBindingSymbolId, LocalScopeBoundary, LocalScopeId,
-    SymbolFactKind, SymbolName, TypeData, TypeId,
+    SymbolName, SymbolQueryKind, TypeData, TypeId,
 };
 
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::unit::{
     BoundUnitConstructionError, BoundUnitConstructionResult, BoundUnitLocalBuilder,
     BoundUnitLocalCheckpoint,
@@ -57,17 +57,17 @@ impl ControlTarget {
     }
 }
 
-/// A semantic fact observation that can invalidate one bound unit.
+/// A semantic dependency observation that can invalidate one bound unit.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum BinderDependency {
-    /// One exact symbol-owned semantic fact.
+    /// One exact symbol-owned semantic query.
     Symbol {
-        /// The exact symbol whose fact was observed.
+        /// The exact symbol whose query was observed.
         symbol: AnySymbolId,
-        /// The category of observed symbol fact.
-        kind: SymbolFactKind,
+        /// The category of the observed symbol query.
+        kind: SymbolQueryKind,
     },
-    /// One target-profile fact represented by its compiler-known constant.
+    /// One target property represented by its compiler-known constant.
     Target(ConstantSymbolId),
     /// One nested or otherwise required checked semantic unit.
     Unit(BoundUnitKey),
@@ -85,8 +85,8 @@ pub(crate) struct BinderCheckpoint {
 
 /// Mutable state owned exclusively by one binding operation.
 #[derive(Debug)]
-pub(crate) struct Binder<'facts, C: BinderFactContext + ?Sized> {
-    facts: &'facts C,
+pub(crate) struct Binder<'binding_context, C: BindingQueryContext + ?Sized> {
+    binding_context: &'binding_context C,
     unit: BoundUnitLocalBuilder,
     diagnostics: Vec<Diagnostic>,
     control_targets: Vec<ControlTarget>,
@@ -102,10 +102,10 @@ pub(crate) struct Binder<'facts, C: BinderFactContext + ?Sized> {
     dependency_log: Vec<BinderDependency>,
 }
 
-impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
-    pub(crate) fn new(facts: &'facts C, unit: BoundUnitLocalBuilder) -> Self {
+impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context, C> {
+    pub(crate) fn new(binding_context: &'binding_context C, unit: BoundUnitLocalBuilder) -> Self {
         Self {
-            facts,
+            binding_context,
             unit,
             diagnostics: Vec::new(),
             control_targets: Vec::new(),
@@ -117,8 +117,8 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
         }
     }
 
-    pub(crate) const fn facts(&self) -> &'facts C {
-        self.facts
+    pub(crate) const fn binding_context(&self) -> &'binding_context C {
+        self.binding_context
     }
 
     pub(crate) const fn unit_mut(&mut self) -> &mut BoundUnitLocalBuilder {
@@ -180,7 +180,7 @@ impl<'facts, C: BinderFactContext + ?Sized> Binder<'facts, C> {
     }
 
     pub(crate) fn record_value_type(&mut self, target: BoundReferenceTarget, ty: TypeId) {
-        let Ok(data) = self.facts.semantic_values().type_data(ty) else {
+        let Ok(data) = self.binding_context.semantic_values().type_data(ty) else {
             return;
         };
 
@@ -366,30 +366,30 @@ impl BinderOutput {
 mod tests {
     use bray_bound_tree::BoundReferenceTarget;
     use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
-    use bray_symbols::{AnyLocalSymbolId, LocalSymbolRegionId, SymbolFactKind, TypeData};
+    use bray_symbols::{AnyLocalSymbolId, LocalSymbolRegionId, SymbolQueryKind, TypeData};
 
     use super::{Binder, BinderDependency, ControlTarget, ControlTargetKind};
-    use crate::BinderFactContext;
-    use crate::fact::test_support::{TestContext, TestFixture as FactFixture};
+    use crate::BindingQueryContext;
+    use crate::query::test_support::{TestContext, TestFixture as QueryFixture};
     use crate::unit::test_support::{builder, fixture, push_binding};
 
     #[test]
     fn binders_expose_typed_inputs_and_control_targets() {
-        let fact_fixture = FactFixture::new();
-        let facts = fact_fixture.context();
+        let query_fixture = QueryFixture::new();
+        let binding_context = query_fixture.context();
 
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(20));
 
-        let mut binder = Binder::new(&facts, unit);
+        let mut binder = Binder::new(&binding_context, unit);
 
         let target = ControlTarget::new(ControlTargetKind::Callable, unit_fixture.first);
 
         binder.push_control_target(target);
 
         assert_eq!(
-            binder.facts().semantic_values().id(),
-            fact_fixture.semantic_values.id()
+            binder.binding_context().semantic_values().id(),
+            query_fixture.semantic_values.id()
         );
 
         assert_eq!(binder.control_target(), Some(target));
@@ -401,13 +401,13 @@ mod tests {
 
     #[test]
     fn rollback_discards_candidate_state_and_reuses_deterministic_slots() {
-        let fact_fixture = FactFixture::new();
-        let facts = fact_fixture.context();
+        let query_fixture = QueryFixture::new();
+        let binding_context = query_fixture.context();
 
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(21));
 
-        let mut binder = Binder::new(&facts, unit);
+        let mut binder = Binder::new(&binding_context, unit);
 
         let root = binder.unit_mut().root_scope();
         let checkpoint = binder.checkpoint();
@@ -416,7 +416,10 @@ mod tests {
 
         assert_eq!(binder.unit_mut().activate_local(root, abandoned), Ok(()));
 
-        let Ok(known_type) = facts.semantic_values().intern_type(TypeData::tuple([])) else {
+        let Ok(known_type) = binding_context
+            .semantic_values()
+            .intern_type(TypeData::tuple([]))
+        else {
             panic!("known test type must be available");
         };
 
@@ -432,7 +435,7 @@ mod tests {
         ));
 
         binder.add_diagnostic(diagnostic(0));
-        binder.record_dependency(BinderDependency::Target(fact_fixture.constant));
+        binder.record_dependency(BinderDependency::Target(query_fixture.constant));
 
         assert!(binder.rollback(checkpoint));
 
@@ -464,26 +467,26 @@ mod tests {
 
     #[test]
     fn observed_dependencies_are_deduplicated_sorted_and_rolled_back_with_failed_work() {
-        let fact_fixture = FactFixture::new();
-        let facts = fact_fixture.context();
+        let query_fixture = QueryFixture::new();
+        let binding_context = query_fixture.context();
 
         let unit_fixture = fixture();
         let unit = builder(&unit_fixture, LocalSymbolRegionId::new(22));
 
-        let mut binder = Binder::new(&facts, unit);
+        let mut binder = Binder::new(&binding_context, unit);
 
-        let symbol = fact_fixture.constant.into();
+        let symbol = query_fixture.constant.into();
 
         let symbol_dependency = BinderDependency::Symbol {
             symbol,
-            kind: SymbolFactKind::ConstantDeclaredType,
+            kind: SymbolQueryKind::ConstantDeclaredType,
         };
 
-        let target_dependency = BinderDependency::Target(fact_fixture.constant);
+        let target_dependency = BinderDependency::Target(query_fixture.constant);
 
         let candidate_dependency = BinderDependency::Symbol {
             symbol,
-            kind: SymbolFactKind::ConstantDefinition,
+            kind: SymbolQueryKind::ConstantDefinition,
         };
 
         binder.record_dependency(target_dependency.clone());

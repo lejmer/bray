@@ -4,46 +4,47 @@ use bray_bound_tree::{
 use bray_checker::{ExpressionCandidateSet, OperationCandidateSource};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractTemplateFact, CallableOverloadTemplateFact,
-    CallableParameterDefaultTemplateFact, CallableSignatureFact, GenericDeclarationTemplateFact,
-    MemberLookupResult, PredicateSignatureTemplateFact,
+    AnySymbolId, CallableContractTemplateQuery, CallableOverloadTemplateQuery,
+    CallableParameterDefaultTemplateQuery, CallableSignatureQuery, GenericDeclarationTemplateQuery,
+    MemberLookupResult, PredicateSignatureTemplateQuery,
 };
 use bray_syntax::GenericArgumentSyntax;
 
 use super::callable::bind_call_candidates;
 use crate::{
-    BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider, TypeExpressionScope,
+    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
+    TypeExpressionScope,
 };
 
 /// Enumerates candidate surfaces for one exact bound expression without selecting a target.
 ///
 /// The bound unit and expression must belong to the same semantic unit. Cancellation and
-/// unavailable or inconsistent inputs are returned as binder fact errors.
+/// unavailable or inconsistent inputs are returned as binding-query errors.
 pub fn bind_expression_candidates<C>(
     context: &C,
     unit: &BoundUnit,
     expression: BoundExpressionId,
     type_scope: &TypeExpressionScope,
-) -> BinderFactResult<DiagnosticResult<ExpressionCandidateSet>>
+) -> BindingQueryResult<DiagnosticResult<ExpressionCandidateSet>>
 where
-    C: BinderFactContext,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>
-        + SymbolFactProvider<CallableContractTemplateFact>
-        + SymbolFactProvider<GenericDeclarationTemplateFact>
-        + SymbolFactProvider<PredicateSignatureTemplateFact>
-        + SymbolFactProvider<CallableParameterDefaultTemplateFact>
-        + SymbolFactProvider<CallableOverloadTemplateFact>,
+    C: BindingQueryContext,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
+        + SymbolQueryProvider<CallableContractTemplateQuery>
+        + SymbolQueryProvider<GenericDeclarationTemplateQuery>
+        + SymbolQueryProvider<PredicateSignatureTemplateQuery>
+        + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>
+        + SymbolQueryProvider<CallableOverloadTemplateQuery>,
 {
     if context.is_cancelled() {
-        return Err(BinderFactError::Cancelled);
+        return Err(BindingQueryError::Cancelled);
     }
 
     if unit.unit() != expression.unit() {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     }
 
     let Some(bound) = unit.view().expression(expression) else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
     let candidates = match bound {
@@ -146,9 +147,9 @@ where
 fn generic_argument_syntax<C>(
     context: &C,
     arguments: &[bray_bound_tree::BoundGenericArgument],
-) -> BinderFactResult<Vec<GenericArgumentSyntax>>
+) -> BindingQueryResult<Vec<GenericArgumentSyntax>>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     arguments
         .iter()
@@ -156,7 +157,7 @@ where
             argument
                 .syntax()
                 .find_descendant::<GenericArgumentSyntax>(context.syntax())
-                .ok_or(BinderFactError::DependencyUnavailable)
+                .ok_or(BindingQueryError::DependencyUnavailable)
         })
         .collect()
 }
@@ -171,7 +172,7 @@ fn operation(
 
 fn is_union_variant_call<C>(context: &C, unit: &BoundUnit, callee: BoundExpressionId) -> bool
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     match unit.view().expression(callee) {
         Some(BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_)) => {
@@ -197,7 +198,7 @@ pub fn qualified_union_variant<C>(
     expression: BoundExpressionId,
 ) -> Option<bray_symbols::UnionVariantSymbolId>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     let Some(BoundExpression::MemberAccess(member)) = unit.view().expression(expression) else {
         return None;

@@ -27,17 +27,17 @@ use super::storage::{InspectionStorage, InspectionStoragePlan, StorageInspection
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BoundInspectionRenderError {
-    BoundFact,
+    BoundState,
     Json,
     MissingNode,
     Source,
     SourceIndex,
-    StorageFact,
+    StorageState,
     Symbol,
-    SymbolFact,
+    SymbolState,
     Type,
-    TypeFact,
-    SelectionFact,
+    TypeState,
+    SelectionState,
     Selection,
 }
 
@@ -74,7 +74,7 @@ impl From<StorageInspectionError> for BoundInspectionRenderError {
 impl From<UnitInspectionSelectionError> for BoundInspectionRenderError {
     fn from(error: UnitInspectionSelectionError) -> Self {
         match error {
-            UnitInspectionSelectionError::BoundFact => Self::BoundFact,
+            UnitInspectionSelectionError::BoundState => Self::BoundState,
             UnitInspectionSelectionError::Source => Self::Source,
         }
     }
@@ -98,11 +98,11 @@ pub(crate) fn render_bound_inspection(
 
     let symbols = compilation
         .symbol_graph()
-        .map_err(|_| BoundInspectionRenderError::SymbolFact)?;
+        .map_err(|_| BoundInspectionRenderError::SymbolState)?;
 
     let semantic_values = compilation
         .semantic_value_store()
-        .map_err(|_| BoundInspectionRenderError::SymbolFact)?;
+        .map_err(|_| BoundInspectionRenderError::SymbolState)?;
 
     let sources = InspectionSources::new(compilation.sources())?;
 
@@ -110,20 +110,20 @@ pub(crate) fn render_bound_inspection(
     let mut units = Vec::with_capacity(bounds.len());
 
     for bound in bounds {
-        // Each demanded fact retains the same small Arc-backed unit identity.
+        // Each demanded result retains the same small Arc-backed unit identity.
         let key = bound.value().key().clone();
 
         let expression_types = compilation
             .expression_types(key.clone())
-            .map_err(|_| BoundInspectionRenderError::TypeFact)?;
+            .map_err(|_| BoundInspectionRenderError::TypeState)?;
 
         let selections = compilation
             .semantic_selections(key.clone())
-            .map_err(|_| BoundInspectionRenderError::SelectionFact)?;
+            .map_err(|_| BoundInspectionRenderError::SelectionState)?;
 
         let storage = compilation
             .storage_plan(key)
-            .map_err(|_| BoundInspectionRenderError::StorageFact)?;
+            .map_err(|_| BoundInspectionRenderError::StorageState)?;
 
         diagnostics = DiagnosticBag::merged_all([
             &diagnostics,

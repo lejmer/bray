@@ -1,9 +1,9 @@
 use crate::{
-    InterfaceLimit, InterfaceSemanticFacts, InterfaceValidationError, InterfaceValidationLimits,
+    InterfaceLimit, InterfaceSemantics, InterfaceValidationError, InterfaceValidationLimits,
     PackageInterfaceSurface,
 };
 
-impl InterfaceSemanticFacts {
+impl InterfaceSemantics {
     pub(crate) fn validate(
         &self,
         surface: &PackageInterfaceSurface,
@@ -17,9 +17,9 @@ impl InterfaceSemanticFacts {
         let dependency_count = surface.dependencies().len();
 
         self.validate_value_graph(symbol_count, dependency_count, limits)?;
-        self.validate_surface_facts(surface, symbol_count, dependency_count, limits)?;
+        self.validate_surface_semantics(surface, symbol_count, dependency_count, limits)?;
 
-        self.validate_template_facts(surface, limits)
+        self.validate_template_semantics(surface, limits)
     }
 
     fn table_counts(&self) -> [usize; 23] {

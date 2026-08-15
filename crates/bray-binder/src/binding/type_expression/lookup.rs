@@ -12,17 +12,17 @@ use crate::lookup::{
     NameReference, ResolvedName, bind_source_path, classify_type, combine_name_lookups,
     lookup_diagnostic, lookup_surface_name, lookup_surface_name_with_imports,
 };
-use crate::{BinderFactError, BinderFactResult};
+use crate::{BindingQueryError, BindingQueryResult};
 
 impl TypeExpressionBinder<'_> {
     pub(super) fn bind_trait(
         &mut self,
         syntax: &TraitApplicationSyntax,
-    ) -> BinderFactResult<TraitApplicationTemplate> {
+    ) -> BindingQueryResult<TraitApplicationTemplate> {
         let definition = self.bind_trait_path(&syntax.path())?;
 
         let MemberLookupResult::Found(definition) = definition else {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         };
 
         let parameters = self.trait_parameters(definition)?;
@@ -39,7 +39,7 @@ impl TypeExpressionBinder<'_> {
     pub fn resolve_trait_application_template(
         &self,
         template: &TraitApplicationTemplate,
-    ) -> BinderFactResult<Option<TraitApplicationId>> {
+    ) -> BindingQueryResult<Option<TraitApplicationId>> {
         let arguments = template
             .arguments()
             .iter()
@@ -51,7 +51,7 @@ impl TypeExpressionBinder<'_> {
         };
 
         let Some(owner) = GenericOwnerId::try_new(template.definition().into()) else {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         };
 
         let substitution = GenericSubstitutionData::try_new(
@@ -59,12 +59,12 @@ impl TypeExpressionBinder<'_> {
             template.parameters().iter().copied(),
             arguments,
         )
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
         let substitution = self
             .semantic_values
             .intern_generic_substitution(substitution)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
         let application = self
             .semantic_values
@@ -72,7 +72,7 @@ impl TypeExpressionBinder<'_> {
                 template.definition(),
                 substitution,
             ))
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
         Ok(Some(application))
     }
@@ -80,7 +80,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_type_path(
         &mut self,
         path: &PathSyntax,
-    ) -> BinderFactResult<MemberLookupResult<crate::lookup::ResolvedTypeName, ResolvedName>> {
+    ) -> BindingQueryResult<MemberLookupResult<crate::lookup::ResolvedTypeName, ResolvedName>> {
         let lookup = self.bind_path(path)?.classify(classify_type);
 
         self.report_lookup(path, DiagnosticNameKind::Type, &lookup);
@@ -91,7 +91,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_trait_path(
         &mut self,
         path: &PathSyntax,
-    ) -> BinderFactResult<MemberLookupResult<TraitSymbolId, ResolvedName>> {
+    ) -> BindingQueryResult<MemberLookupResult<TraitSymbolId, ResolvedName>> {
         let lookup = self.bind_path(path)?.classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::Trait(id)) => Some(id),
             ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
@@ -106,7 +106,7 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         definition: TraitSymbolId,
         syntax: &TypeExpressionSyntax,
-    ) -> BinderFactResult<MemberLookupResult<TraitTypeMemberSymbolId, ResolvedName>> {
+    ) -> BindingQueryResult<MemberLookupResult<TraitTypeMemberSymbolId, ResolvedName>> {
         let Some(token) = syntax.identifier_token() else {
             return Ok(MemberLookupResult::Malformed(Box::new([])));
         };
@@ -138,7 +138,7 @@ impl TypeExpressionBinder<'_> {
         Ok(lookup)
     }
 
-    fn bind_path(&self, path: &PathSyntax) -> BinderFactResult<MemberLookupResult<ResolvedName>> {
+    fn bind_path(&self, path: &PathSyntax) -> BindingQueryResult<MemberLookupResult<ResolvedName>> {
         let references = path
             .identifier_tokens()
             .filter_map(|token| token_text(path.source(), &token))
@@ -228,7 +228,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn named_type_parameters(
         &self,
         definition: NamedTypeSymbolId,
-    ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
+    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
         let (type_parameters, const_parameters) = match definition {
             NamedTypeSymbolId::Struct(id) => match self.symbols.structure(id) {
                 Some(symbol) => Some((
@@ -259,7 +259,7 @@ impl TypeExpressionBinder<'_> {
                 }),
             },
         }
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         self.generic_parameters(type_parameters, const_parameters)
     }
@@ -267,7 +267,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn trait_parameters(
         &self,
         definition: TraitSymbolId,
-    ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
+    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
         let parameters = match self.symbols.trait_symbol(definition) {
             Some(symbol) => Some((
                 symbol.generic_type_parameters(),
@@ -282,7 +282,7 @@ impl TypeExpressionBinder<'_> {
                 })
             }),
         }
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         self.generic_parameters(parameters.0, parameters.1)
     }
@@ -291,7 +291,7 @@ impl TypeExpressionBinder<'_> {
         &self,
         type_parameters: &[GenericTypeParameterSymbolId],
         const_parameters: &[GenericConstParameterSymbolId],
-    ) -> BinderFactResult<Vec<GenericParameterSymbolId>> {
+    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
         let mut parameters = Vec::with_capacity(type_parameters.len() + const_parameters.len());
 
         for parameter in type_parameters {
@@ -303,7 +303,7 @@ impl TypeExpressionBinder<'_> {
                     .and_then(|symbols| symbols.generic_type_parameter(*parameter))
                     .map(|record| record.ordinal()),
             }
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             parameters.push((ordinal, GenericParameterSymbolId::from(*parameter)));
         }
@@ -317,7 +317,7 @@ impl TypeExpressionBinder<'_> {
                     .and_then(|symbols| symbols.generic_const_parameter(*parameter))
                     .map(|record| record.ordinal()),
             }
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             parameters.push((ordinal, GenericParameterSymbolId::from(*parameter)));
         }

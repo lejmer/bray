@@ -3,15 +3,15 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use bray_bound_tree::CheckedTemplateKind;
-use bray_ir::{MirExecutableTemplateId, MirTargetFacts, MirUnit, MirUnitId};
+use bray_ir::{MirExecutableTemplateId, MirTargetContract, MirUnit, MirUnitId};
 use bray_symbols::{AnySymbolId, InterfaceSymbolId};
 
 use crate::decode::{DecodeBudget, map_wire_error};
 use crate::semantic::decode_template_payload;
 use crate::wire::WireReader;
 use crate::{
-    ImportedSemanticFacts, InterfaceArtifact, InterfaceCheckedTemplate, InterfaceContentHash,
-    InterfaceLanguageRevision, InterfaceLimit, InterfaceSemanticFacts, InterfaceSymbolResolver,
+    ImportedSemantics, InterfaceArtifact, InterfaceCheckedTemplate, InterfaceContentHash,
+    InterfaceLanguageRevision, InterfaceLimit, InterfaceSemantics, InterfaceSymbolResolver,
     InterfaceValidationError, InterfaceValidationLimits, InterfaceValidationPolicy,
     PackageInterfaceExportBundle, PackageInterfaceSurface, ValidatedPackageInterface,
 };
@@ -124,7 +124,7 @@ impl PackageImplementationArtifact {
         Self::try_new(
             &validated,
             bundle.surface(),
-            bundle.semantic_facts(),
+            bundle.semantics(),
             bundle.implementation_configuration().clone(),
             [],
             bundle.executable_templates().iter().cloned(),
@@ -138,7 +138,7 @@ impl PackageImplementationArtifact {
     pub fn try_new(
         interface: &ValidatedPackageInterface,
         surface: &PackageInterfaceSurface,
-        semantic_facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         configuration: PackageImplementationConfiguration,
         constant_callable_bodies: impl IntoIterator<Item = InterfaceConstantCallableBody>,
         executable_templates: impl IntoIterator<Item = InterfaceExecutableTemplate>,
@@ -161,7 +161,7 @@ impl PackageImplementationArtifact {
         for body in &bodies {
             validate_body_owner(surface, body.owner(), body.template())?;
 
-            semantic_facts
+            semantics
                 .validate_implementation_template(surface, body.template(), limits)
                 .map_err(PackageImplementationArtifactBuildError::InvalidBody)?;
         }
@@ -223,7 +223,7 @@ impl PackageImplementationArtifact {
             return Err(PackageImplementationArtifactBuildError::SpecializationIdentityMismatch);
         }
 
-        let identity = implementation_identity(interface, surface, semantic_facts, configuration);
+        let identity = implementation_identity(interface, surface, semantics, configuration);
 
         let bytes = encode_artifact(
             &identity,
@@ -486,8 +486,8 @@ impl PackageImplementationArtifact {
         key: &PackageImplementationSpecializationKey,
         owner: AnySymbolId,
         unit: MirUnitId,
-        target: MirTargetFacts,
-        facts: &ImportedSemanticFacts,
+        target: MirTargetContract,
+        properties: &ImportedSemantics,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<Option<MirUnit>, PreSpecializedMirDecodeError> {
         let discriminator = specialization_discriminator(key);
@@ -520,7 +520,7 @@ impl PackageImplementationArtifact {
             owner,
             unit,
             target,
-            facts,
+            properties,
             symbols,
             self.limits,
         )?;
@@ -604,10 +604,10 @@ pub(super) const fn executable_discriminator(raw: u32) -> [u8; 32] {
 fn implementation_identity(
     interface: &ValidatedPackageInterface,
     surface: &PackageInterfaceSurface,
-    semantic_facts: &InterfaceSemanticFacts,
+    semantics: &InterfaceSemantics,
     configuration: PackageImplementationConfiguration,
 ) -> PackageImplementationIdentity {
-    let runtime_requirements = semantic_facts
+    let runtime_requirements = semantics
         .runtime_requirements()
         .iter()
         .map(crate::InterfaceRuntimeRequirement::requirements)
@@ -756,7 +756,7 @@ mod tests {
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [fixture.body.clone()],
             [],
@@ -796,7 +796,7 @@ mod tests {
         let identity = super::implementation_identity(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
         );
 
@@ -874,7 +874,7 @@ mod tests {
         let result = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [fixture.body.clone(), fixture.body.clone()],
             [],
@@ -909,7 +909,7 @@ mod tests {
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [],
             [template.clone()],
@@ -941,7 +941,7 @@ mod tests {
         let identity = super::implementation_identity(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
         );
 
@@ -972,7 +972,7 @@ mod tests {
         let result = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [],
             [template],
@@ -1009,7 +1009,7 @@ mod tests {
         let accepted = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [],
             [template.clone()],
@@ -1023,7 +1023,7 @@ mod tests {
         let rejected = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [],
             [template],
@@ -1058,7 +1058,7 @@ mod tests {
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [],
             [],
@@ -1078,7 +1078,7 @@ mod tests {
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [],
             [],
@@ -1090,7 +1090,7 @@ mod tests {
 
         let mut expected_runtime_requirements = fixture
             .bundle
-            .semantic_facts()
+            .semantics()
             .runtime_requirements()
             .iter()
             .map(crate::InterfaceRuntimeRequirement::requirements)
@@ -1128,7 +1128,7 @@ mod tests {
             fixture
                 .bundle
                 .implementation_configuration()
-                .target_facts()
+                .target_properties()
                 .clone(),
             Some(selected_runtime),
             fixture.bundle.implementation_configuration().runtime_abi(),
@@ -1147,7 +1147,7 @@ mod tests {
         let selected_runtime_artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             mismatched.clone(),
             [],
             [],
@@ -1168,7 +1168,7 @@ mod tests {
             Err(InterfaceValidationError::HashMismatch)
         );
 
-        let alternate_target = bray_ir::MirTargetFacts::new(
+        let alternate_target = bray_ir::MirTargetContract::new(
             bray_target::NativeTarget::X86_64WindowsMsvc.profile(),
             fixture.bundle.implementation_configuration().runtime_abi(),
         );
@@ -1184,13 +1184,21 @@ mod tests {
         );
 
         assert_ne!(
-            alternate_target.target_facts().machine(),
-            artifact.identity().configuration().target_facts().machine()
+            alternate_target.target_properties().machine(),
+            artifact
+                .identity()
+                .configuration()
+                .target_properties()
+                .machine()
         );
 
         assert_ne!(
-            alternate_target.target_facts().facts(),
-            artifact.identity().configuration().target_facts().facts()
+            alternate_target.target_properties().properties(),
+            artifact
+                .identity()
+                .configuration()
+                .target_properties()
+                .properties()
         );
 
         assert_eq!(
@@ -1211,7 +1219,7 @@ mod tests {
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [],
             [],
@@ -1260,11 +1268,11 @@ mod tests {
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("test semantic store must construct: {error:?}"));
 
-        let facts = fixture
+        let properties = fixture
             .bundle
-            .semantic_facts()
+            .semantics()
             .intern(&store, &resolver)
-            .unwrap_or_else(|error| panic!("test semantic facts must import: {error:?}"));
+            .unwrap_or_else(|error| panic!("test imported semantics must load: {error:?}"));
 
         let owner_key = fixture
             .bundle
@@ -1278,7 +1286,7 @@ mod tests {
             .symbol_by_external_key(owner_key)
             .unwrap_or_else(|| panic!("test callable must import"));
 
-        let target = bray_ir::MirTargetFacts::new(
+        let target = bray_ir::MirTargetContract::new(
             bray_target::NativeTarget::X86_64LinuxGnu.profile(),
             fixture.bundle.implementation_configuration().runtime_abi(),
         );
@@ -1289,7 +1297,7 @@ mod tests {
                 owner,
                 bray_ir::MirUnitId::new(0),
                 target,
-                &facts,
+                &properties,
                 &resolver,
             ),
             Err(PreSpecializedMirDecodeError::Executable(
@@ -1316,7 +1324,7 @@ mod tests {
         let artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
             fixture.bundle.surface(),
-            fixture.bundle.semantic_facts(),
+            fixture.bundle.semantics(),
             fixture.bundle.implementation_configuration().clone(),
             [],
             [template],
@@ -1365,7 +1373,7 @@ mod tests {
 
     fn generic_callable_owner(bundle: &crate::PackageInterfaceExportBundle) -> InterfaceSymbolId {
         bundle
-            .semantic_facts()
+            .semantics()
             .generic_declarations()
             .iter()
             .find_map(|declaration| match declaration.owner() {
@@ -1425,7 +1433,7 @@ mod tests {
             .unwrap_or_else(|| panic!("test interface must export a function"));
 
         let template = bundle
-            .semantic_facts()
+            .semantics()
             .checked_templates()
             .first()
             .unwrap_or_else(|| panic!("test interface must publish a checked template"));

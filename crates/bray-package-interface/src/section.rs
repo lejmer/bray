@@ -68,8 +68,8 @@ pub enum InterfaceSectionTag {
     Relationships,
     /// Exported lookup and re-export edges.
     ExportedLookup,
-    /// Lazy symbol-fact payload directory.
-    SymbolFactDirectory,
+    /// Lazy symbol-record payload directory.
+    SemanticRecordDirectory,
     /// Canonical semantic types.
     SemanticTypes,
     /// Constant values and checked const templates.
@@ -80,14 +80,14 @@ pub enum InterfaceSectionTag {
     DeclarationTemplates,
     /// Implementation and coherence records.
     Implementations,
-    /// Target-fact and ABI dependencies.
+    /// Target-property and ABI dependencies.
     TargetDependencies,
     /// Optional source provenance excluded from semantic identity.
     SourceProvenance,
     /// Private support graph and implementation references.
     SupportGraph,
-    /// Source-independent declaration signature and default-template facts.
-    DeclarationFacts,
+    /// Source-independent declaration signature and default-template semantics.
+    DeclarationSemantics,
 }
 
 impl InterfaceSectionTag {
@@ -99,7 +99,7 @@ impl InterfaceSectionTag {
         Self::SymbolIdentities,
         Self::Relationships,
         Self::ExportedLookup,
-        Self::SymbolFactDirectory,
+        Self::SemanticRecordDirectory,
         Self::SemanticTypes,
         Self::Constants,
         Self::Contracts,
@@ -108,7 +108,7 @@ impl InterfaceSectionTag {
         Self::TargetDependencies,
         Self::SourceProvenance,
         Self::SupportGraph,
-        Self::DeclarationFacts,
+        Self::DeclarationSemantics,
     ];
 
     pub(crate) const fn from_wire_value(value: u32) -> Option<Self> {
@@ -119,7 +119,7 @@ impl InterfaceSectionTag {
             4 => Some(Self::SymbolIdentities),
             5 => Some(Self::Relationships),
             6 => Some(Self::ExportedLookup),
-            7 => Some(Self::SymbolFactDirectory),
+            7 => Some(Self::SemanticRecordDirectory),
             8 => Some(Self::SemanticTypes),
             9 => Some(Self::Constants),
             10 => Some(Self::Contracts),
@@ -128,7 +128,7 @@ impl InterfaceSectionTag {
             13 => Some(Self::TargetDependencies),
             14 => Some(Self::SourceProvenance),
             15 => Some(Self::SupportGraph),
-            16 => Some(Self::DeclarationFacts),
+            16 => Some(Self::DeclarationSemantics),
             _ => None,
         }
     }
@@ -142,7 +142,7 @@ impl InterfaceSectionTag {
             Self::SymbolIdentities => 4,
             Self::Relationships => 5,
             Self::ExportedLookup => 6,
-            Self::SymbolFactDirectory => 7,
+            Self::SemanticRecordDirectory => 7,
             Self::SemanticTypes => 8,
             Self::Constants => 9,
             Self::Contracts => 10,
@@ -151,7 +151,7 @@ impl InterfaceSectionTag {
             Self::TargetDependencies => 13,
             Self::SourceProvenance => 14,
             Self::SupportGraph => 15,
-            Self::DeclarationFacts => 16,
+            Self::DeclarationSemantics => 16,
         }
     }
 
@@ -164,7 +164,7 @@ impl InterfaceSectionTag {
             Self::SymbolIdentities => "symbol_identities",
             Self::Relationships => "relationships",
             Self::ExportedLookup => "exported_lookup",
-            Self::SymbolFactDirectory => "symbol_fact_directory",
+            Self::SemanticRecordDirectory => "semantic_record_directory",
             Self::SemanticTypes => "semantic_types",
             Self::Constants => "constants",
             Self::Contracts => "contracts",
@@ -173,7 +173,7 @@ impl InterfaceSectionTag {
             Self::TargetDependencies => "target_dependencies",
             Self::SourceProvenance => "source_provenance",
             Self::SupportGraph => "support_graph",
-            Self::DeclarationFacts => "declaration_facts",
+            Self::DeclarationSemantics => "declaration_semantics",
         }
     }
 

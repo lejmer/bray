@@ -47,8 +47,7 @@ pub use mapping::{
     demanded_types, mapped_runtime_references,
 };
 pub use options::{
-    CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode,
-    SizePreference,
+    CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,
 };
 pub use outcome::{
     CodegenFailure, CodegenOutcome, CodegenOutcomeBuildError, CodegenStatus,

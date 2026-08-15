@@ -3,9 +3,7 @@ use std::hash::Hasher as _;
 use super::core::UnitTranslator;
 use super::support::{insert_value, integer_constant, llvm, real_width, real_words};
 use bray_base::{StableDigestHasher, lowercase_hex};
-use bray_codegen::{
-    CodegenConstantMapping, CodegenFailure, CodegenTypeBehavior, CodegenTypeKind,
-};
+use bray_codegen::{CodegenConstantMapping, CodegenFailure, CodegenTypeBehavior, CodegenTypeKind};
 use bray_ir::{MirImmediateValue, MirOperand};
 use bray_symbols::{ConstantValueId, ConstantValueKind, RealConstantBits};
 use inkwell::comdat::ComdatSelectionKind;
@@ -493,12 +491,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         match mapping.kind() {
             CodegenTypeKind::Pointer { .. } => {
-                let value = self.string_value_constant(
-                    semantic_type,
-                    global.as_pointer_value(),
-                    text.len(),
-                )?
-                .into();
+                let value = self
+                    .string_value_constant(semantic_type, global.as_pointer_value(), text.len())?
+                    .into();
 
                 let name = format!("{identity}.value");
                 let global = self.publish_string_global(&name, value);
@@ -764,7 +759,7 @@ mod tests {
     };
     use bray_ir::{
         MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
-        MirStorageKind, MirStoreKind, MirTargetFacts, MirTerminatorKind, MirUnitBuilder,
+        MirStorageKind, MirStoreKind, MirTargetContract, MirTerminatorKind, MirUnitBuilder,
         MirUnitKind,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
@@ -863,8 +858,20 @@ mod tests {
         let ir = immutable_text_literal_ir(&backend, "borrowed text", true);
         let name = string_constant_name("borrowed text");
 
-        assert!(ir.contains(&format!("@{name}.data = linkonce_odr unnamed_addr constant")), "{ir}");
-        assert!(ir.contains(&format!("@{name}.value = linkonce_odr unnamed_addr constant %bray.type.")), "{ir}");
+        assert!(
+            ir.contains(&format!(
+                "@{name}.data = linkonce_odr unnamed_addr constant"
+            )),
+            "{ir}"
+        );
+
+        assert!(
+            ir.contains(&format!(
+                "@{name}.value = linkonce_odr unnamed_addr constant %bray.type."
+            )),
+            "{ir}"
+        );
+
         assert!(ir.contains("ptr null, i64 13"), "{ir}");
         assert!(ir.contains(&format!("store ptr @{name}.value")), "{ir}");
     }
@@ -967,7 +974,7 @@ mod tests {
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitKind::Synchronous,
-            MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
         );
 
         let entry = builder
@@ -1020,23 +1027,13 @@ mod tests {
         let constant_mappings = if borrowed {
             vec![
                 CodegenConstantMapping::new(literal, data.clone()),
-                CodegenConstantMapping::with_representation(
-                    literal,
-                    data,
-                    types.string_borrow,
-                ),
+                CodegenConstantMapping::with_representation(literal, data, types.string_borrow),
             ]
         } else {
             vec![CodegenConstantMapping::new(literal, data)]
         };
 
-        let mappings = composite_mappings(
-            &unit,
-            &target,
-            types,
-            source,
-            constant_mappings,
-        );
+        let mappings = composite_mappings(&unit, &target, types, source, constant_mappings);
 
         codegen_request_for_unit_with_debug_information(
             unit,
@@ -1058,7 +1055,7 @@ mod tests {
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitKind::Synchronous,
-            MirTargetFacts::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
         );
 
         let entry = builder

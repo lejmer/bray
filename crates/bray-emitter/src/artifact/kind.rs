@@ -215,11 +215,11 @@ pub enum ArtifactProducer {
         /// Backend implementation and toolchain identity.
         backend: BackendIdentity,
     },
-    /// Completed package-interface fact.
+    /// Completed package-interface record.
     PackageInterface,
     /// Package implementation artifact.
     PackageImplementation,
-    /// Compiler-owned dependency metadata fact.
+    /// Compiler-owned dependency metadata record.
     DependencyMetadata(DependencyMetadataProducerId),
     /// Native linker output.
     Linker(LinkerProducerId),

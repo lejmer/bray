@@ -558,15 +558,7 @@ mod tests {
         ));
 
         let contract = InlineAssemblyContract::try_new(
-            constant,
-            constant,
-            constant,
-            constant,
-            constant,
-            operands,
-            1,
-            "",
-            "label",
+            constant, constant, constant, constant, constant, operands, 1, "", "label",
         )
         .unwrap_or_else(|| panic!("test assembly contract must validate"));
 

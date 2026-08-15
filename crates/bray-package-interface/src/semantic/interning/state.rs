@@ -4,9 +4,9 @@ use bray_symbols::{
     TypeId,
 };
 
-use crate::InterfaceSemanticFacts;
+use crate::InterfaceSemantics;
 
-use super::{ImportedSemanticFacts, InterfaceSemanticInternError, InterfaceSymbolResolver};
+use super::{ImportedSemantics, InterfaceSemanticInternError, InterfaceSymbolResolver};
 
 pub(in crate::semantic) struct InternState {
     pub(super) types: Vec<Option<TypeId>>,
@@ -20,34 +20,49 @@ pub(in crate::semantic) struct InternState {
 }
 
 impl InternState {
-    pub(super) fn new(facts: &InterfaceSemanticFacts) -> Self {
+    pub(super) fn new(semantics: &InterfaceSemantics) -> Self {
         Self {
-            types: vec![None; facts.types.len()],
-            constant_values: vec![None; facts.constant_values.len()],
-            constant_terms: vec![None; facts.constant_terms.len()],
-            dependency_contracts: vec![None; facts.dependency_contracts.len()],
-            substitutions: vec![None; facts.substitutions.len()],
-            trait_applications: vec![None; facts.trait_applications.len()],
-            callable_instances: vec![None; facts.callable_instances.len()],
-            implementation_instances: vec![None; facts.implementation_instances.len()],
+            types: vec![None; semantics.types.len()],
+            constant_values: vec![None; semantics.constant_values.len()],
+            constant_terms: vec![None; semantics.constant_terms.len()],
+            dependency_contracts: vec![None; semantics.dependency_contracts.len()],
+            substitutions: vec![None; semantics.substitutions.len()],
+            trait_applications: vec![None; semantics.trait_applications.len()],
+            callable_instances: vec![None; semantics.callable_instances.len()],
+            implementation_instances: vec![None; semantics.implementation_instances.len()],
         }
     }
 
-    pub(super) fn from_imported(facts: &ImportedSemanticFacts) -> Self {
+    pub(super) fn from_imported(semantics: &ImportedSemantics) -> Self {
         Self {
-            types: facts.types.iter().copied().map(Some).collect(),
-            constant_values: facts.constant_values.iter().copied().map(Some).collect(),
-            constant_terms: facts.constant_terms.iter().copied().map(Some).collect(),
-            dependency_contracts: facts
+            types: semantics.types.iter().copied().map(Some).collect(),
+            constant_values: semantics
+                .constant_values
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
+            constant_terms: semantics.constant_terms.iter().copied().map(Some).collect(),
+            dependency_contracts: semantics
                 .dependency_contracts
                 .iter()
                 .copied()
                 .map(Some)
                 .collect(),
-            substitutions: facts.substitutions.iter().copied().map(Some).collect(),
-            trait_applications: facts.trait_applications.iter().copied().map(Some).collect(),
-            callable_instances: facts.callable_instances.iter().copied().map(Some).collect(),
-            implementation_instances: facts
+            substitutions: semantics.substitutions.iter().copied().map(Some).collect(),
+            trait_applications: semantics
+                .trait_applications
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
+            callable_instances: semantics
+                .callable_instances
+                .iter()
+                .copied()
+                .map(Some)
+                .collect(),
+            implementation_instances: semantics
                 .implementation_instances
                 .iter()
                 .copied()
@@ -84,18 +99,18 @@ impl InternState {
 
     pub(super) fn intern_pass(
         &mut self,
-        facts: &InterfaceSemanticFacts,
+        semantics: &InterfaceSemantics,
         store: &SemanticValueStore,
         symbols: &impl InterfaceSymbolResolver,
     ) -> Result<(), InterfaceSemanticInternError> {
-        self.intern_substitutions(facts, store, symbols)?;
-        self.intern_dependency_contracts(facts, store, symbols)?;
-        self.intern_trait_applications(facts, store, symbols)?;
-        self.intern_callable_instances(facts, store, symbols)?;
-        self.intern_implementation_instances(facts, store, symbols)?;
-        self.intern_types(facts, store, symbols)?;
-        self.intern_constant_values(facts, store, symbols)?;
+        self.intern_substitutions(semantics, store, symbols)?;
+        self.intern_dependency_contracts(semantics, store, symbols)?;
+        self.intern_trait_applications(semantics, store, symbols)?;
+        self.intern_callable_instances(semantics, store, symbols)?;
+        self.intern_implementation_instances(semantics, store, symbols)?;
+        self.intern_types(semantics, store, symbols)?;
+        self.intern_constant_values(semantics, store, symbols)?;
 
-        self.intern_constant_terms(facts, store, symbols)
+        self.intern_constant_terms(semantics, store, symbols)
     }
 }

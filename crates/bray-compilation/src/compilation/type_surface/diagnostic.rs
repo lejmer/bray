@@ -1,24 +1,27 @@
 use std::collections::BTreeMap;
 
-use bray_binder::BinderFactContext;
+use bray_binder::BindingQueryContext;
 use bray_declarations::duplicate_lifecycle_slot_diagnostic;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnySymbolId, TypeAssociatedSurface};
 
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 use crate::fact::FactQueryError;
 
 pub(super) fn lifecycle_slot_diagnostics(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     surface: &TypeAssociatedSurface,
 ) -> Result<DiagnosticBag, FactQueryError> {
-    let declarations = facts.compilation().product_source_graph()?.declarations();
+    let declarations = binding_context
+        .compilation()
+        .product_source_graph()?
+        .declarations();
 
     let mut first_by_slot: BTreeMap<_, &bray_declarations::DeclarationRecord> = BTreeMap::new();
     let mut diagnostics = Vec::new();
 
     for member in surface.lifecycle_members() {
-        let Some(declaration) = source_declaration(facts, member.id()) else {
+        let Some(declaration) = source_declaration(binding_context, member.id()) else {
             continue;
         };
 
@@ -41,10 +44,13 @@ pub(super) fn lifecycle_slot_diagnostics(
 }
 
 fn source_declaration(
-    facts: &CompilationBinderFacts<'_>,
+    binding_context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
 ) -> Option<bray_declarations::DeclarationId> {
-    facts.symbols().symbol_key(symbol)?.source_declaration_id()
+    binding_context
+        .symbols()
+        .symbol_key(symbol)?
+        .source_declaration_id()
 }
 
 #[cfg(test)]

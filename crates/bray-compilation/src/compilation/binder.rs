@@ -4,10 +4,10 @@ mod symbol;
 mod value_type;
 mod value_type_surface;
 
-pub(super) use context::CompilationBinderFacts;
-pub(in crate::compilation) use error::binder_fact_error;
+pub(super) use context::CompilationBindingContext;
+pub(in crate::compilation) use error::binding_query_error;
 pub(in crate::compilation) use symbol::{
-    CompilationSymbolFacts, bind_declared_trusted_capabilities,
+    CompilationSymbolSemantics, bind_declared_trusted_capabilities,
     bind_module_part_directives_for_selection, has_visible_generic_parameters,
     imported_declaration_template, imported_declaration_template_at, imported_implementation,
     type_binder, type_scope,

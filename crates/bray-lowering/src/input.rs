@@ -1,14 +1,14 @@
-// rust-style: allow(module-too-large, reason = "lowering inputs and their cross-fact validation form one cohesive boundary contract")
+// rust-style: allow(module-too-large, reason = "lowering inputs and their cross-input validation form one cohesive boundary contract")
 
 use bray_bound_tree::{
     BoundBlockId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundReferenceTarget,
-    BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitKind, CheckedAsyncFacts,
-    CheckedBodyBehavior, CheckedControlFlowFacts, CheckedDependencyContracts,
-    CheckedExpressionTypes, CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts,
-    CheckedSemanticSelections, LivenessFacts, RefinementFactKind, StorageAccessPlan,
-    StorageAccessPurpose, StorageFlowFacts, StorageOperationDecision, StoragePlan,
+    BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitKind, CheckedAsync,
+    CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes,
+    CheckedLiteralValues, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, Liveness,
+    RefinementKind, StorageAccessPlan, StorageAccessPurpose, StorageFlow, StorageOperationDecision,
+    StoragePlan,
 };
-use bray_ir::{MirTargetFacts, MirUnitBuilder, MirUnitKind};
+use bray_ir::{MirTargetContract, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, ConstantValueId, SemanticValueStore,
 };
@@ -17,142 +17,142 @@ use crate::result::requires_mir;
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
 ///
-/// The view keeps the canonical bound unit and its associated semantic facts
+/// The view keeps the canonical bound unit and its associated semantic analysis
 /// separate. Adding another required checker domain extends this input rather than creating a
 /// copied or progressively wrapped bound-tree representation.
 #[derive(Clone)]
 pub struct LoweringInput<'unit> {
     unit: &'unit BoundUnit,
-    control_flow: &'unit CheckedControlFlowFacts,
+    control_flow: &'unit CheckedControlFlow,
     expression_types: &'unit CheckedExpressionTypes,
-    pattern_facts: &'unit CheckedPatternFacts,
+    patterns: &'unit CheckedPatterns,
     semantic_selections: &'unit CheckedSemanticSelections,
     literal_values: &'unit CheckedLiteralValues,
     storage_plan: &'unit StoragePlan,
-    liveness: &'unit LivenessFacts,
-    refinements: &'unit CheckedRefinementFacts,
-    storage_flow: &'unit StorageFlowFacts,
+    liveness: &'unit Liveness,
+    refinements: &'unit CheckedRefinements,
+    storage_flow: &'unit StorageFlow,
     dependency_contracts: &'unit CheckedDependencyContracts,
-    async_facts: &'unit CheckedAsyncFacts,
+    async_analysis: &'unit CheckedAsync,
     body_behavior: &'unit CheckedBodyBehavior,
     semantic_values: &'unit SemanticValueStore,
     available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     constant_reference_values: &'unit [(BoundExpressionId, ConstantValueId)],
     unit_kind: MirUnitKind,
-    target: MirTargetFacts,
+    target: MirTargetContract,
 }
 
 impl<'unit> LoweringInput<'unit> {
-    /// Validates that every supplied semantic fact belongs to the exact bound unit.
+    /// Validates that every supplied semantic input belongs to the exact bound unit.
     #[expect(
         clippy::too_many_arguments,
-        reason = "each canonical lowering fact remains an independently requestable input"
+        reason = "each canonical lowering input remains an independently requestable input"
     )]
     pub fn try_new(
         unit: &'unit BoundUnit,
-        control_flow: &'unit CheckedControlFlowFacts,
+        control_flow: &'unit CheckedControlFlow,
         expression_types: &'unit CheckedExpressionTypes,
-        pattern_facts: &'unit CheckedPatternFacts,
+        patterns: &'unit CheckedPatterns,
         semantic_selections: &'unit CheckedSemanticSelections,
         literal_values: &'unit CheckedLiteralValues,
         storage_plan: &'unit StoragePlan,
-        liveness: &'unit LivenessFacts,
-        refinements: &'unit CheckedRefinementFacts,
-        storage_flow: &'unit StorageFlowFacts,
+        liveness: &'unit Liveness,
+        refinements: &'unit CheckedRefinements,
+        storage_flow: &'unit StorageFlow,
         dependency_contracts: &'unit CheckedDependencyContracts,
-        async_facts: &'unit CheckedAsyncFacts,
+        async_analysis: &'unit CheckedAsync,
         body_behavior: &'unit CheckedBodyBehavior,
         semantic_values: &'unit SemanticValueStore,
         available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
         unit_kind: MirUnitKind,
-        target: MirTargetFacts,
+        target: MirTargetContract,
     ) -> Result<Self, LoweringInputError> {
         if !requires_mir(unit.key().kind()) {
             return Err(LoweringInputError::CompileTimeUnitRequiresClassification);
         }
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             control_flow.unit(),
             control_flow.kind(),
-            LoweringFactKind::ControlFlow,
+            LoweringInputKind::ControlFlow,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             expression_types.unit(),
             expression_types.kind(),
-            LoweringFactKind::ExpressionTypes,
+            LoweringInputKind::ExpressionTypes,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
-            pattern_facts.unit(),
-            pattern_facts.kind(),
-            LoweringFactKind::PatternFacts,
+            patterns.unit(),
+            patterns.kind(),
+            LoweringInputKind::Patterns,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             semantic_selections.unit(),
             semantic_selections.kind(),
-            LoweringFactKind::SemanticSelections,
+            LoweringInputKind::SemanticSelections,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             literal_values.unit(),
             literal_values.kind(),
-            LoweringFactKind::LiteralValues,
+            LoweringInputKind::LiteralValues,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             storage_plan.unit(),
             storage_plan.kind(),
-            LoweringFactKind::StoragePlan,
+            LoweringInputKind::StoragePlan,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             liveness.unit(),
             liveness.kind(),
-            LoweringFactKind::Liveness,
+            LoweringInputKind::Liveness,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             refinements.unit(),
             refinements.kind(),
-            LoweringFactKind::Refinements,
+            LoweringInputKind::Refinements,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             storage_flow.unit(),
             storage_flow.kind(),
-            LoweringFactKind::StorageFlow,
+            LoweringInputKind::StorageFlow,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             dependency_contracts.unit(),
             dependency_contracts.kind(),
-            LoweringFactKind::DependencyContracts,
+            LoweringInputKind::DependencyContracts,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
-            async_facts.unit(),
-            async_facts.kind(),
-            LoweringFactKind::Async,
+            async_analysis.unit(),
+            async_analysis.kind(),
+            LoweringInputKind::Async,
         )?;
 
-        validate_fact_owner(
+        validate_input_owner(
             unit,
             body_behavior.unit(),
             body_behavior.kind(),
-            LoweringFactKind::BodyBehavior,
+            LoweringInputKind::BodyBehavior,
         )?;
 
         validate_literal_target(literal_values, &target)?;
@@ -160,19 +160,19 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_semantic_completeness(unit, expression_types, semantic_selections, storage_plan)?;
 
-        validate_pattern_completeness(unit, pattern_facts)?;
+        validate_pattern_completeness(unit, patterns)?;
 
         validate_liveness(unit, storage_plan, liveness)?;
         validate_refinements(unit, storage_plan, refinements)?;
-        validate_storage_facts(unit, storage_plan, storage_flow)?;
+        validate_storage_analysis(unit, storage_plan, storage_flow)?;
 
         if !dependency_contracts.is_complete_for(unit, storage_plan) {
-            return Err(LoweringInputError::InvalidFactContents(
-                LoweringFactKind::DependencyContracts,
+            return Err(LoweringInputError::InvalidInputContents(
+                LoweringInputKind::DependencyContracts,
             ));
         }
 
-        validate_async_facts(unit, storage_plan, dependency_contracts, async_facts)?;
+        validate_async_analysis(unit, storage_plan, dependency_contracts, async_analysis)?;
 
         if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
             return Err(LoweringInputError::ExecutableHostRequiresSyntheticInput);
@@ -182,7 +182,7 @@ impl<'unit> LoweringInput<'unit> {
             unit,
             control_flow,
             expression_types,
-            pattern_facts,
+            patterns,
             semantic_selections,
             literal_values,
             storage_plan,
@@ -190,7 +190,7 @@ impl<'unit> LoweringInput<'unit> {
             refinements,
             storage_flow,
             dependency_contracts,
-            async_facts,
+            async_analysis,
             body_behavior,
             semantic_values,
             available_compiler_known_symbols,
@@ -205,8 +205,8 @@ impl<'unit> LoweringInput<'unit> {
         self.unit
     }
 
-    /// Returns the durable control-flow facts established for the unit.
-    pub const fn control_flow(&self) -> &'unit CheckedControlFlowFacts {
+    /// Returns the durable control-flow analysis established for the unit.
+    pub const fn control_flow(&self) -> &'unit CheckedControlFlow {
         self.control_flow
     }
 
@@ -216,8 +216,8 @@ impl<'unit> LoweringInput<'unit> {
     }
 
     /// Returns checked pattern operations, binding types, and match coverage.
-    pub const fn pattern_facts(&self) -> &'unit CheckedPatternFacts {
-        self.pattern_facts
+    pub const fn patterns(&self) -> &'unit CheckedPatterns {
+        self.patterns
     }
 
     /// Returns exact semantic choices for the unit.
@@ -236,17 +236,17 @@ impl<'unit> LoweringInput<'unit> {
     }
 
     /// Returns durable last-use and lexical lifetime decisions.
-    pub const fn liveness(&self) -> &'unit LivenessFacts {
+    pub const fn liveness(&self) -> &'unit Liveness {
         self.liveness
     }
 
-    /// Returns flow-sensitive facts available at checked operation occurrences.
-    pub const fn refinements(&self) -> &'unit CheckedRefinementFacts {
+    /// Returns flow-sensitive analysis available at checked operation occurrences.
+    pub const fn refinements(&self) -> &'unit CheckedRefinements {
         self.refinements
     }
 
     /// Returns checked ownership, movement, and borrow decisions.
-    pub const fn storage_flow(&self) -> &'unit StorageFlowFacts {
+    pub const fn storage_flow(&self) -> &'unit StorageFlow {
         self.storage_flow
     }
 
@@ -256,8 +256,8 @@ impl<'unit> LoweringInput<'unit> {
     }
 
     /// Returns async frame, suspension, task, and cleanup decisions.
-    pub const fn async_facts(&self) -> &'unit CheckedAsyncFacts {
-        self.async_facts
+    pub const fn async_analysis(&self) -> &'unit CheckedAsync {
+        self.async_analysis
     }
 
     /// Returns normalized effects, capabilities, and lifecycle obligations.
@@ -265,7 +265,7 @@ impl<'unit> LoweringInput<'unit> {
         self.body_behavior
     }
 
-    /// Returns the canonical semantic values referenced by checked facts.
+    /// Returns the canonical semantic values referenced by checked analysis.
     pub const fn semantic_values(&self) -> &'unit SemanticValueStore {
         self.semantic_values
     }
@@ -308,14 +308,14 @@ impl<'unit> LoweringInput<'unit> {
         &self.unit_kind
     }
 
-    /// Returns target facts selected for lowering this unit.
-    pub const fn target(&self) -> &MirTargetFacts {
+    /// Returns target analysis selected for lowering this unit.
+    pub const fn target(&self) -> &MirTargetContract {
         &self.target
     }
 
     /// Creates the canonical source-unit MIR builder for this input.
     pub fn mir_builder(&self) -> MirUnitBuilder {
-        // The lowerer retains its validated input while the builder owns the immutable target facts.
+        // The lowerer retains its validated input while the builder owns the immutable target analysis.
         MirUnitBuilder::for_bound(
             self.unit.identity(),
             self.unit_kind.clone(),
@@ -324,15 +324,15 @@ impl<'unit> LoweringInput<'unit> {
     }
 }
 
-/// A semantic fact required by source-unit lowering.
+/// A semantic input required by source-unit lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum LoweringFactKind {
-    /// Control-flow facts.
+pub enum LoweringInputKind {
+    /// Control-flow analysis.
     ControlFlow,
     /// Final expression types.
     ExpressionTypes,
     /// Pattern operations, binding types, and match coverage.
-    PatternFacts,
+    Patterns,
     /// Selected callable and operation targets.
     SemanticSelections,
     /// Source-literal values.
@@ -358,32 +358,32 @@ pub enum LoweringFactKind {
 /// A contract violation that prevents a bound unit from entering lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LoweringInputError {
-    /// A required semantic fact belongs to another bound unit.
-    ForeignFact {
-        /// The required fact category.
-        fact: LoweringFactKind,
+    /// A required semantic input belongs to another bound unit.
+    ForeignInput {
+        /// The required input category.
+        input: LoweringInputKind,
         /// The bound unit requested for lowering.
         expected: BoundUnitId,
-        /// The unit named by the supplied fact.
+        /// The unit named by the supplied input.
         actual: BoundUnitId,
     },
-    /// A required semantic fact describes another unit category.
-    FactKindMismatch {
-        /// The required fact category.
-        fact: LoweringFactKind,
+    /// A required semantic input describes another unit category.
+    InputKindMismatch {
+        /// The required input category.
+        input: LoweringInputKind,
         /// The category carried by the bound-unit key.
         expected: BoundUnitKind,
-        /// The category named by the supplied fact.
+        /// The category named by the supplied input.
         actual: BoundUnitKind,
     },
     /// A successfully typed expression lacks the semantic choice required by lowering.
     MissingSemanticSelection(BoundExpressionId),
     /// A bound expression has no final checked type.
     MissingExpressionType(BoundExpressionId),
-    /// Pattern facts do not cover the bound patterns, bindings, and matches exactly.
-    InvalidPatternFacts,
-    /// One fact contains identities absent from its exact bound unit or dependent fact.
-    InvalidFactContents(LoweringFactKind),
+    /// Pattern analysis do not cover the bound patterns, bindings, and matches exactly.
+    InvalidPatternInput,
+    /// One input contains identities absent from its exact bound unit or dependent input.
+    InvalidInputContents(LoweringInputKind),
     /// A checked storage operation does not match the canonical storage plan.
     InvalidStorageOperation(BoundExpressionId),
     /// Checked storage operations do not cover every canonical access plan exactly once.
@@ -410,7 +410,7 @@ pub enum LoweringInputError {
 
 fn validate_literal_target(
     literals: &CheckedLiteralValues,
-    target: &MirTargetFacts,
+    target: &MirTargetContract,
 ) -> Result<(), LoweringInputError> {
     let expected = target.machine().pointer_width_bits();
     let actual = literals.target_integer_width_bits();
@@ -431,8 +431,8 @@ fn validate_literal_values(
         .iter()
         .any(|entry| values.constant_value_data(entry.value()).is_err())
     {
-        return Err(LoweringInputError::InvalidFactContents(
-            LoweringFactKind::LiteralValues,
+        return Err(LoweringInputError::InvalidInputContents(
+            LoweringInputKind::LiteralValues,
         ));
     }
 
@@ -446,15 +446,15 @@ fn validate_constant_reference_values(
     references: &[(BoundExpressionId, ConstantValueId)],
 ) -> Result<(), LoweringInputError> {
     if references.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
-        return Err(LoweringInputError::InvalidFactContents(
-            LoweringFactKind::ConstantReferences,
+        return Err(LoweringInputError::InvalidInputContents(
+            LoweringInputKind::ConstantReferences,
         ));
     }
 
     for (expression, value) in references {
         let Some(BoundExpression::Name(name)) = unit.view().expression(*expression) else {
-            return Err(LoweringInputError::InvalidFactContents(
-                LoweringFactKind::ConstantReferences,
+            return Err(LoweringInputError::InvalidInputContents(
+                LoweringInputKind::ConstantReferences,
             ));
         };
 
@@ -466,27 +466,27 @@ fn validate_constant_reference_values(
                     | AnySymbolId::TraitConstantFulfillment(_)
             )
         ) {
-            return Err(LoweringInputError::InvalidFactContents(
-                LoweringFactKind::ConstantReferences,
+            return Err(LoweringInputError::InvalidInputContents(
+                LoweringInputKind::ConstantReferences,
             ));
         }
 
         let Some(expression_type) = types.expression(*expression) else {
-            return Err(LoweringInputError::InvalidFactContents(
-                LoweringFactKind::ConstantReferences,
+            return Err(LoweringInputError::InvalidInputContents(
+                LoweringInputKind::ConstantReferences,
             ));
         };
 
         let value_type = values
             .constant_value_data(*value)
             .map_err(|_| {
-                LoweringInputError::InvalidFactContents(LoweringFactKind::ConstantReferences)
+                LoweringInputError::InvalidInputContents(LoweringInputKind::ConstantReferences)
             })?
             .ty();
 
         if expression_type.ty() != value_type {
-            return Err(LoweringInputError::InvalidFactContents(
-                LoweringFactKind::ConstantReferences,
+            return Err(LoweringInputError::InvalidInputContents(
+                LoweringInputKind::ConstantReferences,
             ));
         }
     }
@@ -533,18 +533,18 @@ const fn requires_expression_type(expression: &BoundExpression) -> bool {
 
 fn validate_pattern_completeness(
     unit: &BoundUnit,
-    facts: &CheckedPatternFacts,
+    analysis: &CheckedPatterns,
 ) -> Result<(), LoweringInputError> {
     let patterns_match = unit
         .tree()
         .patterns()
         .map(|(pattern, _)| pattern)
-        .eq(facts.patterns().iter().map(|entry| entry.pattern()));
+        .eq(analysis.patterns().iter().map(|entry| entry.pattern()));
 
     let bindings_match = patterns_match && {
         let mut introduced = Vec::new();
 
-        for ((_, pattern), checked) in unit.tree().patterns().zip(facts.patterns()) {
+        for ((_, pattern), checked) in unit.tree().patterns().zip(analysis.patterns()) {
             if checked.target().is_none() {
                 introduced.extend_from_slice(pattern.bindings());
             }
@@ -557,7 +557,7 @@ fn validate_pattern_completeness(
 
         introduced
             .into_iter()
-            .eq(facts.binding_types().iter().map(|entry| entry.binding()))
+            .eq(analysis.binding_types().iter().map(|entry| entry.binding()))
     };
 
     let matches_match = unit
@@ -566,10 +566,10 @@ fn validate_pattern_completeness(
         .filter_map(|(expression, node)| {
             matches!(node, BoundExpression::Match(_)).then_some(expression)
         })
-        .eq(facts.matches().iter().map(|entry| entry.expression()));
+        .eq(analysis.matches().iter().map(|entry| entry.expression()));
 
     if !patterns_match || !bindings_match || !matches_match {
-        return Err(LoweringInputError::InvalidPatternFacts);
+        return Err(LoweringInputError::InvalidPatternInput);
     }
 
     Ok(())
@@ -578,26 +578,26 @@ fn validate_pattern_completeness(
 fn validate_liveness(
     unit: &BoundUnit,
     storage: &StoragePlan,
-    facts: &LivenessFacts,
+    analysis: &Liveness,
 ) -> Result<(), LoweringInputError> {
-    let valid_last_uses = facts.last_uses().iter().all(|entry| {
+    let valid_last_uses = analysis.last_uses().iter().all(|entry| {
         unit.view().node_is_recovered(entry.operation()).is_some()
             && dependency_subject_exists(unit, storage, entry.subject())
     });
 
-    let valid_scopes = facts.live_across_scopes().iter().all(|entry| {
+    let valid_scopes = analysis.live_across_scopes().iter().all(|entry| {
         unit.view().block(entry.scope()).is_some()
             && dependency_subject_exists(unit, storage, entry.subject())
     });
 
-    let valid_suspensions = facts.live_across_suspensions().iter().all(|entry| {
+    let valid_suspensions = analysis.live_across_suspensions().iter().all(|entry| {
         unit.view().expression(entry.await_expression()).is_some()
             && dependency_subject_exists(unit, storage, entry.subject())
     });
 
     if !valid_last_uses || !valid_scopes || !valid_suspensions {
-        return Err(LoweringInputError::InvalidFactContents(
-            LoweringFactKind::Liveness,
+        return Err(LoweringInputError::InvalidInputContents(
+            LoweringInputKind::Liveness,
         ));
     }
 
@@ -607,13 +607,13 @@ fn validate_liveness(
 fn validate_refinements(
     unit: &BoundUnit,
     storage: &StoragePlan,
-    facts: &CheckedRefinementFacts,
+    analysis: &CheckedRefinements,
 ) -> Result<(), LoweringInputError> {
-    let valid = facts.occurrences().iter().all(|occurrence| {
+    let valid = analysis.occurrences().iter().all(|occurrence| {
         unit.view().node_is_recovered(occurrence.node()).is_some()
-            && occurrence.facts().iter().all(|fact| {
-                refinement_kind_exists(unit, fact.kind())
-                    && fact
+            && occurrence.refinements().iter().all(|input| {
+                refinement_kind_exists(unit, input.kind())
+                    && input
                         .dependencies()
                         .iter()
                         .all(|access| storage.access(*access).is_some())
@@ -621,40 +621,40 @@ fn validate_refinements(
     });
 
     if !valid {
-        return Err(LoweringInputError::InvalidFactContents(
-            LoweringFactKind::Refinements,
+        return Err(LoweringInputError::InvalidInputContents(
+            LoweringInputKind::Refinements,
         ));
     }
 
     Ok(())
 }
 
-fn refinement_kind_exists(unit: &BoundUnit, kind: RefinementFactKind) -> bool {
+fn refinement_kind_exists(unit: &BoundUnit, kind: RefinementKind) -> bool {
     match kind {
-        RefinementFactKind::Condition { expression, .. }
-        | RefinementFactKind::NullablePresence { expression, .. }
-        | RefinementFactKind::TrustBoundary(expression)
-        | RefinementFactKind::NormalCompletion(expression) => {
+        RefinementKind::Condition { expression, .. }
+        | RefinementKind::NullablePresence { expression, .. }
+        | RefinementKind::TrustBoundary(expression)
+        | RefinementKind::NormalCompletion(expression) => {
             unit.view().expression(expression).is_some()
         }
-        RefinementFactKind::Pattern {
+        RefinementKind::Pattern {
             subject, pattern, ..
         } => unit.view().expression(subject).is_some() && unit.view().pattern(pattern).is_some(),
     }
 }
 
-fn validate_async_facts(
+fn validate_async_analysis(
     unit: &BoundUnit,
     storage: &StoragePlan,
     dependencies: &CheckedDependencyContracts,
-    facts: &CheckedAsyncFacts,
+    analysis: &CheckedAsync,
 ) -> Result<(), LoweringInputError> {
-    let valid_frame = facts
+    let valid_frame = analysis
         .frame_dependencies()
         .iter()
         .all(|subject| dependency_subject_exists(unit, storage, *subject));
 
-    let valid_suspensions = facts.suspensions().iter().all(|suspension| {
+    let valid_suspensions = analysis.suspensions().iter().all(|suspension| {
         unit.view().expression(suspension.expression()).is_some()
             && match suspension.kind() {
                 bray_bound_tree::AsyncSuspensionKind::Await { operand } => {
@@ -671,12 +671,12 @@ fn validate_async_facts(
                 .all(|subject| dependency_subject_exists(unit, storage, *subject))
     });
 
-    let valid_tasks = facts
+    let valid_tasks = analysis
         .task_operations()
         .iter()
         .all(|operation| unit.view().expression(operation.expression()).is_some());
 
-    let valid_exits = facts.scope_exits().iter().all(|exit| {
+    let valid_exits = analysis.scope_exits().iter().all(|exit| {
         unit.view().block(exit.scope()).is_some()
             && exit
                 .cancellation_broadcast()
@@ -687,8 +687,8 @@ fn validate_async_facts(
     });
 
     if !valid_frame || !valid_suspensions || !valid_tasks || !valid_exits {
-        return Err(LoweringInputError::InvalidFactContents(
-            LoweringFactKind::Async,
+        return Err(LoweringInputError::InvalidInputContents(
+            LoweringInputKind::Async,
         ));
     }
 
@@ -712,10 +712,10 @@ fn dependency_subject_exists(
     }
 }
 
-fn validate_storage_facts(
+fn validate_storage_analysis(
     unit: &BoundUnit,
     storage: &StoragePlan,
-    flow: &StorageFlowFacts,
+    flow: &StorageFlow,
 ) -> Result<(), LoweringInputError> {
     let plans = storage.access_plans();
     let decisions = flow.operations();
@@ -849,23 +849,23 @@ fn requires_semantic_selection(
     }
 }
 
-fn validate_fact_owner(
+fn validate_input_owner(
     unit: &BoundUnit,
     actual_unit: BoundUnitId,
     actual_kind: BoundUnitKind,
-    fact: LoweringFactKind,
+    input: LoweringInputKind,
 ) -> Result<(), LoweringInputError> {
     if actual_unit != unit.unit() {
-        return Err(LoweringInputError::ForeignFact {
-            fact,
+        return Err(LoweringInputError::ForeignInput {
+            input,
             expected: unit.unit(),
             actual: actual_unit,
         });
     }
 
     if actual_kind != unit.key().kind() {
-        return Err(LoweringInputError::FactKindMismatch {
-            fact,
+        return Err(LoweringInputError::InputKindMismatch {
+            input,
             expected: unit.key().kind(),
             actual: actual_kind,
         });
@@ -883,12 +883,11 @@ mod tests {
         BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
         BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor,
         BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit,
-        BoundUnitId, BoundUnitRoot, CheckedAsyncFacts, CheckedBodyBehavior,
-        CheckedControlFlowFacts, CheckedDependencyContracts, CheckedExpressionTypes,
-        CheckedLiteralValues, CheckedPatternFacts, CheckedRefinementFacts,
-        CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry, ExpressionTypeResult,
-        ExpressionTypeStatus, LastUse, LivenessFacts, PlannedBorrowCapability, StorageAccess,
-        StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageFlowFacts,
+        BoundUnitId, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior, CheckedControlFlow,
+        CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns,
+        CheckedRefinements, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
+        ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability,
+        StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot, StorageFlow,
         StorageIdentity, StorageIdentityId, StorageOperationDecision, StorageOperationStatus,
         StoragePlanBuilder,
     };
@@ -898,44 +897,50 @@ mod tests {
         test_bound_unit, test_constant_template_unit, test_mir_target, test_runtime_default_unit,
     };
 
-    use super::{LoweringFactKind, LoweringInput, LoweringInputError};
+    use super::{LoweringInput, LoweringInputError, LoweringInputKind};
 
     #[test]
-    fn input_borrows_the_canonical_unit_and_matching_side_facts() {
+    fn input_borrows_the_canonical_unit_and_matching_side_analysis() {
         let unit = test_bound_unit(4);
 
-        let control_flow = CheckedControlFlowFacts::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
-        let facts = empty_expression_facts(&unit);
+        let analysis = empty_expression_inputs(&unit);
 
-        let input = match lowering_input(&unit, &control_flow, (&facts).into()) {
+        let input = match lowering_input(&unit, &control_flow, (&analysis).into()) {
             Ok(input) => input,
             Err(error) => panic!("matching lowering input must validate: {error:?}"),
         };
 
         assert!(std::ptr::eq(input.unit(), &unit));
         assert!(std::ptr::eq(input.control_flow(), &control_flow));
-        assert!(std::ptr::eq(input.expression_types(), &facts.types));
-        assert!(std::ptr::eq(input.pattern_facts(), &facts.patterns));
-        assert!(std::ptr::eq(input.semantic_selections(), &facts.selections));
-        assert!(std::ptr::eq(input.literal_values(), &facts.literals));
-        assert!(std::ptr::eq(input.storage_plan(), &facts.storage));
-        assert!(std::ptr::eq(input.liveness(), &facts.liveness));
-        assert!(std::ptr::eq(input.refinements(), &facts.refinements));
-        assert!(std::ptr::eq(input.storage_flow(), &facts.storage_flow));
+        assert!(std::ptr::eq(input.expression_types(), &analysis.types));
+        assert!(std::ptr::eq(input.patterns(), &analysis.patterns));
+
+        assert!(std::ptr::eq(
+            input.semantic_selections(),
+            &analysis.selections
+        ));
+
+        assert!(std::ptr::eq(input.literal_values(), &analysis.literals));
+        assert!(std::ptr::eq(input.storage_plan(), &analysis.storage));
+        assert!(std::ptr::eq(input.liveness(), &analysis.liveness));
+        assert!(std::ptr::eq(input.refinements(), &analysis.refinements));
+        assert!(std::ptr::eq(input.storage_flow(), &analysis.storage_flow));
 
         assert!(std::ptr::eq(
             input.dependency_contracts(),
-            &facts.dependencies
+            &analysis.dependencies
         ));
 
-        assert!(std::ptr::eq(input.async_facts(), &facts.async_facts));
-        assert!(std::ptr::eq(input.body_behavior(), &facts.behavior));
-        assert!(std::ptr::eq(input.semantic_values(), &facts.values));
+        assert!(std::ptr::eq(
+            input.async_analysis(),
+            &analysis.async_analysis
+        ));
+
+        assert!(std::ptr::eq(input.body_behavior(), &analysis.behavior));
+        assert!(std::ptr::eq(input.semantic_values(), &analysis.values));
 
         assert!(std::ptr::eq(
             input.available_compiler_known_symbols(),
@@ -944,53 +949,50 @@ mod tests {
     }
 
     #[test]
-    fn input_rejects_compile_time_only_units_before_runtime_fact_validation() {
+    fn input_rejects_compile_time_only_units_before_runtime_input_validation() {
         let unit = test_constant_template_unit(5, push_unit_expression);
 
-        let control_flow = CheckedControlFlowFacts::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
-        let facts = empty_expression_facts(&unit);
+        let analysis = empty_expression_inputs(&unit);
 
         assert_input_error(
-            lowering_input(&unit, &control_flow, (&facts).into()),
+            lowering_input(&unit, &control_flow, (&analysis).into()),
             LoweringInputError::CompileTimeUnitRequiresClassification,
         );
     }
 
     #[test]
-    fn input_rejects_foreign_and_wrong_category_side_facts() {
+    fn input_rejects_foreign_and_wrong_category_side_analysis() {
         let unit = test_bound_unit(4);
-        let facts = empty_expression_facts(&unit);
+        let analysis = empty_expression_inputs(&unit);
 
-        let foreign = CheckedControlFlowFacts::new(
+        let foreign = CheckedControlFlow::new(
             BoundUnitId::new(5),
             unit.key().kind(),
             ControlCompletion::default(),
         );
 
         assert_input_error(
-            lowering_input(&unit, &foreign, (&facts).into()),
-            LoweringInputError::ForeignFact {
-                fact: LoweringFactKind::ControlFlow,
+            lowering_input(&unit, &foreign, (&analysis).into()),
+            LoweringInputError::ForeignInput {
+                input: LoweringInputKind::ControlFlow,
                 expected: BoundUnitId::new(4),
                 actual: BoundUnitId::new(5),
             },
         );
 
-        let wrong_kind = CheckedControlFlowFacts::new(
+        let wrong_kind = CheckedControlFlow::new(
             unit.unit(),
             bray_bound_tree::BoundUnitKind::RuntimeDefault,
             ControlCompletion::default(),
         );
 
         assert_input_error(
-            lowering_input(&unit, &wrong_kind, (&facts).into()),
-            LoweringInputError::FactKindMismatch {
-                fact: LoweringFactKind::ControlFlow,
+            lowering_input(&unit, &wrong_kind, (&analysis).into()),
+            LoweringInputError::InputKindMismatch {
+                input: LoweringInputKind::ControlFlow,
                 expected: unit.key().kind(),
                 actual: bray_bound_tree::BoundUnitKind::RuntimeDefault,
             },
@@ -998,41 +1000,38 @@ mod tests {
     }
 
     #[test]
-    fn input_rejects_expression_facts_from_another_unit() {
+    fn input_rejects_expression_analysis_from_another_unit() {
         let unit = test_bound_unit(4);
         let foreign_unit = test_bound_unit(5);
-        let local = empty_expression_facts(&unit);
-        let foreign = empty_expression_facts(&foreign_unit);
+        let local = empty_expression_inputs(&unit);
+        let foreign = empty_expression_inputs(&foreign_unit);
 
-        let control_flow = CheckedControlFlowFacts::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
-        let foreign_types = ExpressionFactReferences {
+        let foreign_types = ExpressionInputReferences {
             types: &foreign.types,
             ..(&local).into()
         };
 
         assert_input_error(
             lowering_input(&unit, &control_flow, foreign_types),
-            LoweringInputError::ForeignFact {
-                fact: LoweringFactKind::ExpressionTypes,
+            LoweringInputError::ForeignInput {
+                input: LoweringInputKind::ExpressionTypes,
                 expected: unit.unit(),
                 actual: foreign_unit.unit(),
             },
         );
 
-        let foreign_patterns = ExpressionFactReferences {
+        let foreign_patterns = ExpressionInputReferences {
             patterns: &foreign.patterns,
             ..(&local).into()
         };
 
         assert_input_error(
             lowering_input(&unit, &control_flow, foreign_patterns),
-            LoweringInputError::ForeignFact {
-                fact: LoweringFactKind::PatternFacts,
+            LoweringInputError::ForeignInput {
+                input: LoweringInputKind::Patterns,
                 expected: unit.unit(),
                 actual: foreign_unit.unit(),
             },
@@ -1043,11 +1042,8 @@ mod tests {
     fn input_rejects_literal_values_adapted_for_another_target_width() {
         let unit = test_bound_unit(8);
 
-        let control_flow = CheckedControlFlowFacts::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         let expected = test_mir_target().machine().pointer_width_bits();
 
@@ -1057,10 +1053,10 @@ mod tests {
             NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN)
         };
 
-        let facts = empty_expression_facts_with_width(&unit, actual);
+        let analysis = empty_expression_inputs_with_width(&unit, actual);
 
         assert_input_error(
-            lowering_input(&unit, &control_flow, (&facts).into()),
+            lowering_input(&unit, &control_flow, (&analysis).into()),
             LoweringInputError::LiteralTargetWidthMismatch { expected, actual },
         );
     }
@@ -1069,9 +1065,9 @@ mod tests {
     fn input_rejects_same_unit_liveness_for_another_storage_plan() {
         let (unit, expression, reached_type) = storage_expression_unit(9);
 
-        let mut facts = empty_expression_facts(&unit);
+        let mut analysis = empty_expression_inputs(&unit);
 
-        facts.types = CheckedExpressionTypes::new(
+        analysis.types = CheckedExpressionTypes::new(
             unit.unit(),
             unit.key().kind(),
             [ExpressionTypeEntry::new(
@@ -1080,12 +1076,12 @@ mod tests {
             )],
         );
 
-        facts.selections = CheckedSemanticSelections::try_new(&unit, &facts.types, [])
+        analysis.selections = CheckedSemanticSelections::try_new(&unit, &analysis.types, [])
             .unwrap_or_else(|error| panic!("empty selections must validate: {error:?}"));
 
-        facts.literals = CheckedLiteralValues::try_new(
+        analysis.literals = CheckedLiteralValues::try_new(
             &unit,
-            &facts.types,
+            &analysis.types,
             &semantic_values(),
             test_mir_target().machine().pointer_width_bits(),
             [],
@@ -1109,7 +1105,7 @@ mod tests {
             bound.origin().source_anchor(),
         );
 
-        let liveness = LivenessFacts::try_new(
+        let liveness = Liveness::try_new(
             unit.unit(),
             unit.key().kind(),
             [LastUse::new(
@@ -1122,20 +1118,17 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("same-unit liveness must build: {error:?}"));
 
-        let control_flow = CheckedControlFlowFacts::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
-        let facts = ExpressionFactReferences {
+        let analysis = ExpressionInputReferences {
             liveness: &liveness,
-            ..(&facts).into()
+            ..(&analysis).into()
         };
 
         assert_input_error(
-            lowering_input(&unit, &control_flow, facts),
-            LoweringInputError::InvalidFactContents(LoweringFactKind::Liveness),
+            lowering_input(&unit, &control_flow, analysis),
+            LoweringInputError::InvalidInputContents(LoweringInputKind::Liveness),
         );
     }
 
@@ -1194,7 +1187,7 @@ mod tests {
             .access(access)
             .unwrap_or_else(|| panic!("alternate access contract must exist"));
 
-        let async_facts = CheckedAsyncFacts::try_new(
+        let async_analysis = CheckedAsync::try_new(
             unit.unit(),
             unit.key().kind(),
             [],
@@ -1212,12 +1205,12 @@ mod tests {
             [],
             false,
         )
-        .unwrap_or_else(|error| panic!("same-unit async facts must build: {error:?}"));
+        .unwrap_or_else(|error| panic!("same-unit async analysis must build: {error:?}"));
 
         assert_eq!(
-            super::validate_async_facts(&unit, &storage, &dependencies, &async_facts),
-            Err(LoweringInputError::InvalidFactContents(
-                LoweringFactKind::Async
+            super::validate_async_analysis(&unit, &storage, &dependencies, &async_analysis),
+            Err(LoweringInputError::InvalidInputContents(
+                LoweringInputKind::Async
             ))
         );
     }
@@ -1230,16 +1223,13 @@ mod tests {
             panic!("test expression unit must retain its root");
         };
 
-        let facts = empty_expression_facts(&unit);
+        let analysis = empty_expression_inputs(&unit);
 
-        let control_flow = CheckedControlFlowFacts::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
         assert_input_error(
-            lowering_input(&unit, &control_flow, (&facts).into()),
+            lowering_input(&unit, &control_flow, (&analysis).into()),
             LoweringInputError::MissingExpressionType(expression),
         );
     }
@@ -1299,18 +1289,15 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("literal-free values must validate: {error:?}"));
 
-        let control_flow = CheckedControlFlowFacts::new(
-            unit.unit(),
-            unit.key().kind(),
-            ControlCompletion::default(),
-        );
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
 
-        let (storage, storage_flow) = empty_storage_facts(&unit);
+        let (storage, storage_flow) = empty_storage_analysis(&unit);
 
-        let patterns = CheckedPatternFacts::new(unit.unit(), unit.key().kind(), [], [], []);
-        let ancillary = empty_expression_facts(&unit);
+        let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+        let ancillary = empty_expression_inputs(&unit);
 
-        let facts = ExpressionFactReferences {
+        let analysis = ExpressionInputReferences {
             types: &types,
             patterns: &patterns,
             selections: &selections,
@@ -1322,7 +1309,7 @@ mod tests {
         };
 
         assert_input_error(
-            lowering_input(&unit, &control_flow, facts),
+            lowering_input(&unit, &control_flow, analysis),
             LoweringInputError::MissingSemanticSelection(conversion),
         );
     }
@@ -1355,18 +1342,18 @@ mod tests {
         let storage = storage.finish();
 
         let incomplete_flow =
-            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
                 .unwrap_or_else(|error| panic!("incomplete test flow must validate: {error:?}"));
 
         assert_eq!(
-            super::validate_storage_facts(&unit, &storage, &incomplete_flow),
+            super::validate_storage_analysis(&unit, &storage, &incomplete_flow),
             Err(LoweringInputError::StorageOperationCountMismatch {
                 expected: 1,
                 actual: 0,
             })
         );
 
-        let flow = StorageFlowFacts::try_new(
+        let flow = StorageFlow::try_new(
             unit.unit(),
             unit.key().kind(),
             [StorageOperationDecision::new(
@@ -1383,7 +1370,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
         assert_eq!(
-            super::validate_storage_facts(&unit, &storage, &flow),
+            super::validate_storage_analysis(&unit, &storage, &flow),
             Err(LoweringInputError::InvalidStorageOperation(expression))
         );
     }
@@ -1430,7 +1417,7 @@ mod tests {
 
         let storage = storage.finish();
 
-        let flow = StorageFlowFacts::try_new(
+        let flow = StorageFlow::try_new(
             unit.unit(),
             unit.key().kind(),
             [StorageOperationDecision::new(
@@ -1447,7 +1434,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
         assert_eq!(
-            super::validate_storage_facts(&unit, &storage, &flow),
+            super::validate_storage_analysis(&unit, &storage, &flow),
             Err(LoweringInputError::InvalidStorageOperation(expression))
         );
     }
@@ -1518,92 +1505,92 @@ mod tests {
         assert_eq!(error, expected);
     }
 
-    struct ExpressionFacts {
+    struct ExpressionInputs {
         types: CheckedExpressionTypes,
-        patterns: CheckedPatternFacts,
+        patterns: CheckedPatterns,
         selections: CheckedSemanticSelections,
         literals: CheckedLiteralValues,
         storage: bray_bound_tree::StoragePlan,
-        liveness: LivenessFacts,
-        refinements: CheckedRefinementFacts,
-        storage_flow: StorageFlowFacts,
+        liveness: Liveness,
+        refinements: CheckedRefinements,
+        storage_flow: StorageFlow,
         dependencies: CheckedDependencyContracts,
-        async_facts: CheckedAsyncFacts,
+        async_analysis: CheckedAsync,
         behavior: CheckedBodyBehavior,
         values: SemanticValueStore,
     }
 
     #[derive(Clone, Copy)]
-    struct ExpressionFactReferences<'facts> {
-        types: &'facts CheckedExpressionTypes,
-        patterns: &'facts CheckedPatternFacts,
-        selections: &'facts CheckedSemanticSelections,
-        literals: &'facts CheckedLiteralValues,
-        storage: &'facts bray_bound_tree::StoragePlan,
-        liveness: &'facts LivenessFacts,
-        refinements: &'facts CheckedRefinementFacts,
-        storage_flow: &'facts StorageFlowFacts,
-        dependencies: &'facts CheckedDependencyContracts,
-        async_facts: &'facts CheckedAsyncFacts,
-        behavior: &'facts CheckedBodyBehavior,
-        values: &'facts SemanticValueStore,
+    struct ExpressionInputReferences<'inputs> {
+        types: &'inputs CheckedExpressionTypes,
+        patterns: &'inputs CheckedPatterns,
+        selections: &'inputs CheckedSemanticSelections,
+        literals: &'inputs CheckedLiteralValues,
+        storage: &'inputs bray_bound_tree::StoragePlan,
+        liveness: &'inputs Liveness,
+        refinements: &'inputs CheckedRefinements,
+        storage_flow: &'inputs StorageFlow,
+        dependencies: &'inputs CheckedDependencyContracts,
+        async_analysis: &'inputs CheckedAsync,
+        behavior: &'inputs CheckedBodyBehavior,
+        values: &'inputs SemanticValueStore,
     }
 
-    impl<'facts> From<&'facts ExpressionFacts> for ExpressionFactReferences<'facts> {
-        fn from(facts: &'facts ExpressionFacts) -> Self {
+    impl<'inputs> From<&'inputs ExpressionInputs> for ExpressionInputReferences<'inputs> {
+        fn from(analysis: &'inputs ExpressionInputs) -> Self {
             Self {
-                types: &facts.types,
-                patterns: &facts.patterns,
-                selections: &facts.selections,
-                literals: &facts.literals,
-                storage: &facts.storage,
-                liveness: &facts.liveness,
-                refinements: &facts.refinements,
-                storage_flow: &facts.storage_flow,
-                dependencies: &facts.dependencies,
-                async_facts: &facts.async_facts,
-                behavior: &facts.behavior,
-                values: &facts.values,
+                types: &analysis.types,
+                patterns: &analysis.patterns,
+                selections: &analysis.selections,
+                literals: &analysis.literals,
+                storage: &analysis.storage,
+                liveness: &analysis.liveness,
+                refinements: &analysis.refinements,
+                storage_flow: &analysis.storage_flow,
+                dependencies: &analysis.dependencies,
+                async_analysis: &analysis.async_analysis,
+                behavior: &analysis.behavior,
+                values: &analysis.values,
             }
         }
     }
 
-    fn lowering_input<'facts>(
-        unit: &'facts BoundUnit,
-        control_flow: &'facts CheckedControlFlowFacts,
-        facts: ExpressionFactReferences<'facts>,
-    ) -> Result<LoweringInput<'facts>, LoweringInputError> {
+    fn lowering_input<'inputs>(
+        unit: &'inputs BoundUnit,
+        control_flow: &'inputs CheckedControlFlow,
+        analysis: ExpressionInputReferences<'inputs>,
+    ) -> Result<LoweringInput<'inputs>, LoweringInputError> {
         LoweringInput::try_new(
             unit,
             control_flow,
-            facts.types,
-            facts.patterns,
-            facts.selections,
-            facts.literals,
-            facts.storage,
-            facts.liveness,
-            facts.refinements,
-            facts.storage_flow,
-            facts.dependencies,
-            facts.async_facts,
-            facts.behavior,
-            facts.values,
+            analysis.types,
+            analysis.patterns,
+            analysis.selections,
+            analysis.literals,
+            analysis.storage,
+            analysis.liveness,
+            analysis.refinements,
+            analysis.storage_flow,
+            analysis.dependencies,
+            analysis.async_analysis,
+            analysis.behavior,
+            analysis.values,
             available_compiler_known_symbols(),
             bray_ir::MirUnitKind::Synchronous,
             test_mir_target(),
         )
     }
 
-    fn empty_expression_facts(unit: &BoundUnit) -> ExpressionFacts {
-        empty_expression_facts_with_width(unit, test_mir_target().machine().pointer_width_bits())
+    fn empty_expression_inputs(unit: &BoundUnit) -> ExpressionInputs {
+        empty_expression_inputs_with_width(unit, test_mir_target().machine().pointer_width_bits())
     }
 
-    fn empty_expression_facts_with_width(
+    fn empty_expression_inputs_with_width(
         unit: &BoundUnit,
         target_integer_width_bits: NonZeroU16,
-    ) -> ExpressionFacts {
+    ) -> ExpressionInputs {
         let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []);
-        let patterns = CheckedPatternFacts::new(unit.unit(), unit.key().kind(), [], [], []);
+        let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
 
         let selections = CheckedSemanticSelections::try_new(unit, &types, [])
             .unwrap_or_else(|error| panic!("empty selections must validate: {error:?}"));
@@ -1614,14 +1601,13 @@ mod tests {
             CheckedLiteralValues::try_new(unit, &types, &values, target_integer_width_bits, [])
                 .unwrap_or_else(|error| panic!("empty literal values must validate: {error:?}"));
 
-        let (storage, storage_flow) = empty_storage_facts(unit);
+        let (storage, storage_flow) = empty_storage_analysis(unit);
 
-        let liveness = LivenessFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
-            .unwrap_or_else(|error| panic!("empty liveness facts must validate: {error:?}"));
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty liveness analysis must validate: {error:?}"));
 
-        let refinements =
-            CheckedRefinementFacts::try_new(unit.unit(), unit.key().kind(), [], false)
-                .unwrap_or_else(|error| panic!("empty refinement facts must validate: {error:?}"));
+        let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)
+            .unwrap_or_else(|error| panic!("empty refinement analysis must validate: {error:?}"));
 
         let expressions = unit
             .tree()
@@ -1647,9 +1633,9 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("empty dependency contracts must validate: {error:?}"));
 
-        let async_facts =
-            CheckedAsyncFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
-                .unwrap_or_else(|error| panic!("empty async facts must validate: {error:?}"));
+        let async_analysis =
+            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+                .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
 
         let behavior = CheckedBodyBehavior::new(
             unit.unit(),
@@ -1658,7 +1644,7 @@ mod tests {
             false,
         );
 
-        ExpressionFacts {
+        ExpressionInputs {
             types,
             patterns,
             selections,
@@ -1668,18 +1654,17 @@ mod tests {
             refinements,
             storage_flow,
             dependencies,
-            async_facts,
+            async_analysis,
             behavior,
             values,
         }
     }
 
-    fn empty_storage_facts(unit: &BoundUnit) -> (bray_bound_tree::StoragePlan, StorageFlowFacts) {
+    fn empty_storage_analysis(unit: &BoundUnit) -> (bray_bound_tree::StoragePlan, StorageFlow) {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
-        let storage_flow =
-            StorageFlowFacts::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
-                .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
+        let storage_flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         (storage, storage_flow)
     }

@@ -217,7 +217,7 @@ const fn symbol_inspection_failure(
         SymbolInspectionRenderError::SourceIndex => DiagnosticSymbolInspectionFailure::SourceIndex,
         SymbolInspectionRenderError::Symbol => DiagnosticSymbolInspectionFailure::Symbol,
         SymbolInspectionRenderError::SymbolCycle => DiagnosticSymbolInspectionFailure::SymbolCycle,
-        SymbolInspectionRenderError::SymbolFact => DiagnosticSymbolInspectionFailure::SymbolState,
+        SymbolInspectionRenderError::SymbolState => DiagnosticSymbolInspectionFailure::SymbolState,
         SymbolInspectionRenderError::Type => DiagnosticSymbolInspectionFailure::Type,
         SymbolInspectionRenderError::UnsupportedRelationship => {
             DiagnosticSymbolInspectionFailure::UnsupportedRelationship
@@ -229,17 +229,17 @@ const fn bound_inspection_failure(
     error: BoundInspectionRenderError,
 ) -> DiagnosticBoundInspectionFailure {
     match error {
-        BoundInspectionRenderError::BoundFact => DiagnosticBoundInspectionFailure::BoundState,
+        BoundInspectionRenderError::BoundState => DiagnosticBoundInspectionFailure::BoundState,
         BoundInspectionRenderError::Json => DiagnosticBoundInspectionFailure::Json,
         BoundInspectionRenderError::MissingNode => DiagnosticBoundInspectionFailure::MissingNode,
         BoundInspectionRenderError::Source => DiagnosticBoundInspectionFailure::Source,
         BoundInspectionRenderError::SourceIndex => DiagnosticBoundInspectionFailure::SourceIndex,
-        BoundInspectionRenderError::StorageFact => DiagnosticBoundInspectionFailure::StorageState,
+        BoundInspectionRenderError::StorageState => DiagnosticBoundInspectionFailure::StorageState,
         BoundInspectionRenderError::Symbol => DiagnosticBoundInspectionFailure::Symbol,
-        BoundInspectionRenderError::SymbolFact => DiagnosticBoundInspectionFailure::SymbolState,
+        BoundInspectionRenderError::SymbolState => DiagnosticBoundInspectionFailure::SymbolState,
         BoundInspectionRenderError::Type => DiagnosticBoundInspectionFailure::Type,
-        BoundInspectionRenderError::TypeFact => DiagnosticBoundInspectionFailure::TypeState,
-        BoundInspectionRenderError::SelectionFact => {
+        BoundInspectionRenderError::TypeState => DiagnosticBoundInspectionFailure::TypeState,
+        BoundInspectionRenderError::SelectionState => {
             DiagnosticBoundInspectionFailure::SelectionState
         }
         BoundInspectionRenderError::Selection => DiagnosticBoundInspectionFailure::Selection,
@@ -251,12 +251,14 @@ const fn lowered_inspection_failure(
 ) -> DiagnosticLoweredInspectionFailure {
     match error {
         LoweredInspectionRenderError::Json => DiagnosticLoweredInspectionFailure::Json,
-        LoweredInspectionRenderError::LoweringFact => {
+        LoweredInspectionRenderError::LoweringState => {
             DiagnosticLoweredInspectionFailure::LoweringState
         }
         LoweredInspectionRenderError::Model => DiagnosticLoweredInspectionFailure::Model,
         LoweredInspectionRenderError::Source => DiagnosticLoweredInspectionFailure::Source,
-        LoweredInspectionRenderError::SymbolFact => DiagnosticLoweredInspectionFailure::SymbolState,
-        LoweredInspectionRenderError::UnitFact => DiagnosticLoweredInspectionFailure::UnitState,
+        LoweredInspectionRenderError::SymbolState => {
+            DiagnosticLoweredInspectionFailure::SymbolState
+        }
+        LoweredInspectionRenderError::UnitState => DiagnosticLoweredInspectionFailure::UnitState,
     }
 }

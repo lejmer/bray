@@ -57,12 +57,11 @@ pub fn load_runtime_artifact(
     expected_target: &TargetIdentity,
     expected_runtime_abi: RuntimeAbiVersion,
 ) -> Result<RuntimeArtifact, RuntimeArtifactLoadError> {
-    let metadata_bytes = std::fs::read(metadata_path).map_err(|error| {
-        RuntimeArtifactLoadError::MetadataRead {
+    let metadata_bytes =
+        std::fs::read(metadata_path).map_err(|error| RuntimeArtifactLoadError::MetadataRead {
             path: metadata_path.to_path_buf(),
             kind: error.kind(),
-        }
-    })?;
+        })?;
 
     let metadata = RuntimeArtifactMetadata::decode_json(&metadata_bytes).map_err(|source| {
         RuntimeArtifactLoadError::InvalidMetadata {
@@ -111,9 +110,10 @@ pub fn load_runtime_artifact(
 #[cfg(test)]
 mod tests {
     use bray_runtime_interface::{
-        PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiVersion, RuntimeArtifactComponentMetadata,
-        RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeArtifactPurpose,
-        RuntimeCapability, RuntimeContract, RuntimeIdentity,
+        PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiVersion,
+        RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactId,
+        RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability, RuntimeContract,
+        RuntimeIdentity,
     };
     use bray_target::TargetIdentity;
 
@@ -222,25 +222,28 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test runtime contract must be valid: {error:?}"));
 
-        let components = [RuntimeArtifactPurpose::Product, RuntimeArtifactPurpose::TestRunner]
-            .into_iter()
-            .map(|purpose| {
-                let name = match purpose {
-                    RuntimeArtifactPurpose::Product => "product",
-                    RuntimeArtifactPurpose::TestRunner => "test",
-                };
+        let components = [
+            RuntimeArtifactPurpose::Product,
+            RuntimeArtifactPurpose::TestRunner,
+        ]
+        .into_iter()
+        .map(|purpose| {
+            let name = match purpose {
+                RuntimeArtifactPurpose::Product => "product",
+                RuntimeArtifactPurpose::TestRunner => "test",
+            };
 
-                RuntimeArtifactComponentMetadata::try_new(
-                    RuntimeArtifactId::try_new(format!("runtime.{name}"))
-                        .unwrap_or_else(|| panic!("test component identity must be valid")),
-                    purpose,
-                    [],
-                    [RuntimeCapability::CooperativeExecution],
-                    format!("runtime-{name}.a"),
-                    digest,
-                )
-                .unwrap_or_else(|error| panic!("test runtime component must be valid: {error:?}"))
-            });
+            RuntimeArtifactComponentMetadata::try_new(
+                RuntimeArtifactId::try_new(format!("runtime.{name}"))
+                    .unwrap_or_else(|| panic!("test component identity must be valid")),
+                purpose,
+                [],
+                [RuntimeCapability::CooperativeExecution],
+                format!("runtime-{name}.a"),
+                digest,
+            )
+            .unwrap_or_else(|error| panic!("test runtime component must be valid: {error:?}"))
+        });
 
         RuntimeArtifactMetadata::try_new(contract, components)
             .unwrap_or_else(|error| panic!("test runtime metadata must be valid: {error:?}"))

@@ -444,19 +444,18 @@ impl PlatformServiceRole {
             Self::ContextArgument => CONTEXT_ARGUMENT,
             Self::ContextEnvironmentEntry => CONTEXT_ENVIRONMENT_ENTRY,
             Self::ContextEnvironmentKeyEquals => CONTEXT_ENVIRONMENT_KEY_EQUALS,
-            Self::StandardInputRead
-            | Self::StandardOutputWrite
-            | Self::StandardErrorWrite => STANDARD_STREAM_TRANSFER,
+            Self::StandardInputRead | Self::StandardOutputWrite | Self::StandardErrorWrite => {
+                STANDARD_STREAM_TRANSFER
+            }
             Self::StandardOutputFlush
             | Self::StandardOutputLock
             | Self::StandardOutputUnlock
             | Self::StandardErrorFlush
             | Self::StandardErrorLock
             | Self::StandardErrorUnlock => NO_PARAMETERS,
-            Self::FileRead
-            | Self::FileWrite
-            | Self::ProcessPipeRead
-            | Self::ProcessPipeWrite => OWNED_STREAM_TRANSFER,
+            Self::FileRead | Self::FileWrite | Self::ProcessPipeRead | Self::ProcessPipeWrite => {
+                OWNED_STREAM_TRANSFER
+            }
             Self::FileFlush
             | Self::FileClose
             | Self::ProcessPipeFlush
@@ -716,7 +715,11 @@ mod tests {
 
         assert_eq!(binding.module().collect::<Vec<_>>(), ["std", "io"]);
         assert_eq!(binding.declaration(), "platform_standard_output_flush");
-        assert_eq!(binding.dotted_path(), "std.io.platform_standard_output_flush");
+
+        assert_eq!(
+            binding.dotted_path(),
+            "std.io.platform_standard_output_flush"
+        );
 
         assert_eq!(
             PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "flush"),

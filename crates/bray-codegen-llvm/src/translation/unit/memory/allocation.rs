@@ -277,10 +277,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let integer = self.pointer_integer_type();
 
-        let function = self
-            .module
-            .get_function(symbol)
-            .unwrap_or_else(|| self.module.add_function(symbol, self.types.context().void_type().fn_type(&[integer.into()], false), None));
+        let function = self.module.get_function(symbol).unwrap_or_else(|| {
+            self.module.add_function(
+                symbol,
+                self.types
+                    .context()
+                    .void_type()
+                    .fn_type(&[integer.into()], false),
+                None,
+            )
+        });
 
         llvm(self.builder.build_call(function, &[value.into()], name))?;
 

@@ -185,23 +185,23 @@ pub(crate) fn compilation_with_target_operations(
 ) -> Compilation {
     let baseline = crate::SelectedTarget::baseline();
     let profile = baseline.profile();
-    let baseline_facts = profile.facts();
+    let baseline_properties = profile.properties();
 
-    let facts = bray_target::TargetFacts::new(
-        baseline_facts.identity().clone(),
-        baseline_facts.scalars(),
-        baseline_facts.atomics(),
-        baseline_facts.abis(),
-        baseline_facts.c_abi(),
-        baseline_facts.address_spaces(),
-        baseline_facts.alignments(),
-        bray_target::TargetOperationFacts::new(raw_memory, allocation),
+    let properties = bray_target::TargetProperties::new(
+        baseline_properties.identity().clone(),
+        baseline_properties.scalars(),
+        baseline_properties.atomics(),
+        baseline_properties.abis(),
+        baseline_properties.c_abi(),
+        baseline_properties.address_spaces(),
+        baseline_properties.alignments(),
+        bray_target::TargetOperationSupport::new(raw_memory, allocation),
     );
 
     let profile = bray_target::TargetProfile::try_new(
         profile.identity().clone(),
         profile.machine().clone(),
-        facts,
+        properties,
     )
     .unwrap_or_else(|error| panic!("test target profile must be valid: {error:?}"));
 
@@ -373,8 +373,7 @@ pub(crate) fn source_named_trait_callable_fulfillment_body_key(
         .iter()
         .find(|member| {
             member.origin() == SymbolOrigin::Source
-                && symbols.containing_symbol(member.id().into())
-                    == Some(implementation.id().into())
+                && symbols.containing_symbol(member.id().into()) == Some(implementation.id().into())
                 && symbols
                     .member_name(member.id().into())
                     .is_some_and(|name| name.as_str() == member_name)

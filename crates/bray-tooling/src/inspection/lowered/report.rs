@@ -19,11 +19,11 @@ use crate::{InspectionTarget, OutputFormat};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum LoweredInspectionRenderError {
     Json,
-    LoweringFact,
+    LoweringState,
     Model,
     Source,
-    SymbolFact,
-    UnitFact,
+    SymbolState,
+    UnitState,
 }
 
 impl From<InspectionSourceError> for LoweredInspectionRenderError {
@@ -41,7 +41,7 @@ impl From<MirInspectionModelError> for LoweredInspectionRenderError {
 impl From<UnitInspectionSelectionError> for LoweredInspectionRenderError {
     fn from(error: UnitInspectionSelectionError) -> Self {
         match error {
-            UnitInspectionSelectionError::BoundFact => Self::UnitFact,
+            UnitInspectionSelectionError::BoundState => Self::UnitState,
             UnitInspectionSelectionError::Source => Self::Source,
         }
     }
@@ -111,23 +111,23 @@ fn inspect_units(
 
     let symbols = compilation
         .symbol_graph()
-        .map_err(|_| LoweredInspectionRenderError::SymbolFact)?;
+        .map_err(|_| LoweredInspectionRenderError::SymbolState)?;
 
     let semantic_values = compilation
         .semantic_value_store()
-        .map_err(|_| LoweredInspectionRenderError::SymbolFact)?;
+        .map_err(|_| LoweredInspectionRenderError::SymbolState)?;
 
     let sources = InspectionSources::new(compilation.sources())?;
     let mut diagnostics = source_diagnostics;
     let mut units = Vec::with_capacity(bounds.len());
 
     for bound in bounds {
-        // The lowering fact owns its unit key independently of the selected bound fact.
+        // The lowering state owns its unit key independently of the selected bound state.
         let key = bound.value().key().clone();
 
         let lowered = compilation
             .lowered_unit(key)
-            .map_err(|_| LoweredInspectionRenderError::LoweringFact)?;
+            .map_err(|_| LoweredInspectionRenderError::LoweringState)?;
 
         diagnostics =
             DiagnosticBag::merged_all([&diagnostics, bound.diagnostics(), lowered.diagnostics()]);

@@ -301,7 +301,7 @@ impl TestHostCommand {
     }
 }
 
-/// Terminal native host facts before the runner attaches a test identity.
+/// Terminal native host state before the runner attaches a test identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TestHostResult {
     command_id: TestHostCommandId,

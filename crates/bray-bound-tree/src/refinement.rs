@@ -7,9 +7,9 @@ use crate::{
     PatternPredicate, StorageAccessId,
 };
 
-/// One flow-sensitive fact established while checking a bound unit.
+/// One flow-sensitive refinement established while checking a bound unit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum RefinementFactKind {
+pub enum RefinementKind {
     /// One boolean expression has the stated value on the current path.
     Condition {
         /// The checked boolean expression.
@@ -30,7 +30,7 @@ pub enum RefinementFactKind {
         subject: BoundExpressionId,
         /// The successful pattern occurrence.
         pattern: BoundPatternId,
-        /// The structural fact established by that pattern.
+        /// The structural refinement established by that pattern.
         predicate: PatternPredicate,
     },
     /// The operand is currently inside this explicit trust boundary.
@@ -39,7 +39,7 @@ pub enum RefinementFactKind {
     NormalCompletion(BoundExpressionId),
 }
 
-impl RefinementFactKind {
+impl RefinementKind {
     const fn is_valid_for(self, unit: BoundUnitId) -> bool {
         match self {
             Self::Condition { expression, .. }
@@ -53,17 +53,17 @@ impl RefinementFactKind {
     }
 }
 
-/// One refinement fact and the evaluated storage accesses it depends on.
+/// One refinement and the evaluated storage accesses it depends on.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RefinementFact {
-    kind: RefinementFactKind,
+pub struct Refinement {
+    kind: RefinementKind,
     dependencies: Arc<[StorageAccessId]>,
 }
 
-impl RefinementFact {
-    /// Creates one refinement fact with canonical storage dependencies.
+impl Refinement {
+    /// Creates one refinement with canonical storage dependencies.
     pub fn new(
-        kind: RefinementFactKind,
+        kind: RefinementKind,
         dependencies: impl IntoIterator<Item = StorageAccessId>,
     ) -> Self {
         let mut dependencies = dependencies.into_iter().collect::<Vec<_>>();
@@ -77,35 +77,35 @@ impl RefinementFact {
         }
     }
 
-    /// Returns the fact established by control flow.
-    pub const fn kind(&self) -> RefinementFactKind {
+    /// Returns the refinement established by control flow.
+    pub const fn kind(&self) -> RefinementKind {
         self.kind
     }
 
-    /// Returns the evaluated storage accesses whose values support this fact.
+    /// Returns the evaluated storage accesses whose values support this refinement.
     pub fn dependencies(&self) -> &[StorageAccessId] {
         &self.dependencies
     }
 }
 
-/// Refinement facts available immediately before one bound operation.
+/// Refinements available immediately before one bound operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RefinementOccurrence {
     node: AnyBoundNodeId,
-    facts: Arc<[RefinementFact]>,
+    refinements: Arc<[Refinement]>,
 }
 
 impl RefinementOccurrence {
-    /// Creates one operation occurrence with facts in canonical order.
-    pub fn new(node: AnyBoundNodeId, facts: impl IntoIterator<Item = RefinementFact>) -> Self {
-        let mut facts = facts.into_iter().collect::<Vec<_>>();
+    /// Creates one operation occurrence with refinements in canonical order.
+    pub fn new(node: AnyBoundNodeId, refinements: impl IntoIterator<Item = Refinement>) -> Self {
+        let mut refinements = refinements.into_iter().collect::<Vec<_>>();
 
-        facts.sort_unstable();
-        facts.dedup();
+        refinements.sort_unstable();
+        refinements.dedup();
 
         Self {
             node,
-            facts: shared_slice(facts),
+            refinements: shared_slice(refinements),
         }
     }
 
@@ -114,51 +114,51 @@ impl RefinementOccurrence {
         self.node
     }
 
-    /// Returns facts known immediately before this operation.
-    pub fn facts(&self) -> &[RefinementFact] {
-        &self.facts
+    /// Returns refinements known immediately before this operation.
+    pub fn refinements(&self) -> &[Refinement] {
+        &self.refinements
     }
 }
 
-/// An invalid durable refinement fact table.
+/// An invalid durable refinement table.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum RefinementFactsBuildError {
-    /// An occurrence or fact belongs to another bound unit.
+pub enum RefinementSetBuildError {
+    /// An occurrence or refinement belongs to another bound unit.
     ForeignUnit,
     /// The same bound occurrence was published more than once.
     DuplicateOccurrence,
 }
 
-/// Immutable flow-sensitive facts retained for checked operation occurrences.
+/// Immutable flow-sensitive refinements retained for checked operation occurrences.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct CheckedRefinementFacts {
+pub struct CheckedRefinements {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     occurrences: Arc<[RefinementOccurrence]>,
     is_recovered: bool,
 }
 
-impl CheckedRefinementFacts {
-    /// Validates and creates one durable refinement fact table.
+impl CheckedRefinements {
+    /// Validates and creates one durable refinement table.
     pub fn try_new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
         occurrences: impl IntoIterator<Item = RefinementOccurrence>,
         is_recovered: bool,
-    ) -> Result<Self, RefinementFactsBuildError> {
+    ) -> Result<Self, RefinementSetBuildError> {
         let mut occurrences = occurrences.into_iter().collect::<Vec<_>>();
 
         if occurrences.iter().any(|occurrence| {
             occurrence.node().unit() != unit
-                || occurrence.facts().iter().any(|fact| {
-                    !fact.kind().is_valid_for(unit)
-                        || fact
+                || occurrence.refinements().iter().any(|refinement| {
+                    !refinement.kind().is_valid_for(unit)
+                        || refinement
                             .dependencies()
                             .iter()
                             .any(|dependency| dependency.unit() != unit)
                 })
         }) {
-            return Err(RefinementFactsBuildError::ForeignUnit);
+            return Err(RefinementSetBuildError::ForeignUnit);
         }
 
         occurrences.sort_unstable_by_key(RefinementOccurrence::node);
@@ -167,7 +167,7 @@ impl CheckedRefinementFacts {
             .windows(2)
             .any(|pair| pair[0].node() == pair[1].node())
         {
-            return Err(RefinementFactsBuildError::DuplicateOccurrence);
+            return Err(RefinementSetBuildError::DuplicateOccurrence);
         }
 
         Ok(Self {
@@ -178,7 +178,7 @@ impl CheckedRefinementFacts {
         })
     }
 
-    /// Returns the exact bound unit described by these facts.
+    /// Returns the exact bound unit described by these refinements.
     pub const fn unit(&self) -> BoundUnitId {
         self.unit
     }
@@ -193,12 +193,12 @@ impl CheckedRefinementFacts {
         &self.occurrences
     }
 
-    /// Returns facts known immediately before one exact operation.
-    pub fn facts_before(&self, node: AnyBoundNodeId) -> &[RefinementFact] {
+    /// Returns refinements known immediately before one exact operation.
+    pub fn refinements_before(&self, node: AnyBoundNodeId) -> &[Refinement] {
         self.occurrences
             .binary_search_by_key(&node, RefinementOccurrence::node)
             .ok()
-            .map(|index| self.occurrences[index].facts())
+            .map(|index| self.occurrences[index].refinements())
             .unwrap_or_default()
     }
 
@@ -211,8 +211,8 @@ impl CheckedRefinementFacts {
 #[cfg(test)]
 mod tests {
     use super::{
-        CheckedRefinementFacts, RefinementFact, RefinementFactKind, RefinementFactsBuildError,
-        RefinementOccurrence,
+        CheckedRefinements, Refinement, RefinementKind, RefinementOccurrence,
+        RefinementSetBuildError,
     };
     use crate::{
         AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind,
@@ -220,37 +220,37 @@ mod tests {
     };
 
     #[test]
-    fn checked_refinement_facts_are_send_and_sync() {
+    fn checked_refinements_are_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
 
-        assert_send_sync::<CheckedRefinementFacts>();
+        assert_send_sync::<CheckedRefinements>();
     }
 
     #[test]
-    fn checked_refinements_canonicalize_facts_and_occurrences() {
+    fn checked_refinements_canonicalize_refinements_and_occurrences() {
         let unit = BoundUnitId::new(4);
         let first = BoundExpressionId::from_slot(unit, 0);
         let second = BoundExpressionId::from_slot(unit, 1);
         let dependency = StorageAccessId::from_slot(unit, 0);
 
-        let fact = RefinementFact::new(
-            RefinementFactKind::Condition {
+        let refinement = Refinement::new(
+            RefinementKind::Condition {
                 expression: first,
                 value: true,
             },
             [dependency, dependency],
         );
 
-        let result = CheckedRefinementFacts::try_new(
+        let result = CheckedRefinements::try_new(
             unit,
             BoundUnitKind::CallableBody,
             [
-                RefinementOccurrence::new(second.into(), [fact.clone(), fact.clone()]),
+                RefinementOccurrence::new(second.into(), [refinement.clone(), refinement.clone()]),
                 RefinementOccurrence::new(first.into(), []),
             ],
             false,
         )
-        .unwrap_or_else(|error| panic!("valid refinement facts must build: {error:?}"));
+        .unwrap_or_else(|error| panic!("valid refinements must build: {error:?}"));
 
         assert_eq!(
             result
@@ -264,21 +264,21 @@ mod tests {
             ]
         );
 
-        assert_eq!(result.facts_before(second.into()), &[fact]);
-        assert_eq!(result.facts_before(first.into()), []);
+        assert_eq!(result.refinements_before(second.into()), &[refinement]);
+        assert_eq!(result.refinements_before(first.into()), []);
     }
 
     #[test]
-    fn checked_refinements_reject_foreign_facts_and_duplicate_occurrences() {
+    fn checked_refinements_reject_foreign_refinements_and_duplicate_occurrences() {
         let unit = BoundUnitId::new(4);
         let expression = BoundExpressionId::from_slot(unit, 0);
         let foreign = BoundExpressionId::from_slot(BoundUnitId::new(5), 0);
         let foreign_pattern = BoundPatternId::from_slot(BoundUnitId::new(5), 0);
 
-        let foreign_fact = RefinementFact::new(RefinementFactKind::NormalCompletion(foreign), []);
+        let foreign_refinement = Refinement::new(RefinementKind::NormalCompletion(foreign), []);
 
-        let foreign_pattern_fact = RefinementFact::new(
-            RefinementFactKind::Pattern {
+        let foreign_pattern_refinement = Refinement::new(
+            RefinementKind::Pattern {
                 subject: expression,
                 pattern: foreign_pattern,
                 predicate: PatternPredicate::NullablePresent,
@@ -287,30 +287,33 @@ mod tests {
         );
 
         assert_eq!(
-            CheckedRefinementFacts::try_new(
-                unit,
-                BoundUnitKind::CallableBody,
-                [RefinementOccurrence::new(expression.into(), [foreign_fact])],
-                false,
-            ),
-            Err(RefinementFactsBuildError::ForeignUnit)
-        );
-
-        assert_eq!(
-            CheckedRefinementFacts::try_new(
+            CheckedRefinements::try_new(
                 unit,
                 BoundUnitKind::CallableBody,
                 [RefinementOccurrence::new(
                     expression.into(),
-                    [foreign_pattern_fact]
+                    [foreign_refinement]
                 )],
                 false,
             ),
-            Err(RefinementFactsBuildError::ForeignUnit)
+            Err(RefinementSetBuildError::ForeignUnit)
         );
 
         assert_eq!(
-            CheckedRefinementFacts::try_new(
+            CheckedRefinements::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [RefinementOccurrence::new(
+                    expression.into(),
+                    [foreign_pattern_refinement]
+                )],
+                false,
+            ),
+            Err(RefinementSetBuildError::ForeignUnit)
+        );
+
+        assert_eq!(
+            CheckedRefinements::try_new(
                 unit,
                 BoundUnitKind::CallableBody,
                 [
@@ -319,7 +322,7 @@ mod tests {
                 ],
                 false,
             ),
-            Err(RefinementFactsBuildError::DuplicateOccurrence)
+            Err(RefinementSetBuildError::DuplicateOccurrence)
         );
     }
 }

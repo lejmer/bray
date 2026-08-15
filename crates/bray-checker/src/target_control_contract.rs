@@ -1,8 +1,8 @@
 use bray_bound_tree::{InlineAssemblyConstraint, InlineAssemblyOperandKind};
-use bray_target::{InlineAssemblyOptions, TargetControlFacts};
+use bray_target::{InlineAssemblyOptions, TargetControlSupport};
 
 pub(crate) fn clobbers_valid(
-    control: TargetControlFacts,
+    control: TargetControlSupport,
     clobbers: &[&str],
     options: InlineAssemblyOptions,
 ) -> bool {
@@ -16,7 +16,7 @@ pub(crate) fn clobbers_valid(
 }
 
 pub(crate) fn parse_constraint(
-    control: TargetControlFacts,
+    control: TargetControlSupport,
     constraint: &str,
 ) -> Option<InlineAssemblyConstraint<'_>> {
     let parsed = InlineAssemblyConstraint::try_parse(constraint)?;
@@ -49,7 +49,10 @@ pub(crate) fn separated_values(value: &str) -> Option<Vec<&str>> {
 
     let values = value.split(',').map(str::trim).collect::<Vec<_>>();
 
-    values.iter().all(|value| !value.is_empty()).then_some(values)
+    values
+        .iter()
+        .all(|value| !value.is_empty())
+        .then_some(values)
 }
 
 pub(crate) fn feature_name_valid(feature: &str) -> bool {

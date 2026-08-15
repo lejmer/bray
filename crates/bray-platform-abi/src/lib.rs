@@ -12,14 +12,14 @@ mod clock;
 mod entropy;
 #[cfg(feature = "filesystem")]
 mod filesystem;
-#[cfg(feature = "core")]
-mod platform;
 #[cfg(all(
     not(test),
     feature = "standard-streams",
     not(any(feature = "core", feature = "filesystem", feature = "process"))
 ))]
 mod panic;
+#[cfg(feature = "core")]
+mod platform;
 #[cfg(feature = "process")]
 mod process;
 #[cfg(feature = "standard-streams")]

@@ -17,7 +17,7 @@ struct CoverageFixture {
     structured_expressions: Vec<CoverageRow>,
     patterns: Vec<CoverageRow>,
     unit_roots: Vec<CoverageRow>,
-    semantic_facts: Vec<CoverageRow>,
+    semantics: Vec<CoverageRow>,
     contracts: Vec<CoverageRow>,
 }
 
@@ -41,7 +41,7 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
 
     require_enum_coverage(&fixture.patterns, workspace, "BoundPatternKind")?;
     require_enum_coverage(&fixture.unit_roots, workspace, "BoundUnitRoot")?;
-    require_enum_coverage(&fixture.semantic_facts, workspace, "LoweringFactKind")?;
+    require_enum_coverage(&fixture.semantics, workspace, "LoweringInputKind")?;
     require_contract_names(&fixture.contracts)?;
     require_executable_rows(&fixture.contracts, workspace)?;
 

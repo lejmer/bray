@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
 #[cfg(feature = "network")]
-use mio::event::Source;
-#[cfg(feature = "network")]
 use mio::Interest;
+#[cfg(feature = "network")]
+use mio::event::Source;
 use mio::{Events, Poll, Token, Waker};
 
 use crate::{MonotonicDeadline, PlatformError, PlatformErrorKind, PlatformOperation};

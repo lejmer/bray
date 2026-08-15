@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_diagnostics::DiagnosticTargetPredicateValueKind;
-use bray_target::{TargetFactKind, TargetFactValue, TargetProfile};
+use bray_target::{TargetProfile, TargetPropertyKind, TargetPropertyValue};
 
 /// The literal category accepted by one target predicate property.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -15,11 +15,11 @@ pub enum TargetPredicateValueKind {
 }
 
 impl TargetPredicateValueKind {
-    pub(crate) const fn of_target_value(value: TargetFactValue<'_>) -> Self {
+    pub(crate) const fn of_target_value(value: TargetPropertyValue<'_>) -> Self {
         match value {
-            TargetFactValue::String(_) => Self::String,
-            TargetFactValue::Usize(_) => Self::UnsignedInteger,
-            TargetFactValue::Boolean(_) => Self::Boolean,
+            TargetPropertyValue::String(_) => Self::String,
+            TargetPropertyValue::Usize(_) => Self::UnsignedInteger,
+            TargetPropertyValue::Boolean(_) => Self::Boolean,
         }
     }
 }
@@ -54,18 +54,18 @@ impl TargetPredicateValue {
         }
     }
 
-    pub(crate) fn matches(&self, value: TargetFactValue<'_>) -> bool {
+    pub(crate) fn matches(&self, value: TargetPropertyValue<'_>) -> bool {
         match (self, value) {
-            (Self::String(expected), TargetFactValue::String(actual)) => {
+            (Self::String(expected), TargetPropertyValue::String(actual)) => {
                 expected.as_ref() == actual
             }
-            (Self::Usize(expected), TargetFactValue::Usize(actual)) => *expected == actual,
-            (Self::Boolean(expected), TargetFactValue::Boolean(actual)) => *expected == actual,
+            (Self::Usize(expected), TargetPropertyValue::Usize(actual)) => *expected == actual,
+            (Self::Boolean(expected), TargetPropertyValue::Boolean(actual)) => *expected == actual,
             _ => false,
         }
     }
 
-    pub(crate) fn has_kind_of(&self, value: TargetFactValue<'_>) -> bool {
+    pub(crate) fn has_kind_of(&self, value: TargetPropertyValue<'_>) -> bool {
         self.kind() == TargetPredicateValueKind::of_target_value(value)
     }
 }
@@ -80,11 +80,11 @@ pub enum TargetPredicate {
     /// The child predicate must not hold.
     Not(Box<Self>),
     /// One target property must equal one literal value.
-    Equals(TargetFactKind, TargetPredicateValue),
+    Equals(TargetPropertyKind, TargetPredicateValue),
     /// One target property must not equal one literal value.
-    NotEquals(TargetFactKind, TargetPredicateValue),
+    NotEquals(TargetPropertyKind, TargetPredicateValue),
     /// One target property must equal one member of a canonical literal set.
-    In(TargetFactKind, Arc<[TargetPredicateValue]>),
+    In(TargetPropertyKind, Arc<[TargetPredicateValue]>),
 }
 
 impl TargetPredicate {
@@ -93,17 +93,17 @@ impl TargetPredicate {
             Self::All(children) => children.iter().all(|child| child.evaluate(profile)),
             Self::Any(children) => children.iter().any(|child| child.evaluate(profile)),
             Self::Not(child) => !child.evaluate(profile),
-            Self::Equals(property, expected) => expected.matches(profile.fact(*property)),
-            Self::NotEquals(property, expected) => !expected.matches(profile.fact(*property)),
+            Self::Equals(property, expected) => expected.matches(profile.property(*property)),
+            Self::NotEquals(property, expected) => !expected.matches(profile.property(*property)),
             Self::In(property, expected) => {
-                let actual = profile.fact(*property);
+                let actual = profile.property(*property);
 
                 expected.iter().any(|value| value.matches(actual))
             }
         }
     }
 
-    pub(crate) fn collect_properties(&self, properties: &mut Vec<TargetFactKind>) {
+    pub(crate) fn collect_properties(&self, properties: &mut Vec<TargetPropertyKind>) {
         match self {
             Self::All(children) | Self::Any(children) => {
                 for child in children.iter() {

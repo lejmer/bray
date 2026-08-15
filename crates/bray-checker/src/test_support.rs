@@ -30,8 +30,8 @@ use bray_target::TargetProfile;
 pub(crate) use bray_symbols::testing::available_compiler_known_symbols;
 
 use crate::{
-    CheckerFactError, CheckerFactResult, CheckerInfrastructureError, CheckerOutcome,
-    CheckerRequestContext, CheckerSemanticFactProvider, CheckerSource, CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
+    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource, CheckerUnitView,
     DeclaredUnitContext, DefaultExpressionTypeChecker, ExpressionTypeChecker, ExpressionTypeInput,
     SemanticUnitContext,
 };
@@ -135,8 +135,8 @@ impl CheckerRequestContext for TestCheckerContext {
     fn checked_constant_expression(
         &self,
         _occurrence: bray_symbols::ConstantExpressionOccurrence,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
-        Err(CheckerFactError::Infrastructure(
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
+        Err(CheckerQueryError::Infrastructure(
             CheckerInfrastructureError::SemanticValueUnavailable,
         ))
     }
@@ -144,7 +144,7 @@ impl CheckerRequestContext for TestCheckerContext {
     fn generic_constraints(
         &self,
         _obligation: bray_symbols::GenericConstraintObligationKey,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>> {
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>> {
         Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
             bray_symbols::ProofOutcome::Proven,
         ))
@@ -153,7 +153,7 @@ impl CheckerRequestContext for TestCheckerContext {
     fn declared_type_representation(
         &self,
         subject: bray_symbols::NamedTypeSymbolId,
-    ) -> CheckerFactResult<
+    ) -> CheckerQueryResult<
         bray_diagnostics::DiagnosticResult<bray_symbols::DeclaredTypeRepresentation>,
     > {
         Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
@@ -164,7 +164,7 @@ impl CheckerRequestContext for TestCheckerContext {
     fn declared_type_has_lifecycle(
         &self,
         _subject: bray_symbols::NamedTypeSymbolId,
-    ) -> CheckerFactResult<bray_diagnostics::DiagnosticResult<bool>> {
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bool>> {
         Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
             false,
         ))
@@ -174,7 +174,7 @@ impl CheckerRequestContext for TestCheckerContext {
         &self,
         _context: &crate::SemanticUnitContext,
         _ty: bray_symbols::TypeId,
-    ) -> crate::CheckerFactResult<bool> {
+    ) -> crate::CheckerQueryResult<bool> {
         Ok(false)
     }
 
@@ -211,16 +211,20 @@ impl CheckerRequestContext for TestCheckerContext {
     }
 }
 
-impl<C> CheckerSemanticFactProvider<C> for TestCheckerContext
+impl<C> CheckerSemanticQueryProvider<C> for TestCheckerContext
 where
-    C: bray_symbols::SymbolFactContract,
+    C: bray_symbols::SymbolQueryContract,
 {
-    fn symbol_fact(
+    fn resolve_symbol_query(
         &self,
-        request: bray_symbols::SymbolFactRequest<C>,
-    ) -> CheckerFactResult<std::sync::Arc<bray_symbols::SymbolFactResult<C>>> {
-        Err(CheckerFactError::Infrastructure(
-            CheckerInfrastructureError::SemanticFactUnavailable {
+        request: bray_symbols::SymbolQueryRequest<C>,
+    ) -> CheckerQueryResult<
+        std::sync::Arc<
+            bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>,
+        >,
+    > {
+        Err(CheckerQueryError::Infrastructure(
+            CheckerInfrastructureError::SemanticQueryUnavailable {
                 symbol: request.symbol(),
                 kind: request.kind(),
             },

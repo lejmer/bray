@@ -1,7 +1,7 @@
 use bray_bound_tree::{AsyncSuspensionKind, BoundExpressionId, SelectedCall};
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{
-    MirAsyncOperation, MirBlockId, MirBlockKind, MirEdge, MirFrameStateFacts, MirOperationKind,
+    MirAsyncOperation, MirBlockId, MirBlockKind, MirEdge, MirFrameState, MirOperationKind,
     MirSourceAnchor, MirSuspensionKind, MirTerminatorKind,
 };
 use bray_runtime_interface::RuntimeAbiRole;
@@ -55,7 +55,7 @@ impl Lowerer<'_> {
 
                 let suspension = self
                     .input
-                    .async_facts()
+                    .async_analysis()
                     .suspensions()
                     .iter()
                     .find(|suspension| {
@@ -81,7 +81,7 @@ impl Lowerer<'_> {
                 let initialized_storages =
                     self.retained_storages(suspension.retained_subjects())?;
 
-                self.frame_states.push(MirFrameStateFacts::new(
+                self.frame_states.push(MirFrameState::new(
                     state,
                     resume,
                     self.execution_lane_requirements(),

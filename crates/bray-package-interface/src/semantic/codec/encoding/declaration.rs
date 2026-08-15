@@ -1,21 +1,23 @@
 use bray_symbols::{DeclaredCopyContract, DeclaredLayoutMode};
 
-use super::facts::section;
+use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use crate::semantic::codec::common::{write_count, write_symbol_reference};
 use crate::semantic::codec::record::encode_record_table;
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
-use crate::{InterfaceSectionTag, InterfaceSemanticFacts, InterfaceStorageShape};
+use crate::{InterfaceSectionTag, InterfaceSemantics, InterfaceStorageShape};
 
-pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
+pub(super) fn encode_declaration_semantics(
+    semantics: &InterfaceSemantics,
+) -> EncodedSemanticSection {
     let mut encoder = WireEncoder::new();
 
-    encoder.write_u32(super::super::DECLARATION_FACT_FORMAT_VERSION);
+    encoder.write_u32(super::super::DECLARATION_SEMANTICS_FORMAT_VERSION);
 
     encode_record_table(
         &mut encoder,
-        &facts.callable_signatures,
+        &semantics.callable_signatures,
         |encoder, signature| {
             write_symbol_reference(encoder, &signature.owner);
             encoder.write_u32(signature.callable_type.raw());
@@ -43,7 +45,7 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
 
     encode_record_table(
         &mut encoder,
-        &facts.generic_declarations,
+        &semantics.generic_declarations,
         |encoder, declaration| {
             write_symbol_reference(encoder, &declaration.owner);
             write_count(encoder, declaration.parameters.len());
@@ -56,7 +58,7 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
 
     encode_record_table(
         &mut encoder,
-        &facts.callable_parameter_defaults,
+        &semantics.callable_parameter_defaults,
         |encoder, default| {
             write_symbol_reference(encoder, &default.parameter);
             encoder.write_u32(u32::from(default.is_present));
@@ -65,21 +67,25 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
 
     encode_record_table(
         &mut encoder,
-        &facts.predicate_definitions,
+        &semantics.predicate_definitions,
         |encoder, definition| {
             write_symbol_reference(encoder, &definition.owner);
             encoder.write_u32(definition.state.to_wire());
         },
     );
 
-    encode_record_table(&mut encoder, &facts.declared_types, |encoder, declared| {
-        write_symbol_reference(encoder, &declared.owner);
-        encoder.write_u32(declared.ty.raw());
-    });
+    encode_record_table(
+        &mut encoder,
+        &semantics.declared_types,
+        |encoder, declared| {
+            write_symbol_reference(encoder, &declared.owner);
+            encoder.write_u32(declared.ty.raw());
+        },
+    );
 
     encode_record_table(
         &mut encoder,
-        &facts.type_representations,
+        &semantics.type_representations,
         |encoder, representation| {
             write_symbol_reference(encoder, &representation.owner);
             encoder.write_u32(encode_layout(representation.layout));
@@ -139,13 +145,13 @@ pub(super) fn encode_declaration_facts(facts: &InterfaceSemanticFacts) -> Encode
     );
 
     section(
-        InterfaceSectionTag::DeclarationFacts,
-        facts.callable_signatures.len()
-            + facts.generic_declarations.len()
-            + facts.callable_parameter_defaults.len()
-            + facts.predicate_definitions.len()
-            + facts.declared_types.len()
-            + facts.type_representations.len(),
+        InterfaceSectionTag::DeclarationSemantics,
+        semantics.callable_signatures.len()
+            + semantics.generic_declarations.len()
+            + semantics.callable_parameter_defaults.len()
+            + semantics.predicate_definitions.len()
+            + semantics.declared_types.len()
+            + semantics.type_representations.len(),
         encoder,
     )
 }

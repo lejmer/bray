@@ -22,7 +22,7 @@ use bray_symbols::CallableAbi;
 use bray_symbols::CallableDefinitionId;
 
 use super::Compilation;
-use crate::fact::{CancellationToken, CodegenArtifactFactKey, CompilationFactKey, FactQueryError};
+use crate::fact::{CancellationToken, CodegenArtifactQueryKey, CompilationFactKey, FactQueryError};
 
 impl Compilation {
     pub(super) fn codegen_units_for_plan(
@@ -30,7 +30,7 @@ impl Compilation {
         requests: &[BackendArtifactRequest],
         executable_host: Option<&ExecutableHostContract>,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<CodegenUnit>, (CodegenUnitKey, CodegenFactError)> {
+    ) -> Result<Vec<CodegenUnit>, (CodegenUnitKey, CodegenPreparationError)> {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
@@ -44,7 +44,7 @@ impl Compilation {
                 self.codegen_unit_for_plan(request.unit(), executable_host, cancellation)
                     .map_err(|error| (request.unit().clone(), error))
             })
-            .map_err(|error| (first.unit().clone(), CodegenFactError::Query(error)))?
+            .map_err(|error| (first.unit().clone(), CodegenPreparationError::Query(error)))?
             .into_iter()
             .collect()
     }
@@ -54,7 +54,7 @@ impl Compilation {
         key: &CodegenUnitKey,
         executable_host: Option<&ExecutableHostContract>,
         cancellation: &CancellationToken,
-    ) -> Result<CodegenUnit, CodegenFactError> {
+    ) -> Result<CodegenUnit, CodegenPreparationError> {
         let instance_keys = key.instances();
 
         let instances = self
@@ -65,26 +65,26 @@ impl Compilation {
 
                 // Reconstruction errors own the complete shared unit identity past this request.
                 let Some(mir_unit) = key.mir_unit(instance) else {
-                    return Err(CodegenFactError::UnitMismatch(key.clone()));
+                    return Err(CodegenPreparationError::UnitMismatch(key.clone()));
                 };
 
                 let mir =
                     self.codegen_mir_for_plan(instance, mir_unit, executable_host, cancellation)?;
 
                 let Some(dependencies) = key.dependencies(instance) else {
-                    return Err(CodegenFactError::UnitMismatch(key.clone()));
+                    return Err(CodegenPreparationError::UnitMismatch(key.clone()));
                 };
 
                 let instance =
                     CodegenInstance::try_new(instance.clone(), mir, dependencies.iter().cloned())
-                        .map_err(CodegenFactError::InvalidInstance)?;
+                        .map_err(CodegenPreparationError::InvalidInstance)?;
 
                 Ok(instance)
             })?
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        CodegenUnit::try_from_key(key, instances).map_err(CodegenFactError::InvalidUnit)
+        CodegenUnit::try_from_key(key, instances).map_err(CodegenPreparationError::InvalidUnit)
     }
 
     pub(in crate::compilation) fn codegen_mir_for_plan(
@@ -93,7 +93,7 @@ impl Compilation {
         mir_unit: MirUnitId,
         executable_host: Option<&ExecutableHostContract>,
         cancellation: &CancellationToken,
-    ) -> Result<MirUnit, CodegenFactError> {
+    ) -> Result<MirUnit, CodegenPreparationError> {
         match instance.template() {
             MirUnitKey::Bound(key) => {
                 let lowered = self.lowered_unit_with_priority(
@@ -107,22 +107,22 @@ impl Compilation {
                     .as_ref()
                     .and_then(bray_lowering::LoweredUnit::mir)
                 else {
-                    return Err(CodegenFactError::MirUnavailable(MirUnitKey::Bound(
+                    return Err(CodegenPreparationError::MirUnavailable(MirUnitKey::Bound(
                         key.clone(),
                     )));
                 };
 
-                // The reconstructed unit owns the immutable MIR independently of the fact borrow.
+                // The reconstructed unit owns the immutable MIR independently of the query borrow.
                 Ok(mir.clone())
             }
             MirUnitKey::ExecutableHost(product) => {
                 let Some(host) = executable_host.filter(|host| host.product() == product) else {
-                    return Err(CodegenFactError::MirUnavailable(
+                    return Err(CodegenPreparationError::MirUnavailable(
                         instance.template().clone(),
                     ));
                 };
 
-                let semantics = self.product_semantic_facts_with_cancellation(cancellation)?;
+                let semantics = self.product_semantics_with_cancellation(cancellation)?;
 
                 let roots = match semantics.value().kind() {
                     bray_symbols::ProductKind::Test => {
@@ -138,13 +138,13 @@ impl Compilation {
                                 let function = discovery
                                     .value()
                                     .function(entry.identity())
-                                    .ok_or(CodegenFactError::MissingEntrypoint)?;
+                                    .ok_or(CodegenPreparationError::MissingEntrypoint)?;
 
                                 let definition = CallableDefinitionId::try_new(function.into())
-                                    .ok_or(CodegenFactError::MissingEntrypoint)?;
+                                    .ok_or(CodegenPreparationError::MissingEntrypoint)?;
 
                                 self.callable_body_key(definition)?
-                                    .ok_or(CodegenFactError::MissingEntrypoint)
+                                    .ok_or(CodegenPreparationError::MissingEntrypoint)
                             })
                             .collect::<Result<Vec<_>, _>>()?
                     }
@@ -152,14 +152,14 @@ impl Compilation {
                         let entrypoint = semantics
                             .value()
                             .entrypoint()
-                            .ok_or(CodegenFactError::MissingEntrypoint)?;
+                            .ok_or(CodegenPreparationError::MissingEntrypoint)?;
 
                         let definition = CallableDefinitionId::try_new(entrypoint.into())
-                            .ok_or(CodegenFactError::MissingEntrypoint)?;
+                            .ok_or(CodegenPreparationError::MissingEntrypoint)?;
 
                         vec![
                             self.callable_body_key(definition)?
-                                .ok_or(CodegenFactError::MissingEntrypoint)?,
+                                .ok_or(CodegenPreparationError::MissingEntrypoint)?,
                         ]
                     }
                 };
@@ -168,21 +168,23 @@ impl Compilation {
                     bray_lowering::ExecutableHostLoweringInput::new(
                         mir_unit,
                         roots,
-                        // Generated MIR owns host and target facts after this request.
+                        // Generated MIR owns host and target properties after this request.
                         host.clone(),
                         instance.target().clone(),
                     ),
                 )
-                .map_err(CodegenFactError::InvalidHostMir)
+                .map_err(CodegenPreparationError::InvalidHostMir)
             }
-            MirUnitKey::GeneratedLifecycle(_) => Err(CodegenFactError::MirUnavailable(
+            MirUnitKey::GeneratedLifecycle(_) => Err(CodegenPreparationError::MirUnavailable(
                 instance.template().clone(),
             )),
             MirUnitKey::ImportedExecutable(key) => self
                 .imported_executable_mir(*key, mir_unit, instance.target().clone(), cancellation)?
-                .ok_or_else(|| CodegenFactError::MirUnavailable(instance.template().clone())),
+                .ok_or_else(|| {
+                    CodegenPreparationError::MirUnavailable(instance.template().clone())
+                }),
             MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_) => Err(
-                CodegenFactError::MirUnavailable(instance.template().clone()),
+                CodegenPreparationError::MirUnavailable(instance.template().clone()),
             ),
         }
     }
@@ -195,7 +197,7 @@ impl Compilation {
         target: &CodegenTarget,
         options: &CodegenOptions,
         artifacts: &BackendArtifactRequest,
-    ) -> Result<Arc<CodegenOutcome>, CodegenFactError> {
+    ) -> Result<Arc<CodegenOutcome>, CodegenPreparationError> {
         self.codegen_artifact_with_cancellation(
             unit,
             mappings,
@@ -215,9 +217,9 @@ impl Compilation {
         options: &CodegenOptions,
         artifacts: &BackendArtifactRequest,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<CodegenOutcome>, CodegenFactError> {
+    ) -> Result<Arc<CodegenOutcome>, CodegenPreparationError> {
         let Some(codegen) = &self.state.codegen else {
-            return Err(CodegenFactError::CodegenUnavailable);
+            return Err(CodegenPreparationError::CodegenUnavailable);
         };
 
         let backend = codegen.selected();
@@ -235,9 +237,9 @@ impl Compilation {
             artifacts,
             &self.state.cancellation,
         )
-        .map_err(CodegenFactError::InvalidRequest)?;
+        .map_err(CodegenPreparationError::InvalidRequest)?;
 
-        let key = CodegenArtifactFactKey::new(
+        let key = CodegenArtifactQueryKey::new(
             unit.key().clone(),
             mappings.clone(),
             target.clone(),
@@ -313,7 +315,7 @@ fn codegen_mappings(
     unit: &CodegenUnit,
     executable_host: Option<&ExecutableHostContract>,
     target: &CodegenTarget,
-) -> Result<CodegenMappings, CodegenFactError> {
+) -> Result<CodegenMappings, CodegenPreparationError> {
     let mut symbols = Vec::new();
 
     for instance in unit.instances() {
@@ -365,7 +367,9 @@ fn codegen_mappings(
                 bray_runtime_interface::native_runtime_role_symbol(reference.role())
                     .and_then(BinarySymbolName::try_new)
             })
-            .ok_or(CodegenFactError::MissingRuntimeRole(reference.role()))?;
+            .ok_or(CodegenPreparationError::MissingRuntimeRole(
+                reference.role(),
+            ))?;
 
         // The mapping owns the selected runtime spelling past the host-contract borrow.
         symbols.push(symbol_mapping(
@@ -390,7 +394,7 @@ fn codegen_mappings(
     }
 
     CodegenMappings::try_new(unit, target, [], [], symbols, [], [], [], [], [], [])
-        .map_err(CodegenFactError::InvalidMappings)
+        .map_err(CodegenPreparationError::InvalidMappings)
 }
 
 #[cfg(test)]
@@ -407,18 +411,18 @@ fn symbol_mapping(
     )
 }
 
-/// A failure to request one lazy code generation contribution fact.
+/// A failure to prepare one lazy code generation contribution.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum CodegenFactError {
+pub enum CodegenPreparationError {
     /// This compilation was composed without a code generation backend.
     CodegenUnavailable,
-    /// The supplied code generation facts do not form a coherent request.
+    /// The supplied code generation inputs do not form a coherent request.
     InvalidRequest(CodegenRequestBuildError),
-    /// A plan-named MIR fact is unavailable from this compilation.
+    /// A plan-named MIR unit is unavailable from this compilation.
     MirUnavailable(MirUnitKey),
     /// Executable host construction requires one selected source entrypoint.
     MissingEntrypoint,
-    /// A concrete instance could not be reconstructed from its exact lazy MIR fact.
+    /// A concrete instance could not be reconstructed from its exact lazy MIR result.
     InvalidInstance(CodegenInstanceBuildError),
     /// Plan-named instances could not form a valid code generation unit.
     InvalidUnit(CodegenUnitBuildError),
@@ -448,17 +452,17 @@ pub enum CodegenFactError {
     UnsupportedType(bray_symbols::TypeId),
     /// A declaration-backed or type-specific MIR helper has no matching concrete dependency.
     MissingHelperInstance(MirHelperReference),
-    /// Structured diagnostics prevent a demanded code generation fact from being produced.
+    /// Structured diagnostics prevent a demanded code generation result from being produced.
     Diagnostics(DiagnosticBag),
     /// A demanded type layout exceeds the selected target's representable size.
     LayoutOverflow(bray_symbols::TypeId),
     /// A deterministic generated binary symbol could not be represented.
     InvalidSymbolName,
-    /// The compilation fact runtime could not complete the request.
+    /// The compilation query runtime could not complete the request.
     Query(FactQueryError),
 }
 
-impl From<FactQueryError> for CodegenFactError {
+impl From<FactQueryError> for CodegenPreparationError {
     fn from(error: FactQueryError) -> Self {
         Self::Query(error)
     }
@@ -485,7 +489,7 @@ mod tests {
     };
 
     #[test]
-    fn plan_named_units_are_reconstructed_from_lazy_mir_facts() {
+    fn plan_named_units_are_reconstructed_from_lazy_mir_queries() {
         let compilation = source_compilation("module app; func main() {}");
         let key = source_callable_body_key(&compilation);
 
@@ -515,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn mapping_free_units_construct_exact_realization_facts() {
+    fn mapping_free_units_construct_exact_realization_inputs() {
         let fixture = codegen_request();
         let request = fixture.request();
 
@@ -570,7 +574,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(super::CodegenFactError::Query(
+            Err(super::CodegenPreparationError::Query(
                 crate::FactQueryError::Cancelled
             ))
         ));
@@ -670,7 +674,7 @@ mod tests {
                 request.options(),
                 request.artifacts(),
             )
-            .unwrap_or_else(|error| panic!("code generation fact must publish: {error:?}"))
+            .unwrap_or_else(|error| panic!("code generation result must publish: {error:?}"))
     }
 
     fn capabilities(_request: CodegenRequest<'_>) -> BackendCapabilities {

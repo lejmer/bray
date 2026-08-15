@@ -1,10 +1,10 @@
-use bray_binder::{BinderFactError, BinderFactResult};
+use bray_binder::{BindingQueryError, BindingQueryResult};
 use bray_bound_tree::{BoundUnitKey, BoundUnitRoot};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{DependencyContractTemplateId, TypeId};
 
 use super::dependency::portable_dependency_contract;
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 
 pub(super) struct CheckedSourceExpression {
     pub(super) result: TypeId,
@@ -20,9 +20,9 @@ pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence
 }
 
 pub(super) fn checked_source_expression(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     key: BoundUnitKey,
-) -> BinderFactResult<CheckedSourceExpression> {
+) -> BindingQueryResult<CheckedSourceExpression> {
     let compilation = context.compilation();
 
     let bound = compilation
@@ -30,7 +30,7 @@ pub(super) fn checked_source_expression(
         .map_err(super::super::binding::binder_error)?;
 
     let BoundUnitRoot::Expression(root) = bound.result().value().root() else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
     let semantics = compilation
@@ -49,21 +49,21 @@ pub(super) fn checked_source_expression(
 
     let result = types
         .expression(root)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let expression = bound
         .result()
         .value()
         .view()
         .expression(root)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let contract = dependencies
         .result()
         .value()
         .expression(root)
         .and_then(|contract| dependencies.result().value().contract(contract))
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let dependency_contract =
         portable_dependency_contract(context, storage.result().value(), contract)?;
@@ -86,9 +86,9 @@ pub(super) fn checked_source_expression(
 }
 
 pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     key: BoundUnitKey,
-) -> BinderFactResult<CheckedSourcePredicateSequence> {
+) -> BindingQueryResult<CheckedSourcePredicateSequence> {
     let compilation = context.compilation();
 
     let bound = compilation
@@ -96,7 +96,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .map_err(super::super::binding::binder_error)?;
 
     let BoundUnitRoot::ExpressionSequence(root) = bound.result().value().root() else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
     let semantics = compilation
@@ -114,7 +114,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
     let block = bound.result().value().view().block(root);
 
     let Some(block) = block else {
-        return Err(BinderFactError::DependencyUnavailable);
+        return Err(BindingQueryError::DependencyUnavailable);
     };
 
     let mut dependency_contracts = Vec::new();
@@ -127,7 +127,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             .and_then(|contract| dependencies.result().value().contract(contract));
 
         let Some(contract) = contract else {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         };
 
         dependency_contracts.push(portable_dependency_contract(
@@ -151,7 +151,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
 }
 
 pub(super) fn syntax_diagnostics(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     anchor: bray_declarations::SyntaxAnchor,
 ) -> DiagnosticBag {
     let mut diagnostics = DiagnosticBag::new();

@@ -4,8 +4,8 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticMemoryOperation, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticMemoryOperation, SeverityKind,
 };
 use bray_source::SourceSpan;
 

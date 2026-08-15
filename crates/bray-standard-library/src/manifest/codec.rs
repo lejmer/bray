@@ -186,9 +186,7 @@ mod tests {
             "targets/x86_64-unknown-linux-gnu/1.0/libplatform.a",
             b"provider",
         )
-        .map(|artifact| {
-            artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite])
-        })
+        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite]))
         .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}"));
 
         let target = manifest().targets()[0].clone();
@@ -198,9 +196,7 @@ mod tests {
             "targets/x86_64-unknown-linux-gnu/1.0/libplatform-duplicate.a",
             b"duplicate provider",
         )
-        .map(|artifact| {
-            artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite])
-        })
+        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite]))
         .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}"));
 
         let artifacts = target
@@ -221,14 +217,16 @@ mod tests {
         let error = StandardLibraryTargetArtifacts::try_new(
             target.target().clone(),
             target.runtime_abi(),
-            target.artifacts().iter().cloned().chain([
-                StandardLibraryArtifact::try_for_bytes(
+            target
+                .artifacts()
+                .iter()
+                .cloned()
+                .chain([StandardLibraryArtifact::try_for_bytes(
                     StandardLibraryArtifactKind::PlatformServiceLibrary,
                     "targets/x86_64-unknown-linux-gnu/1.0/libplatform-empty.a",
                     b"provider",
                 )
-                .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}")),
-            ]),
+                .unwrap_or_else(|error| panic!("platform archive must be valid: {error:?}"))]),
         )
         .expect_err("platform archives must declare capabilities");
 
@@ -289,9 +287,7 @@ mod tests {
             "targets/x86_64-unknown-linux-gnu/1.0/libplatform-core.a",
             b"provider",
         )
-        .map(|artifact| {
-            artifact.with_platform_services([PlatformServiceRole::ClockMonotonicNow])
-        })
+        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::ClockMonotonicNow]))
         .map(|artifact| {
             artifact.with_native_links([NativeLinkRequirement::new(
                 NonEmptySharedStr::try_new("c")

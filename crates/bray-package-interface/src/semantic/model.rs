@@ -3,8 +3,8 @@ mod bundle;
 mod constant;
 mod declaration;
 mod dependency;
-mod fact;
 mod id;
+mod record;
 mod support;
 mod template;
 mod ty;
@@ -13,7 +13,7 @@ pub use application::{
     InterfaceCallableInstance, InterfaceGenericArgument, InterfaceGenericBinding,
     InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceTraitApplication,
 };
-pub use bundle::InterfaceSemanticFacts;
+pub use bundle::InterfaceSemantics;
 pub use constant::{
     InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValue,
     InterfaceConstantValueKind,
@@ -30,18 +30,18 @@ pub use dependency::{
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
     InterfaceDependencySubjectRoot,
 };
-pub use fact::{
-    InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord,
-    InterfaceConstraint, InterfaceConstraintKind, InterfaceImplementationRecord,
-    InterfacePredicateSummary, InterfaceRuntimeRequirement, InterfaceSemanticFactEntry,
-    InterfaceSemanticFactKind, InterfaceSourceProvenance, InterfaceTargetFactDependency,
-    InterfaceTrustedCapabilityRequirement,
-};
 pub use id::{
     InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,
     InterfaceConstantValueId, InterfaceDependencyContractId, InterfaceGenericSubstitutionId,
     InterfaceImplementationInstanceId, InterfaceTraitApplicationId, InterfaceTypeId,
+};
+pub use record::{
+    InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
+    InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord,
+    InterfaceConstraint, InterfaceConstraintKind, InterfaceImplementationRecord,
+    InterfacePredicateSummary, InterfaceRuntimeRequirement, InterfaceSemanticRecord,
+    InterfaceSemanticRecordKind, InterfaceSourceProvenance, InterfaceTargetPropertyDependency,
+    InterfaceTrustedCapabilityRequirement,
 };
 pub use support::{
     InterfaceImplementationReference, InterfaceSupportEntity, InterfaceSupportImplementation,

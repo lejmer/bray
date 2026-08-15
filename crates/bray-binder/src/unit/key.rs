@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundUnitKey, BoundUnitKeyData};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
-    LocalSymbolRegionKey, LocalSymbolRegionRole, SymbolFactKind, SymbolKey, SymbolKind,
+    LocalSymbolRegionKey, LocalSymbolRegionRole, SymbolKey, SymbolKind, SymbolQueryKind,
 };
 
 pub(crate) fn local_region_key(key: &BoundUnitKey) -> LocalSymbolRegionKey {
@@ -38,12 +38,14 @@ fn local_region_key_parts(
         }
         BoundUnitKeyData::RuntimeDefault(unit) => (
             shared_symbol_key(unit.owner()),
-            LocalSymbolRegionRole::DeclarationFact(runtime_default_fact(unit.owner().kind())),
+            LocalSymbolRegionRole::DeclarationQuery(runtime_default_query_kind(
+                unit.owner().kind(),
+            )),
             vec![unit.source().syntax()],
         ),
         BoundUnitKeyData::ConstantTemplate(unit) => (
             shared_symbol_key(unit.owner()),
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::ConstantDefinition),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::ConstantDefinition),
             vec![unit.source().syntax()],
         ),
         BoundUnitKeyData::EmbeddedConstant(unit) => (
@@ -53,17 +55,17 @@ fn local_region_key_parts(
         ),
         BoundUnitKeyData::PredicateDefinition(unit) => (
             shared_symbol_key(unit.owner()),
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::PredicateDefinition),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::PredicateDefinition),
             vec![unit.source().syntax()],
         ),
         BoundUnitKeyData::Constraint(unit) => (
             shared_symbol_key(unit.owner()),
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::GenericConstraints),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::GenericConstraints),
             vec![unit.source().syntax()],
         ),
         BoundUnitKeyData::ContractClause(unit) => (
             shared_symbol_key(unit.owner()),
-            LocalSymbolRegionRole::DeclarationFact(SymbolFactKind::CallableContracts),
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::CallableContracts),
             vec![unit.source().syntax()],
         ),
         BoundUnitKeyData::TargetGate(unit) => (
@@ -74,11 +76,11 @@ fn local_region_key_parts(
     }
 }
 
-fn runtime_default_fact(owner: SymbolKind) -> SymbolFactKind {
+fn runtime_default_query_kind(owner: SymbolKind) -> SymbolQueryKind {
     match owner {
-        SymbolKind::CallableParameterDefaultProvider => SymbolFactKind::CallableParameterDefault,
-        SymbolKind::StructFieldDefaultProvider => SymbolFactKind::StructFieldDefault,
-        SymbolKind::UnionPayloadDefaultProvider => SymbolFactKind::UnionPayloadFieldDefault,
+        SymbolKind::CallableParameterDefaultProvider => SymbolQueryKind::CallableParameterDefault,
+        SymbolKind::StructFieldDefaultProvider => SymbolQueryKind::StructFieldDefault,
+        SymbolKind::UnionPayloadDefaultProvider => SymbolQueryKind::UnionPayloadFieldDefault,
         _ => unreachable!("bound runtime-default keys validate their owner kind"),
     }
 }

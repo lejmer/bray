@@ -18,8 +18,8 @@ use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic
 use super::super::limits::{ConstantEvaluationLimits, EvaluationBudget};
 use super::super::operation::{fold_binary, fold_unary};
 use super::support::{
-    TemplateEvaluationFailure, binary_operator, constant_definition, fact_failure,
-    operation_failure, recovery_value, target_integer_width, template_index, unary_operator,
+    TemplateEvaluationFailure, binary_operator, constant_definition, operation_failure,
+    query_failure, recovery_value, target_integer_width, template_index, unary_operator,
 };
 use crate::CheckerRequestContext;
 use crate::representation::type_representation_for_context;
@@ -363,7 +363,7 @@ where
         let result = self
             .resolver
             .resolve_constant(instance, self.budget.remaining_limits(self.limits))
-            .map_err(fact_failure)?;
+            .map_err(query_failure)?;
 
         self.diagnostics = self.diagnostics.merged(result.diagnostics());
 
@@ -475,7 +475,7 @@ where
         request: &ConstantCallRequest,
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        match self.resolver.resolve(request).map_err(fact_failure)? {
+        match self.resolver.resolve(request).map_err(query_failure)? {
             ConstantCallResolution::Evaluated(result) => {
                 self.budget
                     .try_charge_usage(result.value().usage())

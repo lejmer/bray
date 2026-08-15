@@ -10,11 +10,11 @@ use super::binding::{NameLookupResult, lookup_surface_name, lookup_unqualified_n
 use super::category::ResolvedName;
 use super::diagnostic::{malformed_lookup, report_lookup_result};
 use super::path::{PathBindingContext, classify_pattern_target, token_reference};
-use crate::{BinderFactContext, BinderFactResult, binder::Binder};
+use crate::{BindingQueryContext, BindingQueryResult, binder::Binder};
 
 impl<C> Binder<'_, C>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
     pub(crate) fn bind_pattern_identifier(
         &mut self,
@@ -23,7 +23,7 @@ where
         token: SyntaxToken,
         assignment: bool,
         input_type: TypeId,
-    ) -> BinderFactResult<NameLookupResult<BoundPatternTarget>> {
+    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>> {
         let Some(reference) = token_reference(source, token) else {
             return Ok(malformed_lookup());
         };
@@ -60,10 +60,10 @@ where
         name: &str,
         assignment: bool,
         input_type: TypeId,
-    ) -> BinderFactResult<NameLookupResult<BoundPatternTarget>> {
+    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>> {
         let lookup = lookup_unqualified_name(
             self.unit(),
-            self.facts().symbols(),
+            self.binding_context().symbols(),
             context.scope(),
             context.module(),
             name,
@@ -91,12 +91,12 @@ where
         context: PathBindingContext,
         input_type: TypeId,
         name: &str,
-    ) -> BinderFactResult<NameLookupResult<BoundPatternTarget>> {
+    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>> {
         let input = self
-            .facts()
+            .binding_context()
             .semantic_values()
             .type_data(input_type)
-            .map_err(|_| crate::BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| crate::BindingQueryError::DependencyUnavailable)?;
 
         let TypeData::Named {
             definition: NamedTypeSymbolId::Union(union),
@@ -107,7 +107,7 @@ where
         };
 
         Ok(lookup_surface_name(
-            self.facts().symbols(),
+            self.binding_context().symbols(),
             (*union).into(),
             name,
             context.access(),

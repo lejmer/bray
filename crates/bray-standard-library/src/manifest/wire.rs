@@ -181,7 +181,11 @@ fn artifact_wire(artifact: &StandardLibraryArtifact) -> ArtifactWire<'_> {
             .iter()
             .map(|role| role.as_str())
             .collect(),
-        native_links: artifact.native_links().iter().map(native_link_wire).collect(),
+        native_links: artifact
+            .native_links()
+            .iter()
+            .map(native_link_wire)
+            .collect(),
     }
 }
 

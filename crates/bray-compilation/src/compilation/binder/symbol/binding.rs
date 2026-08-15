@@ -1,28 +1,30 @@
-use bray_binder::{BinderFactError, BinderFactResult};
-use bray_symbols::{SymbolFactContract, SymbolFactRequest, SymbolFactResult};
+use bray_binder::{BindingQueryError, BindingQueryResult};
+use bray_symbols::{SymbolQueryContract, SymbolQueryRequest};
 
-use crate::compilation::binder::CompilationBinderFacts;
-use crate::fact::{FactQueryError, SymbolFactCache};
+use crate::compilation::binder::CompilationBindingContext;
+use crate::fact::{FactQueryError, SymbolQueryCache};
 
-pub(super) trait CompilationSymbolFactBinding<C>
+pub(super) trait CompilationSymbolQueryEvaluator<C>
 where
-    C: SymbolFactContract,
+    C: SymbolQueryContract,
 {
-    fn cache(&self) -> &SymbolFactCache<C>;
+    fn cache(&self) -> &SymbolQueryCache<C>;
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<C>,
-    ) -> BinderFactResult<SymbolFactResult<C>>;
+        context: &CompilationBindingContext<'_>,
+        request: SymbolQueryRequest<C>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>,
+    >;
 }
 
-pub(super) fn binder_error(error: FactQueryError) -> BinderFactError {
+pub(super) fn binder_error(error: FactQueryError) -> BindingQueryError {
     match error {
-        FactQueryError::Cancelled => BinderFactError::Cancelled,
+        FactQueryError::Cancelled => BindingQueryError::Cancelled,
         FactQueryError::Cycle(_)
         | FactQueryError::InfrastructureFailure
         | FactQueryError::SemanticUnitContext(_)
-        | FactQueryError::CheckerInfrastructure(_) => BinderFactError::DependencyUnavailable,
+        | FactQueryError::CheckerInfrastructure(_) => BindingQueryError::DependencyUnavailable,
     }
 }

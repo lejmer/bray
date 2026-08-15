@@ -14,7 +14,7 @@
     {
       "name": "type-and-generic-binding",
       "production": ["bind_type_expression"],
-      "diagnostic_source_tests": ["recovered_source_types_publish_error_type_facts"],
+      "diagnostic_source_tests": ["recovered_source_types_publish_error_types"],
       "valid_source_tests": ["source_lifecycle_signatures_share_callable_surface_binding"],
       "boundary_tests": [
         "imported_constraints_and_contracts_publish_resolved_templates",
@@ -28,7 +28,7 @@
       "diagnostic_source_tests": ["overloaded_call_reports_generic_argument_diagnostics_once"],
       "valid_source_tests": ["source_lifecycle_signatures_share_callable_surface_binding"],
       "boundary_tests": ["imported_constraints_and_contracts_publish_resolved_templates"],
-      "published": ["CallableSignatureFact"]
+      "published": ["CallableSignatureQuery"]
     },
     {
       "name": "constant-semantics",
@@ -36,7 +36,7 @@
       "diagnostic_source_tests": ["constant_instance_cycles_publish_one_deterministic_diagnostic"],
       "valid_source_tests": ["constant_instances_demand_only_referenced_definitions_and_reuse_publications"],
       "boundary_tests": ["missing_imported_constant_bodies_publish_structured_diagnostics"],
-      "published": ["ConstantInstanceFactKey"]
+      "published": ["ConstantInstanceQueryKey"]
     },
     {
       "name": "generic-constraints",
@@ -74,7 +74,7 @@
         "indirect_calls_use_the_callable_type_contract_without_recovery",
         "exact_operator_candidates_publish_their_selected_target"
       ],
-      "published": ["OperationSelectionFactKey"]
+      "published": ["OperationSelectionQueryKey"]
     },
     {
       "name": "member-index-and-slice-access",
@@ -123,20 +123,20 @@
       "name": "patterns-and-match-coverage",
       "production": ["check_patterns"],
       "diagnostic_source_tests": [
-        "pattern_facts_report_non_exhaustive_matches",
-        "pattern_facts_report_unreachable_match_arms"
+        "patterns_report_non_exhaustive_matches",
+        "patterns_report_unreachable_match_arms"
       ],
-      "valid_source_tests": ["pattern_facts_publish_exhaustive_closed_union_coverage"],
-      "boundary_tests": ["pattern_facts_use_constant_paths_for_boolean_coverage"],
-      "published": ["CheckedPatternFacts"]
+      "valid_source_tests": ["patterns_publish_exhaustive_closed_union_coverage"],
+      "boundary_tests": ["patterns_use_constant_paths_for_boolean_coverage"],
+      "published": ["CheckedPatterns"]
     },
     {
       "name": "control-flow-and-refinement",
       "production": ["check_control_flow", "check_refinements"],
       "diagnostic_source_tests": ["storage_plans_retain_recovery_without_panicking"],
-      "valid_source_tests": ["refinement_facts_are_lazy_cached_and_retain_branch_conditions"],
+      "valid_source_tests": ["refinements_are_lazy_cached_and_retain_branch_conditions"],
       "boundary_tests": ["recovered_nodes_produce_typed_recovery_operations_edges_and_exits"],
-      "published": ["CheckedControlFlow", "CheckedRefinementFacts"]
+      "published": ["CheckedControlFlow", "CheckedRefinements"]
     },
     {
       "name": "storage-planning",
@@ -155,7 +155,7 @@
       ],
       "valid_source_tests": ["storage_flow_accepts_mutation_through_mutable_borrow_parameter"],
       "boundary_tests": ["mutable_borrows_supply_their_own_exclusive_authority"],
-      "published": ["StorageFlowFacts"]
+      "published": ["StorageFlow"]
     },
     {
       "name": "liveness-and-lifecycle",
@@ -163,15 +163,15 @@
       "diagnostic_source_tests": ["storage_plans_retain_recovery_without_panicking"],
       "valid_source_tests": ["liveness_converges_conservatively_across_branches_and_loops"],
       "boundary_tests": ["source_surfaces_retain_members_lifecycle_conflicts_and_implementation_metadata"],
-      "published": ["LivenessFacts"]
+      "published": ["Liveness"]
     },
     {
       "name": "asynchronous-semantics",
-      "production": ["check_async_facts"],
-      "diagnostic_source_tests": ["async_facts_report_awaits_in_synchronous_callables"],
-      "valid_source_tests": ["async_facts_respect_anonymous_callable_execution_modes"],
+      "production": ["check_async_analysis"],
+      "diagnostic_source_tests": ["async_analysis_reports_awaits_in_synchronous_callables"],
+      "valid_source_tests": ["async_analysis_respects_anonymous_callable_execution_modes"],
       "boundary_tests": ["async_body_behavior_is_deferred_until_direct_await"],
-      "published": ["CheckedAsyncFacts"]
+      "published": ["CheckedAsync"]
     },
     {
       "name": "dependencies-effects-and-trust",
@@ -187,7 +187,7 @@
       "diagnostic_source_tests": ["callable_contract_predicates_must_be_boolean"],
       "valid_source_tests": ["callable_contracts_retain_checked_predicate_dependencies"],
       "boundary_tests": ["callable_contracts_separate_invocation_and_normal_completion"],
-      "published": ["CallableContractsFact"]
+      "published": ["CallableContractsQuery"]
     },
     {
       "name": "interprocedural-behavior",
@@ -210,14 +210,14 @@
     },
     {
       "name": "products-entrypoints-and-exports",
-      "production": ["product_semantic_facts_with_cancellation"],
+      "production": ["product_semantics_with_cancellation"],
       "diagnostic_source_tests": [
         "executable_entrypoint_selection_reports_missing_and_duplicate_roots",
         "non_executable_products_reject_entrypoint_directives"
       ],
       "valid_source_tests": ["test_products_publish_valid_async_test_entries"],
       "boundary_tests": ["only_library_products_can_publish_interfaces"],
-      "published": ["ProductSemanticFacts"]
+      "published": ["ProductSemantics"]
     },
     {
       "name": "checked-publication-boundary",
@@ -233,8 +233,8 @@
       "name": "selected-targets",
       "production": ["TargetProfile"],
       "tests": [
-        "constant_instance_fact_keys_include_the_complete_target_profile",
-        "target_changes_invalidate_target_facts_without_invalidating_syntax"
+        "constant_instance_semantic_keys_include_the_complete_target_profile",
+        "target_changes_invalidate_target_properties_without_invalidating_syntax"
       ]
     },
     {
@@ -242,7 +242,7 @@
       "production": ["ProductKind"],
       "tests": [
         "test_only_source_units_contribute_only_to_test_products",
-        "product_changes_invalidate_product_facts_without_invalidating_other_inputs"
+        "product_changes_invalidate_product_semantics_without_invalidating_other_inputs"
       ]
     },
     {
@@ -250,7 +250,7 @@
       "production": ["FactCell"],
       "tests": [
         "narrow_queries_do_not_bind_unrelated_bodies_or_request_package_diagnostics",
-        "updated_snapshots_do_not_eagerly_demand_semantic_facts"
+        "updated_snapshots_do_not_eagerly_demand_semantics"
       ]
     },
     {
@@ -265,7 +265,7 @@
       "name": "worker-counts",
       "production": ["WorkerBudget"],
       "tests": [
-        "worker_budget_changes_reuse_semantic_facts_with_forked_values",
+        "worker_budget_changes_reuse_semantics_with_forked_values",
         "template_construction_is_deterministic_across_workers"
       ]
     },
@@ -273,7 +273,7 @@
       "name": "concurrent-requests",
       "production": ["FactRuntime"],
       "tests": [
-        "independent_facts_compute_concurrently",
+        "independent_queries_compute_concurrently",
         "concurrent_requests_compute_one_value",
         "old_and_updated_snapshots_answer_requests_concurrently"
       ]
@@ -283,7 +283,7 @@
       "production": ["DiagnosticResult"],
       "tests": [
         "storage_plans_retain_recovery_without_panicking",
-        "recovered_source_types_publish_error_type_facts"
+        "recovered_source_types_publish_error_types"
       ]
     },
     {

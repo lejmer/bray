@@ -2,7 +2,7 @@ use bray_bound_tree::{MemoryOrder, PointerAddressComparison, VolatileAddressSpac
 use bray_codegen::CodegenFailure;
 use bray_ir::{MirMemoryOperation, MirOperation};
 use bray_symbols::ConstantValueId;
-use bray_target::{TargetArchitecture, TargetControlFacts};
+use bray_target::{TargetArchitecture, TargetControlSupport};
 use inkwell::values::{BasicValue, BasicValueEnum};
 
 use super::super::super::core::UnitTranslator;
@@ -91,11 +91,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        llvm(self.builder.build_int_to_ptr(
-            address,
-            pointer,
-            "pointer.reconstructed.address",
-        ))
+        llvm(
+            self.builder
+                .build_int_to_ptr(address, pointer, "pointer.reconstructed.address"),
+        )
         .map(BasicValueEnum::from)
     }
 
@@ -108,20 +107,23 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let left = self.memory_pointer(left).and_then(|value| self.pointer_address(value))?;
-        let right = self.memory_pointer(right).and_then(|value| self.pointer_address(value))?;
+        let left = self
+            .memory_pointer(left)
+            .and_then(|value| self.pointer_address(value))?;
+
+        let right = self
+            .memory_pointer(right)
+            .and_then(|value| self.pointer_address(value))?;
 
         let predicate = match comparison {
             PointerAddressComparison::Equal => inkwell::IntPredicate::EQ,
             PointerAddressComparison::Less => inkwell::IntPredicate::ULT,
         };
 
-        llvm(self.builder.build_int_compare(
-            predicate,
-            left,
-            right,
-            "pointer.address.compare",
-        ))
+        llvm(
+            self.builder
+                .build_int_compare(predicate, left, right, "pointer.address.compare"),
+        )
         .map(BasicValueEnum::from)
     }
 
@@ -136,10 +138,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let order = llvm_memory_order(order);
 
-        llvm(
-            self.builder
-                .build_fence(order, compiler_only, ""),
-        )?;
+        llvm(self.builder.build_fence(order, compiler_only, ""))?;
 
         Ok(())
     }
@@ -204,7 +203,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         feature: ConstantValueId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let feature = self.constant_string(feature)?;
-        let control = TargetControlFacts::for_profile(self.request.target().profile());
+        let control = TargetControlSupport::for_profile(self.request.target().profile());
 
         Ok(self
             .types

@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_symbols::{
-    GenericArgument, GenericSubstitutionId, NamedTypeSymbolId, StructFieldTypeFact,
-    SymbolFactRequest, TypeData, TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeFact,
+    GenericArgument, GenericSubstitutionId, NamedTypeSymbolId, StructFieldTypeQuery,
+    SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeQuery,
 };
 
 use super::super::Compilation;
@@ -114,24 +114,24 @@ fn named_alignment(
         return Ok(Some(representation_alignment(compilation, role)));
     }
 
-    let facts = compilation.binder_facts(cancellation)?;
+    let binding_context = compilation.binding_context(cancellation)?;
 
     let representation =
         compilation.declared_type_representation_with_cancellation(definition, cancellation)?;
 
     let mut alignment = match definition {
         NamedTypeSymbolId::Struct(structure) => {
-            let structure = facts
+            let structure = binding_context
                 .structure(structure)
-                .map_err(super::super::binder::binder_fact_error)?
+                .map_err(super::super::binder::binding_query_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let mut alignments = Vec::with_capacity(structure.fields().len());
 
             for field in structure.fields() {
-                let field = facts
-                    .symbol_fact(SymbolFactRequest::<StructFieldTypeFact>::new(*field))
-                    .map_err(super::super::binder::binder_fact_error)?;
+                let field = binding_context
+                    .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(*field))
+                    .map_err(super::super::binder::binding_query_error)?;
 
                 let Some(alignment) = resolve_member_alignment(
                     compilation,
@@ -150,9 +150,9 @@ fn named_alignment(
             alignments.into_iter().max().unwrap_or(NonZeroU64::MIN)
         }
         NamedTypeSymbolId::Union(union) => {
-            let union = facts
+            let union = binding_context
                 .union(union)
-                .map_err(super::super::binder::binder_fact_error)?
+                .map_err(super::super::binder::binding_query_error)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let mut alignment = match representation.value().union_tag_type() {
@@ -169,15 +169,17 @@ fn named_alignment(
             };
 
             for variant in union.variants() {
-                let variant = facts
+                let variant = binding_context
                     .union_variant(*variant)
-                    .map_err(super::super::binder::binder_fact_error)?
+                    .map_err(super::super::binder::binding_query_error)?
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 for field in variant.payload_fields() {
-                    let field = facts
-                        .symbol_fact(SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(*field))
-                        .map_err(super::super::binder::binder_fact_error)?;
+                    let field = binding_context
+                        .resolve_symbol_query(
+                            SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(*field),
+                        )
+                        .map_err(super::super::binder::binding_query_error)?;
 
                     let Some(member_alignment) = resolve_member_alignment(
                         compilation,
@@ -238,7 +240,7 @@ fn atomic_alignment(
             .selected_target()
             .target()
             .profile()
-            .facts()
+            .properties()
             .atomics()
             .representation(representation)
             .required_alignment(),
@@ -303,7 +305,7 @@ fn representation_alignment(
             .selected_target()
             .target()
             .profile()
-            .facts()
+            .properties()
             .scalars()
             .alignment(scalar);
     }
@@ -416,7 +418,7 @@ mod tests {
             .selected_target()
             .target()
             .profile()
-            .facts()
+            .properties()
             .atomics()
             .representation(bray_target::TargetAtomicRepresentation::U64)
             .required_alignment();

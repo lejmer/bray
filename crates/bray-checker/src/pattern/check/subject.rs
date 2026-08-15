@@ -5,22 +5,23 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     AnySymbolId, CallablePosition, GenericSubstitutionId, MemberLookupResult, NamedTypeSymbolId,
-    StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, TypeData, TypeExpressionTemplate,
-    TypeId, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeFact, UnionVariantSymbolId,
+    StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest, TypeData,
+    TypeExpressionTemplate, TypeId, UnionPayloadFieldSymbolId, UnionPayloadFieldTypeQuery,
+    UnionVariantSymbolId,
 };
 
 use super::result::{effective_pattern_kind, symbol_ordinal};
 use super::state::{PatternChecker, PatternChildren, PatternSubject, available_dependency};
 use crate::{
-    CheckerFactError, CheckerInfrastructureError, CheckerRequestContext,
-    CheckerSemanticFactProvider, resolve_type_expression_template,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, resolve_type_expression_template,
 };
 
 impl<C> PatternChecker<'_, '_, C>
 where
     C: CheckerRequestContext
-        + CheckerSemanticFactProvider<StructFieldTypeFact>
-        + CheckerSemanticFactProvider<UnionPayloadFieldTypeFact>
+        + CheckerSemanticQueryProvider<StructFieldTypeQuery>
+        + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
     pub(super) fn child_subjects(
@@ -148,7 +149,7 @@ where
                     };
 
                     let subject = self.field_subject(
-                        SymbolFactRequest::<StructFieldTypeFact>::new(field),
+                        SymbolQueryRequest::<StructFieldTypeQuery>::new(field),
                         *substitution,
                     )?;
 
@@ -193,7 +194,7 @@ where
                     };
 
                     let subject = self.field_subject(
-                        SymbolFactRequest::<UnionPayloadFieldTypeFact>::new(field),
+                        SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(field),
                         *substitution,
                     )?;
 
@@ -301,17 +302,17 @@ where
 
     fn field_subject<F>(
         &mut self,
-        request: SymbolFactRequest<F>,
+        request: SymbolQueryRequest<F>,
         substitution: GenericSubstitutionId,
     ) -> Result<PatternSubject, CheckerInfrastructureError>
     where
-        F: SymbolFactContract<Value = TypeExpressionTemplate>,
-        C: CheckerSemanticFactProvider<F>,
+        F: SymbolQueryContract<Value = TypeExpressionTemplate>,
+        C: CheckerSemanticQueryProvider<F>,
     {
-        let result = match self.request.symbol_fact(request) {
+        let result = match self.request.resolve_symbol_query(request) {
             Ok(result) => result,
-            Err(CheckerFactError::Cancelled) => return Ok(self.recovered_subject()),
-            Err(CheckerFactError::Infrastructure(error)) => return Err(error),
+            Err(CheckerQueryError::Cancelled) => return Ok(self.recovered_subject()),
+            Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
         };
 
         self.diagnostics
@@ -332,8 +333,8 @@ where
     ) -> Result<PatternSubject, CheckerInfrastructureError> {
         let constants = match self.request.checked_constant_terms(template) {
             Ok(constants) => constants,
-            Err(CheckerFactError::Cancelled) => return Ok(self.recovered_subject()),
-            Err(CheckerFactError::Infrastructure(error)) => return Err(error),
+            Err(CheckerQueryError::Cancelled) => return Ok(self.recovered_subject()),
+            Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
         };
 
         is_recovered |= constants.diagnostics().has_errors();

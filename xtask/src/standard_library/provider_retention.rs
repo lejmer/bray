@@ -24,11 +24,8 @@ pub(super) fn audit(
     toolchain: &Path,
     target: NativeTarget,
 ) -> Result<(), BuildError> {
-    let standard_stream = platform_archive(
-        toolchain,
-        target,
-        PlatformServiceRole::StandardOutputWrite,
-    )?;
+    let standard_stream =
+        platform_archive(toolchain, target, PlatformServiceRole::StandardOutputWrite)?;
 
     let temporal = platform_archive(toolchain, target, PlatformServiceRole::TimeDateValidate)?;
     let temporal_include = root.join("crates/bray-platform-abi/native/temporal/include");
@@ -140,10 +137,7 @@ fn platform_archive(
         .iter()
         .find(|artifact| {
             artifact.kind() == StandardLibraryArtifactKind::PlatformServiceLibrary
-                && artifact
-                    .platform_services()
-                    .binary_search(&role)
-                    .is_ok()
+                && artifact.platform_services().binary_search(&role).is_ok()
         })
         .ok_or_else(|| {
             BuildError::conformance(

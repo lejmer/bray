@@ -1,12 +1,12 @@
-use super::facts::section;
+use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use crate::semantic::codec::common::write_symbol_reference;
 use crate::tag::WireTag;
 use crate::wire::WireEncoder;
-use crate::{InterfaceSectionTag, InterfaceSemanticFacts};
+use crate::{InterfaceSectionTag, InterfaceSemantics};
 
-pub(super) fn encode_fact_directory(facts: &InterfaceSemanticFacts) -> EncodedSemanticSection {
-    let entries = facts.fact_directory();
+pub(super) fn encode_semantic_directory(semantics: &InterfaceSemantics) -> EncodedSemanticSection {
+    let entries = semantics.semantic_directory();
     let mut encoder = WireEncoder::new();
 
     for entry in &*entries {
@@ -17,7 +17,7 @@ pub(super) fn encode_fact_directory(facts: &InterfaceSemanticFacts) -> EncodedSe
     }
 
     section(
-        InterfaceSectionTag::SymbolFactDirectory,
+        InterfaceSectionTag::SemanticRecordDirectory,
         entries.len(),
         encoder,
     )

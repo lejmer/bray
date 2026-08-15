@@ -2,30 +2,31 @@
 
 use std::collections::BTreeSet;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
     DiagnosticNote, DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_symbols::{
-    AnySymbolId, CallableContractTypeFact, CallableInstanceData, CallableSignatureFact,
-    CallableSymbolId, ConstantDeclaredTypeFact, ConstantProjectionKind, ConstantTermData,
-    ConstantTermId, GenericArgument, GenericArgumentTemplate,
-    GenericConstParameterDeclaredTypeFact, GenericSubstitutionId, ImplementationInstanceId,
-    InherentTypeMemberValueFact, PredicateDefinitionSymbolId, PredicateSignatureTemplateFact,
-    SemanticValueStore, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest, SymbolGraph,
-    SymbolKey, SymbolOrigin, TraitApplicationId, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantMemberDeclaredTypeFact, TraitTypeFulfillmentValueFact, TypeData,
-    TypeExpressionTemplate, TypeId, UnionPayloadFieldTypeFact,
+    AnySymbolId, CallableContractTypeQuery, CallableInstanceData, CallableSignatureQuery,
+    CallableSymbolId, ConstantDeclaredTypeQuery, ConstantField, ConstantProjectionKind,
+    ConstantTermData, ConstantTermId, GenericArgument, GenericArgumentTemplate,
+    GenericConstParameterDeclaredTypeQuery, GenericSubstitutionId, ImplementationInstanceId,
+    InherentTypeMemberValueQuery, PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery,
+    SemanticValueStore, StructFieldTypeQuery, SymbolGraph, SymbolKey, SymbolOrigin,
+    SymbolQueryContract, SymbolQueryRequest, TraitApplicationId,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
+    TraitTypeFulfillmentValueQuery, TypeData, TypeExpressionTemplate, TypeId,
+    UnionPayloadFieldTypeQuery,
 };
 
-use crate::compilation::binder::{CompilationBinderFacts, binder_fact_error};
+use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
 use crate::compilation::diagnostics::source_diagnostic;
 use crate::fact::FactQueryError;
 
 pub(super) fn validate_public_surface(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
@@ -36,7 +37,7 @@ pub(super) fn validate_public_surface(
 
     for symbol in public_symbols {
         let exposes_internal = match *symbol {
-            AnySymbolId::Constant(owner) => validate_type_fact::<ConstantDeclaredTypeFact>(
+            AnySymbolId::Constant(owner) => validate_type_template::<ConstantDeclaredTypeQuery>(
                 binder,
                 owner,
                 semantic_values,
@@ -45,7 +46,7 @@ pub(super) fn validate_public_surface(
                 diagnostics,
             )?,
             AnySymbolId::TraitConstantMember(owner) => {
-                validate_type_fact::<TraitConstantMemberDeclaredTypeFact>(
+                validate_type_template::<TraitConstantMemberDeclaredTypeQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -55,7 +56,7 @@ pub(super) fn validate_public_surface(
                 )?
             }
             AnySymbolId::TraitConstantFulfillment(owner) => {
-                validate_type_fact::<TraitConstantFulfillmentDeclaredTypeFact>(
+                validate_type_template::<TraitConstantFulfillmentDeclaredTypeQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -65,7 +66,7 @@ pub(super) fn validate_public_surface(
                 )?
             }
             AnySymbolId::GenericConstParameter(owner) => {
-                validate_type_fact::<GenericConstParameterDeclaredTypeFact>(
+                validate_type_template::<GenericConstParameterDeclaredTypeQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -74,7 +75,7 @@ pub(super) fn validate_public_surface(
                     diagnostics,
                 )?
             }
-            AnySymbolId::StructField(owner) => validate_type_fact::<StructFieldTypeFact>(
+            AnySymbolId::StructField(owner) => validate_type_template::<StructFieldTypeQuery>(
                 binder,
                 owner,
                 semantic_values,
@@ -83,7 +84,7 @@ pub(super) fn validate_public_surface(
                 diagnostics,
             )?,
             AnySymbolId::UnionPayloadField(owner) => {
-                validate_type_fact::<UnionPayloadFieldTypeFact>(
+                validate_type_template::<UnionPayloadFieldTypeQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -93,7 +94,7 @@ pub(super) fn validate_public_surface(
                 )?
             }
             AnySymbolId::InherentTypeMember(owner) => {
-                validate_type_fact::<InherentTypeMemberValueFact>(
+                validate_type_template::<InherentTypeMemberValueQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -103,7 +104,7 @@ pub(super) fn validate_public_surface(
                 )?
             }
             AnySymbolId::TraitTypeFulfillment(owner) => {
-                validate_type_fact::<TraitTypeFulfillmentValueFact>(
+                validate_type_template::<TraitTypeFulfillmentValueQuery>(
                     binder,
                     owner,
                     semantic_values,
@@ -112,14 +113,16 @@ pub(super) fn validate_public_surface(
                     diagnostics,
                 )?
             }
-            AnySymbolId::CallableContract(owner) => validate_type_fact::<CallableContractTypeFact>(
-                binder,
-                owner,
-                semantic_values,
-                symbols,
-                declarations,
-                diagnostics,
-            )?,
+            AnySymbolId::CallableContract(owner) => {
+                validate_type_template::<CallableContractTypeQuery>(
+                    binder,
+                    owner,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                    diagnostics,
+                )?
+            }
             _ => None,
         };
 
@@ -163,7 +166,7 @@ pub(super) fn validate_public_surface(
 }
 
 fn validate_callable_signature(
-    binder: &CompilationBinderFacts<'_>,
+    binder: &CompilationBindingContext<'_>,
     callable: CallableSymbolId,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
@@ -171,8 +174,8 @@ fn validate_callable_signature(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
     let signature = binder
-        .symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(callable))
-        .map_err(binder_fact_error)?;
+        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
+        .map_err(binding_query_error)?;
 
     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
@@ -185,18 +188,18 @@ fn validate_callable_signature(
 }
 
 fn validate_predicate_signature(
-    binder: &CompilationBinderFacts<'_>,
-    predicate: bray_symbols::PredicateDefinitionSymbolId,
+    binder: &CompilationBindingContext<'_>,
+    predicate: PredicateDefinitionSymbolId,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
     let signature = binder
-        .symbol_fact(SymbolFactRequest::<PredicateSignatureTemplateFact>::new(
+        .resolve_symbol_query(SymbolQueryRequest::<PredicateSignatureTemplateQuery>::new(
             predicate,
         ))
-        .map_err(binder_fact_error)?;
+        .map_err(binding_query_error)?;
 
     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
@@ -205,8 +208,8 @@ fn validate_predicate_signature(
     }))
 }
 
-fn validate_type_fact<C>(
-    binder: &CompilationBinderFacts<'_>,
+fn validate_type_template<C>(
+    binder: &CompilationBindingContext<'_>,
     owner: C::Owner,
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
@@ -214,17 +217,17 @@ fn validate_type_fact<C>(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<AnySymbolId>, FactQueryError>
 where
-    C: SymbolFactContract<Value = TypeExpressionTemplate>,
-    for<'facts> CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
+    C: SymbolQueryContract<Value = TypeExpressionTemplate>,
+    for<'binding> CompilationBindingContext<'binding>: SymbolQueryProvider<C>,
 {
-    let fact = binder
-        .symbol_fact(SymbolFactRequest::<C>::new(owner))
-        .map_err(binder_fact_error)?;
+    let result = binder
+        .resolve_symbol_query(SymbolQueryRequest::<C>::new(owner))
+        .map_err(binding_query_error)?;
 
-    diagnostics.add_range(fact.diagnostics().iter().cloned());
+    diagnostics.add_range(result.diagnostics().iter().cloned());
 
     Ok(template_internal_dependency(
-        fact.value(),
+        result.value(),
         semantic_values,
         symbols,
         declarations,
@@ -299,22 +302,15 @@ fn template_internal_dependency(
                     return Some(definition.into_any());
                 }
 
-                if let Some(internal) = arguments.iter().find_map(|argument| {
-                    resolved_template_argument_internal_dependency(
-                        argument,
-                        semantic_values,
-                        symbols,
-                        declarations,
-                    )
-                }) {
+                if let Some(internal) = template_arguments_internal_dependency(
+                    arguments,
+                    &mut pending,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                ) {
                     return Some(internal);
                 }
-
-                pending.extend(arguments.iter().filter_map(|argument| match argument {
-                    GenericArgumentTemplate::Resolved(_) => None,
-                    GenericArgumentTemplate::Type(ty) => Some(ty),
-                    GenericArgumentTemplate::Constant(_) => None,
-                }));
             }
             TypeExpressionTemplate::TypeValuedMemberProjection {
                 subject,
@@ -329,26 +325,17 @@ fn template_internal_dependency(
                     return Some(application.definition().into());
                 }
 
-                if let Some(internal) = application.arguments().iter().find_map(|argument| {
-                    resolved_template_argument_internal_dependency(
-                        argument,
-                        semantic_values,
-                        symbols,
-                        declarations,
-                    )
-                }) {
-                    return Some(internal);
-                }
-
                 pending.push(subject);
 
-                pending.extend(application.arguments().iter().filter_map(
-                    |argument| match argument {
-                        GenericArgumentTemplate::Resolved(_) => None,
-                        GenericArgumentTemplate::Type(ty) => Some(ty),
-                        GenericArgumentTemplate::Constant(_) => None,
-                    },
-                ));
+                if let Some(internal) = template_arguments_internal_dependency(
+                    application.arguments(),
+                    &mut pending,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                ) {
+                    return Some(internal);
+                }
             }
             TypeExpressionTemplate::Tuple(elements) => pending.extend(elements.iter()),
             TypeExpressionTemplate::Array { element, .. }
@@ -372,29 +359,46 @@ fn template_internal_dependency(
                     return Some(application.definition().into());
                 }
 
-                if let Some(internal) = application.arguments().iter().find_map(|argument| {
-                    resolved_template_argument_internal_dependency(
-                        argument,
-                        semantic_values,
-                        symbols,
-                        declarations,
-                    )
-                }) {
+                if let Some(internal) = template_arguments_internal_dependency(
+                    application.arguments(),
+                    &mut pending,
+                    semantic_values,
+                    symbols,
+                    declarations,
+                ) {
                     return Some(internal);
                 }
-
-                pending.extend(application.arguments().iter().filter_map(
-                    |argument| match argument {
-                        GenericArgumentTemplate::Resolved(_) => None,
-                        GenericArgumentTemplate::Type(ty) => Some(ty),
-                        GenericArgumentTemplate::Constant(_) => None,
-                    },
-                ));
             }
         }
     }
 
     None
+}
+
+fn template_arguments_internal_dependency<'a>(
+    arguments: &'a [GenericArgumentTemplate],
+    pending: &mut Vec<&'a TypeExpressionTemplate>,
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> Option<AnySymbolId> {
+    let internal = arguments.iter().find_map(|argument| {
+        resolved_template_argument_internal_dependency(
+            argument,
+            semantic_values,
+            symbols,
+            declarations,
+        )
+    });
+
+    if internal.is_none() {
+        pending.extend(arguments.iter().filter_map(|argument| match argument {
+            GenericArgumentTemplate::Type(ty) => Some(ty),
+            GenericArgumentTemplate::Resolved(_) | GenericArgumentTemplate::Constant(_) => None,
+        }));
+    }
+
+    internal
 }
 
 fn resolved_template_argument_internal_dependency(
@@ -403,7 +407,7 @@ fn resolved_template_argument_internal_dependency(
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
 ) -> Option<AnySymbolId> {
-    let GenericArgumentTemplate::Resolved(bray_symbols::GenericArgument::Type(ty)) = argument else {
+    let GenericArgumentTemplate::Resolved(GenericArgument::Type(ty)) = argument else {
         return None;
     };
 
@@ -654,7 +658,7 @@ fn constant_term_exposes_internal(
         }
         ConstantTermData::IntegerLiteral { .. } => {}
         ConstantTermData::Parameter(_) => {}
-        ConstantTermData::TargetFact(constant) => {
+        ConstantTermData::TargetProperty(constant) => {
             return source_symbol_is_not_publicly_reachable(
                 (*constant).into(),
                 declarations,
@@ -685,16 +689,10 @@ fn constant_term_exposes_internal(
             );
         }
         ConstantTermData::Product(fields) => {
-            for field in fields.iter() {
-                if source_symbol_is_not_publicly_reachable(
-                    (*field.field()).into(),
-                    declarations,
-                    symbols,
-                ) {
-                    return Some((*field.field()).into());
-                }
-
-                pending.push(SemanticValueDependency::ConstantTerm(*field.value()));
+            if let Some(internal) =
+                constant_fields_expose_internal(fields, pending, symbols, declarations)
+            {
+                return Some(internal);
             }
         }
         ConstantTermData::Union { variant, fields } => {
@@ -702,16 +700,10 @@ fn constant_term_exposes_internal(
                 return Some((*variant).into());
             }
 
-            for field in fields.iter() {
-                if source_symbol_is_not_publicly_reachable(
-                    (*field.field()).into(),
-                    declarations,
-                    symbols,
-                ) {
-                    return Some((*field.field()).into());
-                }
-
-                pending.push(SemanticValueDependency::ConstantTerm(*field.value()));
+            if let Some(internal) =
+                constant_fields_expose_internal(fields, pending, symbols, declarations)
+            {
+                return Some(internal);
             }
         }
         ConstantTermData::DefinitionApplication {
@@ -812,6 +804,28 @@ fn constant_term_exposes_internal(
                 }
             }
         }
+    }
+
+    None
+}
+
+fn constant_fields_expose_internal<I>(
+    fields: &[ConstantField<I, ConstantTermId>],
+    pending: &mut Vec<SemanticValueDependency>,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+) -> Option<AnySymbolId>
+where
+    I: Copy + Into<AnySymbolId>,
+{
+    for entry in fields {
+        let field = (*entry.field()).into();
+
+        if source_symbol_is_not_publicly_reachable(field, declarations, symbols) {
+            return Some(field);
+        }
+
+        pending.push(SemanticValueDependency::ConstantTerm(*entry.value()));
     }
 
     None

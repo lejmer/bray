@@ -504,13 +504,7 @@ fn prepare_controlled_artifacts(
         workload.id,
     )?;
 
-    super::super::peer::rebuild_timed(
-        &root,
-        target,
-        workload.id,
-        inner_iterations,
-        &mut peers,
-    )?;
+    super::super::peer::rebuild_timed(&root, target, workload.id, inner_iterations, &mut peers)?;
 
     Ok(ControlledArtifacts {
         inner_iterations,

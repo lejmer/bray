@@ -1880,9 +1880,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UniqueTestIdentityRequired
         | DiagnosticNoteKind::PublicDependencyRequired
         | DiagnosticNoteKind::ExternalToolExitRequiresCorrection
-        | DiagnosticNoteKind::RuntimeArtifactMustBeUsable => {
-            RenderedDiagnosticNoteKind::Help
-        }
+        | DiagnosticNoteKind::RuntimeArtifactMustBeUsable => RenderedDiagnosticNoteKind::Help,
     }
 }
 

@@ -11,9 +11,9 @@ use bray_platform::{
     NativeStdio, PlatformError, PlatformErrorKind,
 };
 use bray_platform_abi_support::{
-    MemoryRegion, destination_slice, disjoint, mutually_disjoint, native_platform_export,
-    platform_io_error, publish_transfer_count, source_slice, validate_transfer,
-    PROCESS_HANDLE_TAG,
+    MemoryRegion, PROCESS_HANDLE_TAG, destination_slice, disjoint, mutually_disjoint,
+    native_platform_export, platform_io_error, publish_transfer_count, source_slice,
+    validate_transfer,
 };
 use bray_runtime_abi::{
     NativePlatformChildRequest, NativePlatformEnvironmentList, NativePlatformExitStatus,
@@ -370,10 +370,7 @@ fn is_process_stream(id: u64) -> bool {
     })
 }
 
-fn read_process_stream(
-    id: u64,
-    destination: &mut [u8],
-) -> Result<usize, NativePlatformStatus> {
+fn read_process_stream(id: u64, destination: &mut [u8]) -> Result<usize, NativePlatformStatus> {
     let handle = handle(id)?;
 
     let mut handle = handle
@@ -710,17 +707,16 @@ fn platform_error(error: PlatformError) -> NativePlatformStatus {
 mod tests {
     use std::ffi::{OsStr, OsString};
 
+    use bray_platform_abi_support::PROCESS_HANDLE_TAG;
     use bray_runtime_abi::{
         NativePlatformChildRequest, NativePlatformEnvironmentEntry, NativePlatformEnvironmentList,
         NativePlatformExitStatus, NativePlatformSpanList, NativePlatformStatus, NativePlatformText,
     };
-    use bray_platform_abi_support::PROCESS_HANDLE_TAG;
 
     use super::{
         bray_platform_child_dispose, bray_platform_child_reap, bray_platform_child_spawn,
-        bray_platform_child_wait,
-        bray_platform_process_pipe_close, bray_platform_process_pipe_read,
-        bray_platform_process_pipe_write,
+        bray_platform_child_wait, bray_platform_process_pipe_close,
+        bray_platform_process_pipe_read, bray_platform_process_pipe_write,
     };
 
     #[test]
@@ -728,12 +724,7 @@ mod tests {
         let mut transferred = 1;
 
         assert_eq!(
-            bray_platform_process_pipe_read(
-                1,
-                std::ptr::null_mut(),
-                0,
-                &raw mut transferred,
-            ),
+            bray_platform_process_pipe_read(1, std::ptr::null_mut(), 0, &raw mut transferred,),
             NativePlatformStatus::INVALID_INPUT
         );
 

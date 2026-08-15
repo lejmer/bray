@@ -89,7 +89,7 @@ pub(super) fn source_symbol_contribution_gate<'graph>(
 impl Compilation {
     /// Returns enabled source declarations for the selected product and target.
     pub fn product_source_graph(&self) -> Result<&ProductSourceGraph, FactQueryError> {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::ProductSourceGraph,
             &self.state.product_source_graph,
             || self.compute_product_source_graph(),
@@ -107,7 +107,7 @@ impl Compilation {
 
             gate_diagnostics.add_range(gate.diagnostics().iter().cloned());
 
-            // The graph retains each gate after releasing its Arc-backed fact result.
+            // The graph retains each gate after releasing its Arc-backed query result.
             contribution_gates.insert(part.syntax_anchor(), gate.value().clone());
         }
 

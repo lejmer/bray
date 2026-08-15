@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundUnitId, BoundUnitKey,
 };
-use bray_symbols::{CallableExecution, CallableSignatureFact};
+use bray_symbols::{CallableExecution, CallableSignatureQuery};
 use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
 
 use super::BoundUnitBindingError;
@@ -12,7 +12,7 @@ use crate::binder::BinderOutput;
 use crate::publication::{
     assemble_anonymous_callable, assemble_callable_body, direct_nested_units,
 };
-use crate::{BinderFactContext, BoundUnitComputation, SymbolFactProvider};
+use crate::{BindingQueryContext, BoundUnitComputation, SymbolQueryProvider};
 
 /// A bound declared callable body ready to complete its semantic unit.
 pub struct PendingBoundCallableBody {
@@ -65,25 +65,27 @@ impl PendingBoundAnonymousCallable {
 
 /// Binds one declared callable body.
 pub fn bind_callable_body<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<PendingBoundCallableBody, BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
-    C::SymbolFacts: SymbolFactProvider<CallableSignatureFact>,
+    C: BindingQueryContext + ?Sized,
+    C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
-    let body =
-        anchored_descendant::<_, CallableBodyBlockExpressionSyntax>(facts, key.source().syntax())
-            .ok_or(BoundUnitBindingError::MissingSyntax)?;
+    let body = anchored_descendant::<_, CallableBodyBlockExpressionSyntax>(
+        binding_context,
+        key.source().syntax(),
+    )
+    .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
-    let mut binder = super::support::create_binder(facts, unit, key)?;
+    let mut binder = super::support::create_binder(binding_context, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
     let execution = push_callable_inputs(&mut binder, root_scope)?;
 
     let path_context = super::support::path_context(&binder, root_scope)?;
-    let error_type = error_type(facts)?;
+    let error_type = error_type(binding_context)?;
 
     let block = binder
         .bind_callable_body_block(
@@ -124,17 +126,18 @@ where
 
 /// Binds one independently analyzed anonymous callable.
 pub fn bind_anonymous_callable<C>(
-    facts: &C,
+    binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
 ) -> Result<PendingBoundAnonymousCallable, BoundUnitBindingError>
 where
-    C: BinderFactContext + ?Sized,
+    C: BindingQueryContext + ?Sized,
 {
-    let syntax = anchored_descendant::<_, LambdaExpressionSyntax>(facts, key.source().syntax())
-        .ok_or(BoundUnitBindingError::MissingSyntax)?;
+    let syntax =
+        anchored_descendant::<_, LambdaExpressionSyntax>(binding_context, key.source().syntax())
+            .ok_or(BoundUnitBindingError::MissingSyntax)?;
 
-    let mut binder = super::support::create_binder(facts, unit, key)?;
+    let mut binder = super::support::create_binder(binding_context, unit, key)?;
     let root_scope = binder.unit().root_scope();
 
     let boundary = binder
@@ -142,7 +145,7 @@ where
         .map_err(map_binding_error)?;
 
     let path_context = super::support::path_context(&binder, boundary.scope())?;
-    let error_type = error_type(facts)?;
+    let error_type = error_type(binding_context)?;
     let body = syntax.callable_body_block_expression().block_expression();
 
     let block = binder
@@ -189,8 +192,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::bind_callable_body;
-    use crate::BinderFactContext;
-    use crate::fact::test_support::TestFixture;
+    use crate::BindingQueryContext;
+    use crate::query::test_support::TestFixture;
 
     #[test]
     fn production_callable_binding_publishes_a_bound_unit() {
@@ -202,13 +205,17 @@ mod tests {
             "}\n",
         ));
 
-        let facts = fixture.context();
+        let binding_context = fixture.context();
 
-        let (binder, _) = crate::binding::binder_and_block(&facts);
+        let (binder, _) = crate::binding::binder_and_block(&binding_context);
 
         let key = binder.unit().key().clone();
 
-        let pending = match bind_callable_body(&facts, bray_bound_tree::BoundUnitId::new(40), key) {
+        let pending = match bind_callable_body(
+            &binding_context,
+            bray_bound_tree::BoundUnitId::new(40),
+            key,
+        ) {
             Ok(pending) => pending,
             Err(error) => panic!("source callable body must bind: {error:?}"),
         };
@@ -218,13 +225,15 @@ mod tests {
             Err(error) => panic!("source callable body must finalize: {error:?}"),
         };
 
-        let entry =
-            match crate::semantic_unit_context(facts.symbols(), computation.result().value()) {
-                Ok(entry) => entry,
-                Err(error) => {
-                    panic!("source callable body must establish checker entry: {error:?}")
-                }
-            };
+        let entry = match crate::semantic_unit_context(
+            binding_context.symbols(),
+            computation.result().value(),
+        ) {
+            Ok(entry) => entry,
+            Err(error) => {
+                panic!("source callable body must establish checker entry: {error:?}")
+            }
+        };
 
         assert_eq!(
             computation.result().value().unit(),

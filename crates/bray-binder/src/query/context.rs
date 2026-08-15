@@ -1,0 +1,157 @@
+use std::sync::Arc;
+
+use bray_base::Cancellation;
+use bray_declarations::DeclarationTable;
+use bray_diagnostics::DiagnosticResult;
+use bray_symbols::{
+    AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+    ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId, NamedTypeSymbolId,
+    SemanticValueStore, SymbolGraph, SymbolKey, TypeAssociatedSurface,
+};
+use bray_syntax::SyntaxTree;
+use bray_target::TargetProfile;
+
+use crate::{BindingQueryResult, ImportedPathRoot, NameAccess};
+
+/// Injected read-only services available to one binding computation.
+pub trait BindingQueryContext: Send + Sync {
+    /// The origin-neutral provider for symbol-facing semantic queries.
+    type SymbolSemantics: Send + Sync + ?Sized;
+    /// The compilation-owned cancellation observer.
+    type Cancellation: Cancellation + ?Sized;
+
+    /// Returns the immutable syntax input for this compilation snapshot.
+    fn syntax(&self) -> &SyntaxTree;
+
+    /// Returns the immutable declaration-discovery input.
+    fn declarations(&self) -> &DeclarationTable;
+
+    /// Returns the immutable compilation-wide symbol identity graph.
+    fn symbols(&self) -> &SymbolGraph;
+
+    /// Returns one exact symbol's stable semantic key across supported origins.
+    fn symbol_key(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<&SymbolKey>> {
+        Ok(self.symbols().symbol_key(symbol))
+    }
+
+    /// Returns whether recovery contributed to one exact symbol's surface.
+    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<bool>> {
+        Ok(self.symbols().symbol_is_recovered(symbol))
+    }
+
+    /// Returns one exact symbol's immediate semantic owner across supported origins.
+    fn containing_symbol(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<AnySymbolId>> {
+        Ok(self.symbols().containing_symbol(symbol))
+    }
+
+    /// Returns one callable parameter's default provider across supported origins.
+    fn callable_parameter_default_provider(
+        &self,
+        parameter: CallableParameterSymbolId,
+    ) -> BindingQueryResult<Option<CallableParameterDefaultProviderSymbolId>> {
+        Ok(self
+            .symbols()
+            .callable_parameter(parameter)
+            .and_then(|parameter| parameter.default_provider()))
+    }
+
+    /// Returns the declaration evaluated by one runtime-default provider.
+    fn runtime_default_subject(
+        &self,
+        provider: AnySymbolId,
+    ) -> BindingQueryResult<Option<AnySymbolId>> {
+        Ok(self.symbols().runtime_default_subject(provider))
+    }
+
+    /// Resolves one ordinary declaration member across supported symbol origins.
+    fn lookup_member(
+        &self,
+        owner: AnySymbolId,
+        name: &str,
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
+        Ok(self.symbols().lookup_member(owner, name))
+    }
+
+    /// Resolves the longest selected dependency package prefix of a qualified source path.
+    fn imported_path_root(
+        &self,
+        components: &[&str],
+    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>>;
+
+    /// Returns the selected dependencies' immutable imported symbol surface.
+    fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>>;
+
+    /// Resolves one name introduced by a source module export declaration.
+    fn module_re_export_lookup(
+        &self,
+        module: ModuleSymbolId,
+        name: &str,
+        access: NameAccess,
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>>;
+
+    /// Returns the complete declaration-level member surface associated with a named type.
+    fn type_associated_surface(
+        &self,
+        subject: NamedTypeSymbolId,
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeAssociatedSurface>>>;
+
+    /// Returns the canonical semantic value store associated with the symbol graph.
+    fn semantic_values(&self) -> &SemanticValueStore;
+
+    /// Returns the selected language-level target profile.
+    fn selected_target(&self) -> &TargetProfile;
+
+    /// Returns the origin-neutral symbol query provider.
+    fn symbol_semantics(&self) -> &Self::SymbolSemantics;
+
+    /// Returns the cancellation observer for this binding request.
+    fn cancellation(&self) -> &Self::Cancellation;
+
+    /// Returns whether cancellation has been requested.
+    fn is_cancelled(&self) -> bool {
+        self.cancellation().is_cancelled()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::SymbolOrigin;
+
+    use super::BindingQueryContext;
+    use crate::query::test_support::TestFixture;
+
+    #[test]
+    fn contexts_expose_exact_immutable_query_inputs() {
+        let fixture = TestFixture::new();
+        let context = fixture.context();
+
+        assert_eq!(context.syntax().source_units().len(), 1);
+        assert_eq!(context.declarations().declarations().len(), 2);
+
+        assert_eq!(
+            context
+                .symbols()
+                .constants()
+                .iter()
+                .filter(|constant| constant.origin() == SymbolOrigin::Source)
+                .count(),
+            1
+        );
+
+        assert_eq!(context.semantic_values().id(), fixture.semantic_values.id());
+
+        assert_eq!(
+            context.selected_target().identity().as_str(),
+            "x86_64-unknown-linux-gnu"
+        );
+
+        assert!(!context.is_cancelled());
+    }
+
+    #[test]
+    fn contexts_are_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+
+        assert_send_sync::<crate::query::test_support::TestContext<'static>>();
+    }
+}

@@ -393,8 +393,8 @@ pub enum ConstantTermData {
     },
     /// A generic constant parameter.
     Parameter(GenericConstParameterSymbolId),
-    /// A compiler-known target fact represented by its exact constant declaration.
-    TargetFact(ConstantSymbolId),
+    /// A compiler-known target property represented by its exact constant declaration.
+    TargetProperty(ConstantSymbolId),
     /// A selected unary operation.
     Unary {
         /// Exact checked operation.

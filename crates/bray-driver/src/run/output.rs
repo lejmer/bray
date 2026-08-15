@@ -108,12 +108,11 @@ fn write_build_json(
             .map_err(|_| DriverOutputError::DiagnosticOutput(std::io::ErrorKind::InvalidData))?,
     );
 
-    serde_json::to_writer_pretty(&mut *stdout, &report)
-        .map_err(|error| {
-            DriverOutputError::StandardOutput(
-                error.io_error_kind().unwrap_or(std::io::ErrorKind::Other),
-            )
-        })?;
+    serde_json::to_writer_pretty(&mut *stdout, &report).map_err(|error| {
+        DriverOutputError::StandardOutput(
+            error.io_error_kind().unwrap_or(std::io::ErrorKind::Other),
+        )
+    })?;
 
     stdout
         .write_all(b"\n")
@@ -244,8 +243,7 @@ mod tests {
     use std::process::ExitCode;
 
     use bray_diagnostics::{
-        DiagnosticBag, DiagnosticKind, DiagnosticProjectCommandFailure,
-        DiagnosticProjectOperation,
+        DiagnosticBag, DiagnosticKind, DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
     };
     use bray_tooling::OutputFormat;
 
@@ -257,14 +255,11 @@ mod tests {
 
     #[test]
     fn build_json_reports_complete_stable_artifact_paths() {
-        let result = DriverRunResult::new(
-            ExitCode::SUCCESS,
-            DiagnosticBag::new(),
-            OutputFormat::Json,
-        )
-        .with_published_artifacts(vec![PathBuf::from(
-            "build/native/debug/hello_world/application.exe",
-        )]);
+        let result =
+            DriverRunResult::new(ExitCode::SUCCESS, DiagnosticBag::new(), OutputFormat::Json)
+                .with_published_artifacts(vec![PathBuf::from(
+                    "build/native/debug/hello_world/application.exe",
+                )]);
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();

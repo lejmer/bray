@@ -6,7 +6,7 @@ use bray_symbols::LocalScopeId;
 use bray_syntax::{SourceSyntaxNode, StructConstructionBodySyntax};
 
 use super::ExpressionBinder;
-use crate::BinderFactContext;
+use crate::BindingQueryContext;
 use crate::binder::Binder;
 use crate::binding::BindingResult;
 use crate::binding::name::symbol_name;
@@ -20,7 +20,7 @@ impl ExpressionBinder {
         head: Option<BoundExpressionId>,
     ) -> BindingResult<BoundExpressionId>
     where
-        C: BinderFactContext + ?Sized,
+        C: BindingQueryContext + ?Sized,
     {
         let mut fields = Vec::new();
 

@@ -9,8 +9,8 @@ use crate::{
     CodegenCallableMapping, CodegenCallableTarget, CodegenConstantMapping,
     CodegenConstantTermMapping, CodegenDebugLocation, CodegenHelperMapping, CodegenInstanceKey,
     CodegenInstanceTypeMapping, CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping,
-    CodegenTarget, CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
-    CodegenTypeBehavior, CodegenTypeKind, TargetAddressSpaceKind,
+    CodegenTarget, CodegenTerminatorMapping, CodegenTypeBehavior, CodegenTypeKind,
+    CodegenTypeMapping, CodegenUnit, CodegenUnitKey, TargetAddressSpaceKind,
 };
 
 use super::super::demand::{child_constants, demanded_constant_terms, demanded_constants};
@@ -20,7 +20,7 @@ use super::validation::{
     validate_type_coverage, validate_type_structure,
 };
 
-/// Canonical code generation facts demanded by one concrete code generation unit.
+/// Canonical code generation mappings demanded by one concrete code generation unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenMappings {
     unit: CodegenUnitKey,
@@ -89,13 +89,10 @@ impl CodegenMappings {
             return Err(CodegenMappingsBuildError::DuplicateSymbol);
         }
 
-        if constants
-            .windows(2)
-            .any(|pair| {
-                pair[0].value() == pair[1].value()
-                    && pair[0].representation() == pair[1].representation()
-            })
-        {
+        if constants.windows(2).any(|pair| {
+            pair[0].value() == pair[1].value()
+                && pair[0].representation() == pair[1].representation()
+        }) {
             return Err(CodegenMappingsBuildError::DuplicateConstant);
         }
 
@@ -340,9 +337,7 @@ impl CodegenMappings {
         self.constants[start..]
             .iter()
             .take_while(|mapping| mapping.value() == value)
-            .find(|mapping| {
-                mapping.semantic_type() == mapping.representation()
-            })
+            .find(|mapping| mapping.semantic_type() == mapping.representation())
     }
 
     /// Returns immutable semantic data for a demanded constant in any valid use representation.
@@ -422,7 +417,7 @@ impl CodegenMappings {
             .map(|index| &self.operations[index])
     }
 
-    /// Returns extra realization facts for one block terminator.
+    /// Returns extra realization inputs for one block terminator.
     pub fn terminator(
         &self,
         owner: &CodegenInstanceKey,
@@ -814,7 +809,7 @@ mod tests {
     };
 
     #[test]
-    fn mappings_are_canonical_independently_of_fact_order() {
+    fn mappings_are_canonical_independently_of_input_order() {
         let fixture = codegen_request();
         let request = fixture.request();
         let mappings = request.mappings();
@@ -1084,9 +1079,7 @@ mod tests {
             CodegenTypeMapping::new(
                 unrelated,
                 layout,
-                CodegenTypeKind::UnsignedInteger(
-                    NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN),
-                ),
+                CodegenTypeKind::UnsignedInteger(NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN)),
             ),
         ];
 
@@ -1100,11 +1093,8 @@ mod tests {
 
         let owned = CodegenConstantMapping::new(value, data.clone());
 
-        let borrowed = CodegenConstantMapping::with_representation(
-            value,
-            data.clone(),
-            borrowed_string,
-        );
+        let borrowed =
+            CodegenConstantMapping::with_representation(value, data.clone(), borrowed_string);
 
         let invalid = CodegenConstantMapping::with_representation(value, data, unrelated);
 
@@ -1196,9 +1186,7 @@ mod tests {
             CodegenTypeMapping::new(
                 unrelated,
                 layout,
-                CodegenTypeKind::UnsignedInteger(
-                    NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN),
-                ),
+                CodegenTypeKind::UnsignedInteger(NonZeroU16::new(64).unwrap_or(NonZeroU16::MIN)),
             ),
         ];
 

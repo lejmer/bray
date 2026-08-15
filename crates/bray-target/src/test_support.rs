@@ -1,7 +1,7 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
 use crate::{
-    Endianness, ObjectFormat, TargetArchitecture, TargetCAbiFacts, TargetIdentity,
+    Endianness, ObjectFormat, TargetArchitecture, TargetCDataModel, TargetIdentity,
     TargetMachineProperties, TargetProfile, TargetScalarKind,
 };
 
@@ -11,29 +11,30 @@ pub fn test_target_profile() -> TargetProfile {
         panic!("test target identity must be valid");
     };
 
-    match TargetProfile::try_new(identity, test_target_machine(), test_target_facts()) {
+    match TargetProfile::try_new(identity, test_target_machine(), test_target_properties()) {
         Ok(profile) => profile,
         Err(error) => panic!("test target profile must be valid: {error:?}"),
     }
 }
 
-/// Returns the canonical language-defined target facts used by compiler tests.
-pub fn test_target_facts() -> crate::TargetFacts {
-    let c_abi = TargetCAbiFacts::try_new(
+/// Returns the canonical language-defined target properties used by compiler tests.
+pub fn test_target_properties() -> crate::TargetProperties {
+    let c_abi = TargetCDataModel::try_new(
         TargetScalarKind::I8,
         TargetScalarKind::I64,
         TargetScalarKind::U64,
         TargetScalarKind::I32,
         None,
     )
-    .unwrap_or_else(|| panic!("test C ABI facts must be valid"));
+    .unwrap_or_else(|| panic!("test C ABI properties must be valid"));
 
-    let Some(facts) = crate::TargetFacts::try_portable("unknown", "linux", "gnu", "gnu", c_abi)
+    let Some(properties) =
+        crate::TargetProperties::try_portable("unknown", "linux", "gnu", "gnu", c_abi)
     else {
-        panic!("test target facts must be valid");
+        panic!("test target properties must be valid");
     };
 
-    facts
+    properties
 }
 
 /// Returns canonical x86-64 target-machine properties for compiler tests.

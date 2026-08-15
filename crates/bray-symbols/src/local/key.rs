@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 use bray_declarations::SyntaxAnchor;
 
-use crate::{SymbolFactKind, SymbolKey, SymbolKind, SymbolOrdinal};
+use crate::{SymbolKey, SymbolKind, SymbolOrdinal, SymbolQueryKind};
 
 /// Classifies the semantic work that owns one local symbol region.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -16,8 +16,8 @@ pub enum LocalSymbolRegionRole {
     EmbeddedConstant,
     /// A module contribution target-selection expression.
     TargetGate,
-    /// A declaration-owned checked expression fact.
-    DeclarationFact(SymbolFactKind),
+    /// A declaration-owned checked expression query.
+    DeclarationQuery(SymbolQueryKind),
 }
 
 /// A deterministic key for one local semantic region.

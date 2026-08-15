@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn async_link_forwards_resolved_host_runtime_and_companion_facts() {
+    fn async_link_forwards_resolved_host_runtime_and_companion_inputs() {
         let driver = Arc::new(RecordingDriver::completing());
         let linker = linker(Arc::clone(&driver) as Arc<dyn LinkerDriver>);
         let runtime = runtime_artifact_id();

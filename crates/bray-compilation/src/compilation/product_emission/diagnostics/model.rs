@@ -62,24 +62,24 @@ pub enum ProductEmissionErrorKind {
         /// Product category loaded by the compilation.
         selected_kind: bray_symbols::ProductKind,
     },
-    /// The request or output facts differ from the compilation target.
+    /// The request or output inputs differ from the compilation target.
     TargetMismatch {
         /// Target named by the emission request.
         requested: TargetIdentity,
         /// Target selected by the compilation.
         selected: TargetIdentity,
     },
-    /// A package-interface artifact was requested without a configured export fact.
+    /// A package-interface artifact was requested without a configured export input.
     PackageInterfaceUnavailable,
-    /// The configured package-interface fact could not be completed.
+    /// The configured package-interface input could not be completed.
     PackageInterface(PackageInterfaceExportError),
-    /// The completed package-interface fact could not be encoded.
+    /// The completed package-interface input could not be encoded.
     PackageInterfaceEncoding(InterfaceValidationError),
     /// The implementation payload companion could not be assembled.
     PackageImplementation(bray_package_interface::PackageImplementationArtifactBuildError),
     /// The implementation companion cannot be represented as artifact content.
     PackageImplementationContent(bray_codegen::ArtifactContentBuildError),
-    /// Immutable emitter planning rejected the selected request and producer facts.
+    /// Immutable emitter planning rejected the selected request and producer inputs.
     Planning(EmissionPlanningError),
     /// An executable plan does not request its generated host-stub codegen unit.
     MissingExecutableHost,
@@ -89,15 +89,15 @@ pub enum ProductEmissionErrorKind {
     InvalidCompilation,
     /// Planned lazy code generation could not produce complete contributions.
     Codegen(EmissionCodegenError),
-    /// A linked plan has no linker and resolved product link facts.
+    /// A linked plan has no linker and resolved product link inputs.
     MissingLinker,
     /// Link inputs were supplied for a plan without a linked product.
     UnexpectedLinker,
     /// Emitter-owned native input or output staging failed.
     Staging(LinkStagingError),
-    /// Resolved product, runtime, staging, and target facts could not form a link plan.
+    /// Resolved product, runtime, staging, and target properties could not form a link plan.
     LinkPlan(LinkPlanConstructionError),
-    /// Lazy fact or bounded operation scheduling failed.
+    /// Lazy input or bounded operation scheduling failed.
     Query(FactQueryError),
     /// Emitter outcome diagnostics contradicted the claimed terminal status.
     Outcome(bray_emitter::EmissionOutcomeBuildError),

@@ -8,7 +8,7 @@ use bray_symbols::{
     PackageIdentity, StructSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 
-use super::super::{CodegenFactError, Compilation};
+use super::super::{CodegenPreparationError, Compilation};
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,7 +74,7 @@ impl Compilation {
         &self,
         reference: &MirHelperReference,
         cancellation: &CancellationToken,
-    ) -> Result<bool, CodegenFactError> {
+    ) -> Result<bool, CodegenPreparationError> {
         let role = MirGeneratedLifecycleRole::from_reference(reference)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -91,7 +91,7 @@ impl Compilation {
         &self,
         ty: TypeId,
         cancellation: &CancellationToken,
-    ) -> Result<CodegenLifecycleNeeds, CodegenFactError> {
+    ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         if let Some(needs) = self.cached_lifecycle_needs(ty)? {
             return Ok(needs);
         }
@@ -117,7 +117,7 @@ impl Compilation {
         cancellation: &CancellationToken,
         active: &mut BTreeSet<TypeId>,
         computed: &mut BTreeMap<TypeId, CodegenLifecycleNeeds>,
-    ) -> Result<CodegenLifecycleNeeds, CodegenFactError> {
+    ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         cancellation.check()?;
 
         if let Some(needs) = computed
@@ -209,7 +209,7 @@ impl Compilation {
         cancellation: &CancellationToken,
         active: &mut BTreeSet<TypeId>,
         computed: &mut BTreeMap<TypeId, CodegenLifecycleNeeds>,
-    ) -> Result<CodegenLifecycleNeeds, CodegenFactError> {
+    ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         if let Some(needs) = self.compiler_known_lifecycle_needs(definition) {
             return Ok(needs);
         }
@@ -292,7 +292,7 @@ impl Compilation {
         cancellation: &CancellationToken,
         active: &mut BTreeSet<TypeId>,
         computed: &mut BTreeMap<TypeId, CodegenLifecycleNeeds>,
-    ) -> Result<CodegenLifecycleNeeds, CodegenFactError> {
+    ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         let mut needs = CodegenLifecycleNeeds::NONE;
 
         for child in children {
@@ -314,7 +314,7 @@ impl Compilation {
         cancellation: &CancellationToken,
         active: &mut BTreeSet<TypeId>,
         computed: &mut BTreeMap<TypeId, CodegenLifecycleNeeds>,
-    ) -> Result<CodegenLifecycleNeeds, CodegenFactError> {
+    ) -> Result<CodegenLifecycleNeeds, CodegenPreparationError> {
         let mut needs = CodegenLifecycleNeeds::NONE;
 
         for template in children {
@@ -381,7 +381,7 @@ impl Compilation {
         definition: NamedTypeSymbolId,
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
-    ) -> Result<Option<TypeId>, CodegenFactError> {
+    ) -> Result<Option<TypeId>, CodegenPreparationError> {
         let Some(key) = RecognizedStandardLibraryDeclarationKey::try_new("StandardRawBuffer")
         else {
             return Err(FactQueryError::InfrastructureFailure.into());

@@ -1,38 +1,39 @@
 use std::sync::Arc;
 
-use bray_binder::{BinderFactResult, SymbolFactProvider};
+use bray_binder::{BindingQueryResult, SymbolQueryProvider};
 use bray_symbols::{
-    CallableContractTemplateFact, CallableContractTypeFact, CallableContractsFact,
-    CallableOverloadTemplateFact, CallableParameterDefaultFact,
-    CallableParameterDefaultTemplateFact, CallableSignatureFact, ConstantDeclaredTypeFact,
-    ConstantDefinitionFact, DeclarationDirectivesFact, GenericConstParameterDeclaredTypeFact,
-    GenericConstraintsFact, GenericDeclarationTemplateFact, ImplementationCoherenceFact,
-    ImplementationHeadTemplateFact, ImplementationOverloadTemplateFact, ImplementationSubjectFact,
-    ImplementedTraitApplicationFact, InherentTypeMemberValueFact, ModuleSurfaceFact,
-    PredicateDefinitionFact, PredicateSignatureTemplateFact, StructFieldDefaultFact,
-    StructFieldDefaultTemplateFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    SymbolFactResult, TraitConstantFulfillmentDeclaredTypeFact,
-    TraitConstantFulfillmentDefinitionFact, TraitConstantMemberDeclaredTypeFact,
-    TraitConstantMemberDefinitionFact, TraitPredicateFulfillmentDefinitionFact,
-    TraitPredicateMemberDefinitionFact, TraitTypeFulfillmentValueFact,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldTypeFact,
+    CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery,
+    CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
+    CallableParameterDefaultTemplateQuery, CallableSignatureQuery, ConstantDeclaredTypeQuery,
+    ConstantDefinitionQuery, DeclarationDirectivesQuery, GenericConstParameterDeclaredTypeQuery,
+    GenericConstraintsQuery, GenericDeclarationTemplateQuery, ImplementationCoherenceQuery,
+    ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery,
+    ImplementationSubjectQuery, ImplementedTraitApplicationQuery, InherentTypeMemberValueQuery,
+    ModuleSurfaceQuery, PredicateDefinitionQuery, PredicateSignatureTemplateQuery,
+    StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldTypeQuery,
+    SymbolQueryContract, SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
+    TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDeclaredTypeQuery,
+    TraitConstantMemberDefinitionQuery, TraitPredicateFulfillmentDefinitionQuery,
+    TraitPredicateMemberDefinitionQuery, TraitTypeFulfillmentValueQuery,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
+    UnionPayloadFieldTypeQuery,
 };
 
-use super::super::binder_fact_error;
-use super::super::context::CompilationBinderFacts;
-use super::binding::{CompilationSymbolFactBinding, binder_error};
-use crate::fact::{CompilationFactKey, SymbolFactCache};
+use super::super::binding_query_error;
+use super::super::context::CompilationBindingContext;
+use super::binding::{CompilationSymbolQueryEvaluator, binder_error};
+use crate::fact::{CompilationFactKey, SymbolQueryCache};
 
-macro_rules! define_compilation_symbol_facts {
+macro_rules! define_compilation_symbol_semantics {
     ($($field:ident: $contract:ty),+ $(,)?) => {
-        pub(in crate::compilation) struct CompilationSymbolFacts {
-            $(pub(super) $field: SymbolFactCache<$contract>,)+
+        pub(in crate::compilation) struct CompilationSymbolSemantics {
+            $(pub(super) $field: SymbolQueryCache<$contract>,)+
         }
 
-        impl CompilationSymbolFacts {
+        impl CompilationSymbolSemantics {
             pub(in crate::compilation) fn new() -> Self {
                 Self {
-                    $($field: SymbolFactCache::new(),)+
+                    $($field: SymbolQueryCache::new(),)+
                 }
             }
 
@@ -48,62 +49,64 @@ macro_rules! define_compilation_symbol_facts {
     };
 }
 
-define_compilation_symbol_facts! {
-    module_surfaces: ModuleSurfaceFact,
-    declaration_directives: DeclarationDirectivesFact,
-    generic_constraints: GenericConstraintsFact,
-    generic_declaration_templates: GenericDeclarationTemplateFact,
-    callable_signatures: CallableSignatureFact,
-    callable_contracts: CallableContractsFact,
-    callable_contract_templates: CallableContractTemplateFact,
-    predicate_signature_templates: PredicateSignatureTemplateFact,
-    callable_contract_types: CallableContractTypeFact,
-    constant_declared_types: ConstantDeclaredTypeFact,
-    constant_definitions: ConstantDefinitionFact,
-    generic_const_parameter_declared_types: GenericConstParameterDeclaredTypeFact,
-    trait_constant_member_declared_types: TraitConstantMemberDeclaredTypeFact,
-    trait_constant_member_definitions: TraitConstantMemberDefinitionFact,
-    trait_constant_fulfillment_declared_types: TraitConstantFulfillmentDeclaredTypeFact,
-    trait_constant_fulfillment_definitions: TraitConstantFulfillmentDefinitionFact,
-    struct_field_types: StructFieldTypeFact,
-    union_payload_field_types: UnionPayloadFieldTypeFact,
-    inherent_type_member_values: InherentTypeMemberValueFact,
-    trait_type_fulfillment_values: TraitTypeFulfillmentValueFact,
-    implementation_subjects: ImplementationSubjectFact,
-    implemented_traits: ImplementedTraitApplicationFact,
-    implementation_coherence: ImplementationCoherenceFact,
-    implementation_head_templates: ImplementationHeadTemplateFact,
-    callable_parameter_default_templates: CallableParameterDefaultTemplateFact,
-    callable_parameter_defaults: CallableParameterDefaultFact,
-    struct_field_default_templates: StructFieldDefaultTemplateFact,
-    struct_field_defaults: StructFieldDefaultFact,
-    union_payload_field_default_templates: UnionPayloadFieldDefaultTemplateFact,
-    union_payload_field_defaults: UnionPayloadFieldDefaultFact,
-    predicate_definitions: PredicateDefinitionFact,
-    trait_predicate_member_definitions: TraitPredicateMemberDefinitionFact,
-    trait_predicate_fulfillment_definitions: TraitPredicateFulfillmentDefinitionFact,
-    callable_overload_templates: CallableOverloadTemplateFact,
-    implementation_overload_templates: ImplementationOverloadTemplateFact,
+define_compilation_symbol_semantics! {
+    module_surfaces: ModuleSurfaceQuery,
+    declaration_directives: DeclarationDirectivesQuery,
+    generic_constraints: GenericConstraintsQuery,
+    generic_declaration_templates: GenericDeclarationTemplateQuery,
+    callable_signatures: CallableSignatureQuery,
+    callable_contracts: CallableContractsQuery,
+    callable_contract_templates: CallableContractTemplateQuery,
+    predicate_signature_templates: PredicateSignatureTemplateQuery,
+    callable_contract_types: CallableContractTypeQuery,
+    constant_declared_types: ConstantDeclaredTypeQuery,
+    constant_definitions: ConstantDefinitionQuery,
+    generic_const_parameter_declared_types: GenericConstParameterDeclaredTypeQuery,
+    trait_constant_member_declared_types: TraitConstantMemberDeclaredTypeQuery,
+    trait_constant_member_definitions: TraitConstantMemberDefinitionQuery,
+    trait_constant_fulfillment_declared_types: TraitConstantFulfillmentDeclaredTypeQuery,
+    trait_constant_fulfillment_definitions: TraitConstantFulfillmentDefinitionQuery,
+    struct_field_types: StructFieldTypeQuery,
+    union_payload_field_types: UnionPayloadFieldTypeQuery,
+    inherent_type_member_values: InherentTypeMemberValueQuery,
+    trait_type_fulfillment_values: TraitTypeFulfillmentValueQuery,
+    implementation_subjects: ImplementationSubjectQuery,
+    implemented_traits: ImplementedTraitApplicationQuery,
+    implementation_coherence: ImplementationCoherenceQuery,
+    implementation_head_templates: ImplementationHeadTemplateQuery,
+    callable_parameter_default_templates: CallableParameterDefaultTemplateQuery,
+    callable_parameter_defaults: CallableParameterDefaultQuery,
+    struct_field_default_templates: StructFieldDefaultTemplateQuery,
+    struct_field_defaults: StructFieldDefaultQuery,
+    union_payload_field_default_templates: UnionPayloadFieldDefaultTemplateQuery,
+    union_payload_field_defaults: UnionPayloadFieldDefaultQuery,
+    predicate_definitions: PredicateDefinitionQuery,
+    trait_predicate_member_definitions: TraitPredicateMemberDefinitionQuery,
+    trait_predicate_fulfillment_definitions: TraitPredicateFulfillmentDefinitionQuery,
+    callable_overload_templates: CallableOverloadTemplateQuery,
+    implementation_overload_templates: ImplementationOverloadTemplateQuery,
 }
 
-impl<C> SymbolFactProvider<C> for CompilationBinderFacts<'_>
+impl<C> SymbolQueryProvider<C> for CompilationBindingContext<'_>
 where
-    C: SymbolFactContract,
-    CompilationSymbolFacts: CompilationSymbolFactBinding<C>,
+    C: SymbolQueryContract,
+    CompilationSymbolSemantics: CompilationSymbolQueryEvaluator<C>,
 {
-    fn symbol_fact(
+    fn resolve_symbol_query(
         &self,
-        request: SymbolFactRequest<C>,
-    ) -> BinderFactResult<Arc<SymbolFactResult<C>>> {
-        let facts = self.symbol_facts;
-        let cache = facts.cache();
+        request: SymbolQueryRequest<C>,
+    ) -> BindingQueryResult<
+        Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>,
+    > {
+        let semantics = self.symbol_semantics;
+        let cache = semantics.cache();
 
         cache
             .get_or_compute(
                 &self.compilation.state.fact_runtime,
                 self.cancellation,
                 request,
-                || facts.bind(self, request).map_err(binder_fact_error),
+                || semantics.bind(self, request).map_err(binding_query_error),
             )
             .map_err(binder_error)
     }

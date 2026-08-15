@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use bray_binder::SymbolFactProvider;
+use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractTypeFact, CallableSignatureFact, CallableSignatureTemplate,
-    CallableSymbolId, ConstantDeclaredTypeFact, GenericConstParameterDeclaredTypeFact,
-    InherentTypeMemberValueFact, PredicateDefinitionSymbolId, PredicateSignatureTemplate,
-    PredicateSignatureTemplateFact, StructFieldTypeFact, SymbolFactContract, SymbolFactRequest,
-    TraitConstantFulfillmentDeclaredTypeFact, TraitConstantMemberDeclaredTypeFact,
-    TraitTypeFulfillmentValueFact, TypeExpressionTemplate, UnionPayloadFieldTypeFact,
+    AnySymbolId, CallableContractTypeQuery, CallableSignatureQuery, CallableSignatureTemplate,
+    CallableSymbolId, ConstantDeclaredTypeQuery, GenericConstParameterDeclaredTypeQuery,
+    InherentTypeMemberValueQuery, PredicateDefinitionSymbolId, PredicateSignatureTemplate,
+    PredicateSignatureTemplateQuery, StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest,
+    TraitConstantFulfillmentDeclaredTypeQuery, TraitConstantMemberDeclaredTypeQuery,
+    TraitTypeFulfillmentValueQuery, TypeExpressionTemplate, UnionPayloadFieldTypeQuery,
 };
 
 use super::Compilation;
-use super::binder::{CompilationBinderFacts, binder_fact_error};
+use super::binder::{CompilationBindingContext, binding_query_error};
 use crate::fact::FactQueryError;
 
 impl Compilation {
@@ -25,7 +25,8 @@ impl Compilation {
             return Ok(None);
         };
 
-        self.symbol_fact::<CallableSignatureFact>(owner).map(Some)
+        self.resolve_symbol_query::<CallableSignatureQuery>(owner)
+            .map(Some)
     }
 
     /// Returns one predicate declaration's signature template.
@@ -37,7 +38,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        self.symbol_fact::<PredicateSignatureTemplateFact>(owner)
+        self.resolve_symbol_query::<PredicateSignatureTemplateQuery>(owner)
             .map(Some)
     }
 
@@ -48,48 +49,48 @@ impl Compilation {
     ) -> Result<Option<Arc<DiagnosticResult<TypeExpressionTemplate>>>, FactQueryError> {
         match symbol {
             AnySymbolId::CallableContract(owner) => self
-                .symbol_fact::<CallableContractTypeFact>(owner)
+                .resolve_symbol_query::<CallableContractTypeQuery>(owner)
                 .map(Some),
             AnySymbolId::Constant(owner) => self
-                .symbol_fact::<ConstantDeclaredTypeFact>(owner)
+                .resolve_symbol_query::<ConstantDeclaredTypeQuery>(owner)
                 .map(Some),
             AnySymbolId::GenericConstParameter(owner) => self
-                .symbol_fact::<GenericConstParameterDeclaredTypeFact>(owner)
+                .resolve_symbol_query::<GenericConstParameterDeclaredTypeQuery>(owner)
                 .map(Some),
             AnySymbolId::TraitConstantMember(owner) => self
-                .symbol_fact::<TraitConstantMemberDeclaredTypeFact>(owner)
+                .resolve_symbol_query::<TraitConstantMemberDeclaredTypeQuery>(owner)
                 .map(Some),
             AnySymbolId::TraitConstantFulfillment(owner) => self
-                .symbol_fact::<TraitConstantFulfillmentDeclaredTypeFact>(owner)
+                .resolve_symbol_query::<TraitConstantFulfillmentDeclaredTypeQuery>(owner)
                 .map(Some),
-            AnySymbolId::StructField(owner) => {
-                self.symbol_fact::<StructFieldTypeFact>(owner).map(Some)
-            }
+            AnySymbolId::StructField(owner) => self
+                .resolve_symbol_query::<StructFieldTypeQuery>(owner)
+                .map(Some),
             AnySymbolId::UnionPayloadField(owner) => self
-                .symbol_fact::<UnionPayloadFieldTypeFact>(owner)
+                .resolve_symbol_query::<UnionPayloadFieldTypeQuery>(owner)
                 .map(Some),
             AnySymbolId::InherentTypeMember(owner) => self
-                .symbol_fact::<InherentTypeMemberValueFact>(owner)
+                .resolve_symbol_query::<InherentTypeMemberValueQuery>(owner)
                 .map(Some),
             AnySymbolId::TraitTypeFulfillment(owner) => self
-                .symbol_fact::<TraitTypeFulfillmentValueFact>(owner)
+                .resolve_symbol_query::<TraitTypeFulfillmentValueQuery>(owner)
                 .map(Some),
             _ => Ok(None),
         }
     }
 
-    fn symbol_fact<C>(
+    fn resolve_symbol_query<C>(
         &self,
         owner: C::Owner,
     ) -> Result<Arc<DiagnosticResult<C::Value>>, FactQueryError>
     where
-        C: SymbolFactContract,
-        for<'facts> CompilationBinderFacts<'facts>: SymbolFactProvider<C>,
+        C: SymbolQueryContract,
+        for<'binding_context> CompilationBindingContext<'binding_context>: SymbolQueryProvider<C>,
     {
-        let facts = self.binder_facts(&self.state.cancellation)?;
+        let binding_context = self.binding_context(&self.state.cancellation)?;
 
-        facts
-            .symbol_fact(SymbolFactRequest::<C>::new(owner))
-            .map_err(binder_fact_error)
+        binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<C>::new(owner))
+            .map_err(binding_query_error)
     }
 }

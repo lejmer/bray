@@ -3,26 +3,26 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{
     BoundDependencyContract, BoundDependencyRequirement, BoundDependencyRequirementKind,
     BoundDependencySubject, CheckedDependencyContracts, CheckedSemanticSelections,
-    DependencyContractInstantiationError, SemanticSelection, StorageFlowFacts, StoragePlan,
+    DependencyContractInstantiationError, SemanticSelection, StorageFlow, StoragePlan,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::CallableSignatureFact;
+use bray_symbols::CallableSignatureQuery;
 
 use super::call::{selected_call_contracts, selected_iteration_contract};
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerSemanticFactProvider,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
-    flow: &StorageFlowFacts,
+    flow: &StorageFlow,
 ) -> CheckerOutcome<CheckedDependencyContracts>
 where
-    C: CheckerRequestContext + CheckerSemanticFactProvider<CallableSignatureFact> + ?Sized,
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;
@@ -36,7 +36,7 @@ where
         || flow.kind() != request.unit().key().kind()
     {
         return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidStorageFlowFacts,
+            CheckerInfrastructureError::InvalidStorageFlow,
         );
     }
 
@@ -112,7 +112,7 @@ where
             }
             Err(DependencyContractInstantiationError::ForeignUnit) => {
                 return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidStorageFlowFacts,
+                    CheckerInfrastructureError::InvalidStorageFlow,
                 );
             }
         }
@@ -200,7 +200,7 @@ where
         Ok(contracts) => contracts,
         Err(_) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidStorageFlowFacts,
+                CheckerInfrastructureError::InvalidStorageFlow,
             );
         }
     };

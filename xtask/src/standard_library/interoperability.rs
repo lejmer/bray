@@ -128,73 +128,72 @@ fn audit_target_module(
         )
     })?;
 
-        let bundle = standard_library
-            .package_interface_export_bundle()
-            .ok_or_else(|| {
-                BuildError::conformance(
-                    "foreign interoperability target modules",
-                    format!("{target:?} standard-library interface export is unavailable"),
-                )
-            })?
-            .as_ref()
-            .map_err(|error| {
-                BuildError::conformance(
-                    "foreign interoperability target modules",
-                    format!("could not export {target:?} standard-library interface: {error:?}"),
-                )
-            })?;
-
-        let artifact = encode_package_interface(bundle).map_err(|error| {
+    let bundle = standard_library
+        .package_interface_export_bundle()
+        .ok_or_else(|| {
             BuildError::conformance(
                 "foreign interoperability target modules",
-                format!("could not encode {target:?} standard-library interface: {error:?}"),
+                format!("{target:?} standard-library interface export is unavailable"),
+            )
+        })?
+        .as_ref()
+        .map_err(|error| {
+            BuildError::conformance(
+                "foreign interoperability target modules",
+                format!("could not export {target:?} standard-library interface: {error:?}"),
             )
         })?;
 
-        let dependency = DependencyInterfaceInput::new(
-            artifact.identity().package().clone(),
-            artifact.identity().product().clone(),
-            format!("{}-std.brayi", target.as_str()),
-            artifact.shared_bytes(),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-        );
+    let artifact = encode_package_interface(bundle).map_err(|error| {
+        BuildError::conformance(
+            "foreign interoperability target modules",
+            format!("could not encode {target:?} standard-library interface: {error:?}"),
+        )
+    })?;
 
-        let package = PackageIdentity::try_new("bray.interoperability.audit")
-            .ok_or(BuildError::InvalidIdentity)?;
+    let dependency = DependencyInterfaceInput::new(
+        artifact.identity().package().clone(),
+        artifact.identity().product().clone(),
+        format!("{}-std.brayi", target.as_str()),
+        artifact.shared_bytes(),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    );
 
-        let source = SourceInput::virtual_text(
-            SourceIdentity::new(0),
-            "interoperability-target-audit.bray",
-            SourceVersion::new(0),
-            target_module_audit(target),
-        );
+    let package = PackageIdentity::try_new("bray.interoperability.audit")
+        .ok_or(BuildError::InvalidIdentity)?;
 
-        let options =
-            CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, selected);
+    let source = SourceInput::virtual_text(
+        SourceIdentity::new(0),
+        "interoperability-target-audit.bray",
+        SourceVersion::new(0),
+        target_module_audit(target),
+    );
 
-        let request = CompilationRequest::with_options(package, vec![source], options)
-            .with_dependency_interfaces([dependency]);
+    let options = CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, selected);
 
-        let compilation = Compilation::load(request).map_err(|error| {
-            BuildError::conformance(
-                "foreign interoperability target modules",
-                format!("could not load {target:?} target audit: {error:?}"),
-            )
-        })?;
+    let request = CompilationRequest::with_options(package, vec![source], options)
+        .with_dependency_interfaces([dependency]);
 
-        let diagnostics = compilation.check_diagnostics();
+    let compilation = Compilation::load(request).map_err(|error| {
+        BuildError::conformance(
+            "foreign interoperability target modules",
+            format!("could not load {target:?} target audit: {error:?}"),
+        )
+    })?;
 
-        let unresolved = diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic.kind() == DiagnosticKind::BindingUnresolvedName)
-            .count();
+    let diagnostics = compilation.check_diagnostics();
 
-        if diagnostics.len() != 2 || unresolved != 2 {
-            return Err(BuildError::conformance(
-                "foreign interoperability target modules",
-                format!("{target:?} did not accept only its selected OS module: {diagnostics:?}"),
-            ));
-        }
+    let unresolved = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.kind() == DiagnosticKind::BindingUnresolvedName)
+        .count();
+
+    if diagnostics.len() != 2 || unresolved != 2 {
+        return Err(BuildError::conformance(
+            "foreign interoperability target modules",
+            format!("{target:?} did not accept only its selected OS module: {diagnostics:?}"),
+        ));
+    }
 
     Ok(())
 }
@@ -329,7 +328,7 @@ fn emit_fixture(
     })?;
 
     let product_kind = compilation
-        .product_semantic_facts()
+        .product_semantics()
         .map_err(|error| compilation_error("resolving product semantics", error))?
         .value()
         .kind();

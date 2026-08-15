@@ -1,44 +1,47 @@
-use bray_binder::{BinderFactContext, BinderFactError, BinderFactResult, SymbolFactProvider};
+use bray_binder::{
+    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
+};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, CheckedTemplate, CheckedTemplateKind};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultFact, CallableParameterDefaultSurface,
-    CallableParameterDefaultTemplateFact, CallableParameterDefaultValue, CallableParameterSymbolId,
-    CallableSignatureFact, CheckedCallableParameterDefault, CheckedStructFieldDefault,
-    CheckedUnionPayloadDefault, ErrorCallableParameterDefault, ErrorStructFieldDefault,
-    ErrorUnionPayloadDefault, ExactSymbolId, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, RuntimeDefaultBehavior, RuntimeDefaultGenericContext,
-    RuntimeDefaultOwnership, RuntimeDefaultTemplateReference, StructFieldDefaultFact,
-    StructFieldDefaultSurface, StructFieldDefaultTemplateFact, StructFieldDefaultValue,
-    StructFieldSymbolId, SymbolFactRequest, SymbolFactResult, TrustedCapabilitySymbolId, TypeData,
-    TypeId, UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface, UnionPayloadDefaultValue,
-    UnionPayloadFieldDefaultFact, UnionPayloadFieldDefaultTemplateFact, UnionPayloadFieldSymbolId,
+    AnySymbolId, CallableParameterDefaultQuery, CallableParameterDefaultSurface,
+    CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue,
+    CallableParameterSymbolId, CallableSignatureQuery, CheckedCallableParameterDefault,
+    CheckedStructFieldDefault, CheckedUnionPayloadDefault, ErrorCallableParameterDefault,
+    ErrorStructFieldDefault, ErrorUnionPayloadDefault, ExactSymbolId, GenericOwnerId,
+    GenericParameterSymbolId, GenericSubstitutionData, RuntimeDefaultBehavior,
+    RuntimeDefaultGenericContext, RuntimeDefaultOwnership, RuntimeDefaultTemplateReference,
+    StructFieldDefaultQuery, StructFieldDefaultSurface, StructFieldDefaultTemplateQuery,
+    StructFieldDefaultValue, StructFieldSymbolId, SymbolQueryRequest, TrustedCapabilitySymbolId,
+    TypeData, TypeId, UnevaluatedDefaultTemplate, UnionPayloadDefaultSurface,
+    UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
+    UnionPayloadFieldSymbolId,
 };
 
-use super::super::binding::CompilationSymbolFactBinding;
-use super::super::cache::CompilationSymbolFacts;
+use super::super::binding::CompilationSymbolQueryEvaluator;
+use super::super::cache::CompilationSymbolSemantics;
 use super::super::environment::visible_generic_parameters;
 use super::super::imported::imported_declaration_template;
 use super::lookup::{
     callable_parameter, runtime_default_provider, struct_field, union_payload_field, union_variant,
 };
 use super::shared::{checked_source_expression, syntax_diagnostics};
-use crate::compilation::binder::CompilationBinderFacts;
+use crate::compilation::binder::CompilationBindingContext;
 use crate::compilation::substitution::generic_parameter_argument;
-use crate::fact::SymbolFactCache;
+use crate::fact::SymbolQueryCache;
 
-impl_declaration_body_fact!(
-    CallableParameterDefaultFact,
+impl_declaration_body_query!(
+    CallableParameterDefaultQuery,
     callable_parameter_defaults,
     bind_callable_parameter_default
 );
-impl_declaration_body_fact!(
-    StructFieldDefaultFact,
+impl_declaration_body_query!(
+    StructFieldDefaultQuery,
     struct_field_defaults,
     bind_struct_field_default
 );
-impl_declaration_body_fact!(
-    UnionPayloadFieldDefaultFact,
+impl_declaration_body_query!(
+    UnionPayloadFieldDefaultQuery,
     union_payload_field_defaults,
     bind_union_payload_field_default
 );
@@ -53,11 +56,12 @@ struct RuntimeDefaultSummary {
 }
 
 fn bind_callable_parameter_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: CallableParameterSymbolId,
-) -> BinderFactResult<DiagnosticResult<CheckedCallableParameterDefault>> {
-    let template = context
-        .symbol_fact(SymbolFactRequest::<CallableParameterDefaultTemplateFact>::new(owner))?;
+) -> BindingQueryResult<DiagnosticResult<CheckedCallableParameterDefault>> {
+    let template = context.resolve_symbol_query(SymbolQueryRequest::<
+        CallableParameterDefaultTemplateQuery,
+    >::new(owner))?;
 
     let (default, diagnostics) = checked_runtime_default(
         context,
@@ -69,13 +73,13 @@ fn bind_callable_parameter_default(
 
     let provider =
         bray_symbols::CallableParameterDefaultProviderSymbolId::try_from_any(default.provider)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let parameter = callable_parameter(context, owner)?;
 
-    let signature = context.symbol_fact(SymbolFactRequest::<CallableSignatureFact>::new(
-        parameter.owner(),
-    ))?;
+    let signature = context.resolve_symbol_query(
+        SymbolQueryRequest::<CallableSignatureQuery>::new(parameter.owner()),
+    )?;
 
     let earlier = signature
         .value()
@@ -109,12 +113,12 @@ fn bind_callable_parameter_default(
 }
 
 fn bind_struct_field_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: StructFieldSymbolId,
-) -> BinderFactResult<DiagnosticResult<CheckedStructFieldDefault>> {
-    let template = context.symbol_fact(
-        SymbolFactRequest::<StructFieldDefaultTemplateFact>::new(owner),
-    )?;
+) -> BindingQueryResult<DiagnosticResult<CheckedStructFieldDefault>> {
+    let template = context.resolve_symbol_query(SymbolQueryRequest::<
+        StructFieldDefaultTemplateQuery,
+    >::new(owner))?;
 
     let (default, diagnostics) = checked_runtime_default(
         context,
@@ -125,7 +129,7 @@ fn bind_struct_field_default(
     .into_parts();
 
     let provider = bray_symbols::StructFieldDefaultProviderSymbolId::try_from_any(default.provider)
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let value = if default.is_recovered {
         StructFieldDefaultValue::Error(ErrorStructFieldDefault)
@@ -145,11 +149,12 @@ fn bind_struct_field_default(
 }
 
 fn bind_union_payload_field_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: UnionPayloadFieldSymbolId,
-) -> BinderFactResult<DiagnosticResult<CheckedUnionPayloadDefault>> {
-    let template = context
-        .symbol_fact(SymbolFactRequest::<UnionPayloadFieldDefaultTemplateFact>::new(owner))?;
+) -> BindingQueryResult<DiagnosticResult<CheckedUnionPayloadDefault>> {
+    let template = context.resolve_symbol_query(SymbolQueryRequest::<
+        UnionPayloadFieldDefaultTemplateQuery,
+    >::new(owner))?;
 
     let (default, diagnostics) = checked_runtime_default(
         context,
@@ -161,7 +166,7 @@ fn bind_union_payload_field_default(
 
     let provider =
         bray_symbols::UnionPayloadDefaultProviderSymbolId::try_from_any(default.provider)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let value = if default.is_recovered {
         UnionPayloadDefaultValue::Error(ErrorUnionPayloadDefault)
@@ -181,16 +186,16 @@ fn bind_union_payload_field_default(
 }
 
 fn checked_runtime_default(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     template: UnevaluatedDefaultTemplate,
     template_diagnostics: &DiagnosticBag,
-) -> BinderFactResult<DiagnosticResult<RuntimeDefaultSummary>> {
+) -> BindingQueryResult<DiagnosticResult<RuntimeDefaultSummary>> {
     match template {
-        UnevaluatedDefaultTemplate::Absent => Err(BinderFactError::DependencyUnavailable),
+        UnevaluatedDefaultTemplate::Absent => Err(BindingQueryError::DependencyUnavailable),
         UnevaluatedDefaultTemplate::Present(expression) => {
             let provider = runtime_default_provider(context, owner)?
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             let key = context
                 .compilation()
@@ -235,11 +240,11 @@ fn checked_runtime_default(
         }
         UnevaluatedDefaultTemplate::Resolved => {
             let provider = runtime_default_provider(context, owner)?
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             let address = context
-                .imported_fact_address(provider)?
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .imported_semantic_address(provider)?
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             let imported = imported_declaration_template(
                 context,
@@ -247,12 +252,12 @@ fn checked_runtime_default(
                 CheckedTemplateKind::RuntimeDefault,
             )?;
 
-            let template_fact = imported
+            let template_record = imported
                 .value()
                 .as_ref()
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
-            let checked = template_fact.template();
+            let checked = template_record.template();
             let result = checked_template_result(checked)?;
             let generic_context = imported_generic_context(context, owner, checked)?;
             let behavior = imported_runtime_default_behavior(context, checked, result)?;
@@ -266,7 +271,7 @@ fn checked_runtime_default(
                     behavior,
                     template: RuntimeDefaultTemplateReference::Interface {
                         interface: address.interface(),
-                        entity: template_fact.entity(),
+                        entity: template_record.entity(),
                     },
                     is_recovered: diagnostics.has_errors(),
                 },
@@ -299,9 +304,9 @@ impl crate::compilation::Compilation {
 }
 
 fn source_generic_context(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-) -> BinderFactResult<RuntimeDefaultGenericContext> {
+) -> BindingQueryResult<RuntimeDefaultGenericContext> {
     let parameters = visible_generic_parameters(context.symbols(), owner);
     let declaration = runtime_default_declaration(context, owner)?;
 
@@ -309,13 +314,13 @@ fn source_generic_context(
 }
 
 fn imported_generic_context(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     template: &CheckedTemplate,
-) -> BinderFactResult<RuntimeDefaultGenericContext> {
+) -> BindingQueryResult<RuntimeDefaultGenericContext> {
     let imported = context
         .imported_symbols()?
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let parameters = template
         .inputs()
@@ -331,9 +336,9 @@ fn imported_generic_context(
         })
         .map(|symbol| {
             GenericParameterSymbolId::try_from_any(symbol)
-                .ok_or(BinderFactError::DependencyUnavailable)
+                .ok_or(BindingQueryError::DependencyUnavailable)
         })
-        .collect::<BinderFactResult<Vec<_>>>()?;
+        .collect::<BindingQueryResult<Vec<_>>>()?;
 
     let declaration = runtime_default_declaration(context, owner)?;
 
@@ -341,43 +346,43 @@ fn imported_generic_context(
 }
 
 fn generic_context(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     declaration: AnySymbolId,
     parameters: Vec<GenericParameterSymbolId>,
-) -> BinderFactResult<RuntimeDefaultGenericContext> {
+) -> BindingQueryResult<RuntimeDefaultGenericContext> {
     if parameters.is_empty() {
         return Ok(RuntimeDefaultGenericContext::NonGeneric);
     }
 
     let generic_owner =
-        GenericOwnerId::try_new(declaration).ok_or(BinderFactError::DependencyUnavailable)?;
+        GenericOwnerId::try_new(declaration).ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let arguments = parameters
         .iter()
         .copied()
         .map(|parameter| {
             generic_parameter_argument(context.semantic_values(), parameter)
-                .map_err(|_| BinderFactError::DependencyUnavailable)
+                .map_err(|_| BindingQueryError::DependencyUnavailable)
         })
-        .collect::<BinderFactResult<Vec<_>>>()?;
+        .collect::<BindingQueryResult<Vec<_>>>()?;
 
     let substitution =
         GenericSubstitutionData::try_new(generic_owner, parameters.iter().copied(), arguments)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     let substitution = context
         .semantic_values()
         .intern_generic_substitution(substitution)
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     RuntimeDefaultGenericContext::generic(parameters, substitution)
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
 fn runtime_default_declaration(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-) -> BinderFactResult<AnySymbolId> {
+) -> BindingQueryResult<AnySymbolId> {
     match owner {
         AnySymbolId::CallableParameter(owner) => {
             callable_parameter(context, owner).map(|record| record.owner().into_any())
@@ -391,16 +396,16 @@ fn runtime_default_declaration(
 
             Ok(variant.union().into())
         }
-        _ => Err(BinderFactError::DependencyUnavailable),
+        _ => Err(BindingQueryError::DependencyUnavailable),
     }
 }
 
 fn runtime_default_behavior(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     result: TypeId,
     dependency: bray_symbols::DependencyContractTemplateId,
     body: &bray_bound_tree::CheckedBodyBehavior,
-) -> BinderFactResult<RuntimeDefaultBehavior> {
+) -> BindingQueryResult<RuntimeDefaultBehavior> {
     let ownership = runtime_default_ownership(context, result)?;
 
     Ok(RuntimeDefaultBehavior::new(
@@ -421,13 +426,13 @@ fn runtime_default_behavior(
 }
 
 fn imported_runtime_default_behavior(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     template: &CheckedTemplate,
     result: TypeId,
-) -> BinderFactResult<RuntimeDefaultBehavior> {
+) -> BindingQueryResult<RuntimeDefaultBehavior> {
     let imported = context
         .imported_symbols()?
-        .ok_or(BinderFactError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let behavior = template.behavior();
 
@@ -438,9 +443,9 @@ fn imported_runtime_default_behavior(
         .map(|symbol| {
             symbol
                 .map(bray_symbols::RuntimeDefaultEffectRequirement::new)
-                .ok_or(BinderFactError::DependencyUnavailable)
+                .ok_or(BindingQueryError::DependencyUnavailable)
         })
-        .collect::<BinderFactResult<Vec<_>>>()?;
+        .collect::<BindingQueryResult<Vec<_>>>()?;
 
     let capabilities = behavior
         .capabilities()
@@ -449,9 +454,9 @@ fn imported_runtime_default_behavior(
         .map(|symbol| {
             symbol
                 .map(bray_symbols::RuntimeDefaultCapabilityRequirement::new)
-                .ok_or(BinderFactError::DependencyUnavailable)
+                .ok_or(BindingQueryError::DependencyUnavailable)
         })
-        .collect::<BinderFactResult<Vec<_>>>()?;
+        .collect::<BindingQueryResult<Vec<_>>>()?;
 
     let trusted = behavior
         .trusted_obligations()
@@ -461,9 +466,9 @@ fn imported_runtime_default_behavior(
             symbol
                 .and_then(TrustedCapabilitySymbolId::try_from_any)
                 .map(bray_symbols::RuntimeDefaultTrustedObligation::new)
-                .ok_or(BinderFactError::DependencyUnavailable)
+                .ok_or(BindingQueryError::DependencyUnavailable)
         })
-        .collect::<BinderFactResult<Vec<_>>>()?;
+        .collect::<BindingQueryResult<Vec<_>>>()?;
 
     let ownership = runtime_default_ownership(context, result)?;
 
@@ -478,7 +483,7 @@ fn imported_runtime_default_behavior(
 }
 
 fn imported_template_symbol(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     imported: &bray_symbols::ImportedSymbolSkeleton,
     key: &bray_symbols::SymbolKey,
 ) -> Option<AnySymbolId> {
@@ -489,13 +494,13 @@ fn imported_template_symbol(
 }
 
 fn runtime_default_ownership(
-    context: &CompilationBinderFacts<'_>,
+    context: &CompilationBindingContext<'_>,
     result: TypeId,
-) -> BinderFactResult<RuntimeDefaultOwnership> {
+) -> BindingQueryResult<RuntimeDefaultOwnership> {
     let result = context
         .semantic_values()
         .type_data(result)
-        .map_err(|_| BinderFactError::DependencyUnavailable)?;
+        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     Ok(match result.as_ref() {
         TypeData::Borrow { kind, .. } => RuntimeDefaultOwnership::Borrowed(*kind),
@@ -503,12 +508,12 @@ fn runtime_default_ownership(
     })
 }
 
-fn checked_template_result(template: &CheckedTemplate) -> BinderFactResult<TypeId> {
+fn checked_template_result(template: &CheckedTemplate) -> BindingQueryResult<TypeId> {
     usize::try_from(template.result().raw())
         .ok()
         .and_then(|index| template.nodes().get(index))
         .map(bray_bound_tree::CheckedTemplateNode::ty)
-        .ok_or(BinderFactError::DependencyUnavailable)
+        .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ mod template;
 #[cfg(test)]
 mod test_support;
 
-pub(in crate::compilation) use cache::CompilationSymbolFacts;
+pub(in crate::compilation) use cache::CompilationSymbolSemantics;
 pub(in crate::compilation) use contract::bind_declared_trusted_capabilities;
 pub(in crate::compilation) use directive::bind_module_part_directives_for_selection;
 pub(in crate::compilation) use environment::{

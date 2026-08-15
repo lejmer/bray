@@ -13,7 +13,7 @@ use bray_diagnostics::{
     DiagnosticSemanticContentProblem, DiagnosticSemanticValueKind, SeverityKind,
 };
 use bray_package_interface::{
-    ImportedInterfaceSymbolResolver, ImportedSemanticFact, ImportedSemanticFacts,
+    ImportedInterfaceSymbolResolver, ImportedSemanticRecord, ImportedSemantics,
     ImportedSymbolConstructionError, InterfaceSemanticInternError, InterfaceSymbolReference,
     LoadedInterfaceSurface, PackageInterfaceSurface, ValidatedPackageInterface,
     construct_imported_symbol_skeletons,
@@ -28,7 +28,9 @@ use super::diagnostic::{
     validation_diagnostics,
 };
 use super::model::LoadedDependencyInterface;
-use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticFactKey};
+use crate::fact::{
+    CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey,
+};
 use crate::request::DependencyInterfaceInput;
 
 impl super::super::Compilation {
@@ -76,19 +78,19 @@ impl super::super::Compilation {
         self.imported_symbol_skeleton_result_with_cancellation(&self.state.cancellation)
     }
 
-    /// Returns one exact imported symbol-owned fact category.
-    pub fn imported_semantic_fact_result(
+    /// Returns one exact imported symbol-owned semantic record category.
+    pub fn imported_semantics(
         &self,
-        key: ImportedSemanticFactKey,
-    ) -> Result<Arc<DiagnosticResult<Arc<[ImportedSemanticFact]>>>, FactQueryError> {
-        self.imported_semantic_fact_result_with_cancellation(key, &self.state.cancellation)
+        key: ImportedSemanticRecordKey,
+    ) -> Result<Arc<DiagnosticResult<Arc<[ImportedSemanticRecord]>>>, FactQueryError> {
+        self.imported_semantics_with_cancellation(key, &self.state.cancellation)
     }
 
     pub(in crate::compilation) fn imported_symbol_skeleton_result_with_cancellation(
         &self,
         cancellation: &CancellationToken,
     ) -> Result<&DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>, FactQueryError> {
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::ImportedSymbolSkeleton,
             &self.state.imported_symbol_skeleton,
             cancellation,
@@ -100,7 +102,7 @@ impl super::super::Compilation {
         &self,
         interface: ImportedInterfaceId,
         cancellation: &CancellationToken,
-    ) -> Result<Option<&DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>>, FactQueryError> {
+    ) -> Result<Option<&DiagnosticResult<Option<Arc<ImportedSemantics>>>>, FactQueryError> {
         let Some(index) = interface.to_index() else {
             return Ok(None);
         };
@@ -109,7 +111,7 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::ImportedSemanticGraph(interface),
             cache,
             cancellation,
@@ -118,30 +120,30 @@ impl super::super::Compilation {
         .map(Some)
     }
 
-    pub(in crate::compilation) fn imported_semantic_fact_result_with_cancellation(
+    pub(in crate::compilation) fn imported_semantics_with_cancellation(
         &self,
-        key: ImportedSemanticFactKey,
+        key: ImportedSemanticRecordKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<DiagnosticResult<Arc<[ImportedSemanticFact]>>>, FactQueryError> {
-        let cell = self.state.imported_semantic_facts.cell(key)?;
+    ) -> Result<Arc<DiagnosticResult<Arc<[ImportedSemanticRecord]>>>, FactQueryError> {
+        let cell = self.state.imported_semantics.cell(key)?;
 
         let result = cell.get_or_compute(
             &self.state.fact_runtime,
-            CompilationFactKey::ImportedSemanticFact(key),
+            CompilationFactKey::ImportedSemanticRecord(key),
             cancellation,
             || {
-                self.compute_imported_semantic_fact(key, cancellation)
+                self.compute_imported_semantics(key, cancellation)
                     .map(Arc::new)
             },
         )?;
 
-        // Exact fact results are Arc-backed so callers do not retain the cache-cell map lock.
+        // Exact query results are Arc-backed so callers do not retain the cache-cell map lock.
         Ok(Arc::clone(result))
     }
 
     /// Returns diagnostics owned by all selected compiled dependency interfaces.
     pub fn imported_diagnostics(&self) -> &DiagnosticBag {
-        self.fact(
+        self.evaluate_query(
             CompilationFactKey::ImportedDiagnostics,
             &self.state.imported_diagnostics,
             || self.compute_imported_diagnostics(),
@@ -166,7 +168,7 @@ impl super::super::Compilation {
                 panic!("dependency-interface query infrastructure failed")
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("semantic semantic unit context failed: {error:?}")
+                panic!("semantic unit context failed: {error:?}")
             }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
@@ -191,7 +193,7 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        self.query_fact_with_cancellation(
+        self.query_with_cancellation(
             CompilationFactKey::DependencyInterface(interface),
             cache,
             cancellation,
@@ -236,15 +238,17 @@ impl super::super::Compilation {
                 ));
             };
 
-            let Some(fact) =
+            let Some(interface_result) =
                 self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
             else {
                 return Err(FactQueryError::InfrastructureFailure);
             };
 
-            diagnostics.push(fact.result().diagnostics());
+            diagnostics.push(interface_result.result().diagnostics());
 
-            let (Some(validated), Some(surface)) = (fact.validated(), fact.surface()) else {
+            let (Some(validated), Some(surface)) =
+                (interface_result.validated(), interface_result.surface())
+            else {
                 continue;
             };
 
@@ -302,7 +306,7 @@ impl super::super::Compilation {
         &self,
         interface: ImportedInterfaceId,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>, FactQueryError> {
+    ) -> Result<DiagnosticResult<Option<Arc<ImportedSemantics>>>, FactQueryError> {
         let Some(loaded) =
             self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
         else {
@@ -325,7 +329,7 @@ impl super::super::Compilation {
 
         cancellation.check()?;
 
-        let decoded = match validated.decode_semantic_facts(surface) {
+        let decoded = match validated.decode_semantics(surface) {
             Ok(decoded) => decoded,
             Err(error) => {
                 return Ok(DiagnosticResult::new(
@@ -335,33 +339,33 @@ impl super::super::Compilation {
             }
         };
 
-        self.intern_imported_semantic_facts(interface, input, decoded, skeleton, cancellation)
+        self.intern_imported_semantics(interface, input, decoded, skeleton, cancellation)
     }
 
-    fn compute_imported_semantic_fact(
+    fn compute_imported_semantics(
         &self,
-        key: ImportedSemanticFactKey,
+        key: ImportedSemanticRecordKey,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Arc<[ImportedSemanticFact]>>, FactQueryError> {
+    ) -> Result<DiagnosticResult<Arc<[ImportedSemanticRecord]>>, FactQueryError> {
         if let Some(graph) = self.compute_selected_imported_semantic_graph(key, cancellation)? {
-            return self.imported_semantic_fact_from_graph(key, &graph, cancellation);
+            return self.imported_semantics_from_graph(key, &graph, cancellation);
         }
 
         let graph = self
             .imported_semantic_graph_result_with_cancellation(key.interface(), cancellation)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        self.imported_semantic_fact_from_graph(key, graph, cancellation)
+        self.imported_semantics_from_graph(key, graph, cancellation)
     }
 
-    fn imported_semantic_fact_from_graph(
+    fn imported_semantics_from_graph(
         &self,
-        key: ImportedSemanticFactKey,
-        graph: &DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>,
+        key: ImportedSemanticRecordKey,
+        graph: &DiagnosticResult<Option<Arc<ImportedSemantics>>>,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Arc<[ImportedSemanticFact]>>, FactQueryError> {
+    ) -> Result<DiagnosticResult<Arc<[ImportedSemanticRecord]>>, FactQueryError> {
         let Some(graph) = graph.value() else {
-            // The exact fact owns diagnostics so it can publish independently of the graph cache.
+            // The exact query owns diagnostics so it can publish independently of the graph cache.
             return Ok(DiagnosticResult::new(
                 Arc::from([]),
                 graph.diagnostics().clone(),
@@ -392,15 +396,15 @@ impl super::super::Compilation {
         cancellation.check()?;
 
         Ok(DiagnosticResult::without_diagnostics(
-            graph.symbol_facts(owner, key.kind()).into(),
+            graph.symbol_semantics(owner, key.kind()).into(),
         ))
     }
 
     fn compute_selected_imported_semantic_graph(
         &self,
-        key: ImportedSemanticFactKey,
+        key: ImportedSemanticRecordKey,
         cancellation: &CancellationToken,
-    ) -> Result<Option<DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>>, FactQueryError> {
+    ) -> Result<Option<DiagnosticResult<Option<Arc<ImportedSemantics>>>>, FactQueryError> {
         let loaded = self
             .loaded_dependency_interface_with_cancellation(key.interface(), cancellation)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -422,7 +426,7 @@ impl super::super::Compilation {
         cancellation.check()?;
 
         let decoded =
-            match validated.decode_selected_semantic_fact_graph(surface, key.owner(), key.kind()) {
+            match validated.decode_selected_semantic_graph(surface, key.owner(), key.kind()) {
                 Ok(Some(decoded)) => decoded,
                 Ok(None) => return Ok(None),
                 Err(error) => {
@@ -433,18 +437,18 @@ impl super::super::Compilation {
                 }
             };
 
-        self.intern_imported_semantic_facts(key.interface(), input, decoded, skeleton, cancellation)
+        self.intern_imported_semantics(key.interface(), input, decoded, skeleton, cancellation)
             .map(Some)
     }
 
-    fn intern_imported_semantic_facts(
+    fn intern_imported_semantics(
         &self,
         interface: ImportedInterfaceId,
         input: &DependencyInterfaceInput,
-        decoded: bray_package_interface::InterfaceSemanticFacts,
+        decoded: bray_package_interface::InterfaceSemantics,
         skeleton: &ImportedSymbolSkeleton,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Option<Arc<ImportedSemanticFacts>>>, FactQueryError> {
+    ) -> Result<DiagnosticResult<Option<Arc<ImportedSemantics>>>, FactQueryError> {
         cancellation.check()?;
 
         let interfaces = self
@@ -474,7 +478,9 @@ impl super::super::Compilation {
         cancellation.check()?;
 
         match decoded.intern(semantic_values, &resolver) {
-            Ok(facts) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(facts)))),
+            Ok(semantics) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
+                semantics,
+            )))),
             Err(error) => Ok(DiagnosticResult::new(
                 None,
                 semantic_content_diagnostics(error, input),
@@ -1333,9 +1339,9 @@ mod tests {
         DiagnosticKind,
     };
     use bray_package_interface::{
-        DependencyInterfaceId, ImportedSemanticFact, ImportedSymbolConstructionError,
+        DependencyInterfaceId, ImportedSemanticRecord, ImportedSymbolConstructionError,
         InterfaceContentHash, InterfaceLanguageRevision, InterfacePredicateDefinitionState,
-        InterfaceProductIdentity, InterfaceSemanticFactKind, InterfaceSemanticInternError,
+        InterfaceProductIdentity, InterfaceSemanticInternError, InterfaceSemanticRecordKind,
         InterfaceSymbolReference, InterfaceValidationPolicy,
         test_support::encoded_semantic_test_interface,
     };
@@ -1355,7 +1361,7 @@ mod tests {
     use crate::test_support::diagnostic_kinds;
     use crate::{
         CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput,
-        FactQueryError, ImportedSemanticFactKey,
+        FactQueryError, ImportedSemanticRecordKey,
     };
 
     #[test]
@@ -1719,7 +1725,7 @@ mod tests {
     }
 
     #[test]
-    fn valid_dependencies_publish_cached_skeleton_and_exact_template_facts() {
+    fn valid_dependencies_publish_cached_skeleton_and_exact_template_semantics() {
         let fixture = encoded_semantic_test_interface();
 
         let dependency = DependencyInterfaceInput::new(
@@ -1749,24 +1755,24 @@ mod tests {
 
         assert!(!skeleton.packages().is_empty());
 
-        let key = ImportedSemanticFactKey::new(
+        let key = ImportedSemanticRecordKey::new(
             interface,
             fixture.template_owner,
-            InterfaceSemanticFactKind::DeclarationTemplate,
+            InterfaceSemanticRecordKind::DeclarationTemplate,
         );
 
         let first = compilation
-            .imported_semantic_fact_result(key)
-            .unwrap_or_else(|error| panic!("semantic fact query must complete: {error:?}"));
+            .imported_semantics(key)
+            .unwrap_or_else(|error| panic!("semantic query must complete: {error:?}"));
 
         let second = compilation
-            .imported_semantic_fact_result(key)
-            .unwrap_or_else(|error| panic!("semantic fact query must complete: {error:?}"));
+            .imported_semantics(key)
+            .unwrap_or_else(|error| panic!("semantic query must complete: {error:?}"));
 
         assert!(Arc::ptr_eq(&first, &second));
         assert!(first.diagnostics().is_empty());
 
-        let [ImportedSemanticFact::DeclarationTemplate(template)] = first.value().as_ref() else {
+        let [ImportedSemanticRecord::DeclarationTemplate(template)] = first.value().as_ref() else {
             panic!("exact declaration-template query must publish one template");
         };
 
@@ -1783,15 +1789,15 @@ mod tests {
             CheckedTemplateKind::CallableContract
         );
 
-        let signature_key = ImportedSemanticFactKey::new(
+        let signature_key = ImportedSemanticRecordKey::new(
             interface,
             fixture.template_owner,
-            InterfaceSemanticFactKind::CallableSignature,
+            InterfaceSemanticRecordKind::CallableSignature,
         );
 
         let signatures = std::thread::scope(|scope| {
-            let first = scope.spawn(|| compilation.imported_semantic_fact_result(signature_key));
-            let second = scope.spawn(|| compilation.imported_semantic_fact_result(signature_key));
+            let first = scope.spawn(|| compilation.imported_semantics(signature_key));
+            let second = scope.spawn(|| compilation.imported_semantics(signature_key));
 
             [first, second].map(|thread| {
                 thread
@@ -1807,7 +1813,7 @@ mod tests {
 
         assert!(matches!(
             signatures[0].value().as_ref(),
-            [ImportedSemanticFact::CallableSignature(_)]
+            [ImportedSemanticRecord::CallableSignature(_)]
         ));
 
         let interface_index = interface
@@ -1822,7 +1828,7 @@ mod tests {
     }
 
     #[test]
-    fn predicate_definition_states_decode_without_unrelated_semantic_facts() {
+    fn predicate_definition_states_decode_without_unrelated_semantics() {
         let fixture = encoded_semantic_test_interface();
 
         let dependency = DependencyInterfaceInput::new(
@@ -1851,17 +1857,17 @@ mod tests {
         ];
 
         for (owner, expected) in cases {
-            let key = ImportedSemanticFactKey::new(
+            let key = ImportedSemanticRecordKey::new(
                 interface,
                 owner,
-                InterfaceSemanticFactKind::PredicateDefinition,
+                InterfaceSemanticRecordKind::PredicateDefinition,
             );
 
             let result = compilation
-                .imported_semantic_fact_result(key)
-                .unwrap_or_else(|error| panic!("predicate fact query must complete: {error:?}"));
+                .imported_semantics(key)
+                .unwrap_or_else(|error| panic!("predicate query must complete: {error:?}"));
 
-            let [ImportedSemanticFact::PredicateDefinition(definition)] = result.value().as_ref()
+            let [ImportedSemanticRecord::PredicateDefinition(definition)] = result.value().as_ref()
             else {
                 panic!("exact predicate query must publish one definition state");
             };
@@ -1881,7 +1887,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_header_facts_are_narrow_cached_and_complete() {
+    fn implementation_header_semantics_are_narrow_cached_and_complete() {
         let fixture = encoded_semantic_test_interface();
 
         let dependency = DependencyInterfaceInput::new(
@@ -1898,33 +1904,29 @@ mod tests {
             .dependency_interface_id(&fixture.package, &fixture.product)
             .unwrap_or_else(|| panic!("test dependency interface must have an ID"));
 
-        let implementation_key = ImportedSemanticFactKey::new(
+        let implementation_key = ImportedSemanticRecordKey::new(
             interface,
             fixture.implementation_owner,
-            InterfaceSemanticFactKind::Implementation,
+            InterfaceSemanticRecordKind::Implementation,
         );
 
         let results = std::thread::scope(|scope| {
-            let first =
-                scope.spawn(|| compilation.imported_semantic_fact_result(implementation_key));
+            let first = scope.spawn(|| compilation.imported_semantics(implementation_key));
 
-            let second =
-                scope.spawn(|| compilation.imported_semantic_fact_result(implementation_key));
+            let second = scope.spawn(|| compilation.imported_semantics(implementation_key));
 
             [first, second].map(|thread| {
                 thread
                     .join()
-                    .unwrap_or_else(|_| panic!("implementation fact thread must not panic"))
-                    .unwrap_or_else(|error| {
-                        panic!("implementation fact query must complete: {error:?}")
-                    })
+                    .unwrap_or_else(|_| panic!("implementation query thread must not panic"))
+                    .unwrap_or_else(|error| panic!("implementation query must complete: {error:?}"))
             })
         });
 
         assert!(Arc::ptr_eq(&results[0], &results[1]));
         assert!(results[0].diagnostics().is_empty());
 
-        let [ImportedSemanticFact::Implementation(implementation)] = results[0].value().as_ref()
+        let [ImportedSemanticRecord::Implementation(implementation)] = results[0].value().as_ref()
         else {
             panic!("exact implementation query must publish one header");
         };
@@ -1945,7 +1947,7 @@ mod tests {
     }
 
     #[test]
-    fn cancelled_exact_fact_queries_do_not_publish_results() {
+    fn cancelled_exact_semantic_queries_do_not_publish_results() {
         let fixture = encoded_semantic_test_interface();
 
         let dependency = DependencyInterfaceInput::new(
@@ -1962,10 +1964,10 @@ mod tests {
             .dependency_interface_id(&fixture.package, &fixture.product)
             .unwrap_or_else(|| panic!("test dependency interface must have an ID"));
 
-        let key = ImportedSemanticFactKey::new(
+        let key = ImportedSemanticRecordKey::new(
             interface,
             fixture.template_owner,
-            InterfaceSemanticFactKind::DeclarationTemplate,
+            InterfaceSemanticRecordKind::DeclarationTemplate,
         );
 
         let cancellation = CancellationToken::new();
@@ -1973,12 +1975,12 @@ mod tests {
         cancellation.cancel();
 
         assert_eq!(
-            compilation.imported_semantic_fact_result_with_cancellation(key, &cancellation),
+            compilation.imported_semantics_with_cancellation(key, &cancellation),
             Err(FactQueryError::Cancelled)
         );
 
         assert_eq!(
-            compilation.state.imported_semantic_facts.is_published(&key),
+            compilation.state.imported_semantics.is_published(&key),
             Ok(false)
         );
     }

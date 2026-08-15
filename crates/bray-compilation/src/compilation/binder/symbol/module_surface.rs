@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
-    BinderFactContext, BinderFactError, BinderFactResult, NameAccess,
+    BindingQueryContext, BindingQueryError, BindingQueryResult, NameAccess,
     bind_surface_path_with_re_exports,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord};
@@ -13,32 +13,36 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, MemberLookupResult, MemberVisibility, ModulePathKey, ModuleReExport,
-    ModuleSurface, ModuleSurfaceFact, ModuleSymbolId, ModuleUsing, SymbolFactRequest,
-    SymbolFactResult, SymbolKey, SymbolKeyData, SymbolKind, SymbolName, SymbolRootKey,
+    ModuleSurface, ModuleSurfaceQuery, ModuleSymbolId, ModuleUsing, SymbolKey, SymbolKeyData,
+    SymbolKind, SymbolName, SymbolQueryRequest, SymbolRootKey,
 };
 use bray_syntax::{ExportDeclarationSyntax, PathSyntax, SourceSyntaxNode, UsingDeclarationSyntax};
 
-use super::binding::CompilationSymbolFactBinding;
-use super::cache::CompilationSymbolFacts;
-use crate::compilation::binder::CompilationBinderFacts;
-use crate::fact::SymbolFactCache;
+use super::binding::CompilationSymbolQueryEvaluator;
+use super::cache::CompilationSymbolSemantics;
+use crate::compilation::binder::CompilationBindingContext;
+use crate::fact::SymbolQueryCache;
 
-impl CompilationSymbolFactBinding<ModuleSurfaceFact> for CompilationSymbolFacts {
-    fn cache(&self) -> &SymbolFactCache<ModuleSurfaceFact> {
+impl CompilationSymbolQueryEvaluator<ModuleSurfaceQuery> for CompilationSymbolSemantics {
+    fn cache(&self) -> &SymbolQueryCache<ModuleSurfaceQuery> {
         &self.module_surfaces
     }
 
     fn bind(
         &self,
-        context: &CompilationBinderFacts<'_>,
-        request: SymbolFactRequest<ModuleSurfaceFact>,
-    ) -> BinderFactResult<SymbolFactResult<ModuleSurfaceFact>> {
+        context: &CompilationBindingContext<'_>,
+        request: SymbolQueryRequest<ModuleSurfaceQuery>,
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            <ModuleSurfaceQuery as bray_symbols::SymbolQueryContract>::Value,
+        >,
+    > {
         ModuleSurfaceResolver::new(context).bind(request.owner())
     }
 }
 
-struct ModuleSurfaceResolver<'facts, 'compilation> {
-    context: &'facts CompilationBinderFacts<'compilation>,
+struct ModuleSurfaceResolver<'binding_context, 'compilation> {
+    context: &'binding_context CompilationBindingContext<'compilation>,
     completed: BTreeMap<ModuleSymbolId, DiagnosticResult<ModuleSurface>>,
     active: Vec<ModuleSymbolId>,
     detected_cycles: usize,
@@ -46,8 +50,8 @@ struct ModuleSurfaceResolver<'facts, 'compilation> {
 
 type BoundModuleUsings = (Vec<ModuleUsing>, BTreeSet<Box<[String]>>);
 
-impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
-    fn new(context: &'facts CompilationBinderFacts<'compilation>) -> Self {
+impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'compilation> {
+    fn new(context: &'binding_context CompilationBindingContext<'compilation>) -> Self {
         Self {
             context,
             completed: BTreeMap::new(),
@@ -59,7 +63,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
     fn bind(
         &mut self,
         module: ModuleSymbolId,
-    ) -> BinderFactResult<DiagnosticResult<ModuleSurface>> {
+    ) -> BindingQueryResult<DiagnosticResult<ModuleSurface>> {
         if let Some(surface) = self.completed.get(&module) {
             // Request-local memoization avoids rebinding reachable module headers.
             return Ok(surface.clone());
@@ -77,7 +81,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
         let popped = self.active.pop();
 
         if popped != Some(module) {
-            return Err(BinderFactError::DependencyUnavailable);
+            return Err(BindingQueryError::DependencyUnavailable);
         }
 
         let result = result?;
@@ -91,7 +95,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
     fn bind_active_module(
         &mut self,
         module: ModuleSymbolId,
-    ) -> BinderFactResult<DiagnosticResult<ModuleSurface>> {
+    ) -> BindingQueryResult<DiagnosticResult<ModuleSurface>> {
         let declarations = self.module_member_declaration_ids(module)?;
         let mut diagnostics = DiagnosticBag::new();
 
@@ -101,7 +105,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
             self.bind_re_exports(module, &declarations, &internal_paths, &mut diagnostics)?;
 
         let surface = ModuleSurface::new(usings, re_exports)
-            .map_err(|_| BinderFactError::DependencyUnavailable)?;
+            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
         Ok(DiagnosticResult::new(surface, diagnostics))
     }
@@ -111,7 +115,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
         module: ModuleSymbolId,
         declarations: &[bray_declarations::DeclarationId],
         diagnostics: &mut DiagnosticBag,
-    ) -> BinderFactResult<BoundModuleUsings> {
+    ) -> BindingQueryResult<BoundModuleUsings> {
         let context = self.context;
         let mut usings = Vec::new();
         let mut internal_paths = BTreeSet::new();
@@ -165,7 +169,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
         declarations: &[bray_declarations::DeclarationId],
         internal_paths: &BTreeSet<Box<[String]>>,
         diagnostics: &mut DiagnosticBag,
-    ) -> BinderFactResult<Vec<ModuleReExport>> {
+    ) -> BindingQueryResult<Vec<ModuleReExport>> {
         let context = self.context;
         let mut re_exports = Vec::new();
         let mut exported_names = BTreeMap::new();
@@ -241,7 +245,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
         path: &PathSyntax,
         internal_paths: &BTreeSet<Box<[String]>>,
         diagnostics: &mut DiagnosticBag,
-    ) -> BinderFactResult<Option<(AnySymbolId, MemberVisibility)>> {
+    ) -> BindingQueryResult<Option<(AnySymbolId, MemberVisibility)>> {
         let public_binding = self.bind_path(module, path, NameAccess::Public)?;
 
         let (public_result, public_diagnostics) = public_binding.into_parts();
@@ -298,7 +302,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
         }
     }
 
-    fn target_can_be_exported(&self, target: AnySymbolId) -> BinderFactResult<bool> {
+    fn target_can_be_exported(&self, target: AnySymbolId) -> BindingQueryResult<bool> {
         if matches!(
             target.kind(),
             SymbolKind::CompilerKnownEnvironment | SymbolKind::Package
@@ -318,7 +322,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
         module: ModuleSymbolId,
         path: &PathSyntax,
         access: NameAccess,
-    ) -> BinderFactResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>> {
+    ) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>> {
         let cycle_count = self.detected_cycles;
         let context = self.context;
 
@@ -348,7 +352,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
         module: ModuleSymbolId,
         name: &str,
         access: NameAccess,
-    ) -> BinderFactResult<MemberLookupResult<AnySymbolId>> {
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
         let surface = self.bind(module)?;
 
         Ok(match access {
@@ -360,12 +364,12 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
     fn module_member_declaration_ids(
         &self,
         module: ModuleSymbolId,
-    ) -> BinderFactResult<Vec<bray_declarations::DeclarationId>> {
+    ) -> BindingQueryResult<Vec<bray_declarations::DeclarationId>> {
         let module = self
             .context
             .symbols()
             .module(module)
-            .ok_or(BinderFactError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::DependencyUnavailable)?;
 
         let mut declarations = Vec::new();
 
@@ -374,7 +378,7 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
                 .context
                 .declarations()
                 .module_part(*part)
-                .ok_or(BinderFactError::DependencyUnavailable)?;
+                .ok_or(BindingQueryError::DependencyUnavailable)?;
 
             for declaration in part.declarations() {
                 declarations.push(*declaration);
@@ -385,8 +389,9 @@ impl<'facts, 'compilation> ModuleSurfaceResolver<'facts, 'compilation> {
     }
 }
 
-fn empty_surface() -> BinderFactResult<DiagnosticResult<ModuleSurface>> {
-    let surface = ModuleSurface::new([], []).map_err(|_| BinderFactError::DependencyUnavailable)?;
+fn empty_surface() -> BindingQueryResult<DiagnosticResult<ModuleSurface>> {
+    let surface =
+        ModuleSurface::new([], []).map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     Ok(DiagnosticResult::without_diagnostics(surface))
 }
@@ -545,12 +550,12 @@ fn export_conflict_diagnostic(
 mod tests {
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_symbols::{
-        AnySymbolId, MemberLookupResult, ModulePathKey, ModuleSurfaceFact, PackageIdentity,
-        SymbolFactRequest,
+        AnySymbolId, MemberLookupResult, ModulePathKey, ModuleSurfaceQuery, PackageIdentity,
+        SymbolQueryRequest,
     };
     use bray_testing::test_source_inputs;
 
-    use super::super::test_support::{binder_facts, published_fact, symbol_graph};
+    use super::super::test_support::{binding_context, resolved_query, symbol_graph};
     use crate::fact::CancellationToken;
     use crate::{Compilation, CompilationRequest};
 
@@ -575,8 +580,12 @@ mod tests {
             .unwrap_or_else(|| panic!("module a must declare run"));
 
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&compilation, &cancellation);
-        let b_surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(b));
+        let binding_context = binding_context(&compilation, &cancellation);
+
+        let b_surface = resolved_query(
+            &binding_context,
+            SymbolQueryRequest::<ModuleSurfaceQuery>::new(b),
+        );
 
         assert_eq!(b_surface.value().usings()[0].target(), run);
 
@@ -585,7 +594,10 @@ mod tests {
             MemberLookupResult::Found(run)
         );
 
-        let c_surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(c));
+        let c_surface = resolved_query(
+            &binding_context,
+            SymbolQueryRequest::<ModuleSurfaceQuery>::new(c),
+        );
 
         assert_eq!(c_surface.value().re_exports()[0].target(), run);
 
@@ -612,8 +624,12 @@ mod tests {
         let symbols = symbol_graph(&acknowledged);
         let b = module(symbols, "b");
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&acknowledged, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(b));
+        let acknowledged_binding_context = binding_context(&acknowledged, &cancellation);
+
+        let surface = resolved_query(
+            &acknowledged_binding_context,
+            SymbolQueryRequest::<ModuleSurfaceQuery>::new(b),
+        );
 
         assert!(surface.diagnostics().is_empty());
 
@@ -630,8 +646,12 @@ mod tests {
         let symbols = symbol_graph(&unacknowledged);
         let b = module(symbols, "b");
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&unacknowledged, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(b));
+        let unacknowledged_binding_context = binding_context(&unacknowledged, &cancellation);
+
+        let surface = resolved_query(
+            &unacknowledged_binding_context,
+            SymbolQueryRequest::<ModuleSurfaceQuery>::new(b),
+        );
 
         assert_eq!(
             surface
@@ -663,8 +683,12 @@ mod tests {
         let symbols = symbol_graph(&non_propagating);
         let c = module(symbols, "c");
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&non_propagating, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(c));
+        let non_propagating_binding_context = binding_context(&non_propagating, &cancellation);
+
+        let surface = resolved_query(
+            &non_propagating_binding_context,
+            SymbolQueryRequest::<ModuleSurfaceQuery>::new(c),
+        );
 
         assert!(surface.value().re_exports().is_empty());
 
@@ -696,8 +720,12 @@ mod tests {
         let symbols = symbol_graph(&descendant);
         let api = module(symbols, "api");
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(&descendant, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(api));
+        let descendant_binding_context = binding_context(&descendant, &cancellation);
+
+        let surface = resolved_query(
+            &descendant_binding_context,
+            SymbolQueryRequest::<ModuleSurfaceQuery>::new(api),
+        );
 
         assert!(surface.diagnostics().is_empty());
 
@@ -829,8 +857,12 @@ mod tests {
         let symbols = symbol_graph(compilation);
         let module = module(symbols, module_path);
         let cancellation = CancellationToken::new();
-        let facts = binder_facts(compilation, &cancellation);
-        let surface = published_fact(&facts, SymbolFactRequest::<ModuleSurfaceFact>::new(module));
+        let binding_context = binding_context(compilation, &cancellation);
+
+        let surface = resolved_query(
+            &binding_context,
+            SymbolQueryRequest::<ModuleSurfaceQuery>::new(module),
+        );
 
         assert!(surface.diagnostics().by_kind(expected).next().is_some());
 

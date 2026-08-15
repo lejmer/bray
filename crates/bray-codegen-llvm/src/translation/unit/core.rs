@@ -402,8 +402,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mut cases = Vec::with_capacity(descriptor.states().len());
 
-        for facts in descriptor.states() {
-            let entry = self.block(facts.entry())?;
+        for state in descriptor.states() {
+            let entry = self.block(state.entry())?;
 
             let cancellation_entry =
                 self.unit
@@ -414,7 +414,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             resume_state,
                             cancellation,
                             ..
-                        } if *resume_state == facts.state() => Some(cancellation.edge()),
+                        } if *resume_state == state.state() => Some(cancellation.edge()),
                         _ => None,
                     });
 
@@ -452,7 +452,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.types
                     .context()
                     .i32_type()
-                    .const_int(u64::from(facts.state().raw()), false),
+                    .const_int(u64::from(state.state().raw()), false),
                 entry,
             ));
         }

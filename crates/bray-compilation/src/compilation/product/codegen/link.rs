@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use bray_codegen::CodegenTarget;
-use bray_emitter::ProductLinkFacts;
+use bray_emitter::ProductLinkInputs;
 use bray_linker::{
     DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkInputProvenance,
     LinkInputSource, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind,
@@ -11,10 +11,10 @@ use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactSelection};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement, ProductKind};
 
 use super::super::super::Compilation;
-use super::error::NativeProductFactError;
+use super::error::NativeProductPlanningError;
 
 impl Compilation {
-    pub(super) fn product_link_facts(
+    pub(super) fn product_link_inputs(
         &self,
         kind: ProductKind,
         host: Option<&ExecutableHostContract>,
@@ -22,7 +22,7 @@ impl Compilation {
         mappings: &[bray_codegen::CodegenMappings],
         target: &CodegenTarget,
         configuration: crate::BuildConfiguration,
-    ) -> Result<ProductLinkFacts, NativeProductFactError> {
+    ) -> Result<ProductLinkInputs, NativeProductPlanningError> {
         let product = match kind {
             ProductKind::Library => LinkedProductKind::StaticLibrary,
             ProductKind::Executable | ProductKind::Test => LinkedProductKind::Executable,
@@ -30,7 +30,7 @@ impl Compilation {
 
         let link_model = product_link_model(target.machine().object_format());
 
-        // Link facts own the Arc-backed target identity independently of codegen facts.
+        // Link inputs own the Arc-backed target identity independently of codegen inputs.
         let link_target = LinkTarget::try_new(
             target.identity().clone(),
             target.triple(),
@@ -40,7 +40,7 @@ impl Compilation {
             target.code_model(),
             link_model,
         )
-        .map_err(NativeProductFactError::InvalidLinkTarget)?;
+        .map_err(NativeProductPlanningError::InvalidLinkTarget)?;
 
         let linked_debug = match configuration {
             crate::BuildConfiguration::Development
@@ -52,9 +52,7 @@ impl Compilation {
             crate::BuildConfiguration::Development => DebugLinkPolicy::Embedded,
             crate::BuildConfiguration::Release
             | crate::BuildConfiguration::ObservedRelease
-            | crate::BuildConfiguration::TimedRelease { .. } => {
-                DebugLinkPolicy::None
-            }
+            | crate::BuildConfiguration::TimedRelease { .. } => DebugLinkPolicy::None,
         };
 
         let preserve_unused = configuration.preserves_unused_link_content();
@@ -128,37 +126,34 @@ impl Compilation {
             .iter()
             .flat_map(|runtime| {
                 runtime
-                .components()
-                .iter()
-                .flat_map(|component| component.metadata().platform_services())
+                    .components()
+                    .iter()
+                    .flat_map(|component| component.metadata().platform_services())
             })
             .copied()
             .collect();
 
-        let standard_library_inputs = self.standard_library_link_inputs(
-            kind,
-            &imported_symbols,
-            &platform_overrides,
-        )?;
+        let standard_library_inputs =
+            self.standard_library_link_inputs(kind, &imported_symbols, &platform_overrides)?;
 
         let native_inputs = configured_inputs
             .chain(runtime_inputs)
             .chain(standard_library_inputs)
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut facts =
-            ProductLinkFacts::new(link_target, policy).with_native_inputs(native_inputs);
+        let mut inputs =
+            ProductLinkInputs::new(link_target, policy).with_native_inputs(native_inputs);
 
         if let Some(runtime) = runtime {
-            facts = facts.with_runtime(runtime);
+            inputs = inputs.with_runtime(runtime);
         }
 
         if let Some(host) = host {
-            // Link facts own the Arc-backed entry symbol after host construction returns.
-            facts = facts.with_retained_symbols([host.native_entry().clone()]);
+            // Link inputs own the Arc-backed entry symbol after host construction returns.
+            inputs = inputs.with_retained_symbols([host.native_entry().clone()]);
         }
 
-        Ok(facts)
+        Ok(inputs)
     }
 
     pub(super) fn standard_library_link_inputs(
@@ -166,7 +161,8 @@ impl Compilation {
         product_kind: ProductKind,
         imported_symbols: &BTreeSet<&str>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
-    ) -> Result<Vec<Result<LinkInputSpec, NativeProductFactError>>, NativeProductFactError> {
+    ) -> Result<Vec<Result<LinkInputSpec, NativeProductPlanningError>>, NativeProductPlanningError>
+    {
         if product_kind == ProductKind::Library {
             return Ok(Vec::new());
         }
@@ -179,7 +175,7 @@ impl Compilation {
 
         let available_services = resolver
             .target_platform_services(selected.profile().identity(), selected.runtime_abi())
-            .map_err(NativeProductFactError::StandardLibrary)?;
+            .map_err(NativeProductPlanningError::StandardLibrary)?;
 
         let platform_services = platform_services_for_imported_symbols(
             &available_services,
@@ -197,7 +193,7 @@ impl Compilation {
                 selected.runtime_abi(),
                 &provider_services,
             )
-            .map_err(NativeProductFactError::StandardLibrary)?;
+            .map_err(NativeProductPlanningError::StandardLibrary)?;
 
         let package = bray_symbols::PackageIdentity::try_new(
             bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
@@ -225,7 +221,7 @@ impl Compilation {
                     return None;
                 }
                 bray_standard_library::StandardLibraryArtifactKind::SharedLibrary => {
-                    return Some(Err(NativeProductFactError::InvalidNativeLinkInput));
+                    return Some(Err(NativeProductPlanningError::InvalidNativeLinkInput));
                 }
             };
 
@@ -241,7 +237,7 @@ impl Compilation {
                     },
                     LinkInputMode::Ordinary,
                 )
-                .map_err(|_| NativeProductFactError::InvalidNativeLinkInput),
+                .map_err(|_| NativeProductPlanningError::InvalidNativeLinkInput),
             )
         });
 
@@ -293,7 +289,7 @@ pub(super) const fn product_link_model(object_format: bray_target::ObjectFormat)
 fn native_link_input(
     requirement: &NativeLinkRequirement,
     provenance: LinkInputProvenance,
-) -> Result<LinkInputSpec, NativeProductFactError> {
+) -> Result<LinkInputSpec, NativeProductPlanningError> {
     let input = match requirement.kind() {
         NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => {
             LinkInputSpec::try_native_library(requirement.name(), provenance)
@@ -301,5 +297,5 @@ fn native_link_input(
         NativeLinkKind::Framework => LinkInputSpec::try_framework(requirement.name(), provenance),
     };
 
-    input.ok_or(NativeProductFactError::InvalidNativeLinkInput)
+    input.ok_or(NativeProductPlanningError::InvalidNativeLinkInput)
 }

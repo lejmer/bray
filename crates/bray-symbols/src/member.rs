@@ -336,7 +336,7 @@ where
     /// Resolves an ordinary name using context-specific effective accessibility.
     ///
     /// The predicate can combine member visibility with owner, module, package, or other access
-    /// facts without making those context-dependent facts part of the immutable collection.
+    /// conditions without making those context-dependent conditions part of the immutable collection.
     pub fn lookup_with_access(
         &self,
         name: &str,

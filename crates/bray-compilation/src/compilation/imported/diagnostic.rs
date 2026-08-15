@@ -229,14 +229,14 @@ const fn diagnostic_runtime_abi(
 }
 
 pub(super) fn implementation_body_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag {
-    implementation_artifact_diagnostics(
+    implementation_artiquery_diagnostics(
         input,
         DiagnosticKind::InterfaceConstantCallableBodyUnavailable,
     )
 }
 
 pub(super) fn executable_template_diagnostics(input: &DependencyInterfaceInput) -> DiagnosticBag {
-    implementation_artifact_diagnostics(
+    implementation_artiquery_diagnostics(
         input,
         DiagnosticKind::InterfaceExecutableTemplateUnavailable,
     )
@@ -261,7 +261,7 @@ pub(super) fn executable_template_decode_diagnostics(
     DiagnosticBag::single(diagnostic)
 }
 
-fn implementation_artifact_diagnostics(
+fn implementation_artiquery_diagnostics(
     input: &DependencyInterfaceInput,
     kind: DiagnosticKind,
 ) -> DiagnosticBag {
@@ -501,7 +501,7 @@ mod tests {
 
         let checksum = validation_diagnostics(
             InterfaceValidationError::SectionChecksumMismatch {
-                section: InterfaceSectionTag::DeclarationFacts,
+                section: InterfaceSectionTag::DeclarationSemantics,
             },
             &input,
         );

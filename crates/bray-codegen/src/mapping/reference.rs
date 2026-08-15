@@ -134,7 +134,7 @@ pub struct CodegenOperationMapping {
     helpers: Arc<[CodegenHelperMapping]>,
 }
 
-/// Extra realization facts required by one MIR terminator.
+/// Extra realization inputs required by one MIR terminator.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenTerminatorMapping {
     owner: CodegenInstanceKey,
@@ -161,7 +161,7 @@ impl CodegenTerminatorMapping {
         &self.owner
     }
 
-    /// Returns the block whose terminator requires these facts.
+    /// Returns the block whose terminator requires these requirements.
     pub const fn block(&self) -> MirBlockId {
         self.block
     }

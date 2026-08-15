@@ -177,7 +177,7 @@ macro_rules! define_symbol_graph {
                 self.compiler_known.environment()
             }
 
-            /// Returns the catalog-backed compiler-known symbol and fact provider.
+            /// Returns the catalog-backed compiler-known symbol and semantic provider.
             pub fn compiler_known_provider(&self) -> &CompilerKnownSymbolProvider {
                 self.compiler_known.as_ref()
             }

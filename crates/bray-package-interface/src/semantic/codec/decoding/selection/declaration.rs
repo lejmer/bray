@@ -1,11 +1,11 @@
 use bray_symbols::InterfaceSymbolId;
 
-use super::super::{declaration as codec, facts, template as template_codec};
+use super::super::{bundle, declaration as codec, template as template_codec};
 use crate::semantic::codec::common::SemanticDecodeContext;
 use crate::{
-    InterfaceSectionTag, InterfaceSemanticFactEntry, InterfaceSemanticFactKind,
-    InterfaceSemanticFacts, InterfaceSymbolReference, InterfaceValidationError,
-    InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
+    InterfaceSectionTag, InterfaceSemanticRecord, InterfaceSemanticRecordKind, InterfaceSemantics,
+    InterfaceSymbolReference, InterfaceValidationError, InterfaceValidationLimits,
+    PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
 pub(super) fn decode_callable_parameter_default(
@@ -14,17 +14,17 @@ pub(super) fn decode_callable_parameter_default(
     owner: InterfaceSymbolId,
     limits: InterfaceValidationLimits,
     mut context: SemanticDecodeContext,
-    directory: &[InterfaceSemanticFactEntry],
-) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
+    directory: &[InterfaceSemanticRecord],
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
     let owner = InterfaceSymbolReference::Local(owner);
 
     let record = declaration_record(
         directory,
         &owner,
-        InterfaceSemanticFactKind::CallableParameterDefault,
+        InterfaceSemanticRecordKind::CallableParameterDefault,
     )?;
 
-    let section = facts::required_section(sections, InterfaceSectionTag::DeclarationFacts)?;
+    let section = bundle::required_section(sections, InterfaceSectionTag::DeclarationSemantics)?;
     let tables = codec::decode_declaration_tables(section, &mut context)?;
 
     let default = tables.callable_parameter_defaults.decode(
@@ -37,11 +37,11 @@ pub(super) fn decode_callable_parameter_default(
         return Err(InterfaceValidationError::Malformed);
     }
 
-    let facts = InterfaceSemanticFacts::new().with_declarations([], [], [default], []);
+    let semantics = InterfaceSemantics::new().with_declarations([], [], [default], []);
 
-    facts.validate(surface, limits)?;
+    semantics.validate(surface, limits)?;
 
-    Ok(facts)
+    Ok(semantics)
 }
 
 pub(super) fn decode_predicate_definition(
@@ -50,17 +50,17 @@ pub(super) fn decode_predicate_definition(
     owner: InterfaceSymbolId,
     _limits: InterfaceValidationLimits,
     mut context: SemanticDecodeContext,
-    directory: &[InterfaceSemanticFactEntry],
-) -> Result<InterfaceSemanticFacts, InterfaceValidationError> {
+    directory: &[InterfaceSemanticRecord],
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
     let owner = InterfaceSymbolReference::Local(owner);
 
     let record = declaration_record(
         directory,
         &owner,
-        InterfaceSemanticFactKind::PredicateDefinition,
+        InterfaceSemanticRecordKind::PredicateDefinition,
     )?;
 
-    let section = facts::required_section(sections, InterfaceSectionTag::DeclarationFacts)?;
+    let section = bundle::required_section(sections, InterfaceSectionTag::DeclarationSemantics)?;
     let tables = codec::decode_declaration_tables(section, &mut context)?;
 
     let definition = tables.predicate_definitions.decode(
@@ -75,13 +75,13 @@ pub(super) fn decode_predicate_definition(
 
     crate::semantic::validation::validate_predicate_definition(&definition, surface)?;
 
-    let section = facts::required_section(sections, InterfaceSectionTag::DeclarationTemplates)?;
+    let section = bundle::required_section(sections, InterfaceSectionTag::DeclarationTemplates)?;
     let tables = template_codec::decode_template_tables(section, &mut context)?;
 
     validate_declaration_template_directory(directory, tables.declaration_templates.len())?;
 
     let template_records = directory.iter().filter(|entry| {
-        entry.owner() == &owner && entry.kind() == InterfaceSemanticFactKind::DeclarationTemplate
+        entry.owner() == &owner && entry.kind() == InterfaceSemanticRecordKind::DeclarationTemplate
     });
 
     let mut predicate_template_count = 0_usize;
@@ -107,16 +107,16 @@ pub(super) fn decode_predicate_definition(
         predicate_template_count,
     )?;
 
-    Ok(InterfaceSemanticFacts::new().with_declarations([], [], [], [definition]))
+    Ok(InterfaceSemantics::new().with_declarations([], [], [], [definition]))
 }
 
 fn validate_declaration_template_directory(
-    directory: &[InterfaceSemanticFactEntry],
+    directory: &[InterfaceSemanticRecord],
     record_count: usize,
 ) -> Result<(), InterfaceValidationError> {
     let mut records = directory
         .iter()
-        .filter(|entry| entry.kind() == InterfaceSemanticFactKind::DeclarationTemplate)
+        .filter(|entry| entry.kind() == InterfaceSemanticRecordKind::DeclarationTemplate)
         .map(|entry| {
             if entry.section() != InterfaceSectionTag::DeclarationTemplates {
                 return Err(InterfaceValidationError::Malformed);
@@ -141,14 +141,14 @@ fn validate_declaration_template_directory(
 }
 
 fn declaration_record(
-    directory: &[InterfaceSemanticFactEntry],
+    directory: &[InterfaceSemanticRecord],
     owner: &InterfaceSymbolReference,
-    kind: InterfaceSemanticFactKind,
+    kind: InterfaceSemanticRecordKind,
 ) -> Result<u32, InterfaceValidationError> {
     let mut entries = directory.iter().filter(|entry| {
         entry.owner() == owner
             && entry.kind() == kind
-            && entry.section() == InterfaceSectionTag::DeclarationFacts
+            && entry.section() == InterfaceSectionTag::DeclarationSemantics
     });
 
     let Some(entry) = entries.next() else {

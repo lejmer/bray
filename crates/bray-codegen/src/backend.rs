@@ -46,7 +46,7 @@ impl BackendIdentity {
 ///
 /// Generated contributions crossing this boundary must be immutable.
 pub trait CodeGenerator: Send + Sync {
-    /// Returns the stable backend and toolchain identity used by codegen fact keys.
+    /// Returns the stable backend and toolchain identity used by codegen cache keys.
     fn identity(&self) -> &BackendIdentity;
 
     /// Returns the backend's immutable declared capabilities.

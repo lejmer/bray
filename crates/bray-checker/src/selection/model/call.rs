@@ -66,7 +66,7 @@ pub enum CallableCandidateState {
     Recovered,
 }
 
-/// One typed implementation-selection fact supplied with a candidate.
+/// One typed implementation-selection result supplied with a candidate.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImplementationSelectionEvidence {
     requirement: ImplementationRequirementKey,
@@ -180,7 +180,7 @@ impl CallableCandidate {
         }
     }
 
-    /// Retains the declaration facts available for a directly selected callable member.
+    /// Retains the declaration semantics available for a directly selected callable member.
     pub(crate) fn with_declaration(
         mut self,
         signature: CallableSignature,
@@ -193,7 +193,7 @@ impl CallableCandidate {
     ) -> Self {
         let substitution = match self.resolution.target() {
             bray_bound_tree::BoundCallableTarget::Declaration(instance) => instance.substitution(),
-            _ => unreachable!("declaration facts require a declaration target"),
+            _ => unreachable!("declaration semantics require a declaration target"),
         };
 
         let mut defaults = defaults.into_iter().collect::<Vec<_>>();
@@ -256,7 +256,7 @@ impl CallableCandidate {
         self
     }
 
-    /// Supplies typed implementation-selection facts used by the callable target.
+    /// Supplies typed implementation-selection results used by the callable target.
     pub fn with_implementation_selections(
         mut self,
         selections: impl IntoIterator<Item = ImplementationSelectionEvidence>,
