@@ -185,6 +185,12 @@ scope Ambient at ambient {
         surface { SequentiallyConsistent; }
     }
 
+    declaration Uninit {
+        representation Uninit;
+
+        surface { struct Uninit<T> with(true) {} }
+    }
+
     declaration Heap {
         surface { struct Heap {} }
     }

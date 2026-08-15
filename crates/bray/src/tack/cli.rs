@@ -322,6 +322,7 @@ impl CliCommand {
                 TackCommand::Test {
                     selection: test.selection.into(),
                     configuration,
+                    batch_request: test.batch_request,
                     options: crate::tack::model::TackTestOptions::new(
                         test.filters,
                         maximum_concurrency,
@@ -474,6 +475,22 @@ struct CliTest {
     capture_limit: u64,
     #[arg(long, help = help::TEST_SHOW_OUTPUT)]
     show_output: bool,
+    #[arg(
+        long,
+        value_name = "FILE",
+        hide = true,
+        conflicts_with_all = [
+            "sequential",
+            "jobs",
+            "timeout_ms",
+            "no_capture",
+            "discard_output",
+            "capture_limit",
+            "show_output",
+            "filters"
+        ]
+    )]
+    batch_request: Option<PathBuf>,
     #[arg(value_name = "FILTER", help = help::TEST_FILTER)]
     filters: Vec<String>,
 }
@@ -740,6 +757,38 @@ mod tests {
         let result = TackInvocation::try_from_arguments(["bray", "test", "--jobs", "0"]);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn hidden_test_batch_request_is_retained_and_rejects_individual_plan_options() {
+        let invocation = TackInvocation::try_from_arguments([
+            "bray",
+            "test",
+            "--product",
+            "api",
+            "--batch-request",
+            "batch.json",
+        ])
+        .unwrap_or_else(|error| panic!("batch request should parse: {error:?}"));
+
+        let (_, _, _, _, _, _, command) = invocation.into_parts();
+
+        let TackCommand::Test { batch_request, .. } = command else {
+            panic!("expected test command");
+        };
+
+        assert_eq!(batch_request, Some(PathBuf::from("batch.json")));
+
+        assert!(
+            TackInvocation::try_from_arguments([
+                "bray",
+                "test",
+                "--batch-request",
+                "batch.json",
+                "filter",
+            ])
+            .is_err()
+        );
     }
 
     #[test]

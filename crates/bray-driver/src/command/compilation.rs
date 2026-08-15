@@ -8,6 +8,7 @@ use bray_messages::command_help as help;
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
 };
+use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::NativeTarget;
 use clap::{Args, ValueEnum};
@@ -130,6 +131,7 @@ pub struct DriverCompilationConfiguration {
     product_kind: ProductKind,
     target: NativeTarget,
     dependencies: Vec<DriverDependencyInterface>,
+    platform_services: Vec<PlatformServiceBinding>,
 }
 
 impl DriverCompilationConfiguration {
@@ -141,12 +143,15 @@ impl DriverCompilationConfiguration {
         product_kind: ProductKind,
         target: NativeTarget,
         mut dependencies: Vec<DriverDependencyInterface>,
+        mut platform_services: Vec<PlatformServiceBinding>,
     ) -> Self {
         dependencies.sort_by(|left, right| {
             left.package()
                 .cmp(right.package())
                 .then_with(|| left.product().cmp(right.product()))
         });
+
+        platform_services.sort_unstable();
 
         Self {
             product,
@@ -155,6 +160,7 @@ impl DriverCompilationConfiguration {
             product_kind,
             target,
             dependencies,
+            platform_services,
         }
     }
 
@@ -186,6 +192,11 @@ impl DriverCompilationConfiguration {
     /// Returns dependency interface inputs in canonical identity order.
     pub fn dependencies(&self) -> &[DriverDependencyInterface] {
         &self.dependencies
+    }
+
+    /// Returns private platform-service declaration bindings in role order.
+    pub fn platform_services(&self) -> &[PlatformServiceBinding] {
+        &self.platform_services
     }
 }
 
@@ -254,6 +265,13 @@ pub(crate) struct CliCompilationOptions {
         help = help::DEPENDENCY_IMPLEMENTATION
     )]
     dependency_implementations: Vec<PathBuf>,
+    #[arg(
+        long = "platform-service",
+        global = true,
+        value_name = "ROLE=DECLARATION",
+        hide = true
+    )]
+    platform_services: Vec<String>,
 }
 
 impl CliCompilationOptions {
@@ -327,6 +345,18 @@ impl CliCompilationOptions {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        let platform_services = self
+            .platform_services
+            .into_iter()
+            .map(|binding| {
+                parse_platform_service_binding(&binding).ok_or_else(|| {
+                    invalid_selection(
+                        DiagnosticProjectSelectionProblem::InvalidPlatformServiceBinding(binding),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(DriverCompilationConfiguration::new(
             product,
             source_package,
@@ -334,8 +364,17 @@ impl CliCompilationOptions {
             self.product_kind.into(),
             self.target.into(),
             dependencies,
+            platform_services,
         ))
     }
+}
+
+fn parse_platform_service_binding(value: &str) -> Option<PlatformServiceBinding> {
+    let (role, declaration) = value.split_once('=')?;
+
+    let role = PlatformServiceRole::from_name(role)?;
+
+    PlatformServiceBinding::try_new(role, declaration)
 }
 
 fn invalid_selection(problem: DiagnosticProjectSelectionProblem) -> DiagnosticBag {

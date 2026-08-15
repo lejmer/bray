@@ -17,8 +17,8 @@ use bray_diagnostics::{
 };
 use bray_platform::{NativeChildProcess, NativePipeWriter, NativeProcessCommand, NativeStdio};
 use bray_test_protocol::{
-    CapturedStream, TestAdmission, TestAdmissionSchedule, TestCapturePolicy, TestCatalogEntryId,
-    TestCommandReport, TestDuration, TestExecutionMode, TestExecutionPlan,
+    CapturedStream, TestAdmission, TestAdmissionSchedule, TestBatchRequest, TestCaptureLimits,
+    TestCapturePolicy, TestCatalogEntryId, TestCommandReport, TestDuration, TestExecutionMode, TestExecutionPlan,
     TestExecutionPlanBuildError, TestHostCommand, TestHostCommandId, TestHostControl, TestIdentity,
     TestInfrastructureFailure, TestInfrastructureFailureKind, TestInvocationPlan,
     TestInvocationResult, TestOutcome, TestSchedulingError, TestSelection, TestSelectionQuery,
@@ -28,7 +28,7 @@ use bray_tooling::OutputFormat;
 
 use super::model::{BuiltTestHost, HostLocation, LoadedTestHost};
 use super::progress::TestProgress;
-use super::report::{product_reports, render_report};
+use super::report::{product_reports, render_batch_report, render_report};
 use crate::tack::error::{operation_diagnostics, selection_diagnostics};
 use crate::tack::model::TackTestOptions;
 
@@ -93,6 +93,50 @@ pub(crate) fn execute(
     prepare_command_cancellation()?;
 
     let hosts = load_hosts(hosts)?;
+    let report = execute_loaded(workspace_root, &hosts, options, worker_count, interactive)?;
+    let rendered = render_report(&report, output_format, options.show_output, interactive)?;
+
+    Ok((report, rendered))
+}
+
+pub(crate) fn execute_batch(
+    workspace_root: &Path,
+    hosts: Vec<BuiltTestHost>,
+    request: &TestBatchRequest,
+    worker_count: usize,
+    interactive: bool,
+) -> Result<(Vec<(String, TestCommandReport)>, String), DiagnosticBag> {
+    prepare_command_cancellation()?;
+
+    let hosts = load_hosts(hosts)?;
+    let mut reports = Vec::with_capacity(request.plans().len());
+
+    for plan in request.plans() {
+        let options = TackTestOptions::new(
+            plan.filters().to_vec(),
+            plan.maximum_concurrency(),
+            plan.timeout_milliseconds(),
+            TestCapturePolicy::Captured(TestCaptureLimits::new(1_048_576, 2_097_152)),
+            false,
+        );
+
+        let report = execute_loaded(workspace_root, &hosts, &options, worker_count, interactive)?;
+
+        reports.push((plan.identity().to_owned(), report));
+    }
+
+    let rendered = render_batch_report(&reports)?;
+
+    Ok((reports, rendered))
+}
+
+fn execute_loaded(
+    workspace_root: &Path,
+    hosts: &[LoadedTestHost],
+    options: &TackTestOptions,
+    worker_count: usize,
+    interactive: bool,
+) -> Result<TestCommandReport, DiagnosticBag> {
     let query = selection_query(options)?;
 
     let selections = hosts
@@ -161,9 +205,7 @@ pub(crate) fn execute(
 
     progress.finish(&report, options.show_output);
 
-    let rendered = render_report(&report, output_format, options.show_output, interactive)?;
-
-    Ok((report, rendered))
+    Ok(report)
 }
 
 fn load_hosts(hosts: Vec<BuiltTestHost>) -> Result<Vec<LoadedTestHost>, DiagnosticBag> {
@@ -578,5 +620,54 @@ const fn capture_reservation(capture: TestCapturePolicy) -> u64 {
     match capture {
         TestCapturePolicy::Captured(limits) => limits.invocation_byte_limit(),
         TestCapturePolicy::Inherited | TestCapturePolicy::Discarded => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_test_protocol::{TestBatchPlan, TestBatchRequest};
+
+    use super::super::test_support::write_empty_test_host;
+    use super::BuiltTestHost;
+
+    #[test]
+    fn one_fresh_host_executes_multiple_ordered_plans_without_reloading_artifacts() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test directory should be created: {error:?}"));
+
+        let (executable, catalog) = write_empty_test_host(directory.path());
+
+        let host = BuiltTestHost::try_new(executable, catalog)
+            .unwrap_or_else(|| panic!("fresh test host should be valid"));
+
+        let first = TestBatchPlan::try_new("first", [], 1, None)
+            .unwrap_or_else(|error| panic!("first plan should be valid: {error:?}"));
+
+        let second = TestBatchPlan::try_new("second", [], 2, Some(1000))
+            .unwrap_or_else(|error| panic!("second plan should be valid: {error:?}"));
+
+        let request = TestBatchRequest::try_new([first, second])
+            .unwrap_or_else(|error| panic!("batch request should be valid: {error:?}"));
+
+        let (reports, rendered) = super::execute_batch(
+            directory.path(),
+            vec![host],
+            &request,
+            2,
+            false,
+        )
+        .unwrap_or_else(|diagnostics| panic!("batch should execute: {diagnostics:?}"));
+
+        assert_eq!(
+            reports
+                .iter()
+                .map(|(identity, _)| identity.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+
+        assert!(reports.iter().all(|(_, report)| report.succeeded()));
+        assert!(rendered.contains("\"identity\": \"first\""));
+        assert!(rendered.contains("\"identity\": \"second\""));
     }
 }

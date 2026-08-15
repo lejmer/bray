@@ -162,6 +162,108 @@ scope CoreMemory at core.memory {
         }
     }
 
+    declaration UninitNew {
+        availability RawMemory;
+        implementation UninitNew;
+
+        surface { func uninit<T>() -> Uninit<T>; }
+    }
+
+    declaration UninitPointer {
+        availability RawMemory;
+        implementation UninitPointer;
+
+        surface { func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T>; }
+    }
+
+    declaration UninitPointerMut {
+        availability RawMemory;
+        implementation UninitPointerMut;
+
+        surface { func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T>; }
+    }
+
+    declaration UninitWrite {
+        availability RawMemory;
+        implementation UninitWrite;
+
+        surface {
+            func uninit_write<T>(
+                pos storage: &mut Uninit<T>,
+                pos value: T,
+            ) -> &mut T
+                ensures(trusted core.memory.uninit_initialized<T>(storage = storage));
+        }
+    }
+
+    declaration UninitAssumeInitialized {
+        availability RawMemory;
+        implementation UninitAssumeInitialized;
+
+        surface {
+            trusted func assume_initialized<T>(pos mut storage: Uninit<T>) -> T
+                requires(trusted core.memory.uninit_initialized<T>(storage = &mut storage))
+                uses(unchecked_init);
+        }
+    }
+
+    declaration UninitMove {
+        availability RawMemory;
+        implementation UninitMove;
+
+        surface {
+            trusted func move_initialized<T>(pos storage: &mut Uninit<T>) -> T
+                requires(trusted core.memory.uninit_initialized<T>(storage = storage))
+                uses(unchecked_init);
+        }
+    }
+
+    declaration BorrowFrom {
+        availability RawMemory;
+        implementation BorrowFrom;
+
+        surface {
+            trusted func borrow_from<T, Owner>(
+                pos owner: &Owner,
+                pos pointer: RawPointer<T>,
+            ) -> &T
+                requires(
+                    trusted core.memory.valid_read(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                    trusted core.memory.shared_alias_valid(pointer = pointer),
+                    trusted core.memory.epoch_current(pointer = pointer),
+                    trusted core.memory.synchronized_access(pointer = pointer),
+                    trusted core.memory.movement_stable(pointer = pointer),
+                    trusted core.memory.finalization_pending(pointer = pointer),
+                )
+                uses(raw_memory, unchecked_alias);
+        }
+    }
+
+    declaration BorrowMutFrom {
+        availability RawMemory;
+        implementation BorrowMutFrom;
+
+        surface {
+            trusted func borrow_mut_from<T, Capability>(
+                pos capability: &mut Capability,
+                pos pointer: RawPointer<T>,
+            ) -> &mut T
+                requires(
+                    trusted core.memory.valid_write(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer),
+                    trusted core.memory.exclusive_alias_valid(pointer = pointer),
+                    trusted core.memory.epoch_current(pointer = pointer),
+                    trusted core.memory.synchronized_access(pointer = pointer),
+                    trusted core.memory.movement_stable(pointer = pointer),
+                    trusted core.memory.finalization_pending(pointer = pointer),
+                )
+                uses(raw_memory, unchecked_alias);
+        }
+    }
+
     declaration Allocate {
         availability Allocation;
         implementation RawAllocate;
@@ -283,6 +385,62 @@ scope CoreMemory at core.memory {
                 left: RawPointer<T>,
                 right: RawPointer<T>,
             );
+        }
+    }
+
+    declaration SharedAliasValid {
+        availability RawMemory;
+
+        surface {
+            trusted predicate shared_alias_valid<T>(pointer: RawPointer<T>);
+        }
+    }
+
+    declaration UninitInitialized {
+        availability RawMemory;
+
+        surface {
+            trusted predicate uninit_initialized<T>(storage: &mut Uninit<T>);
+        }
+    }
+
+    declaration ExclusiveAliasValid {
+        availability RawMemory;
+
+        surface {
+            trusted predicate exclusive_alias_valid<T>(pointer: RawPointer<T>);
+        }
+    }
+
+    declaration EpochCurrent {
+        availability RawMemory;
+
+        surface {
+            trusted predicate epoch_current<T>(pointer: RawPointer<T>);
+        }
+    }
+
+    declaration SynchronizedAccess {
+        availability RawMemory;
+
+        surface {
+            trusted predicate synchronized_access<T>(pointer: RawPointer<T>);
+        }
+    }
+
+    declaration MovementStable {
+        availability RawMemory;
+
+        surface {
+            trusted predicate movement_stable<T>(pointer: RawPointer<T>);
+        }
+    }
+
+    declaration FinalizationPending {
+        availability RawMemory;
+
+        surface {
+            trusted predicate finalization_pending<T>(pointer: RawPointer<T>);
         }
     }
 }

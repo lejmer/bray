@@ -330,6 +330,8 @@ impl<'project> ProjectCompiler<'project> {
             .requires_runtime(product.kind())
             .then(|| self.toolchain.runtime_metadata(target));
 
+        let uses_standard_library_source = self.graph.source_authority().is_standard_library();
+
         request
             .arg("--cpu-count")
             .arg(self.worker_count.to_string())
@@ -353,13 +355,27 @@ impl<'project> ProjectCompiler<'project> {
             .arg(target.as_str());
 
         if consumes_standard_library(product) {
-            request
-                .arg("--standard-library-root")
-                .arg(self.toolchain.standard_library_root().into_os_string());
+            let root = self.toolchain.standard_library_root().into_os_string();
+
+            if uses_standard_library_source {
+                if action.requires_runtime(product.kind()) {
+                    request.arg("--standard-library-provider-root").arg(root);
+                }
+            } else {
+                request.arg("--standard-library-root").arg(root);
+            }
         }
 
-        if self.graph.source_authority().is_standard_library() {
+        if uses_standard_library_source {
             request.arg("--standard-library-source");
+        }
+
+        for binding in product.platform_services() {
+            request.arg("--platform-service").arg(format!(
+                "{}={}",
+                binding.role().as_str(),
+                binding.dotted_path()
+            ));
         }
 
         if let Some(profile) = self.profile {
@@ -554,6 +570,8 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProjectProduct,
         target: &TargetIdentity,
     ) -> Result<Vec<ProductIdentity>, DiagnosticBag> {
+        let uses_standard_library_source = self.graph.source_authority().is_standard_library();
+
         let mut dependencies = product
             .dependencies()
             .iter()
@@ -564,7 +582,9 @@ impl<'project> ProjectCompiler<'project> {
         dependencies.extend(
             product
                 .tested_library()
-                .filter(|library| !is_public_standard_library(library))
+                .filter(|library| {
+                    uses_standard_library_source || !is_public_standard_library(library)
+                })
                 .cloned(),
         );
 

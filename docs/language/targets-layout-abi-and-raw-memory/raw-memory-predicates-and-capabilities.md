@@ -41,6 +41,12 @@ trusted predicate same_allocation<T>(left: RawPointer<T>, right: RawPointer<T>);
 
 `same_allocation` means both pointers are derived from the same allocation.
 
+`shared_alias_valid` and `exclusive_alias_valid` state that creating the corresponding language
+borrow preserves ordinary alias rules. `epoch_current` ties the pointer to its current allocation
+or mapping epoch. `synchronized_access` states that mutable access is covered by active
+synchronization authority. `movement_stable` prevents relocation while a dependent borrow is
+active. `finalization_pending` prevents access after finalization or destruction begins.
+
 An `owned_allocation` condition can establish `aligned_for<T>` for pointers into the allocation when the allocation alignment, offset, and target type alignment prove the typed pointer is aligned for `T`.
 
 Trusted raw memory conditions are tied to the allocation, storage state, pointer value, element type, count, alignment, capability state, and epoch they mention.
@@ -71,4 +77,4 @@ A standard-library wrapper over a trusted raw memory operation must preserve the
 - [Language index](../index.md)
 - [Targets, layout, ABI, and raw memory index](../targets-layout-abi-and-raw-memory.md)
 - Previous: [Manual allocation](manual-allocation.md)
-- Next: [Standard-library memory surface](standard-library-memory-surface.md)
+- Next: [Uninitialized storage and anchored borrows](uninitialized-storage-and-anchored-borrows.md)

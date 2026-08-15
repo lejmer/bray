@@ -219,6 +219,7 @@ fn validate_operation_types(
         CheckedTemplateOperation::Constant { .. }
         | CheckedTemplateOperation::Unary { .. }
         | CheckedTemplateOperation::Binary { .. }
+        | CheckedTemplateOperation::Borrow { .. }
         | CheckedTemplateOperation::Declaration(_)
         | CheckedTemplateOperation::Call { .. }
         | CheckedTemplateOperation::Convert { .. }

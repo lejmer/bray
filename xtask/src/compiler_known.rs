@@ -50,14 +50,18 @@ fn check_command(arguments: impl Iterator<Item = String>) -> Result<(), String> 
     command::reject_trailing_argument(arguments)?;
     generate(true)?;
 
-    bray_compilation::check_compiler_known_catalog()
-        .map(|_| ())
-        .map_err(|error| format!("compiler-known semantic validation failed: {error}"))
+    crate::progress::run("Validating compiler-known semantics", || {
+        bray_compilation::check_compiler_known_catalog()
+            .map(|_| ())
+            .map_err(|error| format!("compiler-known semantic validation failed: {error}"))
+    })
 }
 
 fn generate(check: bool) -> Result<(), String> {
-    let output = generate_catalog_output()
-        .map_err(|error| format!("compiler-known catalog generation failed: {error}"))?;
+    let output = crate::progress::run("Generating the compiler-known catalog", || {
+        generate_catalog_output()
+            .map_err(|error| format!("compiler-known catalog generation failed: {error}"))
+    })?;
 
     let root = workspace::root()?;
     let digest = format!("{}\n", output.source_digest());

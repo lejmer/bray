@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use bray_base::is_lowercase_hex;
-use bray_symbols::{PackageIdentity, ProductIdentity, TestExecutionConstraint};
+use bray_symbols::TestExecutionConstraint;
 use bray_target::NativeTarget;
-use bray_test_protocol::decode_test_catalog;
+use bray_test_protocol::{TestBatchPlan, TestBatchRequest, decode_test_catalog};
 use serde::Deserialize;
 
 use super::command::BuildError;
@@ -16,10 +16,42 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 79;
+const API_TEST_COUNT: usize = 81;
 const API_FILTERED_TEST_COUNT: usize = 3;
+const OUTCOME_CASES: [OutcomeCase; 6] = [
+    OutcomeCase::new(
+        "assertion-failure",
+        "assertion_failure",
+        OutcomeExpectation::Assertion,
+    ),
+    OutcomeCase::new(
+        "explicit-failure",
+        "explicit_failure",
+        OutcomeExpectation::Explicit,
+    ),
+    OutcomeCase::new(
+        "panic-failure",
+        "panic_failure",
+        OutcomeExpectation::Panic,
+    ),
+    OutcomeCase::new(
+        "recoverable-error",
+        "recoverable_error",
+        OutcomeExpectation::ReturnedError,
+    ),
+    OutcomeCase::timed(
+        "timeout-observes-cancellation",
+        "timeout_observes_cancellation",
+        OutcomeExpectation::TimedOut,
+    ),
+    OutcomeCase::timed(
+        "timeout-requires-forced-termination",
+        "timeout_requires_forced_termination",
+        OutcomeExpectation::ForcedTermination,
+    ),
+];
 
-pub(super) fn test() -> Result<(), BuildError> {
+pub(super) fn test(profile_output: Option<&Path>) -> Result<(), BuildError> {
     let root = crate::workspace::root().map_err(BuildError::Workspace)?;
 
     let target = NativeTarget::current()
@@ -39,68 +71,40 @@ pub(super) fn test() -> Result<(), BuildError> {
 
     fs::create_dir(&runtime).map_err(|error| BuildError::write(&runtime, error))?;
 
-    let runtime = crate::runtime_artifact::build_for_readiness(target, &runtime)
-        .map_err(|error| BuildError::conformance("native runtime", error))?;
+    let runtime = crate::progress::run("Building the native runtime artifacts", || {
+        crate::runtime_artifact::build_for_readiness(target, &runtime)
+    })
+    .map_err(|error| BuildError::conformance("native runtime", error))?;
 
     let toolchain = directory.join("toolchain");
 
-    crate::native_toolchain::assemble(&root, target, &runtime, &toolchain)
-        .map_err(|error| BuildError::conformance("native toolchain", error))?;
+    crate::progress::run("Assembling the native test toolchain", || {
+        crate::native_toolchain::assemble(&root, target, &runtime, &toolchain)
+    })
+    .map_err(|error| BuildError::conformance("native toolchain", error))?;
 
-    super::provider_retention::audit(&root, directory, &toolchain, target)?;
-    super::interoperability::audit(&root, directory, &toolchain, &runtime, target)?;
+    crate::progress::run("Auditing native provider retention", || {
+        super::provider_retention::audit(&root, directory, &toolchain, target)
+    })?;
+
+    crate::progress::run("Auditing native interoperability", || {
+        super::interoperability::audit(&root, directory, &toolchain, &runtime, target)
+    })?;
 
     let workspace = directory.join("workspace");
 
-    copy_standard_library_workspace(&root, &workspace)?;
-    audit_test_host_startup(&root, &workspace, &toolchain, target)?;
-    audit_api(&root, &workspace, &toolchain, target)?;
+    crate::progress::run("Preparing the standard library test workspace", || {
+        copy_standard_library_workspace(&root, &workspace)
+    })?;
 
-    audit_outcomes(&root, &workspace, &toolchain, target)
-}
+    crate::progress::run(
+        &format!("Running native standard library API tests ({API_TEST_COUNT} tests, 5 plans)"),
+        || audit_api(&root, &workspace, &toolchain, target, profile_output),
+    )?;
 
-fn audit_test_host_startup(
-    root: &Path,
-    workspace: &Path,
-    toolchain: &Path,
-    target: NativeTarget,
-) -> Result<(), BuildError> {
-    for (identity, expected_output) in [
-        ("byte_buffer_mutation", &[][..]),
-        (
-            "repeated_standard_output_locks_are_released",
-            b"first-lock|second-lock".as_slice(),
-        ),
-    ] {
-        let output = run_tests(
-            root,
-            workspace,
-            toolchain,
-            target,
-            API_PRODUCT,
-            &["--sequential", "--timeout-ms", "1000", identity],
-        )?;
-
-        require_success("focused test-host startup", &output)?;
-
-        let report = parse_report("focused test-host startup", &output)?;
-
-        require_selection(&report, API_TEST_COUNT, 1, API_TEST_COUNT - 1)?;
-
-        let tests = tests(&report);
-
-        let [test] = tests.as_slice() else {
-            return Err(BuildError::conformance(
-                "focused test-host startup",
-                format!("{identity} did not produce one result"),
-            ));
-        };
-
-        require_stream(&test.identity, "stdout", &test.stdout, expected_output)?;
-        require_stream(&test.identity, "stderr", &test.stderr, &[])?;
-    }
-
-    Ok(())
+    crate::progress::run("Checking native test outcomes (6 cases)", || {
+        audit_outcomes(&root, &workspace, &toolchain, target, profile_output)
+    })
 }
 
 fn audit_api(
@@ -108,78 +112,75 @@ fn audit_api(
     workspace: &Path,
     toolchain: &Path,
     target: NativeTarget,
+    profile_output: Option<&Path>,
 ) -> Result<(), BuildError> {
-    let sequential = run_tests(
+    let request = test_batch_request([
+        test_batch_plan("startup-byte-buffer", ["byte_buffer_mutation"], 1, Some(1000))?,
+        test_batch_plan(
+            "startup-output-lock",
+            ["repeated_standard_output_locks_are_released"],
+            1,
+            Some(1000),
+        )?,
+        test_batch_plan(
+            "api-sequential",
+            std::iter::empty::<&str>(),
+            1,
+            Some(1000),
+        )?,
+        test_batch_plan(
+            "api-parallel",
+            std::iter::empty::<&str>(),
+            2,
+            Some(1000),
+        )?,
+        test_batch_plan("api-filtered", ["standard_output"], 2, Some(1000))?,
+    ])?;
+
+    let output = run_test_batch(
         root,
         workspace,
         toolchain,
         target,
         API_PRODUCT,
-        &["--sequential", "--timeout-ms", "1000"],
+        &request,
+        profile_output,
+        "api",
     )?;
 
-    require_success("sequential execution", &sequential)?;
+    require_success("native API batch", &output)?;
 
-    let sequential_report = parse_report("sequential execution", &sequential)?;
+    let batch = parse_batch_report("native API batch", &output, &request)?;
+    let byte_buffer = batch.report("startup-byte-buffer")?;
+    let output_lock = batch.report("startup-output-lock")?;
+    let sequential = batch.report("api-sequential")?;
+    let parallel = batch.report("api-parallel")?;
+    let filtered = batch.report("api-filtered")?;
 
-    validate_api_report(&sequential_report)?;
+    let catalog = product_catalog(workspace, target, API_PRODUCT)?;
+    let catalog = read_artifact(&catalog)?;
 
-    let executable = product_artifact(workspace, target, API_PRODUCT, Artifact::Executable)?;
-    let catalog = product_artifact(workspace, target, API_PRODUCT, Artifact::Catalog)?;
-    let sequential_executable = read_artifact(&executable)?;
-    let sequential_catalog = read_artifact(&catalog)?;
+    require_startup_report(byte_buffer, "byte_buffer_mutation", &[])?;
 
-    require_serial_metadata(&sequential_catalog)?;
-
-    let parallel = run_tests(
-        root,
-        workspace,
-        toolchain,
-        target,
-        API_PRODUCT,
-        &["--jobs", "2", "--timeout-ms", "1000"],
+    require_startup_report(
+        output_lock,
+        "repeated_standard_output_locks_are_released",
+        b"first-lock|second-lock",
     )?;
 
-    require_success("parallel execution", &parallel)?;
-
-    let parallel_report = parse_report("parallel execution", &parallel)?;
-
-    validate_api_report(&parallel_report)?;
-    require_stable_order(&sequential_report, &parallel_report)?;
-
-    require_equal_artifact(
-        "native test executable",
-        &sequential_executable,
-        &read_artifact(&executable)?,
-    )?;
-
-    require_equal_artifact(
-        "native test catalog",
-        &sequential_catalog,
-        &read_artifact(&catalog)?,
-    )?;
-
-    let filtered = run_tests(
-        root,
-        workspace,
-        toolchain,
-        target,
-        API_PRODUCT,
-        &["--timeout-ms", "1000", "standard_output"],
-    )?;
-
-    require_success("filtered execution", &filtered)?;
-
-    let filtered_report = parse_report("filtered execution", &filtered)?;
+    validate_api_report(sequential)?;
+    validate_api_report(parallel)?;
+    require_stable_order(sequential, parallel)?;
+    require_serial_metadata(&catalog)?;
 
     require_selection(
-        &filtered_report,
+        filtered,
         API_TEST_COUNT,
         API_FILTERED_TEST_COUNT,
         API_TEST_COUNT - API_FILTERED_TEST_COUNT,
     )?;
 
-    let tests = tests(&filtered_report);
+    let tests = tests(filtered);
 
     if tests.len() != 3
         || tests
@@ -195,96 +196,115 @@ fn audit_api(
     Ok(())
 }
 
+fn require_startup_report(
+    report: &NativeTestReport,
+    identity: &str,
+    expected_output: &[u8],
+) -> Result<(), BuildError> {
+    require_product(report, API_PRODUCT)?;
+    require_selection(report, API_TEST_COUNT, 1, API_TEST_COUNT - 1)?;
+
+    let tests = tests(report);
+
+    let [test] = tests.as_slice() else {
+        return Err(BuildError::conformance(
+            "focused test-host startup",
+            format!("{identity} did not produce one result"),
+        ));
+    };
+
+    require_stream(&test.identity, "stdout", &test.stdout, expected_output)?;
+
+    require_stream(&test.identity, "stderr", &test.stderr, &[])
+}
+
 fn audit_outcomes(
     root: &Path,
     workspace: &Path,
     toolchain: &Path,
     target: NativeTarget,
+    profile_output: Option<&Path>,
 ) -> Result<(), BuildError> {
-    let cases = [
-        OutcomeCase::new("assertion_failure", OutcomeExpectation::Assertion),
-        OutcomeCase::new("explicit_failure", OutcomeExpectation::Explicit),
-        OutcomeCase::new("panic_failure", OutcomeExpectation::Panic),
-        OutcomeCase::new("recoverable_error", OutcomeExpectation::ReturnedError),
-        OutcomeCase::timed(
-            "timeout_observes_cancellation",
-            OutcomeExpectation::TimedOut,
-        ),
-        OutcomeCase::timed(
-            "timeout_requires_forced_termination",
-            OutcomeExpectation::ForcedTermination,
-        ),
-    ];
+    let request = outcome_batch_request()?;
 
-    for case in cases {
-        audit_outcome(root, workspace, toolchain, target, case)?;
-    }
-
-    let catalog = product_artifact(workspace, target, OUTCOME_PRODUCT, Artifact::Catalog)?;
-
-    require_catalog_separation(&read_artifact(&catalog)?)
-}
-
-fn audit_outcome(
-    root: &Path,
-    workspace: &Path,
-    toolchain: &Path,
-    target: NativeTarget,
-    case: OutcomeCase,
-) -> Result<(), BuildError> {
-    let mut arguments = vec!["--sequential"];
-
-    if case.timed {
-        arguments.extend(["--timeout-ms", "100"]);
-    }
-
-    arguments.push(case.identity);
-
-    let output = run_tests(
+    let output = run_test_batch(
         root,
         workspace,
         toolchain,
         target,
         OUTCOME_PRODUCT,
-        &arguments,
+        &request,
+        profile_output,
+        "outcomes",
     )?;
 
     if output.status.success() {
         return Err(BuildError::conformance(
             "native outcomes",
-            format!("{} unexpectedly succeeded", case.identity),
+            "the failing outcome batch unexpectedly succeeded",
         ));
     }
 
-    let report = parse_report("native outcomes", &output)?;
+    let batch = parse_batch_report("native outcomes", &output, &request)?;
 
-    require_product(&report, OUTCOME_PRODUCT)?;
-    require_selection(&report, 6, 1, 5)?;
+    for case in OUTCOME_CASES {
+        audit_outcome(batch.report(case.plan_identity)?, case)?;
+    }
+
+    let catalog = product_catalog(workspace, target, OUTCOME_PRODUCT)?;
+
+    require_catalog_separation(&read_artifact(&catalog)?)
+}
+
+fn outcome_batch_request() -> Result<TestBatchRequest, BuildError> {
+    let plans = OUTCOME_CASES
+        .iter()
+        .map(|case| {
+            test_batch_plan(
+                case.plan_identity,
+                [case.test_identity],
+                1,
+                case.timed.then_some(100),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    test_batch_request(plans)
+}
+
+fn audit_outcome(
+    report: &NativeTestReport,
+    case: OutcomeCase,
+) -> Result<(), BuildError> {
+    require_product(report, OUTCOME_PRODUCT)?;
+    require_selection(report, 6, 1, 5)?;
 
     if report.summary.passed != 0 || report.summary.failed != 1 {
         return Err(BuildError::conformance(
             "native outcomes",
-            format!("{} did not report one failed test", case.identity),
+            format!("{} did not report one failed test", case.test_identity),
         ));
     }
 
-    let results = tests(&report);
+    let results = tests(report);
 
     let [test] = results.as_slice() else {
         return Err(BuildError::conformance(
             "native outcomes",
-            format!("{} did not produce one result", case.identity),
+            format!("{} did not produce one result", case.test_identity),
         ));
     };
 
-    if !test.identity.ends_with(case.identity) {
+    if !test.identity.ends_with(case.test_identity) {
         return Err(BuildError::conformance(
             "native outcomes",
-            format!("{} selected an unrelated result", case.identity),
+            format!("{} selected an unrelated result", case.test_identity),
         ));
     }
 
-    case.expectation.validate(case.identity, &test.outcome)?;
+    case.expectation
+        .validate(case.test_identity, &test.outcome)?;
+
     require_stream(&test.identity, "stdout", &test.stdout, &[])?;
 
     require_stream(&test.identity, "stderr", &test.stderr, &[])
@@ -493,17 +513,53 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
     Ok(())
 }
 
-fn run_tests(
+fn test_batch_plan(
+    identity: &str,
+    filters: impl IntoIterator<Item = impl AsRef<str>>,
+    maximum_concurrency: usize,
+    timeout_milliseconds: Option<u64>,
+) -> Result<TestBatchPlan, BuildError> {
+    TestBatchPlan::try_new(
+        identity,
+        filters
+            .into_iter()
+            .map(|filter| filter.as_ref().to_owned()),
+        maximum_concurrency,
+        timeout_milliseconds,
+    )
+    .map_err(|error| BuildError::conformance("native test batch", format!("{error:?}")))
+}
+
+fn test_batch_request(
+    plans: impl IntoIterator<Item = TestBatchPlan>,
+) -> Result<TestBatchRequest, BuildError> {
+    TestBatchRequest::try_new(plans)
+        .map_err(|error| BuildError::conformance("native test batch", format!("{error:?}")))
+}
+
+fn run_test_batch(
     root: &Path,
     workspace: &Path,
     toolchain: &Path,
     target: NativeTarget,
     product: &str,
-    test_arguments: &[&str],
+    request: &TestBatchRequest,
+    profile_output: Option<&Path>,
+    profile_identity: &str,
 ) -> Result<Output, BuildError> {
-    let executable = crate::workspace::cargo_target(root)
-        .join("debug")
-        .join(crate::native_toolchain::executable_name("bray"));
+    let request_path = workspace.join(format!(".{product}-test-batch.json"));
+
+    let request_bytes = serde_json::to_vec(request).map_err(|error| {
+        BuildError::conformance(
+            "native test batch",
+            format!("could not encode request: {error}"),
+        )
+    })?;
+
+    fs::write(&request_path, request_bytes)
+        .map_err(|error| BuildError::write(&request_path, error))?;
+
+    let executable = crate::native_toolchain::compiler_executable(root, "bray");
 
     let mut command = Command::new(&executable);
 
@@ -514,8 +570,15 @@ fn run_tests(
         .arg(workspace)
         .arg("--toolchain-root")
         .arg(toolchain)
-        .arg("--standard-library-source")
-        .args([
+        .arg("--standard-library-source");
+
+    if let Some(profile_output) = profile_output {
+        command
+            .args(["--profile", "trace", "--profile-output"])
+            .arg(profile_output.join(profile_identity));
+    }
+
+    command.args([
             "--format",
             "json",
             "test",
@@ -525,10 +588,10 @@ fn run_tests(
             "--target",
         ])
         .arg(target_name(target))
-        .args(test_arguments);
+        .arg("--batch-request")
+        .arg(&request_path);
 
-    command
-        .output()
+    crate::command::output_with_streamed_stderr(&mut command)
         .map_err(|error| BuildError::conformance("native command", error.to_string()))
 }
 
@@ -543,16 +606,24 @@ fn require_success(operation: &'static str, output: &Output) -> Result<(), Build
     ))
 }
 
-fn parse_report(operation: &'static str, output: &Output) -> Result<NativeTestReport, BuildError> {
-    serde_json::from_slice(&output.stdout).map_err(|error| {
+fn parse_batch_report(
+    operation: &'static str,
+    output: &Output,
+    request: &TestBatchRequest,
+) -> Result<NativeTestBatchReport, BuildError> {
+    let report = serde_json::from_slice::<NativeTestBatchReport>(&output.stdout).map_err(|error| {
         BuildError::conformance(
             operation,
             format!(
-                "could not decode JSON report: {error}; {}",
+                "could not decode JSON report: {error}. {}",
                 crate::command::failure(operation, output)
             ),
         )
-    })
+    })?;
+
+    report.validate(request)?;
+
+    Ok(report)
 }
 
 fn tests(report: &NativeTestReport) -> Vec<&NativeTestResult> {
@@ -563,29 +634,16 @@ fn tests(report: &NativeTestReport) -> Vec<&NativeTestResult> {
         .collect()
 }
 
-fn product_artifact(
+fn product_catalog(
     workspace: &Path,
     target: NativeTarget,
     product: &str,
-    artifact: Artifact,
 ) -> Result<PathBuf, BuildError> {
     let destination = native_product_destination(workspace, target)?;
-    let directory = destination.directory();
 
-    match artifact {
-        Artifact::Catalog => Ok(directory.join(format!("{product}.braytests"))),
-        Artifact::Executable => {
-            let package = PackageIdentity::try_new(PACKAGE_IDENTITY).ok_or_else(|| {
-                BuildError::conformance("native artifacts", "invalid package identity")
-            })?;
-
-            let product = ProductIdentity::try_new(package, product).ok_or_else(|| {
-                BuildError::conformance("native artifacts", "invalid product identity")
-            })?;
-
-            super::artifact::resolve_executable(destination, &product, "native artifacts")
-        }
-    }
+    Ok(destination
+        .directory()
+        .join(format!("{product}.braytests")))
 }
 
 fn native_product_destination(
@@ -606,17 +664,6 @@ fn native_product_destination(
 
 fn read_artifact(path: &Path) -> Result<Vec<u8>, BuildError> {
     fs::read(path).map_err(|error| BuildError::read(path, error))
-}
-
-fn require_equal_artifact(name: &str, first: &[u8], second: &[u8]) -> Result<(), BuildError> {
-    if first != second {
-        return Err(BuildError::conformance(
-            "native determinism",
-            format!("{name} differs between sequential and parallel builds"),
-        ));
-    }
-
-    Ok(())
 }
 
 fn copy_fixture(source: &Path, destination: &Path) -> Result<(), BuildError> {
@@ -676,30 +723,36 @@ const fn target_name(target: NativeTarget) -> &'static str {
     }
 }
 
-enum Artifact {
-    Catalog,
-    Executable,
-}
-
 #[derive(Clone, Copy)]
 struct OutcomeCase {
-    identity: &'static str,
+    plan_identity: &'static str,
+    test_identity: &'static str,
     expectation: OutcomeExpectation,
     timed: bool,
 }
 
 impl OutcomeCase {
-    const fn new(identity: &'static str, expectation: OutcomeExpectation) -> Self {
+    const fn new(
+        plan_identity: &'static str,
+        test_identity: &'static str,
+        expectation: OutcomeExpectation,
+    ) -> Self {
         Self {
-            identity,
+            plan_identity,
+            test_identity,
             expectation,
             timed: false,
         }
     }
 
-    const fn timed(identity: &'static str, expectation: OutcomeExpectation) -> Self {
+    const fn timed(
+        plan_identity: &'static str,
+        test_identity: &'static str,
+        expectation: OutcomeExpectation,
+    ) -> Self {
         Self {
-            identity,
+            plan_identity,
+            test_identity,
             expectation,
             timed: true,
         }
@@ -769,6 +822,59 @@ impl OutcomeExpectation {
 
         Ok(())
     }
+}
+
+#[derive(Deserialize)]
+struct NativeTestBatchReport {
+    format: u32,
+    plans: Vec<NativeTestBatchPlanReport>,
+}
+
+impl NativeTestBatchReport {
+    fn validate(&self, request: &TestBatchRequest) -> Result<(), BuildError> {
+        if self.format != 1 || self.plans.len() != request.plans().len() {
+            return Err(BuildError::conformance(
+                "native test batch",
+                "the report header does not match the request",
+            ));
+        }
+
+        for (actual, expected) in self.plans.iter().zip(request.plans()) {
+            let report_succeeded = actual.report.summary.failed == 0;
+
+            if actual.identity != expected.identity()
+                || actual.report.format != 1
+                || actual.succeeded != report_succeeded
+            {
+                return Err(BuildError::conformance(
+                    "native test batch",
+                    format!("the {} plan report is inconsistent", expected.identity()),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn report(&self, identity: &str) -> Result<&NativeTestReport, BuildError> {
+        self.plans
+            .iter()
+            .find(|plan| plan.identity == identity)
+            .map(|plan| &plan.report)
+            .ok_or_else(|| {
+                BuildError::conformance(
+                    "native test batch",
+                    format!("the {identity} plan report is absent"),
+                )
+            })
+    }
+}
+
+#[derive(Deserialize)]
+struct NativeTestBatchPlanReport {
+    identity: String,
+    succeeded: bool,
+    report: NativeTestReport,
 }
 
 #[derive(Deserialize)]
@@ -903,5 +1009,96 @@ mod tests {
                 .as_str(),
             "x86-64-windows/release/std"
         );
+    }
+
+    #[test]
+    fn native_batch_request_retains_ordered_one_build_execution_plans() {
+        let request = super::test_batch_request([
+            super::test_batch_plan("sequential", std::iter::empty::<&str>(), 1, Some(1000))
+                .unwrap_or_else(|error| panic!("sequential plan must build: {error:?}")),
+            super::test_batch_plan("filtered", ["output"], 2, None)
+                .unwrap_or_else(|error| panic!("filtered plan must build: {error:?}")),
+        ])
+        .unwrap_or_else(|error| panic!("batch request must build: {error:?}"));
+
+        let encoded = serde_json::to_vec(&request)
+            .unwrap_or_else(|error| panic!("batch request must encode: {error:?}"));
+
+        let decoded = serde_json::from_slice::<bray_test_protocol::TestBatchRequest>(&encoded)
+            .unwrap_or_else(|error| panic!("batch request must decode: {error:?}"));
+
+        let identities = decoded
+            .plans()
+            .iter()
+            .map(bray_test_protocol::TestBatchPlan::identity)
+            .collect::<Vec<_>>();
+
+        assert_eq!(identities, ["sequential", "filtered"]);
+        assert_eq!(decoded.plans()[0].maximum_concurrency(), 1);
+        assert_eq!(decoded.plans()[1].filters(), ["output"]);
+    }
+
+    #[test]
+    fn outcome_batch_uses_portable_plan_identities_and_exact_source_filters() {
+        let request = super::outcome_batch_request()
+            .unwrap_or_else(|error| panic!("outcome batch must build: {error:?}"));
+
+        for (plan, case) in request.plans().iter().zip(super::OUTCOME_CASES) {
+            assert_eq!(plan.identity(), case.plan_identity);
+            assert_eq!(plan.filters(), [case.test_identity]);
+        }
+    }
+
+    #[test]
+    fn batch_report_rejects_a_child_report_with_an_unknown_format() {
+        let request = super::test_batch_request([
+            super::test_batch_plan("plan", std::iter::empty::<&str>(), 1, None)
+                .unwrap_or_else(|error| panic!("plan must build: {error:?}")),
+        ])
+        .unwrap_or_else(|error| panic!("batch request must build: {error:?}"));
+
+        let report = serde_json::from_value::<super::NativeTestBatchReport>(serde_json::json!({
+            "format": 1,
+            "plans": [{
+                "identity": "plan",
+                "succeeded": true,
+                "report": {
+                    "format": 2,
+                    "selection": { "discovered": 0, "selected": 0, "filtered_out": 0 },
+                    "products": [],
+                    "summary": { "passed": 0, "failed": 0 }
+                }
+            }]
+        }))
+        .unwrap_or_else(|error| panic!("test report must decode: {error:?}"));
+
+        assert!(report.validate(&request).is_err());
+    }
+
+    #[test]
+    fn focused_startup_report_requires_the_api_product_identity() {
+        let report = super::NativeTestReport {
+            format: 1,
+            selection: super::NativeSelection {
+                discovered: super::API_TEST_COUNT,
+                selected: 1,
+                filtered_out: super::API_TEST_COUNT - 1,
+            },
+            products: vec![super::NativeProductReport {
+                package: super::PACKAGE_IDENTITY.to_owned(),
+                product: super::OUTCOME_PRODUCT.to_owned(),
+                catalog_digest: "0".repeat(64),
+                tests: Vec::new(),
+            }],
+            summary: super::NativeSummary {
+                passed: 1,
+                failed: 0,
+            },
+        };
+
+        let error = super::require_startup_report(&report, "fixture", &[])
+            .expect_err("the outcome product must not satisfy an API startup report");
+
+        assert!(error.to_string().contains("report identity"));
     }
 }

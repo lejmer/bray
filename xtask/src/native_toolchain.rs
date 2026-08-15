@@ -12,13 +12,22 @@ pub(crate) fn build_compiler(root: &Path) -> Result<(), String> {
     command.current_dir(root).args([
         "build",
         "--quiet",
+        "--release",
         "--package",
         "brayc",
         "--package",
         "bray",
     ]);
 
-    crate::command::require_success(command, "building Bray tools").map(|_| ())
+    crate::progress::run("Building Bray compiler tools", || {
+        crate::command::require_success(command, "building Bray tools").map(|_| ())
+    })
+}
+
+pub(crate) fn compiler_executable(root: &Path, name: &str) -> std::path::PathBuf {
+    crate::workspace::cargo_target(root)
+        .join("release")
+        .join(executable_name(name))
 }
 
 pub(crate) fn assemble(
@@ -30,7 +39,9 @@ pub(crate) fn assemble(
     let library_root = toolchain.join("lib").join("bray");
     let standard_library = library_root.join("standard-library");
 
-    build_standard_library(root, target, &standard_library)?;
+    crate::progress::run("Building the standard library bundle", || {
+        build_standard_library(root, target, &standard_library)
+    })?;
 
     install_runtime(runtime, target, &library_root)
 }
@@ -44,7 +55,9 @@ pub(crate) fn assemble_in_publication(
 ) -> Result<(), String> {
     let committed_standard_library = work.join("standard-library");
 
-    build_standard_library(root, target, &committed_standard_library)?;
+    crate::progress::run("Building the standard library bundle", || {
+        build_standard_library(root, target, &committed_standard_library)
+    })?;
 
     let library_root = toolchain.join("lib").join("bray");
     let standard_library = library_root.join("standard-library");

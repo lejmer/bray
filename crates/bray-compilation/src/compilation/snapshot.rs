@@ -51,9 +51,13 @@ impl Compilation {
             request = request.with_standard_library_source_authority();
         }
 
+        // Revised snapshots retain explicit immutable roots, not resolver cache state.
         if let Some(resolver) = self.state.standard_library.as_ref() {
-            // Revised snapshots retain the same explicit immutable root, not resolver cache state.
             request = request.with_standard_library_root(resolver.root().clone());
+        }
+
+        if let Some(resolver) = self.state.standard_library_providers.as_ref() {
+            request = request.with_standard_library_provider_root(resolver.root().clone());
         }
 
         if let Some(export) = self.state.package_interface_export.clone() {
@@ -646,6 +650,47 @@ mod tests {
                 .filter(|input| input.is_standard_library())
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn updated_source_snapshots_preserve_provider_selection_without_importing_std() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
+
+        let root = bray_standard_library::StandardLibraryRoot::try_new(directory.path())
+            .unwrap_or_else(|| panic!("temporary root must be absolute"));
+
+        let previous = Compilation::load(
+            request(
+                [source(10, 0, "module app;\n")],
+                options(ProductKind::Executable, SelectedTarget::baseline()),
+            )
+            .with_standard_library_provider_root(root.clone()),
+        )
+        .unwrap_or_else(|error| panic!("provider-only compilation must load: {error:?}"));
+
+        let updated = previous
+            .updated_sources(vec![source(10, 1, "module app;\n")])
+            .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
+
+        assert_eq!(
+            updated
+                .state
+                .standard_library_providers
+                .as_ref()
+                .map(|resolver| resolver.root()),
+            Some(&root)
+        );
+
+        assert!(updated.state.standard_library.is_none());
+
+        assert!(
+            updated
+                .state
+                .dependency_interfaces
+                .iter()
+                .all(|input| !input.is_standard_library())
         );
     }
 

@@ -86,29 +86,14 @@ pub(super) fn publication_identity(
 
 #[cfg(test)]
 mod tests {
-    use bray_test_protocol::{TestCatalog, encode_test_catalog};
-
-    use super::super::test_support::product;
+    use super::super::test_support::write_empty_test_host;
 
     #[test]
     fn publication_identity_rejects_replaced_host_artifacts() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test directory should be created: {error:?}"));
 
-        let executable = directory.path().join("tests.exe");
-        let catalog_path = directory.path().join("tests.braytests");
-
-        std::fs::write(&executable, b"host-one")
-            .unwrap_or_else(|error| panic!("test executable should be written: {error:?}"));
-
-        let catalog = TestCatalog::try_new(product(), [])
-            .unwrap_or_else(|error| panic!("empty test catalog should be valid: {error:?}"));
-
-        let (catalog, _) = encode_test_catalog(&catalog)
-            .unwrap_or_else(|error| panic!("test catalog should encode: {error:?}"));
-
-        std::fs::write(&catalog_path, catalog)
-            .unwrap_or_else(|error| panic!("test catalog should be written: {error:?}"));
+        let (executable, catalog_path) = write_empty_test_host(directory.path());
 
         let host = super::BuiltTestHost::try_new(executable.clone(), catalog_path.clone())
             .unwrap_or_else(|| panic!("test host publication should be valid"));

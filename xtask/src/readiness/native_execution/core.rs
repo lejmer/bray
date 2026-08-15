@@ -117,34 +117,68 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     })?;
 
     crate::native_toolchain::build_compiler(root)?;
-    audit_memory_rejection(root, target)?;
+
+    crate::progress::run("Checking native memory rejection", || {
+        audit_memory_rejection(root, target)
+    })?;
 
     let runtime = native_output("bray-native-runtime-")?;
-    let runtime = crate::runtime_artifact::build_for_readiness(target, runtime.path())?;
 
-    audit_standard_hello_world(root, target, &runtime)?;
-    audit_standard_format(root, target, &runtime)?;
-    audit_standard_buffer(root, target, &runtime)?;
-    audit_text_cursor(root, target, &runtime)?;
-    audit_startup(root, target, &runtime)?;
-    audit_entry_result(root, target, &runtime)?;
-    audit_memory_operations(root, target, &runtime)?;
-    audit_atomic_operations(root, target, &runtime)?;
-    audit_memory_layout(root, target, &runtime)?;
+    let runtime = crate::progress::run("Building native readiness runtime artifacts", || {
+        crate::runtime_artifact::build_for_readiness(target, runtime.path())
+    })?;
+
+    crate::progress::run("Checking standard-library hello world execution", || {
+        audit_standard_hello_world(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking standard formatting execution", || {
+        audit_standard_format(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking standard buffer execution", || {
+        audit_standard_buffer(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking text cursor execution", || {
+        audit_text_cursor(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking native startup", || audit_startup(root, target, &runtime))?;
+
+    crate::progress::run("Checking native entry results", || {
+        audit_entry_result(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking native memory operations", || {
+        audit_memory_operations(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking native atomic operations", || {
+        audit_atomic_operations(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking native memory layout", || {
+        audit_memory_layout(root, target, &runtime)
+    })?;
 
     if target == NativeTarget::X86_64LinuxGnu {
-        audit_primitive_abi(root, target, &runtime)?;
+        crate::progress::run("Checking the native primitive ABI", || {
+            audit_primitive_abi(root, target, &runtime)
+        })?;
     }
 
-    audit_host_behavior(root, target, &runtime)?;
+    crate::progress::run("Checking native host behavior", || {
+        audit_host_behavior(root, target, &runtime)
+    })?;
 
-    crate::runtime_artifact::smoke_test_host()
+    crate::progress::run("Checking runtime artifact integration", || {
+        crate::runtime_artifact::smoke_test_host()
+    })
 }
 
 fn audit_memory_rejection(root: &Path, target: NativeTarget) -> Result<(), String> {
-    let compiler = crate::workspace::cargo_target(root)
-        .join("debug")
-        .join(crate::native_toolchain::executable_name("brayc"));
+    let compiler = crate::native_toolchain::compiler_executable(root, "brayc");
 
     let fixture = root.join(INVALID_MEMORY_FIXTURE);
     let mut command = Command::new(compiler);
@@ -507,9 +541,7 @@ fn build_fixtures(
     package: Option<&str>,
     fixtures: &[&str],
 ) -> Result<(), String> {
-    let compiler = crate::workspace::cargo_target(root)
-        .join("debug")
-        .join(crate::native_toolchain::executable_name("brayc"));
+    let compiler = crate::native_toolchain::compiler_executable(root, "brayc");
 
     let mut command = Command::new(compiler);
 

@@ -21,9 +21,7 @@ pub(super) fn audit_standard_hello_world(
     crate::native_toolchain::assemble(root, target, runtime, &toolchain)?;
     write_workspace(root, target, &workspace)?;
 
-    let bray = crate::workspace::cargo_target(root)
-        .join("debug")
-        .join(crate::native_toolchain::executable_name("bray"));
+    let bray = crate::native_toolchain::compiler_executable(root, "bray");
 
     let mut build = Command::new(&bray);
 

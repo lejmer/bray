@@ -28,6 +28,22 @@ define_catalog_enum! {
         MemoryCopy => "MemoryCopy",
         /// Copies a possibly overlapping raw-memory range.
         MemoryCopyOverlapping => "MemoryCopyOverlapping",
+        /// Creates protected storage without creating a value of its represented type.
+        UninitNew => "UninitNew",
+        /// Produces a shared raw pointer to protected storage.
+        UninitPointer => "UninitPointer",
+        /// Produces a mutable raw pointer to protected storage.
+        UninitPointerMut => "UninitPointerMut",
+        /// Safely initializes protected storage from an owned value.
+        UninitWrite => "UninitWrite",
+        /// Trusts that protected storage contains an initialized represented value.
+        UninitAssumeInitialized => "UninitAssumeInitialized",
+        /// Moves an initialized represented value out of protected storage.
+        UninitMove => "UninitMove",
+        /// Constructs a shared borrow anchored to an explicit owner.
+        BorrowFrom => "BorrowFrom",
+        /// Constructs a mutable borrow anchored to an explicit scoped capability.
+        BorrowMutFrom => "BorrowMutFrom",
         /// Computes the size of a type.
         MemorySizeOf => "MemorySizeOf",
         /// Computes the alignment of a type.
@@ -209,6 +225,14 @@ impl ImplementationHook {
         Self::RawPointerWrite,
         Self::MemoryCopy,
         Self::MemoryCopyOverlapping,
+        Self::UninitNew,
+        Self::UninitPointer,
+        Self::UninitPointerMut,
+        Self::UninitWrite,
+        Self::UninitAssumeInitialized,
+        Self::UninitMove,
+        Self::BorrowFrom,
+        Self::BorrowMutFrom,
         Self::MemorySizeOf,
         Self::MemoryAlignOf,
         Self::MemoryStrideOf,

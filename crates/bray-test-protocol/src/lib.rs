@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod batch;
 mod capture;
 mod catalog;
 mod codec;
@@ -15,6 +16,11 @@ mod scheduling;
 #[cfg(test)]
 mod test_support;
 
+pub use batch::{
+    MAXIMUM_TEST_BATCH_FILTER_BYTES, MAXIMUM_TEST_BATCH_PLAN_FILTERS,
+    MAXIMUM_TEST_BATCH_PLAN_IDENTITY_BYTES, MAXIMUM_TEST_BATCH_REQUEST_BYTES, TestBatchPlan,
+    TestBatchPlanError, TestBatchRequest, TestBatchRequestError,
+};
 pub use capture::{
     CapturedStream, CapturedStreamPolicy, TestCaptureLimits, TestCapturePolicy, TestStreamFailure,
     TestStreamFailureKind, TestStreamKind,

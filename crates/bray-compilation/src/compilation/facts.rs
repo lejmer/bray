@@ -73,6 +73,8 @@ pub(super) struct CompilationState {
     pub(super) package_identity: PackageIdentity,
     pub(super) package_source_authority: crate::PackageSourceAuthority,
     pub(super) standard_library: Option<bray_standard_library::StandardLibraryResolver>,
+    pub(super) standard_library_providers:
+        Option<bray_standard_library::StandardLibraryResolver>,
     pub(super) options: CompilationOptions,
     pub(super) sources: SourceStore,
     pub(super) source_diagnostics: DiagnosticBag,
@@ -239,6 +241,7 @@ impl Compilation {
             package_identity,
             package_source_authority,
             standard_library_root,
+            standard_library_provider_root,
             options,
             source_inputs,
             mut dependency_interfaces,
@@ -286,8 +289,11 @@ impl Compilation {
             .as_deref()
             .map(|profile| profile.start(crate::profile::ProfileOperation::CompilationLoad, None));
 
-        let standard_library =
-            standard_library_root.map(bray_standard_library::StandardLibraryResolver::new);
+        let standard_library = standard_library_root
+            .map(bray_standard_library::StandardLibraryResolver::new);
+
+        let standard_library_providers = standard_library_provider_root
+            .map(bray_standard_library::StandardLibraryResolver::new);
 
         if let Some(resolver) = standard_library.as_ref() {
             // The synthetic dependency and native selection share one immutable resolver cache.
@@ -302,55 +308,11 @@ impl Compilation {
             (left.package(), left.product()).cmp(&(right.package(), right.product()))
         });
 
-        let mut sources = SourceStore::with_capacity(source_inputs.len());
-        let mut source_identities = BTreeSet::new();
-        let mut diagnostics = DiagnosticBag::new();
-
-        if !package_source_authority.accepts(&package_identity) {
-            diagnostics.add(package_source_authority_diagnostic(
-                next_diagnostic_id(&diagnostics)?,
-                &package_identity,
-                package_source_authority,
-            ));
-        }
-
-        if source_inputs.is_empty() {
-            diagnostics.add(missing_source_input_diagnostic(next_diagnostic_id(
-                &diagnostics,
-            )?));
-        }
-
-        for (source_index, source_input) in (0_u64..).zip(source_inputs) {
-            // Preserve request metadata so source-load diagnostics can identify the input.
-            let diagnostic_context =
-                SourceInputDiagnosticContext::from_input(source_index, &source_input);
-
-            if !source_identities.insert(source_input.identity()) {
-                diagnostics.add(duplicate_source_input_diagnostic(
-                    next_diagnostic_id(&diagnostics)?,
-                    diagnostic_context,
-                ));
-
-                continue;
-            }
-
-            match sources.insert_input(source_input) {
-                Ok(_) => {}
-                Err(error) => {
-                    let stops_loading = matches!(error, SourceLoadError::TooManySources { .. });
-
-                    diagnostics.add(source_load_diagnostic(
-                        next_diagnostic_id(&diagnostics)?,
-                        diagnostic_context,
-                        error,
-                    ));
-
-                    if stops_loading {
-                        break;
-                    }
-                }
-            }
-        }
+        let (sources, diagnostics) = load_source_inputs(
+            &package_identity,
+            package_source_authority,
+            source_inputs,
+        )?;
 
         let source_count = sources.len();
         let dependency_count = dependency_interfaces.len();
@@ -359,6 +321,7 @@ impl Compilation {
             &package_identity,
             package_source_authority,
             standard_library.as_ref(),
+            standard_library_providers.as_ref(),
             &options,
             &sources,
             &diagnostics,
@@ -390,6 +353,7 @@ impl Compilation {
                 package_identity,
                 package_source_authority,
                 standard_library,
+                standard_library_providers,
                 options,
                 sources,
                 source_diagnostics: diagnostics,
@@ -920,6 +884,64 @@ impl Compilation {
             compute,
         )
     }
+}
+
+fn load_source_inputs(
+    package_identity: &PackageIdentity,
+    package_source_authority: crate::PackageSourceAuthority,
+    source_inputs: Vec<SourceInput>,
+) -> Result<(SourceStore, DiagnosticBag), CompilationLoadError> {
+    let mut sources = SourceStore::with_capacity(source_inputs.len());
+    let mut source_identities = BTreeSet::new();
+    let mut diagnostics = DiagnosticBag::new();
+
+    if !package_source_authority.accepts(package_identity) {
+        diagnostics.add(package_source_authority_diagnostic(
+            next_diagnostic_id(&diagnostics)?,
+            package_identity,
+            package_source_authority,
+        ));
+    }
+
+    if source_inputs.is_empty() {
+        diagnostics.add(missing_source_input_diagnostic(next_diagnostic_id(
+            &diagnostics,
+        )?));
+    }
+
+    for (source_index, source_input) in (0_u64..).zip(source_inputs) {
+        // Preserve request metadata so source-load diagnostics can identify the input.
+        let diagnostic_context =
+            SourceInputDiagnosticContext::from_input(source_index, &source_input);
+
+        if !source_identities.insert(source_input.identity()) {
+            diagnostics.add(duplicate_source_input_diagnostic(
+                next_diagnostic_id(&diagnostics)?,
+                diagnostic_context,
+            ));
+
+            continue;
+        }
+
+        match sources.insert_input(source_input) {
+            Ok(_) => {}
+            Err(error) => {
+                let stops_loading = matches!(error, SourceLoadError::TooManySources { .. });
+
+                diagnostics.add(source_load_diagnostic(
+                    next_diagnostic_id(&diagnostics)?,
+                    diagnostic_context,
+                    error,
+                ));
+
+                if stops_loading {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok((sources, diagnostics))
 }
 
 impl fmt::Debug for Compilation {

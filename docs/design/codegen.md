@@ -513,7 +513,9 @@ thread safety explicit. Otherwise each worker owns the required state.
 LLVM constructs with stronger semantics than the corresponding Bray operation may be used only when earlier facts prove their
 preconditions. In particular:
 
-- `undef` and poison values must not represent source recovery, ordinary uninitialized storage, or an unknown semantic value,
+- at the source-semantic boundary, `undef` may represent only checked `Uninit<T>` creation and must remain behind its protected MIR operations,
+- internal aggregate construction may use `undef` only when every observable field is overwritten before exposure,
+- `undef` and poison values must not represent source recovery, ordinary initialized value storage, or an unknown semantic value,
 - `inbounds`, `noalias`, `nonnull`, `noundef`, exactness, and integer no-wrap flags require explicit supporting facts,
 - LLVM `unreachable` requires a Bray MIR control-flow proof that execution cannot reach that point,
 - host pointer size, host CPU features, and host data layout must never replace the selected codegen target,

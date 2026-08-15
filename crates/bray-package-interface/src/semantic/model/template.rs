@@ -6,7 +6,7 @@ use bray_bound_tree::{
     CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
 };
 use bray_symbols::{
-    ConstantBinaryOperation, ConstantUnaryOperation, CurrentRunCancellation,
+    BorrowKind, ConstantBinaryOperation, ConstantUnaryOperation, CurrentRunCancellation,
     InterfaceSupportEntityId, LifecycleObligationKind, SymbolOrdinal,
 };
 
@@ -187,6 +187,13 @@ pub enum InterfaceCheckedTemplateOperation {
         left: CheckedTemplateNodeId,
         /// Right operand evaluated second unless the operation short-circuits.
         right: CheckedTemplateNodeId,
+    },
+    /// Borrows one evaluated place with its checked capability.
+    Borrow {
+        /// Exact borrow capability.
+        kind: BorrowKind,
+        /// Place evaluated before creating the borrow.
+        operand: CheckedTemplateNodeId,
     },
     /// Reads a declaration-owned value.
     Declaration(InterfaceTemplateReference),
@@ -382,7 +389,7 @@ impl InterfaceCheckedTemplate {
         &self.nodes
     }
 
-    /// Returns explicitly materialized temporaries in deterministic allocation order.
+    /// Returns temporaries in allocation order with nondecreasing initializer nodes.
     pub fn temporaries(&self) -> &[InterfaceCheckedTemplateTemporary] {
         &self.temporaries
     }

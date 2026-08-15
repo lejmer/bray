@@ -104,7 +104,15 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
 
 fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<TypeId>) {
     match kind {
-        CheckedMemoryOperationKind::Address { pointee, .. }
+        CheckedMemoryOperationKind::UninitNew { element: pointee }
+        | CheckedMemoryOperationKind::UninitPointer {
+            element: pointee, ..
+        }
+        | CheckedMemoryOperationKind::UninitWrite { element: pointee }
+        | CheckedMemoryOperationKind::UninitAssumeInitialized { element: pointee }
+        | CheckedMemoryOperationKind::UninitMove { element: pointee }
+        | CheckedMemoryOperationKind::BorrowFrom { pointee, .. }
+        | CheckedMemoryOperationKind::Address { pointee, .. }
         | CheckedMemoryOperationKind::Null { pointee }
         | CheckedMemoryOperationKind::IsNull { pointee }
         | CheckedMemoryOperationKind::Offset { pointee, .. }

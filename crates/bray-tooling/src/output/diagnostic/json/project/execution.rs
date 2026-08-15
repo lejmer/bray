@@ -226,6 +226,9 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectSelectionJson {
     InvalidDependencyProduct {
         value: String,
     },
+    InvalidPlatformServiceBinding {
+        value: String,
+    },
     NoMatchingProduct {
         selection: String,
     },
@@ -298,6 +301,11 @@ impl DiagnosticProjectSelectionJson {
             Problem::InvalidDependencyProduct(value) => Self::InvalidDependencyProduct {
                 value: value.clone(),
             },
+            Problem::InvalidPlatformServiceBinding(value) => {
+                Self::InvalidPlatformServiceBinding {
+                    value: value.clone(),
+                }
+            }
             Problem::NoMatchingProduct(selection) => Self::NoMatchingProduct {
                 selection: selection.clone(),
             },

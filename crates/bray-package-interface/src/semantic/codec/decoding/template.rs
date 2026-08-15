@@ -307,6 +307,10 @@ fn decode_operation(
             left: CheckedTemplateNodeId::new(read_u32(reader)?),
             right: CheckedTemplateNodeId::new(read_u32(reader)?),
         }),
+        14 => Ok(InterfaceCheckedTemplateOperation::Borrow {
+            kind: decode_tag(read_u32(reader)?)?,
+            operand: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
         _ => Err(InterfaceValidationError::Malformed),
     }
 }
@@ -360,7 +364,7 @@ fn decode_implementation_reference(
 mod tests {
     use bray_bound_tree::{
         CheckedTemplateInputId, CheckedTemplateKind, CheckedTemplateNodeId,
-        CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
+        CheckedTemplateOperation, CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
     };
     use bray_symbols::{
         AnySymbolId, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
@@ -452,6 +456,37 @@ mod tests {
             decode_semantic_facts(&owned_section_views(&owned), &surface, limits),
             Ok(facts)
         );
+
+        let (_, facts) = operation_fixture();
+
+        let resolver = resolver(&surface);
+
+        let store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
+
+        let imported = facts
+            .intern(&store, &resolver)
+            .unwrap_or_else(|error| panic!("operation interning failed: {error:?}"));
+
+        let [template] = imported.declaration_templates() else {
+            panic!("operation fixture must intern one declaration template");
+        };
+
+        assert!(matches!(
+            template.template().nodes()[13].operation(),
+            CheckedTemplateOperation::Borrow {
+                kind: bray_symbols::BorrowKind::Shared,
+                operand,
+            } if *operand == CheckedTemplateNodeId::new(0)
+        ));
+
+        assert!(matches!(
+            template.template().nodes()[14].operation(),
+            CheckedTemplateOperation::Borrow {
+                kind: bray_symbols::BorrowKind::Mutable,
+                operand,
+            } if *operand == CheckedTemplateNodeId::new(0)
+        ));
     }
 
     #[test]
@@ -525,6 +560,97 @@ mod tests {
                 &surface,
                 InterfaceValidationLimits::default()
             ),
+            Err(InterfaceValidationError::Malformed)
+        );
+    }
+
+    #[test]
+    fn template_validation_rejects_missing_and_uninitialized_temporaries() {
+        let (surface, facts) = operation_fixture();
+
+        let template = facts.checked_templates()[0].clone();
+
+        let invalid_facts = |node_index, operation| {
+            let mut nodes = template.nodes().to_vec();
+
+            nodes[node_index] =
+                InterfaceCheckedTemplateNode::new(operation, InterfaceTypeId::new(0));
+
+            let invalid_template = InterfaceCheckedTemplate::new(
+                template.kind(),
+                template.inputs().iter().cloned(),
+                nodes,
+                template.temporaries().iter().copied(),
+                template.result(),
+                template.behavior().clone(),
+            );
+
+            facts.clone().with_templates(
+                [invalid_template],
+                facts.declaration_templates().iter().cloned(),
+                facts.support_entities().iter().cloned(),
+            )
+        };
+
+        let missing = invalid_facts(
+            10,
+            InterfaceCheckedTemplateOperation::Temporary(CheckedTemplateTemporaryId::new(1)),
+        );
+
+        assert_eq!(
+            encode_semantic_facts(&missing, &surface, InterfaceValidationLimits::default()),
+            Err(InterfaceValidationError::Malformed)
+        );
+
+        let uninitialized = invalid_facts(
+            4,
+            InterfaceCheckedTemplateOperation::Temporary(CheckedTemplateTemporaryId::new(0)),
+        );
+
+        assert_eq!(
+            encode_semantic_facts(
+                &uninitialized,
+                &surface,
+                InterfaceValidationLimits::default()
+            ),
+            Err(InterfaceValidationError::Malformed)
+        );
+    }
+
+    #[test]
+    fn template_validation_rejects_decreasing_temporary_initializers() {
+        let (surface, facts) = operation_fixture();
+
+        let template = &facts.checked_templates()[0];
+
+        let invalid_template = InterfaceCheckedTemplate::new(
+            template.kind(),
+            template.inputs().iter().cloned(),
+            template.nodes().iter().cloned(),
+            [
+                InterfaceCheckedTemplateTemporary::new(
+                    CheckedTemplateNodeId::new(5),
+                    InterfaceTypeId::new(1),
+                    crate::InterfaceDependencyContractId::new(0),
+                ),
+                InterfaceCheckedTemplateTemporary::new(
+                    CheckedTemplateNodeId::new(0),
+                    InterfaceTypeId::new(0),
+                    crate::InterfaceDependencyContractId::new(0),
+                ),
+            ],
+            template.result(),
+            template.behavior().clone(),
+        );
+
+        let invalid = facts.clone().with_templates(
+            [invalid_template],
+            facts.declaration_templates().iter().cloned(),
+            facts.support_entities().iter().cloned(),
+        );
+
+        assert_eq!(
+            encode_semantic_facts(&invalid, &surface, InterfaceValidationLimits::default()),
             Err(InterfaceValidationError::Malformed)
         );
     }
@@ -694,6 +820,73 @@ mod tests {
 
         assert_eq!(
             encode_semantic_facts(&invalid, &surface, InterfaceValidationLimits::default()),
+            Err(InterfaceValidationError::Malformed)
+        );
+    }
+
+    #[test]
+    fn template_validation_rejects_borrow_kind_and_target_mismatches() {
+        let (surface, facts) = operation_fixture();
+
+        let template = facts.checked_templates()[0].clone();
+
+        let invalid_facts = |node_index, node| {
+            let mut nodes = template.nodes().to_vec();
+            nodes[node_index] = node;
+
+            let invalid_template = InterfaceCheckedTemplate::new(
+                template.kind(),
+                template.inputs().iter().cloned(),
+                nodes,
+                template.temporaries().iter().copied(),
+                template.result(),
+                template.behavior().clone(),
+            );
+
+            facts.clone().with_templates(
+                [invalid_template],
+                facts.declaration_templates().iter().cloned(),
+                facts.support_entities().iter().cloned(),
+            )
+        };
+
+        let kind_mismatch = invalid_facts(
+            13,
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Borrow {
+                    kind: bray_symbols::BorrowKind::Shared,
+                    operand: CheckedTemplateNodeId::new(0),
+                },
+                InterfaceTypeId::new(4),
+            ),
+        );
+
+        assert_eq!(
+            encode_semantic_facts(
+                &kind_mismatch,
+                &surface,
+                InterfaceValidationLimits::default()
+            ),
+            Err(InterfaceValidationError::Malformed)
+        );
+
+        let target_mismatch = invalid_facts(
+            14,
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Borrow {
+                    kind: bray_symbols::BorrowKind::Mutable,
+                    operand: CheckedTemplateNodeId::new(5),
+                },
+                InterfaceTypeId::new(4),
+            ),
+        );
+
+        assert_eq!(
+            encode_semantic_facts(
+                &target_mismatch,
+                &surface,
+                InterfaceValidationLimits::default()
+            ),
             Err(InterfaceValidationError::Malformed)
         );
     }
@@ -995,6 +1188,20 @@ mod tests {
                 },
                 InterfaceTypeId::new(0),
             ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Borrow {
+                    kind: bray_symbols::BorrowKind::Shared,
+                    operand: CheckedTemplateNodeId::new(0),
+                },
+                InterfaceTypeId::new(3),
+            ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Borrow {
+                    kind: bray_symbols::BorrowKind::Mutable,
+                    operand: CheckedTemplateNodeId::new(0),
+                },
+                InterfaceTypeId::new(4),
+            ),
         ];
 
         let behavior = InterfaceCheckedTemplateBehavior::new(
@@ -1022,7 +1229,7 @@ mod tests {
                 InterfaceTypeId::new(0),
                 crate::InterfaceDependencyContractId::new(0),
             )],
-            CheckedTemplateNodeId::new(12),
+            CheckedTemplateNodeId::new(14),
             behavior,
         );
 
@@ -1035,6 +1242,14 @@ mod tests {
             InterfaceType::Array {
                 element: InterfaceTypeId::new(0),
                 length: crate::InterfaceConstantTermId::new(0),
+            },
+            InterfaceType::Borrow {
+                kind: bray_symbols::BorrowKind::Shared,
+                target: InterfaceTypeId::new(0),
+            },
+            InterfaceType::Borrow {
+                kind: bray_symbols::BorrowKind::Mutable,
+                target: InterfaceTypeId::new(0),
             },
         ];
 

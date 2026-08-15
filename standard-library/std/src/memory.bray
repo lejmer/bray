@@ -55,6 +55,178 @@ extern trusted func copy_overlapping<T>(pos source: RawPointer<T>, pos destinati
     ensures(trusted core.memory.initialized_range_as<T>(pointer = destination, count = count))
     uses(raw_memory, unchecked_init);
 
+extern func uninit<T>() -> Uninit<T>;
+
+extern func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T>;
+
+extern func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T>;
+
+extern func uninit_write<T>(pos storage: &mut Uninit<T>, pos value: T) -> &mut T
+    ensures(trusted core.memory.uninit_initialized<T>(storage = storage));
+
+extern trusted func assume_initialized<T>(pos mut storage: Uninit<T>) -> T
+    requires(trusted core.memory.uninit_initialized<T>(storage = &mut storage))
+    uses(unchecked_init);
+
+extern trusted func move_initialized<T>(pos storage: &mut Uninit<T>) -> T
+    requires(trusted core.memory.uninit_initialized<T>(storage = storage))
+    uses(unchecked_init);
+
+trusted func destroy_initialized<T>(pos storage: &mut Uninit<T>) -> unit
+    requires(trusted core.memory.uninit_initialized<T>(storage = storage))
+{
+    let _: T = trusted move_initialized<T>(storage);
+}
+
+extern trusted func borrow_from<T, Owner>(pos owner: &Owner, pos pointer: RawPointer<T>) -> &T
+    requires(
+        trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = pointer),
+        trusted core.memory.initialized_as<T>(pointer = pointer),
+        trusted core.memory.shared_alias_valid<T>(pointer = pointer),
+        trusted core.memory.epoch_current<T>(pointer = pointer),
+        trusted core.memory.synchronized_access<T>(pointer = pointer),
+        trusted core.memory.movement_stable<T>(pointer = pointer),
+        trusted core.memory.finalization_pending<T>(pointer = pointer),
+    )
+    uses(raw_memory, unchecked_alias);
+
+extern trusted func borrow_mut_from<T, Capability>(
+    pos capability: &mut Capability,
+    pos pointer: RawPointer<T>,
+) -> &mut T
+    requires(
+        trusted core.memory.valid_write<T>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = pointer),
+        trusted core.memory.initialized_as<T>(pointer = pointer),
+        trusted core.memory.exclusive_alias_valid<T>(pointer = pointer),
+        trusted core.memory.epoch_current<T>(pointer = pointer),
+        trusted core.memory.synchronized_access<T>(pointer = pointer),
+        trusted core.memory.movement_stable<T>(pointer = pointer),
+        trusted core.memory.finalization_pending<T>(pointer = pointer),
+    )
+    uses(raw_memory, unchecked_alias);
+
+struct Output<T>
+{
+    mut storage: Uninit<T>;
+
+    construct() -> Self
+    {
+        return
+        {
+            storage = uninit<T>(),
+        };
+    }
+
+    consume mut func write(pos value: T) -> T
+    {
+        let _: &mut T = uninit_write<T>(&mut self.storage, value);
+
+        return trusted assume_initialized<T>(self.storage);
+    }
+
+    trusted mut func pointer() -> RawPointer<T>
+    {
+        return uninit_pointer_mut<T>(&mut self.storage);
+    }
+
+    trusted consume mut func into_value() -> T
+        requires(trusted core.memory.uninit_initialized<T>(storage = &mut self.storage))
+    {
+        return trusted assume_initialized<T>(self.storage);
+    }
+}
+
+struct InPlace<T>
+{
+    internal storage: &mut Uninit<T>;
+
+    mut func write(pos value: T) -> &mut T
+    {
+        return uninit_write<T>(self.storage, value);
+    }
+
+    trusted mut func pointer() -> RawPointer<T>
+    {
+        return uninit_pointer_mut<T>(self.storage);
+    }
+}
+
+func in_place<T>(pos storage: &mut Uninit<T>) -> InPlace<T>
+{
+    return
+    {
+        storage = storage,
+    };
+}
+
+@copy
+struct AnchoredView<T, Owner>
+{
+    internal owner: &Owner;
+    internal value: &T;
+
+    func get() -> &T
+    {
+        return self.value;
+    }
+}
+
+trusted func anchored_view<T, Owner>(pos owner: &Owner, pos pointer: RawPointer<T>) -> AnchoredView<T, Owner>
+    requires(
+        trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = pointer),
+        trusted core.memory.initialized_as<T>(pointer = pointer),
+        trusted core.memory.shared_alias_valid<T>(pointer = pointer),
+        trusted core.memory.epoch_current<T>(pointer = pointer),
+        trusted core.memory.synchronized_access<T>(pointer = pointer),
+        trusted core.memory.movement_stable<T>(pointer = pointer),
+        trusted core.memory.finalization_pending<T>(pointer = pointer),
+    )
+{
+    let value: &T = trusted borrow_from<T, Owner>(owner, pointer);
+
+    return
+    {
+        owner = owner,
+        value = value,
+    };
+}
+
+struct AnchoredViewMut<T, Capability>
+{
+    internal value: &mut T;
+
+    mut func get() -> &mut T
+    {
+        return self.value;
+    }
+}
+
+trusted func anchored_view_mut<T, Capability>(
+    pos capability: &mut Capability,
+    pos pointer: RawPointer<T>,
+) -> AnchoredViewMut<T, Capability>
+    requires(
+        trusted core.memory.valid_write<T>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = pointer),
+        trusted core.memory.initialized_as<T>(pointer = pointer),
+        trusted core.memory.exclusive_alias_valid<T>(pointer = pointer),
+        trusted core.memory.epoch_current<T>(pointer = pointer),
+        trusted core.memory.synchronized_access<T>(pointer = pointer),
+        trusted core.memory.movement_stable<T>(pointer = pointer),
+        trusted core.memory.finalization_pending<T>(pointer = pointer),
+    )
+{
+    let value: &mut T = trusted borrow_mut_from<T, Capability>(capability, pointer);
+
+    return
+    {
+        value = value,
+    };
+}
+
 struct MemoryLayout
 {
     bytes: usize;

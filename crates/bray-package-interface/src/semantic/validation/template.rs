@@ -239,11 +239,19 @@ fn validate_template(
         validate_operation(context, node, node_index)?;
     }
 
+    let mut previous_initializer = None;
+
     for temporary in template.temporaries() {
         let initializer = checked_index(
             compact_index(temporary.initializer().raw()),
             template.nodes().len(),
         )?;
+
+        if previous_initializer.is_some_and(|previous| initializer < previous) {
+            return Err(InterfaceValidationError::Malformed);
+        }
+
+        previous_initializer = Some(initializer);
 
         validate_index(temporary.ty().to_index(), facts.types.len())?;
 
@@ -312,6 +320,9 @@ fn validate_operation_references(
         }
         InterfaceCheckedTemplateOperation::Binary { left, right, .. } => {
             validate_prior_nodes(&[*left, *right], node_index)?;
+        }
+        InterfaceCheckedTemplateOperation::Borrow { operand, .. } => {
+            validate_prior_node(*operand, node_index)?;
         }
         InterfaceCheckedTemplateOperation::Declaration(declaration) => {
             validate_template_reference(context, declaration)?;
@@ -397,6 +408,14 @@ fn validate_operation_type(
             node_type(template, *operand) == Some(node.ty())
         }
         InterfaceCheckedTemplateOperation::Binary { .. } => true,
+        InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
+            let Some(InterfaceType::Borrow { kind: ty_kind, target }) = type_at(facts, node.ty())
+            else {
+                return Err(InterfaceValidationError::Malformed);
+            };
+
+            ty_kind == kind && node_type(template, *operand) == Some(*target)
+        }
         InterfaceCheckedTemplateOperation::Convert { target, .. } => *target == node.ty(),
         InterfaceCheckedTemplateOperation::Tuple(elements) => {
             let Some(InterfaceType::Tuple(types)) = type_at(facts, node.ty()) else {

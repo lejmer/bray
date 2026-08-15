@@ -29,6 +29,8 @@ pub enum DiagnosticProjectSelectionProblem {
     },
     /// A selected dependency product identity is invalid.
     InvalidDependencyProduct(String),
+    /// A compiler-internal platform-service binding argument is invalid.
+    InvalidPlatformServiceBinding(String),
     /// No product and target pair matches the complete command selection.
     NoMatchingProduct(String),
     /// A command requiring one product and target matched more than one.
@@ -112,6 +114,8 @@ pub enum DiagnosticProjectOperation {
     ProfileReportDecode,
     ProfileReportValidation,
     TestReportJson,
+    /// Decoding a typed same-process test batch request.
+    TestBatchRequest,
     TestConcurrency,
     TestExecutionPlan,
     TestHostPublication,
@@ -505,6 +509,7 @@ impl DiagnosticProjectOperation {
             Self::ProfileReportDecode => "profile_report_decode",
             Self::ProfileReportValidation => "profile_report_validation",
             Self::TestReportJson => "test_report_json",
+            Self::TestBatchRequest => "test_batch_request",
             Self::TestConcurrency => "test_concurrency",
             Self::TestExecutionPlan => "test_execution_plan",
             Self::TestHostPublication => "test_host_publication",

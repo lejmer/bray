@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpressionId, CheckedMemoryOperationKind, MemoryOperationDecision,
-    MemoryOperationStatus, RefinementFact, RefinementFactKind, StorageAccessPurpose,
-    StorageIdentity, StorageIdentityId,
+    MemoryOperationStatus, RefinementFact, RefinementFactKind, StorageAccessPurpose, StorageIdentity,
+    StorageIdentityId,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -17,7 +17,10 @@ use crate::analysis::storage_flow::model::StorageFlowState;
 const fn operation_requires_trust(kind: CheckedMemoryOperationKind) -> bool {
     matches!(
         kind,
-        CheckedMemoryOperationKind::Reinterpret { .. }
+        CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
+            | CheckedMemoryOperationKind::UninitMove { .. }
+            | CheckedMemoryOperationKind::BorrowFrom { .. }
+            | CheckedMemoryOperationKind::Reinterpret { .. }
             | CheckedMemoryOperationKind::Read { .. }
             | CheckedMemoryOperationKind::Write { .. }
             | CheckedMemoryOperationKind::Copy { .. }
@@ -263,6 +266,63 @@ where
         let arguments = operation.arguments();
 
         match operation.kind() {
+            CheckedMemoryOperationKind::UninitNew { .. } => {}
+            CheckedMemoryOperationKind::UninitPointer { .. } => {
+                let Some(source) = arguments
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
+                else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                let Some(result) = self.operation_result_storage(operation.expression()) else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                replace_raw_state(state, source, result);
+            }
+            CheckedMemoryOperationKind::UninitWrite { element } => {
+                let Some(storage) = arguments
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
+                else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                let status = apply_raw_write(state, storage, element, operation.expression());
+
+                if status != MemoryOperationStatus::Valid {
+                    return status;
+                }
+
+                if let Some(result) = self.operation_result_storage(operation.expression()) {
+                    replace_raw_state(state, storage, result);
+                }
+            }
+            CheckedMemoryOperationKind::UninitAssumeInitialized { element }
+            | CheckedMemoryOperationKind::UninitMove { element } => {
+                let Some(storage) = arguments
+                    .first()
+                    .and_then(|argument| self.argument_storage(*argument))
+                else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                return consume_trusted_uninit(state, storage, element);
+            }
+            CheckedMemoryOperationKind::BorrowFrom { .. } => {
+                let [_, pointer, ..] = arguments else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                let Some(source) = self.argument_storage(*pointer) else {
+                    return MemoryOperationStatus::Recovered;
+                };
+
+                if let Some(result) = self.operation_result_storage(operation.expression()) {
+                    replace_raw_state(state, source, result);
+                }
+            }
             CheckedMemoryOperationKind::Address { pointee, .. } => {
                 let Some(result) = self.operation_result_storage(operation.expression()) else {
                     return MemoryOperationStatus::Recovered;
@@ -616,6 +676,22 @@ fn apply_raw_read(
     MemoryOperationStatus::Valid
 }
 
+fn consume_trusted_uninit(
+    state: &mut StorageFlowState,
+    storage: StorageIdentityId,
+    element: bray_symbols::TypeId,
+) -> MemoryOperationStatus {
+    if state.invalidated_allocations.contains_key(&storage) {
+        return MemoryOperationStatus::InvalidatedAllocation;
+    }
+
+    if let Some(initialized) = state.raw_initialized.get_mut(&storage) {
+        initialized.remove(&element);
+    }
+
+    MemoryOperationStatus::Valid
+}
+
 fn apply_raw_write(
     state: &mut StorageFlowState,
     pointer: StorageIdentityId,
@@ -708,7 +784,7 @@ mod tests {
 
     use super::{
         StorageFlowState, apply_deallocation, apply_raw_copy, apply_raw_read, apply_raw_write,
-        replace_raw_state,
+        consume_trusted_uninit, replace_raw_state,
     };
     use crate::test_support::{error_type, expression_unit, push_expression};
 
@@ -745,6 +821,38 @@ mod tests {
             source,
             destination,
         )
+    }
+
+    #[test]
+    fn trusted_uninit_consumption_uses_the_checked_predicate_as_authority() {
+        let (expressions, storage, _) = raw_storage_pair(BoundUnitId::new(82));
+
+        let element = error_type();
+
+        let mut state = StorageFlowState {
+            reachable: true,
+            ..StorageFlowState::default()
+        };
+
+        assert_eq!(
+            consume_trusted_uninit(&mut state, storage, element),
+            MemoryOperationStatus::Valid
+        );
+
+        state
+            .raw_initialized
+            .entry(storage)
+            .or_default()
+            .entry(element)
+            .or_default()
+            .insert(expressions[0]);
+
+        assert_eq!(
+            consume_trusted_uninit(&mut state, storage, element),
+            MemoryOperationStatus::Valid
+        );
+
+        assert!(!state.raw_initialized[&storage].contains_key(&element));
     }
 
     #[test]

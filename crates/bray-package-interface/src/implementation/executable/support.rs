@@ -86,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn atomic_operations_use_executable_format_one() {
+    fn consolidated_memory_operations_use_executable_format_one() {
         assert_eq!(FORMAT_VERSION, 1);
     }
 }

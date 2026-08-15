@@ -171,7 +171,7 @@ impl Compilation {
             return Ok(Vec::new());
         }
 
-        let Some(resolver) = self.standard_library() else {
+        let Some(resolver) = self.standard_library_provider_resolver() else {
             return Ok(Vec::new());
         };
 

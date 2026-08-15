@@ -512,6 +512,66 @@ impl ImportedSemanticFacts {
         )
     }
 
+    pub(crate) fn compiler_known_type_argument(
+        &self,
+        ty: TypeId,
+        expected: &CompilerKnownDeclarationKey,
+    ) -> Option<TypeId> {
+        let crate::InterfaceType::Named {
+            definition,
+            substitution,
+        } = self.interface_type(ty)?
+        else {
+            return None;
+        };
+
+        let crate::InterfaceSymbolReference::CompilerKnown(reference) = definition else {
+            return None;
+        };
+
+        if !matches!(
+            reference.key().data(),
+            SymbolKeyData::CompilerKnownDeclaration { key, .. } if key == expected
+        ) {
+            return None;
+        }
+
+        let substitution = self
+            .interface_facts
+            .substitutions
+            .get(substitution.to_index()?)?;
+
+        if &substitution.owner != definition {
+            return None;
+        }
+
+        let [binding] = substitution.bindings.as_ref() else {
+            return None;
+        };
+
+        let crate::InterfaceGenericArgument::Type(argument) = binding.argument else {
+            return None;
+        };
+
+        self.types.get(argument.to_index()?).copied()
+    }
+
+    pub(crate) fn borrow_target(
+        &self,
+        ty: TypeId,
+        expected: bray_symbols::BorrowKind,
+    ) -> Option<TypeId> {
+        let crate::InterfaceType::Borrow { kind, target } = self.interface_type(ty)? else {
+            return None;
+        };
+
+        if *kind != expected {
+            return None;
+        }
+
+        self.types.get(target.to_index()?).copied()
+    }
+
     fn interface_type(&self, ty: TypeId) -> Option<&crate::InterfaceType> {
         let slot = self.types.iter().position(|candidate| *candidate == ty)?;
 

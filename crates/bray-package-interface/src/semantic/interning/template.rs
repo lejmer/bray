@@ -11,8 +11,8 @@ use bray_symbols::{InterfaceSupportEntityId, SymbolKey};
 
 use crate::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateOperation,
-    InterfaceImplementationReference, InterfaceSemanticFacts, InterfaceSupportEntity,
-    InterfaceTemplateReference,
+    InterfaceCheckedTemplateTemporary, InterfaceImplementationReference, InterfaceSemanticFacts,
+    InterfaceSupportEntity, InterfaceTemplateReference,
 };
 
 use super::common::resolve_symbol_key;
@@ -101,7 +101,23 @@ impl InternState {
                 .map_err(InterfaceSemanticInternError::InvalidTemplate)?;
         }
 
-        for node in template.nodes() {
+        let mut temporaries = template.temporaries().iter().peekable();
+
+        for (node_index, node) in template.nodes().iter().enumerate() {
+            while temporaries
+                .peek()
+                .is_some_and(|temporary| {
+                    usize::try_from(temporary.initializer().raw())
+                        .is_ok_and(|initializer| initializer < node_index)
+                })
+            {
+                let Some(temporary) = temporaries.next() else {
+                    break;
+                };
+
+                push_temporary(self, &mut builder, temporary)?;
+            }
+
             let operation = convert_operation(self, node.operation(), facts, symbols)?;
 
             let ty = self
@@ -113,24 +129,34 @@ impl InternState {
                 .map_err(InterfaceSemanticInternError::InvalidTemplate)?;
         }
 
-        for temporary in template.temporaries() {
-            let ty = self
-                .type_id(temporary.ty())
-                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
-            let dependency = self
-                .dependency_contract_id(temporary.dependency_contract())
-                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
-            builder
-                .push_temporary(temporary.initializer(), ty, dependency)
-                .map_err(InterfaceSemanticInternError::InvalidTemplate)?;
+        for temporary in temporaries {
+            push_temporary(self, &mut builder, temporary)?;
         }
 
         builder
             .finish(template.result(), CheckedTemplateCompletion::Complete)
             .map_err(InterfaceSemanticInternError::InvalidTemplate)
     }
+}
+
+fn push_temporary(
+    state: &InternState,
+    builder: &mut CheckedTemplateBuilder,
+    temporary: &InterfaceCheckedTemplateTemporary,
+) -> Result<(), InterfaceSemanticInternError> {
+    let ty = state
+        .type_id(temporary.ty())
+        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+    let dependency = state
+        .dependency_contract_id(temporary.dependency_contract())
+        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+    builder
+        .push_temporary(temporary.initializer(), ty, dependency)
+        .map_err(InterfaceSemanticInternError::InvalidTemplate)?;
+
+    Ok(())
 }
 
 fn convert_input_kind(
@@ -186,6 +212,12 @@ fn convert_operation(
             left: *left,
             right: *right,
         }),
+        InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
+            Ok(CheckedTemplateOperation::Borrow {
+                kind: *kind,
+                operand: *operand,
+            })
+        }
         InterfaceCheckedTemplateOperation::Declaration(reference) => Ok(
             CheckedTemplateOperation::Declaration(template_key(facts, reference, symbols)?),
         ),

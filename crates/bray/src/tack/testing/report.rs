@@ -59,16 +59,26 @@ pub(super) fn render_report(
 ) -> Result<String, DiagnosticBag> {
     match output_format {
         OutputFormat::Text => Ok(render_text_report(report, show_output, interactive)),
-        OutputFormat::Json => serde_json::to_string_pretty(&JsonTestCommandReport::from(report))
-            .map(|report| format!("{report}\n"))
-            .map_err(|_| {
-                operation_diagnostics(DiagnosticProjectCommandFailure::Document {
-                    operation: DiagnosticProjectOperation::TestReportJson,
-                    path: None,
-                    problem: DiagnosticDocumentParseKind::Serialization,
-                })
-            }),
+        OutputFormat::Json => serialize_json_report(&JsonTestCommandReport::from(report)),
     }
+}
+
+pub(super) fn render_batch_report(
+    reports: &[(String, TestCommandReport)],
+) -> Result<String, DiagnosticBag> {
+    serialize_json_report(&JsonTestBatchReport::from(reports))
+}
+
+fn serialize_json_report(report: &impl Serialize) -> Result<String, DiagnosticBag> {
+    serde_json::to_string_pretty(report)
+        .map(|report| format!("{report}\n"))
+        .map_err(|_| {
+            operation_diagnostics(DiagnosticProjectCommandFailure::Document {
+                operation: DiagnosticProjectOperation::TestReportJson,
+                path: None,
+                problem: DiagnosticDocumentParseKind::Serialization,
+            })
+        })
 }
 
 fn render_text_report(report: &TestCommandReport, show_output: bool, interactive: bool) -> String {
@@ -251,6 +261,35 @@ struct JsonTestCommandReport<'report> {
     products: Vec<JsonTestProductReport<'report>>,
     summary: JsonTestOutcomeCounts,
     duration_nanoseconds: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct JsonTestBatchReport<'report> {
+    format: u32,
+    plans: Vec<JsonTestBatchPlanReport<'report>>,
+}
+
+impl<'report> From<&'report [(String, TestCommandReport)]> for JsonTestBatchReport<'report> {
+    fn from(reports: &'report [(String, TestCommandReport)]) -> Self {
+        Self {
+            format: 1,
+            plans: reports
+                .iter()
+                .map(|(identity, report)| JsonTestBatchPlanReport {
+                    identity,
+                    succeeded: report.succeeded(),
+                    report: JsonTestCommandReport::from(report),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonTestBatchPlanReport<'report> {
+    identity: &'report str,
+    succeeded: bool,
+    report: JsonTestCommandReport<'report>,
 }
 
 impl<'report> From<&'report TestCommandReport> for JsonTestCommandReport<'report> {

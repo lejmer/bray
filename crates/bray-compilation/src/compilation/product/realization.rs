@@ -3128,6 +3128,31 @@ impl Compilation {
         }
 
         match role {
+            RepresentationRole::Uninit => {
+                let values = self.semantic_value_store()?;
+
+                let element = self
+                    .available_compiler_known_symbols()
+                    .unary_representation_argument(values, role, ty)
+                    .ok_or(CodegenFactError::UnresolvedType(ty))?;
+
+                self.codegen_type(element, target, cancellation, mappings, pending)?;
+
+                let element_mapping = mappings
+                    .get(&element)
+                    .ok_or(CodegenFactError::UnresolvedType(element))?;
+
+                // The wrapper shares immutable physical kind metadata but intentionally omits the element lifecycle behavior.
+                let kind = element_mapping.kind().clone();
+
+                let mapping = match element_mapping.layout() {
+                    Some(layout) => CodegenTypeMapping::new(ty, layout, kind),
+                    None => CodegenTypeMapping::new_unsized(ty, kind),
+                }
+                .with_backend_type(element_mapping.backend_type());
+
+                Ok(Some(mapping))
+            }
             RepresentationRole::String => self
                 .codegen_string_type(ty, target, cancellation, mappings, pending)
                 .map(Some),

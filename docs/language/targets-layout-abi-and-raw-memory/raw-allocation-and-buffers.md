@@ -135,7 +135,8 @@ The safe slice-producing helpers expose only the initialized prefix.
 
 `set_initialized_count` is trusted because the caller must prove that the new initialized prefix truly contains initialized `T` values and that every removed initialized value has had its destruction and finalization obligations resolved.
 
-Destroying a `RawBuffer<T>` destroys or finalizes initialized elements in increasing index order, then deallocates the raw allocation.
+Destroying a `RawBuffer<T>` destroys or finalizes initialized elements in reverse initialization
+order, then deallocates the raw allocation.
 
 Moving a `RawBuffer<T>` transfers the allocation ownership condition and the initialized-prefix contract.
 

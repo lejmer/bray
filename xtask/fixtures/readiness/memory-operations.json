@@ -67,6 +67,54 @@
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "MemoryCopyKind::Overlapping" }
     },
     {
+      "name": "UninitNew",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitNew" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_uninit_new" }
+    },
+    {
+      "name": "UninitPointer",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitPointer" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_uninit_pointer" }
+    },
+    {
+      "name": "UninitPointerMut",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitPointerMut" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_uninit_pointer" }
+    },
+    {
+      "name": "UninitWrite",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitWrite" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_uninit_write" }
+    },
+    {
+      "name": "UninitAssumeInitialized",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitAssumeInitialized" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_assume_initialized" }
+    },
+    {
+      "name": "UninitMove",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::UninitMove" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_uninit_move" }
+    },
+    {
+      "name": "BorrowFrom",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::BorrowFrom" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_anchored_borrow" }
+    },
+    {
+      "name": "BorrowMutFrom",
+      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::BorrowMutFrom" },
+      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
+      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/uninitialized.rs", "symbol": "translate_anchored_borrow" }
+    },
+    {
       "name": "MemorySizeOf",
       "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::MemorySizeOf" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },

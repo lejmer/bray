@@ -26,6 +26,7 @@ use super::command::BuildError;
 
 const FIXTURE_LIBRARY: &str = "bray_foreign_fixture";
 const FIXTURE_PRODUCT: &str = "interoperability";
+const MAXIMUM_TARGET_AUDIT_CONCURRENCY: usize = 2;
 
 pub(super) fn audit(
     root: &Path,
@@ -68,22 +69,64 @@ fn audit_target_modules(root: &Path) -> Result<(), BuildError> {
         .map(|source| source.beneath(&standard_library))
         .collect::<Vec<_>>();
 
-    for target in NativeTarget::ALL {
-        let selected = SelectedTarget::for_native(target);
+    run_target_audits(|target| audit_target_module(product, version, &source_paths, target))
+}
 
-        let request = super::command::standard_library_source_request(
-            product,
-            version,
-            &source_paths,
-            &selected,
-        )?;
+fn run_target_audits(
+    audit: impl Fn(NativeTarget) -> Result<(), BuildError> + Sync,
+) -> Result<(), BuildError> {
+    for targets in NativeTarget::ALL.chunks(MAXIMUM_TARGET_AUDIT_CONCURRENCY) {
+        let results = std::thread::scope(|scope| {
+            let audit = &audit;
 
-        let standard_library = Compilation::load(request).map_err(|error| {
-            BuildError::conformance(
-                "foreign interoperability target modules",
-                format!("could not load {target:?} standard library: {error:?}"),
-            )
-        })?;
+            targets
+                .iter()
+                .copied()
+                .map(|target| scope.spawn(move || audit(target)))
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(std::thread::ScopedJoinHandle::join)
+                .collect::<Vec<_>>()
+        });
+
+        for (target, result) in targets.iter().copied().zip(results) {
+            match result {
+                Ok(result) => result?,
+                Err(_) => {
+                    return Err(BuildError::conformance(
+                        "foreign interoperability target modules",
+                        format!("{target:?} target audit worker panicked"),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn audit_target_module(
+    product: &bray_project::ProjectProduct,
+    version: &bray_symbols::PackageVersion,
+    source_paths: &[PathBuf],
+    target: NativeTarget,
+) -> Result<(), BuildError> {
+    let selected = SelectedTarget::for_native(target);
+
+    let request = super::command::standard_library_source_request(
+        product,
+        version,
+        source_paths,
+        &selected,
+        WorkerBudget::serial(),
+    )?;
+
+    let standard_library = Compilation::load(request).map_err(|error| {
+        BuildError::conformance(
+            "foreign interoperability target modules",
+            format!("could not load {target:?} standard library: {error:?}"),
+        )
+    })?;
 
         let bundle = standard_library
             .package_interface_export_bundle()
@@ -127,7 +170,7 @@ fn audit_target_modules(root: &Path) -> Result<(), BuildError> {
         );
 
         let options =
-            CompilationOptions::new(WorkerBudget::default(), ProductKind::Library, selected);
+            CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, selected);
 
         let request = CompilationRequest::with_options(package, vec![source], options)
             .with_dependency_interfaces([dependency]);
@@ -152,7 +195,6 @@ fn audit_target_modules(root: &Path) -> Result<(), BuildError> {
                 format!("{target:?} did not accept only its selected OS module: {diagnostics:?}"),
             ));
         }
-    }
 
     Ok(())
 }
@@ -415,4 +457,46 @@ fn native_tool(tool: DiagnosticLlvmToolRole) -> Result<PathBuf, BuildError> {
 
 struct NativeFixture {
     shared: PathBuf,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+
+    use bray_target::NativeTarget;
+
+    #[test]
+    fn target_audits_run_concurrently_and_report_failures_in_target_order() {
+        let concurrency = super::MAXIMUM_TARGET_AUDIT_CONCURRENCY;
+        let barrier = Arc::new(Barrier::new(concurrency));
+        let active = Arc::new(AtomicUsize::new(0));
+        let maximum = Arc::new(AtomicUsize::new(0));
+        let first = NativeTarget::ALL[0];
+        let second = NativeTarget::ALL[1];
+
+        let result = super::run_target_audits(|target| {
+            let active_count = active.fetch_add(1, Ordering::SeqCst).saturating_add(1);
+
+            maximum.fetch_max(active_count, Ordering::SeqCst);
+            barrier.wait();
+            active.fetch_sub(1, Ordering::SeqCst);
+
+            if target == first || target == second {
+                Err(super::BuildError::conformance(
+                    "target audit test",
+                    target.as_str(),
+                ))
+            } else {
+                Ok(())
+            }
+        });
+
+        let Err(error) = result else {
+            panic!("two target audits should fail");
+        };
+
+        assert_eq!(maximum.load(Ordering::SeqCst), concurrency);
+        assert!(error.to_string().contains(first.as_str()));
+    }
 }

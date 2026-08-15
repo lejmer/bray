@@ -169,6 +169,15 @@ The recognized declarations under `std.memory` are:
 - `write<T>(pointer, value)`,
 - `copy<T>(source, destination, count)`,
 - `copy_overlapping<T>(source, destination, count)`,
+- `uninit<T>()`,
+- `uninit_pointer<T>(storage)`,
+- `uninit_pointer_mut<T>(storage)`,
+- `uninit_write<T>(storage, value)`,
+- `assume_initialized<T>(storage)`,
+- `move_initialized<T>(storage)`,
+- `destroy_initialized<T>(storage)`,
+- `borrow_from<T, Owner>(owner, pointer)`,
+- `borrow_mut_from<T, Capability>(capability, pointer)`,
 - `MemoryLayout` and its `bytes` and `align` fields,
 - `MemoryLayoutError` and its `SizeOverflow` and `UnsupportedAlignment` variants,
 - `size_of<T>()`,
@@ -179,6 +188,8 @@ The recognized declarations under `std.memory` are:
 - `allocate(layout)`,
 - `deallocate(allocation)`,
 - `RawBuffer<T>` and its `pointer`, `capacity`, and `initialized` fields,
+- `Output<T>` and `InPlace<T>` protected output construction,
+- `AnchoredView<T, Owner>` and `AnchoredViewMut<T, Capability>` dependency-bearing views,
 - the `RawBuffer<T>(capacity)` primary constructor,
 - `capacity<T>(buffer)`,
 - `initialized_count<T>(buffer)`,
@@ -194,7 +205,8 @@ one respectively.
 The exact `std.memory` signatures and contracts are defined by
 [the standard-library memory surface](../targets-layout-abi-and-raw-memory/standard-library-memory-surface.md),
 [layout helpers](../targets-layout-abi-and-raw-memory/layout-helpers.md), and
-[raw allocation and buffers](../targets-layout-abi-and-raw-memory/raw-allocation-and-buffers.md).
+[raw allocation and buffers](../targets-layout-abi-and-raw-memory/raw-allocation-and-buffers.md), and
+[uninitialized storage and anchored borrows](../targets-layout-abi-and-raw-memory/uninitialized-storage-and-anchored-borrows.md).
 
 The raw-pointer declarations are available only when the target provides raw memory.
 

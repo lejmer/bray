@@ -374,6 +374,42 @@ mod tests {
 
         let cases = [
             (
+                CheckedMemoryOperationKind::UninitNew { element: ty },
+                0,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::UninitPointer {
+                    kind: MemoryAddressKind::Shared,
+                    element: ty,
+                },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::UninitWrite { element: ty },
+                2,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::UninitAssumeInitialized { element: ty },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::UninitMove { element: ty },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::BorrowFrom {
+                    kind: MemoryAddressKind::Mutable,
+                    pointee: ty,
+                },
+                2,
+                true,
+            ),
+            (
                 CheckedMemoryOperationKind::Address {
                     kind: MemoryAddressKind::Shared,
                     pointee: ty,

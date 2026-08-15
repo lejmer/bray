@@ -763,8 +763,8 @@ mod tests {
         CallableDefinitionId, CallableInstanceData, ConstantTermData, ConstantValueData,
         ConstantValueKind, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
-        NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, ProductIdentity, ProductKind,
-        SymbolOrigin, TraitApplicationData, TypeData,
+        NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity,
+        ProductKind, SymbolOrigin, TraitApplicationData, TypeData,
     };
     use bray_target::{
         NativeTarget, TargetAddressSpaceFacts, TargetFacts, TargetProfile,
@@ -1094,7 +1094,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_link_inputs_include_standard_library_archives_and_native_dependencies() {
+    fn source_authority_link_inputs_include_standard_library_providers() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
 
@@ -1273,18 +1273,24 @@ mod tests {
         let root = StandardLibraryRoot::try_new(directory.path())
             .unwrap_or_else(|| panic!("temporary root must be absolute"));
 
+        let package = PackageIdentity::try_new("std.tests.api")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
         let request = CompilationRequest::with_options(
-            crate::test_support::package_identity(),
+            package,
             vec![crate::test_support::source_input(
                 "module application;\n",
                 0,
             )],
             CompilationOptions::new(WorkerBudget::serial(), ProductKind::Executable, selected),
         )
-        .with_standard_library_root(root);
+        .with_standard_library_provider_root(root)
+        .with_standard_library_source_authority();
 
         let compilation = crate::Compilation::load(request)
             .unwrap_or_else(|error| panic!("compilation must load: {error:?}"));
+
+        assert!(compilation.dependency_interfaces().is_empty());
 
         let inputs = compilation
             .standard_library_link_inputs(

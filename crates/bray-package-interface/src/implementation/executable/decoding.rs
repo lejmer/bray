@@ -1177,6 +1177,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
+        validate_decoded_protected_memory_types(kind, &operand_types, result_type, self.facts)?;
         validate_decoded_atomic_result(kind, result_type, self.facts)?;
 
         Ok(
@@ -1189,12 +1190,28 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         use bray_bound_tree::CheckedMemoryOperationKind as Kind;
 
         match read_u32(&mut self.reader)? {
+            48 => Ok(Kind::UninitNew {
+                element: self.ty()?,
+            }),
+            49 => Ok(Kind::UninitPointer {
+                kind: self.memory_address_kind()?,
+                element: self.ty()?,
+            }),
+            50 => Ok(Kind::UninitWrite {
+                element: self.ty()?,
+            }),
+            51 => Ok(Kind::UninitAssumeInitialized {
+                element: self.ty()?,
+            }),
+            52 => Ok(Kind::UninitMove {
+                element: self.ty()?,
+            }),
+            53 => Ok(Kind::BorrowFrom {
+                kind: self.memory_address_kind()?,
+                pointee: self.ty()?,
+            }),
             0 => Ok(Kind::Address {
-                kind: match read_u32(&mut self.reader)? {
-                    0 => bray_bound_tree::MemoryAddressKind::Shared,
-                    1 => bray_bound_tree::MemoryAddressKind::Mutable,
-                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
-                },
+                kind: self.memory_address_kind()?,
                 pointee: self.ty()?,
             }),
             1 => Ok(Kind::Null {
@@ -1404,6 +1421,16 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     ) -> Result<bray_bound_tree::MemoryOrder, ExecutableTemplateDecodeError> {
         bray_bound_tree::MemoryOrder::from_u64(u64::from(read_u32(&mut self.reader)?))
             .ok_or(ExecutableTemplateDecodeError::Malformed)
+    }
+
+    fn memory_address_kind(
+        &mut self,
+    ) -> Result<bray_bound_tree::MemoryAddressKind, ExecutableTemplateDecodeError> {
+        match read_u32(&mut self.reader)? {
+            0 => Ok(bray_bound_tree::MemoryAddressKind::Shared),
+            1 => Ok(bray_bound_tree::MemoryAddressKind::Mutable),
+            _ => Err(ExecutableTemplateDecodeError::Malformed),
+        }
     }
 
     fn text_operation(&mut self) -> Result<MirTextOperation, ExecutableTemplateDecodeError> {
@@ -2211,6 +2238,132 @@ fn decoded_atomic_kind(
         .ok_or(ExecutableTemplateDecodeError::Malformed)
 }
 
+fn validate_decoded_protected_memory_types(
+    kind: CheckedMemoryOperationKind,
+    operands: &[bray_symbols::TypeId],
+    result: Option<bray_symbols::TypeId>,
+    facts: &ImportedSemanticFacts,
+) -> Result<(), ExecutableTemplateDecodeError> {
+    let uninit = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Uninit")
+        .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+    let raw_pointer = bray_compiler_known::CompilerKnownDeclarationKey::try_new("RawPointer")
+        .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+    protected_memory_types_valid(
+        kind,
+        operands,
+        result,
+        |ty, wrapper| {
+            let expected = match wrapper {
+                ProtectedMemoryWrapper::Uninit => &uninit,
+                ProtectedMemoryWrapper::RawPointer => &raw_pointer,
+            };
+
+            facts.compiler_known_type_argument(ty, expected)
+        },
+        |ty, kind| facts.borrow_target(ty, kind),
+    )
+    .then_some(())
+    .ok_or(ExecutableTemplateDecodeError::Malformed)
+}
+
+#[derive(Clone, Copy)]
+enum ProtectedMemoryWrapper {
+    Uninit,
+    RawPointer,
+}
+
+fn protected_memory_types_valid(
+    kind: CheckedMemoryOperationKind,
+    operands: &[bray_symbols::TypeId],
+    result: Option<bray_symbols::TypeId>,
+    mut wrapper_argument: impl FnMut(
+        bray_symbols::TypeId,
+        ProtectedMemoryWrapper,
+    ) -> Option<bray_symbols::TypeId>,
+    mut borrow_target: impl FnMut(
+        bray_symbols::TypeId,
+        bray_symbols::BorrowKind,
+    ) -> Option<bray_symbols::TypeId>,
+) -> bool {
+    use bray_bound_tree::CheckedMemoryOperationKind as Kind;
+    use bray_symbols::BorrowKind;
+
+    match kind {
+        Kind::UninitNew { element } => {
+            operands.is_empty()
+                && result.is_some_and(|result| {
+                    wrapper_argument(result, ProtectedMemoryWrapper::Uninit) == Some(element)
+                })
+        }
+        Kind::UninitPointer { kind, element } => {
+            let [storage] = operands else {
+                return false;
+            };
+
+            let borrow = address_borrow_kind(kind);
+
+            borrow_target(*storage, borrow)
+                .and_then(|storage| wrapper_argument(storage, ProtectedMemoryWrapper::Uninit))
+                == Some(element)
+                && result.is_some_and(|result| {
+                    wrapper_argument(result, ProtectedMemoryWrapper::RawPointer) == Some(element)
+                })
+        }
+        Kind::UninitWrite { element } => {
+            let [storage, value] = operands else {
+                return false;
+            };
+
+            borrow_target(*storage, BorrowKind::Mutable)
+                .and_then(|storage| wrapper_argument(storage, ProtectedMemoryWrapper::Uninit))
+                == Some(element)
+                && *value == element
+                && result.is_some_and(|result| {
+                    borrow_target(result, BorrowKind::Mutable) == Some(element)
+                })
+        }
+        Kind::UninitAssumeInitialized { element } => {
+            let [storage] = operands else {
+                return false;
+            };
+
+            wrapper_argument(*storage, ProtectedMemoryWrapper::Uninit) == Some(element)
+                && result == Some(element)
+        }
+        Kind::UninitMove { element } => {
+            let [storage] = operands else {
+                return false;
+            };
+
+            borrow_target(*storage, BorrowKind::Mutable)
+                .and_then(|storage| wrapper_argument(storage, ProtectedMemoryWrapper::Uninit))
+                == Some(element)
+                && result == Some(element)
+        }
+        Kind::BorrowFrom { kind, pointee } => {
+            let [authority, pointer] = operands else {
+                return false;
+            };
+
+            let borrow = address_borrow_kind(kind);
+
+            borrow_target(*authority, borrow).is_some()
+                && wrapper_argument(*pointer, ProtectedMemoryWrapper::RawPointer) == Some(pointee)
+                && result.is_some_and(|result| borrow_target(result, borrow) == Some(pointee))
+        }
+        _ => true,
+    }
+}
+
+const fn address_borrow_kind(kind: bray_bound_tree::MemoryAddressKind) -> bray_symbols::BorrowKind {
+    match kind {
+        bray_bound_tree::MemoryAddressKind::Shared => bray_symbols::BorrowKind::Shared,
+        bray_bound_tree::MemoryAddressKind::Mutable => bray_symbols::BorrowKind::Mutable,
+    }
+}
+
 fn validate_decoded_atomic_result(
     kind: CheckedMemoryOperationKind,
     result: Option<bray_symbols::TypeId>,
@@ -2304,10 +2457,11 @@ fn decoded_inline_assembly_value_types(
 mod tests {
     use bray_bound_tree::{
         CheckedMemoryOperationKind, InlineAssemblyOperand, InlineAssemblyOperandKind,
-        MAX_INLINE_ASSEMBLY_OPERANDS, MemoryOrder,
+        MAX_INLINE_ASSEMBLY_OPERANDS, MemoryAddressKind, MemoryOrder,
     };
     use bray_symbols::{
-        ConstantValueData, ConstantValueKind, IntegerConstant, SemanticValueStore, TypeData,
+        BorrowKind, ConstantValueData, ConstantValueKind, IntegerConstant, SemanticValueStore,
+        TypeData, TypeId,
     };
 
     use crate::InterfaceConstantValueKind;
@@ -2317,8 +2471,207 @@ mod tests {
         assembly_constant_payload, assembly_options_valid,
         atomic_compare_exchange_result_elements_valid, decoded_atomic_kind,
         decoded_inline_assembly_contract, decoded_inline_assembly_types,
-        decoded_inline_assembly_value_types,
+        decoded_inline_assembly_value_types, protected_memory_types_valid,
+        ProtectedMemoryWrapper,
     };
+
+    #[derive(Clone, Copy)]
+    struct ProtectedTypeFixture {
+        element: TypeId,
+        other: TypeId,
+        uninit: TypeId,
+        pointer: TypeId,
+        shared_storage: TypeId,
+        mutable_storage: TypeId,
+        shared_authority: TypeId,
+        mutable_authority: TypeId,
+        shared_result: TypeId,
+        mutable_result: TypeId,
+    }
+
+    impl ProtectedTypeFixture {
+        fn valid(
+            self,
+            kind: CheckedMemoryOperationKind,
+            operands: &[TypeId],
+            result: Option<TypeId>,
+        ) -> bool {
+            protected_memory_types_valid(
+                kind,
+                operands,
+                result,
+                |ty, wrapper| match (ty, wrapper) {
+                    (ty, ProtectedMemoryWrapper::Uninit) if ty == self.uninit => {
+                        Some(self.element)
+                    }
+                    (ty, ProtectedMemoryWrapper::RawPointer) if ty == self.pointer => {
+                        Some(self.element)
+                    }
+                    _ => None,
+                },
+                |ty, kind| match (ty, kind) {
+                    (ty, BorrowKind::Shared) if ty == self.shared_storage => Some(self.uninit),
+                    (ty, BorrowKind::Mutable) if ty == self.mutable_storage => Some(self.uninit),
+                    (ty, BorrowKind::Shared) if ty == self.shared_authority => Some(self.other),
+                    (ty, BorrowKind::Mutable) if ty == self.mutable_authority => Some(self.other),
+                    (ty, BorrowKind::Shared) if ty == self.shared_result => Some(self.element),
+                    (ty, BorrowKind::Mutable) if ty == self.mutable_result => Some(self.element),
+                    _ => None,
+                },
+            )
+        }
+    }
+
+    #[test]
+    fn malformed_protected_memory_shapes_are_rejected_before_mir() {
+        let fixture = protected_type_fixture();
+        let element = fixture.element;
+
+        let valid = [
+            (
+                CheckedMemoryOperationKind::UninitNew { element },
+                Vec::new(),
+                Some(fixture.uninit),
+            ),
+            (
+                CheckedMemoryOperationKind::UninitPointer {
+                    kind: MemoryAddressKind::Shared,
+                    element,
+                },
+                vec![fixture.shared_storage],
+                Some(fixture.pointer),
+            ),
+            (
+                CheckedMemoryOperationKind::UninitPointer {
+                    kind: MemoryAddressKind::Mutable,
+                    element,
+                },
+                vec![fixture.mutable_storage],
+                Some(fixture.pointer),
+            ),
+            (
+                CheckedMemoryOperationKind::UninitWrite { element },
+                vec![fixture.mutable_storage, element],
+                Some(fixture.mutable_result),
+            ),
+            (
+                CheckedMemoryOperationKind::UninitAssumeInitialized { element },
+                vec![fixture.uninit],
+                Some(element),
+            ),
+            (
+                CheckedMemoryOperationKind::UninitMove { element },
+                vec![fixture.mutable_storage],
+                Some(element),
+            ),
+            (
+                CheckedMemoryOperationKind::BorrowFrom {
+                    kind: MemoryAddressKind::Shared,
+                    pointee: element,
+                },
+                vec![fixture.shared_authority, fixture.pointer],
+                Some(fixture.shared_result),
+            ),
+            (
+                CheckedMemoryOperationKind::BorrowFrom {
+                    kind: MemoryAddressKind::Mutable,
+                    pointee: element,
+                },
+                vec![fixture.mutable_authority, fixture.pointer],
+                Some(fixture.mutable_result),
+            ),
+        ];
+
+        for (kind, operands, result) in &valid {
+            assert!(fixture.valid(*kind, operands, *result));
+        }
+
+        let malformed = [
+            (valid[0].0, Vec::new(), Some(fixture.other)),
+            (valid[1].0, vec![fixture.mutable_storage], valid[1].2),
+            (valid[2].0, vec![fixture.shared_storage], valid[2].2),
+            (
+                valid[3].0,
+                vec![fixture.mutable_storage, fixture.other],
+                valid[3].2,
+            ),
+            (valid[4].0, vec![fixture.other], valid[4].2),
+            (valid[5].0, vec![fixture.shared_storage], valid[5].2),
+            (
+                valid[6].0,
+                vec![fixture.mutable_authority, fixture.pointer],
+                valid[6].2,
+            ),
+            (
+                valid[7].0,
+                vec![fixture.mutable_authority, fixture.pointer],
+                Some(fixture.shared_result),
+            ),
+        ];
+
+        for (kind, operands, result) in malformed {
+            assert!(!fixture.valid(kind, &operands, result));
+        }
+    }
+
+    fn protected_type_fixture() -> ProtectedTypeFixture {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let intern = |data| {
+            values
+                .intern_type(data)
+                .unwrap_or_else(|error| panic!("test protected type must intern: {error:?}"))
+        };
+
+        let element = intern(TypeData::Error);
+        let other = intern(TypeData::tuple([]));
+        let uninit = intern(TypeData::tuple([element]));
+        let pointer = intern(TypeData::Nullable(element));
+
+        let shared_storage = intern(TypeData::Borrow {
+            kind: BorrowKind::Shared,
+            target: uninit,
+        });
+
+        let mutable_storage = intern(TypeData::Borrow {
+            kind: BorrowKind::Mutable,
+            target: uninit,
+        });
+
+        let shared_authority = intern(TypeData::Borrow {
+            kind: BorrowKind::Shared,
+            target: other,
+        });
+
+        let mutable_authority = intern(TypeData::Borrow {
+            kind: BorrowKind::Mutable,
+            target: other,
+        });
+
+        let shared_result = intern(TypeData::Borrow {
+            kind: BorrowKind::Shared,
+            target: element,
+        });
+
+        let mutable_result = intern(TypeData::Borrow {
+            kind: BorrowKind::Mutable,
+            target: element,
+        });
+
+        ProtectedTypeFixture {
+            element,
+            other,
+            uninit,
+            pointer,
+            shared_storage,
+            mutable_storage,
+            shared_authority,
+            mutable_authority,
+            shared_result,
+            mutable_result,
+        }
+    }
 
     #[test]
     fn malformed_atomic_orderings_are_rejected_before_mir() {

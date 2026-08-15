@@ -780,6 +780,40 @@ pub enum AtomicFetchKind {
 /// Checked compiler-provided memory behavior at one call expression.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CheckedMemoryOperationKind {
+    /// Create protected storage with the representation of `element` but no initialized value.
+    UninitNew {
+        /// Value type whose size and alignment govern the storage.
+        element: TypeId,
+    },
+    /// Form a raw pointer to protected uninitialized storage.
+    UninitPointer {
+        /// Authority exposed by the source storage reference.
+        kind: MemoryAddressKind,
+        /// Pointed-to value type.
+        element: TypeId,
+    },
+    /// Commit one value into protected storage and borrow the initialized value.
+    UninitWrite {
+        /// Written value type.
+        element: TypeId,
+    },
+    /// Consume protected storage after trusted initialization proof.
+    UninitAssumeInitialized {
+        /// Produced value type.
+        element: TypeId,
+    },
+    /// Move a value out of protected storage after trusted initialization proof.
+    UninitMove {
+        /// Produced value type.
+        element: TypeId,
+    },
+    /// Create a borrow from a raw pointer under explicit owner or capability authority.
+    BorrowFrom {
+        /// Authority granted by the dependency root.
+        kind: MemoryAddressKind,
+        /// Borrowed value type.
+        pointee: TypeId,
+    },
     /// Form a raw pointer from an ordinary storage reference.
     Address {
         /// Authority exposed by the source reference.
@@ -1051,7 +1085,10 @@ impl CheckedMemoryOperationKind {
     /// Returns the exact number of runtime operands required by this operation.
     pub const fn operand_count(self) -> usize {
         match self {
-            Self::Address { .. }
+            Self::UninitPointer { .. }
+            | Self::UninitAssumeInitialized { .. }
+            | Self::UninitMove { .. }
+            | Self::Address { .. }
             | Self::IsNull { .. }
             | Self::Reinterpret { .. }
             | Self::Read { .. }
@@ -1072,7 +1109,9 @@ impl CheckedMemoryOperationKind {
             Self::VolatileRead { .. }
             | Self::ExposeAddress { .. }
             | Self::FromExposedAddress { .. } => 1,
-            Self::Offset { .. }
+            Self::UninitWrite { .. }
+            | Self::BorrowFrom { .. }
+            | Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
             | Self::RawBufferReplace { .. }
@@ -1094,7 +1133,8 @@ impl CheckedMemoryOperationKind {
                 ..
             } => 1,
             Self::InlineAssembly { .. } => 1,
-            Self::Null { .. }
+            Self::UninitNew { .. }
+            | Self::Null { .. }
             | Self::LayoutQuery { .. }
             | Self::Fence { .. }
             | Self::CatastrophicAbort
@@ -1108,7 +1148,10 @@ impl CheckedMemoryOperationKind {
     /// Maps a selected source-argument ordinal to its runtime MIR operand index.
     pub const fn runtime_argument_index(self, ordinal: usize) -> Option<usize> {
         match self {
-            Self::Address { .. }
+            Self::UninitPointer { .. }
+            | Self::UninitAssumeInitialized { .. }
+            | Self::UninitMove { .. }
+            | Self::Address { .. }
             | Self::IsNull { .. }
             | Self::Reinterpret { .. }
             | Self::Read { .. }
@@ -1135,7 +1178,9 @@ impl CheckedMemoryOperationKind {
             } => {
                 if ordinal == 0 { Some(0) } else { None }
             }
-            Self::Offset { .. }
+            Self::UninitWrite { .. }
+            | Self::BorrowFrom { .. }
+            | Self::Offset { .. }
             | Self::Write { .. }
             | Self::RawAllocate
             | Self::RawBufferReplace { .. }
@@ -1160,7 +1205,8 @@ impl CheckedMemoryOperationKind {
             Self::InlineAssembly { .. } => {
                 if ordinal == 5 { Some(0) } else { None }
             }
-            Self::Null { .. }
+            Self::UninitNew { .. }
+            | Self::Null { .. }
             | Self::LayoutQuery { .. }
             | Self::Fence { .. }
             | Self::CatastrophicAbort
@@ -1462,7 +1508,7 @@ mod tests {
         CheckedMemoryOperation, CheckedMemoryOperationKind, CheckedMemoryOperations,
         CheckedMemoryOperationsBuildError, InlineAssemblyConstraint, InlineAssemblyContract,
         InlineAssemblyOperand, InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS,
-        MemoryReadKind,
+        MemoryAddressKind, MemoryReadKind,
     };
     use crate::test_support::error_type;
     use crate::{BoundExpressionId, BoundUnitId, BoundUnitKind};
@@ -1711,5 +1757,54 @@ mod tests {
             CheckedMemoryOperations::try_new(unit, BoundUnitKind::CallableBody, [foreign], false,),
             Err(CheckedMemoryOperationsBuildError::ForeignUnit)
         );
+    }
+
+    #[test]
+    fn uninitialized_storage_operations_expose_exact_mir_shapes() {
+        let element = error_type();
+
+        let cases = [
+            (
+                CheckedMemoryOperationKind::UninitNew { element },
+                0,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::UninitPointer {
+                    kind: MemoryAddressKind::Shared,
+                    element,
+                },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::UninitWrite { element },
+                2,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::UninitAssumeInitialized { element },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::UninitMove { element },
+                1,
+                true,
+            ),
+            (
+                CheckedMemoryOperationKind::BorrowFrom {
+                    kind: MemoryAddressKind::Mutable,
+                    pointee: element,
+                },
+                2,
+                true,
+            ),
+        ];
+
+        for (kind, operands, produces_value) in cases {
+            assert_eq!(kind.operand_count(), operands);
+            assert_eq!(kind.produces_value(), produces_value);
+        }
     }
 }

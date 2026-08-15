@@ -1418,14 +1418,35 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         use bray_bound_tree::CheckedMemoryOperationKind as Kind;
 
         match kind {
+            Kind::UninitNew { element } => {
+                self.wire.write_u32(48);
+                self.ty(element)?;
+            }
+            Kind::UninitPointer { kind, element } => {
+                self.wire.write_u32(49);
+                self.memory_address_kind(kind);
+                self.ty(element)?;
+            }
+            Kind::UninitWrite { element } => {
+                self.wire.write_u32(50);
+                self.ty(element)?;
+            }
+            Kind::UninitAssumeInitialized { element } => {
+                self.wire.write_u32(51);
+                self.ty(element)?;
+            }
+            Kind::UninitMove { element } => {
+                self.wire.write_u32(52);
+                self.ty(element)?;
+            }
+            Kind::BorrowFrom { kind, pointee } => {
+                self.wire.write_u32(53);
+                self.memory_address_kind(kind);
+                self.ty(pointee)?;
+            }
             Kind::Address { kind, pointee } => {
                 self.wire.write_u32(0);
-
-                self.wire.write_u32(match kind {
-                    bray_bound_tree::MemoryAddressKind::Shared => 0,
-                    bray_bound_tree::MemoryAddressKind::Mutable => 1,
-                });
-
+                self.memory_address_kind(kind);
                 self.ty(pointee)?;
             }
             Kind::Null { pointee } => {
@@ -1782,6 +1803,13 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
     fn atomic_order(&mut self, order: bray_bound_tree::MemoryOrder) {
         self.wire.write_u32(order.to_u32());
+    }
+
+    fn memory_address_kind(&mut self, kind: bray_bound_tree::MemoryAddressKind) {
+        self.wire.write_u32(match kind {
+            bray_bound_tree::MemoryAddressKind::Shared => 0,
+            bray_bound_tree::MemoryAddressKind::Mutable => 1,
+        });
     }
 
     fn text_operation(

@@ -176,6 +176,14 @@ struct CliOptions {
         help = help::TOOLCHAIN_ROOT
     )]
     standard_library_root: Option<PathBuf>,
+    #[arg(
+        long = "standard-library-provider-root",
+        global = true,
+        value_name = "DIRECTORY",
+        conflicts_with = "standard_library_root",
+        hide = true
+    )]
+    standard_library_provider_root: Option<PathBuf>,
     #[arg(long = "standard-library-source", global = true, hide = true)]
     standard_library_source: bool,
     #[arg(long, global = true, value_enum, value_name = "MODE", help = help::PROFILE)]
@@ -211,18 +219,12 @@ impl CliOptions {
 
         let standard_library_root = self
             .standard_library_root
-            .map(|root| {
-                let root = std::path::absolute(&root).map_err(|error| {
-                    project_command_failure(DiagnosticProjectCommandFailure::Io {
-                        operation: DiagnosticProjectOperation::ToolchainRoot,
-                        path: root.clone(),
-                        error: DiagnosticIoErrorKind::from(error.kind()),
-                    })
-                })?;
+            .map(parse_standard_library_root)
+            .transpose()?;
 
-                StandardLibraryRoot::try_new(&root)
-                    .ok_or_else(|| invalid_standard_library_root(root))
-            })
+        let standard_library_provider_root = self
+            .standard_library_provider_root
+            .map(parse_standard_library_root)
             .transpose()?;
 
         let options = DriverOptions::new(
@@ -230,6 +232,7 @@ impl CliOptions {
             self.format,
             compilation,
             standard_library_root,
+            standard_library_provider_root,
             if self.standard_library_source {
                 bray_compilation::PackageSourceAuthority::StandardLibrary
             } else {
@@ -262,6 +265,18 @@ impl From<CliProfileMode> for CompilationProfileMode {
             CliProfileMode::Trace => Self::Trace,
         }
     }
+}
+
+fn parse_standard_library_root(root: PathBuf) -> Result<StandardLibraryRoot, DiagnosticBag> {
+    let root = std::path::absolute(&root).map_err(|error| {
+        project_command_failure(DiagnosticProjectCommandFailure::Io {
+            operation: DiagnosticProjectOperation::ToolchainRoot,
+            path: root.clone(),
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        })
+    })?;
+
+    StandardLibraryRoot::try_new(&root).ok_or_else(|| invalid_standard_library_root(root))
 }
 
 fn invalid_standard_library_root(path: PathBuf) -> DiagnosticBag {
@@ -403,7 +418,7 @@ mod tests {
 
     use bray_compilation::WorkerBudget;
     use bray_diagnostics::DiagnosticKind;
-    use bray_runtime_interface::RuntimeCapability;
+    use bray_runtime_interface::{PlatformServiceRole, RuntimeCapability};
     use bray_symbols::ProductKind;
     use bray_target::{NativeTarget, TargetOutputKind};
     use bray_tooling::OutputFormat;
@@ -589,6 +604,68 @@ mod tests {
         assert_eq!(
             dependency.path(),
             std::path::Path::new("interfaces/math.brayi")
+        );
+    }
+
+    #[test]
+    fn accepts_a_provider_only_standard_library_bundle_root() {
+        let root = std::env::current_dir()
+            .unwrap_or_else(|error| panic!("test directory should be available: {error:?}"))
+            .join("standard-library");
+
+        let invocation = DriverInvocation::try_from_arguments([
+            OsString::from("brayc"),
+            OsString::from("--standard-library-provider-root"),
+            root.as_os_str().to_os_string(),
+            OsString::from("build"),
+            OsString::from("--output"),
+            OsString::from("out"),
+        ])
+        .unwrap_or_else(|error| panic!("standard-library provider root should parse: {error:?}"));
+
+        assert!(invocation.options().standard_library_root().is_none());
+
+        assert_eq!(
+            invocation
+                .options()
+                .standard_library_provider_root()
+                .map(bray_standard_library::StandardLibraryRoot::path),
+            Some(root.as_path())
+        );
+    }
+
+    #[test]
+    fn parses_platform_service_bindings() {
+        let invocation = DriverInvocation::try_from_arguments([
+            "brayc",
+            "--platform-service",
+            "platform.context.identity=std.platform.context_identity",
+            "check",
+            "main.bray",
+        ])
+        .unwrap_or_else(|error| panic!("platform service invocation should parse: {error:?}"));
+
+        let bindings = invocation.options().compilation().platform_services();
+
+        let [binding] = bindings else {
+            panic!("one platform service binding should be retained: {bindings:#?}");
+        };
+
+        assert_eq!(binding.role(), PlatformServiceRole::ContextIdentity);
+        assert_eq!(binding.dotted_path(), "std.platform.context_identity");
+    }
+
+    #[test]
+    fn rejects_invalid_platform_service_bindings() {
+        assert!(
+            DriverInvocation::try_from_arguments([
+                "brayc",
+                "--platform-service",
+                "platform.unknown=std.platform.context_identity",
+                "check",
+                "main.bray",
+            ])
+            .is_err()
         );
     }
 

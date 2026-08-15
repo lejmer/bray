@@ -159,6 +159,80 @@ impl ProjectWorkspace {
         workspace
     }
 
+    pub(crate) fn standard_library() -> Self {
+        let workspace = Self::new(unique_temporary_directory());
+
+        workspace.write(
+            "bray-workspace.json",
+            r#"{
+                "format": 1,
+                "package": {"version": "0.1.0"},
+                "output_root": "build",
+                "targets": [
+                    {
+                        "name": "native",
+                        "identity": "x86_64-unknown-linux-gnu"
+                    }
+                ],
+                "packages": [
+                    {
+                        "path": "std",
+                        "role": "root",
+                        "features": []
+                    }
+                ]
+            }"#,
+        );
+
+        workspace.write(
+            "std/bray-package.json",
+            r#"{
+                "format": 1,
+                "identity": "std",
+                "version": {"workspace": true},
+                "features": [],
+                "source_roots": [
+                    {"name": "library", "path": "src"},
+                    {"name": "tests-api", "path": "tests/api"}
+                ],
+                "products": [
+                    {
+                        "name": "library",
+                        "kind": "library",
+                        "source_roots": ["library"],
+                        "targets": ["native"],
+                        "dependencies": [],
+                        "outputs": ["package_interface"],
+                        "platform_services": [
+                            {
+                                "role": "platform.context.identity",
+                                "declaration": "std.platform.context_identity"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "api",
+                        "kind": "test",
+                        "tested_library": "library",
+                        "source_roots": ["tests-api"],
+                        "targets": ["native"],
+                        "dependencies": [],
+                        "outputs": ["executable"]
+                    }
+                ]
+            }"#,
+        );
+
+        workspace.write("std/src/std.bray", "module std;\n");
+
+        workspace.write(
+            "std/tests/api/api.bray",
+            "module std.tests.api;\n\n@test\nfunc api_contract()\n{\n}\n",
+        );
+
+        workspace
+    }
+
     fn new(path: PathBuf) -> Self {
         std::fs::create_dir_all(&path)
             .unwrap_or_else(|error| panic!("test workspace should be created: {error:?}"));

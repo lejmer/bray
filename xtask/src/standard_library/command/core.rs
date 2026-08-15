@@ -35,7 +35,8 @@ use crate::workspace;
 
 const USAGE: &str = "usage: cargo xtask standard-library \
     <build --output <directory> [--source <directory>] [--target <triple>] | \
-    os-constants generate [--check] | performance ... | test | verify>";
+    os-constants generate [--check] | performance ... | \
+    test [--profile-output <directory>] | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
@@ -67,11 +68,31 @@ pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
 }
 
 fn native_test(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildError> {
+    let profile_output = native_profile_output(&mut arguments)?;
+
+    crate::standard_library::native::test(profile_output.as_deref())
+}
+
+fn native_profile_output(
+    arguments: &mut impl Iterator<Item = String>,
+) -> Result<Option<PathBuf>, BuildError> {
+    let profile_output = match arguments.next().as_deref() {
+        None => None,
+        Some("--profile-output") => Some(path_argument(arguments, "--profile-output")?),
+        Some(argument) => return Err(BuildError::UnexpectedArgument(argument.to_owned())),
+    };
+
     if let Some(argument) = arguments.next() {
         return Err(BuildError::UnexpectedArgument(argument));
     }
 
-    crate::standard_library::native::test()
+    profile_output
+        .map(|path| {
+            std::path::absolute(&path).map_err(|error| {
+                BuildError::conformance("native profile", format!("could not resolve output: {error}"))
+            })
+        })
+        .transpose()
 }
 
 struct BuildOptions {
@@ -135,14 +156,19 @@ fn verify(mut arguments: impl Iterator<Item = String>) -> Result<(), BuildError>
         return Err(BuildError::UnexpectedArgument(argument));
     }
 
-    crate::standard_library::os_constants::verify().map_err(BuildError::OsConstants)?;
+    crate::progress::run("Checking standard library OS constants", || {
+        crate::standard_library::os_constants::verify()
+    })
+    .map_err(BuildError::OsConstants)?;
 
     let directory = tempfile::Builder::new()
         .prefix("bray-standard-library-verification-")
         .tempdir()
         .map_err(BuildError::TemporaryDirectory)?;
 
-    crate::standard_library::conformance::verify(directory.path())
+    crate::progress::run("Verifying the standard library bundle", || {
+        crate::standard_library::conformance::verify(directory.path())
+    })
 }
 
 pub(in crate::standard_library) fn compare_bundles(
@@ -307,8 +333,17 @@ fn build_bundle(
     let temporal_provenance = fs::read(&temporal_provenance_path)
         .map_err(|error| BuildError::read(&temporal_provenance_path, error))?;
 
-    for target in targets {
-        let built = build_target(product, version, &source_paths, target, work)?;
+    for (index, target) in targets.iter().enumerate() {
+        crate::progress::item(
+            index.saturating_add(1),
+            targets.len(),
+            &format!("Building the {} standard library", target.as_str()),
+        );
+
+        let built = crate::progress::run(
+            &format!("Compiling the {} standard library", target.as_str()),
+            || build_target(product, version, &source_paths, target, work),
+        )?;
 
         let BuiltTarget {
             selected,
@@ -492,14 +527,22 @@ fn build_target(
             archives: Vec::new(),
         }
     } else {
-        build_platform_archives(&root, native)?
+        crate::progress::run("Building standard library platform providers", || {
+            build_platform_archives(&root, native)
+        })?
     };
 
     let output = work.join(target.as_str());
 
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
 
-    let request = standard_library_source_request(product, version, source_paths, &selected)?;
+    let request = standard_library_source_request(
+        product,
+        version,
+        source_paths,
+        &selected,
+        WorkerBudget::default(),
+    )?;
 
     let compilation = load_llvm_compilation(request).map_err(BuildError::CompilerUnavailable)?;
 
@@ -508,21 +551,23 @@ fn build_target(
         detail: format!("{error:?}"),
     })?;
 
-    let native_facts = compilation
-        .native_product_facts(
-            product.identity().clone(),
-            BuildConfiguration::Release,
-            None,
-            [],
-            Some(&linker),
-        )
-        .map_err(|error| BuildError::CompilationFailed {
-            target: target.clone(),
-            detail: format!(
-                "{error:?}; diagnostics={:?}",
-                compilation.check_diagnostics()
-            ),
-        })?;
+    let native_facts = crate::progress::run("Evaluating standard library native product facts", || {
+        compilation
+            .native_product_facts(
+                product.identity().clone(),
+                BuildConfiguration::Release,
+                None,
+                [],
+                Some(&linker),
+            )
+            .map_err(|error| BuildError::CompilationFailed {
+                target: target.clone(),
+                detail: format!(
+                    "{error:?}. diagnostics={:?}",
+                    compilation.check_diagnostics()
+                ),
+            })
+    })?;
 
     let output_description = TargetOutputDescription::for_native(
         native,
@@ -557,19 +602,21 @@ fn build_target(
     let inputs =
         ProductEmissionInputs::new(&output_description).with_native_product(&native_facts, &linker);
 
-    let outcome = compilation.emit_product(request, inputs).map_err(|error| {
-        BuildError::Emission(format!(
-            "{:?}; diagnostics={:?}",
-            error.kind(),
-            compilation.check_diagnostics()
-        ))
+    let outcome = crate::progress::run("Emitting standard library artifacts", || {
+        compilation.emit_product(request, inputs).map_err(|error| {
+            BuildError::Emission(format!(
+                "{:?}. diagnostics={:?}",
+                error.kind(),
+                compilation.check_diagnostics()
+            ))
+        })
     })?;
 
     if !matches!(outcome.status(), EmissionStatus::Complete) {
         return Err(BuildError::CompilationFailed {
             target: target.clone(),
             detail: format!(
-                "{:?}; diagnostics={:?}",
+                "{:?}. diagnostics={:?}",
                 outcome.status(),
                 outcome.diagnostics()
             ),
@@ -604,12 +651,13 @@ pub(in crate::standard_library) fn standard_library_source_request(
     version: &PackageVersion,
     source_paths: &[PathBuf],
     selected: &SelectedTarget,
+    worker_budget: WorkerBudget,
 ) -> Result<CompilationRequest, BuildError> {
     let sources = source_inputs_from_file_arguments(source_paths.iter().cloned())
         .map_err(|error| BuildError::Source(format!("{error:?}")))?;
 
     let options = CompilationOptions::new(
-        WorkerBudget::default(),
+        worker_budget,
         ProductKind::Library,
         selected.clone(),
     );
@@ -720,8 +768,8 @@ mod tests {
     use bray_target::NativeTarget;
 
     use super::{
-        BuildError, BuildOptions, build, compare_bundles, platform_abi_archive_name, read_manifest,
-        standard_library_archive_name,
+        BuildError, BuildOptions, build, compare_bundles, native_profile_output,
+        platform_abi_archive_name, read_manifest, standard_library_archive_name,
     };
 
     #[test]
@@ -774,6 +822,24 @@ mod tests {
             options.native.target(),
             Some(NativeTarget::X86_64WindowsMsvc)
         );
+    }
+
+    #[test]
+    fn native_test_profile_output_is_explicit_and_absolute() {
+        let mut arguments = ["--profile-output".to_owned(), "profiles/native".to_owned()].into_iter();
+
+        let output = native_profile_output(&mut arguments)
+            .unwrap_or_else(|error| panic!("native profile output must parse: {error}"))
+            .unwrap_or_else(|| panic!("native profile output must be retained"));
+
+        assert!(output.is_absolute());
+        assert!(output.ends_with("profiles/native"));
+        assert!(arguments.next().is_none());
+
+        assert!(matches!(
+            native_profile_output(&mut ["--unknown".to_owned()].into_iter()),
+            Err(BuildError::UnexpectedArgument(argument)) if argument == "--unknown"
+        ));
     }
 
     #[test]
